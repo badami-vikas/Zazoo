@@ -64,6 +64,74 @@ npm run typecheck  # tsc --noEmit
 npm run build      # production build
 ```
 
+## Scheduled enrichment — the self-pacing scheduler
+
+`scripts/scheduler.mjs` is a long-running daemon that walks your LinkedIn
+Connections list and runs the enrichment worker (`scripts/enrich-linkedin.ts`) on
+a **randomized batch each cycle**, human-paced and free-tier-safe. It owns all the
+randomness so the worker stays a dumb, resumable batch job.
+
+**Worklist source** (`RECON_SOURCE`):
+- `csv` (default) — walk the full `Connections.csv` roster (~21,792).
+- `supabase` — walk the people already in Bridge (`people_canonical`), **least-recently-enriched
+  first**, so never-enriched rows go first and the list grows as you add people. Re-running an
+  already-enriched person refreshes it in place. Needs `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
+
+```bash
+# Enrich the people already in Bridge (e.g. the current 230), un-enriched first:
+RECON_SOURCE=supabase RECON_OFFSET=0 RECON_LIMIT=40 npx tsx scripts/enrich-linkedin.ts
+
+# Or one-off N profiles from the raw CSV roster:
+RECON_OFFSET=0 RECON_LIMIT=40 npx tsx scripts/enrich-linkedin.ts
+
+# Inspect what the daemon WOULD do right now (no side effects):
+node scripts/scheduler.mjs --dry-run
+node scripts/scheduler.mjs --status      # cursor / daily count / breaker state
+
+# Run the daemon in the foreground (Ctrl-C to stop):
+node scripts/scheduler.mjs
+
+# Install as a launchd service (survives reboot, restarts on crash):
+./deploy/install.sh                       # writes plist + loads it
+./deploy/install.sh --no-load             # writes plist, starts later
+```
+
+**What it does each cycle**
+- Picks a batch size — clamped Gaussian, **mean 40, range [20,50]**.
+- Waits an **irregular gap** — clamped Gaussian, **~70 min, range [40,120]** — so it's
+  "about hourly" but never on a clock tick.
+- Runs **only 08:00–22:00 local**, with a random **morning-start drift** so the daily
+  start time wanders.
+- Honors a hard **`DAILY_CAP` (default 300)** to stay inside the README's
+  "low-hundreds/day" free-tier ceiling. Net volume ≈ 8–10 runs × ~40 ≈ 250–350/day.
+- Advances a **persistent cursor** (`data/scheduler-state.json`) so each run picks up
+  where the last left off; stops (or `refresh`-wraps) at end-of-list.
+- Paces each profile by a **randomized 3–15 s** gap (serial, concurrency = 1).
+
+**Circuit breaker (auto-pause on repeated failure)**
+Failures are classified so the breaker reacts only to *real throttling*, not to benign
+data-misses or sources that are walled by design (Interpol, OpenCorporates, Aleph, State
+SoS — these fail every run regardless of rate and are ignored). The **canaries** are the
+SearXNG recall layer and GitHub; a *block signal* is a canary returning 403/429/CAPTCHA/timeout.
+- **Tier 1 — in-run abort:** `BREAKER_INRUN_CONSEC` (5) consecutive blocked profiles → abort
+  the run; the un-attempted tail is retried next cycle (cursor only advances past attempts).
+- **Tier 2 — cross-run backoff:** a run with block-rate ≥ `BREAKER_BADRUN_RATE` (0.4) widens the
+  next gap ×`BACKOFF_MULT` (capped at `BACKOFF_CAP_MIN`). A clean run resets it.
+- **Tier 3 — hard pause:** after `BREAKER_HARD_AFTER` (3) consecutive bad runs, the daemon writes
+  `data/PAUSE` and idles. It will **not** self-resume (a sustained block needs a human look) unless
+  `AUTO_RESUME_AFTER_MIN` > 0.
+
+**Manual control**
+- `touch data/PAUSE` to pause; delete the file to resume.
+- All knobs live in `.env.local` (see `.env.local.example`).
+- **Supervision is launchd's job** (`KeepAlive`) — no pm2 or agent-watchdog needed. An optional
+  local-Ollama "health judge" hook (reads recent run summaries, decides continue/backoff/pause)
+  can replace the fixed thresholds later; it is **not** a liveness watchdog.
+
+> Note: this is the *politeness/rate-limit* use of scheduling. Recon never fetches LinkedIn
+> directly (only public SERP snippets); the jitter protects the free upstream search engines and
+> keyless APIs from tripping their own limits — see **Limits & guardrails** below.
+
 The SearXNG config lives in `searxng/settings.yml` — the critical setting is `formats: [html, json]` (Recon needs JSON). Recon reads `SEARXNG_URL` (default `http://localhost:8888`).
 
 ## API
