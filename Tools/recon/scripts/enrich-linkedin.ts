@@ -128,6 +128,66 @@ function dedupKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// ── Outcome classification (drives the scheduler's circuit breaker) ───────────
+// A profile outcome is one of:
+//   'ok'      — usable report
+//   'soft'    — legitimate data miss (no candidate / very low confidence). NOT a
+//               throttle signal; the long-tail subject simply has no public footprint.
+//   'blocked' — a *throttle* signal: a CANARY source that should normally succeed
+//               failed with block-shaped output (403/429/captcha/timeout/network).
+//
+// Only CANARY sources count toward 'blocked'. Sources that are walled BY DESIGN
+// (Interpol/Akamai, OpenCorporates/Cloudflare-CAPTCHA, Aleph 500, State SoS) fail
+// on every run regardless of our request rate, so counting them would trip the
+// breaker permanently. The canaries are the recall layer (SearXNG) and GitHub.
+type Outcome = 'ok' | 'soft' | 'blocked';
+
+const CANARY_STEP_RE = /searxng|web search|github/i;
+const BLOCK_OUTPUT_RE = /\b(403|429)\b|captcha|too many|rate.?limit|timed?\s*out|timeout/i;
+const BLOCK_ERR_RE = /\b(403|429)\b|captcha|too many|rate.?limit|timed?\s*out|timeout|fetch failed|etimedout|econnreset|enotfound|socket|network|aborted/i;
+
+function classifyReport(report: ReconReport): { outcome: Outcome; blockedCanaries: string[] } {
+  const blockedCanaries: string[] = [];
+  for (const s of report.steps ?? []) {
+    if (s.ok) continue;
+    if (CANARY_STEP_RE.test(s.step) && BLOCK_OUTPUT_RE.test(s.output)) {
+      blockedCanaries.push(s.step);
+    }
+  }
+  if (blockedCanaries.length) return { outcome: 'blocked', blockedCanaries };
+  const conf = report.identity?.confidence ?? 0;
+  const hasPerson = (report.person?.sections?.some((sec) => sec.fields.length) ?? false);
+  if (conf < 0.25 && !hasPerson) return { outcome: 'soft', blockedCanaries };
+  return { outcome: 'ok', blockedCanaries };
+}
+
+function classifyError(msg: string): Outcome {
+  return BLOCK_ERR_RE.test(msg) ? 'blocked' : 'soft';
+}
+
+const randInt = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+
+// Machine-readable run summary the scheduler parses (last line of stdout). The
+// sentinel prefix lets the daemon ignore all the human-readable log noise above.
+const RUN_SUMMARY_SENTINEL = '__RECON_RUN_SUMMARY__';
+interface RunSummary {
+  attempted: number;
+  ok: number;
+  soft: number;
+  blocked: number;
+  blockedCanaries: string[];
+  meanConfidence: number;
+  aborted: boolean;        // in-run breaker tripped
+  queueExhausted?: boolean; // cursor reached end of list
+  offset: number;
+  limit: number;
+  nextOffset: number;      // where the next run should resume
+  total: number;           // total rows in the connection list
+}
+function emitRunSummary(s: RunSummary): void {
+  console.log(`${RUN_SUMMARY_SENTINEL} ${JSON.stringify(s)}`);
+}
+
 function extractHandle(url: string | undefined, domain: string): string | null {
   if (!url) return null;
   try {
@@ -296,7 +356,17 @@ async function main() {
   const workspaceId = process.env.BRIDGE_WORKSPACE_ID ?? null;
   const userId = process.env.BRIDGE_USER_ID ?? null;
   const limit = parseInt(process.env.RECON_LIMIT ?? '30', 10);
-  const batchSize = parseInt(process.env.RECON_BATCH_SIZE ?? '3', 10);
+  // Concurrency defaults to 1 for the scheduled/human-paced path (serial is less
+  // bot-shaped than 3-wide bursts, and makes the in-run breaker exact).
+  const batchSize = parseInt(process.env.RECON_BATCH_SIZE ?? '1', 10);
+  // Resumable cursor: where in the connection list this run starts.
+  const offset = parseInt(process.env.RECON_OFFSET ?? '0', 10);
+  // Randomized per-profile pause (human pacing). Overrides the old fixed 800ms.
+  const minDelayMs = parseInt(process.env.RECON_MIN_DELAY_MS ?? '3000', 10);
+  const maxDelayMs = parseInt(process.env.RECON_MAX_DELAY_MS ?? '15000', 10);
+  // In-run circuit breaker: abort the batch after this many CONSECUTIVE blocked
+  // profiles (a wall) instead of burning the whole batch into it.
+  const breakerInrunConsec = parseInt(process.env.BREAKER_INRUN_CONSEC ?? '5', 10);
 
   // Output files for offline upsert (MCP or manual SQL)
   const DATA_DIR = path.join(process.cwd(), 'data');
@@ -307,22 +377,69 @@ async function main() {
   await fs.writeFile(PEOPLE_OUT, '');
   await fs.writeFile(COMM_OUT, '');
 
-  // Parse CSV
-  const csvPath = await findConnectionsCsv();
-  console.log(`📄  Reading LinkedIn CSV: ${csvPath}`);
-  const raw = await fs.readFile(csvPath, 'utf8');
-  const allRows = parseCsv(raw);
-  const connections = allRows.slice(0, limit);
-  console.log(`👥  Processing ${connections.length} of ${allRows.length} connections\n`);
+  // ── Build the worklist (who to enrich) ───────────────────────────────────────
+  // RECON_SOURCE=csv (default): walk the LinkedIn Connections.csv export.
+  // RECON_SOURCE=supabase: walk the people already in Bridge (people_canonical),
+  //   least-recently-enriched first — so never-recon'd rows go first and the list
+  //   grows automatically as you add people to Bridge. Re-running an already-recon'd
+  //   person refreshes it in place (upsert on dedup_key).
+  const reconSource = (process.env.RECON_SOURCE ?? 'csv').toLowerCase();
+  let allRows: CsvRow[];
+  if (reconSource === 'supabase') {
+    if (!supabase) throw new Error('RECON_SOURCE=supabase requires SUPABASE_URL + SUPABASE_SERVICE_KEY');
+    const { data, error } = await supabase
+      .from('people_canonical')
+      .select('full_name, current_title, current_company_name, linkedin_url, recon_run_at, id')
+      .order('recon_run_at', { ascending: true, nullsFirst: true })
+      .order('id', { ascending: true }); // stable tiebreak → deterministic cursor
+    if (error) throw new Error(`people_canonical worklist query failed: ${error.message}`);
+    allRows = (data ?? []).map((p: Record<string, string | null>) => {
+      const parts = (p.full_name ?? '').trim().split(/\s+/).filter(Boolean);
+      return {
+        'First Name': parts.length > 1 ? parts.slice(0, -1).join(' ') : (parts[0] ?? ''),
+        'Last Name': parts.length > 1 ? parts[parts.length - 1] : '',
+        'URL': p.linkedin_url ?? '',
+        'Company': p.current_company_name ?? '',
+        'Position': p.current_title ?? '',
+      } as CsvRow;
+    });
+    console.log(`🗂  Worklist: ${allRows.length} people from Supabase people_canonical (least-recently-enriched first)`);
+  } else {
+    const csvPath = await findConnectionsCsv();
+    console.log(`📄  Reading LinkedIn CSV: ${csvPath}`);
+    allRows = parseCsv(await fs.readFile(csvPath, 'utf8'));
+  }
+  const connections = allRows.slice(offset, offset + limit);
+  console.log(`👥  Processing ${connections.length} of ${allRows.length} (offset ${offset}, source=${reconSource})\n`);
+
+  // Queue exhausted: cursor is at/past the end of the list. Emit a summary the
+  // scheduler can read and exit cleanly (no work to do).
+  if (connections.length === 0) {
+    emitRunSummary({
+      attempted: 0, ok: 0, soft: 0, blocked: 0, blockedCanaries: [],
+      meanConfidence: 0, aborted: false, queueExhausted: true,
+      offset, limit, nextOffset: offset, total: allRows.length,
+    });
+    console.log(`📭  Queue exhausted at offset ${offset} (list has ${allRows.length} rows).`);
+    return;
+  }
 
   let ok = 0, failed = 0;
+  // Outcome tallies + breaker state (read by the scheduler via the summary line).
+  let softCount = 0, blockedCount = 0, attempted = 0;
+  let consecutiveBlocked = 0, aborted = false;
+  const blockedCanaries = new Set<string>();
+  const confidences: number[] = [];
   const errors: Array<{ name: string; error: string }> = [];
 
   // Process in batches to avoid hammering rate-limited APIs
   for (let bStart = 0; bStart < connections.length; bStart += batchSize) {
+    if (aborted) break; // in-run breaker tripped on a previous batch
     const batch = connections.slice(bStart, bStart + batchSize);
     await Promise.all(batch.map(async (row, bIdx) => {
+      if (aborted) return; // breaker tripped mid-batch — skip the rest cheaply
       const idx = bStart + bIdx + 1;
+      attempted++;
       const firstName = row['First Name'] ?? '';
       const lastName = row['Last Name'] ?? '';
       const fullName = `${firstName} ${lastName}`.trim();
@@ -349,6 +466,22 @@ async function main() {
           company: company || undefined,
           linkedin: linkedinUrl || undefined,
         });
+
+        // ── Classify for the circuit breaker ─────────────────────────────
+        const { outcome, blockedCanaries: bc } = classifyReport(report);
+        confidences.push(report.identity?.confidence ?? 0);
+        if (outcome === 'blocked') {
+          blockedCount++; consecutiveBlocked++;
+          bc.forEach((s) => blockedCanaries.add(s));
+          console.warn(`  ⚠ blocked signal (${bc.join(', ')}) — consecutive=${consecutiveBlocked}`);
+          if (consecutiveBlocked >= breakerInrunConsec) {
+            aborted = true;
+            console.error(`  ⛔ in-run breaker: ${consecutiveBlocked} consecutive blocked → aborting run`);
+          }
+        } else {
+          if (outcome === 'soft') softCount++;
+          consecutiveBlocked = 0;
+        }
 
         // ── Write to staging.jsonl (shows in Recon pivot immediately) ────
         await appendStaging(reportToRows(report));
@@ -411,20 +544,52 @@ async function main() {
         console.error(`  ✗ ${fullName}: ${msg}`);
         errors.push({ name: fullName, error: msg });
         failed++;
+        // A thrown error is a hard failure — classify it as a throttle signal or
+        // a benign miss so the breaker reacts only to real walls.
+        if (classifyError(msg) === 'blocked') {
+          blockedCount++; consecutiveBlocked++;
+          blockedCanaries.add('thrown');
+          if (consecutiveBlocked >= breakerInrunConsec) {
+            aborted = true;
+            console.error(`  ⛔ in-run breaker: ${consecutiveBlocked} consecutive blocked → aborting run`);
+          }
+        } else {
+          softCount++; consecutiveBlocked = 0;
+        }
       }
 
-      // Small pause between requests to respect rate limits
-      await new Promise((r) => setTimeout(r, 800));
+      // Randomized human-paced pause between requests (was a fixed 800ms).
+      await new Promise((r) => setTimeout(r, randInt(minDelayMs, maxDelayMs)));
     }));
   }
 
   console.log(`\n${'─'.repeat(60)}`);
   console.log(`✅  Done — ${ok} succeeded, ${failed} failed`);
+  console.log(`📊  attempted=${attempted}  soft=${softCount}  blocked=${blockedCount}  aborted=${aborted}`);
   if (!supabase) console.log(`📁  Local output: data/enriched-people.jsonl  data/enriched-communities.jsonl`);
   if (errors.length) {
     console.log('\nFailed:');
     errors.forEach(({ name, error }) => console.log(`  • ${name}: ${error}`));
   }
+
+  const meanConfidence = confidences.length
+    ? confidences.reduce((a, b) => a + b, 0) / confidences.length
+    : 0;
+  emitRunSummary({
+    attempted,
+    ok: Math.max(0, attempted - softCount - blockedCount),
+    soft: softCount,
+    blocked: blockedCount,
+    blockedCanaries: [...blockedCanaries],
+    meanConfidence: Number(meanConfidence.toFixed(3)),
+    aborted,
+    offset,
+    limit,
+    // Cursor advances only past what we actually attempted, so an aborted tail is
+    // retried next run rather than skipped.
+    nextOffset: offset + attempted,
+    total: allRows.length,
+  });
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
