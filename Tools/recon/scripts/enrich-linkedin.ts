@@ -27,6 +27,7 @@ import { promises as fs } from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { resolveIdentities, buildReport } from '../lib/recon';
 import type { ReconReport, Field } from '../lib/recon';
+import { appendStaging, reportToRows } from '../lib/store';
 
 // ── Bootstrap env from .env.local if dotenv-style file present ───────────────
 // (Next.js loads .env.local automatically; running via tsx does not)
@@ -285,16 +286,26 @@ async function main() {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!supabaseUrl || !supabaseKey) {
-    console.error('❌  SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in Tools/recon/.env.local');
-    process.exit(1);
+
+  // Supabase is optional — script still runs and writes locally without a service key.
+  const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
+  if (!supabase) {
+    console.warn('⚠  No SUPABASE_SERVICE_KEY — results saved locally only (data/enriched-*.jsonl + staging.jsonl)');
   }
 
-  const supabase = createClient(supabaseUrl, supabaseKey);
   const workspaceId = process.env.BRIDGE_WORKSPACE_ID ?? null;
   const userId = process.env.BRIDGE_USER_ID ?? null;
   const limit = parseInt(process.env.RECON_LIMIT ?? '30', 10);
   const batchSize = parseInt(process.env.RECON_BATCH_SIZE ?? '3', 10);
+
+  // Output files for offline upsert (MCP or manual SQL)
+  const DATA_DIR = path.join(process.cwd(), 'data');
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  const PEOPLE_OUT = path.join(DATA_DIR, 'enriched-people.jsonl');
+  const COMM_OUT = path.join(DATA_DIR, 'enriched-communities.jsonl');
+  // Truncate output files for a fresh run
+  await fs.writeFile(PEOPLE_OUT, '');
+  await fs.writeFile(COMM_OUT, '');
 
   // Parse CSV
   const csvPath = await findConnectionsCsv();
@@ -339,68 +350,59 @@ async function main() {
           linkedin: linkedinUrl || undefined,
         });
 
-        // ── Upsert people_canonical ──────────────────────────────────────
+        // ── Write to staging.jsonl (shows in Recon pivot immediately) ────
+        await appendStaging(reportToRows(report));
+
         const personRow = mapReportToPeople(report, linkedinUrl);
-        const { data: personCanon, error: personErr } = await supabase
-          .from('people_canonical')
-          .upsert(personRow, { onConflict: 'dedup_key' })
-          .select('id')
-          .single();
-
-        if (personErr) throw new Error(`people_canonical upsert: ${personErr.message}`);
-        const canonPersonId = personCanon?.id as string;
-        console.log(`  ✓ people_canonical  id=${canonPersonId}  conf=${(personRow.enrichment_confidence * 100).toFixed(0)}%`);
-
-        // ── Upsert communities_canonical ─────────────────────────────────
-        let canonCommunityId: string | null = null;
         const communityRow = mapReportToCommunity(report);
-        if (communityRow) {
-          const { data: commCanon, error: commErr } = await supabase
-            .from('communities_canonical')
-            .upsert(communityRow, { onConflict: 'dedup_key' })
+
+        // ── Write to local JSONL (used for MCP/SQL upsert when no service key) ──
+        await fs.appendFile(PEOPLE_OUT, JSON.stringify(personRow) + '\n');
+        if (communityRow) await fs.appendFile(COMM_OUT, JSON.stringify(communityRow) + '\n');
+
+        // ── Upsert to Supabase (when service key available) ───────────────
+        if (supabase) {
+          const { data: personCanon, error: personErr } = await supabase
+            .from('people_canonical')
+            .upsert(personRow, { onConflict: 'dedup_key' })
             .select('id')
             .single();
 
-          if (commErr) {
-            console.warn(`  ⚠ communities_canonical upsert: ${commErr.message}`);
-          } else {
-            canonCommunityId = commCanon?.id as string;
-            console.log(`  ✓ communities_canonical  id=${canonCommunityId}  name=${communityRow.name}`);
-          }
-        }
+          if (personErr) throw new Error(`people_canonical upsert: ${personErr.message}`);
+          const canonPersonId = personCanon?.id as string;
+          console.log(`  ✓ people_canonical  id=${canonPersonId}  conf=${(personRow.enrichment_confidence * 100).toFixed(0)}%`);
 
-        // ── Per-workspace rows (optional) ────────────────────────────────
-        if (workspaceId && userId) {
-          // Community first (people row references it)
-          let communityRowId: string | null = null;
-          if (canonCommunityId) {
-            const { data: comm, error: commRowErr } = await supabase
-              .from('communities')
-              .upsert({
-                workspace_id: workspaceId,
-                user_id: userId,
-                canonical_community_id: canonCommunityId,
-                kind: 'company',
-                source: 'linkedin_import',
-                is_user_confirmed: false,
-              }, { onConflict: 'canonical_community_id,workspace_id,user_id' })
+          let canonCommunityId: string | null = null;
+          if (communityRow) {
+            const { data: commCanon, error: commErr } = await supabase
+              .from('communities_canonical')
+              .upsert(communityRow, { onConflict: 'dedup_key' })
               .select('id')
               .single();
-            if (!commRowErr) communityRowId = comm?.id as string;
+            if (commErr) console.warn(`  ⚠ communities_canonical: ${commErr.message}`);
+            else {
+              canonCommunityId = commCanon?.id as string;
+              console.log(`  ✓ communities_canonical  id=${canonCommunityId}  name=${communityRow.name}`);
+            }
           }
 
-          const { error: peopleRowErr } = await supabase
-            .from('people')
-            .upsert({
-              workspace_id: workspaceId,
-              user_id: userId,
-              canonical_person_id: canonPersonId,
-              current_community_id: communityRowId,
-              source: 'linkedin_import',
-            }, { onConflict: 'canonical_person_id,workspace_id,user_id' });
-
-          if (peopleRowErr) console.warn(`  ⚠ people upsert: ${peopleRowErr.message}`);
-          else console.log(`  ✓ people + communities rows created (workspace=${workspaceId})`);
+          if (workspaceId && userId) {
+            let communityRowId: string | null = null;
+            if (canonCommunityId) {
+              const { data: comm, error: commRowErr } = await supabase
+                .from('communities')
+                .upsert({ workspace_id: workspaceId, user_id: userId, canonical_community_id: canonCommunityId, kind: 'company', source: 'linkedin_import', is_user_confirmed: false }, { onConflict: 'canonical_community_id,workspace_id,user_id' })
+                .select('id').single();
+              if (!commRowErr) communityRowId = comm?.id as string;
+            }
+            const { error: peopleRowErr } = await supabase
+              .from('people')
+              .upsert({ workspace_id: workspaceId, user_id: userId, canonical_person_id: canonPersonId, current_community_id: communityRowId, source: 'linkedin_import' }, { onConflict: 'canonical_person_id,workspace_id,user_id' });
+            if (peopleRowErr) console.warn(`  ⚠ people row: ${peopleRowErr.message}`);
+            else console.log(`  ✓ workspace rows (workspace=${workspaceId})`);
+          }
+        } else {
+          console.log(`  ✓ local  conf=${(personRow.enrichment_confidence * 100).toFixed(0)}%  → staging.jsonl + enriched-people.jsonl`);
         }
 
         ok++;
@@ -418,6 +420,7 @@ async function main() {
 
   console.log(`\n${'─'.repeat(60)}`);
   console.log(`✅  Done — ${ok} succeeded, ${failed} failed`);
+  if (!supabase) console.log(`📁  Local output: data/enriched-people.jsonl  data/enriched-communities.jsonl`);
   if (errors.length) {
     console.log('\nFailed:');
     errors.forEach(({ name, error }) => console.log(`  • ${name}: ${error}`));

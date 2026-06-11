@@ -947,9 +947,61 @@ async function discover(input: ReconInput, ctx?: ReportCtx): Promise<{ hits: Cla
     queries.push(`"${company}" (team OR about OR leadership OR founders)`);
     queries.push(`"${company}" (funding OR raised OR Series OR acquisition)`);
   }
+  // Company people-page targeted search: find the person directly on the company domain.
+  // Runs when email or explicit domain is provided alongside LinkedIn / Instagram — the
+  // three places most people live. This surfaces team/about/people pages earlier than
+  // the generic queries and gives companyTeamEnrich a head start in Stage B.
+  if (companyDomain && name) {
+    queries.push(`site:${companyDomain} "${name}"`);
+  }
+  // Instagram pivot: when a handle is known, search Instagram + LinkedIn together
+  if (name && input.handle) {
+    queries.push(`"${name}" (site:instagram.com OR site:linkedin.com) ${company ?? ''}`.replace(/\s+/g, ' ').trim());
+  }
 
   const steps: StepLog[] = [];
   const byUrl = new Map<string, ClassifiedHit>();
+
+  // ── Analyst-supplied anchors (seed before SearXNG; highest priority) ──────────
+  // LinkedIn URL: skip the search, seed directly so webFootprintEnrich picks it up.
+  if (input.linkedin) {
+    const liUrl = canonicalSocialUrl(input.linkedin) ?? input.linkedin;
+    const liHost = hostFromUrl(liUrl) ?? 'linkedin.com';
+    byUrl.set(liUrl, {
+      url: liUrl, host: liHost,
+      title: name ? `${name} | LinkedIn` : 'LinkedIn',
+      snippet: [company, input.email].filter(Boolean).join(' · '),
+      cls: 'linkedin_person', engine: 'analyst-supplied',
+    });
+    steps.push({ step: 'LinkedIn anchor (analyst-supplied)', input: liUrl, output: 'Seeded directly', durationMs: 0, ok: true });
+  }
+  // Instagram handle: seed canonical profile URL as a social hit.
+  if (input.handle && /^[a-z0-9_.]{1,30}$/i.test(input.handle)) {
+    const igUrl = `https://www.instagram.com/${input.handle}/`;
+    byUrl.set(igUrl, {
+      url: igUrl, host: 'instagram.com',
+      title: `@${input.handle} — Instagram`,
+      snippet: '',
+      cls: 'social', engine: 'analyst-supplied',
+    });
+    steps.push({ step: 'Instagram anchor (analyst-supplied)', input: igUrl, output: 'Handle seeded', durationMs: 0, ok: true });
+  }
+  // Company team pages: pre-seed canonical paths so they appear as company_site hits
+  // and are immediately available to companyTeamEnrich even when SearXNG misses them.
+  if (companyDomain) {
+    const teamPaths = ['/team', '/about/team', '/people', '/about', '/leadership', '/our-team'];
+    for (const p of teamPaths) {
+      const teamUrl = `https://${companyDomain}${p}`;
+      byUrl.set(teamUrl, {
+        url: teamUrl, host: companyDomain,
+        title: company ? `${company}${p}` : teamUrl,
+        snippet: '',
+        cls: 'company_site', engine: 'analyst-supplied',
+      });
+    }
+    steps.push({ step: 'Company team-page pre-seeds', input: companyDomain, output: `${teamPaths.length} canonical team-page paths seeded`, durationMs: 0, ok: true });
+  }
+
   const responses = await Promise.all(queries.map((qq) => searxng(qq)));
   responses.forEach((r, i) => {
     const results = r.data?.results ?? [];
