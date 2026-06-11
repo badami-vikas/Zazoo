@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Local data (staging / permanent stores — analyst-only, never committed)
+Tools/recon/data/staging.jsonl
+Tools/recon/data/permanent.jsonl
+Tools/recon/data/entity-links.jsonl
+Tools/recon/data/flags.jsonl
+Tools/recon/data/ofac-sdn.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
