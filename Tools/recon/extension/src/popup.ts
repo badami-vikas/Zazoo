@@ -74,21 +74,23 @@ async function init() {
     return;
   }
 
-  // Inject content script if not already present, then send extract message
-  let result: ExtractResult;
+  // (Re-)inject content script, then retry extraction up to 3x with backoff.
+  // Needed for LinkedIn SPA navigation where the content script doesn't auto-re-run.
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id! },
-      files: ['content.js'],
-    });
-  } catch {
-    // Already injected — ignore
+    await chrome.scripting.executeScript({ target: { tabId: tab.id! }, files: ['content.js'] });
+  } catch { /* already injected */ }
+
+  let result: ExtractResult | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt));
+    try {
+      result = await chrome.tabs.sendMessage(tab.id!, { type: 'BRIDGE_EXTRACT' });
+      if (result.ok) break;
+    } catch { /* not ready yet */ }
   }
 
-  try {
-    result = await chrome.tabs.sendMessage(tab.id!, { type: 'BRIDGE_EXTRACT' });
-  } catch {
-    setText('error-msg', 'Could not connect to the LinkedIn page. Try refreshing it.');
+  if (!result) {
+    setText('error-msg', 'Could not connect to the LinkedIn page.\nTry refreshing the page and clicking the extension again.');
     show('state-error');
     return;
   }
@@ -115,5 +117,7 @@ async function init() {
 document.getElementById('btn-view')!.addEventListener('click', () => {
   chrome.tabs.create({ url: `${RECON_URL}` });
 });
+
+document.getElementById('btn-retry')!.addEventListener('click', () => init());
 
 init();
