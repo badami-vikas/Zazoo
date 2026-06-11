@@ -21,6 +21,8 @@ Tools/recon/data/ofac-sdn.json
 .env
 .env.local
 .env.*.local
+# Keep the example template
+!.env.local.example
 
 # OS / editor
 .DS_Store
