@@ -24,6 +24,14 @@ Tools/recon/data/ofac-sdn.json
 # Keep the example template
 !.env.local.example
 
+# Personal / LinkedIn export data — never commit
+Design Bridge AI Interface (Copy)/
+My Data/
+
+# Claude internal session files
+.claude/
+**/.claude/
+
 # OS / editor
 .DS_Store
 .idea/
