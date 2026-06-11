@@ -1,0 +1,31 @@
+{
+  "name": "@bridge/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify 5 + tRPC 11 surface over the Universal Action Pipeline.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "dev": "node --watch dist/src/server.js",
+    "start": "node dist/src/server.js"
+  },
+  "dependencies": {
+    "@bridge/core": "workspace:*",
+    "@bridge/db": "workspace:*",
+    "@fastify/cors": "^10.0.1",
+    "@trpc/server": "^11.0.0",
+    "fastify": "^5.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

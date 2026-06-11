@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+}
+
+/* Spinner animation (used via className) */
+@keyframes spin-ring {
+  to { transform: rotate(360deg); }
+}
+.spin-ring {
+  animation: spin-ring 0.7s linear infinite;
+}
+
+/* Smooth progress bar */
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.progress-pulse {
+  animation: progress-pulse 1.4s ease-in-out infinite;
+}
