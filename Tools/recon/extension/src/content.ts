@@ -35,40 +35,39 @@ function visibleTexts(container: Element): string[] {
 // LinkedIn has changed how it marks sections over time. We try multiple strategies.
 
 function findSection(id: string): Element | null {
-  // Strategy 1: <a id="experience"> inside a section (pre-2023 pattern)
-  const anchor = document.getElementById(id);
-  if (anchor) {
-    let el: Element | null = anchor;
-    while (el && el.tagName !== 'SECTION') el = el.parentElement;
-    if (el) return el;
+  // Strategy 1: element with this id — LinkedIn now uses <div id="experience">,
+  // NOT <section id="experience">, so return it directly without climbing.
+  const byId = document.getElementById(id);
+  if (byId) return byId;
+
+  // Strategy 2: <section> or <div> whose first h2/h3 text matches
+  const label = id.toLowerCase();
+  for (const el of document.querySelectorAll('section, div[class*="pv-profile-section"]')) {
+    const heading = el.querySelector('h2, h3');
+    if (heading?.textContent?.toLowerCase().includes(label)) return el;
   }
 
-  // Strategy 2: <section> whose heading text matches (2023+ pattern)
-  const label = id.charAt(0).toUpperCase() + id.slice(1);
-  for (const section of document.querySelectorAll('section')) {
-    const heading = section.querySelector('h2, h3');
-    if (heading?.textContent?.toLowerCase().includes(id.toLowerCase()) ||
-        heading?.textContent?.includes(label)) {
-      return section;
-    }
-  }
-
-  // Strategy 3: div with data-view-name containing the section id
+  // Strategy 3: data-view-name attribute match — return element itself, not parent section
   const dvn = document.querySelector(`[data-view-name*="${id}"]`);
-  if (dvn) {
-    let el: Element | null = dvn;
-    while (el && el.tagName !== 'SECTION') el = el.parentElement;
-    if (el) return el;
-  }
+  if (dvn) return dvn;
 
   return null;
 }
 
 function listItems(section: Element): Element[] {
-  // Try <li> first, then <div class="pvs-entity"> wrappers
-  const lis = Array.from(section.querySelectorAll('li.artdeco-list__item, li.pvs-list__paged-list-item, li[class*="pvs-list"]'));
-  if (lis.length) return lis;
-  return Array.from(section.querySelectorAll('div.pvs-entity'));
+  // Try named classes first
+  const named = Array.from(section.querySelectorAll(
+    'li.artdeco-list__item, li.pvs-list__paged-list-item, li[class*="pvs-list__item"]'
+  ));
+  if (named.length) return named;
+
+  // Fallback: any <li> with meaningful content
+  const anyLi = Array.from(section.querySelectorAll('li'))
+    .filter((li) => (li.textContent?.trim().length ?? 0) > 5);
+  if (anyLi.length) return anyLi;
+
+  // Last resort: pvs-entity divs
+  return Array.from(section.querySelectorAll('div.pvs-entity, div[class*="pvs-entity"]'));
 }
 
 // ── Name extraction ───────────────────────────────────────────────────────────
