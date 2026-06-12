@@ -43,6 +43,21 @@ export async function getFlags(): Promise<FlagRow[]> {
   }
 }
 
+/** Remove matching flags (used to UNDO an accidental flag). Returns count removed.
+ *  Scoped to a single subject + reason + label + value so unrelated flags are untouched. */
+export async function removeFlags(match: { subjectKey: string; reason: string; label: string; value: string }): Promise<number> {
+  const flags = await getFlags();
+  const keep = flags.filter(
+    (f) => !(f.subjectKey === match.subjectKey && f.reason === match.reason && f.label === match.label && f.value === match.value),
+  );
+  const removed = flags.length - keep.length;
+  if (removed) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(FLAGS_FILE, keep.map((f) => JSON.stringify(f)).join('\n') + (keep.length ? '\n' : ''));
+  }
+  return removed;
+}
+
 /** Returns a Set of (subjectKey|scope|label|value|source) tuples for fast lookup at promote time. */
 export async function getFlaggedKeys(): Promise<Set<string>> {
   const flags = await getFlags();

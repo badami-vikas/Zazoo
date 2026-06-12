@@ -10,12 +10,16 @@ dist/
 build/
 *.tsbuildinfo
 
-# Local data (staging / permanent stores — analyst-only, never committed)
+# Local data (staging / permanent stores + runtime state — analyst-only, never committed)
 Tools/recon/data/staging.jsonl
 Tools/recon/data/permanent.jsonl
 Tools/recon/data/entity-links.jsonl
 Tools/recon/data/flags.jsonl
 Tools/recon/data/ofac-sdn.json
+Tools/recon/data/enriched-people.jsonl
+Tools/recon/data/enriched-communities.jsonl
+Tools/recon/data/capture-state.json
+Tools/recon/data/scheduler-state.json
 
 # Environment
 .env
@@ -27,6 +31,8 @@ Tools/recon/data/ofac-sdn.json
 # Personal / LinkedIn export data — never commit
 Design Bridge AI Interface (Copy)/
 My Data/
+Connections.csv
+import_linkedin.py
 
 # Claude internal session files
 .claude/

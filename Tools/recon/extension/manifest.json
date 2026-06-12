@@ -31,7 +31,9 @@
     "activeTab",
     "scripting",
     "storage",
-    "tabs"
+    "tabs",
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "https://www.linkedin.com/in/*",
