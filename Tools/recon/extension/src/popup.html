@@ -8,12 +8,23 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 360px;
+      width: 380px;
       min-height: 200px;
+      max-height: 580px;
+      overflow-y: auto;
       background: #0f0f11;
       color: #e8e8ea;
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
       font-size: 13px;
+    }
+    body::-webkit-scrollbar { width: 8px; }
+    body::-webkit-scrollbar-thumb { background: #2a2a34; border-radius: 4px; }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: #0f0f11;
     }
 
     header {
@@ -76,6 +87,22 @@
       font-size: 11px;
     }
 
+    .notes-input {
+      width: 100%;
+      margin-top: 8px;
+      background: #15151b;
+      border: 1px solid #2a2a34;
+      border-radius: 8px;
+      color: #e8e8ea;
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 8px 10px;
+      resize: vertical;
+    }
+    .notes-input:focus { outline: none; border-color: #6366f1; }
+    .notes-input::placeholder { color: #6b6b7a; }
+
     .divider { border: none; border-top: 1px solid #1e1e24; margin: 12px 0; }
 
     .stat-row {
@@ -96,6 +123,45 @@
     }
     .section-preview strong { display: block; color: #8b5cf6; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
     .section-preview span { color: #c0c0d0; line-height: 1.5; }
+
+    /* Full captured-field list with per-field flagging */
+    .fields { margin-top: 4px; }
+    .field-group-label {
+      color: #6b6b7a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+      margin: 12px 0 4px;
+    }
+    .field-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      background: #15151b;
+      border: 1px solid #1e1e24;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+    }
+    .field-row.flagged { border-color: #b91c1c; background: #1f1416; }
+    .field-body { flex: 1; min-width: 0; }
+    .field-label { color: #8b5cf6; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+    .field-value { color: #d6d6e0; font-size: 12px; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .field-flag {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: #ef4444;        /* red outline flag when unmarked */
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 6px;
+      opacity: 0.7;
+      transition: opacity 0.12s, transform 0.12s;
+    }
+    .field-flag:hover { opacity: 1; transform: scale(1.15); }
+    .field-flag.on { opacity: 1; color: #dc2626; }  /* solid red once flagged */
+    .field-flag-count { font-size: 10px; color: #f87171; }
 
     .btn {
       display: block;
@@ -129,6 +195,18 @@
 
     .error-msg { color: #f87171; font-size: 12px; line-height: 1.5; }
 
+    .gate-banner {
+      background: #2a1f0a;
+      border: 1px solid #4a3a12;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #e0b873;
+    }
+    .gate-banner strong { color: #f5c878; display: block; margin-bottom: 3px; }
+
     .spinner {
       width: 20px; height: 20px;
       border: 2px solid #2a2a34;
@@ -138,6 +216,28 @@
       margin: 0 auto 8px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    .autocap-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 9px 16px; border-top: 1px solid #1e1e24; background: #0c0c0e;
+    }
+    .autocap-toggle { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #c0c0d0; cursor: pointer; }
+    .autocap-toggle input { accent-color: #8b5cf6; width: 13px; height: 13px; }
+    .autocap-status { font-size: 10px; color: #6b6b7a; text-align: right; }
+
+    .nextup-bar {
+      padding: 8px 16px 10px; border-top: 1px solid #1e1e24; background: #0c0c0e;
+      font-size: 10px; line-height: 1.5; cursor: pointer; transition: background 0.12s;
+    }
+    .nextup-bar:hover { background: #14141a; }
+    .nextup-bar.busy { cursor: progress; opacity: 0.7; }
+    .nextup-label { color: #6b6b7a; text-transform: uppercase; letter-spacing: 0.5px; }
+    .nextup-cta { color: #8b5cf6; float: right; font-weight: 600; }
+    .nextup-name { color: #c0c0d0; }
+    .nextup-url { color: #6366f1; word-break: break-all; display: block; }
+    .nextup-last { color: #6b6b7a; margin-top: 4px; display: block; }
+    .nextup-last.ok { color: #22c55e; }
+    .nextup-last.bad { color: #f87171; }
   </style>
 </head>
 <body>
@@ -159,13 +259,23 @@
 </div>
 
 <div id="state-error">
-  <p class="error-msg" id="error-msg"></p>
+  <p class="error-msg" id="error-msg" style="white-space:pre-wrap"></p>
+  <button class="btn btn-secondary" id="btn-retry" style="margin-top:10px">Try Again</button>
 </div>
 
 <div id="state-profile">
   <div class="profile-name" id="p-name"></div>
   <div class="profile-headline" id="p-headline"></div>
   <div class="profile-location" id="p-location"></div>
+
+  <textarea id="p-notes" class="notes-input" rows="2"
+    placeholder="Add notes (shown below the name on the Bridge person page)…"></textarea>
+
+  <div class="gate-banner" id="gate-banner" style="display:none">
+    <strong>⚠ Limited profile (LinkedIn golden gate)</strong>
+    LinkedIn blurred this person's full profile because your own account hasn't added a
+    job or school. Only top-card data is available. Add a position to your LinkedIn to unlock full sections.
+  </div>
 
   <div class="stat-row">
     <div class="stat">
@@ -178,21 +288,14 @@
     </div>
     <div class="stat">
       <div class="stat-num" id="s-skills">0</div>
-      <div class="stat-label">Skills</div>
+      <div class="stat-label">Services</div>
     </div>
   </div>
 
   <hr class="divider" />
 
-  <div class="section-preview" id="exp-preview" style="display:none">
-    <strong>Latest Role</strong>
-    <span id="exp-text"></span>
-  </div>
-
-  <div class="section-preview" id="about-preview" style="display:none">
-    <strong>About</strong>
-    <span id="about-text"></span>
-  </div>
+  <p class="muted" style="font-size:10px;margin-bottom:6px">🚩 Tap the flag on any wrong field — Bridge records &amp; aggregates it.</p>
+  <div class="fields" id="fields"></div>
 
   <button class="btn btn-primary" id="btn-save">Save to Bridge Recon</button>
   <button class="btn btn-secondary" id="btn-copy">Copy JSON</button>
@@ -203,6 +306,22 @@
   <p class="saved-msg" id="saved-msg">Saved to staging</p>
   <p class="muted" id="saved-sub"></p>
   <button class="btn btn-secondary" id="btn-view">View in Recon →</button>
+</div>
+
+<div class="autocap-bar">
+  <label class="autocap-toggle">
+    <input type="checkbox" id="autocap-checkbox" />
+    <span>Auto-capture (background)</span>
+  </label>
+  <span class="autocap-status" id="autocap-status">…</span>
+</div>
+
+<div class="nextup-bar" id="nextup-bar" title="Click to open & capture this profile now">
+  <span class="nextup-cta" id="nextup-cta">▶ capture now</span>
+  <span class="nextup-label">Next up</span>
+  <span class="nextup-name" id="nextup-name">—</span>
+  <span class="nextup-url" id="nextup-url"></span>
+  <span class="nextup-last" id="nextup-last"></span>
 </div>
 
 <script src="popup.js"></script>

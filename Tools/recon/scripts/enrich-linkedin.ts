@@ -116,6 +116,8 @@ interface PeopleCanonicalUpsert {
   orcid_id: string | null;
   scholar_url: string | null;
   skills: string[] | null;
+  education: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null;
+  previous_companies: Array<{ name: string; title?: string; period?: string }> | null;
   recon_signals: Array<{ label: string; value: string; source: string; url?: string }> | null;
   recon_run_at: string;
   enrichment_source: string;
@@ -246,6 +248,48 @@ function mapReportToPeople(report: ReconReport, linkedinUrl: string): PeopleCano
   const skillsRaw = pickField(pFields, 'keyword', 'skill', 'expertise', 'area');
   const skills = skillsRaw ? skillsRaw.split(/[,;|·]+/).map((s) => s.trim()).filter(Boolean) : null;
 
+  // Education — look for dedicated education section first, then individual fields
+  const educationSection = report.person?.sections.find((sec) =>
+    /\beducation\b/i.test(sec.title)
+  );
+  const educationFields = educationSection?.fields ?? pFields.filter((f) =>
+    /\b(education|degree|university|college|school|alumni|graduated)\b/i.test(f.label)
+  );
+  const education: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null =
+    educationFields.length
+      ? educationFields.map((f) => {
+          // Values are often "Institution | Degree | Field | Year" or free-form
+          const parts = f.value.split(/[|·,]/).map((p) => p.trim()).filter(Boolean);
+          return {
+            institution: parts[0] ?? f.value,
+            degree: parts[1] ?? undefined,
+            field: parts[2] ?? undefined,
+            year: parts[3] ?? undefined,
+          };
+        })
+      : null;
+
+  // Previous companies — look for experience/work history section, skip current company
+  const experienceSection = report.person?.sections.find((sec) =>
+    /\b(experience|work history|employment|career|previous)\b/i.test(sec.title)
+  );
+  const expFields = experienceSection?.fields ?? pFields.filter((f) =>
+    /\b(previous|former|past|employer|company|experience|worked at)\b/i.test(f.label)
+  );
+  const currentCompanyNorm = (companyName ?? '').toLowerCase().trim();
+  const previous_companies: Array<{ name: string; title?: string; period?: string }> | null =
+    expFields.length
+      ? expFields
+          .map((f) => {
+            const parts = f.value.split(/[|·]/).map((p) => p.trim()).filter(Boolean);
+            const name = parts[0] ?? f.value;
+            const title = parts[1] ?? undefined;
+            const period = parts[2] ?? undefined;
+            return { name, title, period };
+          })
+          .filter((c) => c.name.toLowerCase().trim() !== currentCompanyNorm)
+      : null;
+
   // Signals (risk/compliance)
   const signals = report.signals.map((s) => ({ label: s.label, value: s.value, source: s.source, url: s.url }));
 
@@ -275,6 +319,8 @@ function mapReportToPeople(report: ReconReport, linkedinUrl: string): PeopleCano
     orcid_id: pickField(pFields, 'orcid'),
     scholar_url: pFields.find((f) => f.url?.includes('scholar.google'))?.url ?? null,
     skills,
+    education,
+    previous_companies,
     recon_signals: signals.length ? signals : null,
     recon_run_at: now,
     enrichment_source: 'recon',
@@ -495,14 +541,44 @@ async function main() {
 
         // ── Upsert to Supabase (when service key available) ───────────────
         if (supabase) {
-          const { data: personCanon, error: personErr } = await supabase
-            .from('people_canonical')
-            .upsert(personRow, { onConflict: 'dedup_key' })
-            .select('id')
-            .single();
+          // Match the existing canonical person by LinkedIn URL (the authoritative
+          // worklist row we set out to enrich) — NOT by name. recon's OSINT displayName
+          // is sometimes the employer (e.g. "Partners Group …, LLC"); keying the upsert
+          // on dedupKey(displayName) would INSERT a duplicate company-named row instead
+          // of refreshing the person. Update-in-place on a URL hit; insert only when new.
+          const urlVariants = [...new Set([
+            linkedinUrl,
+            linkedinUrl.replace(/\/+$/, ''),
+            linkedinUrl.endsWith('/') ? linkedinUrl : `${linkedinUrl}/`,
+          ])];
+          let existing: { id: string; full_name: string | null; current_company_name: string | null } | null = null;
+          for (const u of urlVariants) {
+            const { data } = await supabase
+              .from('people_canonical')
+              .select('id, full_name, current_company_name')
+              .eq('linkedin_url', u)
+              .limit(1)
+              .maybeSingle();
+            if (data?.id) { existing = data; break; }
+          }
 
-          if (personErr) throw new Error(`people_canonical upsert: ${personErr.message}`);
-          const canonPersonId = personCanon?.id as string;
+          let canonPersonId: string;
+          if (existing) {
+            // Never clobber a real existing name with a company-looking displayName.
+            const newIsCompany = !!personRow.full_name && !!personRow.current_company_name
+              && personRow.full_name.trim() === personRow.current_company_name.trim();
+            const patch: Record<string, unknown> = { ...personRow };
+            if (newIsCompany || !personRow.full_name) { delete patch.full_name; delete patch.dedup_key; }
+            const { data: upd, error: updErr } = await supabase
+              .from('people_canonical').update(patch).eq('id', existing.id).select('id').single();
+            if (updErr) throw new Error(`people_canonical update: ${updErr.message}`);
+            canonPersonId = upd.id as string;
+          } else {
+            const { data: ins, error: insErr } = await supabase
+              .from('people_canonical').upsert(personRow, { onConflict: 'dedup_key' }).select('id').single();
+            if (insErr) throw new Error(`people_canonical upsert: ${insErr.message}`);
+            canonPersonId = ins.id as string;
+          }
           console.log(`  ✓ people_canonical  id=${canonPersonId}  conf=${(personRow.enrichment_confidence * 100).toFixed(0)}%`);
 
           let canonCommunityId: string | null = null;
