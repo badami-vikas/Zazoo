@@ -1154,6 +1154,32 @@ function discoveryCandidates(hits: ClassifiedHit[], input: ReconInput): Identity
   return cands;
 }
 
+// Resolve a company's official domain from discovery hits when we only have its NAME.
+// Most LinkedIn subjects carry a company name but NO domain/email, so without this the
+// company-page enrichers (team/about scrape, JSON-LD, GLEIF) never fire and the company
+// name goes almost unused. We pick the first non-social/news/registry hit whose domain
+// label overlaps the company name. Conservative by token-overlap; and companyTeamEnrich
+// re-verifies the subject's name appears on the fetched page before extracting anything,
+// so a wrong guess yields no data rather than fabricated data.
+const DOMAIN_BLOCKLIST = /(?:^|\.)(?:wikipedia|wikimedia|crunchbase|bloomberg|reuters|forbes|pitchbook|zoominfo|glassdoor|indeed|facebook|instagram|twitter|x|youtube|medium|substack|github|gitlab|amazonaws|googleusercontent|google|apple|notion|wordpress|wix|squarespace|godaddy)\./i;
+
+function guessCompanyDomain(company: string, hits: ClassifiedHit[]): string | undefined {
+  const cTokens = norm(company).split(' ').filter((t) => t.length > 2);
+  if (!cTokens.length) return undefined;
+  const skip = new Set<HitClass>(['linkedin_person', 'linkedin_company', 'social', 'news', 'registry']);
+  for (const h of hits) {
+    if (skip.has(h.cls)) continue;
+    const host = h.host;
+    if (!host || DOMAIN_BLOCKLIST.test(`.${host}`)) continue;
+    const label = host.replace(/^www\./, '').split('.')[0].toLowerCase();
+    if (label.length < 3) continue;
+    // Domain label shares a meaningful token with the company name (either direction:
+    // "aumpolyester" ⊇ "polyester", or label "stripe" ∈ company "Stripe Inc").
+    if (cTokens.some((t) => label.includes(t) || t.includes(label))) return host;
+  }
+  return undefined;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage B — EXPAND the discovered footprint into facts (no LinkedIn fetch)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2362,6 +2388,13 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
   const disc = await discover(input, ctx);
   const site = disc.hits.find((h) => h.cls === 'company_site');
   if (site && !ctx.domain) ctx.domain = site.host;
+  // When we have a company NAME but no domain (the common LinkedIn case), resolve the
+  // company's official site from the hits so the company-page enrichers can run for the
+  // person — companyTeamEnrich (title / work email / bio / LinkedIn) and jsonldEnrich.
+  if (!ctx.domain && ctx.company) {
+    const guessed = guessCompanyDomain(ctx.company, disc.hits);
+    if (guessed) { ctx.domain = guessed; ctx.identifiers.domain = guessed; }
+  }
   const ghHit = disc.hits.find((h) => /(?:^|\.)github\.com$/i.test(h.host) && /github\.com\/[^/]+$/.test(h.url));
   if (ghHit && !ctx.identifiers.githubLogin) ctx.identifiers.githubLogin = ghHit.url.replace(/.*github\.com\//i, '').split(/[/?#]/)[0];
 
