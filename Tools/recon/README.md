@@ -40,6 +40,7 @@ If nothing structured matches (the long-tail case), Recon still returns a low-co
 | Social Searcher | JSON API (keyed) | Public social mentions/profiles — off unless `SOCIAL_SEARCHER_KEY` set |
 | SEC EDGAR (full-text + submissions) | JSON API | Form D funding, registrant, state of incorp, SIC, HQ |
 | SEC Form ADV / IAPD | JSON API | RIA status, CRD, ADV pointer (AUM/owners) |
+| **GLEIF (LEI)** | JSON API (keyless) | Authoritative legal entity ID (ISO 17442) — canonical legal name, jurisdiction, HQ, registration status; lapsed/retired LEI → **Signal**. Best-fit for funds/advisers/counterparties |
 | Wikidata / Wikipedia | JSON API | Summary, bio, founded year, official website |
 | GitHub REST | JSON API | Bio, company, repos, top languages, account age |
 | Company JSON-LD (schema.org) | HTML parse | Org/Person name, title, description, `sameAs`, emails |

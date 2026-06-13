@@ -269,6 +269,10 @@ function mapReportToPeople(report: ReconReport, linkedinUrl: string): PeopleCano
         })
       : null;
 
+  // Company name from the report
+  const companyName = report.company?.name ?? report.companySuggestion?.name
+    ?? pickField([...pFields, ...cFields], 'employer', 'company', 'organization') ?? null;
+
   // Previous companies — look for experience/work history section, skip current company
   const experienceSection = report.person?.sections.find((sec) =>
     /\b(experience|work history|employment|career|previous)\b/i.test(sec.title)
@@ -292,10 +296,6 @@ function mapReportToPeople(report: ReconReport, linkedinUrl: string): PeopleCano
 
   // Signals (risk/compliance)
   const signals = report.signals.map((s) => ({ label: s.label, value: s.value, source: s.source, url: s.url }));
-
-  // Company name from the report
-  const companyName = report.company?.name ?? report.companySuggestion?.name
-    ?? pickField([...pFields, ...cFields], 'employer', 'company', 'organization') ?? null;
 
   const website = pickField([...pFields, ...cFields], 'website', 'homepage', 'domain');
 

@@ -292,7 +292,19 @@ async function wikidataEnrich(ctx: ReportCtx): Promise<SourceContribution> {
   if (!qid && ctx.name) {
     const c = await wikidataCandidates(ctx.name);
     out.steps.push(...c.steps);
-    qid = c.cands[0]?.identifiers.wikidataQid;
+    // Wikidata name-search returns the most NOTABLE namesake, not the closest match —
+    // for a non-famous subject the top hit is a famous stranger whose Wikipedia bio we
+    // would otherwise attach as a Tier-A fact. Require both a name-token match AND a
+    // matching entity kind (don't bind a company's QID to a person query).
+    const best = c.cands
+      .map((cand) => ({ cand, score: nameMatchScore(cand.displayName, ctx.name!) }))
+      .filter((x) => x.score >= 0.5 && x.cand.kind === ctx.kind)
+      .sort((a, b) => b.score - a.score)[0];
+    qid = best?.cand.identifiers.wikidataQid;
+    if (!qid && c.cands.length) {
+      out.steps.push({ step: 'Wikidata enrich', input: ctx.name, output: `name/kind mismatch — top entity "${c.cands[0].displayName}" (${c.cands[0].kind}) not confirmed as subject`, durationMs: 0, ok: false });
+      return out;
+    }
   }
   if (!qid) {
     out.steps.push({ step: 'Wikidata enrich', input: ctx.name ?? '(none)', output: 'No Wikidata entity resolved', durationMs: 0, ok: false });
@@ -399,10 +411,21 @@ async function githubCandidates(name: string): Promise<{ cands: Identity[]; step
 async function githubEnrich(ctx: ReportCtx): Promise<SourceContribution> {
   const out: SourceContribution = { source: 'GitHub', personFields: [], companyFields: [], signals: [], steps: [] };
   let login = ctx.identifiers.githubLogin;
+  // Only auto-resolve a login from a name search when a candidate actually matches the
+  // subject — the GitHub user-search returns the closest handle for ANY query, so the
+  // top hit for a common name is frequently a stranger. An identifier carried in from
+  // discovery (a github.com URL on the subject's own footprint) is trusted as-is.
   if (!login && ctx.kind === 'person' && ctx.name) {
     const c = await githubCandidates(ctx.name);
     out.steps.push(...c.steps);
-    login = c.cands[0]?.identifiers.githubLogin;
+    const best = c.cands
+      .map((cand) => ({ cand, score: nameMatchScore(cand.displayName, ctx.name!) }))
+      .filter((x) => x.score >= 0.5)
+      .sort((a, b) => b.score - a.score)[0];
+    login = best?.cand.identifiers.githubLogin;
+    if (!login && c.cands.length) {
+      out.steps.push({ step: 'GitHub enrich', input: ctx.name, output: `name mismatch — top candidate "${c.cands[0].displayName}" does not match subject`, durationMs: 0, ok: false });
+    }
   }
   if (!login) {
     out.steps.push({ step: 'GitHub enrich', input: ctx.name ?? '(none)', output: 'No GitHub login resolved', durationMs: 0, ok: false });
@@ -604,6 +627,73 @@ async function usaspendingEnrich(ctx: ReportCtx): Promise<SourceContribution> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Source — GLEIF (Global Legal Entity Identifier Foundation), free + keyless.
+// The authoritative global registry of legal entities (the LEI is the ISO 17442
+// standard used across funds, advisers, and counterparties). High-signal for the
+// VC/GP/LP world: confirms the canonical legal name, jurisdiction, registration
+// status, and HQ for a fund/company, and flags LAPSED/RETIRED registrations.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface GleifRecord {
+  attributes?: {
+    lei?: string;
+    entity?: {
+      legalName?: { name?: string };
+      jurisdiction?: string;
+      status?: string;
+      legalAddress?: { city?: string; country?: string };
+    };
+    registration?: { status?: string };
+  };
+}
+
+async function gleifEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'GLEIF', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!q) {
+    out.steps.push({ step: 'GLEIF LEI', input: '(none)', output: 'Skipped — no company/fund name', durationMs: 0, ok: false });
+    return out;
+  }
+  const url = `https://api.gleif.org/api/v1/lei-records?filter[entity.legalName]=${encodeURIComponent(q)}&page[size]=5`;
+  const r = await fetchJSON<{ data?: GleifRecord[] }>(url, { headers: { Accept: 'application/vnd.api+json' }, timeoutMs: 12000 });
+  const records = r.data?.data ?? [];
+  // Verify the returned legal name actually matches the query — GLEIF's filter is
+  // fuzzy, so a loose query can surface an unrelated entity.
+  const best = records
+    .map((rec) => ({ rec, nm: rec.attributes?.entity?.legalName?.name ?? '', score: nameMatchScore(rec.attributes?.entity?.legalName?.name ?? '', q) }))
+    .filter((x) => x.nm && x.score >= 0.6)
+    .sort((a, b) => b.score - a.score)[0];
+  if (best) {
+    const e = best.rec.attributes?.entity;
+    const lei = best.rec.attributes?.lei;
+    const addr = [e?.legalAddress?.city, e?.legalAddress?.country].filter(Boolean).join(', ');
+    out.companyFields.push({
+      label: 'Legal entity (LEI)',
+      value: `${best.nm}${lei ? ` — LEI ${lei}` : ''}${e?.jurisdiction ? ` · ${e.jurisdiction}` : ''}${addr ? ` · ${addr}` : ''}`,
+      tier: 'A',
+      source: 'GLEIF',
+      url: lei ? `https://search.gleif.org/#/record/${lei}` : undefined,
+    });
+    // A lapsed/retired LEI registration is a due-diligence signal (entity may be
+    // dormant, merged, or dissolved).
+    const reg = (best.rec.attributes?.registration?.status ?? '').toUpperCase();
+    const ent = (e?.status ?? '').toUpperCase();
+    if ((reg && reg !== 'ISSUED') || (ent && ent !== 'ACTIVE')) {
+      out.signals.push({
+        label: 'LEI registration not active — verify entity standing',
+        value: `${best.nm}: entity status ${ent || 'n/a'}, registration ${reg || 'n/a'} (per GLEIF) — may be dormant, merged, or dissolved`,
+        tier: 'B',
+        source: 'GLEIF',
+        url: lei ? `https://search.gleif.org/#/record/${lei}` : undefined,
+        kind: 'signal',
+      });
+    }
+  }
+  out.steps.push(step('GLEIF LEI', q, r, records.length ? (best ? `LEI confirmed (${best.nm})` : `${records.length} record(s) but none match the name`) : 'no LEI record'));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Source 7 — Schema.org / JSON-LD on the company website
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -734,10 +824,17 @@ async function courtlistenerEnrich(ctx: ReportCtx): Promise<SourceContribution> 
     const count = r.data?.count ?? 0;
     const top = r.data?.results?.[0];
     if (count > 0) {
+      // A quoted-name search matches ANY party sharing the name — for a person this is
+      // frequently a different individual. Verify the matched case actually names the
+      // subject before treating it as decision-driving; a person name-match is flagged
+      // explicitly as unverified (Tier C) so it never reads as confirmed litigation.
+      const caseConfirmed = top?.caseName ? nameMatchScore(top.caseName, t.q) >= 0.5 : false;
+      const isPerson = t.subject === 'person';
+      const reliable = caseConfirmed || !isPerson;
       out.signals.push({
-        label: `Litigation — ${t.q}`,
-        value: `${count} matching case(s)${top?.caseName ? `; most recent: ${top.caseName}${top.dateFiled ? ` (${top.dateFiled})` : ''}` : ''}`,
-        tier: 'B',
+        label: reliable ? `Litigation — ${t.q}` : `Possible litigation (name match — verify parties) — ${t.q}`,
+        value: `${count} case(s) naming "${t.q}"${top?.caseName ? `; most recent: ${top.caseName}${top.dateFiled ? ` (${top.dateFiled})` : ''}` : ''}${isPerson && !caseConfirmed ? ' — common-name risk: confirm this is the same person' : ''}`,
+        tier: reliable ? 'B' : 'C',
         source: 'CourtListener',
         url: top?.absolute_url ? `https://www.courtlistener.com${top.absolute_url}` : 'https://www.courtlistener.com',
         kind: 'signal',
@@ -1024,14 +1121,19 @@ function discoveryCandidates(hits: ClassifiedHit[], input: ReconInput): Identity
   const cands: Identity[] = [];
   for (const h of hits.filter((x) => x.cls === 'linkedin_person').slice(0, 3)) {
     const dn = h.title.replace(/\s*[|\-–·].*$/, '').trim() || input.name || h.title;
+    // When the analyst typed a person name, trust 'person'. When searching by COMPANY
+    // (no name), a LinkedIn result whose title reads like an org ("Partners Group",
+    // "Acme Capital") is the company itself — classifying it 'person' would route it to
+    // person-only sources and skip company registries (SEC/GLEIF/ADV). Infer the kind.
+    const kind: IdentityKind = input.name ? 'person' : inferKind(dn);
     cands.push({
       id: `web:${slug(h.url)}`,
-      kind: 'person',
+      kind,
       displayName: dn,
       summary: h.snippet.slice(0, 200),
       confidence: 0.5,
       evidence: [`LinkedIn public snippet: ${h.title}`],
-      identifiers: { name: dn },
+      identifiers: kind === 'person' ? { name: dn } : { name: dn, company: dn },
       sources: ['Web (LinkedIn)'],
     });
   }
@@ -1182,6 +1284,39 @@ async function companyTeamEnrich(ctx: ReportCtx): Promise<SourceContribution> {
 
 const sv = (v: unknown): string => (v == null ? '' : String(v));
 
+// Name similarity: overlap coefficient on lowercased tokens (≥2 chars, no honorifics).
+// Returns 0..1; 1 = identical token sets. Use threshold ≥0.5 for high-stakes sources
+// (FINRA disclosures), ≥0.4 for informational sources (academic registries).
+function nameMatchScore(a: string, b: string): number {
+  const tok = (s: string) => new Set(
+    s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/)
+      .filter((t) => t.length >= 2 && !/^(dr|mr|ms|mrs|prof|jr|sr|ii|iii|iv)$/.test(t))
+  );
+  const A = tok(a); const B = tok(b);
+  if (!A.size || !B.size) return 0;
+  let common = 0; for (const t of A) if (B.has(t)) common++;
+  return common / Math.min(A.size, B.size); // overlap coefficient
+}
+
+// Same-name disambiguation. A correct NAME match is not a correct PERSON match — many
+// people share a name (the FINRA "Andrew Ng" broker ≠ Andrew Ng the AI researcher).
+// When we already know the subject's affiliation (company / domain / location), a
+// source that returns a DIFFERENT employer or institution is almost certainly a
+// namesake. Returns:
+//   'confirm'  — the returned affiliation overlaps what we know → same person, trust it
+//   'conflict' — an affiliation was returned but matches nothing we know → likely namesake
+//   'unknown'  — we have no anchor, or the source returned no affiliation → can't tell
+function affiliationCorroborates(ctx: ReportCtx, affiliation?: string): 'confirm' | 'conflict' | 'unknown' {
+  const aff = (affiliation ?? '').toLowerCase().trim();
+  const anchorTokens = new Set<string>();
+  if (ctx.company) for (const t of norm(ctx.company).split(' ')) if (t.length > 2) anchorTokens.add(t);
+  if (ctx.domain) { const d = ctx.domain.replace(/^www\./, '').split('.')[0]; if (d.length > 2) anchorTokens.add(d); }
+  if (ctx.location) for (const t of norm(ctx.location).split(' ')) if (t.length > 3) anchorTokens.add(t);
+  if (!aff || !anchorTokens.size) return 'unknown';
+  for (const t of anchorTokens) if (aff.includes(t)) return 'confirm';
+  return 'conflict';
+}
+
 interface FinraResp {
   hits?: { hits?: Array<{ _source?: Record<string, unknown> }> };
 }
@@ -1192,22 +1327,55 @@ async function finraEnrich(ctx: ReportCtx): Promise<SourceContribution> {
 
   if (ctx.kind === 'person' && ctx.name) {
     const r = await fetchJSON<FinraResp>(`https://api.brokercheck.finra.org/search/individual?query=${encodeURIComponent(ctx.name)}&hits=3&wt=json`, { headers });
-    const hit = r.data?.hits?.hits?.[0]?._source;
-    if (hit) {
-      const crd = sv(hit.ind_source_id || hit.ind_firm_crd_nb);
-      const emp = Array.isArray(hit.ind_current_employments) ? (hit.ind_current_employments as Array<Record<string, unknown>>).map((e) => sv(e.firm_name)).filter(Boolean).join(', ') : '';
+    const rawHits = r.data?.hits?.hits ?? [];
+    // Scan ALL hits (not just [0]): among same-name registrants, pick the one whose
+    // current employer corroborates the subject's known company. A name-matching broker
+    // at a DIFFERENT firm is a namesake — attaching their disclosures would be a
+    // defamatory false positive (the bug the analyst caught with "Aaryan Gondal").
+    const scored = rawHits.map((h) => {
+      const src = h._source ?? {};
+      const name = `${sv(src.ind_firstname)} ${sv(src.ind_lastname)}`.trim();
+      const emp = Array.isArray(src.ind_current_employments)
+        ? (src.ind_current_employments as Array<Record<string, unknown>>).map((e) => sv(e.firm_name)).filter(Boolean).join(', ')
+        : '';
+      return { src, name, emp, nameScore: nameMatchScore(name, ctx.name!), corr: affiliationCorroborates(ctx, emp) };
+    }).filter((x) => x.nameScore >= 0.5);
+    // Prefer an affiliation-confirmed hit, then an unverifiable one (empty employer /
+    // no anchor). NEVER pick a hit whose employer conflicts with the known company —
+    // that is the namesake. If every hit conflicts, attach nothing.
+    const confirmed = scored.find((x) => x.corr === 'confirm');
+    const unknown = scored.filter((x) => x.corr === 'unknown').sort((a, b) => b.nameScore - a.nameScore)[0];
+    const anyConflictOnly = scored.length > 0 && !confirmed && !unknown;
+    const pick = confirmed ?? unknown;
+
+    if (pick) {
+      const crd = sv(pick.src.ind_source_id || pick.src.ind_firm_crd_nb);
+      const verified = pick.corr === 'confirm';
       out.personFields.push({
-        label: 'FINRA registered (securities)',
-        value: `${sv(hit.ind_firstname)} ${sv(hit.ind_lastname)}`.trim() + (crd ? ` (CRD ${crd})` : '') + (emp ? ` — ${emp}` : ''),
-        tier: 'A',
+        label: verified ? 'FINRA registered (securities)' : 'FINRA registered (name match — verify identity)',
+        value: `${pick.name}` + (crd ? ` (CRD ${crd})` : '') + (pick.emp ? ` — ${pick.emp}` : ''),
+        tier: verified ? 'A' : 'B',
         source: 'FINRA',
         url: crd ? `https://brokercheck.finra.org/individual/summary/${crd}` : undefined,
       });
-      if (sv(hit.ind_bc_disclosure_fl) === 'Y' || sv(hit.ind_ia_disclosure_fl) === 'Y') {
-        out.signals.push({ label: 'FINRA disclosure on record', value: `${ctx.name} has one or more BrokerCheck disclosures (regulatory / customer dispute / financial / criminal event). Review before meeting.`, tier: 'A', source: 'FINRA', url: crd ? `https://brokercheck.finra.org/individual/summary/${crd}` : undefined, kind: 'signal' });
+      if (sv(pick.src.ind_bc_disclosure_fl) === 'Y' || sv(pick.src.ind_ia_disclosure_fl) === 'Y') {
+        out.signals.push({
+          label: verified ? 'FINRA disclosure on record' : 'FINRA disclosure — possible namesake, verify before relying',
+          value: `${pick.name}${crd ? ` (CRD ${crd})` : ''}${pick.emp ? ` at ${pick.emp}` : ''} has BrokerCheck disclosure(s) (regulatory / customer dispute / financial / criminal).${verified ? ' Review before meeting.' : ' This is a NAME match only — confirm it is the same person before acting.'}`,
+          tier: verified ? 'A' : 'C',
+          source: 'FINRA',
+          url: crd ? `https://brokercheck.finra.org/individual/summary/${crd}` : undefined,
+          kind: 'signal',
+        });
       }
     }
-    out.steps.push(step('FINRA individual', ctx.name, r, r.data?.hits?.hits?.length ? 'match' : r.data ? 'no match' : 'blocked/non-JSON'));
+    const topRaw = rawHits[0]?._source;
+    const topName = topRaw ? `${sv(topRaw.ind_firstname)} ${sv(topRaw.ind_lastname)}`.trim() : '';
+    const finraNote = rawHits.length === 0 ? (r.data ? 'no match' : 'blocked/non-JSON')
+      : pick ? (pick.corr === 'confirm' ? 'match (employer corroborated)' : 'name match (affiliation unverified)')
+      : anyConflictOnly ? `rejected — ${scored.length} name match(es) but employer conflicts with "${ctx.company ?? ''}" (namesake)`
+      : `name mismatch (top "${topName}")`;
+    out.steps.push(step('FINRA individual', ctx.name, r, finraNote));
   }
 
   const firmQ = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
@@ -1240,11 +1408,23 @@ async function openAlexEnrich(ctx: ReportCtx): Promise<SourceContribution> {
     `https://api.openalex.org/authors?search=${encodeURIComponent(ctx.name)}&per_page=1&mailto=badami@wustl.edu`,
   );
   const a = r.data?.results?.[0];
-  if (a && (a.works_count ?? 0) > 0) {
+  const alexScore = a?.display_name && ctx.name ? nameMatchScore(a.display_name, ctx.name) : 0;
+  if (a && (a.works_count ?? 0) > 0 && alexScore >= 0.4) {
     const inst = a.last_known_institutions?.[0]?.display_name;
-    out.personFields.push({ label: 'Academic profile', value: `${a.works_count} works, ${a.cited_by_count ?? 0} citations${inst ? ` — ${inst}` : ''}`, tier: 'B', source: 'OpenAlex', url: a.id });
+    // Most LinkedIn subjects aren't academics — a name-only hit is usually a namesake
+    // scholar. If we know the subject's company and the institution doesn't corroborate,
+    // flag it as a likely namesake rather than asserting an academic record.
+    const corr = affiliationCorroborates(ctx, inst);
+    const namesake = corr === 'conflict';
+    out.personFields.push({
+      label: namesake ? 'Academic profile (name match — likely namesake, verify)' : 'Academic profile',
+      value: `${a.works_count} works, ${a.cited_by_count ?? 0} citations${inst ? ` — ${inst}` : ''}`,
+      tier: namesake ? 'C' : 'B',
+      source: 'OpenAlex',
+      url: a.id,
+    });
   }
-  out.steps.push(step('OpenAlex authors', ctx.name, r, a ? `${a.works_count ?? 0} works` : 'no author'));
+  out.steps.push(step('OpenAlex authors', ctx.name, r, a ? (alexScore >= 0.4 ? `${a.works_count ?? 0} works` : `name mismatch ("${a.display_name}")`) : 'no author'));
   return out;
 }
 
@@ -1267,17 +1447,21 @@ async function orcidEnrich(ctx: ReportCtx): Promise<SourceContribution> {
     headers: { Accept: 'application/json' },
   });
   const hit = r.data?.['expanded-result']?.[0];
-  if (hit?.['orcid-id']) {
+  const orcidName = hit ? `${hit['given-names'] ?? ''} ${hit['family-names'] ?? ''}`.trim() : '';
+  const orcidScore = orcidName && ctx.name ? nameMatchScore(orcidName, ctx.name) : 0;
+  if (hit?.['orcid-id'] && orcidScore >= 0.4) {
     const inst = (hit['institution-name'] ?? []).filter(Boolean).slice(0, 3).join(', ');
+    const namesake = affiliationCorroborates(ctx, inst) === 'conflict';
     out.personFields.push({
-      label: 'ORCID (researcher ID)',
-      value: `${hit['given-names'] ?? ''} ${hit['family-names'] ?? ''}`.trim() + (inst ? ` — ${inst}` : ''),
-      tier: 'B',
+      label: namesake ? 'ORCID (name match — likely namesake, verify)' : 'ORCID (researcher ID)',
+      value: orcidName + (inst ? ` — ${inst}` : ''),
+      tier: namesake ? 'C' : 'B',
       source: 'ORCID',
       url: `https://orcid.org/${hit['orcid-id']}`,
     });
   }
-  out.steps.push(step('ORCID search', ctx.name, r, hit?.['orcid-id'] ? hit['orcid-id'] : `${r.data?.['num-found'] ?? 0} match(es)`));
+  const orcidNote = hit?.['orcid-id'] ? (orcidScore >= 0.4 ? hit['orcid-id'] : `name mismatch ("${orcidName}")`) : `${r.data?.['num-found'] ?? 0} match(es)`;
+  out.steps.push(step('ORCID search', ctx.name, r, orcidNote));
   return out;
 }
 
@@ -1300,17 +1484,19 @@ async function semanticScholarEnrich(ctx: ReportCtx): Promise<SourceContribution
     { headers: { Accept: 'application/json' } },
   );
   const a = r.data?.data?.[0];
-  if (a && ((a.paperCount ?? 0) > 0 || (a.citationCount ?? 0) > 0)) {
+  const s2Score = a?.name && ctx.name ? nameMatchScore(a.name, ctx.name) : 0;
+  if (a && ((a.paperCount ?? 0) > 0 || (a.citationCount ?? 0) > 0) && s2Score >= 0.4) {
     const aff = (a.affiliations ?? []).filter(Boolean).slice(0, 2).join(', ');
+    const namesake = affiliationCorroborates(ctx, aff) === 'conflict';
     out.personFields.push({
-      label: 'Research impact',
+      label: namesake ? 'Research impact (name match — likely namesake, verify)' : 'Research impact',
       value: `${a.paperCount ?? 0} papers, ${a.citationCount ?? 0} citations, h-index ${a.hIndex ?? '?'}${aff ? ` — ${aff}` : ''}`,
-      tier: 'B',
+      tier: namesake ? 'C' : 'B',
       source: 'Semantic Scholar',
       url: a.url,
     });
   }
-  out.steps.push(step('Semantic Scholar', ctx.name, r, a ? `${a.paperCount ?? 0} papers` : 'no author'));
+  out.steps.push(step('Semantic Scholar', ctx.name, r, a ? (s2Score >= 0.4 ? `${a.paperCount ?? 0} papers` : `name mismatch ("${a.name}")`) : 'no author'));
   return out;
 }
 
@@ -1696,19 +1882,27 @@ async function alephEnrich(ctx: ReportCtx): Promise<SourceContribution> {
     { headers, timeoutMs: 12000 },
   );
   const results = r.data?.results ?? [];
-  if (results.length) {
-    const top = results[0];
-    const nm = top.properties?.name?.[0] ?? q;
+  // Aleph ranks by relevance, not exactness — the top hit for a common name is often
+  // an unrelated entity in a leak/registry collection. Surfacing it as an
+  // "investigative record" signal is defamatory if it's a namesake, so require the
+  // matched entity name to actually overlap the subject before emitting the signal.
+  const match = results
+    .map((res) => ({ res, nm: res.properties?.name?.[0] ?? '', score: nameMatchScore(res.properties?.name?.[0] ?? '', q) }))
+    .filter((x) => x.nm && x.score >= 0.5)
+    .sort((a, b) => b.score - a.score)[0];
+  if (match) {
+    const { res: top, nm } = match;
     out.signals.push({
       label: 'OCCRP Aleph — investigative record, review',
-      value: `${nm} — ${top.schema ?? 'entity'} in "${top.collection?.label ?? 'collection'}" (${r.data?.total ?? results.length} match(es))`,
+      value: `${nm} — ${top.schema ?? 'entity'} in "${top.collection?.label ?? 'collection'}" (${r.data?.total ?? results.length} match(es) for the name; verify identity)`,
       tier: 'B',
       source: 'OCCRP Aleph',
       url: top.links?.ui ?? `${base}/search?q=${encodeURIComponent(q)}`,
       kind: 'signal',
     });
   }
-  out.steps.push(step('OCCRP Aleph', q, r, results.length ? `${r.data?.total ?? results.length} match(es)` : r.data ? 'no match' : 'auth/blocked'));
+  const alephNote = !r.data ? 'auth/blocked' : results.length ? (match ? `${r.data?.total ?? results.length} match(es), name confirmed` : `${results.length} hit(s) but none match the name`) : 'no match';
+  out.steps.push(step('OCCRP Aleph', q, r, alephNote));
   return out;
 }
 
@@ -1983,6 +2177,23 @@ export async function resolveIdentities(input: ReconInput): Promise<{ candidates
   let cands = mergeCandidates([...webCands, ...wd.cands, ...gh.cands, ...sec.cands]);
   cands = applyHints(cands, input);
 
+  // Subject guarantee: a person search must always surface a person candidate, even
+  // when only company/fund context resolved (e.g. searching a junior employee whose
+  // only structured footprint is their employer's SEC filing). Without this, the
+  // report would be built as a company and skip every person-only source.
+  if (input.name && !cands.some((c) => c.kind === 'person')) {
+    cands.push({
+      id: `input:${slug(input.name)}`,
+      kind: 'person',
+      displayName: input.name,
+      summary: 'Subject person (provided) — report relies on live discovery + person sources.',
+      confidence: 0.5,
+      evidence: ['No structured person record pre-matched; proceeding on provided name'],
+      identifiers: { name: input.name, company: input.company, domain: domainFromEmail(input.email) || (input.domain ? hostFromUrl(input.domain) : undefined) },
+      sources: ['Input'],
+    });
+  }
+
   // Long-tail fallback: if NOTHING structured matched (the common case for normal
   // people), synthesize one candidate from the raw input so the user can still run a
   // discovery-driven report. Honestly flagged as unverified / low confidence.
@@ -2065,7 +2276,11 @@ function applyHints(cands: Identity[], input: ReconInput): Identity[] {
       c.confidence = Math.min(0.98, c.confidence + 0.3);
       c.evidence.push(`Email/domain matches ${emailDomain}`);
     }
-    if (companyNorm && (norm(c.displayName).includes(companyNorm) || (c.identifiers.company && norm(c.identifiers.company).includes(companyNorm)))) {
+    // Company-hint match. When searching for a PERSON, this boost is reserved for the
+    // person themselves (confirming they're at that company) — it must NEVER lift a
+    // standalone company/fund entity, or the employer outranks the actual subject.
+    const companyBoostEligible = !input.name || c.kind === 'person';
+    if (companyNorm && companyBoostEligible && (norm(c.displayName).includes(companyNorm) || (c.identifiers.company && norm(c.identifiers.company).includes(companyNorm)))) {
       c.confidence = Math.min(0.98, c.confidence + 0.2);
       c.evidence.push(`Matches provided company "${input.company}"`);
     }
@@ -2079,19 +2294,24 @@ function applyHints(cands: Identity[], input: ReconInput): Identity[] {
     }
   }
 
-  // Name-mismatch penalty: when searching for a person, a candidate whose display
-  // name shares no tokens with the query is very likely the wrong entity.
+  // Subject-kind enforcement: when the analyst provided a person name, the SUBJECT is
+  // that person. Boost person candidates whose name actually matches the query; cap
+  // company/fund candidates to "context" level so they can never rank as the primary
+  // identity (which would skip every person-only enricher: FINRA, academic, email…).
   if (input.name) {
-    const qTokens = norm(input.name).split(/\s+/).filter((t) => t.length > 2);
-    if (qTokens.length > 0) {
-      for (const c of cands) {
-        if (c.kind !== 'person') continue;
-        const cTokens = new Set(norm(c.displayName).split(/\s+/));
-        const overlap = qTokens.filter((t) => cTokens.has(t)).length;
-        if (overlap === 0) {
+    for (const c of cands) {
+      if (c.kind === 'person') {
+        const sc = nameMatchScore(c.displayName, input.name);
+        if (sc >= 0.5) {
+          c.confidence = Math.min(0.99, c.confidence + 0.25);
+          c.evidence.push(`Name matches subject "${input.name}" (${sc.toFixed(2)})`);
+        } else if (sc === 0) {
           c.confidence = Math.min(c.confidence, 0.15);
           c.evidence.push('⚠ Name shares no tokens with search query');
         }
+      } else {
+        c.confidence = Math.min(c.confidence, 0.4);
+        c.evidence.push('Associated entity (context) — not the searched person');
       }
     }
   }
@@ -2184,6 +2404,7 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
     // Company/fund-only
     ...(isCompany ? [
       secAdvEnrich(ctx),
+      gleifEnrich(ctx),
       usaspendingEnrich(ctx),
       hiringEnrich(ctx),
       Promise.resolve(stateSosEnrich(ctx)),
@@ -2291,6 +2512,7 @@ export const ENRICHER_SOURCE_MAP: Record<string, string[]> = {
   wikidata:        ['Wikipedia', 'Wikidata'],
   github:          ['GitHub'],
   secAdv:          ['SEC EDGAR'],
+  gleif:           ['GLEIF'],
   finra:           ['FINRA', 'IAPD'],
   openAlex:        ['OpenAlex'],
   orcid:           ['ORCID'],
@@ -2358,6 +2580,7 @@ export async function runEnrichersForKeys(keys: string[], ctx: ReportCtx): Promi
     wikidata:        wikidataEnrich,
     github:          githubEnrich,
     secAdv:          secAdvEnrich,
+    gleif:           gleifEnrich,
     finra:           finraEnrich,
     openAlex:        openAlexEnrich,
     orcid:           orcidEnrich,
