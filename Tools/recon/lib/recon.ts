@@ -135,6 +135,8 @@ interface ReportCtx {
   handle?: string;
   handles?: string[];
   usernameScan?: 'off' | 'curated' | 'full';
+  /** Person's professional title extracted from the LinkedIn snippet or company page. */
+  title?: string;
   identifiers: IdentityIdentifiers;
 }
 
@@ -259,6 +261,14 @@ function inferKind(text: string): IdentityKind {
 
 function looksLikeCompany(s: string): boolean {
   return inferKind(s) !== 'person';
+}
+
+function fmtUsd(n?: number): string {
+  if (n == null) return '?';
+  return n >= 1e9 ? `$${(n / 1e9).toFixed(2)}B`
+       : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M`
+       : n >= 1e3 ? `$${(n / 1e3).toFixed(0)}K`
+       : `$${Math.round(n).toLocaleString('en-US')}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -530,6 +540,8 @@ async function secEdgarEnrich(ctx: ReportCtx): Promise<SourceContribution> {
     out.steps.push({ step: 'SEC EDGAR submissions', input: ctx.company ?? ctx.name ?? '(none)', output: 'No CIK resolved (no SEC filings found)', durationMs: 0, ok: false });
     return out;
   }
+  // Propagate resolved CIK back so buildReport can pass it to later enrichers (e.g. secXbrlRevenueEnrich).
+  out.identifiers = { ...out.identifiers, secCik: cik };
 
   const cik10 = cik.padStart(10, '0');
   const r = await fetchJSON<SecSubmissions>(`https://data.sec.gov/submissions/CIK${cik10}.json`, { headers: { 'User-Agent': SEC_UA } });
@@ -2044,9 +2056,433 @@ async function ofacEnrich(ctx: ReportCtx): Promise<SourceContribution> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — SEC XBRL company concept: revenue for public SEC filers.
+// Same host as EDGAR (already wired). Fetches the us-gaap/Revenues concept for
+// the resolved CIK, returns the most recent 10-K annual figure with a 4-year
+// trend. Public companies only; Tier A (exact from filing). Falls back to
+// RevenueFromContractWithCustomerExcludingAssessedTax (ASC 606 filers).
+// Prerequisite: ctx.identifiers.secCik must be set by secEdgarEnrich + seed loop.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface XbrlFact { end?: string; val?: number; form?: string }
+interface XbrlConcept { entityName?: string; units?: { USD?: XbrlFact[] } }
+
+async function secXbrlRevenueEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'SEC XBRL', personFields: [], companyFields: [], signals: [], steps: [] };
+  const cik = ctx.identifiers.secCik;
+  if (!cik) {
+    out.steps.push({ step: 'SEC XBRL revenue', input: ctx.company ?? '(none)', output: 'Skipped — no CIK (not a public SEC filer)', durationMs: 0, ok: false });
+    return out;
+  }
+  const cik10 = cik.padStart(10, '0');
+  for (const concept of ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax'] as const) {
+    const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10}/us-gaap/${concept}.json`;
+    const r = await fetchJSON<XbrlConcept>(url, { headers: { 'User-Agent': SEC_UA } });
+    const annual = (r.data?.units?.USD ?? [])
+      .filter((f) => (f.form === '10-K' || f.form === '10-K/A') && f.val != null && f.end)
+      .sort((a, b) => (b.end ?? '').localeCompare(a.end ?? ''));
+    if (annual.length) {
+      const latest = annual[0];
+      const year = latest.end?.slice(0, 4) ?? '?';
+      const trend = annual.slice(0, 4).map((f) => `${f.end?.slice(0, 4)}: ${fmtUsd(f.val)}`).join(' | ');
+      out.companyFields.push({
+        label: 'Revenue (SEC 10-K annual)',
+        value: `${fmtUsd(latest.val)} (FY${year})${annual.length > 1 ? ` · trend: ${trend}` : ''}`,
+        tier: 'A',
+        source: 'SEC XBRL',
+        url: `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10}/us-gaap/${concept}.json`,
+      });
+      out.steps.push(step('SEC XBRL revenue', `${concept}/CIK${cik10}`, r, `${fmtUsd(latest.val)} FY${year}`));
+      return out;
+    }
+    out.steps.push(step('SEC XBRL revenue', `${concept}/CIK${cik10}`, r, r.ok ? 'no 10-K annual facts' : `failed: ${r.error}`));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — ProPublica Nonprofit Explorer (IRS Form 990). Free, keyless JSON
+// API covering all US nonprofits, foundations, and endowments. High-value for
+// VC/LP due diligence: foundation LPs, university endowments, nonprofit
+// operating companies. Yields exact revenue/expenses/net assets per filing year.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Pp990Search { organizations?: Array<{ ein?: string | number; name?: string }> }
+interface Pp990Filing { tax_prd_yr?: number; totrevenue?: number; totexpns?: number; totnetassets?: number }
+interface Pp990Org {
+  organization?: { name?: string; ein?: string | number; city?: string; state?: string };
+  filings_with_data?: Pp990Filing[];
+}
+
+async function propublica990Enrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'ProPublica 990 (IRS)', personFields: [], companyFields: [], signals: [], steps: [] };
+  const q = ctx.company ?? (ctx.kind !== 'person' ? ctx.name : undefined);
+  if (!q) {
+    out.steps.push({ step: 'ProPublica 990', input: '(none)', output: 'Skipped — no company/org name', durationMs: 0, ok: false });
+    return out;
+  }
+  const sr = await fetchJSON<Pp990Search>(
+    `https://projects.propublica.org/nonprofits/api/v2/search.json?q=${encodeURIComponent(q)}`,
+    { timeoutMs: 12000 },
+  );
+  const orgs = sr.data?.organizations ?? [];
+  const best = orgs
+    .map((o) => ({ o, score: nameMatchScore(o.name ?? '', q) }))
+    .filter((x) => x.score >= 0.6)
+    .sort((a, b) => b.score - a.score)[0];
+  if (!best) {
+    out.steps.push(step('ProPublica 990 search', q, sr, orgs.length ? `${orgs.length} org(s) but none match the name` : 'no nonprofit record'));
+    return out;
+  }
+  out.steps.push(step('ProPublica 990 search', q, sr, `matched "${best.o.name ?? q}"`));
+  const ein = String(best.o.ein ?? '').replace(/\D/g, '');
+  if (!ein) {
+    out.steps.push({ step: 'ProPublica 990 detail', input: best.o.name ?? q, output: 'No EIN in result', durationMs: 0, ok: false });
+    return out;
+  }
+  const dr = await fetchJSON<Pp990Org>(
+    `https://projects.propublica.org/nonprofits/api/v2/organizations/${ein}.json`,
+    { timeoutMs: 12000 },
+  );
+  const filings = (dr.data?.filings_with_data ?? []).sort((a, b) => (b.tax_prd_yr ?? 0) - (a.tax_prd_yr ?? 0));
+  const latest = filings[0];
+  if (latest) {
+    const yr = latest.tax_prd_yr ?? '?';
+    out.companyFields.push({
+      label: 'Revenue (IRS Form 990)',
+      value: `${fmtUsd(latest.totrevenue)} revenue · ${fmtUsd(latest.totexpns)} expenses · ${fmtUsd(latest.totnetassets)} net assets (FY${yr})`,
+      tier: 'A',
+      source: 'ProPublica 990 (IRS)',
+      url: `https://projects.propublica.org/nonprofits/organizations/${ein}`,
+    });
+    if (filings.length > 1) {
+      out.companyFields.push({
+        label: 'Revenue trend (990)',
+        value: filings.slice(0, 4).map((f) => `${f.tax_prd_yr ?? '?'}: ${fmtUsd(f.totrevenue)}`).join(' | '),
+        tier: 'B',
+        source: 'ProPublica 990 (IRS)',
+        url: `https://projects.propublica.org/nonprofits/organizations/${ein}`,
+      });
+    }
+  }
+  out.steps.push(step('ProPublica 990 detail', ein, dr, latest ? `FY${latest.tax_prd_yr ?? '?'} revenue ${fmtUsd(latest.totrevenue)}` : 'no filings with data'));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — BLS OEWS salary benchmark (title → SOC → national wage percentiles).
+// Source: BLS Occupational Employment and Wage Statistics, May 2024 national
+// release (https://www.bls.gov/oes/current/oes_nat.htm). Updated each May.
+// This is a market-rate BAND for the person's role/seniority, not their actual
+// salary. Tier B (benchmark, not filing). For GPs/founders see subjectEconomics
+// (Phase 3 — ADV AUM / Form D equity proxy).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BLS_OES: Array<{ soc: string; title: string; median: number; p25: number; p75: number; kw: RegExp }> = [
+  // ── Management ────────────────────────────────────────────────────────────
+  { soc: '11-1011', title: 'Chief Executives', median: 212750, p25: 175440, p75: 212750, kw: /\bCEO|chief exec(utive)?\b/i },
+  { soc: '11-3021', title: 'Computer and IT Managers (CTO/VP Eng)', median: 169510, p25: 131000, p75: 212750, kw: /\bCTO|CIO|VP (eng(ineering)?|technology|tech\b)|head of (eng(ineering)?|technology|tech\b)/i },
+  { soc: '11-3031', title: 'Financial Managers (CFO)', median: 156100, p25: 110790, p75: 212750, kw: /\bCFO|VP finance|head of finance|financial director\b/i },
+  { soc: '11-2021', title: 'Marketing Managers (CMO/VP Mktg)', median: 157620, p25: 110250, p75: 212750, kw: /\bCMO|VP (marketing|growth)|head of marketing|marketing (director|manager)\b/i },
+  { soc: '11-2022', title: 'Sales Managers (CRO/VP Sales)', median: 135160, p25: 90080, p75: 200490, kw: /\bCRO|VP (sales|revenue)|head of sales|sales (director|manager)\b/i },
+  { soc: '11-3121', title: 'HR Managers (CHRO/VP People)', median: 130000, p25: 92760, p75: 182550, kw: /\bCHRO|VP (people|HR|human resources)|head of (people|HR|human resources)\b/i },
+  { soc: '11-1021', title: 'General and Operations Managers (COO)', median: 106070, p25: 72100, p75: 158500, kw: /\bCOO|general manager|operations (manager|director)|GM\b/i },
+  { soc: '11-9199', title: 'Managing Partners / General Partners (fund)', median: 212750, p25: 175000, p75: 212750, kw: /\b(managing |founding )?partner|general partner|GP\b|managing director|MD\b/i },
+  // ── Business & Finance ────────────────────────────────────────────────────
+  { soc: '13-2051', title: 'Financial Analysts', median: 99580, p25: 71570, p75: 142090, kw: /\bfinancial analyst\b/i },
+  { soc: '13-2052', title: 'Personal Financial Advisors / Wealth Mgrs', median: 99580, p25: 61560, p75: 162900, kw: /\bfinancial advis(or|er)|wealth manager|private (banker|wealth)\b/i },
+  { soc: '13-2099', title: 'Investment / VC / PE Associates', median: 95000, p25: 70000, p75: 140000, kw: /\b(investment|venture|private equity|pe|vc) (analyst|associate|principal)\b/i },
+  { soc: '13-1111', title: 'Management Analysts / Strategy Consultants', median: 99400, p25: 67250, p75: 144750, kw: /\bstrategy (analyst|consultant|manager)|management (analyst|consultant)\b/i },
+  { soc: '13-2011', title: 'Accountants and Auditors', median: 79880, p25: 57370, p75: 112570, kw: /\baccountant|auditor|CPA\b/i },
+  { soc: '13-1071', title: 'HR Specialists / Recruiters', median: 67650, p25: 51030, p75: 90020, kw: /\brecruiter|talent (acquisition|specialist|partner)|hr specialist|people ops\b/i },
+  { soc: '19-3021', title: 'Market Research Analysts', median: 74680, p25: 51850, p75: 110270, kw: /\bmarket research (analyst|manager)\b/i },
+  // ── Computer & Math ───────────────────────────────────────────────────────
+  { soc: '15-1252', title: 'Software Developers / Engineers', median: 130160, p25: 100590, p75: 168200, kw: /\bsoftware (developer|engineer|sde|swe)\b/i },
+  { soc: '15-1299', title: 'Product Managers / Technical PMs', median: 127830, p25: 93050, p75: 168000, kw: /\bproduct (manager|director|lead|owner)|PM\b/i },
+  { soc: '15-2051', title: 'Data Scientists', median: 108020, p25: 80400, p75: 140500, kw: /\bdata scientist\b/i },
+  { soc: '15-2031', title: 'ML / Operations Research Analysts', median: 99290, p25: 73290, p75: 133000, kw: /\bml (engineer|researcher)|machine learning (engineer|researcher)|operations research\b/i },
+  { soc: '15-1241', title: 'Network / Infrastructure Architects', median: 126900, p25: 95540, p75: 163300, kw: /\bnetwork architect|infrastructure (architect|engineer)\b/i },
+  { soc: '15-1255', title: 'UX / Product Designers', median: 89580, p25: 64830, p75: 119000, kw: /\bux (designer|researcher|lead)|product designer|ui\/ux|ui designer\b/i },
+  { soc: '15-1253', title: 'QA / Test Engineers', median: 99620, p25: 73280, p75: 131700, kw: /\bqa (engineer|analyst|lead)|quality (assurance|engineer)\b/i },
+  { soc: '15-1254', title: 'Web / Front-End Developers', median: 81070, p25: 56230, p75: 120420, kw: /\bweb developer|front.?end (developer|engineer)\b/i },
+  { soc: '15-1211', title: 'Systems Analysts', median: 103800, p25: 78680, p75: 131900, kw: /\bsystems? analyst\b/i },
+  // ── Engineering ───────────────────────────────────────────────────────────
+  { soc: '17-2071', title: 'Electrical Engineers', median: 107890, p25: 82560, p75: 138000, kw: /\belectrical engineer\b/i },
+  { soc: '17-2141', title: 'Mechanical Engineers', median: 99510, p25: 75660, p75: 129180, kw: /\bmechanical engineer\b/i },
+  { soc: '17-2199', title: 'Engineers (other disciplines)', median: 104890, p25: 78890, p75: 136600, kw: /\b(staff|principal|senior|platform|infra(structure)?) engineer\b/i },
+  // ── Law ───────────────────────────────────────────────────────────────────
+  { soc: '23-1011', title: 'Lawyers / Counsel', median: 145760, p25: 94530, p75: 212750, kw: /\blawyer|attorney|counsel|solicitor\b/i },
+  { soc: '23-2011', title: 'Paralegals', median: 60130, p25: 45160, p75: 80030, kw: /\bparalegal|legal assistant\b/i },
+  // ── Research / Science ────────────────────────────────────────────────────
+  { soc: '19-3011', title: 'Economists', median: 115730, p25: 80090, p75: 166750, kw: /\beconomist\b/i },
+  { soc: '15-2041', title: 'Statisticians / Quantitative Researchers', median: 104110, p25: 76080, p75: 138000, kw: /\bstatistician|quant(itative)? (analyst|researcher)\b/i },
+];
+
+async function blsOewsSalaryEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'BLS OEWS', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person') {
+    out.steps.push({ step: 'BLS OEWS salary', input: '(none)', output: 'Skipped — person only', durationMs: 0, ok: false });
+    return out;
+  }
+  const title = ctx.title;
+  if (!title) {
+    out.steps.push({ step: 'BLS OEWS salary', input: ctx.name ?? '(no name)', output: 'Skipped — no title resolved (needs LinkedIn snippet or company-page hit)', durationMs: 0, ok: false });
+    return out;
+  }
+  const match = BLS_OES.find((e) => e.kw.test(title));
+  if (!match) {
+    out.personFields.push({
+      label: 'Salary benchmark (BLS)',
+      value: `Title "${title}" — no benchmark match; browse national OES data manually`,
+      tier: 'C',
+      source: 'BLS OEWS',
+      url: 'https://www.bls.gov/oes/current/oes_nat.htm',
+    });
+    out.steps.push({ step: 'BLS OEWS salary', input: title, output: 'No SOC match for title', durationMs: 0, ok: false });
+    return out;
+  }
+  const fmtK = (n: number) => `$${Math.round(n / 1000)}K`;
+  out.personFields.push({
+    label: 'Salary benchmark (BLS OES 2024)',
+    value: `"${title}" → ${match.title} (SOC ${match.soc}): median ${fmtK(match.median)} · p25–p75 ${fmtK(match.p25)}–${fmtK(match.p75)} (US national, May 2024). Market-rate band — not this person's actual salary.`,
+    tier: 'B',
+    source: 'BLS OEWS',
+    url: `https://www.bls.gov/oes/current/oes${match.soc.replace('-', '')}.htm`,
+  });
+  out.steps.push({ step: 'BLS OEWS salary', input: title, output: `SOC ${match.soc}: median ${fmtK(match.median)}`, durationMs: 0, ok: true });
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Company research — Hiring signals (Greenhouse + Lever public job boards, free JSON).
 // Open roles = growth/momentum and a window into priorities, locations, and team shape.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 — DOL OFLC H-1B LCA salary lookup (person-only).
+// h1bdata.info re-publishes DOL FLC Data Center disclosure data as keyless JSON.
+// Returns actual offered wages for certified H-1B LCAs by employer + job title.
+// Tier A where matched (actual disclosed prevailing-wage filings); degrades
+// gracefully when h1bdata has no record or the employer doesn't sponsor visas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function dolOflcSalaryEnrich(ctx: ReportCtx): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'DOL OFLC LCA', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind !== 'person') {
+    out.steps.push({ step: 'DOL OFLC LCA', input: '', output: 'Skipped — person only', durationMs: 0, ok: false });
+    return out;
+  }
+  const employer = ctx.company;
+  const title = ctx.title;
+  if (!employer || !title) {
+    out.steps.push({ step: 'DOL OFLC LCA', input: [employer, title].filter(Boolean).join(' / '), output: 'Skipped — need employer AND title (title missing: add LinkedIn snippet)', durationMs: 0, ok: false });
+    return out;
+  }
+  // h1bdata.info returns a JSON 2-D array: each row is
+  // [EMPLOYER_NAME, JOB_TITLE, BASE_SALARY, CITY, STATE, SUBMIT_DATE, START_DATE, CASE_STATUS]
+  const url = `https://h1bdata.info/index.php?em=${encodeURIComponent(employer)}&job=${encodeURIComponent(title)}&year=2024&action=get`;
+  const r = await fetchJSON<string[][]>(url, { timeoutMs: 12000 });
+  const allRows = r.data ?? [];
+  if (!Array.isArray(allRows) || !allRows.length) {
+    out.steps.push(step('DOL OFLC LCA', `${employer} / ${title}`, r, 'no records (employer may not sponsor H-1B)'));
+    return out;
+  }
+  const certified = allRows.filter((row) => Array.isArray(row) && /certified/i.test(String(row[7] ?? '')));
+  if (!certified.length) {
+    out.steps.push(step('DOL OFLC LCA', `${employer} / ${title}`, r, `${allRows.length} record(s) but none certified`));
+    return out;
+  }
+  const wages = certified
+    .map((row) => parseInt(String(row[2] ?? '').replace(/[,$]/g, ''), 10))
+    .filter((w) => w > 20_000 && w < 5_000_000);
+  if (!wages.length) {
+    out.steps.push(step('DOL OFLC LCA', `${employer} / ${title}`, r, 'certified records found but wages out of valid range'));
+    return out;
+  }
+  wages.sort((a, b) => a - b);
+  const median = wages[Math.floor(wages.length / 2)];
+  const p25 = wages[Math.floor(wages.length * 0.25)];
+  const p75 = wages[Math.floor(wages.length * 0.75)];
+  const fmtK = (n: number) => `$${Math.round(n / 1000)}K`;
+  out.personFields.push({
+    label: 'Salary — DOL OFLC H-1B LCA (actual offered wages)',
+    value: `${fmtK(median)} median · p25–p75: ${fmtK(p25)}–${fmtK(p75)} · ${wages.length} certified LCA(s) for "${employer}" / "${title}" (FY2024). These are actual H-1B prevailing-wage certifications — a floor, not total comp.`,
+    tier: 'A',
+    source: 'DOL OFLC LCA',
+    url: `https://h1bdata.info/index.php?em=${encodeURIComponent(employer)}&job=${encodeURIComponent(title)}&year=2024`,
+  });
+  out.steps.push(step('DOL OFLC LCA', `${employer} / ${title}`, r, `${wages.length} certified LCA(s), median ${fmtK(median)}`));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 post-parallel — Revenue model for private companies (D2).
+// Runs AFTER all parallel enrichers; skips if a direct-filing revenue was found.
+// LinkedIn company SERP snippet headcount × RPE table by sector = Tier C band.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface RpeBand { sector: string; rpeLoK: number; rpeHiK: number; kw: RegExp }
+
+const RPE_BANDS: RpeBand[] = [
+  { sector: 'VC / PE / investment fund', rpeLoK:  500, rpeHiK: 5000, kw: /venture\s*capital|private\s*equity|\bvc\b|\bpe\b|hedge\s*fund|asset\s*manag/i },
+  { sector: 'Fintech / payments',        rpeLoK:  200, rpeHiK:  500, kw: /fintech|payment|banking|lending|insurtech|wealthtech/i },
+  { sector: 'Enterprise / B2B SaaS',     rpeLoK:  150, rpeHiK:  300, kw: /saas|enterprise\s*software|\bcloud\b|platform|api\b|b2b/i },
+  { sector: 'Healthcare / biotech',      rpeLoK:  150, rpeHiK:  400, kw: /health|biotech|pharma|medtech|clinical|genomic/i },
+  { sector: 'Deep tech / hardware',      rpeLoK:  150, rpeHiK:  350, kw: /hardware|semiconductor|robotics|defense|aerospace|clean\s*energy/i },
+  { sector: 'Consumer / marketplace',    rpeLoK:   80, rpeHiK:  180, kw: /consumer|marketplace|e-?commerce|retail|media|gaming/i },
+  { sector: 'Professional services',     rpeLoK:   70, rpeHiK:  130, kw: /consulting|services|staffing|agency|legal|accounting/i },
+];
+const RPE_DEFAULT: Omit<RpeBand, 'kw'> = { sector: 'unknown sector (default)', rpeLoK: 100, rpeHiK: 200 };
+
+const LI_HC_BANDS: Array<{ pat: RegExp; lo: number; hi: number; mid: number }> = [
+  { pat: /\b1[-–]\s*10\b/,                  lo:     1, hi:     10, mid:    5 },
+  { pat: /\b11[-–]\s*50\b/,                 lo:    11, hi:     50, mid:   30 },
+  { pat: /\b51[-–]\s*200\b/,                lo:    51, hi:    200, mid:  125 },
+  { pat: /\b201[-–]\s*500\b/,               lo:   201, hi:    500, mid:  350 },
+  { pat: /\b501[-–]\s*1[,.]?000\b/,         lo:   501, hi:   1000, mid:  750 },
+  { pat: /\b1[,.]?001[-–]\s*5[,.]?000\b/,   lo:  1001, hi:   5000, mid: 3000 },
+  { pat: /\b5[,.]?001[-–]\s*10[,.]?000\b/,  lo:  5001, hi:  10000, mid: 7500 },
+  { pat: /\b10[,.]?001\+?\s*employees/i,    lo: 10001, hi:  50000, mid: 15000 },
+];
+
+function privateRevenueModelEnrich(ctx: ReportCtx, companyFields: Field[], hits: ClassifiedHit[]): SourceContribution {
+  const out: SourceContribution = { source: 'Revenue model (private)', personFields: [], companyFields: [], signals: [], steps: [] };
+  if (ctx.kind === 'person') {
+    out.steps.push({ step: 'Revenue model', input: '', output: 'Skipped — person', durationMs: 0, ok: false });
+    return out;
+  }
+  const hasDirectRevenue = companyFields.some(
+    (f) => ['SEC XBRL', 'ProPublica 990 (IRS)', 'USAspending.gov'].includes(f.source) && /revenue|award/i.test(f.label),
+  );
+  if (hasDirectRevenue) {
+    out.steps.push({ step: 'Revenue model', input: ctx.company ?? '', output: 'Skipped — direct revenue found from filings', durationMs: 0, ok: false });
+    return out;
+  }
+  const liCo = hits.find((h) => h.cls === 'linkedin_company');
+  const snippet = `${liCo?.snippet ?? ''} ${liCo?.title ?? ''}`;
+  let hc: { lo: number; hi: number; mid: number; label: string } | undefined;
+  for (const b of LI_HC_BANDS) {
+    const m = snippet.match(b.pat);
+    if (m) { hc = { lo: b.lo, hi: b.hi, mid: b.mid, label: m[0].trim() }; break; }
+  }
+  if (!hc) {
+    const m = snippet.match(/\b([\d,]+)\+?\s*employees/i);
+    if (m) { const n = parseInt(m[1].replace(/,/g, ''), 10); hc = { lo: Math.round(n * 0.8), hi: Math.round(n * 1.2), mid: n, label: m[1] }; }
+  }
+  if (!hc) {
+    out.steps.push({ step: 'Revenue model', input: ctx.company ?? '', output: 'Skipped — no headcount in LinkedIn company SERP snippet', durationMs: 0, ok: false });
+    return out;
+  }
+  const techField = companyFields.find((f) => /tech stack/i.test(f.label));
+  const industryHint = `${(ctx.company ?? ctx.name ?? '').toLowerCase()} ${snippet} ${techField?.value ?? ''}`;
+  const rpeBand = RPE_BANDS.find((b) => b.kw.test(industryHint)) ?? RPE_DEFAULT;
+  const midLoRev = hc.mid * rpeBand.rpeLoK * 1000;
+  const midHiRev = hc.mid * rpeBand.rpeHiK * 1000;
+  const wideLoRev = hc.lo * rpeBand.rpeLoK * 1000;
+  const wideHiRev = hc.hi * rpeBand.rpeHiK * 1000;
+  const hiringField = companyFields.find((f) => /open roles/i.test(f.label));
+  const rolesM = hiringField?.value.match(/^(\d+)/);
+  const openRoles = rolesM ? parseInt(rolesM[1], 10) : 0;
+  out.companyFields.push({
+    label: 'Revenue estimate (private — Tier C model)',
+    value: [
+      `${fmtUsd(midLoRev)}–${fmtUsd(midHiRev)} central range`,
+      `(${hc.mid} FTEs × $${rpeBand.rpeLoK}K–$${rpeBand.rpeHiK}K RPE, ${rpeBand.sector}).`,
+      `Wide range: ${fmtUsd(wideLoRev)}–${fmtUsd(wideHiRev)}.`,
+      openRoles > 0 ? `Hiring velocity: ${openRoles} open role(s).` : '',
+      'NOT a disclosed figure — headcount × RPE model, accuracy ±1 OOM.',
+    ].filter(Boolean).join(' '),
+    tier: 'C',
+    source: 'Revenue model (private)',
+  });
+  out.steps.push({ step: 'Revenue model', input: ctx.company ?? '', output: `${rpeBand.sector}: ${fmtUsd(midLoRev)}–${fmtUsd(midHiRev)}`, durationMs: 0, ok: true });
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 post-parallel — GP / RIA fund economics (E3).
+// Checks if secAdvEnrich found an IAPD RIA match, then attempts to fetch AUM
+// from the IAPD firm-detail endpoint and applies 2/20 fee model.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface IapdFirmDetail {
+  firm?: { totalRegulatoryAssets?: number; regulatoryAum?: number; aum?: number };
+  aumAmount?: number;
+  regulatoryAum?: number;
+}
+
+async function gpFundEconomicsEnrich(ctx: ReportCtx, companyFields: Field[]): Promise<SourceContribution> {
+  const out: SourceContribution = { source: 'GP fund economics', personFields: [], companyFields: [], signals: [], steps: [] };
+  const advField = companyFields.find((f) => f.label === 'Registered investment adviser');
+  if (!advField) {
+    out.steps.push({ step: 'GP fund economics', input: ctx.company ?? '', output: 'Skipped — not an RIA (no IAPD match)', durationMs: 0, ok: false });
+    return out;
+  }
+  const crdM = advField.value.match(/CRD\s+(\d+)/i);
+  const crd = crdM?.[1];
+  const advUrl = crd ? `https://adviserinfo.sec.gov/firm/summary/${crd}` : undefined;
+  if (!crd) {
+    out.companyFields.push({ label: 'Fund economics (RIA, 2/20 heuristic)', value: 'Registered investment adviser. Typical: 2% mgmt fee on committed AUM + 20% carry on realised returns. See Form ADV for actual schedule.', tier: 'B', source: 'GP fund economics', url: advUrl });
+    return out;
+  }
+  const r = await fetchJSON<IapdFirmDetail>(
+    `https://api.adviserinfo.sec.gov/IAPD/Content/CommonRefData/firms/${crd}/`,
+    { headers: { Accept: 'application/json' }, timeoutMs: 10000 },
+  );
+  const aum = r.data?.firm?.totalRegulatoryAssets ?? r.data?.firm?.regulatoryAum ?? r.data?.firm?.aum ?? r.data?.regulatoryAum ?? r.data?.aumAmount;
+  if (aum && aum > 0) {
+    out.companyFields.push({ label: 'AUM — regulatory (Form ADV)', value: fmtUsd(aum), tier: 'A', source: 'GP fund economics', url: advUrl });
+    out.companyFields.push({ label: 'Fund economics (2/20 model)', value: `AUM ${fmtUsd(aum)} → 2% mgmt fee ≈ ${fmtUsd(aum * 0.02)}/yr · 20% carry on realised gains. Actual fee schedule on Form ADV.`, tier: 'B', source: 'GP fund economics', url: advUrl });
+    out.steps.push(step('GP fund economics', `CRD ${crd}`, r, `AUM ${fmtUsd(aum)}`));
+  } else {
+    out.companyFields.push({ label: 'Fund economics (RIA, 2/20 heuristic)', value: `Registered investment adviser (CRD ${crd}). AUM not resolved from IAPD — see Form ADV. Typical: 2% mgmt fee + 20% carry.`, tier: 'B', source: 'GP fund economics', url: advUrl });
+    out.steps.push(step('GP fund economics', `CRD ${crd}`, r, 'AUM not in IAPD response'));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3 post-parallel — Founder equity economics (E3).
+// Uses Form D filing count (from secEdgarEnrich via companyFields) to estimate
+// founder dilution stage and residual equity band. No new network call.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DILUTION_STAGES = [
+  { label: 'Seed',     pct: 15 },
+  { label: 'Series A', pct: 22 },
+  { label: 'Series B', pct: 22 },
+  { label: 'Series C', pct: 18 },
+  { label: 'Series D+', pct: 15 },
+];
+
+function founderEconomicsEnrich(ctx: ReportCtx, companyFields: Field[]): SourceContribution {
+  const out: SourceContribution = { source: 'Founder economics', personFields: [], companyFields: [], signals: [], steps: [] };
+  const formDField = companyFields.find((f) => f.label === 'Form D raises (private funding filed)');
+  if (!formDField) {
+    out.steps.push({ step: 'Founder economics', input: ctx.company ?? '', output: 'Skipped — no Form D filings', durationMs: 0, ok: false });
+    return out;
+  }
+  const roundM = formDField.value.match(/^(\d+)\s+filing/i);
+  const roundCount = Math.min(roundM ? parseInt(roundM[1], 10) : 1, DILUTION_STAGES.length);
+  let pool = 100;
+  const stages: string[] = [];
+  for (let i = 0; i < roundCount; i++) {
+    pool *= (1 - DILUTION_STAGES[i].pct / 100);
+    stages.push(DILUTION_STAGES[i].label);
+  }
+  out.companyFields.push({
+    label: `Founder equity proxy (${roundCount} Form D round(s))`,
+    value: [
+      `After ${stages.join(' + ')}: ~${pool.toFixed(1)}% estimated founder pool.`,
+      `Per founder: ~${(pool / 2).toFixed(1)}% (2-founder) · ~${(pool / 3).toFixed(1)}% (3-founder).`,
+      'Heuristic dilution model — actual equity depends on option pool, SAFEs, pro-rata. NOT a verified figure.',
+    ].join(' '),
+    tier: 'C',
+    source: 'Founder economics',
+  });
+  out.steps.push({ step: 'Founder economics', input: ctx.company ?? '', output: `${roundCount} rounds → ~${pool.toFixed(1)}% founder pool`, durationMs: 0, ok: true });
+  return out;
+}
 
 function slugCandidates(ctx: ReportCtx): string[] {
   const set = new Set<string>();
@@ -2398,11 +2834,21 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
   const ghHit = disc.hits.find((h) => /(?:^|\.)github\.com$/i.test(h.host) && /github\.com\/[^/]+$/.test(h.url));
   if (ghHit && !ctx.identifiers.githubLogin) ctx.identifiers.githubLogin = ghHit.url.replace(/.*github\.com\//i, '').split(/[/?#]/)[0];
 
-  // Seed: EDGAR + JSON-LD can discover further identifiers (domain, github).
+  // Seed: EDGAR + JSON-LD can discover further identifiers (domain, github, CIK).
   const seed = await Promise.all([secEdgarEnrich(ctx), jsonldEnrich(ctx)]);
   for (const s of seed) {
     if (s.identifiers?.domain && !ctx.domain) ctx.domain = s.identifiers.domain;
     if (s.identifiers?.githubLogin && !ctx.identifiers.githubLogin) ctx.identifiers.githubLogin = s.identifiers.githubLogin;
+    if (s.identifiers?.secCik && !ctx.identifiers.secCik) ctx.identifiers.secCik = s.identifiers.secCik;
+  }
+
+  // Extract person title from LinkedIn SERP snippet for BLS OEWS salary lookup.
+  if (ctx.kind === 'person' && !ctx.title) {
+    const liHit = disc.hits.find((h) => h.cls === 'linkedin_person');
+    if (liHit) {
+      const m = (liHit.snippet || liHit.title || '').match(/^([^·|]+?)\s+(?:at|@|-)\s+/i);
+      if (m) ctx.title = m[1].trim();
+    }
   }
 
   // Stage B + C — expand footprint and route to type-aware registries.
@@ -2433,6 +2879,9 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
       emailInferEnrich(ctx),
       socialMentionsEnrich(ctx),
       companyTeamEnrich(ctx),
+      blsOewsSalaryEnrich(ctx),
+      dolOflcSalaryEnrich(ctx),
+      propublica990Enrich(ctx),  // employer may be a nonprofit
     ] : []),
     // Company/fund-only
     ...(isCompany ? [
@@ -2442,11 +2891,27 @@ export async function buildReport(identity: Identity, input: ReconInput = {}): P
       hiringEnrich(ctx),
       Promise.resolve(stateSosEnrich(ctx)),
       Promise.resolve(uccEnrich(ctx)),
+      secXbrlRevenueEnrich(ctx),
+      propublica990Enrich(ctx),
+    ] : []),
+  ]);
+
+  // Post-parallel phase: enrichers that need the full output of the parallel
+  // batch (revenue model checks for direct filing revenue; GP economics checks
+  // for an IAPD RIA match; founder economics reads Form D round count).
+  const allSeedCompanyFields = seed.flatMap((c) => c.companyFields);
+  const allRestCompanyFields = rest.flatMap((c) => c.companyFields);
+  const allCompanyFieldsSoFar = [...allSeedCompanyFields, ...allRestCompanyFields];
+  const postParallel = await Promise.all([
+    ...(isCompany ? [
+      gpFundEconomicsEnrich(ctx, allCompanyFieldsSoFar),
+      Promise.resolve(privateRevenueModelEnrich(ctx, allCompanyFieldsSoFar, disc.hits)),
+      Promise.resolve(founderEconomicsEnrich(ctx, allCompanyFieldsSoFar)),
     ] : []),
   ]);
 
   const discContrib: SourceContribution = { source: 'Web search (SearXNG)', personFields: [], companyFields: [], signals: [], steps: disc.steps };
-  const base: SourceContribution[] = [discContrib, footprint, ...seed, ...rest];
+  const base: SourceContribution[] = [discContrib, footprint, ...seed, ...rest, ...postParallel];
 
   // Gate + verify deep-links using what the other sources actually found, so we
   // only surface pointers likely to yield data (noise reduction).
@@ -2565,6 +3030,13 @@ export const ENRICHER_SOURCE_MAP: Record<string, string[]> = {
   socialSearcher:  ['Social Searcher'],
   hiring:          ['Lever', 'Greenhouse'],
   companyTeam:     ['Company site'],
+  secXbrl:         ['SEC XBRL'],
+  propublica990:   ['ProPublica 990 (IRS)'],
+  blsOews:         ['BLS OEWS'],
+  dolOflc:         ['DOL OFLC LCA'],
+  gpEconomics:     ['GP fund economics'],
+  revenueModel:    ['Revenue model (private)'],
+  founderEcon:     ['Founder economics'],
 };
 
 /** Keys whose source labels are completely absent from coveredSources. */
@@ -2633,6 +3105,12 @@ export async function runEnrichersForKeys(keys: string[], ctx: ReportCtx): Promi
     stateSos:        stateSosEnrich,
     ucc:             uccEnrich,
     companyTeam:     companyTeamEnrich,
+    secXbrl:         secXbrlRevenueEnrich,
+    propublica990:   propublica990Enrich,
+    blsOews:         blsOewsSalaryEnrich,
+    dolOflc:         dolOflcSalaryEnrich,
+    // gpEconomics, revenueModel, founderEcon are post-parallel only — need allCompanyFields,
+    // so they cannot be re-run in isolation via runEnrichersForKeys.
   };
   return Promise.all(keys.filter((k) => dispatch[k]).map((k) => Promise.resolve(dispatch[k](ctx))));
 }

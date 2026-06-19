@@ -10,16 +10,11 @@ dist/
 build/
 *.tsbuildinfo
 
-# Local data (staging / permanent stores + runtime state — analyst-only, never committed)
-Tools/recon/data/staging.jsonl
-Tools/recon/data/permanent.jsonl
-Tools/recon/data/entity-links.jsonl
-Tools/recon/data/flags.jsonl
-Tools/recon/data/ofac-sdn.json
-Tools/recon/data/enriched-people.jsonl
-Tools/recon/data/enriched-communities.jsonl
-Tools/recon/data/capture-state.json
-Tools/recon/data/scheduler-state.json
+# Local data (analyst-only OSINT working data + runtime state — never committed).
+# Broad glob so new capture/enrichment outputs can't leak; only README stays tracked.
+Tools/recon/data/*.json
+Tools/recon/data/*.jsonl
+!Tools/recon/data/README.md
 
 # Environment
 .env
@@ -29,10 +24,19 @@ Tools/recon/data/scheduler-state.json
 !.env.local.example
 
 # Personal / LinkedIn export data — never commit
-Design Bridge AI Interface (Copy)/
 My Data/
 Connections.csv
 import_linkedin.py
+
+# Prototype app (tracked; private repo). Exclude its local caches/secrets.
+Design Bridge AI Interface (Copy)/.wrangler/
+Design Bridge AI Interface (Copy)/.env
+
+# Generated PII dumps from the LinkedIn export — never commit. Supabase (people_canonical)
+# is the source of truth; these are local-only offline fallbacks, regenerated from Connections.csv.
+Design Bridge AI Interface (Copy)/src/app/data/network.ts
+Design Bridge AI Interface (Copy)/data/Invitations.csv
+Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 
 # Claude internal session files
 .claude/

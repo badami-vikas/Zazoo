@@ -8,6 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "enrich:linkedin": "tsx scripts/enrich-linkedin.ts",
+    "enrich:washu-board": "tsx scripts/enrich-washu-board.ts",
     "upsert:communities": "tsx scripts/upsert-communities.ts"
   },
   "dependencies": {

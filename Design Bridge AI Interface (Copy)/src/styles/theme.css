@@ -1,0 +1,330 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+
+  /* Bridge Color System - Primary Palette */
+  --color-background: #FAF9F5;
+  --color-surface: #F0EEE8;
+  --color-navy: #1A2B3C;
+  --color-navy-mid: #2E4057;
+  --color-steel: #4D7EA8;
+  --color-steel-light: #7FA5C5;
+
+  /* Bridge Color System - Supporting Palette */
+  --color-warm-gray: #B8B4A8;
+  --color-border: #E2DED5;
+  --color-sage: #6B7C65;
+  --color-amber-soft: #C4955A;
+
+  /* Bridge Color System - Semantic Colors */
+  --color-dormant: #C4955A;
+  --color-warm: #4D7EA8;
+  --color-trust: #6B7C65;
+  --color-neutral: #B8B4A8;
+
+  /* Legacy compatibility mappings */
+  --background: #FAF9F5;
+  --foreground: #1A2B3C;
+  --card: #F0EEE8;
+  --card-foreground: #1A2B3C;
+  --popover: #F0EEE8;
+  --popover-foreground: #1A2B3C;
+  --primary: #4D7EA8;
+  --primary-foreground: #FAF9F5;
+  --secondary: #F0EEE8;
+  --secondary-foreground: #2E4057;
+  --muted: #F0EEE8;
+  --muted-foreground: #B8B4A8;
+  --accent: #7FA5C5;
+  --accent-foreground: #1A2B3C;
+  --destructive: #d4183d;
+  --destructive-foreground: #FAF9F5;
+  --border: #E2DED5;
+  --input: transparent;
+  --input-background: #F0EEE8;
+  --switch-background: #B8B4A8;
+  --ring: #4D7EA8;
+
+  /* Status (Bridge-harmonized; reuse brand hues, dedicated warm-red for danger) */
+  --success: #4F7A52;
+  --warning: #C4955A;
+  --danger: #C0573E;
+  --info: #4D7EA8;
+
+  /* Bridge Spacing Tokens (Cozy default) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+
+  /* Bridge Border Radius */
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-pill: 20px;
+  --radius-avatar: 50%;
+  --radius: 12px;
+
+  /* Bridge Typography */
+  --font-ui: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-editorial: 'Source Serif 4', Georgia, serif;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Bridge Motion */
+  --transition-fast: 200ms ease-out;
+  --transition-gentle: 400ms ease-out;
+  --transition-orbit: 2s ease-in-out;
+
+  /* Sidebar (Bridge palette) */
+  --sidebar: #FAF9F5;
+  --sidebar-foreground: #1A2B3C;
+  --sidebar-primary: #4D7EA8;
+  --sidebar-primary-foreground: #FAF9F5;
+  --sidebar-accent: #F0EEE8;
+  --sidebar-accent-foreground: #2E4057;
+  --sidebar-border: #E2DED5;
+  --sidebar-ring: #4D7EA8;
+
+  /* Charts (Bridge palette) */
+  --chart-1: #4D7EA8;
+  --chart-2: #7FA5C5;
+  --chart-3: #6B7C65;
+  --chart-4: #C4955A;
+  --chart-5: #B8B4A8;
+}
+
+.dark {
+  /* Bridge dark — warm navy-charcoal, not neutral gray. NOTE: overrides the --color-* brand tokens too,
+     because components read them directly (var(--color-navy) etc.) — that omission is why dark was broken. */
+  --color-background: #10151B;
+  --color-surface: #1A2129;
+  --color-navy: #ECEAE3;          /* "ink" inverts to warm off-white (token named for hue, used as heading ink) */
+  --color-navy-mid: #C7CBD1;
+  --color-steel: #6B9BC4;         /* lifted for contrast on dark */
+  --color-steel-light: #8FB4D2;
+  --color-warm-gray: #8A8A82;
+  --color-border: #2A323C;
+  --color-sage: #8BA085;
+  --color-amber-soft: #D4A968;
+  --color-dormant: #D4A968;
+  --color-warm: #6B9BC4;
+  --color-trust: #8BA085;
+  --color-neutral: #8A8A82;
+
+  --background: #10151B;
+  --foreground: #ECEAE3;
+  --card: #1A2129;
+  --card-foreground: #ECEAE3;
+  --popover: #1A2129;
+  --popover-foreground: #ECEAE3;
+  --primary: #6B9BC4;
+  --primary-foreground: #10151B;
+  --secondary: #1A2129;
+  --secondary-foreground: #ECEAE3;
+  --muted: #1A2129;
+  --muted-foreground: #8A8A82;
+  --accent: #8FB4D2;
+  --accent-foreground: #10151B;
+  --destructive: #E5677A;
+  --destructive-foreground: #10151B;
+  --border: #2A323C;
+  --input: transparent;
+  --input-background: #1A2129;
+  --switch-background: #3A424C;
+  --ring: #6B9BC4;
+
+  --success: #7FA882;
+  --warning: #D4A968;
+  --danger: #E5677A;
+  --info: #6B9BC4;
+
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+
+  --chart-1: #6B9BC4;
+  --chart-2: #8FB4D2;
+  --chart-3: #8BA085;
+  --chart-4: #D4A968;
+  --chart-5: #8A8A82;
+
+  --sidebar: #10151B;
+  --sidebar-foreground: #ECEAE3;
+  --sidebar-primary: #6B9BC4;
+  --sidebar-primary-foreground: #10151B;
+  --sidebar-accent: #1A2129;
+  --sidebar-accent-foreground: #ECEAE3;
+  --sidebar-border: #2A323C;
+  --sidebar-ring: #6B9BC4;
+}
+
+@theme inline {
+  /* Bridge Color System - expose as Tailwind colors */
+  --color-bridge-background: #FAF9F5;
+  --color-bridge-surface: #F0EEE8;
+  --color-bridge-navy: #1A2B3C;
+  --color-bridge-navy-mid: #2E4057;
+  --color-bridge-steel: #4D7EA8;
+  --color-bridge-steel-light: #7FA5C5;
+  --color-bridge-warm-gray: #B8B4A8;
+  --color-bridge-border: #E2DED5;
+  --color-bridge-sage: #6B7C65;
+  --color-bridge-amber-soft: #C4955A;
+  --color-bridge-dormant: #C4955A;
+  --color-bridge-warm: #4D7EA8;
+  --color-bridge-trust: #6B7C65;
+  --color-bridge-neutral: #B8B4A8;
+
+  /* Legacy mappings */
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Status (expose as bg-success / text-danger / etc.) */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  /* Bridge Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+    outline-color: rgb(from var(--color-steel) r g b / 0.5);
+  }
+
+  body {
+    @apply text-foreground;
+    background-color: var(--color-background);
+    font-family: var(--font-ui);
+    transition: background-color var(--transition-fast);
+  }
+
+  /**
+  * Bridge Typography System
+  * - Source Serif 4 for headings, names, relationship context
+  * - Geist for UI, labels, data, metadata
+  */
+
+  html {
+    font-size: var(--font-size);
+  }
+
+  /* Page titles - Source Serif 4 */
+  h1 {
+    font-family: var(--font-editorial);
+    font-size: 32px;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--color-navy);
+  }
+
+  /* Section headings - Source Serif 4 */
+  h2 {
+    font-family: var(--font-editorial);
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-navy);
+  }
+
+  /* Card headings / Names - Source Serif 4 */
+  h3 {
+    font-family: var(--font-editorial);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--color-navy);
+  }
+
+  /* Subheadings - Source Serif 4 */
+  h4 {
+    font-family: var(--font-editorial);
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--color-navy-mid);
+  }
+
+  /* Body text - Geist */
+  p {
+    font-family: var(--font-ui);
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--color-navy-mid);
+  }
+
+  /* Labels - Geist */
+  label {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--color-navy-mid);
+  }
+
+  /* Buttons - Geist */
+  button {
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    transition: all var(--transition-fast);
+  }
+
+  /* Inputs - Geist */
+  input, textarea, select {
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+    transition: all var(--transition-fast);
+  }
+
+  /* Smooth transitions for interactive elements */
+  a, button, [role="button"] {
+    transition: all var(--transition-fast);
+  }
+}

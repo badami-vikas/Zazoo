@@ -92,3 +92,93 @@ OpenSanctions just aggregates primary sources; we pick the free ones directly.
   the permanent DB.
 - **Monitoring cron** — watch a subject → diff against permanent DB → emit Signals
   (Bridge Ritual pattern). The correct use of scheduling (not link-checking).
+
+---
+
+## D. Revenue estimator (communities / companies)
+
+**Design constraint:** the median recon subject is a *private* company — no exact revenue
+is legally disclosed. The estimator therefore has two layers: (1) direct-from-filing where
+it exists, free; (2) modeled band from signals already pulled. Output shape for both:
+`{ band, confidence_tier, method, inputs[with provenance] }` — never a fabricated point
+number.
+
+### D1 — Direct data (public cos, nonprofits, govcon) — Tier A
+
+| Source | Access | Yields | Notes |
+|---|---|---|---|
+| **SEC XBRL — CompanyConcept / Frames** (`data.sec.gov/api/xbrl/companyconcept/{CIK}/us-gaap/Revenues.json`) | JSON, keyless | Actual `Revenues`/`RevenueFromContractWithCustomerExcludingAssessedTax` time-series | Same host as EDGAR (already wired). Public cos only; exact. Add `RevenueFromContract…` as fallback concept. |
+| **IRS Form 990 → ProPublica Nonprofit Explorer** (`projects.propublica.org/nonprofits/api/v2/organizations/{EIN}.json`) | JSON, **keyless** | Actual revenue, expenses, net assets for all US nonprofits/foundations/endowments | ⭐ Directly relevant: foundation + endowment LPs. EIN from EDGAR EDGAR FTS or direct search. |
+| **USAspending.gov** (already wired) | JSON | Federal contract $ → **revenue floor** for govcon vendors | Already in tool — surface `award_amount` as a revenue signal with `method: "govcon_floor"`. |
+| **UK Companies House** (`api.company-information.service.gov.uk`) | JSON, free + 1 key | Filed annual accounts; turnover for many private UK cos | One free key; widens reach to UK private cos. Phase 2. |
+
+### D2 — Modeled estimate (private long-tail) — Tier B/C
+
+Works for any company; uses signals recon already pulls.
+
+| Model | Inputs (already in recon) | Output |
+|---|---|---|
+| **Headcount × Revenue-per-Employee** | LinkedIn snippet employee band ("51–200"), Greenhouse/Lever open-role count, team-page count | RPE table keyed by sector (SaaS ~$150–250k/FTE, services lower, marketplaces by GMV). Ship table as `data/rpe-benchmarks.json`, cite source (Iconiq/Meritech public benchmarks). |
+| **Funding-stage proxy** | SEC Form D raise amount (already pulled), ADV AUM | Stage → revenue band prior. Form D = capital raised, not revenue — use as band prior, label clearly. |
+| **Hiring-velocity nudge** | Greenhouse/Lever role count delta over time (already Phase-2 built) | Nudges band ±1 tier. Momentum signal, not anchor. |
+| **Tech-tier hint** | Wappalyzer fingerprint (already have) | Shopify Plus / Salesforce / enterprise CDN → spend-tier prior. Weak; Tier C only. |
+
+### D3 — Paid moat (skip — their mechanism IS D2 above)
+
+Growjo, Owler, PitchBook, Crunchbase, BuiltWith, Similarweb all do headcount×RPE +
+funding-stage — exactly what D2 rebuilds free. Route around them per recon's ethos.
+Connected Apollo/ZoomInfo MCPs are the "if you ever pay" fallback; note them in the
+report footer but don't call them from the tool.
+
+---
+
+## E. Salary estimator (people)
+
+Same two-layer design. Critically: **subject-type-aware** — a GP/founder's economics are
+carry + equity, not W-2 salary. Switch model by subject type.
+
+### E1 — Real disclosed wages — Tier A
+
+| Source | Access | Yields | Notes |
+|---|---|---|---|
+| **DOL OFLC H-1B LCA + PERM disclosure data** (`flcdatacenter.com` bulk CSVs, mirrors: `h1bdata.info`, `myvisajobs.com`) | Bulk download / queryable, **free public** | Actual offered wages by employer + job title + worksite state | ⭐ Best free salary source. Any visa-sponsoring employer → real comp keyed to role+geo. Recon already has employer+title+location. Match on `EMPLOYER_NAME` + `JOB_TITLE` → `WAGE_RATE_OF_PAY`. Cache the current fiscal-year CSV (`data/oflc-lca.csv`, ~200 MB; filter at ingest to employer+title only). |
+| **BLS OEWS API** (`api.bls.gov/publicAPI/v2/timeseries/data/`) | JSON, **keyless** (keyed for bulk) | Wage percentiles (10/25/50/75/90) by SOC occupation + metro area | Backbone benchmark. Need a title→SOC mapper (small lookup table for common VC-world roles). |
+| **SEC DEF 14A proxy statements** (EDGAR full-text search — already wired) | JSON | Exact named-executive-officer comp for public cos | Already in tool's FTS reach. Search `DEF 14A` filings for subject's CIK. Public-co execs only; exact. |
+| **IRS Form 990 (ProPublica — same as D1)** | JSON, keyless | Exact comp of nonprofit's highest-paid staff + officers | Relevant for foundation/endowment people (LP-side). Same API call as D1; no new dep. |
+
+### E2 — Modeled band (title × company-tier × geo) — Tier B/C
+
+Inputs already in recon: **title/seniority + employer + location** (LinkedIn snippet).
+- Take BLS OEWS percentile for the closest SOC + metro as the baseline.
+- Apply a company-tier adjuster from DOL LCA data for that employer (or sector median if
+  no employer match).
+- Output: `{ band: "$180k–$240k", confidence: "B", method: "OEWS+LCA_blend", inputs: [...] }`.
+
+**Levels.fyi / Glassdoor / Payscale** — the data you'd want, all scrape-walled or paid.
+Don't build on them. OEWS + DOL LCA gives a free, legally-sourced equivalent.
+
+### E3 — Subject-type-aware economics (GPs / founders) — Tier B, high value
+
+For the actual recon subjects (GPs/founders), W-2 salary is the wrong metric. Switch:
+
+| Subject type | Model | Inputs (already pulled) |
+|---|---|---|
+| **GP / RIA** | AUM → management-fee math (2/20 heuristic → fee revenue → GP economics band) | Form ADV / IAPD AUM (already wired). |
+| **Founder** | Equity-value proxy from latest raise + dilution stage | Form D raise amount + round stage (already wired). |
+| **Salaried (employee)** | OEWS + DOL LCA blend (E1/E2 above) | Title + employer + location. |
+
+This switcher makes the estimator far more useful for relationship intelligence than a
+generic salary number, and all inputs are from sources already in the tool.
+
+### E4 — Phasing
+
+| Phase | What to build | Status |
+|---|---|---|
+| **Phase 2** | SEC XBRL revenue (D1) + ProPublica 990 (D1 + E1) — piggyback on EDGAR plumbing. | **BUILT** — `secXbrlRevenueEnrich` + `propublica990Enrich`; Tier A direct-filing data. |
+| **Phase 2** | BLS OEWS benchmark (E2) + title→SOC lookup table (hardcoded, May 2024 data). | **BUILT** — `blsOewsSalaryEnrich`; 31-role table; title extracted from LinkedIn snippet. |
+| **Phase 3** | GP / RIA fund economics (E3): AUM from IAPD → 2/20 fee model. Post-parallel. | **BUILT** — `gpFundEconomicsEnrich`; tries IAPD firm-detail endpoint; degrades to model note. |
+| **Phase 3** | Founder equity proxy (E3): Form D round count → dilution model. Post-parallel. | **BUILT** — `founderEconomicsEnrich`; uses Form D count from `secEdgarEnrich` companyFields. |
+| **Phase 3** | Revenue model for private companies (D2): headcount × RPE by sector. Post-parallel. | **BUILT** — `privateRevenueModelEnrich`; LinkedIn company snippet headcount × RPE table; 7 sectors; skips if direct filing revenue found. |
+| **Phase 3** | DOL OFLC H-1B LCA salary (E1): actual offered wages by employer + job title. | **BUILT** — `dolOflcSalaryEnrich`; uses h1bdata.info keyless JSON API (re-publishes DOL FLC Data Center data); Tier A where matched. |
+| **Phase 4** | DOL OFLC full-year CSV cache (`data/oflc-lca.csv`) — local lookup, weekly refresh, no reliance on h1bdata.info. Add `scripts/seed-oflc.ts` using DOL XLSX download. | Deferred — needs `xlsx` devDependency + ~200MB seed step. |
+| **Phase 4** | SEC DEF 14A proxy comp (E1) — EDGAR FTS already wired; needs DEF 14A form-type filter + HTML Summary Compensation Table parser. | Deferred — complex HTML parsing; public-company executives only. |
