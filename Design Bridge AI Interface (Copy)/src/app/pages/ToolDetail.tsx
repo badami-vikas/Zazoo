@@ -4,6 +4,7 @@ import { ChevronRight, Pin, PinOff, Check, Eye, Radio, Inbox, Plus, X, ShieldChe
 import { toolById, type Tool } from '../data/tools';
 import { usePinnedTools } from '../Layout';
 import CardScanner from '../components/tools/cardscanner/CardScanner';
+import Camera from '../components/tools/camera/Camera';
 import { loadPendingCaptures, adoptCapture, dismissCapture, type ToolCapture, type CaptureSource } from '../data/toolCaptures';
 
 // ── Pending captures panel (internalized capture-tools) ────────────────────────
@@ -216,6 +217,12 @@ export function ToolDetail() {
             <CardScanner />
           </div>
         )}
+        {/* Native Camera — capture + the local governed captures panel render together */}
+        {tool.id === 'camera' && (
+          <div className="border-b shrink-0" style={{ borderColor: 'var(--color-border)' }}>
+            <Camera />
+          </div>
+        )}
         {/* Embedded tool (iframe) — for other runnable apps that still run standalone */}
         {tool.id !== 'card-scanner' && tool.appUrl && <EmbeddedTool tool={tool} />}
 
@@ -238,8 +245,8 @@ export function ToolDetail() {
             </div>
           </div>
 
-          {/* Pending captures (internalized capture-tools) */}
-          {tool.intake && <ToolCapturesPanel color={tool.color} toolId={tool.id} />}
+          {/* Pending captures — Supabase intake panel for card-scanner/recorder; camera uses its own LOCAL panel (inside <Camera/>) */}
+          {tool.intake && tool.id !== 'camera' && <ToolCapturesPanel color={tool.color} toolId={tool.id} />}
 
           {/* Capabilities */}
           <div>
