@@ -7,6 +7,10 @@ import type {
   EphemeralQuery,
   EventBus,
   LedgerStore,
+  LocalMediaStore,
+  MediaCaptureRecord,
+  MediaKind,
+  MediaStatus,
   PolicyEvalInput,
   PolicyStore,
   RitualDefinition,
@@ -157,6 +161,61 @@ export class InMemoryEventBus implements EventBus {
   readonly events: DomainEvent[] = [];
   async emit(event: DomainEvent): Promise<void> {
     this.events.push(event);
+  }
+}
+
+/**
+ * In-memory LOCAL-plane media store — blobs live in a Map, never crossing the gate.
+ * The pglite (bytea) adapter in `@bridge/db` binds the same `LocalMediaStore` port.
+ * Append-only put (duplicate id throws); blob + identity fields immutable on update;
+ * archive() is a soft delete.
+ */
+export class InMemoryMediaStore implements LocalMediaStore {
+  readonly records = new Map<string, MediaCaptureRecord>();
+  readonly blobs = new Map<string, Uint8Array>();
+
+  async put(rec: MediaCaptureRecord, blob: Uint8Array): Promise<MediaCaptureRecord> {
+    if (this.records.has(rec.id)) {
+      throw new Error(`media: duplicate id ${rec.id} (append-only violation)`);
+    }
+    this.records.set(rec.id, { ...rec });
+    this.blobs.set(rec.id, blob);
+    return { ...rec };
+  }
+  async get(id: string): Promise<MediaCaptureRecord | null> {
+    const r = this.records.get(id);
+    return r ? { ...r } : null;
+  }
+  async getBlob(id: string): Promise<Uint8Array | null> {
+    return this.blobs.get(id) ?? null;
+  }
+  async list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]> {
+    return [...this.records.values()]
+      .filter((r) => (filter?.status ? r.status === filter.status : true))
+      .filter((r) => (filter?.kind ? r.kind === filter.kind : true))
+      .filter((r) => (filter?.workspaceId ? r.workspaceId === filter.workspaceId : true))
+      .map((r) => ({ ...r }));
+  }
+  async update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord> {
+    const r = this.records.get(id);
+    if (!r) throw new Error(`media: no record ${id}`);
+    // Blob + identity fields are immutable; ignore any attempt to change them.
+    const next: MediaCaptureRecord = {
+      ...r,
+      ...patch,
+      id: r.id,
+      workspaceId: r.workspaceId,
+      kind: r.kind,
+      mimeType: r.mimeType,
+      byteSize: r.byteSize,
+    };
+    this.records.set(id, next);
+    return { ...next };
+  }
+  async archive(id: string): Promise<void> {
+    const r = this.records.get(id);
+    if (!r) throw new Error(`media: no record ${id}`);
+    this.records.set(id, { ...r, status: "archived", archivedAt: "1970-01-01T00:00:00.000Z" });
   }
 }
 
