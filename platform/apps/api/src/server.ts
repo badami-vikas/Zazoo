@@ -10,7 +10,7 @@ import { makeContextFactory } from "./context.js";
 import { buildWiring } from "./wiring.js";
 
 export async function buildServer() {
-  const wiring = buildWiring();
+  const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
   const app = Fastify({ logger: true, maxParamLength: 5000 });
