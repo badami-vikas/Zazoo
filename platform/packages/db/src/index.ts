@@ -13,6 +13,14 @@ export {
   DrizzlePolicyStore,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export {
+  DrizzleIntegrationStore,
+  IntegrationFloorScopeError,
+  ALWAYS_APPROVAL_SCOPES,
+  INTEGRATION_ACTOR_TYPE,
+  type IntegrationRow,
+  type ScopeGrant,
+} from "./integration-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";
