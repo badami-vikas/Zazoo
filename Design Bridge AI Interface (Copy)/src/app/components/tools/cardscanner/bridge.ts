@@ -12,6 +12,7 @@
 
 import type { CardData } from './types';
 import { CARD_SCANNER_MANIFEST } from './tool-manifest';
+import { supabase } from '../../../lib/supabase';
 
 const OUTBOX_KEY = 'card-scanner-bridge-outbox-v1';
 

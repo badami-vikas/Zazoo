@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router';
-import { BookOpen, Search, ExternalLink, Pin, PinOff, Star, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Search, ExternalLink, Pin, PinOff, Star, ChevronRight, Plus, Trash2, Download } from 'lucide-react';
+import { exportRowsToCsv } from '../lib/exportTable';
 import { usePinnedTools } from '../Layout';
 import { loadCanonicalResources, type PeopleSource } from '../data/db';
 import { resources as localResources, type NetworkResource } from '../data/resources.generated';
@@ -125,6 +126,26 @@ export function ResourcesPage() {
         <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
           <button onClick={addEntry} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg text-white shadow-sm transition-transform active:scale-95" style={{ backgroundColor: 'var(--color-steel)' }}>
             <Plus className="w-3.5 h-3.5" /> Add entry
+          </button>
+          <button
+            onClick={() => exportRowsToCsv(
+              filtered,
+              [
+                { id: 'type', label: 'Type' },
+                { id: 'author', label: 'Author / Host' },
+                { id: 'tags', label: 'Topics' },
+                { id: 'rating', label: 'Rating' },
+                { id: 'yearPublished', label: 'Year' },
+                { id: 'notes', label: 'Notes' },
+                { id: 'url', label: 'URL' },
+              ],
+              'resources-export.csv',
+            )}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border shadow-sm transition-colors hover:bg-[var(--color-surface)]"
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
+            title="Export visible rows to CSV"
+          >
+            <Download className="w-3.5 h-3.5" /> Export
           </button>
           <div className="relative shrink flex-1 max-w-[320px] min-w-[160px]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />

@@ -64,7 +64,7 @@ export function IntelligencePage() {
   };
 
   const getCurrentData = () => {
-    let data;
+    let data: any[];
     switch (activeTab) {
       case 'Agents': data = agentsData; break;
       case 'Skills': data = skillsData; break;

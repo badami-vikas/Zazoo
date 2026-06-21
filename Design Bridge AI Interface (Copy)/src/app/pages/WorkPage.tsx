@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Table, Kanban, Calendar, Search, Filter, ArrowUpDown, Plus, MoreVertical, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, ListIcon, Target, Repeat, PenTool, Trash2, X } from 'lucide-react';
+import { Table, Kanban, Calendar, Search, Filter, ArrowUpDown, Plus, MoreVertical, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, ListIcon, Target, Repeat, PenTool, Trash2, X, Download } from 'lucide-react';
+import { exportRowsToCsv } from '../lib/exportTable';
 import { motion, AnimatePresence } from 'motion/react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from 'react-router';
@@ -86,7 +87,7 @@ export function WorkPage() {
   };
 
   const getCurrentData = () => {
-    let data;
+    let data: any[];
     switch (activeTab) {
       case 'Initiatives': data = initiatives; break;
       case 'Rituals': data = ritualsData; break;
@@ -387,6 +388,22 @@ export function WorkPage() {
               <span className="@[850px]:inline hidden">Sort</span>
             </button>
 
+            <button
+              onClick={() => {
+                const fields = activeTab === 'Initiatives'
+                  ? [{ id: 'status', label: 'Status' }, { id: 'progress', label: 'Progress %' }, { id: 'owner', label: 'Owner' }, { id: 'deadline', label: 'Deadline' }, { id: 'list', label: 'List' }]
+                  : activeTab === 'Rituals'
+                  ? [{ id: 'frequency', label: 'Frequency' }, { id: 'nextRun', label: 'Next Run' }, { id: 'status', label: 'Status' }, { id: 'list', label: 'List' }]
+                  : [{ id: 'category', label: 'Category' }, { id: 'lastUsed', label: 'Last Used' }, { id: 'usageCount', label: 'Usage Count' }, { id: 'list', label: 'List' }];
+                exportRowsToCsv(mockData, fields, `${activeTab.toLowerCase()}-export.csv`);
+              }}
+              className="@[550px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
+              style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+              title="Export to CSV"
+            >
+              <Download className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
+              <span className="@[850px]:inline hidden">Export</span>
+            </button>
             {activeTab === 'Initiatives' && (
               <button onClick={() => setCreateOpen(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap" style={{ backgroundColor: 'var(--color-steel)' }}>
                 <Plus className="w-3.5 h-3.5" /> <span className="@[700px]:inline hidden">New initiative</span>

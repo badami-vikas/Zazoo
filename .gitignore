@@ -35,6 +35,8 @@ Design Bridge AI Interface (Copy)/.env
 # Generated PII dumps from the LinkedIn export — never commit. Supabase (people_canonical)
 # is the source of truth; these are local-only offline fallbacks, regenerated from Connections.csv.
 Design Bridge AI Interface (Copy)/src/app/data/network.ts
+Design Bridge AI Interface (Copy)/src/app/data/dbSignals.ts
+Design Bridge AI Interface (Copy)/src/app/data/reconStaging.ts
 Design Bridge AI Interface (Copy)/data/Invitations.csv
 Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 

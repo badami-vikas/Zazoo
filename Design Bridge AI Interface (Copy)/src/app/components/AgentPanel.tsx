@@ -194,13 +194,13 @@ export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed,
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.1 }}
                 className="flex flex-col gap-1 text-xs text-[var(--color-navy-mid)] font-medium px-3 py-2 rounded-lg bg-white border border-[var(--color-border)] shadow-sm transition-all hover:border-[var(--color-steel-light)]/30 hover:shadow-md"
-                onMouseEnter={() => msg.refId && setHighlightedRowId(msg.refId)}
-                onMouseLeave={() => msg.refId && setHighlightedRowId(null)}
+                onMouseEnter={() => (msg as any).refId && setHighlightedRowId((msg as any).refId)}
+                onMouseLeave={() => (msg as any).refId && setHighlightedRowId(null)}
               >
                 <div className="flex items-center gap-2">
-                  <Activity className={clsx("w-3.5 h-3.5 shrink-0", msg.refId ? "text-[var(--color-steel-light)] animate-pulse" : "text-[var(--color-warm-gray)]")} />
+                  <Activity className={clsx("w-3.5 h-3.5 shrink-0", (msg as any).refId ? "text-[var(--color-steel-light)] animate-pulse" : "text-[var(--color-warm-gray)]")} />
                   <span className={clsx(
-                    msg.refId && "cursor-pointer text-[var(--color-navy-mid)] font-semibold border-b border-dashed border-[var(--color-steel-light)] hover:text-[var(--color-steel-light)] hover:border-solid transition-all"
+                    (msg as any).refId && "cursor-pointer text-[var(--color-navy-mid)] font-semibold border-b border-dashed border-[var(--color-steel-light)] hover:text-[var(--color-steel-light)] hover:border-solid transition-all"
                   )}>
                     {msg.text}
                   </span>

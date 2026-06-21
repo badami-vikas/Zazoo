@@ -33,7 +33,7 @@ export interface LedgerEntry {
   delegationId?: string | null;
   runId?: string | null;
   action: string;        // verb, e.g. "Send intro email"
-  resourceType: 'person' | 'initiative' | 'community' | 'ritual' | 'external';
+  resourceType: 'person' | 'initiative' | 'community' | 'ritual' | 'external' | 'memory' | 'help';
   resource: string;      // target label, e.g. "Priya Anand"
   policy: string;        // the policy that forced review (policies.name)
   decision: Decision;    // null === pending (awaiting review)
