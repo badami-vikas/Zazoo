@@ -12,6 +12,7 @@ export {
   DrizzlePolicyStore,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";
