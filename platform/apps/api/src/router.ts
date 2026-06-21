@@ -5,10 +5,13 @@
  * (backlog #24): nothing reaches the pipeline unvalidated. Procedures are thin —
  * all governance lives in the pipeline, not here.
  */
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
 import type { Action, ActorType, DataScope, OnBehalfOf, ResourceType, RunContext } from "@bridge/core";
+import { getIntegrationStore } from "./social/integration-service.js";
+import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
 
@@ -222,6 +225,87 @@ export const appRouter = t.router({
         ctx.run,
       );
     }),
+  }),
+
+  /**
+   * Integration management — connected providers and their USER-EDITABLE scopes.
+   * Backed by the governed integration store on the LOCAL plane. Granting an
+   * agent-floor DENY scope (external:send, network_graph:full) is refused here.
+   */
+  integration: t.router({
+    /** The platforms Bridge can connect, with their declared OAuth scopes. */
+    providers: t.procedure.query(() =>
+      listProviderIds().map((id) => ({ id, oauthScopes: oauthScopesFor(id) })),
+    ),
+
+    list: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        return store.list(input.workspaceId);
+      }),
+
+    connect: t.procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          provider: z.enum(["x", "instagram", "facebook", "linkedin"]),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        return store.connect(input.workspaceId, input.provider, oauthScopesFor(input.provider));
+      }),
+
+    disconnect: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
+      .mutation(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        await store.disconnect(input.workspaceId, input.integrationId);
+        return { ok: true };
+      }),
+
+    listScopes: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
+      .query(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        return store.listScopes(input.workspaceId, input.integrationId);
+      }),
+
+    grantScope: t.procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          integrationId: z.string().uuid(),
+          resourceType: z.string().min(1),
+          action: actionEnum,
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        try {
+          return await store.grantScope({
+            workspaceId: input.workspaceId,
+            integrationId: input.integrationId,
+            resourceType: input.resourceType,
+            action: input.action,
+          });
+        } catch (err) {
+          if (err instanceof IntegrationFloorScopeError) {
+            // Agent-floor DENY: surfaced as always-approval, never a standing grant.
+            throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+          }
+          throw err;
+        }
+      }),
+
+    revokeScope: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1), permissionId: z.string().uuid() }))
+      .mutation(async ({ input }) => {
+        const { store } = await getIntegrationStore();
+        await store.revokeScope(input.workspaceId, input.permissionId);
+        return { ok: true };
+      }),
   }),
 });
 
