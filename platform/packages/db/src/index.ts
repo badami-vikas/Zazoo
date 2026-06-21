@@ -4,6 +4,7 @@
  */
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
+export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
   DrizzleRoleStore,
