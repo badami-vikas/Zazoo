@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
-import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Brain, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database } from 'lucide-react';
+import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Brain, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database, X, Save } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
+import { PermissionLayers, type PermissionState } from '../components/PermissionLayers';
+import { apiUpdateAgent } from '../data/api';
 
 // ─── Agent Data ──────────────────────────────────────────────────────────────
 
@@ -153,6 +155,40 @@ export function AgentDetail() {
   const [dataAccess, setDataAccess] = useState<'all' | 'public' | 'private'>('public');
   const [skills, setSkills] = useState(raw.skills);
 
+  // Edit Agent — scope editor reusing the shared layered controls. Seeded from the
+  // agent's current (read-only) authority; least-privilege defaults when unknown.
+  const [editingScope, setEditingScope] = useState(false);
+  const [savingScope, setSavingScope] = useState(false);
+  const [perms, setPerms] = useState<PermissionState>({
+    capabilityScope: [],
+    allowedSkills: [],
+    dataScope: dataAccess,
+    egressTier: 'draft-graph',
+  });
+
+  const openScopeEditor = () => {
+    setPerms((p) => ({ ...p, dataScope: dataAccess }));
+    setEditingScope(true);
+  };
+  const saveScope = async () => {
+    setSavingScope(true);
+    try {
+      await apiUpdateAgent(decoded, {
+        name: raw.name,
+        capabilityScope: perms.capabilityScope,
+        allowedSkills: perms.allowedSkills,
+        dataScope: perms.dataScope,
+        egressTier: perms.egressTier,
+      });
+    } catch {
+      // demo fallback — keep local state
+    } finally {
+      setDataAccess(perms.dataScope);
+      setSavingScope(false);
+      setEditingScope(false);
+    }
+  };
+
   const handleSkillChange = useCallback((skillId: string, val: number) => {
     setSkills((prev: any[]) => prev.map(s => s.id === skillId ? { ...s, strength: val } : s));
   }, []);
@@ -192,7 +228,7 @@ export function AgentDetail() {
           </button>
           <div className="flex items-center gap-2">
             <button className="p-1.5 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] rounded-lg transition-colors"><Copy className="w-4 h-4" /></button>
-            <button className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95">
+            <button onClick={openScopeEditor} className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95">
               <Edit2 className="w-3.5 h-3.5" /> Edit Agent
             </button>
           </div>
@@ -473,6 +509,44 @@ export function AgentDetail() {
 
         </div>
       </div>
+
+      {/* ── Edit Agent — layered scope editor (shared PermissionLayers) ─── */}
+      <AnimatePresence>
+        {editingScope && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+            onClick={() => setEditingScope(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              className="bg-white rounded-2xl shadow-2xl border border-[var(--color-border)] w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] shrink-0">
+                <div>
+                  <h2 className="font-bold text-[var(--color-navy)]">Edit agent scope</h2>
+                  <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">Adjust {raw.name}'s layered authority. Least-privilege; agent-floor denials are non-removable.</p>
+                </div>
+                <button onClick={() => setEditingScope(false)} className="p-1.5 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] rounded-lg transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto px-6 py-5">
+                <PermissionLayers value={perms} onChange={setPerms} />
+              </div>
+              <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[var(--color-border)] shrink-0">
+                <button onClick={() => setEditingScope(false)} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] transition-colors">
+                  Cancel
+                </button>
+                <button onClick={saveScope} disabled={savingScope} className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95 disabled:opacity-50">
+                  <Save className="w-3.5 h-3.5" /> {savingScope ? 'Saving…' : 'Save scope'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

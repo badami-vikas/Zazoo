@@ -34,6 +34,16 @@ async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
   return body?.result?.data as T;
 }
 
+// One unbatched tRPC query (GET). Input rides in the `?input=` query param.
+async function query<T = unknown>(path: string, input?: unknown): Promise<T> {
+  const url = input === undefined ? `${TRPC}/${path}` : `${TRPC}/${path}?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await fetch(url);
+  const body = await res.json().catch(() => ({}));
+  if (body?.error) throw new Error(body.error?.message || body.error?.json?.message || `trpc ${path} error`);
+  if (!res.ok) throw new Error(`trpc ${path} HTTP ${res.status}`);
+  return body?.result?.data as T;
+}
+
 interface ProposeResult {
   id: string;
   status: 'pending_review' | 'applied' | 'rejected';
@@ -103,4 +113,145 @@ export async function apiDecide(
     ...(verb === 'edit' && editedOutput !== undefined ? { editedOutput } : {}),
   });
   return true;
+}
+
+// ── Gmail + Google Calendar integration ───────────────────────────────────────
+// All default OFF (no VITE_API_URL → null), so the prototype renders a "connect a
+// platform API" state instead of erroring. The platform is the only writer.
+
+export interface IntegrationConnection {
+  connected: boolean;
+  scopes: string[];
+  connectedAt?: string;
+}
+export interface IntegrationListResult {
+  oauthConfigured: boolean;
+  gatewayKind: 'google' | 'fake';
+  integrationId: string;
+  connection: IntegrationConnection;
+  surfaces: { provider: string; name: string }[];
+  manifest: {
+    capabilities: { resourceType: string; action: string; dataScope: string; egress: boolean }[];
+    output_contract: { from: string; to: string; note?: string }[];
+    intake_policy: { quarantine: boolean; commit_via: string };
+  };
+}
+export interface IntakeProposalSummary {
+  proposalId: string;
+  status: string;
+  resourceType: string;
+  sourceRecordId: string;
+  match: 'linked' | 'new' | 'ambiguous';
+  resource: string;
+}
+export interface IntakeResult {
+  source: string;
+  sourced: number;
+  fetchProposalId: string;
+  proposals: IntakeProposalSummary[];
+}
+
+/** Live connection + manifest for the Google integration. null when API disabled. */
+export async function apiIntegrationList(): Promise<IntegrationListResult | null> {
+  if (!API_ENABLED) return null;
+  return query<IntegrationListResult>('integration.list');
+}
+
+/** Get the Google consent URL (read+write, offline). Caller redirects the browser. */
+export async function apiConnectGoogle(): Promise<{ url: string | null; error?: string } | null> {
+  if (!API_ENABLED) return null;
+  return mutate<{ url: string | null; error?: string }>('integration.connectUrl', {});
+}
+
+export async function apiDisconnectGoogle(): Promise<boolean> {
+  if (!API_ENABLED) return false;
+  await mutate('integration.disconnect', {});
+  return true;
+}
+
+/** Source Gmail through the gate → returns the Touchpoint/Memory/Signal proposals. */
+export async function apiSyncGmail(maxResults?: number): Promise<IntakeResult | null> {
+  if (!API_ENABLED) return null;
+  return mutate<IntakeResult>('integration.syncGmail', maxResults ? { maxResults } : {});
+}
+
+export async function apiSyncCalendar(maxResults?: number): Promise<IntakeResult | null> {
+  if (!API_ENABLED) return null;
+  return mutate<IntakeResult>('integration.syncCalendar', maxResults ? { maxResults } : {});
+}
+
+/** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2 approval). */
+export async function apiProposeSend(
+  kind: 'email' | 'calendar',
+  envelope: Record<string, unknown>,
+): Promise<{ id: string; status: string } | null> {
+  if (!API_ENABLED) return null;
+  return mutate<{ id: string; status: string }>('integration.proposeSend', { kind, envelope });
+}
+
+// ── Agent + Ritual authoring (layered, gated permissions) ──────────────────────
+// All default OFF (no VITE_API_URL → null), so the create/edit pages fall back to local
+// state and stay demoable. When the API is up, these route through the governed pipeline,
+// which is the only writer of agent authority + ritual definitions.
+//
+// agent-floor (external:send DENY, action:approve DENY) and the ritual ⊆ agent scope
+// constraint are re-enforced server-side regardless of what the UI sends.
+
+export type AgentDataScope = 'all' | 'public' | 'private';
+export type AgentEgressTier = 'none' | 'read-graph' | 'draft-graph' | 'source-internet';
+
+export interface AgentPermissionInput {
+  name: string;
+  capabilityScope: string[];
+  allowedSkills: string[];
+  dataScope: AgentDataScope;
+  egressTier: AgentEgressTier;
+}
+
+export interface AgentRecord {
+  agentId: string;
+  name: string;
+  capabilityScope: string[];
+  allowedSkills: string[];
+  dataScope: AgentDataScope;
+  egressTier: AgentEgressTier;
+}
+
+export interface RitualStepInput {
+  skill: string;
+  action: string;
+  resourceType: string;
+  dataScope: AgentDataScope;
+}
+
+export interface RitualRecord {
+  ritualId: string;
+  name: string;
+  agentIds: string[];
+  steps: RitualStepInput[];
+}
+
+/** Create an agent with its layered authority. null when API disabled (caller keeps local state). */
+export async function apiCreateAgent(input: AgentPermissionInput): Promise<AgentRecord | null> {
+  if (!API_ENABLED) return null;
+  return mutate<AgentRecord>('agent.create', { workspaceId: PILOT_WORKSPACE, ...input });
+}
+
+/** Update an existing agent's layered authority. null when API disabled. */
+export async function apiUpdateAgent(
+  agentId: string,
+  input: AgentPermissionInput,
+): Promise<AgentRecord | null> {
+  if (!API_ENABLED) return null;
+  return mutate<AgentRecord>('agent.update', { agentId, ...input });
+}
+
+/** Create a ritual bound to its agents. Server re-checks ritual scope ⊆ agent scope. */
+export async function apiCreateRitual(input: {
+  name: string;
+  agentIds: string[];
+  steps: RitualStepInput[];
+}): Promise<RitualRecord | null> {
+  if (!API_ENABLED) return null;
+  return mutate<RitualRecord>('ritual.create', { workspaceId: PILOT_WORKSPACE, ...input });
 }

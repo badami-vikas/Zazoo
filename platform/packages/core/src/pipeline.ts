@@ -11,7 +11,7 @@
  * event; veto records the decision and feeds the Variance Adjuster. The ledger is
  * append-only — a decision is a NEW row referencing the proposal, never an update.
  */
-import { resolveAuthority, type AuthorityDeps } from "./authority.js";
+import { agentFloorDeny, resolveAuthority, type AuthorityDeps } from "./authority.js";
 import type {
   EventBus,
   LedgerStore,
@@ -22,6 +22,7 @@ import type {
 } from "./ports.js";
 import type {
   ActionRequest,
+  Actor,
   Decision,
   LedgerEntry,
   PolicyResult,
@@ -147,14 +148,26 @@ export class UniversalActionPipeline {
     };
   }
 
-  /** Phase 2: resolve a pending proposal. Appends a decision row (append-only). */
+  /** Phase 2: resolve a pending proposal. Appends a decision row (append-only).
+   *
+   * `decider` is the actor making the approve/veto/edit call — resolved SERVER-SIDE
+   * (never client-asserted) so the gate is meaningful. Agents DRAFT, humans APPROVE:
+   * the non-removable agent-floor denies any agent from resolving a proposal, so an
+   * in-platform agent can never reach the Approvals decision even with grants. */
   async decide(
     proposalId: string,
     decision: Decision,
+    decider: Actor,
     ctx: RunCtx,
     editedOutput?: unknown,
   ): Promise<Proposal> {
     const { ledger } = this.#deps;
+
+    // Gate the approver. `approve` on the ledger is agent-floor-protected: agents may
+    // never approve/veto/edit a proposal. Humans pass the floor (the inbox is theirs).
+    const floor = agentFloorDeny(decider, "approve", "ledger");
+    if (floor) throw new Error(`decide: ${floor}`);
+
     const original = await ledger.get(proposalId);
     if (!original) throw new Error(`decide: no ledger entry ${proposalId}`);
     if (original.userDecision !== null) {

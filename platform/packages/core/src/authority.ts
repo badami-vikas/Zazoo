@@ -43,6 +43,9 @@ const AGENT_FLOOR_MUTATIONS: ReadonlySet<Action> = new Set<Action>([
   "write",
   "execute",
   "archive",
+  // `approve` on the ledger is the act of resolving a proposal. Agents DRAFT, humans
+  // APPROVE — an in-platform agent may never be the approver. (See pipeline.decide.)
+  "approve",
 ]);
 
 /**

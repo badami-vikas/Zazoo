@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Table, Kanban, Calendar, Search, Filter, ArrowUpDown, Plus, MoreVertical, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, ListIcon, Bot, Zap, Puzzle, ShieldCheck, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Header } from '../components/Header';
 import { ListPillRow } from '../components/ListPillRow';
 import { pendingCount } from '../data/governance';
@@ -23,14 +23,15 @@ const skillsData = [
 // Integrations — LinkedIn, Gmail, Google Calendar featured (connected), plus others.
 const integrationsData = [
   { id: 'INT-3001', name: 'LinkedIn', description: 'Sync connections, profiles, and conversations from LinkedIn', status: 'Connected', lastSync: '1 hour ago', dataPoints: 21792, list: 'Connected' },
-  { id: 'INT-3002', name: 'Gmail', description: 'Parse email threads for relationship context and touchpoints', status: 'Connected', lastSync: '12 min ago', dataPoints: 8431, list: 'Connected' },
-  { id: 'INT-3003', name: 'Google Calendar', description: 'Import meetings and events; detect touchpoints with people', status: 'Connected', lastSync: '30 min ago', dataPoints: 1204, list: 'Connected' },
+  { id: 'INT-3002', name: 'Gmail', description: 'Source email threads into Touchpoints, Memories & Signals — by approval', status: 'Connected', lastSync: '12 min ago', dataPoints: 8431, list: 'Connected', route: 'google' },
+  { id: 'INT-3003', name: 'Google Calendar', description: 'Source meetings into Touchpoints — by approval; draft invites, send on approval', status: 'Connected', lastSync: '30 min ago', dataPoints: 1204, list: 'Connected', route: 'google' },
   { id: 'INT-3004', name: 'Slack', description: 'Track conversations and channels across your workspace', status: 'Disconnected', lastSync: '2 weeks ago', dataPoints: 0, list: 'Disconnected' },
   { id: 'INT-3005', name: 'GitHub', description: 'Track collaborative projects and contributors', status: 'Pending', lastSync: 'Never', dataPoints: 0, list: 'Pending' },
   { id: 'INT-3006', name: 'X / Twitter', description: 'Monitor social interactions and public mentions', status: 'Disconnected', lastSync: 'Never', dataPoints: 0, list: 'Disconnected' },
 ];
 
 export function IntelligencePage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('Agents');
   const [activeView, setActiveView] = useState('card');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -219,7 +220,7 @@ export function IntelligencePage() {
       // Integrations
       return (
         <Link
-          to={`/integration/${item.id}`}
+          to={`/integration/${item.route ?? item.id}`}
           key={item.id}
           className="block border rounded-xl p-5 transition-all shadow-sm"
           style={{
@@ -381,6 +382,15 @@ export function IntelligencePage() {
               <ArrowUpDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
               <span className="@[850px]:inline hidden">Sort</span>
             </button>
+
+            {activeTab === 'Agents' && (
+              <button onClick={() => navigate('/agent/create')}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+                style={{ backgroundColor: 'var(--color-steel)' }}>
+                <Plus className="w-3.5 h-3.5" />
+                <span className="@[850px]:inline hidden">New Agent</span>
+              </button>
+            )}
 
             <div className="w-px h-6 shrink-0 mx-1 @[400px]:block hidden" style={{ backgroundColor: 'var(--color-border)' }} />
 

@@ -8,15 +8,21 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/a
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { buildWiring } from "./wiring.js";
+import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 
 export async function buildServer() {
-  const wiring = buildWiring();
+  const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
   const app = Fastify({ logger: true, maxParamLength: 5000 });
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true, service: "bridge-api" }));
+
+  // OAuth redirect target (a GET, not tRPC): Google sends the user back here with a
+  // `code`. We exchange it for tokens and persist them to the LOCAL plane (never
+  // Supabase), then bounce back to the prototype. `state` carries the integration id.
+  await registerGoogleOAuthRoutes(app, wiring);
 
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",

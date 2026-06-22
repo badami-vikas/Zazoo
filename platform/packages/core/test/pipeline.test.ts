@@ -224,7 +224,7 @@ test("approve a pending proposal: appends a decision row, commits, emits", async
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
   assert.equal(p.status, "pending_review");
 
-  const decided = await h.pipeline.decide(p.id, "approve", ctx);
+  const decided = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
   assert.equal(decided.status, "applied");
   // Append-only: original proposal row + new decision row = 2 entries.
   assert.equal(h.ledger.entries.length, 2);
@@ -244,7 +244,7 @@ test("veto: records decision, feeds Variance Adjuster, commits nothing", async (
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  const decided = await h.pipeline.decide(p.id, "veto", ctx);
+  const decided = await h.pipeline.decide(p.id, "veto", { type: "user", id: "u1" }, ctx);
   assert.equal(decided.status, "rejected");
   assert.equal(h.events.events.length, 0); // nothing committed
   assert.equal(h.variance.observed.length, 1); // adjuster saw the veto
@@ -260,7 +260,7 @@ test("edit decision commits the edited output with a from/to diff", async () => 
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  const decided = await h.pipeline.decide(p.id, "edit", ctx, { full_name_override: "Ada Lovelace" });
+  const decided = await h.pipeline.decide(p.id, "edit", { type: "user", id: "u1" }, ctx, { full_name_override: "Ada Lovelace" });
   assert.equal(decided.status, "applied");
   const row = h.ledger.entries[1]!;
   assert.equal(row.userDecision, "edit");
@@ -280,8 +280,32 @@ test("a resolved proposal cannot be decided twice (append-only integrity)", asyn
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  await h.pipeline.decide(p.id, "approve", ctx);
-  await assert.rejects(() => h.pipeline.decide(p.id, "veto", ctx), /already resolved/);
+  await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
+  await assert.rejects(() => h.pipeline.decide(p.id, "veto", { type: "user", id: "u1" }, ctx), /already resolved/);
+});
+
+test("agents may not approve: an agent decider is floor-denied at the review gate", async () => {
+  const h = harness();
+  h.agents.assumed.set("agent-1", "role-writer");
+  h.agents.scope.set("agent-1", ["person:write"]);
+  h.roles.roleGrants.set("role-writer", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const ctx = freshCtx();
+  const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
+  assert.equal(p.status, "pending_review");
+  // An in-platform agent — even a powerful one — can never be the approver.
+  await assert.rejects(
+    () => h.pipeline.decide(p.id, "approve", { type: "agent", id: "agent-1" }, ctx),
+    /agent-floor/,
+  );
+  // The proposal is untouched: still pending, no decision row, nothing committed.
+  assert.equal(h.ledger.entries.length, 1);
+  assert.equal(h.ledger.entries[0]!.userDecision, null);
+  assert.equal(h.events.events.length, 0);
+  // A human approver still resolves it.
+  const ok = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
+  assert.equal(ok.status, "applied");
 });
 
 test("delegation: agent on-behalf-of a principal who lacks authority is denied", async () => {

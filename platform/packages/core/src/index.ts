@@ -10,6 +10,18 @@ export * from "./data-scope.js";
 export * from "./determinism.js";
 export * from "./ports.js";
 export { resolveAuthority, agentFloorDeny, planeGate, type ResolveArgs, type AuthorityDeps } from "./authority.js";
+export {
+  buildAgentCapability,
+  egressTierTokens,
+  isForbiddenAgentToken,
+  scopePermits,
+  validateRitualWithinAgents,
+  type EgressTier,
+  type BuiltAgentCapability,
+  type AgentScopeView,
+  type RitualStepView,
+  type RitualScopeViolation,
+} from "./agent-scope.js";
 export { UniversalActionPipeline, type PipelineDeps } from "./pipeline.js";
 export {
   InProcessRitualExecutor,

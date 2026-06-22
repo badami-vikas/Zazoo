@@ -12,6 +12,13 @@ export {
   DrizzlePolicyStore,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export {
+  DrizzleCanonicalIdentityStore,
+  InMemoryCanonicalIdentityStore,
+  type CanonicalIdentityStore,
+  type CanonicalPersonIdentity,
+  type UpsertResult,
+} from "./canonical-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

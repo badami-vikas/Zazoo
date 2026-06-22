@@ -13,6 +13,9 @@ Bridge AI = private relationship-intelligence OS for VC/GP funds. NOT a CRM, sal
 ## Working rules
 - **Search for relevant skills BEFORE heavy actions.**
 - Keep docs current; log changes in `docs/log.md`.
+- **Record decisions with rationale.** Non-trivial engineering call → append an ADR entry to [docs/raw/decisions-log.md](docs/raw/decisions-log.md) (decision · why · alternatives rejected · consequences). Locked strategic one-liners still go to [docs/wiki/decisions.md](docs/wiki/decisions.md).
+- **File bugs/abnormalities the moment you spot them**, without waiting to be asked → add a row to [docs/wiki/known-issues.md](docs/wiki/known-issues.md) (OPEN/IN PROGRESS/RESOLVED). Fixing one → mark RESOLVED + date.
+- **Blast-radius scan before finishing.** You own the neighbourhood, not just the file. Before declaring work done, check the features/modules your change touches or borders (callers, shared types, sibling skills/adapters, the pipeline/gate, the prototype surface) and confirm they still hold. Anything off → fix in scope, or log to known-issues / raise a background-task chip if out of scope. Never report green on a narrow check that ignored what the change could break.
 - **Vocabulary is the brand**: Person / Relationship / Memory / Community / Initiative / Ritual / Touchpoint / Signal. NEVER Lead / Deal / Pipeline / Contact.
 - **Dummy data MUST be `dummy_`-prefixed**: every mock/demo/seed value (ids, names, sample fields, localStorage seeds) carries a `dummy_` prefix so it is greppable and never mistaken for real data. No silent fixtures.
 - **Principles**: trust-first (private default, both-party consent) · governed agentic execution (explainable, permissioned, auditable, draft-then-approve) · ambient AI (user sees relationships, AI sees data) · action over analytics (every Signal → an action).

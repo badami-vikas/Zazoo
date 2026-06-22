@@ -51,7 +51,8 @@ export function RitualsPage() {
         <div className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>
           <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{filtered.length}</span> rituals · every step runs through draft-then-approve
         </div>
-        <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+        <button onClick={() => navigate('/ritual/create')}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
           style={{ backgroundColor: 'var(--color-steel)' }}>
           <Plus className="w-3.5 h-3.5" /> New Ritual
         </button>

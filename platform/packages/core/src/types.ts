@@ -5,8 +5,11 @@
  * / Signal. Never Lead / Deal / Pipeline / Contact.
  */
 
-/** Actions a request can take against a resource (mirrors SCHEMA permissions.action). */
-export type Action = "read" | "write" | "execute" | "share" | "archive";
+/** Actions a request can take against a resource (mirrors SCHEMA permissions.action).
+ * `approve` is the control-plane action of resolving a pending proposal — it is NOT
+ * a proposable mutation (clients never `propose` it; the wire enum stays narrower).
+ * It exists so the authority spine can gate WHO may approve (agents never can). */
+export type Action = "read" | "write" | "execute" | "share" | "archive" | "approve";
 
 /** Who is acting. */
 export type ActorType = "user" | "team" | "agent";

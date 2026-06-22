@@ -87,7 +87,7 @@ test("INVARIANT ledger append-only: the proposal row is never mutated by a decis
   h.roles.roleGrants.set("r1", [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
   const c = ctx();
   const p = await h.pipeline.propose({ ...baseReq, actor: { type: "agent", id: "a1" } }, c);
-  await h.pipeline.decide(p.id, "approve", c);
+  await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, c);
   assert.equal(h.ledger.entries.length, 2); // proposal + decision, both appended
   assert.equal(h.ledger.entries[0]!.userDecision, null); // original untouched
 });
@@ -118,6 +118,25 @@ test("INVARIANT governed agentic: agents draft, humans approve (no agent auto-co
   assert.equal(h.events.events.length, 0);
 });
 
+test("INVARIANT approvals are human-only: an agent may NEVER resolve a proposal", async () => {
+  const h = build();
+  h.agents.assumed.set("a1", "admin");
+  h.agents.scope.set("a1", ["*"]); // even a maximally-scoped agent
+  h.roles.roleGrants.set("admin", [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
+  const c = ctx();
+  const p = await h.pipeline.propose({ ...baseReq, actor: { type: "agent", id: "a1" } }, c);
+  assert.equal(p.status, "pending_review");
+  // The Approvals decision is agent-floor-protected: an agent decider is denied.
+  await assert.rejects(
+    () => h.pipeline.decide(p.id, "approve", { type: "agent", id: "a1" }, c),
+    /agent-floor/,
+  );
+  assert.equal(h.events.events.length, 0); // nothing committed
+  // Unit-level: the floor denies an agent the `approve` action on the ledger.
+  assert.ok(agentFloorDeny({ type: "agent", id: "a1" }, "approve", "ledger"));
+  assert.equal(agentFloorDeny({ type: "user", id: "u1" }, "approve", "ledger"), null);
+});
+
 test("INVARIANT veto tunes params not code: a veto reaches the Variance Adjuster, commits nothing", async () => {
   const h = build();
   h.agents.assumed.set("a1", "r1");
@@ -125,7 +144,7 @@ test("INVARIANT veto tunes params not code: a veto reaches the Variance Adjuster
   h.roles.roleGrants.set("r1", [{ resourceType: "person", resourceId: null, action: "write", effect: "allow" }]);
   const c = ctx();
   const p = await h.pipeline.propose({ ...baseReq, actor: { type: "agent", id: "a1" } }, c);
-  await h.pipeline.decide(p.id, "veto", c);
+  await h.pipeline.decide(p.id, "veto", { type: "user", id: "u1" }, c);
   assert.equal(h.variance.observed.at(-1)?.userDecision, "veto");
   assert.equal(h.events.events.length, 0);
 });

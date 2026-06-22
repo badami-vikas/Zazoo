@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronRight, Edit2, Trash2, CheckCircle, AlertCircle, Clock, TrendingUp, Activity, Copy, RefreshCw, Globe, Link2, ArrowRight, BookOpen, WifiOff, Wifi, Settings, BarChart2, Database, Key } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
+import { GoogleIntegrationPanel } from './GoogleIntegrationPanel';
 
 const integrationDetails: Record<string, any> = {
   'IN-001': {
@@ -42,6 +43,10 @@ const navTabs = ['Overview', 'Activity', 'Connections', 'Settings'];
 export function IntegrationDetail() {
   const { id } = useParams();
   const decoded = id ? decodeURIComponent(id) : '';
+
+  // The real, wired Gmail + Google Calendar integration. Other ids keep the mock UI.
+  if (decoded === 'google') return <GoogleIntegrationPanel />;
+
   const intg = integrationDetails[decoded] || { ...defaultIntegration, name: decoded || defaultIntegration.name };
 
   const [activeTab, setActiveTab] = useState('Overview');

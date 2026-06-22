@@ -7,10 +7,9 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/local" },
-    { "path": "../../packages/integrations-google" }
+    { "path": "../core" },
+    { "path": "../db" },
+    { "path": "../local" }
   ],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

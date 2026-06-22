@@ -20,6 +20,10 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Bridge fixes (ritual executor = authoritative actor).
+- [known-issues](known-issues.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
+
+## Decisions + rationale
+Locked one-liners → [decisions](decisions.md). Full why + alternatives rejected (ADR) → [../raw/decisions-log.md](../raw/decisions-log.md).
 
 ## Depth
 Full insight: [../raw/](../raw/). Each wiki page links its raw source.

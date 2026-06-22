@@ -8,6 +8,8 @@ import { IntelligencePage } from "./pages/IntelligencePage";
 import { RitualsPage } from "./pages/RitualsPage";
 import { RitualDetail } from "./pages/RitualDetail";
 import { AgentDetail } from "./pages/AgentDetail";
+import { AgentCreate } from "./pages/AgentCreate";
+import { RitualCreate } from "./pages/RitualCreate";
 import { SkillDetail } from "./pages/SkillDetail";
 import { IntegrationDetail } from "./pages/IntegrationDetail";
 import { ToolsPage } from "./pages/ToolsPage";
@@ -37,12 +39,14 @@ export const router = createBrowserRouter([
       { path: "item/:id", Component: ItemDetail },
       { path: "work", Component: WorkPage },
       { path: "initiative/:id", Component: InitiativeDetail },
+      { path: "ritual/create", Component: RitualCreate },
       { path: "ritual/:id", Component: RitualDetail },
       { path: "rituals", Component: RitualsPage },
       { path: "intelligence", Component: IntelligencePage },
       { path: "approvals", Component: ApprovalsPage },
       { path: "helpdesk", Component: HelpdeskPage },
       { path: "helpdesk/ask/:id", Component: HelpdeskThread },
+      { path: "agent/create", Component: AgentCreate },
       { path: "agent/:id", Component: AgentDetail },
       { path: "skill/:id", Component: SkillDetail },
       { path: "integration/:id", Component: IntegrationDetail },

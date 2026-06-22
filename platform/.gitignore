@@ -4,3 +4,6 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+
+# LOCAL plane (pglite) — private OAuth tokens + Gmail/Calendar bodies. NEVER commit.
+.bridge-local/
