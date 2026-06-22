@@ -1,3 +1,13 @@
+---
+title: Initiatives as a Taskade-alternative — research, interrogation, and the call
+type: raw
+doc_kind: research
+status: active
+companions: []
+related_wiki: ../wiki/initiatives.md
+updated: 2026-06-22
+tags: [initiatives, taskade, research]
+---
 # Initiatives as a Taskade-alternative — research, interrogation, and the call
 
 **Date:** 2026-06-02. **Method:** 21-agent research workflow — 3 codebase-grounding + 7 web-research (Taskade, Affine/BlockSuite, AppFlowy, Yjs/CRDT, Tiptap/Lexical/xyflow, Mem0/Zep/LangMem, polymorphic-tree/event-sourcing) + 10 adversarial claim verdicts + synthesis. ~1.24M subagent tokens.
@@ -6,7 +16,7 @@ This is the depth source. Caveman summary → [../wiki/initiatives.md](../wiki/i
 
 ## The unbiased call
 
-**Build the THIN slice of Taskade, not the platform.** The one genuinely transferable idea is *"one canonical hierarchy, many view renderers."* Bridge **already owns the hierarchy** — the relational **Touchpoint tree** (`parent_touchpoint_id, sort_order, depth, alignment_score`), annotated in `schema.md` literally as "= Taskade tree." An **Initiative is the goal node that OWNS a Touchpoint hierarchy**; it is not itself the tree.
+**Build the THIN slice of Taskade, not the platform.** The one genuinely transferable idea is *"one canonical hierarchy, many view renderers."* Bridge **already owns the hierarchy** — the relational **Touchpoint tree** (`parent_touchpoint_id, sort_order, depth, alignment_score`), annotated in `../wiki/schema.md` literally as "= Taskade tree." An **Initiative is the goal node that OWNS a Touchpoint hierarchy**; it is not itself the tree.
 
 So the real work is:
 1. Render **List / Board / Table / Calendar / MindMap** as **stateless read-time projections** over that existing tree (never separately stored trees).
@@ -27,7 +37,7 @@ So the real work is:
 - **"Use Temporal as an Execution Router for one-click micro-automations" — anti-governance.** Temporal is DEFERRED behind the RitualExecutor seam (Hatchet is today's engine); "one-click fire-and-forget" violates draft-then-approve. User-triggered packaged Rituals run through the Pipeline + RitualExecutor.
 - **"Agents continuously learn from the event stream" — conflicts.** Bridge's only sanctioned loop is the Variance Adjuster tuning `policy_params` off VETTED human decisions, never online updates off a raw event firehose, never across the consent/local gate.
 - **"Build our own memory service" — mostly true but mis-framed.** Bridge has ALREADY built ~90% (edges + embeddings(768) + append-only events/ledger). The decision is "don't bolt Mem0/Zep/LangMem on as a runtime dependency"; borrow their extraction/dedup/temporal PATTERNS. "Thin memory service" undersells the hard parts (extraction, reconciliation, bi-temporal validity).
-- **"Make Approvals a pinned tool instead of default nav" — REJECTED AS STATED.** Approvals is the mandatory chokepoint + the moat; `design.md` locks it default-visible with a pending badge. Demoting it weakens the persistent "N pending" trust signal. **Keep it default-nav AND additionally pinnable** via the existing `usePinnedTools` mechanism.
+- **"Make Approvals a pinned tool instead of default nav" — REJECTED AS STATED.** Approvals is the mandatory chokepoint + the moat; `../wiki/design.md` locks it default-visible with a pending badge. Demoting it weakens the persistent "N pending" trust signal. **Keep it default-nav AND additionally pinnable** via the existing `usePinnedTools` mechanism.
 - **"Workspace DNA / strict-JSON frontier-LLM decomposer" (Taskade) — marketing, not a spec.** Taskade publishes no generation schema or model detail. Treat as positioning; design Bridge's own governed generation.
 - **"BlockSuite/AFFiNE/AppFlowy give multi-view for free" — true but unusable here.** BlockSuite = pre-1.0 Lit web-components (React friction), MPL-2.0. AppFlowy = AGPL-3 + Rust/WASM (copyleft blocker for a closed product). Borrow the *pattern*, not the stack.
 

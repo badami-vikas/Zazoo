@@ -12,5 +12,5 @@
     { "path": "../../packages/local" },
     { "path": "../../packages/integrations-google" }
   ],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

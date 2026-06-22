@@ -66,6 +66,9 @@ importers:
       '@bridge/core':
         specifier: workspace:*
         version: link:../core
+      '@electric-sql/pglite':
+        specifier: ^0.2.17
+        version: 0.2.17
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@electric-sql/pglite@0.2.17)(postgres@3.4.9)

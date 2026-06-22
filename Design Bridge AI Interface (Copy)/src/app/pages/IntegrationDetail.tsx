@@ -3,6 +3,8 @@ import { ChevronRight, Edit2, Trash2, CheckCircle, AlertCircle, Clock, TrendingU
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { GoogleIntegrationPanel } from './GoogleIntegrationPanel';
+import { socialProviderFor } from '../data/integrations';
+import { IntegrationPermissions } from '../components/IntegrationPermissions';
 
 const integrationDetails: Record<string, any> = {
   'IN-001': {
@@ -38,8 +40,6 @@ const defaultIntegration = {
   connectedAgents: ['dummy_AG-001 — Aria'],
 };
 
-const navTabs = ['Overview', 'Activity', 'Connections', 'Settings'];
-
 export function IntegrationDetail() {
   const { id } = useParams();
   const decoded = id ? decodeURIComponent(id) : '';
@@ -48,6 +48,10 @@ export function IntegrationDetail() {
   if (decoded === 'google') return <GoogleIntegrationPanel />;
 
   const intg = integrationDetails[decoded] || { ...defaultIntegration, name: decoded || defaultIntegration.name };
+
+  // Social integrations (X / Instagram / Facebook / LinkedIn) carry a governed Permissions panel.
+  const social = socialProviderFor(decoded);
+  const navTabs = ['Overview', ...(social ? ['Permissions'] : []), 'Activity', 'Connections', 'Settings'];
 
   const [activeTab, setActiveTab] = useState('Overview');
 
@@ -201,6 +205,14 @@ export function IntegrationDetail() {
               </div>
             </div>
           </section>
+
+          {/* PERMISSIONS — governed scope editor, social integrations only */}
+          {social && (
+            <section id="in-permissions" className="scroll-mt-24">
+              <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Permissions</h2>
+              <IntegrationPermissions provider={social} integrationId={decoded} />
+            </section>
+          )}
 
           {/* ACTIVITY */}
           <section id="in-activity" className="scroll-mt-24">

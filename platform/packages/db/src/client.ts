@@ -7,10 +7,18 @@
  * for the derivation pipeline, never the app surface.
  */
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { PgliteDatabase } from "drizzle-orm/pglite";
 import postgres from "postgres";
 import * as schema from "./schema.js";
 
-export type Database = PostgresJsDatabase<typeof schema>;
+/**
+ * A Drizzle handle over the Bridge schema on EITHER plane: postgres-js (cloud
+ * Supabase, this file) or pglite (the local plane, client-local.ts). Both extend
+ * the same PgDatabase base, so the Drizzle-backed port bindings drive either one.
+ */
+export type Database =
+  | PostgresJsDatabase<typeof schema>
+  | PgliteDatabase<typeof schema>;
 
 export interface DbConfig {
   /** Postgres connection string (e.g. Supabase pooler URL). */

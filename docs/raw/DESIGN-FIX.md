@@ -1,3 +1,13 @@
+---
+title: Design-Fix Spec (v0)
+type: raw
+doc_kind: plan
+status: active
+companions: []
+related_wiki: ../wiki/design.md
+updated: 2026-06-22
+tags: [design, ui, vocab]
+---
 # Bridge AI — Design-Fix Spec (v0)
 
 > Turns the [DESIGN-AUDIT.md](./DESIGN-AUDIT.md) gaps into concrete UI work against the coded prototype `/Design Bridge AI Interface (Copy)/` (React+Vite+Tailwind+shadcn, 70 `.tsx`, 12 pages).

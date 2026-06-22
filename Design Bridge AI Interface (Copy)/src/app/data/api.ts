@@ -34,14 +34,48 @@ async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
   return body?.result?.data as T;
 }
 
-// One unbatched tRPC query (GET). Input rides in the `?input=` query param.
+// One unbatched tRPC query (GET). Input rides as a urlencoded `?input=` param; result at `result.data`.
 async function query<T = unknown>(path: string, input?: unknown): Promise<T> {
-  const url = input === undefined ? `${TRPC}/${path}` : `${TRPC}/${path}?input=${encodeURIComponent(JSON.stringify(input))}`;
-  const res = await fetch(url);
+  const qs = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: { 'content-type': 'application/json' } });
   const body = await res.json().catch(() => ({}));
   if (body?.error) throw new Error(body.error?.message || body.error?.json?.message || `trpc ${path} error`);
   if (!res.ok) throw new Error(`trpc ${path} HTTP ${res.status}`);
   return body?.result?.data as T;
+}
+
+// ── Integration permissions (the `integration` sub-router) ─────────────────────
+// Governed, user-editable scopes for a connected integration. Each helper reports "unavailable"
+// (null/false) when the API is OFF, so the Permissions panel falls back to its offline mirror.
+export interface ApiScopeGrant {
+  id: string;
+  resourceType: string;
+  action: string;
+  effect: string;
+  expiresAt: string | null;
+}
+
+/** Active (non-revoked) standing grants held by an integration. */
+export async function apiListScopes(integrationId: string): Promise<ApiScopeGrant[] | null> {
+  if (!API_ENABLED) return null;
+  return query<ApiScopeGrant[]>('integration.listScopes', { workspaceId: PILOT_WORKSPACE, integrationId });
+}
+
+/** Grant a standing Bridge capability. The server refuses agent-floor DENY scopes (FORBIDDEN). */
+export async function apiGrantScope(a: {
+  integrationId: string;
+  resourceType: string;
+  action: string;
+}): Promise<ApiScopeGrant | null> {
+  if (!API_ENABLED) return null;
+  return mutate<ApiScopeGrant>('integration.grantScope', { workspaceId: PILOT_WORKSPACE, ...a });
+}
+
+/** Narrow access: revoke a single standing grant (append-only — sets revoked_at server-side). */
+export async function apiRevokeScope(permissionId: string): Promise<boolean> {
+  if (!API_ENABLED) return false;
+  await mutate('integration.revokeScope', { workspaceId: PILOT_WORKSPACE, permissionId });
+  return true;
 }
 
 interface ProposeResult {
@@ -126,7 +160,7 @@ export interface IntegrationConnection {
 }
 export interface IntegrationListResult {
   oauthConfigured: boolean;
-  gatewayKind: 'google' | 'fake';
+  gatewayKind: 'google' | 'unconfigured';
   integrationId: string;
   connection: IntegrationConnection;
   surfaces: { provider: string; name: string }[];
@@ -154,30 +188,30 @@ export interface IntakeResult {
 /** Live connection + manifest for the Google integration. null when API disabled. */
 export async function apiIntegrationList(): Promise<IntegrationListResult | null> {
   if (!API_ENABLED) return null;
-  return query<IntegrationListResult>('integration.list');
+  return query<IntegrationListResult>('google.list');
 }
 
 /** Get the Google consent URL (read+write, offline). Caller redirects the browser. */
 export async function apiConnectGoogle(): Promise<{ url: string | null; error?: string } | null> {
   if (!API_ENABLED) return null;
-  return mutate<{ url: string | null; error?: string }>('integration.connectUrl', {});
+  return mutate<{ url: string | null; error?: string }>('google.connectUrl', {});
 }
 
 export async function apiDisconnectGoogle(): Promise<boolean> {
   if (!API_ENABLED) return false;
-  await mutate('integration.disconnect', {});
+  await mutate('google.disconnect', {});
   return true;
 }
 
 /** Source Gmail through the gate → returns the Touchpoint/Memory/Signal proposals. */
 export async function apiSyncGmail(maxResults?: number): Promise<IntakeResult | null> {
   if (!API_ENABLED) return null;
-  return mutate<IntakeResult>('integration.syncGmail', maxResults ? { maxResults } : {});
+  return mutate<IntakeResult>('google.syncGmail', maxResults ? { maxResults } : {});
 }
 
 export async function apiSyncCalendar(maxResults?: number): Promise<IntakeResult | null> {
   if (!API_ENABLED) return null;
-  return mutate<IntakeResult>('integration.syncCalendar', maxResults ? { maxResults } : {});
+  return mutate<IntakeResult>('google.syncCalendar', maxResults ? { maxResults } : {});
 }
 
 /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2 approval). */
@@ -186,7 +220,7 @@ export async function apiProposeSend(
   envelope: Record<string, unknown>,
 ): Promise<{ id: string; status: string } | null> {
   if (!API_ENABLED) return null;
-  return mutate<{ id: string; status: string }>('integration.proposeSend', { kind, envelope });
+  return mutate<{ id: string; status: string }>('google.proposeSend', { kind, envelope });
 }
 
 // ── Agent + Ritual authoring (layered, gated permissions) ──────────────────────

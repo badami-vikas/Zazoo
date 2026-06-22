@@ -1,3 +1,13 @@
+---
+title: Helpdesk — Bridge Plan & Architecture (2026-06-03)
+type: raw
+doc_kind: plan
+status: active
+companions: [helpdesk-requirement.md]
+related_wiki: ../wiki/helpdesk.md
+updated: 2026-06-22
+tags: [helpdesk, plan, routing]
+---
 # Helpdesk — Bridge Plan & Architecture (2026-06-03)
 
 Requirement (verbatim): `helpdesk-requirement.md`. This is the interpretation + build plan.

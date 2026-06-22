@@ -24,13 +24,16 @@ import {
   InMemoryRitualRegistry,
   InMemoryRitualRunRecorder,
   InMemoryToolRegistry,
+  InMemoryMediaStore,
   InMemorySkillRegistry,
   InProcessRitualExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
+  stageCapture,
   type AgentQuery,
   type EphemeralQuery,
   type LedgerStore,
+  type LocalMediaStore,
   type PolicyFn,
   type PolicyStore,
   type RitualRegistry,
@@ -39,7 +42,13 @@ import {
   type Skill,
   type ToolRegistry,
 } from "@bridge/core";
-import { createDb, createDrizzlePorts, InMemoryCanonicalIdentityStore, type CanonicalIdentityStore } from "@bridge/db";
+import {
+  createDb,
+  createDrizzlePorts,
+  createLocalMediaStore,
+  InMemoryCanonicalIdentityStore,
+  type CanonicalIdentityStore,
+} from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
 import {
   EgressExecutor,
@@ -73,6 +82,8 @@ export interface Wiring {
   policies: PolicyStore;
   ledger: LedgerStore;
   events: InMemoryEventBus;
+  /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
+  localMedia: LocalMediaStore;
   /** True when bound to Postgres (DATABASE_URL set). */
   persistent: boolean;
   /** The LOCAL plane (pglite) — private tier. */
@@ -159,7 +170,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
 
 export async function buildWiring(): Promise<Wiring> {
   const events = new InMemoryEventBus();
-  const skillRegistry = new InMemorySkillRegistry().register(stageMutation);
+  const skillRegistry = new InMemorySkillRegistry().register(stageMutation).register(stageCapture);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -228,6 +239,13 @@ export async function buildWiring(): Promise<Wiring> {
     memory = { roles: mRoles, agents: mAgents, ephemeral: mEphemeral };
   }
 
+  // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
+  // LOCAL_MEDIA_DIR set => persistent pglite on disk; unset => in-memory (zero-infra).
+  const localMediaDir = process.env.LOCAL_MEDIA_DIR;
+  const localMedia: LocalMediaStore = localMediaDir
+    ? await createLocalMediaStore(localMediaDir)
+    : new InMemoryMediaStore();
+
   const pipeline = new UniversalActionPipeline({
     authority: { roles, agents, ephemeral, nowISO: "" },
     policies: policyStore,
@@ -257,6 +275,7 @@ export async function buildWiring(): Promise<Wiring> {
 
   return {
     pipeline,
+    localMedia,
     ritualExecutor: new InProcessRitualExecutor(pipeline, {
       registry: ritualRegistry,
       toolRegistry,

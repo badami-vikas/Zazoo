@@ -91,6 +91,54 @@ export interface LedgerStore {
   decisionFor(proposalId: string): Promise<LedgerEntry | null>;
 }
 
+/** Media capture kind — photo or video. */
+export type MediaKind = "photo" | "video";
+/** Lifecycle of a local capture: quarantined → committed (via approved proposal) → archived. */
+export type MediaStatus = "pending" | "committed" | "archived";
+
+/**
+ * A captured photo/video record. Private relationship data — lives in the LOCAL
+ * plane ONLY (never Supabase/cloud). The blob is stored alongside via the store's
+ * put/getBlob; the cloud canonical receives nothing about it.
+ */
+export interface MediaCaptureRecord {
+  id: string;
+  workspaceId: string;
+  kind: MediaKind;
+  mimeType: string;
+  byteSize: number;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  caption?: string;
+  ocrText?: string;
+  /** Small inline preview for browse/pending lists — local only. */
+  thumbnailDataUrl?: string;
+  status: MediaStatus;
+  /** Set when an approved proposal commits the capture. */
+  ledgerId?: string;
+  linkedEntity?: { type: "person" | "memory" | "touchpoint"; id: string } | null;
+  provenance: { tool: string; version: string; model?: string };
+  capturedAt: string;
+  archivedAt?: string | null;
+}
+
+/**
+ * LOCAL-plane media store — the seam the camera Tool persists blobs through. The
+ * in-memory adapter lives in `memory/stores.ts`; the pglite (bytea) adapter lives
+ * in `@bridge/db`. Blobs NEVER cross the gate. Append-only: a row's blob + core
+ * metadata are immutable after `put`; only status/ledgerId/linkedEntity/caption/
+ * archivedAt mutate. No hard delete — `archive()` sets `archivedAt`.
+ */
+export interface LocalMediaStore {
+  put(rec: MediaCaptureRecord, blob: Uint8Array): Promise<MediaCaptureRecord>;
+  get(id: string): Promise<MediaCaptureRecord | null>;
+  getBlob(id: string): Promise<Uint8Array | null>;
+  list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]>;
+  update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord>;
+  archive(id: string): Promise<void>;
+}
+
 export interface EventBus {
   emit(event: DomainEvent): Promise<void>;
 }

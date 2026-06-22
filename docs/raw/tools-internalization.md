@@ -1,3 +1,13 @@
+---
+title: Tools — Internalization, Two Run Modes & Gated Intake (2026-06-03)
+type: raw
+doc_kind: research
+status: active
+companions: []
+related_wiki: ../wiki/tools.md
+updated: 2026-06-22
+tags: [tools, internalization, research]
+---
 # Tools — Internalization, Two Run Modes & Gated Intake (2026-06-03)
 
 User added two working reference tools (`Tools/card-scanner`, `Tools/recorder`) and set the

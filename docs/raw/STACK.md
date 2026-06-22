@@ -1,7 +1,17 @@
+---
+title: Technology Stack (v1)
+type: raw
+doc_kind: reference
+status: active
+companions: [ARCHITECTURE.md, SCHEMA.sql, ROADMAP.md]
+related_wiki: ../wiki/stack.md
+updated: 2026-06-22
+tags: [stack, infrastructure, tech]
+---
+
 # Bridge AI — Technology Stack (v1)
 
 > Adapted from an earlier single-user plan, reconciled with locked decisions: multi-tenant from day 0, two-tier residency (canonical/platform vs relationship/local-E2EE), thin orchestration. Rows marked _provisional_ await the OSS agent-framework research (`wf_69e372a9-88b`).
-> Companion: [ARCHITECTURE.md](./ARCHITECTURE.md) · [SCHEMA.sql](./SCHEMA.sql) · [ROADMAP.md](./ROADMAP.md)
 
 ## Scale assumption (drives every rendering + storage decision)
 **Typical user: ~30,000 canonical connections, <100 high-interaction relationships.**
@@ -11,40 +21,77 @@
 - The AI reasons over the ~100, never the 30K ("AI sees filtered context" as a performance fact).
 
 ## Core stack (adopted)
-| Layer | Tech |
-|---|---|
-| Frontend | React 18 + Vite 6 + TypeScript + Tailwind 4 + shadcn/ui + tRPC client |
-| Backend | Fastify 5 + tRPC 11 + Drizzle ORM + Postgres (Supabase) |
-| Database | Supabase: Postgres + **pgvector** + **pg_trgm** + **RLS** + Storage + Realtime |
-| IDs | ULID (or UUIDv7) — time-sortable, good index locality |
-| Auth / Tenancy | **Supabase Auth + workspace/team from day 0** (RLS deny-by-default = tenancy + CBAC enforcement). _Changed from single-user._ |
-| Imports | Gmail + Google Calendar OAuth first; Granola/Fireflies/Slack later |
+```yaml
+core_stack:
+  - layer: Frontend
+    tech: React 18 + Vite 6 + TypeScript + Tailwind 4 + shadcn/ui + tRPC client
+  - layer: Backend
+    tech: Fastify 5 + tRPC 11 + Drizzle ORM + Postgres (Supabase)
+  - layer: Database
+    tech: "Supabase: Postgres + pgvector + pg_trgm + RLS + Storage + Realtime"
+  - layer: IDs
+    tech: ULID (or UUIDv7) — time-sortable, good index locality
+  - layer: Auth / Tenancy
+    tech: Supabase Auth + workspace/team from day 0 (RLS deny-by-default = tenancy + CBAC enforcement). Changed from single-user.
+  - layer: Imports
+    tech: Gmail + Google Calendar OAuth first; Granola/Fireflies/Slack later
+```
 
 > **API note:** tRPC serves the app's own frontend. Add a thin **REST/OpenAPI** surface later for the API-first / MCP goal (external agents can't consume tRPC).
 
 ## UI libraries (adopted — all permissive: MIT/BSD/Apache-2.0)
-| Library | Bridge surface | License |
-|---|---|---|
-| `@glideapps/glide-data-grid` | Network — 30K people directory, virtualized, inline edit | permissive |
-| `@xyflow/react` (reactflow) | Rituals — n8n-style governed visual builder | MIT |
-| `@antv/g6` (WebGL mode) | Relationship map — large read-only graph | MIT |
-| `maplibre-gl` + `react-map-gl` + `deck.gl` | Map / Place view + heat overlay | BSD/MIT |
-| `tiptap` (+ @mention, slash) | Memory/notes, Initiative descriptions — links into the graph | MIT core (some Pro ext. paid) |
-| `dnd-kit` | Taskade-style touchpoint reparenting, kanban, builder | MIT |
-| `vis-timeline` | Person / Initiative timeline | MIT + Apache-2.0 |
-| `qrcode` | Digital Card QR | MIT |
+```yaml
+ui_libraries:
+  - library: "@glideapps/glide-data-grid"
+    bridge_surface: Network — 30K people directory, virtualized, inline edit
+    license: permissive
+  - library: "@xyflow/react (reactflow)"
+    bridge_surface: Rituals — n8n-style governed visual builder
+    license: MIT
+  - library: "@antv/g6 (WebGL mode)"
+    bridge_surface: Relationship map — large read-only graph
+    license: MIT
+  - library: "maplibre-gl + react-map-gl + deck.gl"
+    bridge_surface: Map / Place view + heat overlay
+    license: BSD/MIT
+  - library: "tiptap (+ @mention, slash)"
+    bridge_surface: Memory/notes, Initiative descriptions — links into the graph
+    license: MIT core (some Pro ext. paid)
+  - library: dnd-kit
+    bridge_surface: Taskade-style touchpoint reparenting, kanban, builder
+    license: MIT
+  - library: vis-timeline
+    bridge_surface: Person / Initiative timeline
+    license: MIT + Apache-2.0
+  - library: qrcode
+    bridge_surface: Digital Card QR
+    license: MIT
+```
 
 > At 30K nodes, ensure G6 runs in **WebGL** mode; evaluate `sigma.js`+`graphology` if perf is tight.
 
 ## AI runtime & background jobs
-| Concern | Pick | Note |
-|---|---|---|
-| Agent runtime | **BUILD thin custom runtime** (the moat); model on **Agno** scope schema + **LangGraph** `interrupt()`/checkpoint (the approve/veto/edit gate) on a Postgres saver | Confirmed by OSS research — don't adopt a framework as infra. |
-| Ritual engine | **Hatchet** (MIT, Postgres-native) candidate, behind the `RitualExecutor` interface | Validate vs RLS. Temporal deferred. |
-| Job queue | **BullMQ** (Redis) | Agent tasks, nightly signal/embedding recompute. |
-| Model provider | **`ModelProvider` seam**: dev → **Ollama** (local, free); prod → **user-configurable multi-provider** (Claude default · OpenAI · Gemini · Bedrock · local) | Same swap discipline as `RitualExecutor`; code never imports a provider directly. Local/in-tenant models = a trust feature (inference stays under the fund's control). |
-| Model tiers | Logical tiers **reasoning / default / cheap** bound to concrete models **per workspace** | Dev binds all to Ollama; prod defaults Opus 4.8 / Sonnet 4.6 / Haiku 4.5, overridable. |
-| LLM gateway | **Vercel AI SDK** (in-process, provider-agnostic, structured output + tool-calling) + optional **LiteLLM proxy** (prod routing/keys/budgets) | Both permissive; Ollama provider for dev. |
+```yaml
+ai_runtime:
+  - concern: Agent runtime
+    pick: BUILD thin custom runtime (the moat); model on Agno scope schema + LangGraph interrupt()/checkpoint (the approve/veto/edit gate) on a Postgres saver
+    note: Confirmed by OSS research — don't adopt a framework as infra.
+  - concern: Ritual engine
+    pick: Hatchet (MIT, Postgres-native) candidate, behind the RitualExecutor interface
+    note: Validate vs RLS. Temporal deferred.
+  - concern: Job queue
+    pick: BullMQ (Redis)
+    note: Agent tasks, nightly signal/embedding recompute.
+  - concern: Model provider
+    pick: "ModelProvider seam: dev → Ollama (local, free); prod → user-configurable multi-provider (Claude default · OpenAI · Gemini · Bedrock · local)"
+    note: Same swap discipline as RitualExecutor; code never imports a provider directly. Local/in-tenant models = a trust feature (inference stays under the fund's control).
+  - concern: Model tiers
+    pick: Logical tiers reasoning / default / cheap bound to concrete models per workspace
+    note: Dev binds all to Ollama; prod defaults Opus 4.8 / Sonnet 4.6 / Haiku 4.5, overridable.
+  - concern: LLM gateway
+    pick: Vercel AI SDK (in-process, provider-agnostic, structured output + tool-calling) + optional LiteLLM proxy (prod routing/keys/budgets)
+    note: Both permissive; Ollama provider for dev.
+```
 
 > **Embedding caveat:** the *chat* model is freely configurable, but the *embedding* model is **not** — `vector(N)` columns hardcode a dimension. Dev (Ollama `nomic-embed-text` = 768) and prod (OpenAI `3-small` = 1536) differ; switching requires re-embedding. **Decouple embeddings from the chat model and pin one canonical embedding dimension per deployment** (or namespace vectors per model) before Phase 3.
 

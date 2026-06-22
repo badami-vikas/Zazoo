@@ -1,7 +1,17 @@
+---
+title: Design System (v0)
+type: raw
+doc_kind: reference
+status: Canonical brand + typography + color tokens; formalizes theme.css, fills gaps, maps violations → target tokens
+companions: [DESIGN-FIX.md, DESIGN-AUDIT.md]
+related_wiki: ../wiki/design-system.md
+updated: 2026-06-22
+tags: [design-system, tokens, branding]
+---
+
 # Bridge AI — Design System (v0)
 
 > Canonical brand + typography + color tokens. **Source of truth in code:** `Design Bridge AI Interface (Copy)/src/styles/theme.css` (the prototype already defines a good Bridge system). This doc **formalizes** it, fills gaps (status colors, type scale, a11y, agentic accent, dark mode), and maps current **violations → target tokens** so the prototype can be brought into alignment.
-> Companion: [DESIGN-FIX.md](./DESIGN-FIX.md) (UI/vocab fixes) · [DESIGN-AUDIT.md](./DESIGN-AUDIT.md) (structural audit).
 > Brand spine: vocabulary is the brand; **trust-first, calm, premium** (VC/GP funds). Visual mood = warm paper + editorial serif + restrained steel. NOT loud SaaS.
 
 ---
@@ -10,56 +20,117 @@
 
 The prototype **has** a coherent Bridge design system in `theme.css` — but components largely **ignore it**, hardcoding values instead. Alignment = make components consume the tokens, not a redesign.
 
-| Symptom | Count (≈) | Verdict |
-|---|---|---|
-| Material purple `#6200EE` (+`#5000C9`/`#4C00B8`) | 226 hits / 11 files | **off-brand leak** — concentrated in Operational/AI screens |
-| Material cyan/teal `#00E5FF` `#0099CC` `#00897B` | ~75 | off-brand leak |
-| Raw Tailwind grays (`text-gray-*`, `bg-gray-50`, `border-gray-200`) | ~900 | cool grays clash with warm paper → map to tokens |
-| Raw status colors (`green/red/orange/yellow/blue/teal-50..700`) | ~250 | un-tokenized → define semantic status set |
-| One-off hex near brand values (`#2a2a2a`,`#fcfaf4`,`#6b7c65`,`#c4955a`…) | ~80 | duplicates of existing tokens |
-| Ad-hoc font sizes `text-[9px]/[10px]/[11px]/[13px]` + inline `fontSize` | ~55 | off-scale; `9–11px` fails legibility/a11y |
-| `font-black` / stray `font-serif` utilities | ~14 | outside the 300–600 weight scale |
-| Dead `default_shadcn_theme.css` (stock shadcn, unimported) | — | delete |
-| Dead deps `@mui/material`,`@mui/icons-material`,`@emotion/*` (0 imports) | — | remove from package.json |
-| Broken dark mode (`.dark` reverts to generic oklch + purple) | — | decide: author Bridge dark **or** defer |
+```yaml
+violations:
+  - symptom: "Material purple #6200EE (+#5000C9/#4C00B8)"
+    count_approx: "226 hits / 11 files"
+    verdict: "off-brand leak — concentrated in Operational/AI screens"
+  - symptom: "Material cyan/teal #00E5FF #0099CC #00897B"
+    count_approx: "~75"
+    verdict: "off-brand leak"
+  - symptom: "Raw Tailwind grays (text-gray-*, bg-gray-50, border-gray-200)"
+    count_approx: "~900"
+    verdict: "cool grays clash with warm paper → map to tokens"
+  - symptom: "Raw status colors (green/red/orange/yellow/blue/teal-50..700)"
+    count_approx: "~250"
+    verdict: "un-tokenized → define semantic status set"
+  - symptom: "One-off hex near brand values (#2a2a2a, #fcfaf4, #6b7c65, #c4955a…)"
+    count_approx: "~80"
+    verdict: "duplicates of existing tokens"
+  - symptom: "Ad-hoc font sizes text-[9px]/[10px]/[11px]/[13px] + inline fontSize"
+    count_approx: "~55"
+    verdict: "off-scale; 9–11px fails legibility/a11y"
+  - symptom: "font-black / stray font-serif utilities"
+    count_approx: "~14"
+    verdict: "outside the 300–600 weight scale"
+  - symptom: "Dead default_shadcn_theme.css (stock shadcn, unimported)"
+    count_approx: "—"
+    verdict: "delete"
+  - symptom: "Dead deps @mui/material, @mui/icons-material, @emotion/* (0 imports)"
+    count_approx: "—"
+    verdict: "remove from package.json"
+  - symptom: "Broken dark mode (.dark reverts to generic oklch + purple)"
+    count_approx: "—"
+    verdict: "decide: author Bridge dark or defer"
+```
 
 ---
 
 ## 1. Color tokens (canonical — from `theme.css`)
 
 **Primary palette**
-| Token | Hex | Role |
-|---|---|---|
-| `--color-background` | `#FAF9F5` | warm paper — app background |
-| `--color-surface` | `#F0EEE8` | cards, raised surfaces, inputs |
-| `--color-navy` | `#1A2B3C` | primary ink (headings, high-emphasis text) |
-| `--color-navy-mid` | `#2E4057` | body ink (secondary text) |
-| `--color-steel` | `#4D7EA8` | **primary** — actions, links, focus ring |
-| `--color-steel-light` | `#7FA5C5` | accent / hover / selected |
+```yaml
+primary_palette:
+  - token: "--color-background"
+    hex: "#FAF9F5"
+    role: "warm paper — app background"
+  - token: "--color-surface"
+    hex: "#F0EEE8"
+    role: "cards, raised surfaces, inputs"
+  - token: "--color-navy"
+    hex: "#1A2B3C"
+    role: "primary ink (headings, high-emphasis text)"
+  - token: "--color-navy-mid"
+    hex: "#2E4057"
+    role: "body ink (secondary text)"
+  - token: "--color-steel"
+    hex: "#4D7EA8"
+    role: "primary — actions, links, focus ring"
+  - token: "--color-steel-light"
+    hex: "#7FA5C5"
+    role: "accent / hover / selected"
+```
 
 **Supporting**
-| Token | Hex | Role |
-|---|---|---|
-| `--color-warm-gray` | `#B8B4A8` | muted text, disabled, neutral |
-| `--color-border` | `#E2DED5` | hairlines, dividers |
-| `--color-sage` | `#6B7C65` | trust / positive-relationship |
-| `--color-amber-soft` | `#C4955A` | attention / dormant |
+```yaml
+supporting:
+  - token: "--color-warm-gray"
+    hex: "#B8B4A8"
+    role: "muted text, disabled, neutral"
+  - token: "--color-border"
+    hex: "#E2DED5"
+    role: "hairlines, dividers"
+  - token: "--color-sage"
+    hex: "#6B7C65"
+    role: "trust / positive-relationship"
+  - token: "--color-amber-soft"
+    hex: "#C4955A"
+    role: "attention / dormant"
+```
 
 **Semantic relationship colors** (drive Orbit/warmth — *never shown as a naked number*, only hue/position):
-| Token | Hex | Meaning |
-|---|---|---|
-| `--color-warm` | `#4D7EA8` (steel) | warm / active relationship |
-| `--color-trust` | `#6B7C65` (sage) | established trust |
-| `--color-dormant` | `#C4955A` (amber) | going cold / dormant |
-| `--color-neutral` | `#B8B4A8` | neutral / unknown |
+```yaml
+relationship_colors:
+  - token: "--color-warm"
+    hex: "#4D7EA8 (steel)"
+    meaning: "warm / active relationship"
+  - token: "--color-trust"
+    hex: "#6B7C65 (sage)"
+    meaning: "established trust"
+  - token: "--color-dormant"
+    hex: "#C4955A (amber)"
+    meaning: "going cold / dormant"
+  - token: "--color-neutral"
+    hex: "#B8B4A8"
+    meaning: "neutral / unknown"
+```
 
 **Status colors (NEW — to define; currently raw Tailwind).** Harmonize to the warm-paper palette (muted, not neon):
-| Token | Proposed hex | Use |
-|---|---|---|
-| `--color-success` | `#6B7C65` (reuse sage) or `#4F7A52` | confirmations, healthy |
-| `--color-warning` | `#C4955A` (reuse amber) | caution, dormant |
-| `--color-danger` | `#C0573E` (muted terracotta; destructive stays `#d4183d`) | errors, destructive |
-| `--color-info` | `#4D7EA8` (reuse steel) | informational |
+```yaml
+status_colors:
+  - token: "--color-success"
+    proposed_hex: "#6B7C65 (reuse sage) or #4F7A52"
+    use: "confirmations, healthy"
+  - token: "--color-warning"
+    proposed_hex: "#C4955A (reuse amber)"
+    use: "caution, dormant"
+  - token: "--color-danger"
+    proposed_hex: "#C0573E (muted terracotta; destructive stays #d4183d)"
+    use: "errors, destructive"
+  - token: "--color-info"
+    proposed_hex: "#4D7EA8 (reuse steel)"
+    use: "informational"
+```
 > Principle: reuse brand hues for status where possible; only `danger` needs a dedicated warm-red. No `bg-green-50`/`bg-red-50`-style raw classes.
 
 **Agentic / Operational-plane accent — DECISION PENDING (§9).** The 11 screens using `#6200EE` are the *Operational plane* (agents, rituals, tools, automation). Options in §9; until resolved, treat `#6200EE` as a placeholder mapping to the chosen token.
@@ -74,17 +145,63 @@ The prototype **has** a coherent Bridge design system in `theme.css` — but com
 - Loaded via Google Fonts in `fonts.css`. *(Prod: self-host both for privacy + performance.)*
 
 **Type scale** (element defaults already set; this is the canonical scale all `text-*` usage must map to):
-| Level | Font | Size | Weight | Line | Color |
-|---|---|---|---|---|---|
-| h1 (page title) | Serif | 32px | 400 | 1.2 | navy |
-| h2 (section) | Serif | 24px | 600 | 1.2 | navy |
-| h3 (card / name) | Serif | 18px | 500 | 1.2 | navy |
-| h4 (subhead) | Serif | 16px | 500 | 1.2 | navy-mid |
-| body (`p`) | Geist | 15px | 400 | 1.5 | navy-mid |
-| button | Geist | 14px | 500 | 1.5 | — |
-| input | Geist | 14px | 400 | 1.5 | — |
-| label | Geist | 12px | 400 | 1.5 | navy-mid |
-| **caption (min)** | Geist | **12px** | 400/500 | 1.4 | warm-gray |
+```yaml
+type_scale:
+  - level: "h1 (page title)"
+    font: Serif
+    size: 32px
+    weight: 400
+    line: 1.2
+    color: navy
+  - level: "h2 (section)"
+    font: Serif
+    size: 24px
+    weight: 600
+    line: 1.2
+    color: navy
+  - level: "h3 (card / name)"
+    font: Serif
+    size: 18px
+    weight: 500
+    line: 1.2
+    color: navy
+  - level: "h4 (subhead)"
+    font: Serif
+    size: 16px
+    weight: 500
+    line: 1.2
+    color: navy-mid
+  - level: "body (p)"
+    font: Geist
+    size: 15px
+    weight: 400
+    line: 1.5
+    color: navy-mid
+  - level: button
+    font: Geist
+    size: 14px
+    weight: 500
+    line: 1.5
+    color: "—"
+  - level: input
+    font: Geist
+    size: 14px
+    weight: 400
+    line: 1.5
+    color: "—"
+  - level: label
+    font: Geist
+    size: 12px
+    weight: 400
+    line: 1.5
+    color: navy-mid
+  - level: "caption (min)"
+    font: Geist
+    size: 12px
+    weight: 400/500
+    line: 1.4
+    color: warm-gray
+```
 
 **Weights:** 300 light · 400 normal · 500 medium · 600 semibold. **No `font-black`/700+** (off-scale). `font-bold` → prefer `font-semibold`.
 **Tailwind `text-*` ↔ scale:** `text-2xl`=h2-ish, `text-xl`=h3, `text-lg`=h4, `text-base`=body, `text-sm`(14)=button/input, `text-xs`(12)=label/caption.

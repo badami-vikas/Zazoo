@@ -63,7 +63,9 @@ export class DrizzleCanonicalIdentityStore implements CanonicalIdentityStore {
         ...(identity.enrichmentSource ? { enrichmentSource: identity.enrichmentSource } : {}),
       })
       .onConflictDoNothing({ target: peopleCanonical.dedupKey })
-      .returning({ id: peopleCanonical.id });
+      // No-arg returning() (full row) — typechecks across the postgres-js | pglite
+      // Database union; we only read `.id`.
+      .returning();
 
     const row = inserted[0];
     if (row) return { canonicalPersonId: row.id, created: true };

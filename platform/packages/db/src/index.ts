@@ -4,6 +4,7 @@
  */
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
+export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
   DrizzleRoleStore,
@@ -19,6 +20,15 @@ export {
   type CanonicalPersonIdentity,
   type UpsertResult,
 } from "./canonical-store.js";
+export {
+  DrizzleIntegrationStore,
+  IntegrationFloorScopeError,
+  ALWAYS_APPROVAL_SCOPES,
+  INTEGRATION_ACTOR_TYPE,
+  type IntegrationRow,
+  type ScopeGrant,
+} from "./integration-store.js";
+export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";
