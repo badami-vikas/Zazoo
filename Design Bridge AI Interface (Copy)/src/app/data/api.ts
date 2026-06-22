@@ -34,6 +34,50 @@ async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
   return body?.result?.data as T;
 }
 
+// One unbatched tRPC query (GET). Input rides as a urlencoded `?input=` param; result at `result.data`.
+async function query<T = unknown>(path: string, input?: unknown): Promise<T> {
+  const qs = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: { 'content-type': 'application/json' } });
+  const body = await res.json().catch(() => ({}));
+  if (body?.error) throw new Error(body.error?.message || body.error?.json?.message || `trpc ${path} error`);
+  if (!res.ok) throw new Error(`trpc ${path} HTTP ${res.status}`);
+  return body?.result?.data as T;
+}
+
+// ── Integration permissions (the `integration` sub-router) ─────────────────────
+// Governed, user-editable scopes for a connected integration. Each helper reports "unavailable"
+// (null/false) when the API is OFF, so the Permissions panel falls back to its offline mirror.
+export interface ApiScopeGrant {
+  id: string;
+  resourceType: string;
+  action: string;
+  effect: string;
+  expiresAt: string | null;
+}
+
+/** Active (non-revoked) standing grants held by an integration. */
+export async function apiListScopes(integrationId: string): Promise<ApiScopeGrant[] | null> {
+  if (!API_ENABLED) return null;
+  return query<ApiScopeGrant[]>('integration.listScopes', { workspaceId: PILOT_WORKSPACE, integrationId });
+}
+
+/** Grant a standing Bridge capability. The server refuses agent-floor DENY scopes (FORBIDDEN). */
+export async function apiGrantScope(a: {
+  integrationId: string;
+  resourceType: string;
+  action: string;
+}): Promise<ApiScopeGrant | null> {
+  if (!API_ENABLED) return null;
+  return mutate<ApiScopeGrant>('integration.grantScope', { workspaceId: PILOT_WORKSPACE, ...a });
+}
+
+/** Narrow access: revoke a single standing grant (append-only — sets revoked_at server-side). */
+export async function apiRevokeScope(permissionId: string): Promise<boolean> {
+  if (!API_ENABLED) return false;
+  await mutate('integration.revokeScope', { workspaceId: PILOT_WORKSPACE, permissionId });
+  return true;
+}
+
 interface ProposeResult {
   id: string;
   status: 'pending_review' | 'applied' | 'rejected';

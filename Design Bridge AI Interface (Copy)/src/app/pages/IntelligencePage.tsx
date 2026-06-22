@@ -28,6 +28,8 @@ const integrationsData = [
   { id: 'INT-3004', name: 'Slack', description: 'Track conversations and channels across your workspace', status: 'Disconnected', lastSync: '2 weeks ago', dataPoints: 0, list: 'Disconnected' },
   { id: 'INT-3005', name: 'GitHub', description: 'Track collaborative projects and contributors', status: 'Pending', lastSync: 'Never', dataPoints: 0, list: 'Pending' },
   { id: 'INT-3006', name: 'X / Twitter', description: 'Monitor social interactions and public mentions', status: 'Disconnected', lastSync: 'Never', dataPoints: 0, list: 'Disconnected' },
+  { id: 'INT-3007', name: 'Instagram', description: 'Source posts and DMs into governed touchpoints', status: 'Connected', lastSync: '45 min ago', dataPoints: 312, list: 'Connected' },
+  { id: 'INT-3008', name: 'Facebook', description: 'Track Page messages and engagement as touchpoints', status: 'Disconnected', lastSync: 'Never', dataPoints: 0, list: 'Disconnected' },
 ];
 
 export function IntelligencePage() {
