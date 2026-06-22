@@ -4,7 +4,7 @@ type: raw
 doc_kind: audit
 status: active
 companions: []
-related_wiki: wiki/design.md
+related_wiki: ../wiki/design.md
 updated: 2026-06-22
 tags: [design, audit, ui]
 ---

@@ -4,7 +4,7 @@ type: raw
 doc_kind: requirement
 status: active
 companions: [helpdesk-plan.md]
-related_wiki: wiki/helpdesk.md
+related_wiki: ../wiki/helpdesk.md
 updated: 2026-06-22
 tags: [helpdesk, requirement, verbatim]
 ---

@@ -4,7 +4,7 @@ type: raw
 doc_kind: reference
 status: active
 companions: [STACK.md, ARCHITECTURE.md]
-related_wiki: wiki/oss.md
+related_wiki: ../wiki/oss.md
 updated: 2026-06-22
 tags: [oss, licenses, stack]
 ---

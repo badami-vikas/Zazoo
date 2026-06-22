@@ -4,7 +4,7 @@ type: raw
 doc_kind: plan
 status: Sequenced around platform capability layers, not features
 companions: [ARCHITECTURE.md, SCHEMA.sql]
-related_wiki: wiki/roadmap.md
+related_wiki: ../wiki/roadmap.md
 updated: 2026-06-22
 tags: [roadmap, phases, sequencing]
 ---

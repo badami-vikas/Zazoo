@@ -5,7 +5,7 @@ doc_kind: design
 status: governance-authority narrative synced to Schema v2 (roles/delegation/ephemeral/agent-floor DENY, node_types `plane`)
 audience: founding engineering + product
 companions: [SCHEMA.sql, ROADMAP.md]
-related_wiki: wiki/architecture.md
+related_wiki: ../wiki/architecture.md
 updated: 2026-06-22
 tags: [architecture, governance, platform]
 ---

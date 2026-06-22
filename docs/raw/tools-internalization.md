@@ -4,7 +4,7 @@ type: raw
 doc_kind: research
 status: active
 companions: []
-related_wiki: wiki/tools.md
+related_wiki: ../wiki/tools.md
 updated: 2026-06-22
 tags: [tools, internalization, research]
 ---

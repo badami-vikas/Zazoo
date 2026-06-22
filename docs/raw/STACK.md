@@ -4,7 +4,7 @@ type: raw
 doc_kind: reference
 status: active
 companions: [ARCHITECTURE.md, SCHEMA.sql, ROADMAP.md]
-related_wiki: wiki/stack.md
+related_wiki: ../wiki/stack.md
 updated: 2026-06-22
 tags: [stack, infrastructure, tech]
 ---

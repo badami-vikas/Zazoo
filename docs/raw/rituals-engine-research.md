@@ -4,7 +4,7 @@ type: raw
 doc_kind: research
 status: active
 companions: []
-related_wiki: wiki/rituals.md
+related_wiki: ../wiki/rituals.md
 updated: 2026-06-22
 tags: [rituals, research, orchestration]
 ---

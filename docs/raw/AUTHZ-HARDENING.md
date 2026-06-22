@@ -4,7 +4,7 @@ type: raw
 doc_kind: design
 status: active
 companions: []
-related_wiki: wiki/architecture.md
+related_wiki: ../wiki/architecture.md
 updated: 2026-06-22
 tags: [authz, security, governance]
 ---

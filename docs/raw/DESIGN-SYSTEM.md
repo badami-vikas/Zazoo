@@ -4,7 +4,7 @@ type: raw
 doc_kind: reference
 status: Canonical brand + typography + color tokens; formalizes theme.css, fills gaps, maps violations → target tokens
 companions: [DESIGN-FIX.md, DESIGN-AUDIT.md]
-related_wiki: wiki/design-system.md
+related_wiki: ../wiki/design-system.md
 updated: 2026-06-22
 tags: [design-system, tokens, branding]
 ---

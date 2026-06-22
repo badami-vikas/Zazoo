@@ -4,7 +4,7 @@ type: raw
 doc_kind: design
 status: active
 companions: []
-related_wiki: wiki/resilience.md
+related_wiki: ../wiki/resilience.md
 updated: 2026-06-22
 tags: [resilience, patterns, reliability]
 ---
