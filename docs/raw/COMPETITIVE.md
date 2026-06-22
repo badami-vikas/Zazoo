@@ -1,3 +1,13 @@
+---
+title: Competitive Landscape & Feature Strategy
+type: raw
+doc_kind: research
+status: active
+companions: []
+related_wiki: wiki/competitive.md
+updated: 2026-06-22
+tags: [competitive, market, research]
+---
 # Bridge AI — Competitive Landscape & Feature Strategy
 
 > From multi-agent research across 9 clusters (personal RMs, VC intelligence, enrichment, memory tools, capture, community, events, digital cards, AI-native newcomers). Each feature classified **easy-add / future-upgrade / deliberately-avoid**.

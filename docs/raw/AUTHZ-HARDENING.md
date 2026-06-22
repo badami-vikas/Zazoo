@@ -1,3 +1,13 @@
+---
+title: Authorization hardening — relevance assessment (2026-05-31)
+type: raw
+doc_kind: design
+status: active
+companions: []
+related_wiki: wiki/architecture.md
+updated: 2026-06-22
+tags: [authz, security, governance]
+---
 # Authorization hardening — relevance assessment (2026-05-31)
 
 Context: an external review of *another* platform recommended a "Permission Engine" pillar

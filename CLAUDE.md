@@ -6,7 +6,8 @@ Bridge AI = private relationship-intelligence OS for VC/GP funds. NOT a CRM, sal
 - `docs/wiki/` = key takeaways, caveman-terse. `docs/raw/` = full depth.
 - **Read `docs/wiki/` BY DEFAULT.** Reference `docs/raw/` ONLY on strong need / when wiki is insufficient.
 - Start at [docs/wiki/index.md](docs/wiki/index.md). Locked calls: [docs/wiki/decisions.md](docs/wiki/decisions.md).
-- **Draft/update wiki in CAVEMAN style** (invoke the `caveman` skill). Raw = normal prose.
+- **Draft/update wiki in CAVEMAN style** (invoke the `caveman` skill).
+- **Every `docs/raw/` doc carries YAML frontmatter**: `title · type: raw · doc_kind (design|research|requirement|plan|audit|reference) · status · companions[] · related_wiki · updated · tags[]`. Bodies stay prose for narrative/research docs; **data-shaped docs (stack/tokens/roadmap/registries) express their data in fenced ```yaml blocks**, not Markdown tables. `requirement` docs (verbatim user text) get frontmatter ONLY — never edit the body.
 - Wiki page exceeds 1000 lines → compact + summarize it.
 - New/changed raw → update the matching wiki page + append [docs/log.md](docs/log.md).
 

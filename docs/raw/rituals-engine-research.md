@@ -1,3 +1,13 @@
+---
+title: Rituals Engine — Research, Verdicts & Architecture (2026-06-03)
+type: raw
+doc_kind: research
+status: active
+companions: []
+related_wiki: wiki/rituals.md
+updated: 2026-06-22
+tags: [rituals, research, orchestration]
+---
 # Rituals Engine — Research, Verdicts & Architecture (2026-06-03)
 
 User dumped a large set of ritual + agent-platform inputs and asked: *take as opinion,

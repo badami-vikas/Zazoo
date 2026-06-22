@@ -1,3 +1,13 @@
+---
+title: Initiatives as a Taskade-alternative — research, interrogation, and the call
+type: raw
+doc_kind: research
+status: active
+companions: []
+related_wiki: wiki/initiatives.md
+updated: 2026-06-22
+tags: [initiatives, taskade, research]
+---
 # Initiatives as a Taskade-alternative — research, interrogation, and the call
 
 **Date:** 2026-06-02. **Method:** 21-agent research workflow — 3 codebase-grounding + 7 web-research (Taskade, Affine/BlockSuite, AppFlowy, Yjs/CRDT, Tiptap/Lexical/xyflow, Mem0/Zep/LangMem, polymorphic-tree/event-sourcing) + 10 adversarial claim verdicts + synthesis. ~1.24M subagent tokens.

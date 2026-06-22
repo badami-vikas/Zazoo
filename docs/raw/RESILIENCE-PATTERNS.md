@@ -1,3 +1,13 @@
+---
+title: Resilience patterns — failure-class field guide mapped to Bridge (2026-06-01)
+type: raw
+doc_kind: design
+status: active
+companions: []
+related_wiki: wiki/resilience.md
+updated: 2026-06-22
+tags: [resilience, patterns, reliability]
+---
 # Resilience patterns — failure-class field guide mapped to Bridge (2026-06-01)
 
 Source: an external post-mortem of *PeopleGamez*, a Firebase-based real-time multiplayer platform,
