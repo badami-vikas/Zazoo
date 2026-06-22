@@ -3,8 +3,11 @@ import {
   Table, LayoutGrid, Columns3, Trello, Calendar, Map as MapIcon, Network as NetworkIcon,
   Search, Filter, Plus, ChevronDown, ChevronLeft, ChevronRight, X, Eye, EyeOff, Check,
   Radio, UsersRound, Building2, Sparkles, MoreVertical, GripVertical, ExternalLink, CheckSquare, Tag,
-  Upload, Wrench, Users, Trash2,
+  Upload, Wrench, Users, Trash2, Download, Rows3, Copy, Link2,
 } from 'lucide-react';
+import { exportRowsToCsv } from '../lib/exportTable';
+import { csvToRecords } from '../lib/csvImport';
+import { COLUMN_TYPES, INLINE_TYPES, POPOVER_TYPES, type ColumnType } from '../lib/columnTypes';
 import { motion, AnimatePresence } from 'motion/react';
 import { useOutletContext, Link, useNavigate } from 'react-router';
 import clsx from 'clsx';
@@ -25,7 +28,7 @@ interface DataEngineContext {
 
 // ── Field definitions per tab. defaultVisible = shown before the user toggles. ────
 type FieldKind = 'insight' | 'text' | 'warmth' | 'ring' | 'pill' | 'trust' | 'link' | 'list' | 'number';
-interface FieldDef { id: string; label: string; kind: FieldKind; defaultVisible?: boolean; width?: string; locked?: boolean; toolId?: string; }
+interface FieldDef { id: string; label: string; kind: FieldKind; defaultVisible?: boolean; width?: string; locked?: boolean; toolId?: string; columnType?: ColumnType; options?: string[]; }
 
 const PEOPLE_FIELDS: FieldDef[] = [
   { id: 'newsInsight', label: 'NEWS & INSIGHT', kind: 'insight', defaultVisible: true, width: 360 as any },
@@ -69,10 +72,12 @@ function mapCommunity(c: any, i: number) {
 
 // ── Saved lists (session-only). A list is either a filter list (optionally inheriting
 //    from another list + word/field filters) or a merge (union of other lists). ──────
+type FilterOp = 'contains' | 'is' | 'is_not' | 'is_empty' | 'is_not_empty' | 'starts_with';
 type WordFilter = { mode: 'and' | 'or'; terms: string[] };
-type FilterList = { name: string; kind?: 'filter'; inheritsFrom?: string; filters: { field: string; value: string }[]; query: string; wordFilter?: WordFilter };
+type FilterList = { name: string; kind?: 'filter'; inheritsFrom?: string; filters: { field: string; value: string; op?: FilterOp }[]; query: string; wordFilter?: WordFilter };
 type MergeList = { name: string; kind: 'merge'; sources: string[] };
-export type SavedList = FilterList | MergeList;
+type IdsList = { name: string; kind: 'ids'; ids: string[] };
+export type SavedList = FilterList | MergeList | IdsList;
 
 // Free-text search across a row's human-readable fields (people + community shapes).
 function matchesText(row: any, value: string): boolean {
@@ -152,7 +157,7 @@ export function DataEngine() {
 
   // Local table state (prototype, session-only): added rows, per-cell edits, custom columns, saved lists.
   const [addedRows, setAddedRows] = useState<Record<string, any[]>>({});
-  const [cellOverrides, setCellOverrides] = useState<Record<string, Record<string, string>>>({});
+  const [cellOverrides, setCellOverrides] = useState<Record<string, Record<string, string | string[] | boolean>>>({});
   const [customFields, setCustomFields] = useState<Record<string, FieldDef[]>>({});
   const [savedLists, setSavedLists] = useState<Record<string, SavedList[]>>({});
   const addedCounter = useRef(0);
@@ -161,14 +166,23 @@ export function DataEngine() {
   const [addColName, setAddColName] = useState('');
   const [addColMode, setAddColMode] = useState<'manual' | 'tool'>('manual');
   const [addColTool, setAddColTool] = useState<string>(tools[0]?.id ?? '');
+  const [addColType, setAddColType] = useState<ColumnType>('text');
+  const [addColOptions, setAddColOptions] = useState('');
+  const [selectPopover, setSelectPopover] = useState<{ row: any; field: FieldDef; x: number; y: number } | null>(null);
+  const [selectNewOpt, setSelectNewOpt] = useState('');
+  const [datePopover, setDatePopover] = useState<{ row: any; field: FieldDef; x: number; y: number } | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const [addListOpen, setAddListOpen] = useState(false);
   const [newListName, setNewListName] = useState('');
   const [listWords, setListWords] = useState('');
   const [listBase, setListBase] = useState('current');
   const [pillMenu, setPillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ row: any; x: number; y: number } | null>(null);
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const [selectedRowIdx, setSelectedRowIdx] = useState<number[]>([]);
+  const [density, setDensity] = useState<'compact' | 'standard' | 'tall'>('standard');
+  const densityPx = density === 'compact' ? 28 : density === 'tall' ? 44 : 34;
+  const cycleDensity = () => setDensity(d => d === 'compact' ? 'standard' : d === 'standard' ? 'tall' : 'compact');
 
   // People come from the canonical tier in Supabase when reachable; else local CSV-derived data.
   const [peopleRows, setPeopleRows] = useState<NetworkPerson[]>(realPeople);
@@ -231,7 +245,7 @@ export function DataEngine() {
     const id = `new-${activeTab}-${++addedCounter.current}`;
     setAddedRows(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { id, name: `New ${activeTab === 'People' ? 'connection' : 'community'}` }] }));
   };
-  const editCell = (row: any, fieldId: string, value: string) =>
+  const editCell = (row: any, fieldId: string, value: string | string[] | boolean) =>
     setCellOverrides(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {}), [fieldId]: value } }));
   const deleteSelectedRows = () => {
     const ids = selectedRowIdx.map(i => pageData[i]?.id).filter(Boolean) as string[];
@@ -245,23 +259,113 @@ export function DataEngine() {
     const label = addColName.trim(); if (!label) return;
     const fid = `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${++addedCounter.current}`;
     const field: any = { id: fid, label: label.toUpperCase(), kind: 'text', defaultVisible: true, width: 180, custom: true };
-    if (addColMode === 'tool') field.toolId = addColTool;
+    if (addColMode === 'tool') {
+      field.toolId = addColTool;
+    } else {
+      field.columnType = addColType;
+      if (addColType === 'select' || addColType === 'multiselect') {
+        field.options = addColOptions.split(',').map((s: string) => s.trim()).filter(Boolean);
+      }
+    }
     setCustomFields(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), field] }));
-    setAddColName(''); setAddColOpen(false); setOverflowOpen(false);
+    setAddColName(''); setAddColType('text'); setAddColOptions(''); setAddColOpen(false); setOverflowOpen(false);
   };
   const saveCurrentAsList = () => {
     const nm = newListName.trim(); if (!nm) return;
     const wordFilter = parseWordFilter(listWords);
     // 'current' → bake the live search + row filters in; otherwise inherit the chosen list.
     const item: SavedList = listBase === 'current'
-      ? { name: nm, kind: 'filter', filters: rowFilters.filter(f => f.value), query, wordFilter }
+      ? { name: nm, kind: 'filter', filters: rowFilters.filter(f => f.value || f.op === 'is_empty' || f.op === 'is_not_empty'), query, wordFilter }
       : { name: nm, kind: 'filter', inheritsFrom: listBase, filters: [], query: '', wordFilter };
     setSavedLists(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), item] }));
     setSelectedList(nm); setNewListName(''); setListWords(''); setListBase('current'); setAddListOpen(false);
   };
-  const uploadList = (filename: string) => {
-    setSavedLists(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { name: filename, kind: 'filter', filters: [], query: '' }] }));
-    setSelectedList(filename); setAddListOpen(false);
+  // Common aliases: header label → base field id. Case-insensitive matching applied below.
+  const FIELD_ALIASES: Record<string, string> = {
+    'full name': 'name', 'name': 'name',
+    'company': 'company', 'organization': 'company',
+    'title': 'position', 'position': 'position', 'role': 'position',
+    'email': 'email', 'email address': 'email',
+    'location': 'location', 'city': 'location',
+    'linkedin': 'url', 'url': 'url', 'profile': 'url',
+  };
+
+  const importFile = async (file: File, listName?: string) => {
+    const name = listName || file.name;
+    // Non-CSV: fall back to empty filter list (xlsx parsing is a follow-up).
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setSavedLists(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { name, kind: 'filter' as const, filters: [], query: '' }] }));
+      setSelectedList(name); setAddListOpen(false);
+      return;
+    }
+
+    const text = await file.text();
+    const { headers, records } = csvToRecords(text);
+    if (headers.length === 0 || records.length === 0) {
+      // Empty or header-only — create an empty list gracefully.
+      setSavedLists(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { name, kind: 'ids' as const, ids: [] }] }));
+      setSelectedList(name); setAddListOpen(false);
+      return;
+    }
+
+    const baseFields = activeTab === 'People' ? PEOPLE_FIELDS : COMMUNITY_FIELDS;
+    // Build header → fieldId map.
+    const headerMap: Record<string, string> = {};
+    const newCustomFieldDefs: FieldDef[] = [];
+    for (const h of headers) {
+      const lower = h.toLowerCase().trim();
+      // Try alias table first.
+      if (FIELD_ALIASES[lower]) { headerMap[h] = FIELD_ALIASES[lower]; continue; }
+      // Try matching against base field ids or labels.
+      const matched = baseFields.find(f => f.id.toLowerCase() === lower || f.label.toLowerCase() === lower);
+      if (matched) { headerMap[h] = matched.id; continue; }
+      // Unknown header → new custom text column (dedupe by label).
+      const slug = lower.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      const fid = `custom_${slug}_${++addedCounter.current}`;
+      headerMap[h] = fid;
+      newCustomFieldDefs.push({ id: fid, label: h.toUpperCase(), kind: 'text', defaultVisible: true, width: 180 as any, columnType: 'text' });
+    }
+
+    // Dedupe new custom fields against existing ones by label.
+    if (newCustomFieldDefs.length > 0) {
+      setCustomFields(prev => {
+        const existing = prev[activeTab] || [];
+        const existingLabels = new Set(existing.map(f => f.label));
+        const toAdd = newCustomFieldDefs.filter(f => !existingLabels.has(f.label));
+        // Update headerMap entries whose fid collides with an existing field.
+        for (const f of newCustomFieldDefs) {
+          if (existingLabels.has(f.label)) {
+            const existingField = existing.find(e => e.label === f.label);
+            if (existingField) {
+              // Remap the header to the existing field's id.
+              for (const [h, fid] of Object.entries(headerMap)) {
+                if (fid === f.id) headerMap[h] = existingField.id;
+              }
+            }
+          }
+        }
+        return toAdd.length ? { ...prev, [activeTab]: [...existing, ...toAdd] } : prev;
+      });
+    }
+
+    // Convert records → row objects.
+    const importedRows = records.map((rec, idx) => {
+      const row: Record<string, string> = { id: `import-${activeTab}-${++addedCounter.current}` };
+      for (const [h, fid] of Object.entries(headerMap)) {
+        const val = rec[h] ?? '';
+        if (fid === 'name' && !row['name']) row['name'] = val;
+        else row[fid] = val;
+      }
+      // Fallback name: first column value or generic label.
+      if (!row['name']) row['name'] = rec[headers[0]] || `Imported ${activeTab === 'People' ? 'Person' : 'Community'} ${idx + 1}`;
+      return row;
+    });
+
+    const ids = importedRows.map(r => r.id);
+    setAddedRows(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), ...importedRows] }));
+    setSavedLists(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { name, kind: 'ids' as const, ids }] }));
+    setSelectedList(name);
+    setAddListOpen(false);
   };
   // Merge two lists into a new union list (everyone in either source).
   const mergeLists = (a: string, b: string) => {
@@ -278,6 +382,12 @@ export function DataEngine() {
   };
   const isSavedList = (name: string) => (savedLists[activeTab] || []).some(l => l.name === name);
 
+  // ── Calendar view local state ────────────────────────────────────────────────
+  const [calMonth, setCalMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+
   // Column visibility per tab — all columns on by default; user can toggle off.
   const [colVisible, setColVisible] = useState<Record<string, Record<string, boolean>>>({});
   const visForTab = (tab: string, fs: FieldDef[]) =>
@@ -287,10 +397,11 @@ export function DataEngine() {
   const toggleCol = (id: string) =>
     setColVisible(prev => ({ ...prev, [activeTab]: { ...visForTab(activeTab, fields), [id]: !vis[id] } }));
 
-  // Row filters: list of {field, value} (contains, case-insensitive) + the search query.
-  const [rowFilters, setRowFilters] = useState<{ field: string; value: string }[]>([]);
-  const addFilter = (field: string) => setRowFilters(f => [...f, { field, value: '' }]);
+  // Row filters: list of {field, op, value} + the search query.
+  const [rowFilters, setRowFilters] = useState<{ field: string; op: FilterOp; value: string }[]>([]);
+  const addFilter = (field: string) => setRowFilters(f => [...f, { field, op: 'contains', value: '' }]);
   const setFilterValue = (i: number, value: string) => setRowFilters(f => f.map((x, j) => j === i ? { ...x, value } : x));
+  const setFilterOp = (i: number, op: FilterOp) => setRowFilters(f => f.map((x, j) => j === i ? { ...x, op } : x));
   const removeFilter = (i: number) => setRowFilters(f => f.filter((_, j) => j !== i));
 
   useEffect(() => { setSelectedList(null); setCurrentPage(1); setRowFilters([]); setQuery(''); setSort(null); setSelecting(false); setSelectedCount(0); setPillMenu(null); }, [activeTab]);
@@ -309,13 +420,21 @@ export function DataEngine() {
     const presets = activeTab === 'People' ? { ...PEOPLE_PRESETS, ...wsPresets } : COMMUNITY_PRESETS;
     const lists = savedLists[activeTab] || [];
 
-    const applyFilterDefs = (rows: any[], q: string, defs: { field: string; value: string }[], wf?: WordFilter) =>
+    const applyFilterDefs = (rows: any[], q: string, defs: { field: string; op?: FilterOp; value: string }[], wf?: WordFilter) =>
       rows.filter(row => {
         if (q && !matchesText(row, q)) return false;
         for (const f of defs) {
-          if (!f.value) continue;
+          const op = f.op ?? 'contains';
           const cell = Array.isArray(row[f.field]) ? row[f.field].join(' ') : String(row[f.field] ?? '');
-          if (!cell.toLowerCase().includes(f.value.toLowerCase())) return false;
+          const cellLow = cell.toLowerCase();
+          const valLow = f.value.toLowerCase();
+          if (op === 'is_empty') { if (cell.trim() !== '') return false; continue; }
+          if (op === 'is_not_empty') { if (cell.trim() === '') return false; continue; }
+          if (!f.value) continue;
+          if (op === 'is') { if (cellLow !== valLow) return false; }
+          else if (op === 'is_not') { if (cellLow === valLow) return false; }
+          else if (op === 'starts_with') { if (!cellLow.startsWith(valLow)) return false; }
+          else { if (!cellLow.includes(valLow)) return false; } // 'contains' (default)
         }
         if (wf && wf.terms.length) {
           const ok = wf.mode === 'and' ? wf.terms.every(t => matchesText(row, t)) : wf.terms.some(t => matchesText(row, t));
@@ -340,6 +459,10 @@ export function DataEngine() {
             if (!ids.has(r.id)) { ids.add(r.id); out.push(r); }
         return out;
       }
+      if (sl.kind === 'ids') {
+        const idSet = new Set(sl.ids);
+        return rows.filter(r => idSet.has(r.id));
+      }
       const base = sl.inheritsFrom ? resolveList(sl.inheritsFrom, rows, new Set(seen)) : rows;
       return applyFilterDefs(base, sl.query || '', sl.filters || [], sl.wordFilter);
     };
@@ -353,15 +476,40 @@ export function DataEngine() {
   const sorted = useMemo(() => {
     if (!sort) return filtered;
     const dir = sort.dir === 'asc' ? 1 : -1;
+    const isDateCol = sort.id === 'lastConnected' || sort.id === 'connectedOn';
     return [...filtered].sort((a, b) => {
       const av = a[sort.id], bv = b[sort.id];
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      if (isDateCol) return (parseConnected(av) - parseConnected(bv)) * dir;
+      const avn = Number(av), bvn = Number(bv);
+      if (!isNaN(avn) && !isNaN(bvn) && av !== '' && bv !== '' && av != null && bv != null) return (avn - bvn) * dir;
       return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
     });
   }, [filtered, sort]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / rowsPerPage));
   const pageData = sorted.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+
+  // Column summary stats for the Notion-style calc strip (table view only).
+  const colSummary = useMemo(() => {
+    const total = sorted.length;
+    return visibleFields.map(f => {
+      const nums = sorted.map(r => {
+        const v = r[f.id];
+        return v !== null && v !== undefined && v !== '' ? Number(v) : NaN;
+      }).filter(n => !isNaN(n));
+      if (nums.length > 0) {
+        const sum = nums.reduce((a, b) => a + b, 0);
+        const avg = sum / nums.length;
+        const fmtNum = (n: number) => Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+        return { id: f.id, label: f.label, kind: 'numeric' as const, sum: fmtNum(sum), avg: fmtNum(avg) };
+      }
+      const filled = sorted.filter(r => {
+        const v = r[f.id];
+        return v !== null && v !== undefined && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
+      }).length;
+      return { id: f.id, label: f.label, kind: 'text' as const, filled, total };
+    });
+  }, [sorted, visibleFields]);
   const handlePrevPage = () => setCurrentPage(p => Math.max(1, p - 1));
   const handleNextPage = () => setCurrentPage(p => Math.min(totalPages, p + 1));
 
@@ -433,6 +581,26 @@ export function DataEngine() {
         </div>
 
         <div className="flex items-center gap-1.5 ml-auto shrink-0">
+          {/* Density toggle */}
+          <button
+            title={`Row density: ${density} — click to cycle`}
+            onClick={cycleDensity}
+            className={clsx(toolbarBtn)}
+          >
+            <Rows3 className="w-3.5 h-3.5 text-[var(--color-warm-gray)]" />
+            <span className="@[600px]:inline hidden capitalize">{density}</span>
+          </button>
+
+          {/* Export CSV */}
+          <button
+            title="Export visible rows to CSV"
+            onClick={() => exportRowsToCsv(sorted, visibleFields, `${activeTab.toLowerCase()}-export.csv`)}
+            className={clsx(toolbarBtn)}
+          >
+            <Download className="w-3.5 h-3.5 text-[var(--color-warm-gray)]" />
+            <span className="@[600px]:inline hidden">Export</span>
+          </button>
+
           {/* Filter (row filter) */}
           <div className="relative">
             <button title="Filter rows" onClick={() => { setFilterMenuOpen(o => !o); setColMenuOpen(false); }} className={clsx(toolbarBtn, (filterMenuOpen || rowFilters.length) && '!bg-[var(--color-surface)]')}>
@@ -447,10 +615,24 @@ export function DataEngine() {
                     <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>Filter rows where…</div>
                     {rowFilters.length === 0 && <div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>No filters. Add one below.</div>}
                     {rowFilters.map((rf, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
+                      <div key={i} className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-medium px-2 py-1.5 rounded-md whitespace-nowrap" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{fields.find(f => f.id === rf.field)?.label.toLowerCase()}</span>
-                        <span className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>contains</span>
-                        <input autoFocus value={rf.value} onChange={e => setFilterValue(i, e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 border rounded-md text-sm outline-none" style={{ borderColor: 'var(--color-border)' }} />
+                        <select
+                          value={rf.op ?? 'contains'}
+                          onChange={e => setFilterOp(i, e.target.value as FilterOp)}
+                          className="text-xs px-1.5 py-1.5 border rounded-md outline-none"
+                          style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
+                        >
+                          <option value="contains">contains</option>
+                          <option value="is">is</option>
+                          <option value="is_not">is not</option>
+                          <option value="starts_with">starts with</option>
+                          <option value="is_empty">is empty</option>
+                          <option value="is_not_empty">is not empty</option>
+                        </select>
+                        {rf.op !== 'is_empty' && rf.op !== 'is_not_empty' && (
+                          <input autoFocus value={rf.value} onChange={e => setFilterValue(i, e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 border rounded-md text-sm outline-none" style={{ borderColor: 'var(--color-border)' }} />
+                        )}
                         <button onClick={() => removeFilter(i)} className="p-1 rounded text-[var(--color-warm-gray)] hover:text-[var(--danger)]"><X className="w-3.5 h-3.5" /></button>
                       </div>
                     ))}
@@ -510,6 +692,27 @@ export function DataEngine() {
                               <button key={m} onClick={() => setAddColMode(m)} className="flex-1 text-xs px-2 py-1.5 rounded-md border capitalize" style={{ borderColor: addColMode === m ? 'var(--color-steel)' : 'var(--color-border)', color: addColMode === m ? 'var(--color-steel)' : 'var(--color-navy-mid)', backgroundColor: addColMode === m ? 'color-mix(in srgb, var(--color-steel) 8%, transparent)' : 'white' }}>{m === 'manual' ? 'Manual data' : 'From a tool'}</button>
                             ))}
                           </div>
+                          {addColMode === 'manual' && (
+                            <>
+                              <select
+                                value={addColType}
+                                onChange={e => { setAddColType(e.target.value as ColumnType); setAddColOptions(''); }}
+                                className="px-2 py-1.5 border rounded-md text-sm outline-none"
+                                style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
+                              >
+                                {COLUMN_TYPES.map(ct => <option key={ct.id} value={ct.id}>{ct.label}</option>)}
+                              </select>
+                              {(addColType === 'select' || addColType === 'multiselect') && (
+                                <input
+                                  value={addColOptions}
+                                  onChange={e => setAddColOptions(e.target.value)}
+                                  placeholder="Options: Yes, No, Maybe…"
+                                  className="px-2 py-1.5 border rounded-md text-sm outline-none"
+                                  style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                                />
+                              )}
+                            </>
+                          )}
                           {addColMode === 'tool' && (
                             <select value={addColTool} onChange={e => setAddColTool(e.target.value)} className="px-2 py-1.5 border rounded-md text-sm outline-none" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
                               {tools.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -517,7 +720,7 @@ export function DataEngine() {
                           )}
                           <div className="flex gap-1.5">
                             <button onClick={addColumn} disabled={!addColName.trim()} className="flex-1 text-sm font-semibold px-2 py-1.5 rounded-md text-white disabled:opacity-40" style={{ backgroundColor: 'var(--color-steel)' }}>Add</button>
-                            <button onClick={() => { setAddColOpen(false); setAddColName(''); }} className="px-2 py-1.5 text-sm" style={{ color: 'var(--color-warm-gray)' }}>Cancel</button>
+                            <button onClick={() => { setAddColOpen(false); setAddColName(''); setAddColType('text'); setAddColOptions(''); }} className="px-2 py-1.5 text-sm" style={{ color: 'var(--color-warm-gray)' }}>Cancel</button>
                           </div>
                         </div>
                       )}
@@ -568,10 +771,10 @@ export function DataEngine() {
         </div>
       )}
 
-      {(rowFilters.some(f => f.value) || query) && (
+      {(rowFilters.some(f => f.value || f.op === 'is_empty' || f.op === 'is_not_empty') || query) && (
         <div className="flex items-center gap-2 px-4 py-2 border-b bg-[var(--color-surface)]/40 text-xs flex-wrap" style={{ borderColor: 'var(--color-border)' }}>
           {query && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>"{query}" <button onClick={() => setQuery('')}><X className="w-3 h-3" /></button></span>}
-          {rowFilters.filter(f => f.value).map((f, i) => <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>{fields.find(x => x.id === f.field)?.label.toLowerCase()}: {f.value}</span>)}
+          {rowFilters.filter(f => f.value || f.op === 'is_empty' || f.op === 'is_not_empty').map((f, i) => <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>{fields.find(x => x.id === f.field)?.label.toLowerCase()}{f.op && f.op !== 'contains' ? ` ${f.op.replace(/_/g, ' ')}` : ':'} {f.value}</span>)}
         </div>
       )}
 
@@ -591,8 +794,16 @@ export function DataEngine() {
                   <GlideTable
                     key={`${activeTab}-${currentPage}`}
                     rows={pageData}
-                    fields={visibleFields.map(f => ({ id: f.id, label: f.label, width: (f as any).width, editable: !(f as any).toolId && !(f as any).locked && editableKinds.has(f.kind) }))}
-                    rowHeight={34}
+                    fields={visibleFields.map(f => {
+                      const hasColType = !!f.columnType;
+                      // POPOVER_TYPES and checkbox are routed through onCellEdit — Glide must not inline-edit them.
+                      const isPopoverOrToggle = hasColType && (POPOVER_TYPES.includes(f.columnType!) || f.columnType === 'checkbox');
+                      const editable = hasColType
+                        ? (!isPopoverOrToggle && INLINE_TYPES.includes(f.columnType!))
+                        : (!f.toolId && !f.locked && editableKinds.has(f.kind));
+                      return { id: f.id, label: f.label, width: (f as any).width, editable };
+                    })}
+                    rowHeight={densityPx}
                     sort={sort}
                     onSort={toggleSort}
                     onOpen={(row) => navigate(`/item/${encodeURIComponent(row.name)}`)}
@@ -602,12 +813,47 @@ export function DataEngine() {
                       if (activeTab === 'Communities' && fieldId === 'communityType') {
                         setNewTypeInput('');
                         setTypePopover({ row, x: pos.x, y: pos.y });
+                        return;
+                      }
+                      // Custom column popover / toggle dispatch.
+                      const cf = (customFields[activeTab] || []).find(f => f.id === fieldId);
+                      if (cf?.columnType === 'select' || cf?.columnType === 'multiselect') {
+                        setSelectNewOpt('');
+                        setSelectPopover({ row, field: cf, x: pos.x, y: pos.y });
+                        return;
+                      }
+                      if (cf?.columnType === 'date') {
+                        setDatePopover({ row, field: cf, x: pos.x, y: pos.y });
+                        return;
+                      }
+                      if (cf?.columnType === 'checkbox') {
+                        const current = (cellOverrides[row.id]?.[fieldId] ?? row[fieldId]) as boolean | undefined;
+                        editCell(row, fieldId, !current);
+                        return;
                       }
                     }}
                     onCellEdited={editCell}
+                    onRowMenu={(row, pos) => setRowMenu({ row, x: pos.x, y: pos.y })}
                   />
                 )}
               </div>
+              {/* Column summary / calc strip — Notion-style, above pagination */}
+              {sorted.length > 0 && (
+                <div className="shrink-0 overflow-x-auto border-t flex items-center gap-4 px-4 py-1.5" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+                  <span className="text-xs font-semibold whitespace-nowrap shrink-0" style={{ color: 'var(--color-navy-mid)' }}>
+                    {sorted.length} {noun}
+                  </span>
+                  {colSummary.map(s => (
+                    <span key={s.id} className="text-xs whitespace-nowrap shrink-0" style={{ color: 'var(--color-warm-gray)' }}>
+                      <span className="font-medium" style={{ color: 'var(--color-navy-mid)' }}>{s.label.toLowerCase()}</span>
+                      {s.kind === 'numeric'
+                        ? <> · Σ <span style={{ color: 'var(--color-navy)' }}>{s.sum}</span> · x̄ <span style={{ color: 'var(--color-navy)' }}>{s.avg}</span></>
+                        : <> · <span style={{ color: 'var(--color-navy)' }}>{s.filled}/{s.total}</span> filled</>
+                      }
+                    </span>
+                  ))}
+                </div>
+              )}
             </motion.div>
           ) : activeView === 'gallery' ? (
             <motion.div key="gallery" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto p-5">
@@ -650,6 +896,231 @@ export function DataEngine() {
               <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: 'var(--color-warm-gray)' }}>Loading map…</div>}>
                 <PeopleMapView rows={filtered} />
               </Suspense>
+            </motion.div>
+          ) : activeView === 'calendar' ? (
+            <motion.div key="calendar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto p-5">
+              {(() => {
+                const { year, month } = calMonth;
+                const monthName = new Date(year, month, 1).toLocaleString('default', { month: 'long' });
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                // Build a map: day-of-month → rows with a date in that day
+                const dayMap: Record<number, any[]> = {};
+                const noDateRows: any[] = [];
+                for (const row of filtered) {
+                  const raw = row.connectedOn || row.lastConnected;
+                  let ts = raw ? parseConnected(raw) : 0;
+                  if (!ts && raw) ts = Date.parse(raw) || 0;
+                  if (!ts) { noDateRows.push(row); continue; }
+                  const d = new Date(ts);
+                  if (d.getFullYear() === year && d.getMonth() === month) {
+                    const day = d.getDate();
+                    if (!dayMap[day]) dayMap[day] = [];
+                    dayMap[day].push(row);
+                  }
+                }
+
+                // Cells: leading blanks + day cells
+                const totalCells = firstDay + daysInMonth;
+                const cells: (number | null)[] = [
+                  ...Array(firstDay).fill(null),
+                  ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+                ];
+                // Pad to complete the last week
+                while (cells.length % 7 !== 0) cells.push(null);
+                const weeks: (number | null)[][] = [];
+                for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+                const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const isToday = (d: number) => {
+                  const now = new Date();
+                  return now.getFullYear() === year && now.getMonth() === month && now.getDate() === d;
+                };
+
+                return (
+                  <div className="flex flex-col gap-4 max-w-5xl mx-auto w-full">
+                    {/* Month header */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setCalMonth(({ year: y, month: m }) => m === 0 ? { year: y - 1, month: 11 } : { year: y, month: m - 1 })}
+                        className="p-1.5 rounded-lg border hover:bg-[var(--color-surface)] transition-colors"
+                        style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <h2 className="flex-1 text-center text-base font-bold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>
+                        {monthName} {year}
+                      </h2>
+                      <button
+                        onClick={() => {
+                          const now = new Date();
+                          setCalMonth({ year: now.getFullYear(), month: now.getMonth() });
+                        }}
+                        className="px-2.5 py-1 rounded-lg border text-xs font-semibold hover:bg-[var(--color-surface)] transition-colors"
+                        style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                      >
+                        Today
+                      </button>
+                      <button
+                        onClick={() => setCalMonth(({ year: y, month: m }) => m === 11 ? { year: y + 1, month: 0 } : { year: y, month: m + 1 })}
+                        className="p-1.5 rounded-lg border hover:bg-[var(--color-surface)] transition-colors"
+                        style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Day-of-week header row */}
+                    <div className="grid grid-cols-7 border rounded-xl overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+                      {DAYS.map(d => (
+                        <div key={d} className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wider border-b" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-warm-gray)', borderColor: 'var(--color-border)' }}>{d}</div>
+                      ))}
+
+                      {/* Week rows */}
+                      {weeks.map((week, wi) =>
+                        week.map((day, di) => {
+                          const rows = day ? (dayMap[day] || []) : [];
+                          const overflow = rows.length > 3 ? rows.length - 3 : 0;
+                          const shown = rows.slice(0, 3);
+                          const borderR = di < 6 ? '1px solid var(--color-border)' : 'none';
+                          const borderB = wi < weeks.length - 1 ? '1px solid var(--color-border)' : 'none';
+                          return (
+                            <div
+                              key={`${wi}-${di}`}
+                              className="min-h-[88px] p-1.5 flex flex-col gap-0.5"
+                              style={{ borderRight: borderR, borderBottom: borderB, backgroundColor: day ? 'white' : 'var(--color-surface)' }}
+                            >
+                              {day && (
+                                <>
+                                  <span className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full mb-0.5 self-start ${isToday(day) ? 'text-white' : ''}`}
+                                    style={{ backgroundColor: isToday(day) ? 'var(--color-steel)' : 'transparent', color: isToday(day) ? 'white' : 'var(--color-navy-mid)' }}>
+                                    {day}
+                                  </span>
+                                  {shown.map(row => (
+                                    <button
+                                      key={row.id}
+                                      onClick={() => navigate(`/item/${encodeURIComponent(row.name)}`)}
+                                      className="w-full text-left text-[11px] font-medium px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity"
+                                      style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 12%, transparent)', color: 'var(--color-navy)' }}
+                                      title={row.name}
+                                    >
+                                      {row.name}
+                                    </button>
+                                  ))}
+                                  {overflow > 0 && (
+                                    <span className="text-[10px] px-1.5" style={{ color: 'var(--color-warm-gray)' }}>+{overflow} more</span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* No-date tray */}
+                    {noDateRows.length > 0 && (
+                      <div className="rounded-xl border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+                        <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-warm-gray)' }}>No date — {noDateRows.length} {noun}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {noDateRows.slice(0, 30).map(row => (
+                            <button
+                              key={row.id}
+                              onClick={() => navigate(`/item/${encodeURIComponent(row.name)}`)}
+                              className="text-xs px-2 py-1 rounded-lg border bg-white hover:border-[var(--color-steel)] transition-colors truncate max-w-[160px]"
+                              style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                              title={row.name}
+                            >
+                              {row.name}
+                            </button>
+                          ))}
+                          {noDateRows.length > 30 && <span className="text-xs self-center" style={{ color: 'var(--color-warm-gray)' }}>+{noDateRows.length - 30} more</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </motion.div>
+          ) : activeView === 'network' ? (
+            <motion.div key="network" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 overflow-y-auto p-5">
+              {(() => {
+                const CAP = 60;
+                const capped = filtered.slice(0, CAP);
+                const overflow = filtered.length - CAP;
+
+                // Cluster by company (People) or communityType (Communities)
+                const clusterKey = (row: any): string => {
+                  if (activeTab === 'People') return row.company || 'Independent';
+                  return row.communityType || 'Other';
+                };
+                const clusters = new Map<string, any[]>();
+                for (const row of capped) {
+                  const k = clusterKey(row);
+                  if (!clusters.has(k)) clusters.set(k, []);
+                  clusters.get(k)!.push(row);
+                }
+                // Sort clusters by size desc
+                const sorted_clusters = [...clusters.entries()].sort((a, b) => b[1].length - a[1].length);
+
+                return (
+                  <div className="flex flex-col gap-4 max-w-5xl mx-auto w-full">
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="text-sm font-semibold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>
+                        Network — {filtered.length} {noun}
+                        {overflow > 0 && <span className="text-xs font-normal ml-2" style={{ color: 'var(--color-warm-gray)' }}>· showing first {CAP}, +{overflow} more</span>}
+                      </div>
+                      <div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>
+                        {sorted_clusters.length} {activeTab === 'People' ? 'companies' : 'types'} · click any node to open
+                      </div>
+                    </div>
+
+                    {/* Cluster grid */}
+                    <div className="flex flex-col gap-5">
+                      {sorted_clusters.map(([label, members]) => (
+                        <div key={label} className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+                          {/* Cluster hub bar */}
+                          <div className="flex items-center gap-2 px-4 py-2.5 border-b" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: 'var(--color-steel)', color: 'white' }}>
+                              {label.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{label}</span>
+                            <span className="ml-auto text-xs px-2 py-0.5 rounded-full shrink-0" style={{ backgroundColor: 'white', color: 'var(--color-navy-mid)', border: '1px solid var(--color-border)' }}>
+                              {members.length} {members.length === 1 ? (activeTab === 'People' ? 'person' : 'community') : noun}
+                            </span>
+                          </div>
+                          {/* Member chips — flex wrap */}
+                          <div className="p-3 flex flex-wrap gap-2 bg-white">
+                            {members.map((row: any) => (
+                              <button
+                                key={row.id}
+                                onClick={() => navigate(`/item/${encodeURIComponent(row.name)}`)}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium hover:border-[var(--color-steel)] hover:shadow-sm transition-all"
+                                style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
+                                title={row.position || row.communityType || row.name}
+                              >
+                                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy)' }}>
+                                  {(row.name || '?').charAt(0)}
+                                </span>
+                                <span className="truncate max-w-[140px]">{row.name}</span>
+                                {row.position && <span className="text-[10px] hidden sm:inline truncate max-w-[100px]" style={{ color: 'var(--color-warm-gray)' }}>{row.position}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {overflow > 0 && (
+                      <p className="text-xs text-center pt-1" style={{ color: 'var(--color-warm-gray)' }}>
+                        +{overflow} {noun} not shown — narrow the filter to see more.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </motion.div>
           ) : (
             <motion.div key="placeholder" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col items-center justify-center text-[var(--color-warm-gray)] bg-[var(--color-surface)]/40 p-6 text-center">
@@ -777,6 +1248,157 @@ export function DataEngine() {
         )}
       </AnimatePresence>
 
+      {/* Select / Multi-select popover for custom columns */}
+      <AnimatePresence>
+        {selectPopover && (
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setSelectPopover(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+              transition={{ duration: 0.12 }}
+              className="fixed z-[61] min-w-[200px] rounded-xl border shadow-xl overflow-hidden"
+              style={{
+                left: Math.min(selectPopover.x, window.innerWidth - 220),
+                top: Math.min(selectPopover.y + 8, window.innerHeight - 300),
+                backgroundColor: 'white',
+                borderColor: 'var(--color-border)',
+              }}
+            >
+              <div className="px-3 py-2 border-b flex items-center gap-2" style={{ borderColor: 'var(--color-border)' }}>
+                <Tag className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} />
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>
+                  {selectPopover.field.label.toLowerCase()}
+                </span>
+              </div>
+              <div className="py-1 max-h-48 overflow-y-auto">
+                {(selectPopover.field.options || []).map(opt => {
+                  const raw = cellOverrides[selectPopover.row.id]?.[selectPopover.field.id] ?? selectPopover.row[selectPopover.field.id];
+                  const isMulti = selectPopover.field.columnType === 'multiselect';
+                  const current: string[] = Array.isArray(raw) ? raw : (raw ? [String(raw)] : []);
+                  const active = current.includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => {
+                        if (isMulti) {
+                          const next = active ? current.filter(v => v !== opt) : [...current, opt];
+                          editCell(selectPopover.row, selectPopover.field.id, next);
+                          // Keep popover open for multi-select.
+                        } else {
+                          editCell(selectPopover.row, selectPopover.field.id, opt);
+                          setSelectPopover(null);
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--color-surface)] transition-colors"
+                      style={{ color: active ? 'var(--color-steel)' : 'var(--color-navy-mid)', fontWeight: active ? 600 : 400 }}
+                    >
+                      {active
+                        ? <Check className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-steel)' }} />
+                        : <span className="w-3.5 shrink-0" />}
+                      {opt}
+                    </button>
+                  );
+                })}
+                {(selectPopover.field.options || []).length === 0 && (
+                  <div className="px-3 py-2 text-xs" style={{ color: 'var(--color-warm-gray)' }}>No options yet — add one below.</div>
+                )}
+              </div>
+              <div className="border-t px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const v = selectNewOpt.trim();
+                    if (!v) return;
+                    const fid = selectPopover.field.id;
+                    // Append option to the field definition.
+                    setCustomFields(prev => ({
+                      ...prev,
+                      [activeTab]: (prev[activeTab] || []).map(f =>
+                        f.id === fid ? { ...f, options: [...(f.options || []), v] } : f
+                      ),
+                    }));
+                    // Also select it immediately.
+                    if (selectPopover.field.columnType === 'multiselect') {
+                      const raw = cellOverrides[selectPopover.row.id]?.[fid] ?? selectPopover.row[fid];
+                      const current: string[] = Array.isArray(raw) ? raw : (raw ? [String(raw)] : []);
+                      editCell(selectPopover.row, fid, [...current, v]);
+                    } else {
+                      editCell(selectPopover.row, fid, v);
+                      setSelectPopover(null);
+                    }
+                    setSelectNewOpt('');
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <input
+                    autoFocus
+                    value={selectNewOpt}
+                    onChange={e => setSelectNewOpt(e.target.value)}
+                    placeholder="Add option…"
+                    className="flex-1 min-w-0 px-2 py-1.5 border rounded-md text-sm outline-none"
+                    style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!selectNewOpt.trim()}
+                    className="px-2 py-1.5 rounded-md text-sm font-semibold disabled:opacity-40 transition-colors"
+                    style={{ backgroundColor: 'var(--color-steel)', color: 'white' }}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Date popover for custom date columns */}
+      <AnimatePresence>
+        {datePopover && (
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setDatePopover(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+              transition={{ duration: 0.12 }}
+              className="fixed z-[61] rounded-xl border shadow-xl overflow-hidden"
+              style={{
+                left: Math.min(datePopover.x, window.innerWidth - 240),
+                top: Math.min(datePopover.y + 8, window.innerHeight - 120),
+                backgroundColor: 'white',
+                borderColor: 'var(--color-border)',
+              }}
+            >
+              <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>
+                  {datePopover.field.label.toLowerCase()}
+                </span>
+              </div>
+              <div className="px-3 py-3">
+                <input
+                  type="date"
+                  autoFocus
+                  defaultValue={(() => {
+                    const raw = cellOverrides[datePopover.row.id]?.[datePopover.field.id] ?? datePopover.row[datePopover.field.id];
+                    return typeof raw === 'string' ? raw : '';
+                  })()}
+                  onChange={e => {
+                    editCell(datePopover.row, datePopover.field.id, e.target.value);
+                    setDatePopover(null);
+                  }}
+                  className="px-2 py-1.5 border rounded-md text-sm outline-none w-full"
+                  style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* List pill right-click menu — merge with another list (union), or delete a saved list */}
       <AnimatePresence>
         {pillMenu && (
@@ -815,6 +1437,76 @@ export function DataEngine() {
         )}
       </AnimatePresence>
 
+      {/* Row right-click context menu */}
+      <AnimatePresence>
+        {rowMenu && (
+          <>
+            <div className="fixed inset-0 z-[60]" onClick={() => setRowMenu(null)} onContextMenu={(e) => { e.preventDefault(); setRowMenu(null); }} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -4 }}
+              transition={{ duration: 0.12 }}
+              className="fixed z-[61] w-52 rounded-xl border shadow-xl overflow-hidden"
+              style={{ left: Math.min(rowMenu.x, window.innerWidth - 220), top: Math.min(rowMenu.y, window.innerHeight - 200), backgroundColor: 'white', borderColor: 'var(--color-border)' }}
+            >
+              <div className="px-3 py-1.5 border-b" style={{ borderColor: 'var(--color-border)' }}>
+                <span className="text-xs font-semibold uppercase tracking-wider truncate block" style={{ color: 'var(--color-warm-gray)' }}>{rowMenu.row.name}</span>
+              </div>
+              <div className="py-1">
+                <button
+                  onClick={() => { navigate(`/item/${encodeURIComponent(rowMenu.row.name)}`); setRowMenu(null); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--color-surface)] transition-colors"
+                  style={{ color: 'var(--color-navy-mid)' }}
+                >
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-steel)' }} /> Open
+                </button>
+                <button
+                  onClick={() => {
+                    const src = rowMenu.row;
+                    const id = `new-${activeTab}-${++addedCounter.current}`;
+                    const clone = { ...src, id, name: `${src.name} (copy)` };
+                    setAddedRows(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), clone] }));
+                    setRowMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--color-surface)] transition-colors"
+                  style={{ color: 'var(--color-navy-mid)' }}
+                >
+                  <Copy className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-steel)' }} /> Duplicate
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${window.location.origin}/item/${encodeURIComponent(rowMenu.row.name)}`);
+                    setRowMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--color-surface)] transition-colors"
+                  style={{ color: 'var(--color-navy-mid)' }}
+                >
+                  <Link2 className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-steel)' }} /> Copy link
+                </button>
+              </div>
+              <div className="border-t" style={{ borderColor: 'var(--color-border)' }}>
+                <button
+                  onClick={() => {
+                    const id = rowMenu.row.id as string;
+                    if (id.startsWith('new-')) {
+                      setAddedRows(prev => ({ ...prev, [activeTab]: (prev[activeTab] || []).filter(r => r.id !== id) }));
+                    } else {
+                      setDeletedIds(prev => { const n = new Set(prev); n.add(id); return n; });
+                    }
+                    setRowMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--color-surface)] transition-colors"
+                  style={{ color: 'var(--danger)' }}
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" /> Delete
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Add-list modal — upload new data OR build a list from the current view */}
       {addListOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/20 px-4" onClick={() => setAddListOpen(false)}>
@@ -827,7 +1519,7 @@ export function DataEngine() {
               <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer hover:border-[var(--color-steel)] transition-colors" style={{ borderColor: 'var(--color-border)' }}>
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 12%, transparent)' }}><Upload className="w-4 h-4" style={{ color: 'var(--color-steel)' }} /></div>
                 <div className="min-w-0"><div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>Upload new data</div><div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>CSV / XLSX — parsed locally into a new list</div></div>
-                <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadList(f.name); }} />
+                <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importFile(f); }} />
               </label>
               <div className="p-3 rounded-xl border" style={{ borderColor: 'var(--color-border)' }}>
                 <div className="flex items-center gap-3 mb-2.5">

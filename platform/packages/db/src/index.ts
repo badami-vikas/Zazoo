@@ -21,6 +21,7 @@ export {
   type IntegrationRow,
   type ScopeGrant,
 } from "./integration-store.js";
+export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

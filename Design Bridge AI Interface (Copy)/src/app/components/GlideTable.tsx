@@ -1,7 +1,10 @@
 import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { DataEditor, GridCellKind, CompactSelection } from '@glideapps/glide-data-grid';
-import type { GridCell, GridColumn, Item, GridSelection } from '@glideapps/glide-data-grid';
+import type { GridCell, GridColumn, SizedGridColumn, Item, GridSelection } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
+
+const reEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const reUrl = /^https?:\/\//i;
 
 export interface GlideField { id: string; label: string; width?: number; editable?: boolean }
 
@@ -39,7 +42,7 @@ const bridgeTheme = {
 } as const;
 
 export function GlideTable({
-  rows, fields, rowHeight, onOpen, onSort, sort, selectable, onSelectedRowsChange, onCellEdit, onCellEdited,
+  rows, fields, rowHeight, onOpen, onSort, sort, selectable, onSelectedRowsChange, onCellEdit, onCellEdited, onRowMenu,
 }: {
   rows: any[];
   fields: GlideField[];
@@ -53,18 +56,35 @@ export function GlideTable({
   onCellEdit?: (row: any, fieldId: string, pos: { x: number; y: number }) => void;
   /** Called when a cell value is committed via the Glide inline overlay editor. */
   onCellEdited?: (row: any, fieldId: string, value: string) => void;
+  /** Called when the user right-clicks a row cell; receives the row object and mouse position. */
+  onRowMenu?: (row: any, pos: { x: number; y: number }) => void;
 }) {
   const [gridSelection, setGridSelection] = useState<GridSelection>({ columns: CompactSelection.empty(), rows: CompactSelection.empty() });
   const lastMousePos = useRef({ x: 0, y: 0 });
   // clear selection when leaving selection mode
-  useEffect(() => { if (!selectable) { setGridSelection({ columns: CompactSelection.empty(), rows: CompactSelection.empty() }); onSelectedRowsChange?.(0); } }, [selectable]);
-  const baseCols = useMemo<GridColumn[]>(() => ([
-    { title: 'Name', id: 'name', width: 240 },
-    ...fields.map(f => ({
-      title: pretty(f.label) + (sort?.id === f.id ? (sort.dir === 'asc' ? '  ↑' : '  ↓') : ''),
-      id: f.id, width: f.width || 180,
-    })),
-  ]), [fields, sort]);
+  useEffect(() => { if (!selectable) { setGridSelection({ columns: CompactSelection.empty(), rows: CompactSelection.empty() }); onSelectedRowsChange?.(0, []); } }, [selectable]);
+
+  // Column order: ['name', ...field ids in display order]. Reconcile when fields change.
+  const [colOrder, setColOrder] = useState<string[]>(() => ['name', ...fields.map(f => f.id)]);
+  useEffect(() => {
+    const incoming = new Set(['name', ...fields.map(f => f.id)]);
+    setColOrder(prev => {
+      const kept = prev.filter(id => incoming.has(id));
+      const added = ['name', ...fields.map(f => f.id)].filter(id => !kept.includes(id));
+      return [...kept, ...added];
+    });
+  }, [fields]);
+
+  const baseCols = useMemo<SizedGridColumn[]>(() => {
+    const colMap = new Map<string, SizedGridColumn>([
+      ['name', { title: 'Name', id: 'name', width: 240 }],
+      ...fields.map(f => [f.id, {
+        title: pretty(f.label) + (sort?.id === f.id ? (sort.dir === 'asc' ? '  ↑' : '  ↓') : ''),
+        id: f.id, width: f.width || 180,
+      }] as [string, SizedGridColumn]),
+    ]);
+    return colOrder.filter(id => colMap.has(id)).map(id => colMap.get(id)!);
+  }, [fields, sort, colOrder]);
 
   const [widths, setWidths] = useState<Record<string, number>>({});
   const columns = useMemo(() => baseCols.map(c => ({ ...c, width: widths[c.id as string] ?? (c.width as number) })), [baseCols, widths]);
@@ -75,12 +95,44 @@ export function GlideTable({
     const row = rows[r];
     const col = columns[c];
     const id = col?.id as string;
-    let v = row ? row[id] : '';
-    if (Array.isArray(v)) v = v.join(', ');
-    v = v === null || v === undefined ? '' : String(v);
-    const isName = c === 0;
+    const rawVal = row ? row[id] : undefined;
+    const isName = col?.id === 'name';
     const isNewRow = !!row?.id && String(row.id).startsWith('new-');
     const editable = isName ? isNewRow : !!fieldById[id]?.editable;
+
+    // Boolean → checkbox cell (non-name only)
+    if (!isName && typeof rawVal === 'boolean') {
+      return {
+        kind: GridCellKind.Boolean,
+        data: rawVal,
+        allowOverlay: false,
+        readonly: true,
+      } as GridCell;
+    }
+
+    // Array → Bubble chips (non-name only; display-only, no overlay)
+    if (!isName && Array.isArray(rawVal)) {
+      return {
+        kind: GridCellKind.Bubble,
+        data: rawVal.filter((item: any) => item !== null && item !== undefined).map(String),
+        allowOverlay: false,
+      } as GridCell;
+    }
+
+    let v = rawVal;
+    v = v === null || v === undefined ? '' : String(v);
+
+    // Email / URL → Uri cell (non-name only)
+    if (!isName && (reEmail.test(v) || reUrl.test(v))) {
+      return {
+        kind: GridCellKind.Uri,
+        data: v,
+        displayData: v,
+        allowOverlay: editable,
+        readonly: !editable,
+      } as GridCell;
+    }
+
     return {
       kind: GridCellKind.Text,
       data: v,
@@ -103,7 +155,7 @@ export function GlideTable({
   }, []);
 
   return (
-    <div className="h-full w-full" onMouseDown={(e) => { lastMousePos.current = { x: e.clientX, y: e.clientY }; }}>
+    <div className="h-full w-full" onMouseDown={(e) => { lastMousePos.current = { x: e.clientX, y: e.clientY }; }} onContextMenu={(e) => { lastMousePos.current = { x: e.clientX, y: e.clientY }; }}>
       <DataEditor
         columns={columns}
         rows={rows.length}
@@ -120,12 +172,32 @@ export function GlideTable({
         height="100%"
         theme={bridgeTheme as any}
         getCellsForSelection={true}
+        freezeColumns={1}
         onColumnResize={(col, newSize) => setWidths(w => ({ ...w, [col.id as string]: newSize }))}
+        onColumnMoved={(startIdx, endIdx) => {
+          // Name col (index 0) is pinned — clamp destination to >= 1, never move name
+          if (startIdx === 0) return;
+          const clamped = Math.max(1, endIdx);
+          setColOrder(prev => {
+            const next = [...prev];
+            const [moved] = next.splice(startIdx, 1);
+            next.splice(clamped, 0, moved);
+            return next;
+          });
+        }}
         onHeaderClicked={(c) => { const col = columns[c]; if (col?.id && col.id !== 'name' && onSort) onSort(col.id as string); }}
         onCellClicked={(cell) => {
           if (selectable) return;
           const [c, r] = cell;
           const row = rows[r];
+          // Uri (email/url) cells open their link on click — don't fire popover/open
+          const cellContent = getCellContent(cell);
+          if (cellContent.kind === GridCellKind.Uri) {
+            const uri = cellContent.data;
+            if (reEmail.test(uri)) window.open(`mailto:${uri}`, '_self');
+            else window.open(uri, '_blank', 'noopener');
+            return;
+          }
           const isNewRow = !!row?.id && String(row.id).startsWith('new-');
           if (c === 0 && row && !isNewRow) { onOpen(row); return; }
           if (c > 0 && row && onCellEdit) onCellEdit(row, columns[c]?.id as string, lastMousePos.current);
@@ -152,6 +224,31 @@ export function GlideTable({
             }
           }
           return sel;
+        }}
+        onPaste={(target: Item, values: readonly (readonly string[])[]): boolean => {
+          if (!onCellEdited) return false;
+          const [targetCol, targetRow] = target;
+          for (let dr = 0; dr < values.length; dr++) {
+            const pasteRow = values[dr];
+            const rr = targetRow + dr;
+            const row = rows[rr]; if (!row) continue;
+            const isNew = !!row.id && String(row.id).startsWith('new-');
+            for (let dc = 0; dc < pasteRow.length; dc++) {
+              const cc = targetCol + dc;
+              const col = columns[cc]; if (!col) continue;
+              const editable = col.id === 'name' ? isNew : !!fieldById[col.id as string]?.editable;
+              if (!editable) continue;
+              onCellEdited(row, col.id as string, String(pasteRow[dc]));
+            }
+          }
+          return false;
+        }}
+        onCellContextMenu={(cell, event) => {
+          if (typeof (event as any).preventDefault === 'function') (event as any).preventDefault();
+          if (!onRowMenu) return;
+          const [, r] = cell;
+          const row = rows[r]; if (!row) return;
+          onRowMenu(row, { x: lastMousePos.current.x, y: lastMousePos.current.y });
         }}
       />
     </div>

@@ -109,7 +109,7 @@ function buildEntry(c: ToolCapture): LedgerEntry {
     id: `cap-${c.id}`,
     ts: '', age: '0m',
     actorKind: 'agent' as const,
-    onBehalfOfType: 'user',
+    onBehalfOfType: 'user' as const,
     onBehalfOf: 'You',
     delegationId: null,
     runId: null,

@@ -3,7 +3,7 @@
 // while the Sidebar's toolMeta + ItemDetail listed reconnect/open-threads/…), so pinned tools never
 // rendered. This unifies on the on-brand relationship tools, each tied to the Signals engine.
 import type { ComponentType } from 'react';
-import { RefreshCw, MessageCircle, Activity, Search, Milestone, Briefcase, Users, CalendarClock, Cable, ShieldCheck, ScanLine, Mic, LifeBuoy, BookOpen } from 'lucide-react';
+import { RefreshCw, MessageCircle, Activity, Search, Milestone, Briefcase, Users, CalendarClock, Cable, ShieldCheck, ScanLine, Mic, LifeBuoy, BookOpen, Camera } from 'lucide-react';
 
 export type ToolList = 'My Tools' | 'Templates' | 'Systems';
 
@@ -53,6 +53,19 @@ export const tools: Tool[] = [
     intake: true,
     source_repo: 'Tools/card-scanner (internalized copy)',
     native: true,   // ported into Bridge — runs in-app on the Bridge origin (no separate server)
+  },
+  {
+    id: 'camera',
+    name: 'Camera',
+    description: 'Capture a photo or video → it stays private on your device until you Add it as a governed Touchpoint. Local-only blobs, OCR on photos.',
+    category: 'Capture', status: 'Live', list: 'My Tools', icon: Camera, color: '#6B7C65',
+    overview: 'A built-in capture Tool. Take a photo (getUserMedia) or record a video (MediaRecorder); images are compressed and OCR-read locally. Every blob is private relationship data — it lives in a LOCAL store on this device and NEVER crosses the gate to the cloud. Captures are quarantined; Add to Bridge raises a governed Touchpoint proposal (optional link to a Person/Memory/Touchpoint) — review → approve → append-only ledger. Uncertain person matches are never auto-linked; they file a possible_link Signal.',
+    capabilities: ['Photo + video capture (local getUserMedia/MediaRecorder)', 'Client-side compression + local OCR (no API key)', 'Blobs stored LOCAL-only — never the cloud', 'Quarantined intake — Add → governed Touchpoint proposal'],
+    watches: ['Local media store (this device)', 'media.v1 output contract'],
+    lastUsed: 'Live',
+    intake: true,
+    source_repo: 'Tools/card-scanner + Tools/recorder (capture patterns)',
+    native: true,
   },
   {
     id: 'recorder',

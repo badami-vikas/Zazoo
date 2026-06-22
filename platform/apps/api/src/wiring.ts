@@ -18,13 +18,16 @@ import {
   InMemoryRitualRegistry,
   InMemoryRitualRunRecorder,
   InMemoryToolRegistry,
+  InMemoryMediaStore,
   InMemorySkillRegistry,
   InProcessRitualExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
+  stageCapture,
   type AgentQuery,
   type EphemeralQuery,
   type LedgerStore,
+  type LocalMediaStore,
   type PolicyFn,
   type PolicyStore,
   type RitualRegistry,
@@ -33,7 +36,7 @@ import {
   type Skill,
   type ToolRegistry,
 } from "@bridge/core";
-import { createDb, createDrizzlePorts } from "@bridge/db";
+import { createDb, createDrizzlePorts, createLocalMediaStore } from "@bridge/db";
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;
@@ -44,6 +47,8 @@ export interface Wiring {
   policies: PolicyStore;
   ledger: LedgerStore;
   events: InMemoryEventBus;
+  /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
+  localMedia: LocalMediaStore;
   /** True when bound to Postgres (DATABASE_URL set). */
   persistent: boolean;
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
@@ -76,9 +81,9 @@ const policies: PolicyFn[] = [
       : null,
 ];
 
-export function buildWiring(): Wiring {
+export async function buildWiring(): Promise<Wiring> {
   const events = new InMemoryEventBus();
-  const skills = new InMemorySkillRegistry().register(stageMutation);
+  const skills = new InMemorySkillRegistry().register(stageMutation).register(stageCapture);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -165,6 +170,13 @@ export function buildWiring(): Wiring {
     memory = { roles: mRoles, agents: mAgents, ephemeral: mEphemeral };
   }
 
+  // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
+  // LOCAL_MEDIA_DIR set => persistent pglite on disk; unset => in-memory (zero-infra).
+  const localMediaDir = process.env.LOCAL_MEDIA_DIR;
+  const localMedia: LocalMediaStore = localMediaDir
+    ? await createLocalMediaStore(localMediaDir)
+    : new InMemoryMediaStore();
+
   const pipeline = new UniversalActionPipeline({
     authority: { roles, agents, ephemeral, nowISO: "" },
     policies: policyStore,
@@ -176,6 +188,7 @@ export function buildWiring(): Wiring {
 
   return {
     pipeline,
+    localMedia,
     ritualExecutor: new InProcessRitualExecutor(pipeline, {
       registry: ritualRegistry,
       toolRegistry,
