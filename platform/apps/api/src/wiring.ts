@@ -67,11 +67,11 @@ import {
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
-const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
+export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
-const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
-const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
+export const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
+export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;
