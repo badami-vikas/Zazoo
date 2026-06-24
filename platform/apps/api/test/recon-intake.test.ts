@@ -55,3 +55,49 @@ test("zero signals yields a single person proposal", () => {
   assert.equal(reqs.length, 1);
   assert.equal(reqs[0]?.resourceType, "person");
 });
+
+import { buildServer } from "../src/server.js";
+
+const SECRET = "test-secret";
+
+test("route rejects a missing/wrong secret with 401", async () => {
+  process.env.RECON_SHARED_SECRET = SECRET;
+  const app = await buildServer();
+  const res = await app.inject({
+    method: "POST",
+    url: "/intake/recon",
+    headers: { "content-type": "application/json" },
+    payload: sampleEnvelope(),
+  });
+  assert.equal(res.statusCode, 401);
+  await app.close();
+});
+
+test("route accepts a valid envelope and returns proposalIds", async () => {
+  process.env.RECON_SHARED_SECRET = SECRET;
+  const app = await buildServer();
+  const res = await app.inject({
+    method: "POST",
+    url: "/intake/recon",
+    headers: { "content-type": "application/json", "x-recon-secret": SECRET },
+    payload: sampleEnvelope(),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json() as { ok: boolean; proposalIds: string[] };
+  assert.equal(body.ok, true);
+  assert.equal(body.proposalIds.length, 2); // 1 person + 1 signal
+  await app.close();
+});
+
+test("route 400s on a malformed envelope", async () => {
+  process.env.RECON_SHARED_SECRET = SECRET;
+  const app = await buildServer();
+  const res = await app.inject({
+    method: "POST",
+    url: "/intake/recon",
+    headers: { "content-type": "application/json", "x-recon-secret": SECRET },
+    payload: { contract: "recon.v1", dataScope: "public", payload: { person: { name: "x" } } },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});

@@ -9,6 +9,7 @@ import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { buildWiring } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
+import { registerReconIntakeRoute } from "./intake/recon-route.js";
 
 export async function buildServer() {
   const wiring = await buildWiring();
@@ -23,6 +24,10 @@ export async function buildServer() {
   // `code`. We exchange it for tokens and persist them to the LOCAL plane (never
   // Supabase), then bounce back to the prototype. `state` carries the integration id.
   await registerGoogleOAuthRoutes(app, wiring);
+
+  // POST /intake/recon — Recon posts its CaptureEnvelope as raw JSON (not tRPC); maps to
+  // governed propose-requests so findings land as pending_review ledger rows.
+  registerReconIntakeRoute(app, wiring);
 
   await app.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
