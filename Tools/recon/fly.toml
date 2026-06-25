@@ -1,0 +1,20 @@
+app = "bridge-recon"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+# NEXT_PUBLIC_* are inlined at build time. When Fly builds remotely, pass them as
+# build args here (or via `fly deploy --build-arg`) so addToBridge gets the intake URL.
+# [build.args]
+#   NEXT_PUBLIC_BRIDGE_INTAKE_URL = "https://bridge-api.fly.dev/intake/recon"
+
+[[mounts]]
+  source = "recon_data"
+  destination = "/app/data"   # Recon's JSONL store survives restarts
