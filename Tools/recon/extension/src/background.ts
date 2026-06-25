@@ -32,13 +32,22 @@ function armNextAlarm(soon = false) {
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   if (reason === 'install') {
-    await chrome.storage.local.set({ autoCapture: false, autoScroll: true, activeStart: 8, activeEnd: 20 });
+    await chrome.storage.local.set({
+      autoCapture: false, autoScroll: true, activeStart: 8, activeEnd: 20,
+      autoConnect: false, connectDailyCap: 15,
+      noteTemplate: 'Hi {firstName}, I came across your profile and would love to connect.',
+    });
   }
   armNextAlarm();
 });
 chrome.runtime.onStartup.addListener(() => armNextAlarm());
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a.name === ALARM) captureTick().catch(() => {}).finally(() => armNextAlarm());
+  if (a.name === ALARM) {
+    (async () => {
+      const opened = await captureTick();        // returns true if it opened a tab
+      if (!opened) await connectTick();           // otherwise try a connection-send
+    })().catch(() => {}).finally(() => armNextAlarm());
+  }
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.autoCapture?.newValue === true) armNextAlarm(true);
@@ -64,9 +73,14 @@ async function onProfileLoaded(tabId: number, url: string): Promise<void> {
   try { ({ captureRequest: req } = await chrome.storage.local.get('captureRequest')); } catch { /* */ }
   const isCapture = !!req?.url && sameProfile(url, req.url);
 
-  // Auto-scroll unless the user turned it off (always scroll for a capture).
+  // Is this profile one we were asked to connect to?
+  let creq: { url: string; dedup_key?: string; name?: string } | undefined;
+  try { ({ connectRequest: creq } = await chrome.storage.local.get('connectRequest')); } catch { /* */ }
+  const isConnect = !!creq?.url && sameProfile(url, creq.url);
+
+  // Auto-scroll unless the user turned it off (always scroll for a capture/connect).
   const { autoScroll = true } = await chrome.storage.local.get('autoScroll');
-  if (!autoScroll && !isCapture) return;
+  if (!autoScroll && !isCapture && !isConnect) return;
 
   await sleep(2000); // let the initial render settle
   await debuggerScrollToBottom(tabId);
@@ -74,6 +88,11 @@ async function onProfileLoaded(tabId: number, url: string): Promise<void> {
   if (isCapture && req) {
     try { await chrome.storage.local.remove('captureRequest'); } catch { /* */ }
     await captureLoadedTab(tabId, req);
+  }
+
+  if (isConnect && creq?.url) {
+    try { await chrome.storage.local.remove('connectRequest'); } catch { /* */ }
+    await connectLoadedTab(tabId, creq);
   }
 }
 
@@ -154,26 +173,101 @@ async function captureLoadedTab(tabId: number, req: CaptureReq): Promise<void> {
 }
 
 // ── Auto-capture tick (alarm-driven) ────────────────────────────────────────────────
-async function captureTick(): Promise<void> {
+async function captureTick(): Promise<boolean> {
   const { autoCapture = false, activeStart = 8, activeEnd = 20 } =
     await chrome.storage.local.get(['autoCapture', 'activeStart', 'activeEnd']);
-  if (!autoCapture) return;
+  if (!autoCapture) return false;
   const hour = new Date().getHours();
-  if (hour < activeStart || hour >= activeEnd) return;
-  if (!navigator.onLine) return;
+  if (hour < activeStart || hour >= activeEnd) return false;
+  if (!navigator.onLine) return false;
 
   // Occasionally skip a tick so the pace isn't perfectly regular (the alarm re-arms either
   // way, so this just yields an irregular human-looking cadence). ~18% skip rate.
-  if (Math.random() < 0.18) return;
+  if (Math.random() < 0.18) return false;
 
   let q: { ok?: boolean; paused?: boolean; items?: QueueItem[] };
   try {
     q = await (await fetch(`${RECON_URL}/api/capture-queue?limit=1`)).json();
-  } catch { return; }
-  if (!q?.ok || q.paused || !q.items?.length) return;
+  } catch { return false; }
+  if (!q?.ok || q.paused || !q.items?.length) return false;
 
   // Queue the capture, then open the profile in the foreground; onUpdated does the rest.
   const item = q.items[0];
   await chrome.storage.local.set({ captureRequest: { url: item.linkedin_url, dedup_key: item.dedup_key, name: item.name } });
   await chrome.tabs.create({ url: item.linkedin_url, active: true });
+  return true;
+}
+
+// ── Auto-connect tick (alarm-driven) ──────────────────────────────────────────────────
+type ConnectStatus = 'sent' | 'already_connected' | 'note_unavailable' | 'soft_block' | 'error';
+
+function todayKey(): string { return new Date().toISOString().slice(0, 10); }
+
+async function connectTick(): Promise<void> {
+  const st = await chrome.storage.local.get([
+    'autoConnect', 'activeStart', 'activeEnd', 'connectDailyCap', 'connectSentToday', 'captureRequest', 'connectRequest',
+  ]);
+  if (!st.autoConnect) return;
+  const hour = new Date().getHours();
+  if (hour < (st.activeStart ?? 8) || hour >= (st.activeEnd ?? 20)) return;
+  if (!navigator.onLine) return;
+  if (st.captureRequest || st.connectRequest) return; // a profile is already mid-flight
+  if (Math.random() < 0.18) return;                    // irregular cadence
+
+  // Daily cap (reset on date change).
+  const cap = st.connectDailyCap ?? 15;
+  const sent = st.connectSentToday?.date === todayKey() ? st.connectSentToday.count : 0;
+  if (sent >= cap) return;
+
+  let q: { ok?: boolean; paused?: boolean; items?: Array<{ name: string; linkedin_url: string; dedup_key: string }> };
+  try { q = await (await fetch(`${RECON_URL}/api/capture-queue?limit=1&action=connect`)).json(); } catch { return; }
+  if (!q?.ok || q.paused || !q.items?.length) return;
+
+  const item = q.items[0];
+  await chrome.storage.local.set({ connectRequest: { url: item.linkedin_url, dedup_key: item.dedup_key, name: item.name } });
+  await chrome.tabs.create({ url: item.linkedin_url, active: true });
+}
+
+async function resolveNote(name: string): Promise<string> {
+  const { noteTemplate = 'Hi {firstName}, I would love to connect.' } = await chrome.storage.local.get('noteTemplate');
+  const firstName = (name ?? '').split(/[\s,]+/)[0] ?? '';
+  return noteTemplate.replace(/\{firstName\}/g, firstName).replace(/\{name\}/g, name ?? '').slice(0, 300);
+}
+
+async function connectLoadedTab(tabId: number, req: { url: string; dedup_key?: string; name?: string }): Promise<void> {
+  let status: ConnectStatus = 'error';
+  try {
+    const cur = await chrome.tabs.get(tabId);
+    if (/authwall|checkpoint|\/login|\/uas\//i.test(cur.url ?? '')) {
+      status = 'soft_block';
+    } else {
+      try { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }); } catch { /* injected */ }
+      await sleep(800);
+      const note = await resolveNote(req.name ?? '');
+      let res: { ok: boolean; status?: ConnectStatus } | undefined;
+      for (let i = 0; i < 3; i++) {
+        if (i) await sleep(700 * i);
+        try { res = await chrome.tabs.sendMessage(tabId, { type: 'BRIDGE_CONNECT', note }); } catch { /* not ready */ }
+        if (res?.status) break;
+      }
+      status = res?.status ?? 'error';
+    }
+  } catch { status = 'error'; }
+
+  // Count only an actual send against the daily cap.
+  if (status === 'sent') {
+    const { connectSentToday } = await chrome.storage.local.get('connectSentToday');
+    const count = connectSentToday?.date === todayKey() ? connectSentToday.count + 1 : 1;
+    await chrome.storage.local.set({ connectSentToday: { date: todayKey(), count } });
+  }
+  try { await chrome.storage.local.set({ lastConnect: { at: Date.now(), status, name: req.name ?? '', url: req.url } }); } catch { /* */ }
+  if (req.dedup_key) {
+    try {
+      await fetch(`${RECON_URL}/api/capture-queue`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'connect', results: [{ dedup_key: req.dedup_key, status }] }),
+      });
+    } catch { /* best-effort */ }
+  }
+  try { await chrome.tabs.remove(tabId); } catch { /* */ }
 }
