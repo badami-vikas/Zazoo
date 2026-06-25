@@ -183,6 +183,10 @@ export async function flushOutbox(): Promise<{ delivered: number; remaining: num
     if (r.ok && r.sink === 'intake_url') delivered++;
     else stillStuck.push(env);
   }
-  if (typeof window !== 'undefined') localStorage.setItem(OUTBOX_KEY, JSON.stringify(stillStuck));
+  if (typeof window !== 'undefined') {
+    const pendingIds = new Set(pending.map((e) => e.id));
+    const newcomers = loadOutbox().filter((e) => !pendingIds.has(e.id)); // added during the flush
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify([...newcomers, ...stillStuck]));
+  }
   return { delivered, remaining: stillStuck.length };
 }
