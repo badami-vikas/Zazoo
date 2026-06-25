@@ -221,12 +221,14 @@ async function connectTick(): Promise<void> {
   const sent = st.connectSentToday?.date === todayKey() ? st.connectSentToday.count : 0;
   if (sent >= cap) return;
 
-  let q: { ok?: boolean; paused?: boolean; items?: Array<{ name: string; linkedin_url: string; dedup_key: string }> };
+  let q: { ok?: boolean; paused?: boolean; items?: Array<{ name: string; linkedin_url: string; dedup_key: string; note?: string }> };
   try { q = await (await fetch(`${RECON_URL}/api/capture-queue?limit=1&action=connect`)).json(); } catch { return; }
   if (!q?.ok || q.paused || !q.items?.length) return;
 
   const item = q.items[0];
-  await chrome.storage.local.set({ connectRequest: { url: item.linkedin_url, dedup_key: item.dedup_key, name: item.name } });
+  // Carry the queue-provided note (exact per-profile text) through to the send routine;
+  // connectLoadedTab falls back to the local noteTemplate when the item has none.
+  await chrome.storage.local.set({ connectRequest: { url: item.linkedin_url, dedup_key: item.dedup_key, name: item.name, note: item.note } });
   await chrome.tabs.create({ url: item.linkedin_url, active: true });
 }
 
@@ -236,7 +238,7 @@ async function resolveNote(name: string): Promise<string> {
   return noteTemplate.replace(/\{firstName\}/g, firstName).replace(/\{name\}/g, name ?? '').slice(0, 300);
 }
 
-async function connectLoadedTab(tabId: number, req: { url: string; dedup_key?: string; name?: string }): Promise<void> {
+async function connectLoadedTab(tabId: number, req: { url: string; dedup_key?: string; name?: string; note?: string }): Promise<void> {
   let status: ConnectStatus = 'error';
   try {
     const cur = await chrome.tabs.get(tabId);
@@ -245,7 +247,8 @@ async function connectLoadedTab(tabId: number, req: { url: string; dedup_key?: s
     } else {
       try { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }); } catch { /* injected */ }
       await sleep(800);
-      const note = await resolveNote(req.name ?? '');
+      // Prefer the exact queue-provided note; fall back to the local template.
+      const note = req.note ? req.note.slice(0, 300) : await resolveNote(req.name ?? '');
       let res: { ok: boolean; status?: ConnectStatus } | undefined;
       for (let i = 0; i < 3; i++) {
         if (i) await sleep(700 * i);
