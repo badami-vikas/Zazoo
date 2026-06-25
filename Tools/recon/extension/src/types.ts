@@ -55,3 +55,17 @@ export interface ImportResult {
   dedup_key?: string;
   error?: string;
 }
+
+export type ConnectStatus = 'sent' | 'already_connected' | 'note_unavailable' | 'soft_block' | 'error';
+
+export interface ConnectResult {
+  ok: boolean;
+  status: ConnectStatus;
+  detail?: string;
+}
+
+/** Message the background worker sends to the content script to fire a connection request. */
+export interface ConnectMessage {
+  type: 'BRIDGE_CONNECT';
+  note: string; // already templated + truncated by the worker
+}
