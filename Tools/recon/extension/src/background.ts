@@ -9,6 +9,8 @@
 //     a captureRequest; the same onUpdated handler scrolls it, extracts, saves, and closes
 //     it. The popup's "capture now" uses the identical captureRequest path.
 
+import type { ConnectStatus } from './types';
+
 const RECON_URL = 'http://localhost:3001';
 const ALARM = 'bridge-capture';
 
@@ -199,7 +201,7 @@ async function captureTick(): Promise<boolean> {
 }
 
 // ── Auto-connect tick (alarm-driven) ──────────────────────────────────────────────────
-type ConnectStatus = 'sent' | 'already_connected' | 'note_unavailable' | 'soft_block' | 'error';
+// ConnectStatus is the single source of truth in ./types — imported, not re-declared.
 
 function todayKey(): string { return new Date().toISOString().slice(0, 10); }
 
