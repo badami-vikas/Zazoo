@@ -52,7 +52,7 @@ chrome.alarms.onAlarm.addListener((a) => {
   }
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.autoCapture?.newValue === true) armNextAlarm(true);
+  if (area === 'local' && (changes.autoCapture?.newValue === true || changes.autoConnect?.newValue === true)) armNextAlarm(true);
 });
 
 // ── Auto-scroll every profile to the bottom (+ capture if requested) ────────────────
