@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Identity, IdentityIdentifiers, ReconInput, ReconReport, StepLog, Field, SubjectReport } from '@/lib/recon';
-import { mapReportToCapture, addToBridge } from '@/lib/bridge';
+import { mapReportToCapture, addToBridge, flushOutbox } from '@/lib/bridge';
 import { canonicalSocialUrl } from '@/lib/url-canon';
 
 type Phase = 'input' | 'verify' | 'report';
@@ -464,6 +464,7 @@ export default function Page() {
     if (!report) return;
     const res = await addToBridge(mapReportToCapture(report));
     setIntakeMsg(res.ok ? `Quarantined for Bridge review (via ${res.sink}).` : `Intake failed: ${res.error}`);
+    if (res.ok) void flushOutbox().catch(() => {}); // drain any backlog; non-blocking, best-effort
   }
 
   async function approveStore() {

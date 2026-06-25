@@ -155,7 +155,7 @@ export async function addToBridge(env: CaptureEnvelope): Promise<IntakeResult> {
   const intakeUrl = process.env.NEXT_PUBLIC_BRIDGE_INTAKE_URL;
   if (intakeUrl) {
     try {
-      const r = await fetch(intakeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(env) });
+      const r = await fetch(intakeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-recon-secret': process.env.NEXT_PUBLIC_BRIDGE_INTAKE_SECRET ?? '' }, body: JSON.stringify(env) });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return { ok: true, sink: 'intake_url' };
     } catch (e) {
@@ -168,4 +168,21 @@ export async function addToBridge(env: CaptureEnvelope): Promise<IntakeResult> {
   } catch (e) {
     return { ok: false, sink: 'outbox', error: e instanceof Error ? e.message : 'outbox write failed' };
   }
+}
+
+// Re-post any envelopes stranded in the outbox (captured while the intake URL was unset).
+// Returns how many were delivered. Successfully delivered items are removed from the outbox.
+export async function flushOutbox(): Promise<{ delivered: number; remaining: number }> {
+  const intakeUrl = process.env.NEXT_PUBLIC_BRIDGE_INTAKE_URL;
+  if (!intakeUrl) return { delivered: 0, remaining: loadOutbox().length };
+  const pending = loadOutbox();
+  const stillStuck: CaptureEnvelope[] = [];
+  let delivered = 0;
+  for (const env of pending) {
+    const r = await addToBridge(env);
+    if (r.ok && r.sink === 'intake_url') delivered++;
+    else stillStuck.push(env);
+  }
+  if (typeof window !== 'undefined') localStorage.setItem(OUTBOX_KEY, JSON.stringify(stillStuck));
+  return { delivered, remaining: stillStuck.length };
 }
