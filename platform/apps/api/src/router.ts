@@ -272,17 +272,40 @@ export const appRouter = t.router({
         });
       }),
 
-    /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2). */
+    /** Read-only projection: FULL Calendar events for the Calendar surface (gated
+     * external:fetch, auto-approved as the user's own view). No Touchpoint proposals. */
+    listEvents: t.procedure
+      .input(
+        z
+          .object({
+            maxResults: z.number().int().positive().max(250).optional(),
+            timeMin: z.string().optional(),
+          })
+          .optional(),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const events = await ctx.wiring.google.listCalendarEvents(ctx.run, {
+          ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
+          ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
+        });
+        return { events };
+      }),
+
+    /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2).
+     * For calendar, `action` = create (default) | update | delete. The real Google
+     * write runs in the EgressExecutor only after a human approves. */
     proposeSend: t.procedure
       .input(
         z.object({
           kind: z.enum(["email", "calendar"]),
+          action: z.enum(["create", "update", "delete"]).optional(),
           envelope: z.record(z.unknown()),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         return ctx.wiring.google.proposeSend(ctx.run, {
           kind: input.kind,
+          ...(input.action ? { action: input.action } : {}),
           envelope: input.envelope as never,
         });
       }),

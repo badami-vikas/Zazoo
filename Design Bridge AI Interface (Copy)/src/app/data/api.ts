@@ -223,6 +223,55 @@ export async function apiProposeSend(
   return mutate<{ id: string; status: string }>('google.proposeSend', { kind, envelope });
 }
 
+// ── Calendar tool (read projection + governed create/update/delete) ────────────
+// listEvents READS the user's own Google Calendar through the gate (external:fetch,
+// auto-approved). create/update/delete DRAFT an external:send proposal; the real
+// Google write runs only after a human approval (here: the user's own Save click).
+
+/** A Google Calendar event, normalized for the Calendar surface. */
+export interface CalendarEventDTO {
+  eventId: string;
+  summary: string;
+  description?: string;
+  start: string; // RFC3339 (date-only for all-day)
+  end: string;
+  location?: string;
+  organizer: { name?: string; email: string };
+  attendees: { name?: string; email: string }[];
+}
+
+export type CalendarWriteAction = 'create' | 'update' | 'delete';
+
+/** Full Google Calendar events for display. null when API disabled (demo mode). */
+export async function apiListCalendarEvents(opts?: { maxResults?: number; timeMin?: string }): Promise<CalendarEventDTO[] | null> {
+  if (!API_ENABLED) return null;
+  const r = await mutate<{ events: CalendarEventDTO[] }>('google.listEvents', {
+    ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
+    ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
+  });
+  return r?.events ?? [];
+}
+
+/** Draft a calendar write (create | update | delete) → external:send proposal (pending). */
+export async function apiProposeCalendarWrite(
+  action: CalendarWriteAction,
+  envelope: Record<string, unknown>,
+): Promise<{ id: string; status: string } | null> {
+  if (!API_ENABLED) return null;
+  return mutate<{ id: string; status: string }>('google.proposeSend', { kind: 'calendar', action, envelope });
+}
+
+/** Approve a pending proposal (the user's Save = the human decision). Returns whether
+ * the egress (real Google write) fired. The decision is append-only audited in the ledger. */
+export async function apiApproveProposal(proposalId: string): Promise<{ sent: boolean } | null> {
+  if (!API_ENABLED) return null;
+  const r = await mutate<{ effects?: { sent?: boolean; materialized?: boolean } }>('action.decide', {
+    proposalId,
+    decision: 'approve',
+  });
+  return { sent: Boolean(r?.effects?.sent) };
+}
+
 // ── Agent + Ritual authoring (layered, gated permissions) ──────────────────────
 // All default OFF (no VITE_API_URL → null), so the create/edit pages fall back to local
 // state and stay demoable. When the API is up, these route through the governed pipeline,

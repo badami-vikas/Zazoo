@@ -63,6 +63,19 @@ ui_libraries:
   - library: vis-timeline
     bridge_surface: Person / Initiative timeline
     license: MIT + Apache-2.0
+  - library: react-big-calendar
+    bridge_surface: Calendar Tool — month/week/day/agenda render behind a CalendarView port (internalized fork)
+    license: MIT
+    note: ONLY proven all-free + forkable calendar; built-in resource columns = basic team lanes free. See ../wiki/calendar.md.
+  - library: ical.js (mozilla-comm)
+    bridge_surface: Calendar — RRULE recurrence expansion + ICS/vCard parse (RecurrenceEngine / IcsCodec ports)
+    license: MPL-2.0
+  - library: ical-generator
+    bridge_surface: Calendar — emit subscribable .ics feed
+    license: MIT
+  - library: luxon
+    bridge_surface: Calendar — pinned timezone lib bound to the calendar localizer
+    license: MIT
   - library: qrcode
     bridge_surface: Digital Card QR
     license: MIT

@@ -15,6 +15,7 @@ import { IntegrationDetail } from "./pages/IntegrationDetail";
 import { ToolsPage } from "./pages/ToolsPage";
 import { ToolDetail } from "./pages/ToolDetail";
 import { ResourcesPage } from "./pages/ResourcesPage";
+import { CalendarPage } from "./pages/CalendarPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { HomePage } from "./pages/HomePage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: "tools", Component: ToolsPage },
       { path: "tool/:id", Component: ToolDetail },
       { path: "resources", Component: ResourcesPage },
+      { path: "calendar", Component: CalendarPage },
       { path: "home", Component: HomePage },
       { path: "settings", Component: SettingsPage },
     ],

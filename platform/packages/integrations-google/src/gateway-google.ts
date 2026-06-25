@@ -210,6 +210,12 @@ export class GoogleApiGateway implements GoogleGateway {
       ...(res.data.htmlLink ? { htmlLink: res.data.htmlLink } : {}),
     };
   }
+
+  async deleteEvent(eventId: string): Promise<CreateEventResult> {
+    // events.delete returns 204 No Content — no body. Echo the id we removed.
+    await this.#calendar.events.delete({ calendarId: "primary", eventId });
+    return { providerEventId: eventId };
+  }
 }
 
 /** Real factory: loads tokens from the LOCAL SecretStore, refreshes, and persists. */

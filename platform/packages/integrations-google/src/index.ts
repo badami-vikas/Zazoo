@@ -13,9 +13,12 @@ export {
   type GoogleSkillDeps,
   SKILL_SOURCE_GMAIL,
   SKILL_SOURCE_CALENDAR,
+  SKILL_LIST_CALENDAR,
   SKILL_STAGE,
   SKILL_COMPOSE_EMAIL,
   SKILL_COMPOSE_EVENT,
+  SKILL_COMPOSE_UPDATE_EVENT,
+  SKILL_COMPOSE_DELETE_EVENT,
 } from "./skills.js";
 export {
   IntakeService,
@@ -33,7 +36,7 @@ export {
   type ExternalDirective,
 } from "./intake.js";
 export { EgressExecutor, type EgressExecutorDeps, type EgressOutcome } from "./egress.js";
-export { GoogleService, type GoogleServiceDeps, type ProposeSendInput } from "./service.js";
+export { GoogleService, type GoogleServiceDeps, type ProposeSendInput, type CalendarWriteAction } from "./service.js";
 export { GOOGLE_MANIFEST, type ToolManifest, type ToolCapability, type ToolOutputMapping } from "./manifest.js";
 export {
   oauthConfigFromEnv,

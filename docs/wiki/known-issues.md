@@ -8,6 +8,16 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN — Calendar fetch window: no `timeMax`, 250-event cap, refetch-per-nav.** `GoogleGateway.fetchEvents`
+  lists from `timeMin` forward ordered by start (max 250), no upper bound. The Calendar surface passes
+  `timeMin` = start of the visible period, so a single fetch covers the view + following events up to 250;
+  navigating FAR past/future or a very dense calendar can exceed the window (events missing until Refresh /
+  re-nav). Live-mode also refetches (an audited `external:fetch`) on each period change — by-design but chatty.
+  Fix later: add `timeMax` to the gateway + fetch exactly the visible range (and/or a local event cache).
+  Calendar P0–P2 (2026-06-24).
+
+---
+
 - **IN PROGRESS — Identity client-asserted on `propose`.** API trusts request-body actor
   for non-decide paths. `decide` now uses server `ctx.identity` (pinned pilot user). Full
   fix = Supabase JWT verify → real per-user identity + bind human actor on propose +

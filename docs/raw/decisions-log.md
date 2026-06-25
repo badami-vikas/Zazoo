@@ -16,6 +16,98 @@ Format per entry:
 
 ---
 
+## 2026-06-24 — Calendar render v1 = in-house (date-fns + Bridge tokens), not react-big-calendar
+
+**Context:** The committed plan picked react-big-calendar (MIT) as the render engine behind a
+`CalendarView` boundary. On building P0–P2, two facts shifted the call: (1) the user's explicit
+follow-up — "I'll be modifying and customising it a lot and prefer a free modifiable version that
+aligns with platform architecture"; (2) the prototype worktree has no `node_modules` and adding
+react-big-calendar would require a new dependency install plus restyling its non-Tailwind CSS to the
+Bridge design tokens.
+
+**Decision:** Ship v1 of the Calendar surface as a **fully in-house** month/week/day/agenda renderer
+built on **date-fns** (already a prototype dependency) + the Bridge design tokens, kept behind a small
+view boundary (`CalendarPage` + view components). react-big-calendar remains the **documented swap-in**
+if the in-house renderer's customization ceiling is ever hit — the projection + governed-write layers
+don't change either way.
+
+**Rationale:** date-fns is already present, so this adds **zero new dependency** and no install/network
+risk in worktrees. An in-house renderer is maximally modifiable and design-system-native — exactly the
+"free + modify a lot + aligns with platform architecture" the user asked for. The architectural
+commitment that mattered (rendering is a swappable layer over an owned projection + governance) is
+preserved; only the first adapter changed from a library to in-house code.
+
+**Alternatives rejected:** **react-big-calendar now** — a new dep + CSS restyle burden + a fragile
+install in a `node_modules`-less worktree, for a renderer the user intends to heavily customize anyway.
+**Schedule-X / FullCalendar** — premium-gated lane views (cost), already rejected. **A headless calendar
+lib** (CalendarCN/CalendarKit) — newer/unproven; date-fns hand-rolling is lower-risk and we own every line.
+
+**Consequences / follow-ups:** The `docs/raw/calendar-plan.md` library pick is amended (render = in-house
+v1; react-big-calendar = swap-in). Week/day use a simple greedy lane-packing for overlaps (good enough;
+revisit if dense days need smarter packing). Recurrence stays deferred — Google expands recurring events
+server-side (`singleEvents:true`), so ical.js isn't needed for the GCal-only scope.
+
+---
+
+## 2026-06-24 — Calendar = a projection Tool Bridge owns, not a calendar product/server
+
+**Context:** The user wants an in-app calendar that aggregates Google Calendar (live today),
+future conference/event integrations, and — as the platform matures — Rituals, Initiatives, and
+Touchpoints, plus team/shared calendars and scheduling once workspaces/teams land. The brief asked
+to research open-source options and justify build vs. integrate-on-top-of-OSS vs. custom.
+
+**Decision:** Build a thin **Calendar Tool** Bridge owns, structured as **three layers with three
+owners**: (1) **rendering** — adopt OSS behind a `CalendarView` port; (2) **RFC-5545 math**
+(recurrence, DST/timezone, ICS parse+generate) — adopt small permissive libs behind
+`RecurrenceEngine` / `IcsCodec` ports; (3) **system-of-record + governance** — BUILD on the existing
+platform. The calendar is a **time-axis projection over the Unified Graph**: a read-time UNION into a
+typed `CalendarEvent` output_contract over GCal `external_records` (already synced on the local plane),
+Touchpoints with times, `ritual_runs`, Initiative timelines, and future conference/ICS adapters.
+Sync reuses the existing `integrations` + `integration_sync_state` + `external_records` tables;
+write-back routes through the Universal Action Pipeline as egress (external writes = `external:send`
+= agent-floor DENY = human approval ≥ L2); team/shared calendars are RLS visibility-scoped filters,
+not a new ACL system. **Library picks** (all permissive, free, forkable — the user will heavily
+customize and will not pay): **react-big-calendar** (MIT, v1.20.0, maintained, drag/resize + built-in
+resource columns), **ical.js** (MPL-2.0, recurrence + ICS in one lib), **ical-generator** (MIT, .ics
+feed), **Luxon** (timezone). Packaged as a pinnable native Tool at `/calendar` with the manifest in
+[calendar-plan.md](calendar-plan.md).
+
+**Rationale:** Bridge's architecture already declares "Calendar = a stateless projection over the one
+Touchpoint tree" ([../wiki/initiatives.md], [../wiki/schema.md]) and "new surfaces are Tools that
+reuse the pipeline/ledger/contracts/gate — zero new subsystem" ([../wiki/tools.md]). Adopting a
+calendar *system* would create a **second source of truth** competing with the graph + pipeline +
+RLS + Authority resolver Bridge already owns and proved — the exact thing the platform-first design
+exists to prevent. Rendering and recurrence math are solved, undifferentiated, and (recurrence
+especially) a notorious bug factory — so adopt there. The projection + governance + pluggable-source
+model is the moat — so build there. Putting the render engine behind a port makes the one risky pick
+(react-big-calendar's customization ceiling) reversible: swap to headless or another lib without
+touching projection/governance. The "new source = new adapter, surface unchanged" property is the
+future-proofing the brief asked for.
+
+**Alternatives rejected:**
+- **Cal.com** (AGPLv3) — copyleft, banned by the OSS embed policy, and a full scheduling *product*
+  that duplicates Bridge's governance. (cal.diy fork is MIT — kept as study-only for *deferred*
+  scheduling, license to be re-verified when needed; 2026 signals are conflicting.)
+- **CalDAV servers** Radicale / Baïkal (GPL-3.0), Nextcloud (AGPLv3) — copyleft + wrong architecture
+  (running a calendar host with its own ACL/storage competes with the graph).
+- **FullCalendar / Schedule-X premium** — the resource-timeline "team lane" views are paid commercial
+  keys (not copyleft, but cost-averse per the tldraw-SDK precedent, and premium gating fights the
+  user's heavy-customization intent). Their MIT standard bundles remain fallback options behind the
+  same `CalendarView` port.
+- **Hand-rolling recurrence/timezone** — rejected; RFC-5545 + DST + EXDATE is the #1 calendar
+  correctness swamp. Adopt ical.js.
+- **rrule.js** — the de-facto RRULE lib but last released 2022 (stale); ical.js covers recurrence
+  *and* ICS in one dependency, so it wins.
+
+**Consequences / follow-ups:** Commits to building a `CalendarEvent` typed contract + a read-time
+projection, and to internalizing react-big-calendar as a forked copy (Tool-model "internal modified
+copy") restyled to design-system tokens. Sequences after the local-gate slice + Initiatives P1.
+Open: resource-lane view (free react-big-calendar columns vs custom build) decided at P4; whether the
+Calendar gets its own agent or reuses the existing egress/intake agents (lean reuse). No code written
+yet — P0 (contract + projection skeleton) is build-ready on the user's go.
+
+---
+
 ## 2026-06-22 — Agents may never approve a proposal (Approvals are human-only)
 
 **Context:** The Universal Action Pipeline already forces agents to draft

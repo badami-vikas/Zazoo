@@ -106,7 +106,7 @@ export interface CreateEventResult {
 }
 
 /** Egress kinds that flow through external:send (the gate). */
-export type EgressKind = "email.draft" | "calendar.create" | "calendar.update";
+export type EgressKind = "email.draft" | "calendar.create" | "calendar.update" | "calendar.delete";
 
 export const GMAIL_SOURCE = "gmail" as const;
 export const CALENDAR_SOURCE = "google-calendar" as const;

@@ -27,7 +27,7 @@ export default function Layout() {
   useEffect(() => { try { localStorage.setItem('bridge.leftCollapsed', leftPanelCollapsed ? '1' : '0'); } catch {} }, [leftPanelCollapsed]);
   useEffect(() => { try { localStorage.setItem('bridge.rightCollapsed', rightPanelCollapsed ? '1' : '0'); } catch {} }, [rightPanelCollapsed]);
   // Approvals is pinned by default (it's the moat) — it lives as a pinned tool, not a default nav item.
-  const [pinnedTools, setPinnedTools] = useState<string[]>(['approvals', 'reconnect', 'open-threads', 'helpdesk']);
+  const [pinnedTools, setPinnedTools] = useState<string[]>(['approvals', 'calendar', 'reconnect', 'open-threads', 'helpdesk']);
 
   const togglePin = (toolId: string) => {
     setPinnedTools(prev =>

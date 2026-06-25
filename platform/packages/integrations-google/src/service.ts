@@ -8,10 +8,16 @@
  */
 import type { Proposal, ProposalStatus, RunCtx, UniversalActionPipeline } from "@bridge/core";
 import type { SecretStore } from "@bridge/local";
-import type { CreateEventEnvelope, SendEmailEnvelope } from "./contracts.js";
+import type { CalendarEvent, CreateEventEnvelope, SendEmailEnvelope } from "./contracts.js";
 import { EgressExecutor } from "./egress.js";
 import { IntakeMaterializer, IntakeService, type IntakeIdentities, type IntakeResult } from "./intake.js";
-import { SKILL_COMPOSE_EMAIL, SKILL_COMPOSE_EVENT } from "./skills.js";
+import {
+  SKILL_COMPOSE_DELETE_EVENT,
+  SKILL_COMPOSE_EMAIL,
+  SKILL_COMPOSE_EVENT,
+  SKILL_COMPOSE_UPDATE_EVENT,
+  SKILL_LIST_CALENDAR,
+} from "./skills.js";
 
 export interface GoogleServiceDeps {
   pipeline: UniversalActionPipeline;
@@ -24,9 +30,16 @@ export interface GoogleServiceDeps {
   selfEmails: string[];
 }
 
+/** A calendar write verb. `create` is the default when omitted (back-compat). */
+export type CalendarWriteAction = "create" | "update" | "delete";
+
 export interface ProposeSendInput {
   kind: "email" | "calendar";
-  envelope: SendEmailEnvelope | CreateEventEnvelope;
+  /** For calendar writes: create (default) | update | delete. Ignored for email. */
+  action?: CalendarWriteAction;
+  /** Envelope shape depends on action: create = CreateEventEnvelope, update =
+   * Partial<CreateEventEnvelope> & { eventId }, delete = { eventId }. */
+  envelope: SendEmailEnvelope | (Partial<CreateEventEnvelope> & { eventId?: string });
 }
 
 export class GoogleService {
@@ -75,13 +88,78 @@ export class GoogleService {
     );
   }
 
-  /** Human-initiated outbound draft → external:send proposal (require_approval). */
+  /**
+   * Read-only projection for the Calendar surface: fetch FULL events for display.
+   * Goes through the gate as external:fetch (the egress agent sources; the user's own
+   * calendar view authorizes the inbound read, so the service approves it). Does NOT
+   * propose Touchpoints — that's syncCalendar. Returns the events for rendering.
+   */
+  async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string }): Promise<CalendarEvent[]> {
+    const { workspaceId, egressAgentId, userId } = this.deps.identities;
+    const proposal = await this.deps.pipeline.propose(
+      {
+        workspaceId,
+        actor: { type: "agent", id: egressAgentId, plane: "cloud" },
+        onBehalfOf: { type: "user", id: userId },
+        action: "read",
+        resourceType: "external:fetch",
+        skill: SKILL_LIST_CALENDAR,
+        dataScope: "public",
+        inputs: {
+          integrationId: this.integrationId,
+          ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
+          ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
+        },
+      },
+      ctx,
+    );
+    if (proposal.status === "rejected") {
+      throw new Error(`calendar list rejected at the gate: ${proposal.rejectionReason ?? "unknown"}`);
+    }
+    // The skill already ran at propose() time, so events are in the output regardless of
+    // status. Approve the (agent-drafted) fetch so the inbound crossing is audited.
+    if (proposal.status === "pending_review") {
+      await this.deps.pipeline.decide(proposal.id, "approve", { type: "user", id: userId }, ctx);
+    }
+    const out = proposal.output?.proposedOutput as { events?: CalendarEvent[] } | undefined;
+    return out?.events ?? [];
+  }
+
+  /**
+   * Human-initiated outbound draft → external:send proposal (require_approval).
+   * For calendar, `action` selects create (default) | update | delete; the EgressExecutor
+   * performs the real Google write only after a human approves the proposal (>= L2).
+   */
   async proposeSend(ctx: RunCtx, input: ProposeSendInput): Promise<Proposal> {
-    const skill = input.kind === "email" ? SKILL_COMPOSE_EMAIL : SKILL_COMPOSE_EVENT;
-    const resource =
-      input.kind === "email"
-        ? (input.envelope as SendEmailEnvelope).to?.join(", ")
-        : (input.envelope as CreateEventEnvelope).summary;
+    const action: CalendarWriteAction = input.action ?? "create";
+    let skill: string;
+    let resource: string | undefined;
+    let skillInputs: Record<string, unknown>;
+    let channel: string;
+
+    if (input.kind === "email") {
+      skill = SKILL_COMPOSE_EMAIL;
+      const env = input.envelope as SendEmailEnvelope;
+      resource = env.to?.join(", ");
+      channel = "Email";
+      skillInputs = { integrationId: this.integrationId, envelope: env };
+    } else {
+      channel = "Calendar";
+      const env = input.envelope as Partial<CreateEventEnvelope> & { eventId?: string };
+      resource = env.summary ?? env.eventId;
+      if (action === "delete") {
+        skill = SKILL_COMPOSE_DELETE_EVENT;
+        skillInputs = { integrationId: this.integrationId, eventId: env.eventId };
+      } else if (action === "update") {
+        skill = SKILL_COMPOSE_UPDATE_EVENT;
+        skillInputs = { integrationId: this.integrationId, envelope: env };
+      } else {
+        skill = SKILL_COMPOSE_EVENT;
+        skillInputs = { integrationId: this.integrationId, envelope: env };
+      }
+    }
+
+    const verb = input.kind === "calendar" ? `${action} event` : "send";
     return this.deps.pipeline.propose(
       {
         workspaceId: this.deps.identities.workspaceId,
@@ -91,15 +169,15 @@ export class GoogleService {
         skill,
         dataScope: "public",
         inputs: {
-          integrationId: this.integrationId,
-          envelope: input.envelope,
+          ...skillInputs,
           display: {
             actor: "You",
             actorKind: "human",
             onBehalfOf: "You",
             resource: resource ?? "outbound",
             policy: "external send/share requires approval",
-            channel: input.kind === "email" ? "Email" : "Calendar",
+            channel,
+            verb,
           },
         },
       },

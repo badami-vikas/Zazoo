@@ -18,9 +18,14 @@ import type { GoogleGatewayFactory } from "./gateway.js";
 
 export const SKILL_SOURCE_GMAIL = "google.sourceGmail";
 export const SKILL_SOURCE_CALENDAR = "google.sourceCalendar";
+/** Read-only projection: fetch full Calendar events for DISPLAY (no caching, no
+ * Touchpoint proposals). Distinct from sourceCalendar, which feeds the graph. */
+export const SKILL_LIST_CALENDAR = "google.listCalendarEvents";
 export const SKILL_STAGE = "google.stage";
 export const SKILL_COMPOSE_EMAIL = "google.composeEmail";
 export const SKILL_COMPOSE_EVENT = "google.composeEvent";
+export const SKILL_COMPOSE_UPDATE_EVENT = "google.composeUpdateEvent";
+export const SKILL_COMPOSE_DELETE_EVENT = "google.composeDeleteEvent";
 
 export interface GoogleSkillDeps {
   gateways: GoogleGatewayFactory;
@@ -44,9 +49,24 @@ interface ComposeEmailInputs {
   envelope: SendEmailEnvelope;
   display?: unknown;
 }
+interface ListCalendarInputs {
+  integrationId: string;
+  maxResults?: number;
+  timeMin?: string;
+}
 interface ComposeEventInputs {
   integrationId: string;
   envelope: CreateEventEnvelope;
+  display?: unknown;
+}
+interface ComposeUpdateEventInputs {
+  integrationId: string;
+  envelope: Partial<CreateEventEnvelope> & { eventId: string };
+  display?: unknown;
+}
+interface ComposeDeleteEventInputs {
+  integrationId: string;
+  eventId: string;
   display?: unknown;
 }
 
@@ -121,6 +141,29 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
   };
 }
 
+/**
+ * Read-only projection for the Calendar surface: fetch FULL events for display.
+ * Unlike sourceCalendar it does not cache bodies or propose Touchpoints — it just
+ * returns events. Still an external:fetch (gated); the user's own view authorizes it.
+ */
+function listCalendarSkill(deps: GoogleSkillDeps): Skill {
+  return {
+    name: SKILL_LIST_CALENDAR,
+    async run(inputs) {
+      const i = inputs as ListCalendarInputs;
+      const gw = await deps.gateways.forIntegration(i.integrationId);
+      const { events } = await gw.fetchEvents({
+        ...(i.maxResults ? { maxResults: i.maxResults } : {}),
+        ...(i.timeMin ? { timeMin: i.timeMin } : {}),
+      });
+      return {
+        proposedOutput: { source: CALENDAR_SOURCE, count: events.length, events },
+        diff: { listed: events.length },
+      };
+    },
+  };
+}
+
 /** Pure echo — stages a typed local-graph directive for human review. */
 const stageSkill: Skill = {
   name: SKILL_STAGE,
@@ -166,13 +209,59 @@ function composeEventSkill(): Skill {
   };
 }
 
+function composeUpdateEventSkill(): Skill {
+  return {
+    name: SKILL_COMPOSE_UPDATE_EVENT,
+    async run(inputs) {
+      const i = inputs as ComposeUpdateEventInputs;
+      if (!i?.envelope || !i.envelope.eventId) {
+        throw new Error("composeUpdateEvent: envelope.eventId is required");
+      }
+      const { eventId, summary, description, start, end, location, attendees } = i.envelope;
+      if (
+        summary === undefined &&
+        description === undefined &&
+        start === undefined &&
+        end === undefined &&
+        location === undefined &&
+        attendees === undefined
+      ) {
+        throw new Error("composeUpdateEvent: at least one field to change is required");
+      }
+      return {
+        proposedOutput: { integrationId: i.integrationId, envelope: i.envelope, egressKind: "calendar.update" },
+        diff: { eventId, ...(summary ? { summary } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}) },
+      };
+    },
+  };
+}
+
+function composeDeleteEventSkill(): Skill {
+  return {
+    name: SKILL_COMPOSE_DELETE_EVENT,
+    async run(inputs) {
+      const i = inputs as ComposeDeleteEventInputs;
+      if (!i?.eventId) {
+        throw new Error("composeDeleteEvent: eventId is required");
+      }
+      return {
+        proposedOutput: { integrationId: i.integrationId, envelope: { eventId: i.eventId }, egressKind: "calendar.delete" },
+        diff: { eventId: i.eventId, action: "delete" },
+      };
+    },
+  };
+}
+
 /** All Google skills, ready to register in the pipeline's SkillRegistry. */
 export function googleSkills(deps: GoogleSkillDeps): Skill[] {
   return [
     sourceGmailSkill(deps),
     sourceCalendarSkill(deps),
+    listCalendarSkill(deps),
     stageSkill,
     composeEmailSkill(),
     composeEventSkill(),
+    composeUpdateEventSkill(),
+    composeDeleteEventSkill(),
   ];
 }

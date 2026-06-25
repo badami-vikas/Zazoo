@@ -97,6 +97,13 @@ export class EgressExecutor {
         detail = r;
         break;
       }
+      case "calendar.delete": {
+        const eventId = committed.envelope.eventId ?? "";
+        const r = await gw.deleteEvent(eventId);
+        providerId = r.providerEventId;
+        detail = r;
+        break;
+      }
       default:
         throw new Error(`egress: unknown egressKind ${String(committed.egressKind)}`);
     }

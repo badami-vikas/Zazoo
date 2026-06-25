@@ -88,7 +88,8 @@ Apache AGE · Temporal (event-sourced replay) · OpenFGA / SpiceDB (Zanzibar ReB
 - **fair-code:** n8n (Sustainable Use License) → study-only, never embed/fork.
 - **GPL:** OpenProject, Budibase core → schema study only.
 - **EPL-2.0:** Huly → usable with care (verify with counsel).
-- **Proprietary:** tldraw SDK 4.0 (~$6k/yr for any Orbit canvas) · Ditto.
+- **Proprietary:** tldraw SDK 4.0 (~$6k/yr for any Orbit canvas) · Ditto · FullCalendar / Schedule-X **premium** (resource-timeline lane views = paid key; standard bundles are MIT — premium rejected on cost + customization).
+- **Calendar systems/servers (never embed):** **Cal.com (AGPLv3)** · **Radicale / Baïkal (GPL-3.0)** · **Nextcloud (AGPLv3)** — copyleft AND a second source-of-truth that duplicates Bridge's graph + governance. Calendar = a projection Tool Bridge owns; adopt only render + RFC-5545 math (**react-big-calendar** MIT · **ical.js** MPL-2.0 · **ical-generator** MIT · **Luxon**). cal.diy (MIT fork) = study-only for deferred scheduling, verify license. Full plan: [calendar-plan.md](calendar-plan.md) / [../wiki/calendar.md](../wiki/calendar.md).
 - **Data licenses:** OpenSanctions *data* is CC BY-NC (code MIT); anthropic skills docs are source-available — write Bridge's own.
 
 ## Zero-knowledge tier building blocks (Phase 6 — study-later)

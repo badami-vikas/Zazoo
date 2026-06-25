@@ -25,6 +25,8 @@ export interface GoogleGateway {
   createDraft(envelope: SendEmailEnvelope): Promise<CreateDraftResult>;
   createEvent(envelope: CreateEventEnvelope): Promise<CreateEventResult>;
   updateEvent(eventId: string, envelope: Partial<CreateEventEnvelope>): Promise<CreateEventResult>;
+  /** Delete an event by provider id. Runs only after >= L2 approval. */
+  deleteEvent(eventId: string): Promise<CreateEventResult>;
 }
 
 /** Resolves the gateway for a given integration (loads + refreshes its tokens). */
