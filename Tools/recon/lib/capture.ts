@@ -47,8 +47,32 @@ export interface CaptureState {
   lastTickAt: string | null;
 }
 
-export interface QueueItem { name: string; linkedin_url: string; dedup_key: string }
+export interface QueueItem { name: string; linkedin_url: string; dedup_key: string; note?: string }
 export interface CaptureResult { dedup_key: string; status: 'ok' | 'soft_block' | 'error' }
+
+/** GET/POST action dimension. 'capture' = profile-view queue (default); 'connect' = LinkedIn connection-send queue. */
+export type QueueAction = 'capture' | 'connect';
+
+/** Status the extension reports back for a connection-send result. */
+export type ConnectStatus = 'sent' | 'already_connected' | 'note_unavailable' | 'soft_block' | 'error';
+export interface ConnectResult { dedup_key: string; status: ConnectStatus }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONNECT path — schema dependency (apply by hand; this code does NOT migrate).
+// The connect queue/report relies on three columns on people_canonical:
+//
+//   ALTER TABLE people_canonical ADD COLUMN IF NOT EXISTS connect_requested boolean DEFAULT false;
+//   ALTER TABLE people_canonical ADD COLUMN IF NOT EXISTS connect_sent_at timestamptz;
+//   ALTER TABLE people_canonical ADD COLUMN IF NOT EXISTS connect_note text;
+//
+// Selection:  connect_requested = true AND connect_sent_at IS NULL.
+// Reporting:  set connect_sent_at = now() for terminal outcomes
+//             (sent / already_connected / note_unavailable); leave NULL (eligible
+//             for retry) for soft_block and error.
+// Defensive:  if any of these columns is missing the query errors — the connect
+//             path then returns { ok: true, items: [] } / records nothing rather
+//             than throwing, so a missing migration degrades gracefully.
+// ─────────────────────────────────────────────────────────────────────────────
 
 function todayKey(): string { return new Date().toISOString().slice(0, 10); }
 
@@ -93,7 +117,9 @@ export interface QueueResponse {
 }
 
 /** Next batch of pending profiles, respecting the daily cap and pause state. */
-export async function getQueue(requestedLimit: number): Promise<QueueResponse> {
+export async function getQueue(requestedLimit: number, action: QueueAction = 'capture'): Promise<QueueResponse> {
+  if (action === 'connect') return getConnectQueue(requestedLimit);
+
   const s = await loadState();
   await saveState(s); // persist any day-roll
   const cap = dailyCap();
@@ -124,6 +150,50 @@ export async function getQueue(requestedLimit: number): Promise<QueueResponse> {
     .map((r) => ({ name: r.full_name ?? '', linkedin_url: r.linkedin_url as string, dedup_key: r.dedup_key as string }));
 
   return { ...base, paused: false, items };
+}
+
+/**
+ * Connect queue: profiles explicitly flagged for a LinkedIn connection-send.
+ * Selects people_canonical rows where connect_requested = true AND connect_sent_at IS NULL.
+ * Defensive: a missing column (no migration applied) errors the query → returns empty, no throw.
+ */
+async function getConnectQueue(requestedLimit: number): Promise<QueueResponse> {
+  // The connect queue does not share the capture daily-cap counters; it is gated
+  // client-side (extension's own 15/day cap + kill-switch). Surface cap fields for
+  // shape compatibility but they are not enforced here.
+  const cap = dailyCap();
+  const base = { ok: true as const, paused: false as const, cap, doneToday: 0, remainingToday: cap };
+
+  const supabase = supa();
+  if (!supabase) return { ...base, items: [], error: 'no-supabase-key' };
+
+  const limit = Math.max(1, requestedLimit || 1);
+  const { data, error } = await supabase
+    .from('people_canonical')
+    .select('full_name, linkedin_url, dedup_key, connect_note')
+    .eq('connect_requested', true)
+    .is('connect_sent_at', null)
+    .not('linkedin_url', 'is', null)
+    .order('last_enriched_at', { ascending: false, nullsFirst: false })
+    .order('recon_run_at', { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  // Missing column / schema mismatch → degrade to an empty queue rather than 500.
+  if (error) return { ...base, items: [] };
+
+  const items: QueueItem[] = (data ?? [])
+    .filter((r) => r.linkedin_url && r.dedup_key)
+    .map((r) => {
+      const item: QueueItem = {
+        name: r.full_name ?? '',
+        linkedin_url: r.linkedin_url as string,
+        dedup_key: r.dedup_key as string,
+      };
+      if (r.connect_note != null) item.note = r.connect_note as string; // only include an exact note when present
+      return item;
+    });
+
+  return { ...base, items };
 }
 
 /** Record a tick's results: advance counters, mark done, trip/reset the breaker. */
@@ -162,6 +232,34 @@ export async function recordResults(results: CaptureResult[]): Promise<CaptureSt
 
   await saveState(s);
   return s;
+}
+
+/**
+ * Record connection-send outcomes reported by the extension.
+ * Terminal outcomes (sent / already_connected / note_unavailable) set connect_sent_at = now()
+ * so we stop offering them. soft_block and error leave connect_sent_at NULL → eligible for retry.
+ * Defensive: a missing column (no migration applied) errors the update → swallowed, no throw.
+ */
+export async function recordConnectResults(results: ConnectResult[]): Promise<{ ok: boolean; updated: number }> {
+  const terminalKeys = results
+    .filter((r) => r.status === 'sent' || r.status === 'already_connected' || r.status === 'note_unavailable')
+    .map((r) => r.dedup_key)
+    .filter((k): k is string => !!k);
+
+  if (!terminalKeys.length) return { ok: true, updated: 0 };
+
+  const supabase = supa();
+  if (!supabase) return { ok: true, updated: 0 };
+
+  const { error } = await supabase
+    .from('people_canonical')
+    .update({ connect_sent_at: new Date().toISOString() })
+    .in('dedup_key', terminalKeys)
+    .is('connect_sent_at', null);
+
+  // Missing column / schema mismatch → degrade silently rather than throwing.
+  if (error) return { ok: true, updated: 0 };
+  return { ok: true, updated: terminalKeys.length };
 }
 
 export async function getState(): Promise<CaptureState & { cap: number; paused: boolean }> {
