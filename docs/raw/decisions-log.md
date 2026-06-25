@@ -16,6 +16,50 @@ Format per entry:
 
 ---
 
+## 2026-06-24 — Recon: separate-but-integrated, deployed always-on, intake hop completed
+
+**Context:** Recon ran only on `localhost:3001` and its findings never reached Bridge.
+Diagnosis: `addToBridge()` posts to `NEXT_PUBLIC_BRIDGE_INTAKE_URL` (unset → dead `localStorage`
+outbox), the platform had no intake endpoint, and `.env.local` was absent (no
+`SUPABASE_SERVICE_KEY` → "results saved to local JSONL only"). The mapping/contract
+(`mapReportToCapture`, `RECON_MANIFEST.commit_via: 'pipeline_proposal'`) and Recon's own
+quality-tiering/approval WERE built — only the last delivery hop was a stub.
+
+**Decision:** (1) Tool stays a separate app — **no codebase merge** (monorepo-unification
+program shelved). (2) Add a plain Fastify route `POST /intake/recon` on `apps/api` mapping the
+existing `CaptureEnvelope` → governed `pipeline.propose()` (subject + memories → one
+`person:write` proposal; each risk flag → its own `signal:write`; actor = seeded drafts-only
+`INTAKE_AGENT` on behalf of the pilot user) → `pending_review` ledger rows the web Approvals UI
+already reads. (3) Deploy Recon + `apps/api` to **Fly.io** always-on; Recon gets a **persistent
+volume** at `/app/data`. (4) Gate the intake route with a **shared-secret header**
+(`x-recon-secret` / `RECON_SHARED_SECRET`).
+
+**Rationale:**
+- *Fastify route, not tRPC* — `addToBridge()` posts the envelope as raw JSON; a plain route
+  matches the existing client with the least change.
+- *Fly.io, not Cloudflare/Vercel* — Recon's approval store is filesystem JSONL (`data/*.jsonl`);
+  serverless has no persistent writable FS, breaking "make the existing flow run." A stateful
+  host + volume keeps it working with zero code change.
+- *Reuse propose()* — Authority → Policy → draft-then-approve → append-only ledger apply for free.
+
+**Alternatives rejected:**
+- *Full codebase merge / monorepo unification* — user chose separate-but-integrated; deferred.
+- *Cloudflare (same platform as prototype)* — incompatible with Recon's filesystem store unless
+  migrated to Supabase first (separate, larger work).
+- *Direct Supabase write of findings (bypass approval)* — violates draft-then-approve.
+
+**Consequences / follow-ups:**
+- Two write patterns coexist BY DESIGN: extension capture → `capture_profile` RPC → direct
+  `people_canonical`; report findings → `/intake/recon` → governed `ledger` proposals. Do not unify.
+- **Persistent-mode governance must be seeded in Supabase**: `seedGovernance()` only runs in-memory,
+  so with `DATABASE_URL` set the `INTAKE_AGENT`/`role-intake`/pilot-user grants must exist in the DB
+  or `propose()` is denied (plan Task 8).
+- `NEXT_PUBLIC_*` vars are build-time-inlined → must be present at Recon's Fly build.
+- LinkedIn connection-send (original request #2) + full configurable-URL extension UI remain a
+  deferred follow-on strand.
+
+---
+
 ## 2026-06-22 — Agents may never approve a proposal (Approvals are human-only)
 
 **Context:** The Universal Action Pipeline already forces agents to draft

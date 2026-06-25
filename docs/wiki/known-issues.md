@@ -8,6 +8,18 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **RESOLVED (code) 2026-06-24 — Recon findings never reached Bridge.** Cause: `addToBridge()`
+  had no `NEXT_PUBLIC_BRIDGE_INTAKE_URL` (→ dead `localStorage` outbox) and the platform had no
+  intake endpoint. Fix: new Fastify `POST /intake/recon` on `apps/api` maps `CaptureEnvelope` →
+  governed `propose()` → `pending_review` ledger → web Approvals; Recon flushes its outbox + sends
+  `x-recon-secret`. See decisions-log 2026-06-24. **Deploy + persistent-mode Supabase governance
+  seeding still PENDING** (Fly.io; `seedGovernance()` is in-memory-only — plan Tasks 8–9).
+
+- **OPEN — Recon `/api/store/*` + OSINT cache assume a filesystem.** `lib/store.ts` (staging/
+  permanent JSONL), `lib/recon.ts` (OFAC cache) write to `process.cwd()/data/`. Satisfied in
+  deploy by the Fly volume mount at `/app/data`; a Supabase migration of these stores remains
+  optional future work (would unblock serverless hosting). See decisions-log 2026-06-24.
+
 - **IN PROGRESS — Identity client-asserted on `propose`.** API trusts request-body actor
   for non-decide paths. `decide` now uses server `ctx.identity` (pinned pilot user). Full
   fix = Supabase JWT verify → real per-user identity + bind human actor on propose +
