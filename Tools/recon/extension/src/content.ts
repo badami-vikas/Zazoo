@@ -9,7 +9,7 @@
 //   • document order + content regexes (duration/year patterns)
 // We NEVER match on hashed class names.
 
-import type { LinkedInProfile, LinkedInExperience, LinkedInEducation, LinkedInPost, ExtractResult } from './types';
+import type { LinkedInProfile, LinkedInExperience, LinkedInEducation, LinkedInPost, ExtractResult, ConnectResult } from './types';
 
 // ── Generic text helpers ───────────────────────────────────────────────────────
 
@@ -423,9 +423,81 @@ function extract(): ExtractResult {
 // lazy-load Experience/Education BEFORE sending this message, so we just read the DOM.
 // (Content-script JS cannot generate trusted scroll, so scrolling lives in the worker.)
 
+// ── Connection-send routine ─────────────────────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Find a visible button/anchor whose trimmed text or aria-label matches `label` (case-insensitive). */
+function findByLabel(label: string): HTMLElement | null {
+  const want = label.toLowerCase();
+  const els = document.querySelectorAll<HTMLElement>('button, a[role="button"], div[role="button"]');
+  for (const el of els) {
+    const aria = (el.getAttribute('aria-label') ?? '').toLowerCase();
+    const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (aria === want || aria.startsWith(want + ' ') || text === want) {
+      if (el.offsetParent !== null) return el; // visible
+    }
+  }
+  return null;
+}
+
+async function sendConnectionRequest(note: string): Promise<ConnectResult> {
+  // 1. Already connected / pending? No actionable Connect entry point.
+  // 2. Primary Connect button, else open the "More" overflow and find Connect there.
+  let connect = findByLabel('Connect');
+  if (!connect) {
+    const more = findByLabel('More actions') ?? findByLabel('More');
+    if (more) { more.click(); await sleep(600); connect = findByLabel('Connect'); }
+  }
+  if (!connect) {
+    // Distinguish "already connected/pending" from a DOM miss.
+    if (findByLabel('Pending') || findByLabel('Message')) return { ok: true, status: 'already_connected' };
+    return { ok: false, status: 'error', detail: 'Connect button not found' };
+  }
+  connect.click();
+  await sleep(900);
+
+  // 3. "Add a note" in the invitation modal.
+  const addNote = findByLabel('Add a note');
+  if (!addNote) {
+    // Some accounts hit the monthly free-invite-note limit → no note box.
+    return { ok: false, status: 'note_unavailable', detail: 'Add-a-note unavailable' };
+  }
+  addNote.click();
+  await sleep(600);
+
+  // 4. Fill the note textarea (respect its maxlength).
+  const ta = document.querySelector<HTMLTextAreaElement>('textarea#custom-message, textarea[name="message"]');
+  if (!ta) return { ok: false, status: 'error', detail: 'note textarea not found' };
+  const max = ta.maxLength > 0 ? ta.maxLength : 300;
+  ta.focus();
+  ta.value = note.slice(0, max);
+  ta.dispatchEvent(new Event('input', { bubbles: true })); // let React see the value
+  await sleep(300);
+
+  // 5. Send.
+  const send = findByLabel('Send invitation') ?? findByLabel('Send') ?? findByLabel('Send now');
+  if (!send) return { ok: false, status: 'error', detail: 'Send button not found' };
+  // Weekly invite cap surfaces as a blocking dialog after click.
+  send.click();
+  await sleep(1000);
+  const body = document.body.innerText;
+  if (/you've reached the weekly invitation limit|reached the weekly limit/i.test(body)) {
+    return { ok: false, status: 'soft_block', detail: 'weekly invite limit' };
+  }
+  return { ok: true, status: 'sent' };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'BRIDGE_EXTRACT') {
     sendResponse(extract());
+    return true;
+  }
+  if (msg?.type === 'BRIDGE_CONNECT') {
+    sendConnectionRequest(String(msg.note ?? '')).then(sendResponse).catch((e) =>
+      sendResponse({ ok: false, status: 'error', detail: e instanceof Error ? e.message : 'connect failed' }),
+    );
+    return true; // keep the message channel open for the async response
   }
   return true;
 });
