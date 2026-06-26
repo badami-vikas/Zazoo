@@ -13,3 +13,4 @@ export {
   createMemoryLocalPlane,
 } from "./stores/memory.js";
 export { createPgliteLocalPlane, type PgliteLocalPlaneConfig } from "./stores/pglite.js";
+export { InMemoryOutboxStore, createMemoryOutbox } from "./stores/outbox-memory.js";

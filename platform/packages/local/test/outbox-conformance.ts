@@ -8,15 +8,18 @@ import assert from "node:assert/strict";
 import type { CaptureDraft, OutboxStore } from "../src/index.js";
 
 function draft(over: Partial<CaptureDraft> = {}): CaptureDraft {
+  // Build the required fields, then spread only the optional fields that are
+  // actually provided. Assigning `undefined` to an optional prop is rejected
+  // under this repo's `exactOptionalPropertyTypes: true`, so we omit instead.
   return {
     id: over.id ?? "dummy_01HZX0000000000000000000A",
     workspaceId: over.workspaceId ?? "dummy_ws-1",
     text: over.text ?? "met Priya at the founders dinner; warm, ex-Stripe",
-    personId: over.personId,
-    personProvisional: over.personProvisional,
-    audioLocalMediaId: over.audioLocalMediaId,
-    calendar: over.calendar,
     capturedAt: over.capturedAt ?? 1_000,
+    ...(over.personId !== undefined ? { personId: over.personId } : {}),
+    ...(over.personProvisional !== undefined ? { personProvisional: over.personProvisional } : {}),
+    ...(over.audioLocalMediaId !== undefined ? { audioLocalMediaId: over.audioLocalMediaId } : {}),
+    ...(over.calendar !== undefined ? { calendar: over.calendar } : {}),
   };
 }
 
