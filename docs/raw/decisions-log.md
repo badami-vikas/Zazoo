@@ -206,3 +206,28 @@ fabricated can ever be mistaken for real data or surface to the UI/DB.
   live account or a non-dummy test double, or marked live-only.
 - Structural UUIDs must be replaced with real pilot identities, not deleted (the system
   cannot run without an identity/workspace).
+
+---
+
+## 2026-06-26 — pnpm `node-linker=hoisted` for the Expo/RN mobile app
+
+**Decision:** Add `platform/.npmrc` with `node-linker=hoisted`, switching the whole
+monorepo install from pnpm's default isolated `node_modules` to a flat (npm-like) layout.
+
+**Why:** React Native's Metro bundler resolves transitive deps (e.g.
+`@babel/runtime/helpers/*`) assuming a flat `node_modules`. Under pnpm's isolated layout the
+`expo export` bundle failed with `Unable to resolve module @babel/runtime/...`. `hoisted` is
+Expo's documented fix for pnpm monorepos and the least-intrusive option (one line, no
+per-dep maintenance).
+
+**Alternatives rejected:**
+- *Add each missing transitive dep (`@babel/runtime`, …) as a direct dep of `apps/mobile`* —
+  whack-a-mole; fragile across SDK bumps.
+- *Keep isolated linker, give the mobile app its own separate install* — splits the monorepo,
+  loses workspace `@bridge/*` resolution that the whole approach depends on.
+
+**Consequences:** flat layout is slightly less strict about phantom deps across all packages.
+Verified non-regressive: `turbo run test` 9/9 tasks (core 54/54, local 9/9) after the switch.
+Also required Node ≥20 on PATH (v16 default broke the pnpm corepack shim) and pinning Expo SDK
+52 deps directly rather than `npx expo install` (which stalls here). See plan
+`docs/superpowers/plans/2026-06-26-mobile-quick-capture-02-expo-shell.md`.

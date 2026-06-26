@@ -40,7 +40,7 @@ Plans 02–06 are scoped here and written out when reached (each gets its own
 - **Acceptance:** `node --test` green; idempotent enqueue (dup ULID = no-op), FIFO `listPending`
   with backoff, `markSynced`/`markFailed` transitions covered.
 
-## Plan 02 — Expo app shell + monorepo wiring  *(DETAILED — see [`...-02-expo-shell.md`](2026-06-26-mobile-quick-capture-02-expo-shell.md))*
+## Plan 02 — Expo app shell + monorepo wiring  *(BUILT 2026-06-26 — automated gates green; simulator boot deferred [MANUAL]. See [`...-02-expo-shell.md`](2026-06-26-mobile-quick-capture-02-expo-shell.md))*
 
 - **Create:** `platform/apps/mobile` (Expo, RN, TS) — auto-covered by the `apps/*` workspace glob (no `pnpm-workspace.yaml`/`turbo.json` edits needed).
 - **Scope:** boots a blank app importing a shared `@bridge/*` package (proves cross-package

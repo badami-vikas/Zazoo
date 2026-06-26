@@ -18,6 +18,18 @@
 
 ---
 
+## As-built corrections (2026-06-26 — applied during execution)
+
+Three deltas from the steps below were required to make it actually build; the committed code reflects these:
+
+1. **Node 24 required.** The shell's default Node was v16 (corepack shim mismatch → `URL.canParse is not a function` on `pnpm`). Run everything with Node ≥20 on PATH (used `~/.nvm/versions/node/v24.15.0/bin`). Expo SDK 52 needs ≥18 regardless.
+2. **Pin Expo deps directly instead of `npx expo install`.** `npx expo install` stalls under this pnpm monorepo. Equivalent deterministic versions written into `package.json`: `expo ~52.0.0`, `expo-linking ~7.0.0`, `expo-status-bar ~2.0.0`, `react 18.3.1`, `react-native ~0.76.5`. Then `pnpm install` from `platform/`.
+3. **`node-linker=hoisted` is mandatory** (new file `platform/.npmrc`). Without it, Metro fails with `Unable to resolve module @babel/runtime/...` because pnpm's isolated `node_modules` doesn't match RN's flat-resolution assumption. This is Expo's documented pnpm-monorepo fix. Verified non-regressive against the backend: `turbo run test` → 9/9 tasks (core 54/54, local 9/9). See ADR in `docs/raw/decisions-log.md` (2026-06-26).
+
+**Verification actually run (automated gates, all green):** `pnpm install` (736 pkgs); `tsc --noEmit` clean; `expo export --platform ios` bundled `apps/mobile/index.ts` → 557 modules / 1.55 MB Hermes, `@bridge/local` resolved; `turbo run test` 9/9. The `[MANUAL]` simulator boot + `bridge://capture` tap remain deferred (no Xcode/Android in this env).
+
+---
+
 ## File structure (all under `platform/apps/mobile/`)
 
 - Create: `package.json` — Expo app manifest + scripts + `@bridge/local` workspace dep.
