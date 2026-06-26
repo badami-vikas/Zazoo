@@ -127,15 +127,18 @@ import assert from "node:assert/strict";
 import type { CaptureDraft, OutboxStore } from "../src/index.js";
 
 function draft(over: Partial<CaptureDraft> = {}): CaptureDraft {
+  // The repo enables `exactOptionalPropertyTypes: true` (tsconfig.base.json), so an
+  // optional field must be OMITTED when undefined — assigning `undefined` is a TS2375
+  // error. Conditional spreads keep the strict public CaptureDraft type intact.
   return {
-    id: over.id ?? "dummy_01HZX0000000000000000000A",
+    id: over.id ?? "dummy_01HZX0AAAAAAAAAAAAAAAAAAAA", // 26-char ULID body (SQLite CHECK-safe)
     workspaceId: over.workspaceId ?? "dummy_ws-1",
     text: over.text ?? "met Priya at the founders dinner; warm, ex-Stripe",
-    personId: over.personId,
-    personProvisional: over.personProvisional,
-    audioLocalMediaId: over.audioLocalMediaId,
-    calendar: over.calendar,
     capturedAt: over.capturedAt ?? 1_000,
+    ...(over.personId !== undefined ? { personId: over.personId } : {}),
+    ...(over.personProvisional !== undefined ? { personProvisional: over.personProvisional } : {}),
+    ...(over.audioLocalMediaId !== undefined ? { audioLocalMediaId: over.audioLocalMediaId } : {}),
+    ...(over.calendar !== undefined ? { calendar: over.calendar } : {}),
   };
 }
 
@@ -199,6 +202,16 @@ export function runOutboxConformance(label: string, makeStore: () => OutboxStore
     assert.equal(rec?.nextAttemptAt, 2_000);
   });
 
+  test(`${label}: failed-but-not-yet-due is excluded while pending-immediately is included`, async () => {
+    const s = await makeStore();
+    await s.enqueue(draft({ id: "dummy_now", capturedAt: 1 }));
+    await s.enqueue(draft({ id: "dummy_wait", capturedAt: 2 }));
+    await s.markFailed("dummy_wait", "err", 9_999);
+    const due = await s.listPending(5_000);
+    assert.deepEqual(due.map((r) => r.draft.id), ["dummy_now"]);
+    // Guards a future SQLite adapter against `WHERE status='pending'` silently dropping retries.
+  });
+
   test(`${label}: get returns null for unknown id; markSynced/markFailed on unknown throw`, async () => {
     const s = await makeStore();
     assert.equal(await s.get("dummy_nope"), null);
@@ -245,12 +258,14 @@ Create `platform/packages/local/src/stores/outbox-memory.ts`:
 import type { CaptureDraft, OutboxRecord, OutboxStore } from "../ports.js";
 
 export class InMemoryOutboxStore implements OutboxStore {
-  readonly records = new Map<string, OutboxRecord>();
+  // private: callers must go through the public methods so idempotency + error
+  // guarantees can't be bypassed by external `.records.set(...)`.
+  private readonly records = new Map<string, OutboxRecord>();
 
-  async enqueue(d: CaptureDraft): Promise<void> {
-    if (this.records.has(d.id)) return; // idempotent: duplicate enqueue is a no-op
-    this.records.set(d.id, {
-      draft: { ...d },
+  async enqueue(draft: CaptureDraft): Promise<void> {
+    if (this.records.has(draft.id)) return; // idempotent: duplicate enqueue is a no-op
+    this.records.set(draft.id, {
+      draft: { ...draft },
       status: "pending",
       attempts: 0,
       nextAttemptAt: 0,
@@ -353,13 +368,14 @@ runOutboxConformance("in-memory outbox", () => new InMemoryOutboxStore());
 
 - [ ] **Step 2: Build, then run the outbox tests**
 
-Run: `cd platform && pnpm --filter @bridge/local build && node --test dist/test/outbox.test.js`
-Expected: PASS — all 7 conformance tests green (round-trip, idempotent enqueue, FIFO, backoff window, markSynced, attempts increment, unknown-id throws).
+Run: `cd platform && pnpm --filter @bridge/local build && node --test packages/local/dist/test/outbox.test.js`
+(Compiled output lives under `packages/local/dist/`, not `platform/dist/`. Equivalently: `pnpm --filter @bridge/local test`.)
+Expected: PASS — all 8 conformance tests green (round-trip, idempotent enqueue, FIFO, backoff window, markSynced, attempts increment, mixed-status exclusion, unknown-id throws).
 
 - [ ] **Step 3: Run the package's full test suite to confirm no regression**
 
-Run: `cd platform && node --test dist/test/*.test.js`
-Expected: PASS — the existing pglite local-plane test still passes alongside the new outbox tests (blast-radius check: the additive ports change touched no existing adapter).
+Run: `cd platform && pnpm --filter @bridge/local build && node --test packages/local/dist/test/*.test.js`
+Expected: PASS — 9 tests total (8 outbox + the existing pglite local-plane test), all green (blast-radius check: the additive ports change touched no existing adapter).
 
 - [ ] **Step 4: Commit**
 
