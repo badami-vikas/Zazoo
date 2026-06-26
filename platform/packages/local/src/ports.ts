@@ -120,3 +120,55 @@ export interface LocalPlane {
   graph: LocalGraphStore;
   close(): Promise<void>;
 }
+
+// ── Capture outbox: offline-first queue for mobile quick-capture ───────────────
+//
+// A CaptureDraft is a meeting note captured on a local-plane node (the phone). It is
+// written to the OutboxStore SYNCHRONOUSLY at Save time (never blocks on network) and
+// later replayed by the sync engine as a Pipeline action.propose. `id` is a ULID and is
+// the end-to-end idempotency key: a duplicate enqueue is a no-op, and a double-propose is
+// a Pipeline no-op. Audio NEVER enters this queue — only `audioLocalMediaId` (a local
+// pointer); `private ∩ egress = none` means audio bytes cannot cross the gate.
+
+export interface CaptureDraft {
+  /** ULID — idempotency key, end to end. */
+  id: string;
+  workspaceId: string;
+  /** Transcript text (on-device STT or manual). May be empty if audio-only + STT failed. */
+  text: string;
+  /** Optional Person quick-tag: an existing local/canonical id, or a provisional id. */
+  personId?: string;
+  /** True when `personId` points at a provisional (offline-created) Person. */
+  personProvisional?: boolean;
+  /** Pointer into LocalMediaStore for the audio blob, if retained. NEVER synced outward. */
+  audioLocalMediaId?: string;
+  /** Opt-in calendar write-back intent (governed egress, resolved by Plan 07). */
+  calendar?: { mode: "new" | "attach"; existingEventId?: string };
+  /** Epoch ms, device clock at capture. */
+  capturedAt: number;
+}
+
+export type OutboxStatus = "pending" | "synced" | "failed";
+
+export interface OutboxRecord {
+  draft: CaptureDraft;
+  status: OutboxStatus;
+  /** Replay attempts so far. */
+  attempts: number;
+  /** Epoch ms; the earliest time this record may be replayed (backoff). */
+  nextAttemptAt: number;
+  /** Last failure message, when status === "failed". */
+  lastError?: string;
+}
+
+export interface OutboxStore {
+  /** Durable, SYNCHRONOUS enqueue. Idempotent: a duplicate `draft.id` is a no-op. */
+  enqueue(draft: CaptureDraft): Promise<void>;
+  get(id: string): Promise<OutboxRecord | null>;
+  /** Records replayable at `now`: status !== "synced" AND nextAttemptAt <= now, FIFO by capturedAt. */
+  listPending(now: number): Promise<OutboxRecord[]>;
+  /** Mark committed. */
+  markSynced(id: string): Promise<void>;
+  /** Mark a failed attempt: increments `attempts`, sets `lastError` + the next backoff time. */
+  markFailed(id: string, error: string, nextAttemptAt: number): Promise<void>;
+}
