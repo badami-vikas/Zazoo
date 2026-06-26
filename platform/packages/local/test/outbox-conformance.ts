@@ -12,7 +12,7 @@ function draft(over: Partial<CaptureDraft> = {}): CaptureDraft {
   // actually provided. Assigning `undefined` to an optional prop is rejected
   // under this repo's `exactOptionalPropertyTypes: true`, so we omit instead.
   return {
-    id: over.id ?? "dummy_01HZX0000000000000000000A",
+    id: over.id ?? "dummy_01HZX0AAAAAAAAAAAAAAAAAAAA",
     workspaceId: over.workspaceId ?? "dummy_ws-1",
     text: over.text ?? "met Priya at the founders dinner; warm, ex-Stripe",
     capturedAt: over.capturedAt ?? 1_000,
@@ -81,6 +81,15 @@ export function runOutboxConformance(label: string, makeStore: () => OutboxStore
     assert.equal(rec?.attempts, 2);
     assert.equal(rec?.lastError, "err2");
     assert.equal(rec?.nextAttemptAt, 2_000);
+  });
+
+  test(`${label}: failed-but-not-yet-due is excluded while pending-immediately is included`, async () => {
+    const s = await makeStore();
+    await s.enqueue(draft({ id: "dummy_now", capturedAt: 1 }));
+    await s.enqueue(draft({ id: "dummy_wait", capturedAt: 2 }));
+    await s.markFailed("dummy_wait", "err", 9_999);
+    const due = await s.listPending(5_000);
+    assert.deepEqual(due.map((r) => r.draft.id), ["dummy_now"]);
   });
 
   test(`${label}: get returns null for unknown id; markSynced/markFailed on unknown throw`, async () => {

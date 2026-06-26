@@ -8,12 +8,12 @@
 import type { CaptureDraft, OutboxRecord, OutboxStore } from "../ports.js";
 
 export class InMemoryOutboxStore implements OutboxStore {
-  readonly records = new Map<string, OutboxRecord>();
+  private readonly records = new Map<string, OutboxRecord>();
 
-  async enqueue(d: CaptureDraft): Promise<void> {
-    if (this.records.has(d.id)) return; // idempotent: duplicate enqueue is a no-op
-    this.records.set(d.id, {
-      draft: { ...d },
+  async enqueue(draft: CaptureDraft): Promise<void> {
+    if (this.records.has(draft.id)) return; // idempotent: duplicate enqueue is a no-op
+    this.records.set(draft.id, {
+      draft: { ...draft },
       status: "pending",
       attempts: 0,
       nextAttemptAt: 0,
