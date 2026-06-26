@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Bridge Capture",
+    "slug": "bridge-capture",
+    "scheme": "bridge",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": { "bundleIdentifier": "ai.bridge.capture", "supportsTablet": false },
+    "android": { "package": "ai.bridge.capture" }
+  }
+}
