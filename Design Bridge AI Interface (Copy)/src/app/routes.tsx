@@ -1,5 +1,5 @@
 import { createBrowserRouter } from "react-router";
-import { Briefcase } from "lucide-react";
+import { Briefcase, Handshake } from "lucide-react";
 import Layout from "./Layout";
 import { StandaloneLayout } from "./StandaloneLayout";
 import { DataEngine } from "./components/DataEngine";
@@ -32,12 +32,26 @@ import { AuthGate } from "./components/AuthGate";
 export const router = createBrowserRouter([
   // PUBLIC — no Bridge account, outside the auth gate (shareable helpdesk URL).
   { path: "/help/:slug", Component: PublicHelpdesk },
-  // STANDALONE — JobPilot built first per the tool-standardization plan's "build standalone,
-  // merge later" path (section 7): its own minimal shell, no Network/other platform tools.
+  // STANDALONE — its own minimal shell (profile + this one tool's icon, no Network/other platform
+  // tools) per the tool-standardization plan's "build standalone, merge later" path (section 7).
+  // Still requires a real Bridge login — standalone means no OTHER tools, not no auth.
   {
     path: "/standalone/jobpilot",
-    element: <StandaloneLayout toolIcon={Briefcase} toolName="JobPilot" />,
+    element: (
+      <AuthGate>
+        <StandaloneLayout toolIcon={Briefcase} toolName="JobPilot" />
+      </AuthGate>
+    ),
     children: [{ index: true, Component: JobPilotPage }],
+  },
+  {
+    path: "/standalone/dealpilot",
+    element: (
+      <AuthGate>
+        <StandaloneLayout toolIcon={Handshake} toolName="DealPilot" />
+      </AuthGate>
+    ),
+    children: [{ index: true, Component: DealPilotPage }],
   },
   {
     path: "/",

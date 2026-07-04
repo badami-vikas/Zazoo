@@ -589,6 +589,36 @@ export const appRouter = t.router({
         return { ok: true };
       }),
   }),
+
+  /**
+   * Workspace + team-member management — plain authenticated CRUD (direct DB
+   * writes), NOT a governed pipeline action. Creating a workspace or inviting a
+   * teammate doesn't have an external effect requiring approval, so this bypasses
+   * pipeline.propose() and calls the store directly.
+   */
+  workspace: t.router({
+    create: t.procedure
+      .input(z.object({ name: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        return ctx.wiring.workspaceStore.createWorkspace(input.name, ctx.identity.id);
+      }),
+
+    list: t.procedure.query(async ({ ctx }) => {
+      return ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
+    }),
+
+    inviteMember: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
+      .mutation(async ({ input, ctx }) => {
+        return ctx.wiring.workspaceStore.inviteMember(input.workspaceId, input.email);
+      }),
+
+    listMembers: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        return ctx.wiring.workspaceStore.listMembers(input.workspaceId);
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
