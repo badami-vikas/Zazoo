@@ -15,6 +15,7 @@ import type { Actor, ActionRequest, Decision, Proposal, RunCtx } from "@bridge/c
 import type { GovernedGate } from "../src/social/gate.js";
 import type { SocialProvider, SourcedItem } from "../src/social/provider.js";
 import { resolveProvider } from "../src/social/registry.js";
+import { makeFixtureProvider } from "../src/social/fixtures.js";
 import { sourceToProposals, type QuarantineStore } from "../src/social/read-pipeline.js";
 import { approveAndPublish, draftOutbound } from "../src/social/write-pipeline.js";
 
@@ -119,4 +120,15 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
   assert.equal(gate.decisions[0]?.decision, "approve");
   assert.equal(publishCount, 1);
   assert.equal(res.ok, true);
+});
+
+test("fixture provider: two drafts created before any publish get distinct draftIds", async () => {
+  const provider = makeFixtureProvider("x", []);
+  const first = await provider.draftAction({ kind: "post", text: "dummy_first" });
+  const second = await provider.draftAction({ kind: "post", text: "dummy_second" });
+  // Regression: draftId was previously derived from `published.length + 1`, which only
+  // publish() mutates — two drafts before any publish shared "dummy_x_draft_1".
+  assert.notEqual(first.draftId, second.draftId);
+  assert.equal(first.draftId, "dummy_x_draft_1");
+  assert.equal(second.draftId, "dummy_x_draft_2");
 });

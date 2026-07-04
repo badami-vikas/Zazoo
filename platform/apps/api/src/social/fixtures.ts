@@ -37,6 +37,10 @@ function fixtureItems(id: SocialProviderId): SourcedItem[] {
 /** A provider that sources dummy_ items and records (never network-sends) publishes. */
 export function makeFixtureProvider(id: SocialProviderId, oauthScopes: string[]): SocialProvider {
   const published: DraftedAction[] = [];
+  // Own counter, independent of `published.length` — previously draftId was derived from
+  // published.length + 1, but only publish() ever mutates that array, so two drafts created
+  // before any publish shared the same draftId (dummy_<id>_draft_1 twice).
+  let draftCount = 0;
   return {
     id,
     mode: "fixture",
@@ -45,7 +49,8 @@ export function makeFixtureProvider(id: SocialProviderId, oauthScopes: string[])
       return fixtureItems(id);
     },
     async draftAction(action: OutboundAction): Promise<DraftedAction> {
-      return { ...action, provider: id, draftId: `dummy_${id}_draft_${published.length + 1}` };
+      draftCount += 1;
+      return { ...action, provider: id, draftId: `dummy_${id}_draft_${draftCount}` };
     },
     async publish(action: DraftedAction): Promise<PublishResult> {
       published.push(action);

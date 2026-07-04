@@ -1,5 +1,28 @@
 # Change Log
 
+- **2026-07-04** — **Bug-sweep close-out (Gmail draft, DealPilot dedupe, Recon scoping).**
+  Continued the bug-fixing sweep past the earlier checkpoint (7 fixes + 4 latent migration bugs).
+  **Gmail draft-before-approval:** on inspection, the code this known-issue described
+  (`draftOutbound()` calling `gmail.drafts.create` at propose time) no longer exists — the
+  current `skills.ts`/`egress.ts` split already composes-then-approves-then-creates correctly.
+  Added the missing proof: a new email test in `calendar.test.ts` mirroring the existing
+  calendar-create coverage (asserts `createDraft` is called 0 times pre-approval, 1 time
+  post-approval, still 0 extra on a repeat `onApproved` call). 6/6 green. Marked RESOLVED in
+  known-issues.md rather than leaving a stale OPEN entry for already-fixed code.
+  **DealPilot dedupe-on-commit:** wired `@bridge/company-sourcing`'s `matchCompany` into
+  `wiring.ts`'s `dealPilotMaterializer.commit` — a "strong" match against already-committed
+  candidates' living profiles now merges facts into the existing candidate instead of creating a
+  duplicate row. Added `@bridge/company-sourcing` + `@bridge/dedupe` as `apps/api` workspace deps
+  (package.json + tsconfig references). No dedicated unit test (wiring.ts has no test harness;
+  the composed pieces are independently tested) — verified via full `typecheck build test --force`
+  (45/45 green).
+  **Recon → intake-seam migration:** inspected and explicitly scoped OUT of this sweep. Recon
+  (`Tools/recon/`) is a fully standalone Next.js app with zero `@bridge/*` dependencies — not a
+  package inside `platform/`. Migrating it onto `createToolSourceSkill` is a multi-session
+  architecture call (rewrite as a headless connector vs. cross-service tRPC integration), not a
+  same-pass bug fix. Left as OPEN with the scoping rationale recorded in known-issues.md; needs a
+  product/architecture decision before implementation starts.
+
 - **2026-07-04** — **Asset-reuse audit + fixes** (prototype `Design Bridge AI Interface (Copy)`). Audited whether the new shared components from the UI-standardization pass are actually being reused vs re-created. Found and fixed the two real gaps: (1) **`IntelligencePage` retrofitted onto `StandardToolbar`** — it was the page `StandardToolbar` was originally extracted FROM, but never retrofitted itself, so it still carried ~120 lines of duplicate inline toolbar JSX (view dropdown, search input, filter/sort buttons, 3-dot menu); also wired the search input to actually filter (it rendered before but did nothing). (2) **Extracted the duplicated `Pill` sub-component** out of `ListPillRow.tsx` and `ListBar.tsx` into a shared `components/shared/Pill.tsx` — both now import one implementation instead of each carrying a near-identical copy. While in `ListPillRow.tsx`, found and fixed a latent bug: the "Add list" button rendered unconditionally even when no `onAddList` handler was passed, so it silently did nothing on every page except DataEngine and Helpdesk (SignalsView, RitualsPage, ToolsPage, WorkPage, IntelligencePage) — now conditional on the handler being provided. Verified via a temporary test route (reverted): IntelligencePage's Agents/Skills/Apps tabs, search filtering, and view switching all work with zero console errors; the dead Add-list button is gone. `tsc`/`vite build` clean. **Deliberately not changed** (judged not worth the risk/reward): forcing DataEngine/SignalsView/Rituals/Tools/Work onto full `ListBar` (they're simple category filters, not user-creatable lists — `ListBar`'s create/merge/AI-instruction UI would be clutter, not reuse); the platform-vs-prototype scoring-logic duplication (`scoreThesisFit`/`scoreJobFit` ported into `data/*.ts` alongside the canonical `platform/tools/*` versions) — flagged as a policy going forward: future scoring changes happen platform-side only, prototype consumes server-scored results the way DealPilot's live path already does, not a fresh port; DataEngine's People/Communities views still don't use the shared `NotionCard`/`KanbanBoard` primitives — that backfill is its own session's worth of work.
 
 - **2026-07-04** — **DealPilot real-connector reconciliation** (closes the known-issue left by the Phase 1/2 merge). Two parallel sessions had each rebuilt DealPilot independently — one wired a real backend (BizBuySell/BusinessBroker connectors, `dealpilot.source/commit/list` tRPC router, `@bridge/tool-kit`'s generic intake seam), the other standardized the UI (Card/Kanban/List, Lists+merge, flags-as-actions) on a purely local dummy_ store. Dispatched two parallel agents to close the gap: one audited the real backend (confirmed genuinely live and matching the prototype's `data/api.ts` DTOs — the first run of this agent hallucinated a false "nothing exists" report, caught and overridden by direct verification: `platform/tools/dealpilot`, the router, and `@bridge/tool-kit/src/intake.ts` all exist and pass 15/15 build + 28/28 test tasks via `turbo run build/test --force`), one extended `data/dealpilot.ts` additively with an `API_ENABLED`-gated live-sourcing layer (`useLiveListings`/`usePendingCaptures`/`sourceListings`/`commitCapture`/`useDealPilotSourcing`) without touching any existing export. Wired `DealPilotPage.tsx` myself: a "Source new listings" toolbar action + a quarantine strip (sourced-but-uncommitted captures with a per-row "Add" button — an intentional exception to "no buttons on cards," since this is a real commit action on a review row, not a fit-card) that merges committed listings into the existing standardized views. Verified via a temporary test route (reverted) that demo mode is unchanged when the API is disabled. `tsc`/`vite build` clean; `turbo run build/test --force` 15/15 + 28/28 green. See [known-issues.md](wiki/known-issues.md) for the full resolution note.
@@ -275,3 +298,106 @@ fact recorded," not "fact recorded as undefined."
 **Not done:** the actual triage UI (needs `apps/web`, Phase 5), document pipeline (S7), waterfall
 tiers 2-5 (browser-agent/human), analysis engine (S9), billing (S12) — all deferred to whichever
 session continues DealPilot per the section 7 standalone-build contract.
+
+---
+
+## 2026-07-04 — Testing strategy drafted + real coverage measured
+
+Ran `node --test --experimental-test-coverage` across the 7 highest-risk platform packages
+after a from-scratch `pnpm install` + `turbo run build --force` (this worktree had never been
+installed — confirms the turbo-cache-replays-across-worktrees known issue live: an initial
+non-forced build replayed logs stamped with a different worktree's path).
+
+Findings: coverage is inversely correlated with risk. `apps/api/src/router.ts`/`wiring.ts`/
+`identity.ts` have no test file and don't appear in the coverage report at all.
+`integrations-google` is the worst-covered package (54%/28% funcs) and its worst files
+(`gateway-google.ts` 13%, `oauth.ts` 29%, `intake.ts` 9%) are exactly the ones carrying this
+session's P0 findings (fire-and-forget token refresh, N+1 Gmail fetch, check-then-act
+`hasExternal` race). `packages/db` store layer is 46% func-covered. `jobpilot/pacing.ts` is
+100% unit-covered with zero production callers — proof coverage% doesn't mean the safety
+invariant is enforced anywhere real.
+
+New: [docs/raw/testing-strategy.md](raw/testing-strategy.md) (priority-ordered test list tied
+to confirmed defects), [docs/wiki/testing.md](wiki/testing.md) (caveman summary). Also confirmed
+no rate-limiting/caching layer anywhere in `apps/api` (grep, zero hits) — logged to known-issues
+alongside the CORS `origin:true` entry since they compound.
+
+---
+
+## 2026-07-04 — Codemaps generated + migration journal fixed (Phase 0 partial)
+
+- New `docs/CODEMAPS/{architecture,backend,data,frontend,dependencies}.md` — first generation,
+  no prior codemaps existed. Each cross-references the known-issues.md findings from the same
+  session so the architecture docs and the bug ledger don't drift apart on day one.
+- Discovered `.github/workflows/ci.yml` already exists (landed via a parallel session) —
+  correctly uses `--force` and includes a PII guard job. Marked the "no CI" known-issue RESOLVED
+  (pending a first live run — not yet pushed/verified green this session).
+- Fixed migration journal: renamed `001_add_recon_columns.sql` → `0002_add_recon_columns.sql`,
+  registered both `0001_governance_seed` and `0002_add_recon_columns` in
+  `migrations/meta/_journal.json`. Verified both are pure idempotent DDL before touching anything
+  (no bare INSERTs, all IF NOT EXISTS/IF EXISTS) — safe for a fresh DB and safe to replay against
+  the already-migrated production DB. `@bridge/db` typecheck green after.
+- **Could not extract the live RLS policy DDL** — the only Supabase project connected in this
+  session ("CorpSim", `whtvssedmrglfrbhrlsa`) is not the Bridge AI project referenced in the
+  migration comments (`emtbimowmqqhixqlxhzb`). This remains an open blocker requiring someone
+  with access to the real project to pull `pg_policies`/RLS function DDL into a new migration.
+
+---
+
+## 2026-07-04 — Bug-fixing sweep (continuing from the code-review audit)
+
+Worked through the OPEN known-issues list, fixing the highest-value items and verifying each
+with real build+test runs (not cached). All changes verified with `turbo run typecheck build
+test --force` across the full platform monorepo (45/45 green) at the end.
+
+Fixed:
+- `packages/dedupe/src/match.ts` — non-deterministic tie-break (`matchOne`) that let array
+  order silently pick which entity a "strong" auto-merge attached to. Now: deterministic
+  first-seen-wins, and an exact tie between two distinct targets downgrades to "moderate"
+  (human review) instead of auto-merging on the strength of iteration order alone. 2 new tests.
+- `packages/integrations-google/src/gateway-google.ts` — fire-and-forget OAuth token-refresh
+  persistence (`void this.secrets.putToken(...)`) now `.catch()`s and logs loudly instead of
+  silently swallowing a failed persist (which previously could brick an integration on the next
+  sync with an opaque `invalid_grant` and no diagnostic).
+- `Design Bridge AI Interface (Copy)/src/app/pages/SettingsPage.tsx` — duplicate React key bug
+  was worse than logged: BOTH the Members table and the API Keys table used `id: 9009` for
+  every row. Gave each row a unique id; fixed a `useState<number | null>` that the id-type change
+  would otherwise have silently broken (caught by `tsc --noEmit`, not by inspection).
+- Prototype root — deleted 4 confirmed-stale merge-artifact duplicate config files
+  (`package-1.json`, `vite.config-1.ts`, `postcss.config-1.mjs`, `ATTRIBUTIONS-1.md`) after
+  diffing each against its live twin (two were missing dependencies/plugins the live config
+  needs; two were byte-identical). `tsc --noEmit` and `vite build` both clean after.
+- `apps/api/src/social/fixtures.ts` — `draftId` collision (`published.length + 1`, but only
+  `publish()` mutates that array) fixed with its own counter. New regression test.
+- `packages/core/src/pipeline.ts` — agent-floor-denied `decide()` calls previously threw with
+  zero ledger trace. Now appends an audited-rejection row before throwing. Updated the existing
+  floor test in `pipeline.test.ts` to assert the new row.
+- **Unplanned but necessary:** registering `0001_governance_seed.sql`/`0002_add_recon_columns.sql`
+  in the migration journal (earlier this session) meant they were exercised by
+  `packages/db`'s local-plane pglite test suite for the first time ever — surfacing 4 real,
+  previously-latent bugs (missing statement-breakpoints, an unused pgcrypto dependency pglite
+  can't load, a DROP INDEX that should have been DROP CONSTRAINT, and a REVOKE against
+  Supabase-only roles that don't exist on the local plane). All 4 fixed; `packages/db` tests
+  went from 2 failing / 3 passing to 5/5 green. Corrected the earlier known-issues claim that
+  these migrations were "safe to replay" — they were not, until this pass.
+
+Still open from the list (not yet reached): CORS allowlist, Gmail draft-before-approval,
+DealPilot dedupe-on-commit wiring, Recon intake migration, and everything requiring live
+Supabase/production access or a product decision from the user.
+
+---
+
+## 2026-07-04 — CORS allowlist fix (bug-fixing sweep, continued)
+
+`apps/api/src/server.ts`: added `corsOriginConfig()` — `API_ALLOWED_ORIGINS` (comma-separated)
+wins when set; without it, dev stays permissive (`origin: true`) for zero-config local Vite,
+production fails CLOSED (empty allowlist). Loud `app.log.warn` either way. 3 new tests in
+new `apps/api/test/server.test.ts`. Full monorepo `turbo run typecheck build test --force`:
+45/45 green.
+
+Stopping the bug-fixing sweep here as a checkpoint (7 known-issues resolved this session, plus
+4 latent migration bugs found and fixed as a side effect of the earlier journal registration).
+Remaining OPEN items of similar size: Gmail draft-created-before-approval (needs restructuring
+draftOutbound's propose-time side effect), DealPilot dedupe-on-commit wiring, Recon→intake-seam
+migration — each is a larger, more invasive change than the fixes in this batch and better done
+as its own focused pass.

@@ -229,15 +229,24 @@ export class GoogleApiGatewayFactory implements GoogleGatewayFactory {
     const token = await this.secrets.getToken(integrationId);
     if (!token) throw new Error(`google: integration ${integrationId} is not connected (no token)`);
     const client = clientFromToken(this.cfg, token);
-    // Persist refreshed access tokens back to the local store (offline access).
+    // Persist refreshed access tokens back to the local store (offline access). Google may
+    // rotate the refresh token on this event; if the persist fails, the client keeps working
+    // for the rest of THIS request off the in-memory token, but the next `forIntegration` call
+    // loads the stale (possibly now-invalid) token from the store — silently bricking the
+    // integration with an opaque "invalid_grant" and no diagnostic. Surface the failure loudly
+    // instead of swallowing it (`void` previously discarded the promise entirely).
     client.on("tokens", (t) => {
-      void this.secrets.putToken({
-        ...token,
-        ...(t.access_token ? { accessToken: t.access_token } : {}),
-        ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
-        ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
-        updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
-      });
+      this.secrets
+        .putToken({
+          ...token,
+          ...(t.access_token ? { accessToken: t.access_token } : {}),
+          ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
+          ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
+          updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
+        })
+        .catch((err: unknown) => {
+          console.error(`google: failed to persist refreshed token for integration ${integrationId} — next sync will use a stale token`, err);
+        });
     });
     return new GoogleApiGateway(client);
   }

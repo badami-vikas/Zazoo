@@ -8,6 +8,20 @@
       "when": 1780342914816,
       "tag": "0000_amazing_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780342914817,
+      "tag": "0001_governance_seed",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780342914818,
+      "tag": "0002_add_recon_columns",
+      "breakpoints": true
     }
   ]
 }

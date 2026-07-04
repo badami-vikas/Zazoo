@@ -14,41 +14,50 @@ export function matchOne(
 ): MatchResult {
   const pool = candidate.blockingKey ? targets.filter((t) => t.blockingKey === candidate.blockingKey) : targets;
 
-  let best: MatchResult = { candidateId: candidate.id, targetId: "", tier: "none", score: -1, reason: "no candidates in blocking set" };
-
   for (const target of pool) {
     if (candidate.keyId && target.keyId && candidate.keyId === target.keyId) {
       return { candidateId: candidate.id, targetId: target.id, tier: "strong", score: 1, reason: "exact key_id match" };
     }
-
-    const score = trigramSimilarity(candidate.name, target.name);
-    // Strictly-less-than: a 0-score candidate must still win over the "no candidate seen yet"
-    // sentinel, otherwise the only entry in a blocking pool can be silently dropped (2026-07-04
-    // regression caught by an actual test run, not just a green build).
-    if (score < best.score) continue;
-
-    const corroborated = corroboratingFields.some(
-      (f) => candidate[f] != null && target[f] != null && String(candidate[f]).toLowerCase() === String(target[f]).toLowerCase(),
-    );
-
-    let tier: MatchResult["tier"] = "none";
-    let reason = `trigram ${score.toFixed(2)}`;
-    if (score >= thresholds.strong || (score >= thresholds.moderate && corroborated)) {
-      tier = "strong";
-      reason += corroborated ? " + corroborating field" : " >= strong threshold";
-    } else if (score >= thresholds.moderate) {
-      tier = "moderate";
-      reason += " alone, no corroboration — pending review";
-    } else if (score > 0) {
-      tier = "flag";
-      reason += " below moderate — flag only";
-    }
-
-    best = { candidateId: candidate.id, targetId: target.id, tier, score, reason };
   }
 
-  if (best.score < 0) best.score = 0; // empty pool — no comparison happened, don't leak the sentinel
-  return best;
+  if (pool.length === 0) {
+    return { candidateId: candidate.id, targetId: "", tier: "none", score: 0, reason: "no candidates in blocking set" };
+  }
+
+  const scored = pool.map((target) => ({ target, score: trigramSimilarity(candidate.name, target.name) }));
+  const topScore = Math.max(...scored.map((s) => s.score));
+  const topMatches = scored.filter((s) => s.score === topScore);
+  // Deterministic tie-break: first-seen (pool order) wins, never later-overwrites-earlier.
+  // An exact tie between two *different* targets is inherently ambiguous — never let it
+  // auto-merge as "strong" on the strength of array order alone; downgrade to "moderate"
+  // so a human decides. (2026-07-04: previously `score < best.score` let a later equal-score
+  // target silently overwrite an earlier one, so array order — not evidence — picked the
+  // auto-merge target; see known-issues.md.)
+  const winner = topMatches[0]!.target;
+  const tied = topMatches.length > 1;
+
+  const corroborated = corroboratingFields.some(
+    (f) => candidate[f] != null && winner[f] != null && String(candidate[f]).toLowerCase() === String(winner[f]).toLowerCase(),
+  );
+
+  let tier: MatchResult["tier"] = "none";
+  let reason = `trigram ${topScore.toFixed(2)}`;
+  if (topScore >= thresholds.strong || (topScore >= thresholds.moderate && corroborated)) {
+    tier = tied ? "moderate" : "strong";
+    reason += tied
+      ? ` tied with ${topMatches.length - 1} other candidate(s) at the same score — ambiguous, held for review`
+      : corroborated
+        ? " + corroborating field"
+        : " >= strong threshold";
+  } else if (topScore >= thresholds.moderate) {
+    tier = "moderate";
+    reason += " alone, no corroboration — pending review";
+  } else if (topScore > 0) {
+    tier = "flag";
+    reason += " below moderate — flag only";
+  }
+
+  return { candidateId: candidate.id, targetId: winner.id, tier, score: topScore, reason };
 }
 
 export function matchAll(

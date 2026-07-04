@@ -299,9 +299,17 @@ test("agents may not approve: an agent decider is floor-denied at the review gat
     () => h.pipeline.decide(p.id, "approve", { type: "agent", id: "agent-1" }, ctx),
     /agent-floor/,
   );
-  // The proposal is untouched: still pending, no decision row, nothing committed.
-  assert.equal(h.ledger.entries.length, 1);
+  // The proposal itself is untouched: still pending, no *resolving* decision row,
+  // nothing committed — but the blocked attempt IS audited (append-only spine), so a
+  // second ledger row now exists recording the denied attempt (userDecision stays null,
+  // so decisionFor() still correctly reports the proposal as unresolved).
+  assert.equal(h.ledger.entries.length, 2);
   assert.equal(h.ledger.entries[0]!.userDecision, null);
+  const auditRow = h.ledger.entries[1]!;
+  assert.equal(auditRow.userDecision, null);
+  assert.equal(auditRow.actorId, "agent-1");
+  assert.equal(auditRow.refLedgerId, p.id);
+  assert.match(String((auditRow.diff as { rejected?: string })?.rejected), /agent-floor/);
   assert.equal(h.events.events.length, 0);
   // A human approver still resolves it.
   const ok = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);

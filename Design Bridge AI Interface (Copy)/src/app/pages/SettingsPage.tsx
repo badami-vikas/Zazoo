@@ -21,24 +21,24 @@ const defaultAllowed = ['Reconnect outreach (with approval)', 'Read canonical / 
 const defaultDenied = ['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network'];
 
 const teamMembers = [
-  { id: 9009, name: 'dummy_Tony Stark', email: 'dummy_tony@acmecorp.com', role: 'dummy_Admin', avatar: 'T', status: 'active', lastSeen: 'dummy_9009 min ago' },
-  { id: 9009, name: 'dummy_Bruce Wayne', email: 'dummy_bruce@acmecorp.com', role: 'dummy_Member', avatar: 'B', status: 'active', lastSeen: 'dummy_9009 hour ago' },
-  { id: 9009, name: 'dummy_Clark Kent', email: 'dummy_clark@acmecorp.com', role: 'dummy_Member', avatar: 'C', status: 'active', lastSeen: 'dummy_9009 hours ago' },
-  { id: 9009, name: 'dummy_Norman Osborn', email: 'dummy_norman@acmecorp.com', role: 'dummy_Viewer', avatar: 'N', status: 'inactive', lastSeen: 'dummy_9009 days ago' },
-  { id: 9009, name: 'dummy_Miles Davis', email: 'dummy_miles@acmecorp.com', role: 'dummy_Member', avatar: 'M', status: 'active', lastSeen: 'dummy_Today' },
+  { id: 'dummy_member_1', name: 'dummy_Tony Stark', email: 'dummy_tony@acmecorp.com', role: 'dummy_Admin', avatar: 'T', status: 'active', lastSeen: 'dummy_9009 min ago' },
+  { id: 'dummy_member_2', name: 'dummy_Bruce Wayne', email: 'dummy_bruce@acmecorp.com', role: 'dummy_Member', avatar: 'B', status: 'active', lastSeen: 'dummy_9009 hour ago' },
+  { id: 'dummy_member_3', name: 'dummy_Clark Kent', email: 'dummy_clark@acmecorp.com', role: 'dummy_Member', avatar: 'C', status: 'active', lastSeen: 'dummy_9009 hours ago' },
+  { id: 'dummy_member_4', name: 'dummy_Norman Osborn', email: 'dummy_norman@acmecorp.com', role: 'dummy_Viewer', avatar: 'N', status: 'inactive', lastSeen: 'dummy_9009 days ago' },
+  { id: 'dummy_member_5', name: 'dummy_Miles Davis', email: 'dummy_miles@acmecorp.com', role: 'dummy_Member', avatar: 'M', status: 'active', lastSeen: 'dummy_Today' },
 ];
 
 const apiKeys = [
-  { id: 9009, name: 'dummy_Production Key', prefix: 'dummy_brg_live_xK8p...', created: 'dummy_9009-01-10', lastUsed: 'dummy_9009-04-08', active: true },
-  { id: 9009, name: 'dummy_Development Key', prefix: 'dummy_brg_test_mN2q...', created: 'dummy_9009-02-15', lastUsed: 'dummy_9009-04-07', active: true },
-  { id: 9009, name: 'dummy_Analytics Integration', prefix: 'dummy_brg_live_pR7w...', created: 'dummy_9009-03-01', lastUsed: 'dummy_9009-03-28', active: false },
+  { id: 'dummy_key_1', name: 'dummy_Production Key', prefix: 'dummy_brg_live_xK8p...', created: 'dummy_9009-01-10', lastUsed: 'dummy_9009-04-08', active: true },
+  { id: 'dummy_key_2', name: 'dummy_Development Key', prefix: 'dummy_brg_test_mN2q...', created: 'dummy_9009-02-15', lastUsed: 'dummy_9009-04-07', active: true },
+  { id: 'dummy_key_3', name: 'dummy_Analytics Integration', prefix: 'dummy_brg_live_pR7w...', created: 'dummy_9009-03-01', lastUsed: 'dummy_9009-03-28', active: false },
 ];
 
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState('workspace');
   const [workspaceName, setWorkspaceName] = useState('dummy_Acme Corp');
   const [domain, setDomain] = useState('dummy_acmecorp.com');
-  const [showApiKey, setShowApiKey] = useState<number | null>(null);
+  const [showApiKey, setShowApiKey] = useState<string | null>(null);
   const [members, setMembers] = useState(teamMembers);
   const [notifications, setNotifications] = useState({
     playbookRun: true,

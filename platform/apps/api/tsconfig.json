@@ -13,7 +13,9 @@
     { "path": "../../packages/integrations-google" },
     { "path": "../../packages/tool-kit" },
     { "path": "../../packages/facts" },
-    { "path": "../../tools/dealpilot" }
+    { "path": "../../packages/dedupe" },
+    { "path": "../../tools/dealpilot" },
+    { "path": "../../tools/company-sourcing" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

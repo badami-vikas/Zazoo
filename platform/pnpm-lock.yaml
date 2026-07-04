@@ -17,6 +17,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@bridge/company-sourcing':
+        specifier: workspace:*
+        version: link:../../tools/company-sourcing
       '@bridge/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -26,6 +29,9 @@ importers:
       '@bridge/dealpilot':
         specifier: workspace:*
         version: link:../../tools/dealpilot
+      '@bridge/dedupe':
+        specifier: workspace:*
+        version: link:../../packages/dedupe
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts

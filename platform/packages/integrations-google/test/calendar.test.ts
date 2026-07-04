@@ -228,6 +228,35 @@ test("create event is draft-only at propose, written only after human approval (
   await localPlane.close();
 });
 
+test("email send is draft-only at propose, gmail.drafts.create called only after human approval (idempotent)", async () => {
+  const { google, gw, localPlane } = await build();
+  const c = ctx();
+
+  const envelope: SendEmailEnvelope = {
+    to: ["dummy_recipient@example.com"],
+    subject: "dummy_ Hello",
+    bodyText: "dummy_ body",
+  };
+  const proposal = await google.proposeSend(c, { kind: "email", envelope });
+
+  // Draft-then-approve: a veto must never leave an orphan draft in the user's Gmail.
+  assert.equal(proposal.status, "pending_review");
+  assert.equal(gw.countOf("createDraft"), 0);
+
+  const decided = await pipelineOf(google).decide(proposal.id, "approve", { type: "user", id: USER }, c);
+  const effects = await google.onApproved(proposal.id, decided, c);
+  assert.equal(effects.sent, true);
+  assert.equal(gw.countOf("createDraft"), 1);
+  assert.deepEqual((gw.calls.find((x) => x.method === "createDraft")?.args as SendEmailEnvelope).to, ["dummy_recipient@example.com"]);
+
+  // Idempotency: re-running the post-approval side effect never double-drafts.
+  const again = await google.onApproved(proposal.id, decided, c);
+  assert.equal(again.sent, false);
+  assert.equal(gw.countOf("createDraft"), 1);
+
+  await localPlane.close();
+});
+
 test("update event routes through compose → approve → gateway.updateEvent", async () => {
   const { google, gw, localPlane } = await build();
   const c = ctx();

@@ -10,12 +10,38 @@ import { makeContextFactory } from "./context.js";
 import { buildWiring } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 
+/**
+ * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
+ * allowlist and always wins when set — any origin, any environment. Without it:
+ * dev (`NODE_ENV !== "production"`) falls back to permissive `true` so the
+ * prototype's local Vite server keeps working with zero config; production
+ * fails CLOSED (no origin allowed) rather than the previous `origin: true`,
+ * which combined with the pinned pilot identity meant any website could drive
+ * the API as the pilot user. See known-issues.md.
+ */
+export function corsOriginConfig(): true | string[] {
+  const explicit = process.env.API_ALLOWED_ORIGINS;
+  if (explicit) {
+    return explicit
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+  }
+  return process.env.NODE_ENV === "production" ? [] : true;
+}
+
 export async function buildServer() {
   const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
   const app = Fastify({ logger: true, maxParamLength: 5000 });
-  await app.register(cors, { origin: true });
+  const origin = corsOriginConfig();
+  if (origin === true) {
+    app.log.warn("CORS: no API_ALLOWED_ORIGINS set — allowing all origins (dev default). Set API_ALLOWED_ORIGINS in any shared/production environment.");
+  } else if (origin.length === 0) {
+    app.log.warn("CORS: no API_ALLOWED_ORIGINS set and NODE_ENV=production — allowing NO origins. Set API_ALLOWED_ORIGINS to the prototype's real origin(s).");
+  }
+  await app.register(cors, { origin });
 
   app.get("/health", async () => ({ ok: true, service: "bridge-api" }));
 

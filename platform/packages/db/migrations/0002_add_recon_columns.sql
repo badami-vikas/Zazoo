@@ -16,13 +16,16 @@ ALTER TABLE people_canonical
   ADD COLUMN IF NOT EXISTS skills                text[],
   ADD COLUMN IF NOT EXISTS recon_run_at          timestamptz,
   ADD COLUMN IF NOT EXISTS recon_signals         jsonb;
+--> statement-breakpoint
 
 -- GIN index for fast signal/skills queries
 CREATE INDEX IF NOT EXISTS people_canonical_recon_signals_idx
   ON people_canonical USING gin (recon_signals);
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS people_canonical_skills_idx
   ON people_canonical USING gin (skills);
+--> statement-breakpoint
 
 -- ── communities_canonical additions ─────────────────────────────────────────
 
@@ -34,6 +37,8 @@ ALTER TABLE communities_canonical
   ADD COLUMN IF NOT EXISTS founded_year          integer,
   ADD COLUMN IF NOT EXISTS hiring_signals        jsonb,
   ADD COLUMN IF NOT EXISTS recon_run_at          timestamptz;
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS communities_canonical_tech_stack_idx
   ON communities_canonical USING gin (tech_stack);
+--> statement-breakpoint

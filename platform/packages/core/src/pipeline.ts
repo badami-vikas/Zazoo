@@ -163,13 +163,33 @@ export class UniversalActionPipeline {
   ): Promise<Proposal> {
     const { ledger } = this.#deps;
 
-    // Gate the approver. `approve` on the ledger is agent-floor-protected: agents may
-    // never approve/veto/edit a proposal. Humans pass the floor (the inbox is theirs).
-    const floor = agentFloorDeny(decider, "approve", "ledger");
-    if (floor) throw new Error(`decide: ${floor}`);
-
     const original = await ledger.get(proposalId);
     if (!original) throw new Error(`decide: no ledger entry ${proposalId}`);
+
+    // Gate the approver. `approve` on the ledger is agent-floor-protected: agents may
+    // never approve/veto/edit a proposal. Humans pass the floor (the inbox is theirs).
+    // A blocked attempt is audited BEFORE throwing — previously this threw with no ledger
+    // row at all, so a blocked approve attempt left no trace in the append-only spine.
+    const floor = agentFloorDeny(decider, "approve", "ledger");
+    if (floor) {
+      await ledger.append({
+        id: ctx.ids.next(),
+        workspaceId: original.workspaceId,
+        actorType: decider.type,
+        actorId: decider.id,
+        action: "approve",
+        resourceType: "ledger",
+        resourceId: proposalId,
+        inputs: { proposalId, decision },
+        userDecision: null,
+        policyResults: [],
+        diff: { rejected: floor },
+        refLedgerId: original.id,
+        createdAt: ctx.clock.nowISO(),
+      });
+      throw new Error(`decide: ${floor}`);
+    }
+
     if (original.userDecision !== null) {
       throw new Error(`decide: ${proposalId} is not a pending proposal (${original.userDecision})`);
     }

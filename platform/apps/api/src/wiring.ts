@@ -67,6 +67,8 @@ import {
 import { createInMemoryCaptureStore, createToolSourceSkill, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
 import { createFactStore, type FactStore } from "@bridge/facts";
 import { createBizBuySellAlertConnector, createGmailFetchMessages } from "@bridge/dealpilot";
+import { matchCompany } from "@bridge/company-sourcing";
+import type { DedupeCandidate } from "@bridge/dedupe";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -223,11 +225,32 @@ export async function buildWiring(): Promise<Wiring> {
   const dealPilotMaterializer = new ToolIntakeMaterializer({
     captures: dealPilotCaptures,
     commit: async (capture) => {
-      const candidateId = capture.captureId; // 1 capture = 1 candidate; dedupe is a later pass
+      // Dedupe-on-commit: reuse `@bridge/company-sourcing`'s matchCompany (same helper
+      // `processDealCandidate` uses) so two captures of the same company merge into one
+      // candidate instead of piling up duplicate rows. A "strong" match merges facts into
+      // the existing candidate; anything weaker commits as its own new candidate.
+      const existingDeals: DedupeCandidate[] = dealPilotCandidateIds.map((id) => {
+        const profile = dealPilotFacts.livingProfile(id);
+        return {
+          id,
+          name: String(profile.name?.value ?? id),
+          domain: profile.domain?.value as string | undefined,
+          industry: profile.industry?.value as string | undefined,
+        };
+      });
+      const candidateForMatch: DedupeCandidate = {
+        id: capture.captureId,
+        name: String(capture.payload.name ?? capture.captureId),
+        domain: capture.payload.domain as string | undefined,
+        industry: capture.payload.industry as string | undefined,
+      };
+      const match = matchCompany(candidateForMatch, existingDeals);
+      const candidateId = match.tier === "strong" ? match.targetId : capture.captureId;
+
       for (const [field, value] of Object.entries(capture.payload)) {
         dealPilotFacts.append({ entityId: candidateId, field, value, provenance: "listing", confidence: capture.confidence });
       }
-      dealPilotCandidateIds.push(candidateId);
+      if (candidateId === capture.captureId) dealPilotCandidateIds.push(candidateId);
     },
   });
 
