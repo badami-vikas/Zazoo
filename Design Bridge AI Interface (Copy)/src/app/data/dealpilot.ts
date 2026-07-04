@@ -1,6 +1,6 @@
 // DealPilot — local reactive store + the ThesisFit scoring proven in platform/tools/dealpilot.
 // Same standardization pass as JobPilot: card/kanban/list views over one dummy_ dataset.
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useState } from 'react';
 
 export interface ThesisProfile { industries: string[]; geo: string[]; sdeMin?: number; sdeMax?: number; revenueMin?: number; revenueMax?: number }
 export type TriageColor = 'green' | 'yellow' | 'red';
@@ -8,7 +8,7 @@ export interface FitResult { score: number; triage: TriageColor; matched: string
 
 export interface DealListing {
   id: string; name: string; industry: string; geo: string; sde: number; revenue: number;
-  source: 'bizbuysell' | 'businessbroker' | 'referral';
+  source: 'bizbuysell' | 'businessbroker' | 'referral' | 'live';
 }
 
 export type DealStage = 'sourced' | 'reviewing' | 'diligence' | 'offer' | 'closed' | 'passed';
@@ -92,4 +92,101 @@ export function addToPipeline(listing: DealListing) {
 export function advanceDeal(dealId: string, to: DealStage) {
   const deal = deals.find((d) => d.id === dealId); if (!deal) return;
   deal.stage = transition(deal.stage, to); deals = [...deals]; persist();
+}
+
+// ── REAL-backend sourcing layer (additive, gated by API_ENABLED) ───────────────────────────────
+// DESIGN CHOICE: `LISTINGS` stays exactly as-is (a plain exported dummy_ array) — DealPilotPage.tsx
+// uses it in a `.filter().map()` chain and a plain `.find()`, both inside the component body but
+// as a bare identifier, not a hook call. Converting it to a hook (`useListings()`) would still
+// require touching DealPilotPage.tsx's call sites, which is out of scope here. Instead we add a
+// SEPARATE `useLiveListings()` reactive store for API-sourced candidates; a future UI pass can
+// merge `[...LISTINGS, ...useLiveListings()]` at the call site with a one-line change.
+import { API_ENABLED, apiDealPilotSource, apiDealPilotCommit, apiDealPilotList, type DealPilotCapturePreview, type DealPilotCandidateDTO } from './api';
+
+export type Listing = DealListing;
+
+export interface PendingCapture { captureId: string; preview: DealPilotCapturePreview }
+
+const KL = { live: 'bridge.dealpilot.live_listings.v1', pending: 'bridge.dealpilot.pending_captures.v1' };
+
+let liveListings: Listing[] = typeof window !== 'undefined' ? read(KL.live, []) : [];
+let pendingCaptures: PendingCapture[] = typeof window !== 'undefined' ? read(KL.pending, []) : [];
+
+const liveSubs = new Set<() => void>();
+function emitLive() { liveSubs.forEach((fn) => fn()); }
+function persistLive() {
+  try {
+    localStorage.setItem(KL.live, JSON.stringify(liveListings));
+    localStorage.setItem(KL.pending, JSON.stringify(pendingCaptures));
+  } catch { /* noop */ }
+  emitLive();
+}
+function subscribeLive(fn: () => void) { liveSubs.add(fn); return () => liveSubs.delete(fn); }
+
+/** API-sourced listings only (empty array when API disabled or nothing committed yet). Merge with
+ * the dummy_ `LISTINGS` constant at the call site, e.g. `[...LISTINGS, ...useLiveListings()]`. */
+export function useLiveListings(): Listing[] { return useSyncExternalStore(subscribeLive, () => liveListings, () => []); }
+
+/** Quarantined-but-uncommitted captures awaiting a human "Add" decision. */
+export function usePendingCaptures(): PendingCapture[] { return useSyncExternalStore(subscribeLive, () => pendingCaptures, () => []); }
+
+function candidateToListing(row: DealPilotCandidateDTO): Listing {
+  const p = row.profile;
+  return {
+    id: row.id,
+    name: p.name ?? 'Unnamed listing',
+    industry: p.industry ?? 'Unknown',
+    geo: p.geo ?? 'Unknown',
+    sde: p.sde ?? 0,
+    revenue: p.revenue ?? 0,
+    source: 'live',
+  };
+}
+
+/** Source new listings via the governed pipeline: quarantines them (no commit yet). No-op when
+ * the API is disabled (dummy/demo mode) — throws only on a real API failure. */
+export async function sourceListings(): Promise<void> {
+  if (!API_ENABLED) return;
+  const result = await apiDealPilotSource();
+  if (!result) return;
+  const additions: PendingCapture[] = result.captureIds.map((captureId, i) => ({
+    captureId,
+    preview: result.sample[i] ?? {},
+  }));
+  pendingCaptures = [...pendingCaptures, ...additions];
+  persistLive();
+}
+
+/** The human "Add": commit one quarantined capture, then refresh the committed candidate list
+ * from the platform and merge it into `liveListings`. No-op when the API is disabled. */
+export async function commitCapture(captureId: string): Promise<void> {
+  if (!API_ENABLED) return;
+  const committed = await apiDealPilotCommit(captureId);
+  if (!committed) return;
+  pendingCaptures = pendingCaptures.filter((c) => c.captureId !== captureId);
+
+  const rows = await apiDealPilotList();
+  if (rows) {
+    liveListings = rows.map(candidateToListing);
+  }
+  persistLive();
+}
+
+/** Convenience hook bundling pending captures + the two async actions + a loading flag, so the
+ * sourcing UI can consume this module in one call. */
+export function useDealPilotSourcing() {
+  const pending = usePendingCaptures();
+  const live = useLiveListings();
+  const [loading, setLoading] = useState(false);
+
+  async function source() {
+    setLoading(true);
+    try { await sourceListings(); } finally { setLoading(false); }
+  }
+  async function commit(captureId: string) {
+    setLoading(true);
+    try { await commitCapture(captureId); } finally { setLoading(false); }
+  }
+
+  return { pendingCaptures: pending, liveListings: live, loading, source, commit };
 }

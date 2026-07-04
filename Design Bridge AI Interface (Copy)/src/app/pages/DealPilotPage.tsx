@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import { Handshake, LayoutGrid, Kanban as KanbanIcon, List as ListIcon } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Handshake, LayoutGrid, Kanban as KanbanIcon, List as ListIcon, RefreshCw, Inbox, Plus, Check } from 'lucide-react';
 import {
   LISTINGS, useThesisProfile, useDeals, dealForListing, addToPipeline, advanceDeal, scoreThesisFit,
-  DEAL_STAGE_LABEL, type DealStage, type Deal, type TriageColor,
+  useDealPilotSourcing, DEAL_STAGE_LABEL, type DealStage, type Deal, type TriageColor,
 } from '../data/dealpilot';
+import { API_ENABLED } from '../data/api';
 import { CardGrid, NotionCard } from '../components/shared/NotionCard';
 import { FlagIcon } from '../components/shared/FlagIcon';
 import { KanbanBoard, type KanbanLane } from '../components/shared/KanbanBoard';
@@ -12,8 +13,6 @@ import { ToolPageHeader } from '../components/shared/ToolPageHeader';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { ListBar } from '../components/shared/ListBar';
 import { useLists, toggleMember, seedListsIfEmpty } from '../data/lists';
-import { Check } from 'lucide-react';
-import { useEffect } from 'react';
 
 type ViewId = 'card' | 'kanban' | 'list';
 const VIEWS = [
@@ -35,6 +34,7 @@ export function DealPilotPage() {
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const lists = useLists(SCOPE);
   const activeList = lists.find((l) => l.id === selectedList) ?? null;
+  const { pendingCaptures, liveListings, loading, source, commit } = useDealPilotSourcing();
 
   // Seed the two lists the sourcing workflow is organized around, once, if none exist yet.
   useEffect(() => {
@@ -44,12 +44,16 @@ export function DealPilotPage() {
     ]);
   }, []);
 
+  // Real API-sourced listings (BizBuySell/BusinessBroker via the governed pipeline) sit alongside
+  // the dummy_ demo set — empty in demo mode, populated once a capture is committed when API_ENABLED.
+  const allListings = useMemo(() => [...LISTINGS, ...liveListings], [liveListings]);
+
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return LISTINGS
+    return allListings
       .filter((l) => !q || `${l.name} ${l.industry}`.toLowerCase().includes(q))
       .map((listing) => ({ listing, fit: scoreThesisFit(listing, thesis) }));
-  }, [thesis, search]);
+  }, [allListings, thesis, search]);
   const scored = useMemo(
     () => (view === 'list' ? searched : searched.filter(({ listing }) => !activeList || activeList.memberIds.includes(listing.id))),
     [searched, activeList, view],
@@ -59,7 +63,7 @@ export function DealPilotPage() {
   // yellow sources but holds for manual review before any stage change, red is a pass (no-op).
   function onFlagAction(listingId: string, color: TriageColor) {
     if (color === 'red') return;
-    const listing = LISTINGS.find((l) => l.id === listingId);
+    const listing = allListings.find((l) => l.id === listingId);
     if (listing) addToPipeline(listing);
   }
 
@@ -75,8 +79,45 @@ export function DealPilotPage() {
         onSearchChange={setSearch}
         onFilterClick={() => {}}
         onSortClick={() => {}}
+        customActions={API_ENABLED && (
+          <button
+            onClick={() => source()}
+            disabled={loading}
+            title="Source new listings via the governed BizBuySell/BusinessBroker connectors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border shadow-sm text-sm font-medium disabled:opacity-50"
+            style={{ borderColor: 'var(--color-border)', backgroundColor: 'white', color: 'var(--color-navy-mid)' }}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} style={{ color: 'var(--color-steel)' }} />
+            {loading ? 'Sourcing…' : 'Source new listings'}
+          </button>
+        )}
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
+
+      {API_ENABLED && pendingCaptures.length > 0 && (
+        <div className="flex flex-col gap-1.5 px-4 py-2 border-b" style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 6%, white)', borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--color-navy)' }}>
+            <Inbox className="w-3.5 h-3.5" style={{ color: 'var(--warning)' }} />
+            Quarantined — {pendingCaptures.length} sourced, not yet added
+          </div>
+          {pendingCaptures.map((p) => (
+            <div key={p.captureId} className="flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-1.5 text-xs" style={{ borderColor: 'var(--color-border)' }}>
+              <span style={{ color: 'var(--color-navy)' }}>
+                {p.preview.name ?? '(unnamed listing)'}
+                <span style={{ color: 'var(--color-warm-gray)' }}> · {p.preview.industry ?? '—'} · {p.preview.geo ?? '—'}</span>
+              </span>
+              <button
+                onClick={() => commit(p.captureId)}
+                disabled={loading}
+                className="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md shrink-0 disabled:opacity-50"
+                style={{ backgroundColor: 'var(--color-navy)', color: 'white' }}
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {view === 'card' && (
