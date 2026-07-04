@@ -6,7 +6,9 @@ import { Link, useNavigate } from 'react-router';
 import { Header } from '../components/Header';
 import { ListPillRow } from '../components/ListPillRow';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 import { pendingCount } from '../data/governance';
+import { useBrokerages, addBrokerage, setBrokerageStatus, type Brokerage } from '../data/brokerages';
 
 // Agents. Helpdesk AI is real (powers the Helpdesk Tool); the rest are placeholders until the runtime.
 const agentsData = [
@@ -40,7 +42,10 @@ export function IntelligencePage() {
   const [selectedList, setSelectedList] = useState('All');
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [addingBrokerage, setAddingBrokerage] = useState(false);
+  const [connectingBrokerage, setConnectingBrokerage] = useState<Brokerage | null>(null);
   const rowsPerPage = 20;
+  const brokerages = useBrokerages();
 
   const headerTabs = [
     { id: 'Agents', icon: Bot },
@@ -55,7 +60,7 @@ export function IntelligencePage() {
   // Lists for each tab
   const agentsLists = ['All', 'Active', 'Training', 'Archived'];
   const skillsLists = ['All', 'Enabled', 'Disabled', 'Beta'];
-  const integrationsLists = ['All', 'Connected', 'Disconnected', 'Pending'];
+  const integrationsLists = ['All', 'Connected', 'Disconnected', 'Pending', 'Brokerages'];
 
   const getCurrentLists = () => {
     switch (activeTab) {
@@ -71,7 +76,11 @@ export function IntelligencePage() {
     switch (activeTab) {
       case 'Agents': data = agentsData; break;
       case 'Skills': data = skillsData; break;
-      case 'Apps': data = integrationsData; break;
+      case 'Apps': data = [...integrationsData, ...brokerages.map((b) => ({
+        id: b.id, name: b.name, description: `Deal-sourcing brokerage — ${b.portalUrl}`,
+        status: b.status === 'connected' ? 'Connected' : 'Disconnected', lastSync: '—', dataPoints: 0,
+        list: 'Brokerages', isBrokerage: true, brokerage: b,
+      }))]; break;
       default: data = [];
     }
 
@@ -224,21 +233,27 @@ export function IntelligencePage() {
         </Link>
       );
     } else {
-      // Integrations
+      // Integrations (and Brokerages — a real entity, not just a filter label; clicking one
+      // opens the same governed ConnectAppFlow wizard every other app connection uses, since a
+      // brokerage portal has no public API — it goes straight to the scrape/bot/browser waterfall).
+      const Wrapper = item.isBrokerage ? 'div' : Link;
+      const wrapperProps = item.isBrokerage
+        ? { onClick: () => setConnectingBrokerage(item.brokerage), role: 'button', tabIndex: 0 }
+        : { to: `/integration/${item.route ?? item.id}` };
       return (
-        <Link
-          to={`/integration/${item.route ?? item.id}`}
+        <Wrapper
+          {...(wrapperProps as any)}
           key={item.id}
-          className="block border rounded-xl p-5 transition-all shadow-sm"
+          className="block border rounded-xl p-5 transition-all shadow-sm cursor-pointer"
           style={{
             backgroundColor: 'var(--color-background)',
             borderColor: 'var(--color-border)'
           }}
-          onMouseEnter={(e) => {
+          onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
             e.currentTarget.style.borderColor = 'var(--color-steel-light)';
             e.currentTarget.style.boxShadow = '0 4px 12px rgb(from var(--color-steel) r g b / 0.1)';
           }}
-          onMouseLeave={(e) => {
+          onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
             e.currentTarget.style.borderColor = 'var(--color-border)';
             e.currentTarget.style.boxShadow = '';
           }}
@@ -276,7 +291,7 @@ export function IntelligencePage() {
             <span style={{ color: 'var(--color-warm-gray)' }}>Last sync: {item.lastSync}</span>
             <span style={{ color: 'var(--color-navy-mid)', fontWeight: 500 }}>{item.dataPoints} data points</span>
           </div>
-        </Link>
+        </Wrapper>
       );
     }
   };
@@ -306,14 +321,23 @@ export function IntelligencePage() {
         onSearchChange={(v) => { setSearch(v); setCurrentPage(1); }}
         onFilterClick={() => {}}
         onSortClick={() => {}}
-        customActions={activeTab === 'Agents' && (
-          <button onClick={() => navigate('/agent/create')}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
-            style={{ backgroundColor: 'var(--color-steel)' }}>
-            <Plus className="w-3.5 h-3.5" />
-            New Agent
-          </button>
-        )}
+        customActions={
+          activeTab === 'Agents' ? (
+            <button onClick={() => navigate('/agent/create')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+              style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-3.5 h-3.5" />
+              New Agent
+            </button>
+          ) : activeTab === 'Apps' && selectedList === 'Brokerages' ? (
+            <button onClick={() => setAddingBrokerage(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+              style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-3.5 h-3.5" />
+              Add Brokerage
+            </button>
+          ) : null
+        }
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
 
@@ -439,6 +463,41 @@ export function IntelligencePage() {
           </div>
         </div>
       )}
+
+      {addingBrokerage && <AddBrokerageModal onClose={() => setAddingBrokerage(false)} />}
+      {connectingBrokerage && (
+        <ConnectAppFlow
+          appName={connectingBrokerage.name}
+          apiAvailable={false}
+          onClose={() => setConnectingBrokerage(null)}
+          onConnected={() => { setBrokerageStatus(connectingBrokerage.id, 'connected'); setConnectingBrokerage(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddBrokerageModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [portalUrl, setPortalUrl] = useState('');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }} onClick={onClose}>
+      <div className="w-full max-w-sm bg-white rounded-xl shadow-xl p-5 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--color-navy)' }}>Add brokerage</h3>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Brokerage name" className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} />
+        <input value={portalUrl} onChange={(e) => setPortalUrl(e.target.value)} placeholder="Portal URL" className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} />
+        <div className="flex justify-end gap-2 mt-1">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-sm font-medium" style={{ color: 'var(--color-warm-gray)' }}>Cancel</button>
+          <button
+            disabled={!name.trim()}
+            onClick={() => { addBrokerage(name.trim(), portalUrl.trim()); onClose(); }}
+            className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-40"
+            style={{ backgroundColor: 'var(--color-steel)' }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
