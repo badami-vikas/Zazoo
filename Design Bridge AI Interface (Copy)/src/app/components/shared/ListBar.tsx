@@ -3,8 +3,8 @@
 // ToolPageHeader, above StandardToolbar, on every tool page — the same slot Helpdesk pioneered.
 import { useState } from 'react';
 import { Plus, ListIcon, Combine, Sparkles, Pencil, Check, X, Trash2 } from 'lucide-react';
-import clsx from 'clsx';
 import { useLists, createList, deleteList, setListInstruction, mergeLists, type ToolList } from '../../data/lists';
+import { Pill } from './Pill';
 
 export function ListBar({ scope, selected, onSelect, allLabel = 'All' }: { scope: string; selected: string | null; onSelect: (listId: string | null) => void; allLabel?: string }) {
   const lists = useLists(scope);
@@ -119,18 +119,5 @@ function CreateListModal({ scope, onClose, onCreated }: { scope: string; onClose
         </div>
       </div>
     </div>
-  );
-}
-
-function Pill({ label, active, onClick, leadingIcon }: { label: string; active: boolean; onClick: () => void; leadingIcon?: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className={clsx('flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border')}
-      style={{ backgroundColor: active ? 'var(--color-steel)' : 'var(--color-surface)', color: active ? 'white' : 'var(--color-navy-mid)', borderColor: active ? 'var(--color-steel)' : 'var(--color-border)' }}
-    >
-      {leadingIcon}
-      {label}
-    </button>
   );
 }

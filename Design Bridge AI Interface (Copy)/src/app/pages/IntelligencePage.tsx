@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Table, Kanban, Calendar, Search, Filter, ArrowUpDown, Plus, MoreVertical, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, ListIcon, Bot, Zap, Puzzle, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Table, Plus, MoreVertical, ChevronLeft, ChevronRight, LayoutGrid, Bot, Zap, Puzzle, ShieldCheck, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Link, useNavigate } from 'react-router';
 import { Header } from '../components/Header';
 import { ListPillRow } from '../components/ListPillRow';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { pendingCount } from '../data/governance';
 
 // Agents. Helpdesk AI is real (powers the Helpdesk Tool); the rest are placeholders until the runtime.
@@ -36,9 +37,8 @@ export function IntelligencePage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('Agents');
   const [activeView, setActiveView] = useState('card');
-  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const [selectedList, setSelectedList] = useState('All');
-  const [listDropdownOpen, setListDropdownOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 20;
 
@@ -48,8 +48,8 @@ export function IntelligencePage() {
     { id: 'Apps', icon: Puzzle },
   ];
   const views = [
-    { id: 'card', icon: LayoutGrid, label: 'Card' },
-    { id: 'table', icon: Table, label: 'Table' },
+    { id: 'card', label: 'Card', icon: LayoutGrid },
+    { id: 'table', label: 'Table', icon: Table },
   ];
 
   // Lists for each tab
@@ -80,6 +80,11 @@ export function IntelligencePage() {
       data = data.filter((item: any) => item.list === selectedList);
     }
 
+    const q = search.trim().toLowerCase();
+    if (q) {
+      data = data.filter((item: any) => `${item.name} ${item.description}`.toLowerCase().includes(q));
+    }
+
     return data;
   };
 
@@ -91,12 +96,12 @@ export function IntelligencePage() {
   const handleNextPage = () => setCurrentPage((p) => Math.min(totalPages, p + 1));
 
   const ActiveViewIcon = views.find(v => v.id === activeView)?.icon || LayoutGrid;
-  const ActiveViewLabel = views.find(v => v.id === activeView)?.label || 'Card';
 
   // Reset list when tab changes
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     setSelectedList('All');
+    setSearch('');
     setCurrentPage(1);
   };
 
@@ -293,123 +298,24 @@ export function IntelligencePage() {
         onSelect={(v) => { setSelectedList(v ?? 'All'); setCurrentPage(1); }}
       />
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 shadow-sm z-20 w-full"
-        style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-2 flex-1 overflow-hidden">
-
-          {/* View Dropdown */}
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold transition-colors shadow-inner"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}
-            >
-              <ActiveViewIcon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-              <span className="@[500px]:inline hidden">{ActiveViewLabel} View</span>
-              <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-            </button>
-
-            <AnimatePresence>
-              {viewDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setViewDropdownOpen(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 mt-1 w-40 border rounded-xl shadow-lg z-50 overflow-hidden py-1"
-                    style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}
-                  >
-                    {views.map(view => (
-                      <button
-                        key={view.id}
-                        onClick={() => {
-                          setActiveView(view.id);
-                          setViewDropdownOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: activeView === view.id ? 'var(--color-surface)' : 'transparent',
-                          color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-navy-mid)'
-                        }}
-                      >
-                        <view.icon className="w-4 h-4" style={{ color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
-                        {view.label}
-                      </button>
-                    ))}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <div className="w-px h-6 shrink-0 hidden @[400px]:block mx-1" style={{ backgroundColor: 'var(--color-border)' }} />
-
-          {/* Search Bar */}
-          <div className="relative group shrink flex-1 max-w-[400px] min-w-[32px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 transition-colors"
-              style={{ color: 'var(--color-warm-gray)' }} />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="pl-9 pr-3 py-1.5 w-full border rounded-lg text-sm transition-all outline-none shadow-inner"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}
-            />
-          </div>
-
-          {/* Action Icons */}
-          <div className="flex items-center gap-1.5 ml-auto shrink-0">
-            <button className="@[500px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{
-                backgroundColor: 'var(--color-background)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}>
-              <Filter className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Filter</span>
-            </button>
-            <button className="@[550px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{
-                backgroundColor: 'var(--color-background)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}>
-              <ArrowUpDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Sort</span>
-            </button>
-
-            {activeTab === 'Agents' && (
-              <button onClick={() => navigate('/agent/create')}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
-                style={{ backgroundColor: 'var(--color-steel)' }}>
-                <Plus className="w-3.5 h-3.5" />
-                <span className="@[850px]:inline hidden">New Agent</span>
-              </button>
-            )}
-
-            <div className="w-px h-6 shrink-0 mx-1 @[400px]:block hidden" style={{ backgroundColor: 'var(--color-border)' }} />
-
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button className="p-1.5 rounded-lg transition-colors border border-transparent shrink-0 z-20 shadow-sm"
-                  style={{
-                    backgroundColor: 'var(--color-background)',
-                    color: 'var(--color-warm-gray)'
-                  }}>
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-              </DropdownMenu.Trigger>
-            </DropdownMenu.Root>
-          </div>
-        </div>
-      </div>
+      <StandardToolbar
+        view={activeView}
+        views={views}
+        onViewChange={setActiveView}
+        search={search}
+        onSearchChange={(v) => { setSearch(v); setCurrentPage(1); }}
+        onFilterClick={() => {}}
+        onSortClick={() => {}}
+        customActions={activeTab === 'Agents' && (
+          <button onClick={() => navigate('/agent/create')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+            style={{ backgroundColor: 'var(--color-steel)' }}>
+            <Plus className="w-3.5 h-3.5" />
+            New Agent
+          </button>
+        )}
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
 
       {/* Approvals widget — the governance queue, surfaced where agents live (F2) */}
       {pendingCount > 0 && (
