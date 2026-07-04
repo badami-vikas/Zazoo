@@ -16,6 +16,80 @@ Format per entry:
 
 ---
 
+## 2026-07-04 — Generic manifest intake seam (@bridge/tool-kit), DealPilot wired first
+
+**Context:** Wiring DealPilot's live API surface hit a real gap: its manifest declares
+`intakePolicy.quarantine: true` (forced structurally, mirrors agent-floor), but no seam existed
+for a manifest-composed external tool to quarantine sourced data through the pipeline and commit
+it only on human "Add" — the exact gap already logged for Recon (staging.jsonl bypasses
+governance entirely).
+
+**Decision:** Added `createToolSourceSkill`/`ToolIntakeMaterializer`/`ToolCaptureStore` to
+`@bridge/tool-kit` (generic, not DealPilot-specific): a tool registers a `<toolId>.source` Skill
+that fetches via its `SourceConnector` and quarantines every `CaptureEnvelope` (light manifest
+only, full payload stays in the store) — the skill runs inside `pipeline.propose()` as an
+`external:fetch` action, so authority/policy/ledger audit apply exactly as for
+`google.sourceGmail`. A separate `materializer.add(captureId)` is the human commit step (capture ≠
+commit, same UX as Camera/Card Scanner). Wired DealPilot to it in `apps/api/src/wiring.ts` +
+`router.ts` (`dealpilot.source`/`commit`/`list`), using the existing `createGmailFetchMessages`
+composition (no new OAuth).
+
+**Rationale:** Generalizing in `@bridge/tool-kit` (rather than a DealPilot-only helper) means
+Recon's future migration reuses the exact same seam instead of a second bespoke one — directly
+addresses the "Tool registry desync: 3 unlinked systems" known issue's root cause (manifests,
+registry, and intake previously had no programmatic binding).
+
+**Alternatives rejected:** An ungoverned `dealpilot.source` endpoint that fetches+commits in one
+step — rejected; violates the manifest's own `quarantine: true` contract and the platform's
+draft-then-approve principle for expedience. Building this only inside `@bridge/dealpilot` —
+rejected; would not fix Recon's identical gap and duplicates work when Recon migrates.
+
+**Consequences / follow-ups:** `dealpilot.list` uses a fixed empty thesis (no thesis-management
+UI yet) and 1 capture = 1 candidate (dedupe-on-commit not wired into the API path yet, though
+`company-sourcing.matchCompany` is available). Recon itself is NOT migrated onto this seam yet —
+only the reusable piece exists. Prototype `/dealpilot` page still renders `dummy_` data, not this
+API. 41/41 monorepo `turbo run typecheck test` tasks green; 9/9 tool-kit tests (7 existing + 2 new).
+
+---
+
+## 2026-07-04 — DealPilot P0 connectors: BizBuySell via Gmail compose (real); BusinessBroker.net scrape rejected (robots.txt)
+
+**Context:** Phase 3 (tool-standardization-plan.md) shipped `@bridge/dealpilot`'s two P0 connectors
+as proof-of-shape factories (`createBizBuySellAlertConnector`/`createBusinessBrokerNetConnector`)
+with injected transport but no real parse/fetch logic. Asked to "wire the real connectors."
+
+**Decision:** BizBuySell — implemented a real `parseBizBuySellAlert` (regex field extraction:
+name/industry/geo/askPrice/revenue/sde/url, HTML-tolerant) plus `createGmailFetchMessages`, which
+composes the existing governed `@bridge/integrations-google` `GoogleGatewayFactory.fetchThreads`
+rather than the connector owning any OAuth/HTTP client. BusinessBroker.net — checked
+`businessbroker.net/robots.txt` (2026-07-04): it Disallows `/listings/` and every query-string URL
+(`/*?`), which covers exactly the search/listing endpoints a live connector needs; no RSS/sitemap
+feed exists as a compliant fallback. Implemented only the real *normalization*
+(`normalizeBusinessBrokerRow`, alias-tolerant field mapping + confidence heuristic) and left
+`fetcher` as an injected seam — no live scraper was built.
+
+**Rationale:** The architecture doc (`Tools/Job/DealPilot-Architecture.md` N5/§6) already commits
+to "robots/rate policies enforced per domain"; BizBuySell's own docs describe the P0 source as a
+saved-search *alert email*, not a scrape target (bizbuysell.com itself 403s unauthenticated
+fetches — Akamai-fronted, matches the doc's proxy-tier note). Composing the existing Google
+integration is strictly more correct than a bespoke Gmail client and keeps the "no tool-owned
+OAuth" rule intact. For BusinessBroker.net, robots.txt is a clear compliance line — violating it to
+satisfy a task ships a legal/reputational liability disguised as progress.
+
+**Alternatives rejected:** Building a live scraper for BusinessBroker.net against its disallowed
+paths — rejected outright (ToS/robots violation, no defensible business justification to override
+it in this session). Giving BizBuySell connector its own Gmail OAuth client — rejected; violates
+the plan's explicit "no tool-owned OAuth" rule and would duplicate the governed integration's
+token lifecycle/consent surface.
+
+**Consequences / follow-ups:** BizBuySell is now live end-to-end once a Google integration is
+connected for the tenant (pass a real `GoogleGatewayFactory` + `integrationId` into
+`createGmailFetchMessages`). BusinessBroker.net stays proof-shape until a licensed/partner data
+feed exists — tracked in `docs/wiki/known-issues.md`. 19/19 dealpilot tests, 40/40 monorepo tasks
+green (`turbo run typecheck test`).
+
+---
+
 ## 2026-06-24 — Calendar render v1 = in-house (date-fns + Bridge tokens), not react-big-calendar
 
 **Context:** The committed plan picked react-big-calendar (MIT) as the render engine behind a

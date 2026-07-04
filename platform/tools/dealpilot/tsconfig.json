@@ -14,7 +14,8 @@
     { "path": "../../packages/facts" },
     { "path": "../recorder" },
     { "path": "../../packages/sourcing" },
-    { "path": "../../packages/tables" }
+    { "path": "../../packages/tables" },
+    { "path": "../../packages/integrations-google" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

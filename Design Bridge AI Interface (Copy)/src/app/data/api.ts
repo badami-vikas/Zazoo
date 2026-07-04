@@ -338,3 +338,62 @@ export async function apiCreateRitual(input: {
   if (!API_ENABLED) return null;
   return mutate<RitualRecord>('ritual.create', { workspaceId: PILOT_WORKSPACE, ...input });
 }
+
+// ── DealPilot (the first tool on the generic manifest intake seam) ─────────────
+// source() proposes an external:fetch (audited); the pipeline quarantines every sourced
+// listing and returns a LIGHT manifest (count + capture ids + a small sample) — never the
+// full payload. commit() is the human "Add" that materializes ONE quarantined capture into
+// DealPilot's facts (capture ≠ commit, same UX as Camera/Card Scanner). list() reads back the
+// committed candidates, thesis-scored server-side. null/[] when the API is OFF (dummy mode).
+
+export interface DealPilotCapturePreview {
+  name?: string;
+  industry?: string;
+  geo?: string;
+  askPrice?: number;
+  revenue?: number;
+  sde?: number;
+  url?: string;
+}
+export interface DealPilotSourceResult {
+  proposalId: string;
+  status: 'pending_review' | 'applied' | 'rejected';
+  count: number;
+  captureIds: string[];
+  sample: DealPilotCapturePreview[];
+}
+export interface DealPilotCandidateDTO {
+  id: string;
+  profile: DealPilotCapturePreview;
+  fit: { score: number; triage: 'green' | 'yellow' | 'red'; reasons: string[] };
+}
+
+/** Fetch new listings via the BizBuySell-alert connector; quarantines them (no commit yet). */
+export async function apiDealPilotSource(): Promise<DealPilotSourceResult | null> {
+  if (!API_ENABLED) return null;
+  const r = await mutate<{
+    id: string;
+    status: 'pending_review' | 'applied' | 'rejected';
+    output?: { proposedOutput?: { count?: number; captureIds?: string[]; sample?: DealPilotCapturePreview[] } };
+  }>('dealpilot.source', { workspaceId: PILOT_WORKSPACE });
+  return {
+    proposalId: r.id,
+    status: r.status,
+    count: r.output?.proposedOutput?.count ?? 0,
+    captureIds: r.output?.proposedOutput?.captureIds ?? [],
+    sample: r.output?.proposedOutput?.sample ?? [],
+  };
+}
+
+/** The human "Add": materialize one quarantined capture into DealPilot's candidate list. */
+export async function apiDealPilotCommit(captureId: string): Promise<boolean> {
+  if (!API_ENABLED) return false;
+  const r = await mutate<{ committed: boolean }>('dealpilot.commit', { captureId });
+  return Boolean(r?.committed);
+}
+
+/** Committed candidates, thesis-scored. null when API disabled (caller falls back to dummy_). */
+export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null> {
+  if (!API_ENABLED) return null;
+  return query<DealPilotCandidateDTO[]>('dealpilot.list');
+}

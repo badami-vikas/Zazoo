@@ -8,6 +8,8 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN — DealPilot has two divergent prototype implementations, reconciled by keeping the UI-standardized one.** A parallel session (merged same day, `feat(dealpilot): real P0 connectors + generic intake seam + live prototype wiring`) built a bespoke DealPilotPage wired to real `apiDealPilotSource/Commit/List` (BizBuySell Gmail-alert connector via the governed google gateway, quarantine→commit flow, `DealCandidate`/`TRIAGE_COLUMNS` shape) while this session independently built a UI-standardized DealPilotPage (Card/Kanban/List/Lists+merge, `Listing`/`Deal`/`scoreThesisFit` shape, local reactive store only — no live API). Merge conflict resolved 2026-07-04 by keeping this session's version (satisfies the locked platform UI-standardization requirements: ListBar, StandardToolbar, flags-as-actions, universal green/yellow/red). The real BizBuySell connector + quarantine/commit API surface (`data/api.ts` `apiDealPilotSource/Commit/List`, still present but now unused/dangling) was NOT re-wired into the new UI — needs a follow-up pass to either port the connector calls onto the new Card view (API_ENABLED branch) or confirm it's superseded by `platform/tools/dealpilot`'s real engine.
+
 - **OPEN — SettingsPage duplicate React key on API Keys tab.** `pages/SettingsPage.tsx` renders a
   table with dummy API-key rows sharing a key (`9009`-suffixed dummy dates collide) — React warns
   "Encountered two children with the same key" every render of `/settings`. Spotted 2026-07-04
@@ -19,6 +21,40 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   never configured (button posts nowhere), staging.jsonl/permanent.jsonl = parallel governance never
   reaching `tool_captures`/ledger/Approvals. Fix: register + wire intake + migrate staged facts.
   Audit 2026-07-03.
+- **OPEN — BusinessBroker.net live fetch blocked by robots.txt.** Checked 2026-07-04:
+  `businessbroker.net/robots.txt` Disallows `/listings/` and every query-string URL
+  (`/*?`, which covers its search endpoint); no RSS/sitemap feed exists as a fallback.
+  DealPilot's `createBusinessBrokerNetConnector` (`platform/tools/dealpilot/src/connectors.ts`)
+  therefore ships with a real *normalization* function (`normalizeBusinessBrokerRow`) but no
+  live `fetcher` — the transport stays an injected seam. Real wiring needs a licensed/partner
+  data feed, not a scraper. See decisions-log 2026-07-04 (dealpilot-connectors).
+
+- **RESOLVED (intake seam only, 2026-07-04) — Generic manifest intake seam now exists.**
+  `@bridge/tool-kit` gained `createToolSourceSkill`/`ToolIntakeMaterializer`/`ToolCaptureStore`
+  (quarantine → pipeline `external:fetch` proposal → human "Add" commits). DealPilot is the
+  first tool wired to it (`apps/api/src/wiring.ts` + `router.ts` `dealpilot.source/commit/list`).
+  **Recon itself is still NOT migrated** — it still has no `tools.ts` registry entry and its
+  staging.jsonl/permanent.jsonl stay a parallel governance path; only the reusable seam it needs
+  now exists. Fix remaining: register Recon's manifest + point its connector at
+  `createToolSourceSkill`, migrate staged facts. Audit 2026-07-03, seam added 2026-07-04.
+
+- **OPEN — DealPilot API wiring has 2 pilot-scale simplifications.** (1) `dealpilot.list`
+  (`router.ts`) uses a fixed empty thesis (`{industries:[],geo:[]}`) — no thesis-management UI/
+  storage exists yet, so every candidate scores on defaults. (2) Candidate ids are just capture
+  ids (1 capture = 1 candidate) — no dedupe-on-commit pass wired in yet, though
+  `@bridge/company-sourcing`'s `matchCompany` (used in `processDealCandidate`) is available to
+  wire in when a UI needs it. Both are `apps/api/src/wiring.ts` follow-ups, not architecture
+  gaps.
+
+- **RESOLVED (2026-07-04) — `/dealpilot` prototype page now calls the real API.**
+  `data/api.ts` gained `apiDealPilotSource/Commit/List`; `DealPilotPage.tsx` renders a
+  quarantine inbox (sourced-but-uncommitted listings, each with its own "Add" button — capture
+  ≠ commit) above the thesis-scored kanban, and falls back to `dummy_dealCandidates` when
+  `VITE_API_URL` is unset (same OFF-by-default pattern as Calendar). Verified in-browser: demo
+  mode renders dummy_ data with no console errors and the Source button correctly hidden when
+  the API is off. Not yet done: no dedicated capture-list endpoint exists (the inbox only shows
+  what `dealpilot.source`'s light-manifest response returned), so a captureId with no sample
+  preview (position 4+ in a fetch) would show "(unnamed listing)" until enriched.
 
 - **OPEN — Tool registry desync: 3 unlinked systems.** `tools.ts` (display) vs scattered per-tool
   manifests vs `tool_captures` schema — no programmatic binding; no `tool_version`/`copy_ref` in
