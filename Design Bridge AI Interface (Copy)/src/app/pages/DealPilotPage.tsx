@@ -14,6 +14,8 @@ import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { ListBar } from '../components/shared/ListBar';
 import { Header } from '../components/Header';
 import { useLists, toggleMember, seedListsIfEmpty } from '../data/lists';
+import { useBrokerages } from '../data/brokerages';
+import type { DealListing } from '../data/dealpilot';
 
 type ViewId = 'card' | 'kanban' | 'list';
 const VIEWS = [
@@ -36,6 +38,13 @@ export function DealPilotPage() {
   const lists = useLists(SCOPE);
   const activeList = lists.find((l) => l.id === selectedList) ?? null;
   const { pendingCaptures, liveListings, loading, source, commit } = useDealPilotSourcing();
+  const brokerages = useBrokerages();
+  // A listing's brokerage label: the linked Brokerage's name when set, else its raw source tag
+  // (referral/live listings have no brokerage link).
+  function brokerageLabel(listing: DealListing): string {
+    const b = listing.brokerageId ? brokerages.find((br) => br.id === listing.brokerageId) : undefined;
+    return b?.name ?? listing.source;
+  }
 
   // Seed the two lists the sourcing workflow is organized around, once, if none exist yet.
   useEffect(() => {
@@ -135,7 +144,7 @@ export function DealPilotPage() {
                   subtitle={`${listing.industry} · ${listing.geo}`}
                   cornerBadge={<FlagIcon color={fit.triage} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={deal ? undefined : (c) => onFlagAction(listing.id, c)} disabled={!!deal} />}
                   bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
-                  metaChips={[listing.source, `SDE $${listing.sde.toLocaleString()}`, `rev $${listing.revenue.toLocaleString()}`]}
+                  metaChips={[brokerageLabel(listing), `SDE $${listing.sde.toLocaleString()}`, `rev $${listing.revenue.toLocaleString()}`]}
                   footer={<span className="text-xs font-medium" style={{ color: deal ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{deal ? `${DEAL_STAGE_LABEL[deal.stage]} — in pipeline` : 'Not sourced — click the flag'}</span>}
                 />
               );
@@ -173,7 +182,7 @@ export function DealPilotPage() {
                   <FlagIcon color={fit.triage} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={deal ? undefined : (c) => onFlagAction(listing.id, c)} disabled={!!deal} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{listing.name}</div>
-                    <div className="text-xs truncate" style={{ color: 'var(--color-warm-gray)' }}>{listing.industry} · {listing.geo}</div>
+                    <div className="text-xs truncate" style={{ color: 'var(--color-warm-gray)' }}>{listing.industry} · {listing.geo} · {brokerageLabel(listing)}</div>
                   </div>
                   {activeList?.origin?.[listing.id] && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full border shrink-0" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>{activeList.origin[listing.id]}</span>

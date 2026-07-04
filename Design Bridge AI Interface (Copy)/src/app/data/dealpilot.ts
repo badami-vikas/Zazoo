@@ -9,6 +9,10 @@ export interface FitResult { score: number; triage: TriageColor; matched: string
 export interface DealListing {
   id: string; name: string; industry: string; geo: string; sde: number; revenue: number;
   source: 'bizbuysell' | 'businessbroker' | 'referral' | 'live';
+  // Links to a real Brokerage record (data/brokerages.ts) when the listing's source is a
+  // connected brokerage — 'referral' listings have no brokerage. Optional so existing listings
+  // (and any future source that isn't a brokerage) don't need one.
+  brokerageId?: string;
 }
 
 export type DealStage = 'sourced' | 'reviewing' | 'diligence' | 'offer' | 'closed' | 'passed';
@@ -55,13 +59,16 @@ export interface Deal { id: string; listingId: string; name: string; industry: s
 
 const DEFAULT_THESIS: ThesisProfile = { industries: ['HVAC', 'Landscaping', 'IT Services'], geo: ['Texas', 'Florida'], sdeMin: 300000, sdeMax: 900000 };
 
+// Linked to the two seed Brokerage records in data/brokerages.ts (dummy_brokerage_1 = BizBuySell,
+// dummy_brokerage_2 = BusinessBroker.net) — a brokerage-sourced listing now points at a real,
+// connectable brokerage instead of just carrying a free-text label.
 export const LISTINGS: DealListing[] = [
-  { id: 'dummy_deal_1', name: 'Alamo HVAC Services', industry: 'HVAC', geo: 'Texas', sde: 520000, revenue: 2100000, source: 'bizbuysell' },
-  { id: 'dummy_deal_2', name: 'Sunbelt Landscaping Co', industry: 'Landscaping', geo: 'Florida', sde: 410000, revenue: 1800000, source: 'businessbroker' },
-  { id: 'dummy_deal_3', name: 'Gulf Coast IT Services', industry: 'IT Services', geo: 'Texas', sde: 260000, revenue: 1200000, source: 'bizbuysell' },
-  { id: 'dummy_deal_4', name: 'Pacific Grill Franchise', industry: 'Restaurant', geo: 'California', sde: 180000, revenue: 900000, source: 'businessbroker' },
+  { id: 'dummy_deal_1', name: 'Alamo HVAC Services', industry: 'HVAC', geo: 'Texas', sde: 520000, revenue: 2100000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
+  { id: 'dummy_deal_2', name: 'Sunbelt Landscaping Co', industry: 'Landscaping', geo: 'Florida', sde: 410000, revenue: 1800000, source: 'businessbroker', brokerageId: 'dummy_brokerage_2' },
+  { id: 'dummy_deal_3', name: 'Gulf Coast IT Services', industry: 'IT Services', geo: 'Texas', sde: 260000, revenue: 1200000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
+  { id: 'dummy_deal_4', name: 'Pacific Grill Franchise', industry: 'Restaurant', geo: 'California', sde: 180000, revenue: 900000, source: 'businessbroker', brokerageId: 'dummy_brokerage_2' },
   { id: 'dummy_deal_5', name: 'Lone Star Mechanical', industry: 'HVAC', geo: 'Texas', sde: 810000, revenue: 3400000, source: 'referral' },
-  { id: 'dummy_deal_6', name: 'Everglades Lawn & Tree', industry: 'Landscaping', geo: 'Florida', sde: 95000, revenue: 500000, source: 'bizbuysell' },
+  { id: 'dummy_deal_6', name: 'Everglades Lawn & Tree', industry: 'Landscaping', geo: 'Florida', sde: 95000, revenue: 500000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
 ];
 
 const K = { thesis: 'bridge.dealpilot.thesis.v1', deals: 'bridge.dealpilot.deals.v1' };
@@ -117,6 +124,7 @@ export function runDeepDive(dealId: string) {
 // SEPARATE `useLiveListings()` reactive store for API-sourced candidates; a future UI pass can
 // merge `[...LISTINGS, ...useLiveListings()]` at the call site with a one-line change.
 import { API_ENABLED, apiDealPilotSource, apiDealPilotCommit, apiDealPilotList, type DealPilotCapturePreview, type DealPilotCandidateDTO } from './api';
+import { getBrokerages } from './brokerages';
 
 export type Listing = DealListing;
 
@@ -145,8 +153,13 @@ export function useLiveListings(): Listing[] { return useSyncExternalStore(subsc
 /** Quarantined-but-uncommitted captures awaiting a human "Add" decision. */
 export function usePendingCaptures(): PendingCapture[] { return useSyncExternalStore(subscribeLive, () => pendingCaptures, () => []); }
 
-function candidateToListing(row: DealPilotCandidateDTO): Listing {
+// The real backend's only live connector is BizBuySell (BusinessBroker.net is blocked by
+// robots.txt — see known-issues.md), so every real-sourced listing attributes to it by name.
+const LIVE_SOURCE_BROKERAGE_NAME = 'BizBuySell';
+
+function candidateToListing(row: DealPilotCandidateDTO, brokerages: { id: string; name: string }[]): Listing {
   const p = row.profile;
+  const brokerage = brokerages.find((b) => b.name === LIVE_SOURCE_BROKERAGE_NAME);
   return {
     id: row.id,
     name: p.name ?? 'Unnamed listing',
@@ -155,6 +168,7 @@ function candidateToListing(row: DealPilotCandidateDTO): Listing {
     sde: p.sde ?? 0,
     revenue: p.revenue ?? 0,
     source: 'live',
+    brokerageId: brokerage?.id,
   };
 }
 
@@ -182,7 +196,7 @@ export async function commitCapture(captureId: string): Promise<void> {
 
   const rows = await apiDealPilotList();
   if (rows) {
-    liveListings = rows.map(candidateToListing);
+    liveListings = rows.map((row) => candidateToListing(row, getBrokerages()));
   }
   persistLive();
 }

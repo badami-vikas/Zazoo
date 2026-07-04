@@ -40,6 +40,10 @@ export function useBrokerages(): Brokerage[] {
   return useSyncExternalStore(subscribe, () => brokerages, () => SEED);
 }
 
+/** Non-hook snapshot — for plain functions (e.g. data/dealpilot.ts's commitCapture) that need to
+ * read the current brokerage list outside a component. */
+export function getBrokerages(): Brokerage[] { return brokerages; }
+
 export function addBrokerage(name: string, portalUrl: string): Brokerage {
   const b: Brokerage = { id: `dummy_brokerage_${Date.now()}`, name, portalUrl, status: 'disconnected', addedAt: new Date().toISOString() };
   brokerages = [...brokerages, b];
