@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router';
 import { LifeBuoy, Send, ShieldCheck, Lock, Mail, Phone, Check, AlertTriangle } from 'lucide-react';
 import { Captcha } from '../components/Captcha';
+import { CardGrid, NotionCard } from '../components/shared/NotionCard';
 import {
   workspaceBySlug, publicRequests, submitPublicRequest, submitPublicOffer, revealContact,
   findMySubmissions, offersForRequest, rateOk,
@@ -184,19 +185,18 @@ export function PublicHelpdesk() {
                 <p className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>No open requests yet</p>
                 <p className="text-xs mt-1" style={{ color: 'var(--color-warm-gray)' }}>Be the first — tap “Ask for help”.</p>
               </div>
-            : <div className="space-y-3">
+            : <CardGrid minWidth={280}>
                 {reqs.map(r => (
-                  <div key={r.id} className="rounded-xl border bg-white p-4" style={{ borderColor: 'var(--color-border)' }}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{r.title}</div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full border shrink-0" style={{ borderColor: 'var(--color-border)', color: r.status === 'open' ? 'var(--color-navy-mid)' : 'var(--success)' }}>{r.status}</span>
-                    </div>
-                    <p className="text-xs mt-1" style={{ color: 'var(--color-navy-mid)' }}>{r.body}</p>
-                    <div className="mt-1.5 text-[11px]" style={{ color: 'var(--color-warm-gray)' }}>{r.helperCount} helper{r.helperCount !== 1 ? 's' : ''}</div>
-                    <PublicOffer requestId={r.id} allowDirect={r.allowDirectContact} brand={brand} remote={remote} onPosted={() => loadReqs(ws, remote)} />
-                  </div>
+                  <NotionCard
+                    key={r.id}
+                    title={r.title}
+                    subtitle={r.body}
+                    eyebrow={<span className="text-[11px] px-2 py-0.5 rounded-full border w-fit" style={{ borderColor: 'var(--color-border)', color: r.status === 'open' ? 'var(--color-navy-mid)' : 'var(--success)' }}>{r.status}</span>}
+                    metaChips={[`${r.helperCount} helper${r.helperCount !== 1 ? 's' : ''}`]}
+                    footer={<PublicOffer requestId={r.id} allowDirect={r.allowDirectContact} brand={brand} remote={remote} onPosted={() => loadReqs(ws, remote)} />}
+                  />
                 ))}
-              </div>
+              </CardGrid>
         )}
 
         {tab === 'ask' && (

@@ -1,5 +1,7 @@
 import { createBrowserRouter } from "react-router";
+import { Briefcase } from "lucide-react";
 import Layout from "./Layout";
+import { StandaloneLayout } from "./StandaloneLayout";
 import { DataEngine } from "./components/DataEngine";
 import { ItemDetail } from "./pages/ItemDetail";
 import { WorkPage } from "./pages/WorkPage";
@@ -22,12 +24,21 @@ import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { HelpdeskPage } from "./pages/HelpdeskPage";
 import { HelpdeskThread } from "./pages/HelpdeskThread";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
+import { JobPilotPage } from "./pages/JobPilotPage";
+import { DealPilotPage } from "./pages/DealPilotPage";
 import { AuthGate } from "./components/AuthGate";
 
 // Bridge routes
 export const router = createBrowserRouter([
   // PUBLIC — no Bridge account, outside the auth gate (shareable helpdesk URL).
   { path: "/help/:slug", Component: PublicHelpdesk },
+  // STANDALONE — JobPilot built first per the tool-standardization plan's "build standalone,
+  // merge later" path (section 7): its own minimal shell, no Network/other platform tools.
+  {
+    path: "/standalone/jobpilot",
+    element: <StandaloneLayout toolIcon={Briefcase} toolName="JobPilot" />,
+    children: [{ index: true, Component: JobPilotPage }],
+  },
   {
     path: "/",
     element: (
@@ -47,6 +58,8 @@ export const router = createBrowserRouter([
       { path: "approvals", Component: ApprovalsPage },
       { path: "helpdesk", Component: HelpdeskPage },
       { path: "helpdesk/ask/:id", Component: HelpdeskThread },
+      { path: "jobpilot", Component: JobPilotPage },
+      { path: "dealpilot", Component: DealPilotPage },
       { path: "agent/create", Component: AgentCreate },
       { path: "agent/:id", Component: AgentDetail },
       { path: "skill/:id", Component: SkillDetail },

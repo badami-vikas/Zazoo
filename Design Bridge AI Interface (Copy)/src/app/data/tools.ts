@@ -3,7 +3,7 @@
 // while the Sidebar's toolMeta + ItemDetail listed reconnect/open-threads/…), so pinned tools never
 // rendered. This unifies on the on-brand relationship tools, each tied to the Signals engine.
 import type { ComponentType } from 'react';
-import { RefreshCw, MessageCircle, Activity, Search, Milestone, Briefcase, Users, CalendarClock, Cable, ShieldCheck, ScanLine, Mic, LifeBuoy, BookOpen, Camera } from 'lucide-react';
+import { RefreshCw, MessageCircle, Activity, Search, Milestone, Briefcase, Users, CalendarClock, Cable, ShieldCheck, ScanLine, Mic, LifeBuoy, BookOpen, Camera, Compass, Handshake } from 'lucide-react';
 
 export type ToolList = 'My Tools' | 'Templates' | 'Systems';
 
@@ -90,6 +90,32 @@ export const tools: Tool[] = [
     watches: ['Relationship graph', 'Help Requests', 'Capability overlap'],
     lastUsed: 'Live',
     route: '/helpdesk',
+  },
+  {
+    id: 'jobpilot',
+    name: 'JobPilot',
+    description: 'Swipe green, get applied — sources job postings, scores fit, tailors materials under a fabrication guard, and applies through a governed tier waterfall.',
+    category: 'Work', status: 'Live', list: 'My Tools', icon: Compass, color: '#4D7EA8',
+    overview: 'A local-first application copilot: cards score fit against your profile (green/yellow/red), a deterministic evaluator blocks fabricated resume claims before anything tailors, and a tiered apply dispatcher (direct ATS POST → form-fill → browser agent → human handoff) never submits without an approved eval. Standardized card/kanban/list views — same engine as Helpdesk and the network tables.',
+    capabilities: ['Card feed with fit scoring', 'Fabrication-guard evaluator', 'Tiered apply dispatcher + pacing caps', 'Kanban tracker + list view'],
+    watches: ['Job postings (Tier-1 ATS connectors)', 'Application pipeline stage_events'],
+    lastUsed: 'Live',
+    route: '/jobpilot',
+    native: true,
+    source_repo: 'platform/tools/jobpilot',
+  },
+  {
+    id: 'dealpilot',
+    name: 'DealPilot',
+    description: 'Sources small-business listings, scores thesis fit, and tracks the pipeline from sourced to closed.',
+    category: 'Work', status: 'Live', list: 'My Tools', icon: Handshake, color: '#6B7C65',
+    overview: 'A deal-sourcing copilot: listings score against your thesis profile (industry/geo/SDE), triaged green/yellow/red, and tracked through a sourced → reviewing → diligence → offer → closed pipeline. Standardized card/kanban/list views — same engine as JobPilot and the network tables.',
+    capabilities: ['Card feed with thesis-fit scoring', 'Deal dedupe (company identity match)', 'Pipeline kanban + list view', 'Living deal profile (append-only facts)'],
+    watches: ['BizBuySell / BusinessBroker listings', 'Deal pipeline stage'],
+    lastUsed: 'Live',
+    route: '/dealpilot',
+    native: true,
+    source_repo: 'platform/tools/dealpilot',
   },
   {
     id: 'calendar',

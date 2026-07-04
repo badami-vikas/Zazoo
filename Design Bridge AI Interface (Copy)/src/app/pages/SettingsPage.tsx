@@ -1,18 +1,24 @@
 import { useState } from 'react';
-import { Settings, Users, CreditCard, Bell, Shield, Key, ChevronRight, Upload, Check, Eye, EyeOff, Plus, Trash2, Edit2, Building2, Globe, Mail, Zap, Copy, AlertCircle, ShieldCheck, HelpCircle, BookOpen, MessageCircle, Keyboard, ExternalLink } from 'lucide-react';
+import { Settings, Users, CreditCard, Bell, Shield, Key, ChevronRight, Upload, Check, Eye, EyeOff, Plus, Trash2, Edit2, Building2, Globe, Mail, Zap, Copy, AlertCircle, ShieldCheck, HelpCircle, BookOpen, MessageCircle, Keyboard, ExternalLink, CircleSlash } from 'lucide-react';
 import clsx from 'clsx';
 import { ExecutionLedger } from '../components/ExecutionLedger';
 
 const navItems = [
   { id: 'workspace', label: 'Workspace', icon: Building2 },
-  { id: 'team', label: 'Team & Permissions', icon: Users },
-  { id: 'governance', label: 'Governance', icon: ShieldCheck },
+  { id: 'team', label: 'Team', icon: Users },
+  { id: 'boundaries', label: 'Boundaries', icon: ShieldCheck },
+  { id: 'governance', label: 'Governance', icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'billing', label: 'Billing & Plan', icon: CreditCard },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'api', label: 'API Keys', icon: Key },
   { id: 'help', label: 'Help & Support', icon: HelpCircle },
 ];
+
+// Org-wide default boundary rules — applied to every new profile unless overridden per-entity
+// (see ItemDetail's per-person Boundaries tab). Same allow/deny shape, workspace scope.
+const defaultAllowed = ['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)'];
+const defaultDenied = ['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network'];
 
 const teamMembers = [
   { id: 9009, name: 'dummy_Tony Stark', email: 'dummy_tony@acmecorp.com', role: 'dummy_Admin', avatar: 'T', status: 'active', lastSeen: 'dummy_9009 min ago' },
@@ -51,6 +57,34 @@ export function SettingsPage() {
     switch (activeSection) {
       case 'governance':
         return <ExecutionLedger />;
+
+      case 'boundaries':
+        return (
+          <div className="flex flex-col gap-6">
+            <div>
+              <h2 className="text-lg font-bold text-[var(--color-navy)] mb-1">Boundaries</h2>
+              <p className="text-sm text-[var(--color-navy-mid)]">Workspace-wide default rules applied to every profile. Any profile can add its own on top (see its Boundaries tab).</p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'color-mix(in srgb, var(--success) 30%, var(--color-border))' }}>
+                <div className="px-4 py-2.5 flex items-center gap-2 border-b" style={{ borderColor: 'var(--color-border)', backgroundColor: 'color-mix(in srgb, var(--success) 8%, transparent)' }}>
+                  <Check className="w-4 h-4" style={{ color: 'var(--success)' }} /><span className="text-sm font-bold text-[var(--color-navy)]">Allowed by default</span>
+                </div>
+                <div className="p-3 flex flex-col gap-1.5">
+                  {defaultAllowed.map((a, i) => <div key={i} className="text-sm text-[var(--color-navy)]">{a}</div>)}
+                </div>
+              </div>
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'color-mix(in srgb, var(--danger) 30%, var(--color-border))' }}>
+                <div className="px-4 py-2.5 flex items-center gap-2 border-b" style={{ borderColor: 'var(--color-border)', backgroundColor: 'color-mix(in srgb, var(--danger) 8%, transparent)' }}>
+                  <CircleSlash className="w-4 h-4" style={{ color: 'var(--danger)' }} /><span className="text-sm font-bold text-[var(--color-navy)]">Denied by default</span>
+                </div>
+                <div className="p-3 flex flex-col gap-1.5">
+                  {defaultDenied.map((d, i) => <div key={i} className="text-sm text-[var(--color-navy)]">{d}</div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
 
       case 'help':
         return (
@@ -185,7 +219,7 @@ export function SettingsPage() {
           <div className="flex flex-col gap-8">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-[var(--color-navy)] mb-1">Team & Permissions</h2>
+                <h2 className="text-lg font-bold text-[var(--color-navy)] mb-1">Team</h2>
                 <p className="text-sm text-[var(--color-navy-mid)]">{members.length} members in your workspace.</p>
               </div>
               <button className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors shadow-sm">
@@ -281,7 +315,7 @@ export function SettingsPage() {
               { key: 'weeklyReport', label: 'Weekly Performance Report', desc: 'Summary of initiative, rituals, and AI insights every Monday', category: 'Reports' },
               { key: 'aiInsights', label: 'AI Proactive Insights', desc: 'Allow Bridge AI to push unsolicited recommendations', category: 'AI' },
               { key: 'teamActivity', label: 'Team Activity', desc: 'Notify when teammates add notes, update records, or complete touchpoints', category: 'Team' },
-              { key: 'integrationErrors', label: 'Integration Errors', desc: 'Alert when a connected integration fails or requires attention', category: 'System' },
+              { key: 'integrationErrors', label: 'App Errors', desc: 'Alert when a connected app fails or requires attention', category: 'System' },
             ].map(item => (
               <div key={item.key} className="flex items-center justify-between p-5 bg-white border border-[var(--color-border)] rounded-xl shadow-sm hover:shadow-md transition-shadow">
                 <div>
@@ -576,7 +610,7 @@ export function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-8">
-          <div className={clsx('mx-auto', activeSection === 'governance' ? 'max-w-5xl' : 'max-w-2xl')}>
+          <div className={clsx('mx-auto', activeSection === 'governance' ? 'max-w-5xl' : activeSection === 'boundaries' ? 'max-w-3xl' : 'max-w-2xl')}>
             {renderContent()}
           </div>
         </div>

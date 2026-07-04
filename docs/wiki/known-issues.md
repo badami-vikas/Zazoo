@@ -8,6 +8,12 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN — SettingsPage duplicate React key on API Keys tab.** `pages/SettingsPage.tsx` renders a
+  table with dummy API-key rows sharing a key (`9009`-suffixed dummy dates collide) — React warns
+  "Encountered two children with the same key" every render of `/settings`. Spotted 2026-07-04
+  while browser-testing the JobPilot/DealPilot UI standardization pass (unrelated file, not fixed
+  in that pass). Fix: give each dummy key row a unique `id`/key, not a derived date string.
+
 - **OPEN — Recon stranded outside the tool system.** Has `RECON_MANIFEST` + `buildCaptureEnvelope` +
   "Add to Bridge" button (`Tools/recon/lib/bridge.ts`) but: no `tools.ts` registry entry, intake URL
   never configured (button posts nowhere), staging.jsonl/permanent.jsonl = parallel governance never

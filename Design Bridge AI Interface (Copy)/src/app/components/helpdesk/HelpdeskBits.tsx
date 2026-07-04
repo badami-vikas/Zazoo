@@ -138,13 +138,15 @@ function StatusPill({ status }: { status: HelpRequest['status'] }) {
   return <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ color: s.color, backgroundColor: `color-mix(in srgb, ${s.color} 12%, white)` }}><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.color }} /> {s.label}</span>;
 }
 
-// ── Help request card (5:3 height:width → aspect-[3/5]); clickable → thread ──────
+// ── Help request card — Notion-style compact card (content-driven height, capped by
+// line-clamp; no forced tall aspect ratio — that's what made these "too broad and long" at
+// mid-size grid widths). Paired with CardGrid's auto-fill sizing in HelpdeskPage. ─────────────
 export function HelpdeskCard({ req, offersCount, onOpen }: { req: HelpRequest; offersCount: number; onOpen: () => void }) {
   useAskPins(); // re-render on pin changes
   const mine = isMine(req);
   const pinned = isAskPinned(req);
   return (
-    <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => { if (e.key === 'Enter') onOpen(); }} className="cursor-pointer text-left aspect-[3/5] flex flex-col rounded-xl border bg-white hover:border-[var(--color-steel)] hover:shadow-md transition-all overflow-hidden relative" style={{ borderColor: pinned ? 'var(--color-steel)' : 'var(--color-border)' }}>
+    <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => { if (e.key === 'Enter') onOpen(); }} className="cursor-pointer text-left flex flex-col rounded-xl border bg-white hover:border-[var(--color-steel)] hover:shadow-md transition-all overflow-hidden relative" style={{ borderColor: pinned ? 'var(--color-steel)' : 'var(--color-border)' }}>
       <button
         onClick={e => { e.stopPropagation(); toggleAskPin(req); }}
         title={pinned ? 'Unpin this ask' : 'Pin this ask'}
@@ -156,10 +158,10 @@ export function HelpdeskCard({ req, offersCount, onOpen }: { req: HelpRequest; o
         {pinned ? <Pin className="w-2.5 h-2.5" fill="currentColor" /> : <PinOff className="w-2.5 h-2.5" />}
         {mine ? 'My Ask' : (pinned ? 'Pinned' : 'Pin')}
       </button>
-      <div className="p-3.5 flex flex-col gap-2 flex-1 min-h-0">
+      <div className="p-3.5 flex flex-col gap-2">
         <StatusPill status={req.status} />
         <div className="font-semibold text-sm leading-snug line-clamp-2" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>{req.title}</div>
-        <div className="text-xs leading-relaxed line-clamp-4 flex-1 min-h-0" style={{ color: 'var(--color-navy-mid)' }}>{req.body}</div>
+        <div className="text-xs leading-relaxed line-clamp-2" style={{ color: 'var(--color-navy-mid)' }}>{req.body}</div>
         <AudienceBadge audience={req.audience} />
       </div>
       <div className="px-3.5 py-2.5 border-t flex items-center gap-2 shrink-0" style={{ borderColor: 'var(--color-border)' }}>

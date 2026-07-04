@@ -40,9 +40,52 @@ full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan
   Tools/recorder FastAPI backend as a typed HTTP sidecar port (`RecorderPort`:
   record/pasteTranscript/transcribe/summarize) — Python code untouched, base URL is a required
   env-bound constructor arg (fails loud, no localhost default). 3 tests.
+- **DealPilot anchor** (Phase 3): `tools/dealpilot` — manifest composes company-sourcing +
+  people-sourcing + recorder; owns ThesisFit scoring, deal dedup via matchCompany, deals
+  kanban table. 6 tests.
+- **JobPilot anchor** (2026-07-04, Phase 4): `tools/jobpilot` — manifest composes
+  company-sourcing + people-sourcing (llm/calendar/google not live yet, not invented). Owns:
+  `scoreJobFit` (rule-based green/yellow/red card scoring), `evaluateTailoredMaterials`
+  (deterministic fabrication guard on resume change_log — evidence-in-master OR jd_added on a
+  non-protected field), `processJobCandidate` (sources → job-posting dedupe via own
+  company|title|location key on `@bridge/dedupe` → `alreadyAppliedToCompany` guard via
+  company-sourcing's `matchCompany`, compose not copy), Greenhouse/Ashby/Lever Tier-1 connector
+  stubs, card-feed (gallery/flag) + tracker (kanban/stage) table views, `transition` (the sole
+  applications.status state-machine helper, validates + logs stage_events per the arch doc's
+  transition graph), `createAnswerBank` (normalize→exact→fuzzy on `@bridge/dedupe`'s
+  trigramSimilarity; SSN/payment questions unconditionally raise `NeedsHuman`), `buildCandidateProfile`
+  (M1 onboarding: keyword-presence skill/category heuristic, NOT a PDF/LLM parser — closes the
+  onboarding→scoring seam), `routeEmail` (M7 Gmail Smart Router: confidence-bucket routing policy
+  only — auto_linked>=95/review 50-94/orphan<50 — classifier itself injected same as connectors'
+  fetcher; downgrades to review if the proposed stage isn't a legal `transition()`), `resolveEntryTier`
+  + `mapAnswersToForm` + `nextDispatchAction` + `assertApprovedForSubmit` (M6 apply-waterfall
+  decisions: big-3 ATS→Tier1 else Tier2; form-field→answer-bank mapping collecting unresolved
+  required fields; S7 failure-taxonomy router — CAPTCHA/LOGIN_ISSUE always park immediately,
+  FAILED escalates tier-by-tier; "no submit without approved eval" as a callable gate),
+  `createPacingGate` (S7 daily + per-ATS-domain apply caps, resets per day). 46 tests. Not done:
+  real PDF/LLM resume parsing, writer/browser-apply agents, PDF rendering, real ATS HTTP/Playwright
+  execution, real Gmail API, the tier-escalation loop itself, persistence for any of the above.
+- **JobPilot + DealPilot prototype UI** (2026-07-04, `Design Bridge AI Interface (Copy)`):
+  standardized on shared Notion-style components — `NotionCard`/`CardGrid` (compact, fixed
+  `HelpdeskCard`'s "too broad and long" grid too), `FlagIcon` (literal colored flag, tooltip-only
+  explanation, no inline prose), `KanbanBoard` + `ListView` (Tracker = kanban, new list view),
+  `ToolPageHeader` (profile+settings gated by `STANDALONE = !API_ENABLED`). `AgentPanel` now says
+  "JobPilot AI"/"DealPilot AI" per-route. `data/jobpilot.ts` + `data/dealpilot.ts` port the
+  platform packages' scoring/state-machine/evaluator/dispatcher logic into the reactive
+  localStorage-store pattern. Browser-verified end to end.
+- **Platform UI standardization Phase 1+2** (2026-07-04, same prototype): Boundaries replaces
+  Permissions everywhere (condensed tooltip, not a 3-sentence banner); Apps replaces Integrations;
+  one `StandardToolbar` + `ToolPageHeader` + `ListBar` layout (title → Lists → toolbar) across
+  JobPilot/DealPilot/Helpdesk/PublicHelpdesk; flags ARE the action (no card buttons), universal
+  green/yellow/red meaning platform-wide; always-collapsed icon-rail Sidebar with labels;
+  standalone JobPilot shell at `/standalone/jobpilot`. Phase 2: `data/lists.ts` (generic scoped
+  list store) + `ListBar` give every tool user-creatable lists with a per-list AI instruction and
+  multi-select **merge** (stamps each row with its origin list as a category); `ConnectAppFlow`
+  is the standardized API-first/waterfall (scrape/bot/Claude-in-browser) Apps connect wizard,
+  wired to `IntegrationDetail`'s Configure button. All browser-verified end to end.
 - **Not done**: actual recon/hni data migration into people/company-sourcing (still separate
   apps, frozen read-only per plan §4 is the NEXT step, not yet executed), the recorder's actual
-  frontend UI migration, Phase 3+ (DealPilot/JobPilot builds).
+  frontend UI migration, Phase 5 (prototype absorption).
 
 **Call (2026-06-03):** Tool model = internalize external repos + two run modes + gated intake. Reuses EXISTING primitives, ZERO new subsystem. Triggered by 2 reference repos (`Tools/card-scanner`, `Tools/recorder`).
 

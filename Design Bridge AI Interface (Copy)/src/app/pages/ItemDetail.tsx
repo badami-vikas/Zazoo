@@ -3,12 +3,13 @@ import {
   ChevronRight, ChevronDown, Link as LinkIcon, Building2, MapPin, FileText, Image as ImageIcon,
   FileSpreadsheet, Users, Edit2, Download, RefreshCw, Share2, MoreHorizontal, Eye, Lock, Globe2,
   Mail, Phone, Globe, Github, Linkedin, Instagram, Twitter, Plus, X as XIcon, Quote,
-  Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash,
+  Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash, Info,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { AssociationsMap } from '../components/AssociationsMap';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { useInitiatives } from '../data/initiatives';
 import { people, companies, threads, type NetworkPerson } from '../data/network';
 
@@ -195,12 +196,17 @@ function Boundaries({ entityName }: { entityName: string }) {
   };
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'color-mix(in srgb, var(--color-steel) 30%, var(--color-border))', backgroundColor: 'color-mix(in srgb, var(--color-steel) 5%, transparent)' }}>
-        <ShieldCheck className="w-5 h-5 mt-0.5 shrink-0" style={{ color: 'var(--color-steel)' }} />
-        <div className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>
-          <span className="font-bold" style={{ color: 'var(--color-navy)' }}>Governance requirement. </span>
-          Every agent must pass a <span className="font-semibold">boundary check on {entityName}</span> before it may read or act on this profile. Any action that violates a rule below is <span className="font-semibold">blocked at the policy layer and written to the Execution Ledger</span> — no exceptions, no silent overrides.
-        </div>
+      <div className="flex items-center gap-1.5 px-1">
+        <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} />
+        <span className="text-xs font-semibold" style={{ color: 'var(--color-navy-mid)' }}>Enforced on every agent action</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="w-3 h-3 cursor-help" style={{ color: 'var(--color-warm-gray)' }} />
+          </TooltipTrigger>
+          <TooltipContent side="right" className="bg-[var(--color-navy)] text-white max-w-[220px]">
+            Agents must pass a boundary check on {entityName} before acting. Violations are blocked and logged — no exceptions.
+          </TooltipContent>
+        </Tooltip>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
         <Col title="Allowed" items={allowed} setItems={setAllowed} tone="var(--success)" Icon={Check} />

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  LifeBuoy, Plus, Table as TableIcon, LayoutGrid, ChevronDown, Check, Search, Filter, Gift, MoreVertical, Info,
+  LifeBuoy, Plus, Table as TableIcon, LayoutGrid, Check, Gift, Info,
 } from 'lucide-react';
 import {
   useRequests, useOffers, useAiMode, useAskPins, seedInboxIfEmpty,
@@ -10,7 +10,10 @@ import {
   type HelpRequest, type Audience,
 } from '../data/helpdesk';
 import { GlideTable } from '../components/GlideTable';
+import { CardGrid } from '../components/shared/NotionCard';
 import { ListPillRow } from '../components/ListPillRow';
+import { ToolPageHeader } from '../components/shared/ToolPageHeader';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { StatsCard, BadgeRow, HelpdeskCard } from '../components/helpdesk/HelpdeskBits';
 import { AskModal, type AskScope } from '../components/helpdesk/AskModal';
 import { CreateHelpdeskModal } from '../components/helpdesk/CreateHelpdeskModal';
@@ -47,9 +50,7 @@ export function HelpdeskPage() {
 
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const [view, setView] = useState<ViewId>('card');
-  const [viewOpen, setViewOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -87,7 +88,6 @@ export function HelpdeskPage() {
   const badges = getBadges();
   const peopleHelped = peopleHelpedCount();
   const activeFilterCount = (mineOnly ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0);
-  const ActiveViewIcon = view === 'card' ? LayoutGrid : TableIcon;
 
   const tableRows = visible.map(r => ({
     id: r.id, name: r.title,
@@ -99,22 +99,8 @@ export function HelpdeskPage() {
 
   return (
     <div className="@container flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#FAF9F5' }}>
-      {/* Title + gamification */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b bg-white shrink-0 flex-wrap" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-2 shrink-0">
-          <LifeBuoy className="w-5 h-5" style={{ color: 'var(--color-steel)' }} />
-          <h1 className="text-lg font-bold" style={{ color: 'var(--color-navy)', fontFamily: 'var(--font-editorial)' }}>Helpdesk</h1>
-        </div>
-        <StatsCard streak={streak} peopleHelped={peopleHelped} />
-        <BadgeRow badges={badges} />
-        {/* Square Impact Report button — icon centered, 2-line label below */}
-        <button onClick={() => setImpactOpen(true)} title="Your Impact Report" className="ml-auto w-[60px] h-[60px] shrink-0 flex flex-col items-center justify-center gap-1 rounded-xl border transition-colors hover:bg-[var(--color-surface)]" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
-          <Gift className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-          <span className="text-[9px] font-semibold leading-[1.15] text-center" style={{ color: 'var(--color-warm-gray)' }}>Impact<br />Report</span>
-        </button>
-      </div>
+      <ToolPageHeader icon={LifeBuoy} title="Helpdesk" />
 
-      {/* Lists */}
       <ListPillRow
         pills={[LIST_NETWORK, LIST_MINE, LIST_PUBLIC]}
         selected={selectedList}
@@ -124,107 +110,73 @@ export function HelpdeskPage() {
         onAddList={() => setCreateOpen(true)}
       />
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-white shadow-sm z-20 shrink-0 flex-wrap" style={{ borderColor: 'var(--color-border)' }}>
-        {/* View dropdown (Card / Table) */}
-        <div className="relative shrink-0">
-          <button onClick={() => setViewOpen(o => !o)} className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold shadow-inner" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-            <ActiveViewIcon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-            <span className="hidden @[500px]:inline">{view === 'card' ? 'Card' : 'Table'}</span>
-            <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-          </button>
-          {viewOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setViewOpen(false)} />
-              <div className="absolute top-full left-0 mt-1 w-40 border rounded-xl shadow-lg z-50 overflow-hidden py-1 bg-white" style={{ borderColor: 'var(--color-border)' }}>
-                {([['card', 'Card', LayoutGrid], ['table', 'Table', TableIcon]] as const).map(([id, label, Icon]) => (
-                  <button key={id} onClick={() => { setView(id); setViewOpen(false); }} className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium" style={{ backgroundColor: view === id ? 'var(--color-surface)' : 'transparent', color: view === id ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
-                    <Icon className="w-4 h-4" style={{ color: view === id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} /> {label}
-                    {view === id && <Check className="w-3.5 h-3.5 ml-auto" />}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Filters dropdown (My Asks lives inside) */}
-        <div className="relative shrink-0">
-          <button onClick={() => setFiltersOpen(o => !o)} className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-medium shadow-sm" style={{ backgroundColor: activeFilterCount ? 'color-mix(in srgb, var(--color-steel) 8%, white)' : 'white', borderColor: 'var(--color-border)', color: activeFilterCount ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
-            <Filter className="w-3.5 h-3.5" /> <span className="hidden @[600px]:inline">Filters</span>
-            {activeFilterCount > 0 && <span className="text-[10px] font-bold px-1.5 rounded-full text-white" style={{ backgroundColor: 'var(--color-steel)' }}>{activeFilterCount}</span>}
-          </button>
-          {filtersOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setFiltersOpen(false)} />
-              <div className="absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-lg z-50 overflow-hidden py-1 bg-white" style={{ borderColor: 'var(--color-border)' }}>
-                <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface)]" style={{ color: 'var(--color-navy)' }}>
-                  <input type="checkbox" checked={mineOnly} onChange={e => setMineOnly(e.target.checked)} className="accent-[var(--color-steel)]" /> My Asks
-                </label>
-                <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>Status</div>
-                {(['all', 'open', 'resolved'] as StatusFilter[]).map(s => (
-                  <button key={s} onClick={() => setStatusFilter(s)} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm capitalize hover:bg-[var(--color-surface)]" style={{ color: statusFilter === s ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
-                    {statusFilter === s ? <Check className="w-3.5 h-3.5" /> : <span className="w-3.5" />} {s}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* My Asks quick toggle */}
-        <button onClick={() => setMineOnly(v => !v)} className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-medium shadow-sm shrink-0" style={{ backgroundColor: mineOnly ? 'color-mix(in srgb, var(--color-steel) 10%, white)' : 'white', borderColor: 'var(--color-border)', color: mineOnly ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
-          <span className="hidden @[600px]:inline">My Asks</span><span className="@[600px]:hidden">Mine</span>
-        </button>
-
-        {/* 3-dots Helpdesk AI menu (AI recommendation + AI screening) */}
-        <div className="relative shrink-0">
-          <button onClick={() => setAiMenuOpen(o => !o)} title="Helpdesk AI" className="flex items-center justify-center w-8 h-8 border rounded-lg shadow-sm" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-            <MoreVertical className="w-4 h-4" />
-          </button>
-          {aiMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setAiMenuOpen(false)} />
-              <div className="absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-lg z-50 py-1 bg-white" style={{ borderColor: 'var(--color-border)' }}>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>Helpdesk AI</div>
-                {([
-                  ['recommendation', 'AI recommendation', flags.recommendation, setAiRecommendation, AI_FLAG_TOOLTIPS.recommendation] as const,
-                  ['screening', 'AI Screening', flags.screening, setAiScreening, AI_FLAG_TOOLTIPS.screening] as const,
-                ]).map(([key, label, on, set, tip]) => (
-                  <label key={key} className="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface)]" style={{ color: 'var(--color-navy)' }}>
-                    <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="mt-0.5 accent-[var(--color-steel)]" />
-                    <span className="min-w-0">
-                      <span className="inline-flex items-center gap-1 font-medium">{label}
-                        <span className="group relative inline-flex">
-                          <Info className="w-3 h-3" style={{ color: 'var(--color-warm-gray)' }} />
-                          <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-56 p-2 rounded-lg text-[11px] leading-relaxed shadow-xl z-10" style={{ backgroundColor: 'var(--color-navy)', color: 'white' }}>{tip}</span>
-                        </span>
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Search */}
-        <div className="relative shrink flex-1 max-w-[300px] min-w-[100px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search asks…" className="pl-9 pr-3 py-1.5 w-full border rounded-lg text-sm outline-none shadow-inner" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }} />
-        </div>
-
-        <div className="flex items-center gap-2 ml-auto shrink-0">
-          {onMyHelpdesk && (
-            <button onClick={() => setCreateOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border shadow-sm active:scale-95 transition-transform" style={{ borderColor: 'var(--color-border)', color: 'var(--color-steel)', backgroundColor: 'white' }}>
-              <Plus className="w-4 h-4" /> <span className="hidden @[500px]:inline">Create Helpdesk</span>
+      <StandardToolbar
+        view={view}
+        views={[{ id: 'card', label: 'Card', icon: LayoutGrid }, { id: 'table', label: 'Table', icon: TableIcon }]}
+        onViewChange={(id) => setView(id as ViewId)}
+        search={query}
+        onSearchChange={setQuery}
+        onFilterClick={() => setFiltersOpen((o) => !o)}
+        filterCount={activeFilterCount}
+        filterOpen={filtersOpen}
+        filterPanel={
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setFiltersOpen(false)} />
+            <div className="absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-lg z-50 overflow-hidden py-1 bg-white" style={{ borderColor: 'var(--color-border)' }}>
+              <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface)]" style={{ color: 'var(--color-navy)' }}>
+                <input type="checkbox" checked={mineOnly} onChange={e => setMineOnly(e.target.checked)} className="accent-[var(--color-steel)]" /> My Asks
+              </label>
+              <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>Status</div>
+              {(['all', 'open', 'resolved'] as StatusFilter[]).map(s => (
+                <button key={s} onClick={() => setStatusFilter(s)} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm capitalize hover:bg-[var(--color-surface)]" style={{ color: statusFilter === s ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
+                  {statusFilter === s ? <Check className="w-3.5 h-3.5" /> : <span className="w-3.5" />} {s}
+                </button>
+              ))}
+            </div>
+          </>
+        }
+        customActions={
+          <>
+            <StatsCard streak={streak} peopleHelped={peopleHelped} />
+            <BadgeRow badges={badges} />
+            <button onClick={() => setMineOnly(v => !v)} className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-medium shadow-sm shrink-0" style={{ backgroundColor: mineOnly ? 'color-mix(in srgb, var(--color-steel) 10%, white)' : 'white', borderColor: 'var(--color-border)', color: mineOnly ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
+              My Asks
             </button>
-          )}
-          <button onClick={() => setAskOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-white shadow-sm active:scale-95 transition-transform" style={{ backgroundColor: 'var(--color-steel)' }}>
-            <Plus className="w-4 h-4" /> Add Ask
-          </button>
-        </div>
-      </div>
+            <button onClick={() => setImpactOpen(true)} title="Your Impact Report" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border shadow-sm" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white', color: 'var(--color-navy-mid)' }}>
+              <Gift className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} /> Impact
+            </button>
+            {onMyHelpdesk && (
+              <button onClick={() => setCreateOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border shadow-sm active:scale-95 transition-transform" style={{ borderColor: 'var(--color-border)', color: 'var(--color-steel)', backgroundColor: 'white' }}>
+                <Plus className="w-4 h-4" /> Create Helpdesk
+              </button>
+            )}
+            <button onClick={() => setAskOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-white shadow-sm active:scale-95 transition-transform" style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-4 h-4" /> Add Ask
+            </button>
+          </>
+        }
+        moreMenu={
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>Helpdesk AI</div>
+            {([
+              ['recommendation', 'AI recommendation', flags.recommendation, setAiRecommendation, AI_FLAG_TOOLTIPS.recommendation] as const,
+              ['screening', 'AI Screening', flags.screening, setAiScreening, AI_FLAG_TOOLTIPS.screening] as const,
+            ]).map(([key, label, on, set, tip]) => (
+              <label key={key} className="flex items-start gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-[var(--color-surface)]" style={{ color: 'var(--color-navy)' }}>
+                <input type="checkbox" checked={on} onChange={e => set(e.target.checked)} className="mt-0.5 accent-[var(--color-steel)]" />
+                <span className="min-w-0">
+                  <span className="inline-flex items-center gap-1 font-medium">{label}
+                    <span className="group relative inline-flex">
+                      <Info className="w-3 h-3" style={{ color: 'var(--color-warm-gray)' }} />
+                      <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-56 p-2 rounded-lg text-[11px] leading-relaxed shadow-xl z-10" style={{ backgroundColor: 'var(--color-navy)', color: 'white' }}>{tip}</span>
+                    </span>
+                  </span>
+                </span>
+              </label>
+            ))}
+          </>
+        }
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-auto bg-white">
@@ -244,9 +196,9 @@ export function HelpdeskPage() {
             )}
           </div>
         ) : view === 'card' ? (
-          <div className="p-5 grid grid-cols-2 @[700px]:grid-cols-3 @[1000px]:grid-cols-4 @[1340px]:grid-cols-5 gap-3.5">
+          <CardGrid>
             {visible.map(r => <HelpdeskCard key={r.id} req={r} offersCount={offersCount(r.id)} onOpen={() => navigate(`/helpdesk/ask/${r.id}`)} />)}
-          </div>
+          </CardGrid>
         ) : (
           <div className="h-full">
             <GlideTable

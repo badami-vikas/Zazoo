@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { GoogleIntegrationPanel } from './GoogleIntegrationPanel';
 import { socialProviderFor } from '../data/integrations';
 import { IntegrationPermissions } from '../components/IntegrationPermissions';
+import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 
 const integrationDetails: Record<string, any> = {
   'IN-001': {
@@ -54,6 +55,10 @@ export function IntegrationDetail() {
   const navTabs = ['Overview', ...(social ? ['Permissions'] : []), 'Activity', 'Connections', 'Settings'];
 
   const [activeTab, setActiveTab] = useState('Overview');
+  const [connecting, setConnecting] = useState(false);
+  // Known providers (curated detail records) ship with a real API; anything else falls into the
+  // AI-guided waterfall (scrape / bot / Claude-in-browser) when the user (re)configures it.
+  const hasApi = decoded in integrationDetails;
 
   const scrollTo = (tab: string) => {
     setActiveTab(tab);
@@ -72,7 +77,7 @@ export function IntegrationDetail() {
           <BookOpen className="w-3.5 h-3.5 text-[var(--warning)]" />
           <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Intelligence</Link>
           <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
-          <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Integrations</Link>
+          <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Apps</Link>
           <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
           <span className="bg-[var(--warning)]/10 text-[var(--warning)] px-2.5 py-0.5 rounded text-xs font-semibold">{intg.name}</span>
         </div>
@@ -87,7 +92,7 @@ export function IntegrationDetail() {
             <button className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-navy-mid)] border border-[var(--color-border)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors">
               <RefreshCw className="w-3.5 h-3.5" /> Sync Now
             </button>
-            <button className="flex items-center gap-1.5 bg-[var(--warning)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--warning)] transition-colors">
+            <button onClick={() => setConnecting(true)} className="flex items-center gap-1.5 bg-[var(--warning)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--warning)] transition-colors">
               <Edit2 className="w-3.5 h-3.5" /> Configure
             </button>
           </div>
@@ -293,6 +298,8 @@ export function IntegrationDetail() {
 
         </div>
       </div>
+
+      {connecting && <ConnectAppFlow appName={intg.name} apiAvailable={hasApi} onClose={() => setConnecting(false)} onConnected={() => setConnecting(false)} />}
     </div>
   );
 }

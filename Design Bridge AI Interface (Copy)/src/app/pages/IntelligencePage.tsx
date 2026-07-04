@@ -45,7 +45,7 @@ export function IntelligencePage() {
   const headerTabs = [
     { id: 'Agents', icon: Bot },
     { id: 'Skills', icon: Zap },
-    { id: 'Integrations', icon: Puzzle },
+    { id: 'Apps', icon: Puzzle },
   ];
   const views = [
     { id: 'card', icon: LayoutGrid, label: 'Card' },
@@ -61,7 +61,7 @@ export function IntelligencePage() {
     switch (activeTab) {
       case 'Agents': return agentsLists;
       case 'Skills': return skillsLists;
-      case 'Integrations': return integrationsLists;
+      case 'Apps': return integrationsLists;
       default: return ['All'];
     }
   };
@@ -71,7 +71,7 @@ export function IntelligencePage() {
     switch (activeTab) {
       case 'Agents': data = agentsData; break;
       case 'Skills': data = skillsData; break;
-      case 'Integrations': data = integrationsData; break;
+      case 'Apps': data = integrationsData; break;
       default: data = [];
     }
 

@@ -229,6 +229,37 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  tools/jobpilot:
+    dependencies:
+      '@bridge/company-sourcing':
+        specifier: workspace:*
+        version: link:../company-sourcing
+      '@bridge/dedupe':
+        specifier: workspace:*
+        version: link:../../packages/dedupe
+      '@bridge/facts':
+        specifier: workspace:*
+        version: link:../../packages/facts
+      '@bridge/people-sourcing':
+        specifier: workspace:*
+        version: link:../people-sourcing
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../../packages/sourcing
+      '@bridge/tables':
+        specifier: workspace:*
+        version: link:../../packages/tables
+      '@bridge/tool-kit':
+        specifier: workspace:*
+        version: link:../../packages/tool-kit
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   tools/people-sourcing:
     dependencies:
       '@bridge/dedupe':
