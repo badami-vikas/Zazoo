@@ -45,7 +45,9 @@ import {
 import {
   createDb,
   createDrizzlePorts,
+  createLocalDb,
   createLocalMediaStore,
+  DrizzleWorkspaceStore,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
 } from "@bridge/db";
@@ -103,6 +105,8 @@ export interface Wiring {
   pilotUserId: string;
   /** Ritual registry (config rows) — used by ritual.create to register new workflows. */
   ritualRegistry: RitualRegistry;
+  /** Workspace + team-member CRUD — direct DB writes, not a governed pipeline skill. */
+  workspaceStore: DrizzleWorkspaceStore;
   /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
   dealpilot: {
     captures: ToolCaptureStore;
@@ -242,6 +246,7 @@ export async function buildWiring(): Promise<Wiring> {
   let canonical: CanonicalIdentityStore;
   let closeDb: () => Promise<void> = async () => {};
   let memory: Wiring["memory"];
+  let workspaceStore: DrizzleWorkspaceStore;
 
   if (url) {
     const { db, close } = createDb({ url });
@@ -254,6 +259,7 @@ export async function buildWiring(): Promise<Wiring> {
     ritualRegistry = ports.ritualRegistry;
     toolRegistry = ports.toolRegistry;
     ritualRunRecorder = ports.ritualRunRecorder;
+    workspaceStore = ports.workspaceStore;
     // Canonical dual-write stays an in-memory fake unless explicitly bound (avoids
     // writing identity to Supabase without intent); the seam is identical.
     canonical = new InMemoryCanonicalIdentityStore();
@@ -276,6 +282,20 @@ export async function buildWiring(): Promise<Wiring> {
     ritualRunRecorder = new InMemoryRitualRunRecorder();
     canonical = new InMemoryCanonicalIdentityStore();
     memory = { roles: mRoles, agents: mAgents, ephemeral: mEphemeral };
+
+    // Workspace CRUD has no in-memory port (users/workspaces are real relational
+    // rows, not governance config) — bind it to the same LOCAL pglite plane used
+    // for integrations (BRIDGE_LOCAL_DIR file-backed, else in-memory), same
+    // pattern as apps/api/src/social/integration-service.ts.
+    const { db: localDb, close: closeLocalDb } = await createLocalDb(
+      localDir ? { dataDir: localDir } : {},
+    );
+    workspaceStore = new DrizzleWorkspaceStore(localDb);
+    const prevClose = closeDb;
+    closeDb = async () => {
+      await prevClose();
+      await closeLocalDb();
+    };
   }
 
   // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
@@ -341,6 +361,7 @@ export async function buildWiring(): Promise<Wiring> {
       candidateIds: dealPilotCandidateIds,
     },
     ritualRegistry,
+    workspaceStore,
     ...(memory ? { memory } : {}),
     close: async () => {
       await localPlane.close();

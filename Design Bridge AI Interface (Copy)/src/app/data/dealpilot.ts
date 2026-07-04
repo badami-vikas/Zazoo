@@ -50,7 +50,8 @@ export function scoreThesisFit(deal: DealListing, thesis: ThesisProfile): FitRes
   return { score, triage, matched, unmatched };
 }
 
-export interface Deal { id: string; listingId: string; name: string; industry: string; geo: string; sde: number; revenue: number; stage: DealStage; fit: FitResult; createdAt: string }
+export interface DealAnalysis { summary: string; draftEmail: string; draftMessage: string; generatedAt: string }
+export interface Deal { id: string; listingId: string; name: string; industry: string; geo: string; sde: number; revenue: number; stage: DealStage; fit: FitResult; createdAt: string; analysis?: DealAnalysis }
 
 const DEFAULT_THESIS: ThesisProfile = { industries: ['HVAC', 'Landscaping', 'IT Services'], geo: ['Texas', 'Florida'], sdeMin: 300000, sdeMax: 900000 };
 
@@ -92,6 +93,20 @@ export function addToPipeline(listing: DealListing) {
 export function advanceDeal(dealId: string, to: DealStage) {
   const deal = deals.find((d) => d.id === dealId); if (!deal) return;
   deal.stage = transition(deal.stage, to); deals = [...deals]; persist();
+}
+
+// Deep-dive analysis + draft outreach, triggered by flagging a deal (not a sourced listing) green.
+// Deterministic/simulated — same fidelity as JobPilot's fabrication-guard evaluator, no real LLM
+// call and no real send; drafts are stored for the human to review and send themselves.
+export function runDeepDive(dealId: string) {
+  const deal = deals.find((d) => d.id === dealId); if (!deal || deal.analysis) return;
+  const strengths = deal.fit.matched.join('; ') || 'no thesis criteria matched yet';
+  const risks = deal.fit.unmatched.join('; ') || 'no gaps flagged';
+  const summary = `${deal.name} (${deal.industry}, ${deal.geo}): SDE $${deal.sde.toLocaleString()} on $${deal.revenue.toLocaleString()} revenue — ${Math.round(deal.fit.score * 100)}% thesis fit. Strengths: ${strengths}. Watch: ${risks}.`;
+  const draftEmail = `Subject: Interest in ${deal.name}\n\nHi,\n\nWe came across ${deal.name} and wanted to express interest in learning more. Based on what's public, it looks like a ${deal.fit.triage === 'green' ? 'strong' : 'possible'} fit for our current thesis (${deal.industry}, ${deal.geo}). Could we set up a call to discuss financials and next steps?\n\nBest,\n[Your name]`;
+  const draftMessage = `Hey — flagged ${deal.name} (${deal.industry}, ${deal.geo}, SDE $${deal.sde.toLocaleString()}) as a green deal. Sent an intro email, will keep you posted.`;
+  deal.analysis = { summary, draftEmail, draftMessage, generatedAt: new Date().toISOString() };
+  deals = [...deals]; persist();
 }
 
 // ── REAL-backend sourcing layer (additive, gated by API_ENABLED) ───────────────────────────────

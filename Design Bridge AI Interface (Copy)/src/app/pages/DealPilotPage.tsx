@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Handshake, LayoutGrid, Kanban as KanbanIcon, List as ListIcon, RefreshCw, Inbox, Plus, Check } from 'lucide-react';
 import {
-  LISTINGS, useThesisProfile, useDeals, dealForListing, addToPipeline, advanceDeal, scoreThesisFit,
+  LISTINGS, useThesisProfile, useDeals, dealForListing, addToPipeline, advanceDeal, runDeepDive, scoreThesisFit,
   useDealPilotSourcing, DEAL_STAGE_LABEL, type DealStage, type Deal, type TriageColor,
 } from '../data/dealpilot';
 import { API_ENABLED } from '../data/api';
@@ -12,6 +12,7 @@ import { ListView } from '../components/shared/ListView';
 import { ToolPageHeader } from '../components/shared/ToolPageHeader';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { ListBar } from '../components/shared/ListBar';
+import { Header } from '../components/Header';
 import { useLists, toggleMember, seedListsIfEmpty } from '../data/lists';
 
 type ViewId = 'card' | 'kanban' | 'list';
@@ -70,6 +71,9 @@ export function DealPilotPage() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#FAF9F5' }}>
       <ToolPageHeader icon={Handshake} title="DealPilot" />
+      {/* Single-segment pill for visual consistency with Network's Header tab bar — not a real
+          toggle (DealPilot has only one top-level section), just the same chrome language. */}
+      <Header tabs={[{ id: 'Deals', icon: Handshake }]} activeTab="Deals" onTabChange={() => {}} indicatorId="dealpilotSegmentIndicator" />
       <ListBar scope={SCOPE} selected={selectedList} onSelect={setSelectedList} allLabel="All Deals" />
       <StandardToolbar
         view={view}
@@ -190,12 +194,35 @@ function DealCard({ deal }: { deal: Deal }) {
   const next = NEXT_STAGE[deal.stage];
   return (
     <div className="rounded-lg border bg-white p-2.5 text-xs" style={{ borderColor: 'var(--color-border)' }}>
-      <div className="font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{deal.name}</div>
-      <div className="truncate mb-1.5" style={{ color: 'var(--color-warm-gray)' }}>{deal.industry} · {deal.geo}</div>
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="min-w-0">
+          <div className="font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{deal.name}</div>
+          <div className="truncate mb-1.5" style={{ color: 'var(--color-warm-gray)' }}>{deal.industry} · {deal.geo}</div>
+        </div>
+        <FlagIcon
+          color={deal.fit.triage}
+          kind="ai_inference"
+          matched={deal.fit.matched}
+          unmatched={deal.fit.unmatched}
+          onClick={deal.analysis ? undefined : (c) => { if (c === 'green') runDeepDive(deal.id); }}
+          disabled={!!deal.analysis}
+        />
+      </div>
       <div className="flex gap-1">
         {next && <button onClick={() => advanceDeal(deal.id, next)} className="flex-1 rounded px-1.5 py-1 text-white font-semibold" style={{ backgroundColor: 'var(--color-steel)' }}>Advance</button>}
         {deal.stage !== 'passed' && deal.stage !== 'closed' && <button onClick={() => advanceDeal(deal.id, 'passed')} className="flex-1 rounded px-1.5 py-1 font-semibold border" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>Pass</button>}
       </div>
+      {deal.analysis && (
+        <div className="mt-1.5 pt-1.5 border-t flex flex-col gap-1" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="font-semibold" style={{ color: 'var(--color-navy)' }}>Deep dive</div>
+          <p className="line-clamp-2" style={{ color: 'var(--color-warm-gray)' }}>{deal.analysis.summary}</p>
+          <details className="text-[10px]">
+            <summary className="cursor-pointer font-medium" style={{ color: 'var(--color-steel)' }}>Draft email &amp; iMessage</summary>
+            <pre className="whitespace-pre-wrap mt-1 p-1.5 rounded" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{deal.analysis.draftEmail}</pre>
+            <pre className="whitespace-pre-wrap mt-1 p-1.5 rounded" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{deal.analysis.draftMessage}</pre>
+          </details>
+        </div>
+      )}
     </div>
   );
 }

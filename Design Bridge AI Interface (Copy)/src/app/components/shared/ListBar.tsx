@@ -12,6 +12,7 @@ export function ListBar({ scope, selected, onSelect, allLabel = 'All' }: { scope
   const [selecting, setSelecting] = useState<string[]>([]);
   const [editingInstruction, setEditingInstruction] = useState(false);
   const [draftInstruction, setDraftInstruction] = useState('');
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const activeList = lists.find((l) => l.id === selected) ?? null;
 
@@ -86,9 +87,31 @@ export function ListBar({ scope, selected, onSelect, allLabel = 'All' }: { scope
               <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 shrink-0" />
             </button>
           )}
-          <button onClick={() => { deleteList(scope, activeList.id); onSelect(null); }} title="Delete list" className="shrink-0">
-            <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-          </button>
+          {editingInstruction && (
+            confirmingDelete ? (
+              <div className="flex items-center gap-1 shrink-0">
+                <span style={{ color: 'var(--color-warm-gray)' }}>Delete list?</span>
+                <button
+                  onClick={() => { deleteList(scope, activeList.id); onSelect(null); setConfirmingDelete(false); }}
+                  className="px-1.5 py-0.5 rounded text-white font-medium"
+                  style={{ backgroundColor: 'var(--danger)' }}
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  className="px-1.5 py-0.5 rounded font-medium"
+                  style={{ color: 'var(--color-navy-mid)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmingDelete(true)} title="Delete list" className="shrink-0">
+                <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
+              </button>
+            )
+          )}
         </div>
       )}
 

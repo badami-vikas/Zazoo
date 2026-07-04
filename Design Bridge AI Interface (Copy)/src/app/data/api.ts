@@ -397,3 +397,24 @@ export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null
   if (!API_ENABLED) return null;
   return query<DealPilotCandidateDTO[]>('dealpilot.list');
 }
+
+// ── Workspace + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────
+export interface WorkspaceDTO { id: string; name: string; createdAt: string }
+export interface WorkspaceMemberDTO { userId: string; email: string; name: string | null }
+
+export async function apiListWorkspaces(): Promise<WorkspaceDTO[] | null> {
+  if (!API_ENABLED) return null;
+  return query<WorkspaceDTO[]>('workspace.list');
+}
+export async function apiCreateWorkspace(name: string): Promise<WorkspaceDTO | null> {
+  if (!API_ENABLED) return null;
+  return mutate<WorkspaceDTO>('workspace.create', { name });
+}
+export async function apiListMembers(workspaceId: string): Promise<WorkspaceMemberDTO[] | null> {
+  if (!API_ENABLED) return null;
+  return query<WorkspaceMemberDTO[]>('workspace.listMembers', { workspaceId });
+}
+export async function apiInviteMember(workspaceId: string, email: string): Promise<WorkspaceMemberDTO | null> {
+  if (!API_ENABLED) return null;
+  return mutate<WorkspaceMemberDTO>('workspace.inviteMember', { workspaceId, email });
+}

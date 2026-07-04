@@ -29,6 +29,7 @@ export {
   type ScopeGrant,
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
+export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";
@@ -43,6 +44,7 @@ import {
   DrizzleToolRegistry,
   DrizzleRitualRunRecorder,
 } from "./ritual-stores.js";
+import { DrizzleWorkspaceStore } from "./workspace-store.js";
 
 /** All Drizzle-backed ports, ready to hand to the core pipeline + executor. */
 export function createDrizzlePorts(db: Db) {
@@ -55,5 +57,6 @@ export function createDrizzlePorts(db: Db) {
     ritualRegistry: new DrizzleRitualRegistry(db),
     toolRegistry: new DrizzleToolRegistry(db),
     ritualRunRecorder: new DrizzleRitualRunRecorder(db),
+    workspaceStore: new DrizzleWorkspaceStore(db),
   };
 }
