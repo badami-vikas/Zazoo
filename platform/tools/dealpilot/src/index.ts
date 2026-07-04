@@ -4,4 +4,10 @@ export { scoreThesisFit } from "./scoring.js";
 export type { DealPipelineResult } from "./pipeline.js";
 export { processDealCandidate } from "./pipeline.js";
 export { dealsTableSpec, dealsKanbanView } from "./table.js";
-export { createBizBuySellAlertConnector, createBusinessBrokerNetConnector } from "./connectors.js";
+export {
+  createBizBuySellAlertConnector,
+  createBusinessBrokerNetConnector,
+  parseBizBuySellAlert,
+  createGmailFetchMessages,
+  normalizeBusinessBrokerRow,
+} from "./connectors.js";

@@ -23,7 +23,8 @@
     "@bridge/facts": "workspace:*",
     "@bridge/recorder": "workspace:*",
     "@bridge/sourcing": "workspace:*",
-    "@bridge/tables": "workspace:*"
+    "@bridge/tables": "workspace:*",
+    "@bridge/integrations-google": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

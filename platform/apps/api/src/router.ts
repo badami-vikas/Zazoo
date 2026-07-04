@@ -21,6 +21,7 @@ import type {
 } from "@bridge/core";
 import { buildAgentCapability, validateRitualWithinAgents } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
+import { scoreThesisFit } from "@bridge/dealpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
@@ -445,6 +446,45 @@ export const appRouter = t.router({
         },
         ctx.run,
       );
+    }),
+  }),
+
+  /**
+   * DealPilot — the first tool on the generic manifest intake seam (@bridge/tool-kit).
+   * `source` quarantines through the pipeline as `external:fetch` (audited, policy-gated);
+   * `commit` is the human "Add" that materializes ONE quarantined capture into DealPilot's
+   * facts + candidate list (capture ≠ commit). No thesis-management UI yet — a fixed pilot
+   * thesis stands in until one exists.
+   */
+  dealpilot: t.router({
+    source: t.procedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        return ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            action: "read" as Action,
+            resourceType: "external:fetch" as ResourceType,
+            skill: "dealpilot.source",
+            inputs: { kind: "company", hints: {} },
+          },
+          ctx.run,
+        );
+      }),
+
+    commit: t.procedure.input(z.object({ captureId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+      return ctx.wiring.dealpilot.materializer.add(input.captureId);
+    }),
+
+    list: t.procedure.query(({ ctx }) => {
+      const { facts, candidateIds } = ctx.wiring.dealpilot;
+      const thesis = { industries: [], geo: [] }; // pilot default until thesis-management ships
+      return candidateIds.map((id) => {
+        const profile = facts.livingProfile(id);
+        const flat = Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, v.value]));
+        return { id, profile: flat, fit: scoreThesisFit(flat, thesis) };
+      });
     }),
   }),
 

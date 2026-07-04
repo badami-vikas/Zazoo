@@ -23,12 +23,21 @@ importers:
       '@bridge/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@bridge/dealpilot':
+        specifier: workspace:*
+        version: link:../../tools/dealpilot
+      '@bridge/facts':
+        specifier: workspace:*
+        version: link:../../packages/facts
       '@bridge/integrations-google':
         specifier: workspace:*
         version: link:../../packages/integrations-google
       '@bridge/local':
         specifier: workspace:*
         version: link:../../packages/local
+      '@bridge/tool-kit':
+        specifier: workspace:*
+        version: link:../../packages/tool-kit
       '@fastify/cors':
         specifier: ^10.0.1
         version: 10.1.0
@@ -159,6 +168,12 @@ importers:
 
   packages/tool-kit:
     dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../sourcing
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -206,6 +221,9 @@ importers:
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
+      '@bridge/integrations-google':
+        specifier: workspace:*
+        version: link:../../packages/integrations-google
       '@bridge/people-sourcing':
         specifier: workspace:*
         version: link:../people-sourcing

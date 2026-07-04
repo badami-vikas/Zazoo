@@ -6,5 +6,6 @@
     "types": ["node"],
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
+  "references": [{ "path": "../core" }, { "path": "../sourcing" }],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

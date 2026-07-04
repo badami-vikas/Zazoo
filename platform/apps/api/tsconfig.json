@@ -10,7 +10,10 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/db" },
     { "path": "../../packages/local" },
-    { "path": "../../packages/integrations-google" }
+    { "path": "../../packages/integrations-google" },
+    { "path": "../../packages/tool-kit" },
+    { "path": "../../packages/facts" },
+    { "path": "../../tools/dealpilot" }
   ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

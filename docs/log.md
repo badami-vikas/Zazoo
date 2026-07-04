@@ -1,5 +1,51 @@
 # Change Log
 
+- **2026-07-04** — **`/dealpilot` prototype wired to the real API.** `data/api.ts` gained
+  `apiDealPilotSource/Commit/List`; `DealPilotPage.tsx` now sources listings, shows a quarantine
+  inbox with per-capture "Add" (capture ≠ commit), and renders the thesis-scored kanban from
+  `dealpilot.list` — falling back to `dummy_dealCandidates` when `VITE_API_URL` is unset
+  (Calendar's OFF-by-default pattern). `tsc --noEmit` clean; verified in-browser (demo mode,
+  no console errors). Closes the last flagged gap from the intake-seam work below.
+
+- **2026-07-04** — **Generic manifest intake seam + DealPilot API wiring.** New
+  `@bridge/tool-kit` exports `createToolSourceSkill`/`ToolIntakeMaterializer`/`ToolCaptureStore` —
+  the shared quarantine → pipeline `external:fetch` proposal → human-commit seam every
+  manifest-composed external tool needs (closes the reusable half of the "Recon stranded outside
+  the tool system" gap; Recon itself still needs migrating onto it). Wired DealPilot first:
+  `apps/api/src/wiring.ts` registers a `dealpilot.source` skill (BizBuySell via
+  `createGmailFetchMessages`) + a materializer committing into `@bridge/facts`; new
+  `router.ts` `dealpilot.source`/`commit`/`list` procedures. ADR + known-issues updated.
+  9/9 tool-kit tests (2 new), 41/41 monorepo `turbo run typecheck test` tasks green. Follow-ups
+  logged: fixed pilot thesis (no thesis-mgmt UI), no dedupe-on-commit yet, prototype `/dealpilot`
+  page still on `dummy_` data (not yet calling this API).
+
+- **2026-07-04** — **DealPilot P0 connectors: real BizBuySell parser + Gmail compose; BusinessBroker.net normalization only (robots.txt blocked).**
+  Merged `origin/main`'s Phase 0–3 tool-standardization + DealPilot anchor (commit `b833028`, built in a
+  parallel session) into this branch — brought in `@bridge/tool-kit`, `@bridge/tables`, `@bridge/dedupe`,
+  `@bridge/facts`, `@bridge/sourcing`, `@bridge/people-sourcing`, `@bridge/company-sourcing`,
+  `@bridge/recorder`, `@bridge/dealpilot`. Then wired DealPilot's two P0 connectors from proof-shape to
+  real: **BizBuySell** — `parseBizBuySellAlert` (regex field extraction: name/industry/geo/askPrice/
+  revenue/sde/url, HTML-tolerant, returns null for non-listing emails) + `createGmailFetchMessages`
+  composing `@bridge/integrations-google`'s `GoogleGatewayFactory.fetchThreads` (no tool-owned OAuth,
+  per the plan's rule). **BusinessBroker.net** — checked `robots.txt`: Disallows `/listings/` and every
+  query-string URL (covers its search endpoint); no RSS/sitemap fallback exists. Live scraping rejected
+  as non-compliant; shipped only the real `normalizeBusinessBrokerRow` (alias-tolerant field mapping +
+  fill-based confidence heuristic), `fetcher` stays an injected seam pending a licensed/partner feed.
+  Added `@bridge/integrations-google` as a `dealpilot` dependency. New `test/connectors.test.ts` (10
+  tests: parser fixtures incl. HTML-stripping + null-on-unparseable, fake-gateway composition, BBN
+  normalization + confidence). **19/19 dealpilot tests, 40/40 monorepo `turbo run typecheck test`
+  tasks green.** ADR: [decisions-log.md](raw/decisions-log.md) 2026-07-04. Known-issue logged:
+  [known-issues.md](wiki/known-issues.md) (BusinessBroker.net blocked).
+  **Prototype surface**: new `/dealpilot` page (`Design Bridge AI Interface (Copy)/src/app/pages/
+  DealPilotPage.tsx`) — kanban triage board (green/yellow/red) over `dummy_` deal candidates
+  (`data/dealpilot.ts`), plus a connector-status strip that honestly reflects the real backend
+  state (BizBuySell = live via Gmail compose, BusinessBroker.net = blocked pending partner feed).
+  Registered in `data/tools.ts` (category Sourcing, status Live) + `routes.tsx`. No live API wiring
+  yet (`platform/apps/api` doesn't expose dealpilot/company-sourcing/people-sourcing/recorder —
+  gap noted in known-issues.md tool-registry-desync). Verified in preview: kanban renders, Tools
+  registry row correct, `tsc --noEmit` clean (only 5 pre-existing unrelated ItemDetail.tsx errors),
+  `vite build` green.
+
 - **2026-06-24** — **Calendar Tool — P0–P2 BUILT (Google Calendar: list + create/modify/delete, governed round-trip).** Backend (`@bridge/integrations-google`): extended the existing Google integration for full calendar CRUD. **P0 read projection**: new `google.listCalendarEvents` skill (full events, no Touchpoint proposals) + `GoogleService.listCalendarEvents` (gated `external:fetch`, auto-approved as the user's own view) + tRPC `google.listEvents`. **P2 write-back**: `EgressKind += calendar.delete`; `GoogleGateway.deleteEvent` (real Calendar v3 `events.delete`); compose skills `google.composeUpdateEvent` / `google.composeDeleteEvent` (draft-only); `EgressExecutor` `calendar.delete` dispatch (update dispatch already existed); `GoogleService.proposeSend` + tRPC `google.proposeSend` extended with `action: create|update|delete`. Every write is `external:send` → draft-then-approve (≥L2); the real Google write runs only post-approval in `EgressExecutor`, idempotent + append-only audited. **Tests**: new `packages/integrations-google/test/calendar.test.ts` (first tests in this package) — 5/5 through the REAL pipeline+gate with a `dummy_` fake gateway: list reads full events · create/update/delete are draft-only at propose then write only after approval · idempotent · **an agent can never approve** (agent-floor). Full platform suite green (9/9). **Frontend** (prototype `Design Bridge AI Interface (Copy)`): new pinnable native **Calendar** tool at `/calendar` (`data/tools.ts` + `routes.tsx` + default-pinned in `Layout.tsx`). `pages/CalendarPage.tsx` = **in-house** month/week/day/agenda calendar on date-fns + Bridge tokens (no new dep, fully modifiable — the user's stated preference; react-big-calendar remains the documented swap-in behind the same view boundary). Create/edit/delete via `data/api.ts` `apiProposeCalendarWrite` + `apiApproveProposal` (the Save click = the human approval) → syncs to Google + refreshes; falls back to `dummy_` events in demo mode (no `VITE_API_URL`). **Verified in preview** (demo mode, temp public route since AuthGate needs Supabase login — route reverted after): month grid w/ today highlight + event chips, week/day time-grid (fixed an hour-label drift), agenda grouping, New-event form, create round-trip (event appears time-sorted), event-detail drawer w/ Edit/Delete; production `vite build` green. **Dev note**: previewing required a gitignored `dummy_`-only `data/network.ts` stub (the real PII-derived file is absent in worktrees — known artifact). Conference / rituals / initiatives = future adapters emitting the same `CalendarEvent` shape; surface unchanged. Plan: [docs/raw/calendar-plan.md](raw/calendar-plan.md).
 
 - **2026-06-24** — **Calendar Tool — research + implementation plan (no code yet).** User wants one in-app calendar aggregating Google Calendar (live) + future conference/event integrations + Rituals/Initiatives/Touchpoints + team/shared calendars + scheduling. Researched OSS options (firecrawl/exa + web), verified licenses 2026-06-24. **Decision: build a thin Calendar Tool Bridge owns = a time-axis PROJECTION over the Unified Graph, NOT a calendar product/server.** Three layers, three owners: render → adopt OSS behind a `CalendarView` port; RFC-5545 math (recurrence/tz/ICS) → adopt small libs behind `RecurrenceEngine`/`IcsCodec`; system-of-record + governance → build on existing platform (projection · reuse `integrations`/`external_records` sync · Pipeline egress write-back · RLS-scoped team/shared). **Picks (free + forkable, user won't pay + heavily customizes)**: **react-big-calendar** (MIT, v1.20.0) · **ical.js** (MPL-2.0, recurrence+ICS in one) · **ical-generator** (MIT, .ics feed) · **Luxon** (tz). **Rejected embed**: Cal.com (AGPLv3) · Radicale/Baïkal (GPL-3.0) · Nextcloud (AGPLv3) · FullCalendar/Schedule-X premium (paid) — copyleft and/or a 2nd source-of-truth that fights the graph+pipeline+RLS. `CalendarEvent` typed output_contract unifies GCal (already synced, local plane) + Touchpoints + ritual_runs + Initiative timelines + future conference/ICS adapters; **new source = new adapter, surface never changes** (future-proof). Phases P0 contract+projection → P1 read-only surface → P2 governed write-back+feed → P3 rituals/initiatives overlay → P4 team/shared (RLS+lanes) → P5 conference adapters → P6+ scheduling (defer; revisit cal.diy MIT, verify license). New docs: [docs/raw/calendar-plan.md](raw/calendar-plan.md) (plan) + [docs/wiki/calendar.md](wiki/calendar.md) (caveman); wired into wiki index + oss + stack + decisions; ADR appended to [docs/raw/decisions-log.md](raw/decisions-log.md); raw OSS.md/STACK.md library lists updated. Sequences after local-gate slice + Initiatives P1. **No code yet — P0 build-ready on user's go.**

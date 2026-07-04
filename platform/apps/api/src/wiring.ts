@@ -64,6 +64,9 @@ import {
   type GoogleOAuthConfig,
   type ToolManifest,
 } from "@bridge/integrations-google";
+import { createInMemoryCaptureStore, createToolSourceSkill, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
+import { createFactStore, type FactStore } from "@bridge/facts";
+import { createBizBuySellAlertConnector, createGmailFetchMessages } from "@bridge/dealpilot";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -100,6 +103,14 @@ export interface Wiring {
   pilotUserId: string;
   /** Ritual registry (config rows) — used by ritual.create to register new workflows. */
   ritualRegistry: RitualRegistry;
+  /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
+  dealpilot: {
+    captures: ToolCaptureStore;
+    facts: FactStore;
+    materializer: ToolIntakeMaterializer;
+    integrationId: string;
+    candidateIds: string[];
+  };
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
   memory?: {
     roles: InMemoryRoleStore;
@@ -191,6 +202,34 @@ export async function buildWiring(): Promise<Wiring> {
 
   // Register the Google skills (source/stage/compose) into the pipeline registry.
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
+
+  // DealPilot: the first tool wired through the generic manifest intake seam
+  // (@bridge/tool-kit createToolSourceSkill/ToolIntakeMaterializer) — sourcing quarantines
+  // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
+  // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
+  // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
+  // BizBuySell is registered.
+  const dealPilotCaptures: ToolCaptureStore = createInMemoryCaptureStore();
+  const dealPilotFacts: FactStore = createFactStore();
+  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
+  skillRegistry.register(
+    createToolSourceSkill({
+      toolId: "dealpilot",
+      captures: dealPilotCaptures,
+      connector: createBizBuySellAlertConnector(createGmailFetchMessages(gateways, dealPilotIntegrationId)),
+    }),
+  );
+  const dealPilotCandidateIds: string[] = [];
+  const dealPilotMaterializer = new ToolIntakeMaterializer({
+    captures: dealPilotCaptures,
+    commit: async (capture) => {
+      const candidateId = capture.captureId; // 1 capture = 1 candidate; dedupe is a later pass
+      for (const [field, value] of Object.entries(capture.payload)) {
+        dealPilotFacts.append({ entityId: candidateId, field, value, provenance: "listing", confidence: capture.confidence });
+      }
+      dealPilotCandidateIds.push(candidateId);
+    },
+  });
 
   let roles: RoleQuery;
   let agents: AgentQuery;
@@ -294,6 +333,13 @@ export async function buildWiring(): Promise<Wiring> {
     googleGatewayKind,
     googleManifest: GOOGLE_MANIFEST,
     pilotUserId: PILOT_USER,
+    dealpilot: {
+      captures: dealPilotCaptures,
+      facts: dealPilotFacts,
+      materializer: dealPilotMaterializer,
+      integrationId: dealPilotIntegrationId,
+      candidateIds: dealPilotCandidateIds,
+    },
     ritualRegistry,
     ...(memory ? { memory } : {}),
     close: async () => {

@@ -12,3 +12,10 @@ export {
   type IntakePolicy,
 } from "./manifest.js";
 export { buildToolRegistry, ToolRegistryError, type ToolRegistry } from "./registry.js";
+export {
+  createInMemoryCaptureStore,
+  createToolSourceSkill,
+  ToolIntakeMaterializer,
+  type ToolCaptureStore,
+  type QuarantinedCapture,
+} from "./intake.js";

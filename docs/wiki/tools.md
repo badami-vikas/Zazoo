@@ -24,7 +24,7 @@ full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan
 - **DoD any tool work:** manifest first · one intake seam · compose don't copy · no new shells ·
   no tool OAuth · env-bound URLs fail-loud · conformance test + wiki + log.
 
-**Progress (2026-07-04):** Phase 1 complete + Phase 2 (people/company-sourcing) started.
+**Progress (2026-07-04):** Phase 0-2 complete, Phase 3 (DealPilot anchor) shipped + P0 connectors real.
 - Shipped packages: `tool-kit` (7 tests) · `tables` (9 tests) · `dedupe` (7 tests, bigram Dice
   match scoring + strong/moderate/flag tiers) · `facts` (4 tests, append-only + living-profile) ·
   `sourcing` (5 tests, tiered waterfall + budget ledger + 2 proof connectors: API client,
@@ -32,17 +32,31 @@ full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan
 - Shipped internal tools: `tools/people-sourcing` + `tools/company-sourcing` (3+4 tests) —
   manifests validate against tool-kit, compose sourcing+dedupe+facts, domain treated as company
   business key (exact-match strong tier, same role email plays for people).
-- Whole-monorepo `turbo run typecheck test build --force`: 36/36 tasks, 0 cached.
-- Two real bugs caught by actually running tests (not trusting green build): dedupe's trigram
-  scorer was too strict for short name typos (switched to bigram Dice); a `<=` vs `<` sentinel
-  bug silently dropped the only candidate in a blocking pool.
-- **Recorder extracted** (2026-07-04): `tools/recorder` (internal) wraps the existing
-  Tools/recorder FastAPI backend as a typed HTTP sidecar port (`RecorderPort`:
-  record/pasteTranscript/transcribe/summarize) — Python code untouched, base URL is a required
-  env-bound constructor arg (fails loud, no localhost default). 3 tests.
+- **Recorder extracted**: `tools/recorder` (internal) wraps the existing Tools/recorder FastAPI
+  backend as a typed HTTP sidecar port (`RecorderPort`: record/pasteTranscript/transcribe/
+  summarize) — Python code untouched, base URL is a required env-bound constructor arg (fails
+  loud, no localhost default). 3 tests.
+- **Phase 3 — DealPilot anchor**: `tools/dealpilot` (external, `/dealpilot` nav, composes
+  company-sourcing + people-sourcing + recorder) — `ThesisFit` v1 scoring, S1-S4 pipeline
+  (waterfall → facts → dedupe compose → score), `dealsTableSpec` kanban view.
+- **DealPilot P0 connectors made real (2026-07-04)**: BizBuySell = real regex parser
+  (`parseBizBuySellAlert`) + `createGmailFetchMessages` composing the ONE governed
+  `@bridge/integrations-google` gateway (no tool-owned OAuth). BusinessBroker.net = real
+  `normalizeBusinessBrokerRow` only — its `robots.txt` Disallows `/listings/` + all query-string
+  URLs (its search endpoint) and no feed exists, so live fetch is a blocked seam, not built
+  (see [known-issues.md](known-issues.md)). 19/19 dealpilot tests. Prototype `/dealpilot`
+  kanban page shipped (dummy_ data, honest connector-status strip).
+- **Generic intake seam (2026-07-04)**: `@bridge/tool-kit` `createToolSourceSkill` /
+  `ToolIntakeMaterializer` / `ToolCaptureStore` — quarantine → pipeline `external:fetch`
+  proposal → human-commit, reusable by any manifest tool (Recon migration still pending).
+  DealPilot wired first (`apps/api` `dealpilot.source`/`commit`/`list`). 9/9 tool-kit tests.
+- Whole-monorepo `turbo run typecheck test`: 41/41 tasks green.
+- Two real bugs caught earlier by actually running tests (not trusting green build): dedupe's
+  trigram scorer was too strict for short name typos (switched to bigram Dice); a `<=` vs `<`
+  sentinel bug silently dropped the only candidate in a blocking pool.
 - **Not done**: actual recon/hni data migration into people/company-sourcing (still separate
-  apps, frozen read-only per plan §4 is the NEXT step, not yet executed), the recorder's actual
-  frontend UI migration, Phase 3+ (DealPilot/JobPilot builds).
+  apps, frozen read-only per plan §4), the recorder's frontend UI migration, DealPilot's own
+  UI surface (kanban/feed/detail — connectors + engine only so far), Phase 4+ (JobPilot).
 
 **Call (2026-06-03):** Tool model = internalize external repos + two run modes + gated intake. Reuses EXISTING primitives, ZERO new subsystem. Triggered by 2 reference repos (`Tools/card-scanner`, `Tools/recorder`).
 
