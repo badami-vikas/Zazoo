@@ -1,3 +1,5 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  # Internal + external tool packages (tool-standardization-plan.md, ADR-006).
+  - 'tools/*'

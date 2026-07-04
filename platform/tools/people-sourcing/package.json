@@ -1,0 +1,28 @@
+{
+  "name": "@bridge/people-sourcing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal tool (headless capability, no nav/route): person search/verify/enrich. Absorbs recon's per-source name-verification + match-tier governance, hni's discovery lib, JobPilot's ATS/API clients where person-shaped (docs/raw/tool-standardization-plan.md, Phase 2, ADR-006).",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/tool-kit": "workspace:*",
+    "@bridge/sourcing": "workspace:*",
+    "@bridge/dedupe": "workspace:*",
+    "@bridge/facts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

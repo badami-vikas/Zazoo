@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  platform:
+    name: platform (typecheck + test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: platform/.nvmrc
+          cache: pnpm
+          cache-dependency-path: platform/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # --force: never trust turbo's remote/local cache in CI — a green run must mean THIS
+      # checkout was tested, not a replayed log from an unrelated branch/worktree
+      # (see known-issues.md 2026-07-03, "turbo cache replays across worktrees").
+      - run: pnpm turbo run typecheck test build --force
+
+  prototype:
+    name: prototype (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Design Bridge AI Interface (Copy)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: Design Bridge AI Interface (Copy)/.nvmrc
+          cache: npm
+          cache-dependency-path: Design Bridge AI Interface (Copy)/package-lock.json
+      - run: npm install --legacy-peer-deps
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  pii-guard:
+    name: PII guard (no real export committed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          for f in \
+            "Design Bridge AI Interface (Copy)/data/Connections.csv" \
+            "Design Bridge AI Interface (Copy)/data/Invitations.csv" \
+            "Design Bridge AI Interface (Copy)/data/seed_canonical.sql" \
+            "Design Bridge AI Interface (Copy)/src/app/data/dbSignals.ts" \
+            "Design Bridge AI Interface (Copy)/src/app/data/reconStaging.ts"; do
+            if [ -f "$f" ]; then
+              echo "BLOCKED: $f must never be committed (PII-derived artifact)."
+              exit 1
+            fi
+          done
+          NET="Design Bridge AI Interface (Copy)/src/app/data/network.ts"
+          total=$(grep -cE "id: '[^']+'" "$NET" || true)
+          dummy=$(grep -cE "id: 'dummy_" "$NET" || true)
+          if [ "$total" -gt 0 ] && [ "$dummy" -lt "$total" ]; then
+            echo "BLOCKED: $NET has non-dummy_ rows — looks like a real export was committed."
+            exit 1
+          fi

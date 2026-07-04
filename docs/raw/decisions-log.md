@@ -206,3 +206,37 @@ fabricated can ever be mistaken for real data or surface to the UI/DB.
   live account or a non-dummy test double, or marked live-only.
 - Structural UUIDs must be replaced with real pilot identities, not deleted (the system
   cannot run without an identity/workspace).
+
+## ADR-006 — Full monorepo convergence + internal/external tool taxonomy (2026-07-03)
+
+**Context:** Repo held 5 separate frontend apps (prototype SPA, recon, hni, card-scanner,
+recorder) + platform/. Recon stranded (manifest + intake button wired to nothing, parallel
+staging.jsonl governance); 3 unlinked tool-registration systems; Helpdesk living as prototype
+pages (predates tool model — no slot for UI-surface tools). Two new tools specced (JobPilot,
+DealPilot — specs ingested to docs/raw as requirement docs) each proposing their OWN full stack,
+which would create apps #6/#7 and re-implement sourcing/dedupe/enrichment/tables a 5th time.
+
+**Decision (user-locked):** (a) Grow `platform/` into the SINGLE monorepo home — apps/web +
+apps/api + packages (tool-kit, tables, sourcing, dedupe, facts, llm, extraction) + tools/*;
+no new code outside it. (b) Tool taxonomy: **internal tools** = headless capabilities
+(people-sourcing, company-sourcing, enrichment, recorder, …) vs **external tools** = UI surfaces
+(Helpdesk, DealPilot, JobPilot, Conference…) that declare `composes:[internal ids]`.
+(c) Recon splits into people-sourcing + company-sourcing internal tools; staging.jsonl retired
+through the one intake seam. (d) Integrations are platform-level only — tools never own OAuth;
+capability grants via the Authority resolver. (e) Build order: engine → internal tools →
+**DealPilot first** → JobPilot + Helpdesk migration → absorb prototype.
+
+**Rationale:** One unified engine that strengthens with use; every duplicated capability
+(waterfall sourcing ×5, tables ×4, review queues ×3) becomes one package with one test surface;
+governance stays single-spine (all tool approvals = pipeline proposals).
+
+**Alternatives rejected:** shared-packages-but-keep-apps (duplication of app shells remains,
+integration still per-app); unify-new-tools-only (recon/hni/helpdesk debt persists and taxonomy
+stays split). Building JobPilot/DealPilot per their standalone architecture docs (FastAPI+SQLite;
+Next.js+Supabase+Trigger.dev) rejected — deviations recorded in the plan: Hatchet/BullMQ over
+Trigger.dev, local plane over SQLite, pipeline over bespoke review queues, Python only as
+sidecars behind ports.
+
+**Consequences:** migration phases 0–5 in raw/tool-standardization-plan.md; prototype folder
+eventually retires; Tools/* standalone apps frozen then deleted post-extraction; short-term
+overhead maintaining the prototype bridge inside apps/web during migration.

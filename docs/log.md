@@ -117,3 +117,104 @@
 - **2026-06-20** — **Social integrations + local-plane store** (`platform/`; spec `docs/superpowers/specs/2026-06-20-social-integrations-design.md`). **Slice A — local store** (the priority-track gap): `@bridge/db` `createLocalDb` = pglite adapter binding the SAME Drizzle schema + ports as cloud, so private content + OAuth tokens persist local-only (residency), never Supabase. Loads pgvector before migrating (0000 references `vector(768)`; its CREATE EXTENSION lives in the non-journaled seed); `Database` broadened to `postgres-js | pglite` union (reads drive both; writes generate ids client-side since `.returning()` typings diverge). **Slice B — governed integration permissions**: `DrizzleIntegrationStore` (connect/list/disconnect + listScopes/grantScope/revokeScope over the real `permissions`/`ephemeral_grants` CBAC tables, `revoked_at` = revoke, never deleted); `external:send`/`network_graph:full` refused as standing grants (agent-floor DENY → always-approval); tRPC `integration` router bound to the local plane. **Slices C/D + E/F**: `SocialProvider` interface behind X/Instagram/Facebook/LinkedIn + `dummy_` fixture seam (live REST + LinkedIn recon-extension clients register out-of-band when creds exist); read = source→LOCAL quarantine→`gate.propose` Touchpoint (private body kept OUT of the proposal)→pending_review; write = draft→`gate.propose` external:send→human approval→publish (egress only post-approval). Verified: monorepo typecheck 5/5, **42/42 tests** (core 38, db 2, api 2). Commits `9d9b36b`/`9ccd8d1`/`90e98f6`. **Deferred**: prototype `IntegrationDetail.tsx` permissions UI panel; live per-platform REST clients + provisioning each integration as a resolver service-principal agent (full real-pipeline enforcement — gate authority math already covered by core's 38 tests).
 - **2026-06-22** — **Social-integration Permissions UI (prototype)** + **docs reformat**. UI: `IntegrationDetail` gains a governed Permissions tab/section for X/Instagram/Facebook/LinkedIn — view/grant/narrow scopes wired to the tRPC `integration` router via new `data/integrations.ts` (provider catalog mirroring registry META + a `ScopesClient` that is the live tRPC client when `VITE_API_URL` is set, else an in-memory governed mirror seeded with `dummy_` grants) and `data/api.ts` (`query()` helper + `apiListScopes/apiGrantScope/apiRevokeScope`). `external:send`/`network_graph:full` render as locked "always requires approval" rows — non-grantable structurally (UI) and server-side (FORBIDDEN). Added Instagram/Facebook to the integrations list. Verified live in preview: grant 2→3, narrow 3→2, egress non-grantable, no console errors. Commit `903e47c`. (Boot needed a local-only gitignored `dummy_` stub for the PII-holding `data/network.ts`.) Docs: **all 16 `docs/raw/` docs now carry YAML frontmatter** (`title·type·doc_kind·status·companions·related_wiki·updated·tags`); the 5 data-shaped docs (STACK/OSS/MOCK-DATA/DESIGN-SYSTEM/ROADMAP) express their tables/tokens/phases as fenced ```yaml blocks (zero data loss; `helpdesk-requirement` body left verbatim). Narrative/research bodies stay prose. CLAUDE.md docs-protocol updated to match (was "Raw = normal prose"). Wiki already brief — left unchanged.
 - **2026-06-20** — Camera Tool BUILT (built-in capture: photo `getUserMedia`+canvas, video `MediaRecorder`; `browser-image-compression`; local `tesseract.js` OCR). New **`LocalMediaStore`** port (`packages/core/ports.ts`) = first local-plane adapter binding existing ports — blobs LOCAL ONLY (dataScope `private`, `private ∩ egress = none`), never Supabase Storage. Two adapters one port: `PgliteMediaStore` (`packages/db`, `bytea`, 3 tests) + browser `idb` (`data/localMedia.ts`). `stageCapture` skill maps `media.v1`→Touchpoint|`possible_link` Signal (no blob; 4 core tests). Bound in API `wiring.ts` (pglite when `LOCAL_MEDIA_DIR` set, else in-memory; `buildWiring` now async). Prototype: `Camera.tsx`+`CameraCaptures.tsx` (capture→compress→OCR→local persist `pending`; Add to Bridge → governed Touchpoint proposal → review → approve → append-only ledger + `committed`); registered in `tools.ts` (native,intake), mounted in `ToolDetail` (own LOCAL panel, skips Supabase `ToolCapturesPanel`); captures browsable in Resources. Capture ≠ commit; uncertain match never auto-linked. Tests: core 46/46, db 3/3. Browser-verified live: capture→IndexedDB persist→pending→Add→approve→append-only ledger, blob stays local (API off, zero Supabase). Specs/plan in `docs/superpowers/`. NOTE: `data/network.ts` gitignored (PII) — local dummy_ stub created to boot app, not committed.
+- **2026-07-03** — **End-to-end platform audit** (4 parallel deep-dives: platform backend · prototype frontend · deploy/env parity · docs/bug-process + live build/test runs). Verdict: **48/100 Blocked for multi-user prod; OK as single-user local pilot**. Hard evidence: platform typecheck+tests green (12 tests, thin; turbo replayed cached logs from OTHER worktrees — green ≠ this checkout); prototype `vite build` FAILS on fresh checkout (untracked PII artifacts `network.ts`/`dbSignals.ts`/`reconStaging.ts` hard-imported by 12 modules) + ~25 implicit-any tsc errors. Root causes mapped to complaints: integrations = social registry silent fixture fallback + no env validation + API absent in deployed static site (by design, undocumented); data inconsistency = 4 silent local-fallback loaders + non-transactional dual-writes + fire-and-forget token persist; deploy≠local = build-artifact dependency + VITE_* baked at build + manual wrangler preview-vs-prod; add-row = appended to last page + table-view-only + session-only state; bug tracking = ledgers EXIST + current, gap is visibility (no issue↔commit links, no status snapshot, stale v2 punch-list). Filed 9 new rows in known-issues.md. Full findings in session report.
+- **2026-07-03** — **Table Notion-parity P0+P1 implemented** (DataEngine.tsx/GlideTable.tsx, `platform/agentic-engineering` skill workflow). New `lib/persist.ts` (`usePersistentState`) generalizes the ResourcesPage localStorage pattern; wired to addedRows/cellOverrides/customFields/savedLists/deletedIds/colVisible/communityTypeOverrides/customTypes/columnLabelOverrides — all table edits now survive refresh. New per-tab `ViewState` (sorts[]/rowFilters/filterMatch/groupBy/activeView) persisted independently per tab, replacing the old reset-on-tab-switch behavior. Added: multi-sort via a Sort popover ("then by" chaining, header click still sets sole sort), OR/AND filter-match toggle, column rename (pencil affordance in Columns list, flows through a single `fields` memo injection point), dynamic Group-by with collapsible sections (pagination suspended while grouped). Fixed the reported "add row missing" bug: new rows now PREPEND (were appending, landing on the last page under pagination — looked like a no-op) + jump to page 1 + set highlightedRowId; Add row button now also shows in gallery/kanban views, not just table. Created a local (uncommitted, gitignored) `dummy_`-prefixed stub `network.ts` to unblock the build for verification — `tsc --noEmit` and `vite build` both pass clean on the changed files; ~5 pre-existing implicit-any errors remain in ItemDetail.tsx (unrelated, not fixed). Could not get live browser verification this session — the Preview tool's own process is pinned to Node v16 (separate from the shell `nvm alias default 24` fix applied), so `preview_start` fails on the same `crypto.getRandomValues` error the audit had already flagged; recommend the user restart their terminal/session to pick up Node 24 and manually confirm visually. Remaining P2 (peek panel, undo/redo, keyboard shortcuts, kanban drag, relation/formula columns, Resources/Helpdesk/Tools convergence onto one TableSpec) not started this pass.
+- **2026-07-03 (cont.)** — **Table P0+P1 verified live in browser** (real Supabase session, 27126 canonical people, sole-user credential). Fixed `.claude/launch.json` "bridge-prototype": the harness's own long-lived process has Node v16.20.2 shadowing v24 earlier in its fixed PATH (confirmed: `nvm alias default 24` does not fix it — the PATH ordering itself has v16's bin dir hardcoded ahead of v24's, independent of nvm's own resolution), so `preview_start` hit the same `crypto.getRandomValues` error the audit had flagged. Fix: pointed `runtimeExecutable` straight at the v24 node binary and args at `vite/bin/vite.js` directly (bypasses npm's shebang→PATH resolution chain entirely, which still failed even with an absolute npm-cli.js invocation). Server now boots clean, zero console/network errors. Verified against live data: Add row → new row appears at position 1 on page 1 (previously landed on page 1357, looked like a no-op), count increments correctly, persists across a hard reload. Sort popover adds a live sort chip. Group-by "ring" renders two real collapsible sections (Close 6782 / Extended 6772) with pagination correctly suspended. Test row + view-state cleared from localStorage after verification so no debris was left in the user's environment.
+- **2026-07-03** — **Tool Standardization Plan authored + ADR-006 locked** (full monorepo convergence · internal/external tool taxonomy · DealPilot first). Ingested 5 JobPilot/DealPilot/ETA spec files from untracked Tools/Job into docs/raw as verbatim requirement docs (frontmatter only; personal Job Application/Master Profile folders deliberately NOT ingested — PII). New raw/tool-standardization-plan.md: taxonomy (internal=capability headless, external=surface with `composes:`), target platform/ layout (packages: tool-kit·tables·sourcing·dedupe·facts·llm·extraction; tools/: people-sourcing·company-sourcing·enrichment·recorder internal + helpdesk·dealpilot·jobpilot external), recon decomposition (staging.jsonl retired thru one intake seam; hni folds in), platform-level-only integrations (no per-tool OAuth), deliberate deviations from the standalone JobPilot (FastAPI+SQLite) / DealPilot (Next.js+Supabase+Trigger.dev) architecture docs onto the platform stack, phases 0–5 with DealPilot as the first external proof. wiki/tools.md updated (caveman); ADR-006 appended to raw/decisions-log.md. Answered "why no Tools/helpdesk folder": Helpdesk predates the tool model and lives as prototype pages; migrates to tools/helpdesk in Phase 4.
+- **2026-07-03 (cont.)** — **Phase 0 + Phase 1 slice executed** (tool-standardization-plan.md). Phase 0: `.nvmrc` (root/platform/prototype, pinned 24) · `.github/workflows/ci.yml` (platform typecheck+test+build with `--force` so turbo cache can't fake green, prototype tsc+build, standalone pii-guard job) · un-ignored `network.ts` in `.gitignore` (dummy_ stub now trackable) + new `scripts/check-no-pii.sh` pre-commit hook wired via `.githooks/` (`core.hooksPath` set) blocking any commit of the real CSV/SQL exports or a network.ts with non-dummy_ rows · `platform/pnpm-workspace.yaml` gained a `tools/*` glob. New `packages/tool-kit` (`@bridge/tool-kit`): zod-based `ToolManifest` discriminated union (internal=capability w/ `provides`, no surfaces; external=surface w/ `surfaces`+`composes`, no provides), `intake_policy.quarantine` structurally forced `true` (mirrors agent-floor — capture can never skip review by construction), `buildToolRegistry` derives the registry from manifests and validates `composes` references resolve (compose-don't-copy enforced at build time) + duplicate-id guard. 7/7 tests. Phase 1 (scoped slice, not the full DataEngine move — that cutover needs the prototype inside this workspace, Phase 5): new `packages/tables` (`@bridge/tables`) extracting the pure engine proven in DataEngine.tsx's P0/P1 (2026-07-03 earlier today) — `applyFilters`/`applySorts`/`groupBy` as framework-agnostic pure functions, `TableSpec`/`ColumnSpec`/`ViewConfig` as data, `PersistencePort` interface with localStorage + in-memory adapters (swap point for the future pipeline-backed adapter). Includes an explicit regression test reproducing the "add row lands on last page" bug fixed earlier, proving the extracted engine preserves that fix. 9/9 tests, one includes the exact regression scenario. Full monorepo verified: `pnpm turbo run typecheck test build --force` → **21/21 tasks, 0 cached** (both new packages genuinely built+tested, not cache-replayed). NOT done this pass (deliberately deferred under cost budget, not risk): rewiring DataEngine.tsx to import from `@bridge/tables` — requires the prototype to join a pnpm workspace (currently npm, separate from platform/) which is a deliberate Phase-5-adjacent structural step, not a rushed side effect. `packages/dedupe`, `packages/facts`, `packages/sourcing` (Phase 1 remainder) and Phase 2+ (people-sourcing/company-sourcing internal tools, recon decomposition) not started.
+
+## 2026-07-04 — Tool standardization: Phase 1 complete, Phase 2 started
+
+Continued docs/raw/tool-standardization-plan.md.
+
+**Phase 1 remainder shipped:**
+- `platform/packages/dedupe` — key-id exact match, blocking-key pre-filter, bigram Dice
+  similarity, strong/moderate/flag tiers (generalizes the recon match-governance decision).
+  7 tests.
+- `platform/packages/facts` — append-only fact store: provenance enum, confidence, `supersededBy`
+  correction chain, `livingProfile()` latest-wins view with provenance-rank tie-break. 4 tests.
+- `platform/packages/sourcing` — `SourceConnector` port, tiered cost waterfall
+  (reserve→execute→settle budget ledger, confidence-floor short-circuit), 2 proof connectors
+  (typed API client, email-alert parser — the latter takes pre-fetched messages, never touches
+  Gmail itself, per the "no tool-owned OAuth" rule). 5 tests.
+
+**Phase 2 started:**
+- `platform/tools/people-sourcing` and `platform/tools/company-sourcing` — internal-tool
+  manifests (validated by `@bridge/tool-kit`, `kind: internal`, no surfaces), composing
+  sourcing+dedupe+facts into `source.people`/`source.company` + `match.people`/`match.company`
+  capabilities. Company matching treats domain as the business key (same role email plays for
+  people) — exact domain match short-circuits to "strong" regardless of name spelling. 3+4 tests.
+  A cross-tool test proves a DealPilot-shaped external manifest composing both registers clean.
+
+**Bugs caught by actually running tests, not trusting the build:** dedupe's original trigram
+scorer was too strict for realistic short-name typos ("Jon"/"John", "Smith"/"Smyth") — switched
+to bigram Dice, which degrades far more gracefully for short name fields. Separately, a `score <=
+best.score` comparison used 0 as the "no match yet" sentinel, so a single candidate scoring
+exactly 0 in a blocking pool was silently dropped instead of returned as a flagged result — fixed
+by using -1 as the sentinel and clamping the empty-pool case back to 0 on return.
+
+**Verification:** `pnpm turbo run typecheck test build --force` at platform root — 36/36 tasks
+successful, 0 cached, after a clean `rm -rf dist` on every touched package (avoids the
+previously-diagnosed stale-dist false-positive trap).
+
+**Deliberately NOT done this pass:** migrating recon's/hni's actual data and connectors into
+these new tools (plan §4 — recon/hni apps should freeze read-only once that migration lands, but
+the migration itself is a separate, larger unit); recorder extraction to `tools/recorder`; Phase
+3+ (DealPilot build, JobPilot build, Helpdesk migration, prototype absorption). See
+[docs/wiki/tools.md](wiki/tools.md) progress note and [docs/raw/tool-standardization-plan.md](raw/tool-standardization-plan.md)
+for the remaining phase sequence.
+
+## 2026-07-05 — Phase 3 anchor + standalone-build contract for parallel DealPilot work
+
+User asked to continue Phase 3 while also starting the real DealPilot build in a SEPARATE
+session, and whether DealPilot can be developed independently yet still merge cleanly later.
+
+**Answer, locked into docs/raw/tool-standardization-plan.md section 7:** yes, provided DealPilot
+depends on the composition contract (manifests + typed ports: `SourceConnector`, `RunWaterfall`,
+`PersistencePort`, `FactStore`, `RecorderPort`, `DedupeCandidate`/`MatchResult`) and never on
+another tool's implementation. If the parallel session lacks the platform packages, it may vendor
+hand-written stub modules matching those exact type shapes, tagged `// STUB — replace with
+@bridge/<pkg>`. Merge-back is then: delete tagged stubs, flip deps to `workspace:*`, rerun tests,
+register the manifest, `turbo run typecheck test build --force` stays green. Same recipe applies
+to JobPilot in Phase 4.
+
+**Phase 3 anchor shipped:** `platform/tools/dealpilot` — manifest only (`kind: external`,
+`surfaces: [/dealpilot]`, `composes: [company-sourcing, people-sourcing, recorder]`), a
+registry-composition test proving it registers cleanly alongside the three internal tools it
+composes. This is the reference artifact a parallel session extends, not forks — the manifest's
+`composes` list grows as real capabilities land, the file itself stays one thing.
+
+**Verification:** `pnpm turbo run typecheck test build --force` — 42/42 tasks, 0 cached.
+
+**Not done:** the actual DealPilot feature (kanban/feed/detail UI, ThesisFit scoring, deal_facts
+schema, P0 connectors, CIM sequences) — that is Phase 3's real scope (~3-4 weeks per the plan)
+and is deliberately left to the parallel session per the user's stated intent, following section
+7's contract.
+
+## 2026-07-05 (cont.) — Phase 3: DealPilot's first real engine slice
+
+Extended `platform/tools/dealpilot` beyond the manifest anchor into a working S1-S4 vertical
+slice (docs/raw/dealpilot-architecture-requirement.md), entirely by composing shared packages —
+no sourcing/dedupe/facts/table code duplicated:
+
+- `scoring.ts` — ThesisFit v1: deterministic rule score over industry/geo/SDE/revenue against a
+  tenant's `ThesisProfile`, green/yellow/red triage thresholds. v2 (learned re-ranking) is
+  explicitly out of scope, per the requirement doc.
+- `connectors.ts` — the two P0 connectors named in the plan, BizBuySell (email-alert) and
+  BusinessBroker.net (API-client), built on `@bridge/sourcing`'s shared connector factories.
+- `pipeline.ts` — `processDealCandidate()`: runs the waterfall, records facts, calls
+  company-sourcing's `matchCompany` for dedupe (compose, don't copy — DealPilot has no dedupe
+  logic of its own), scores the living profile via ThesisFit.
+- `table.ts` — `dealsTableSpec` + a kanban `ViewConfig` grouped by triage, on `@bridge/tables`.
+
+10 new tests (scoring, pipeline, table) on top of the 2 manifest tests — 12 total in this
+package. Full monorepo `pnpm turbo run typecheck test build --force`: 42/42, 0 cached.
+
+One `exactOptionalPropertyTypes` fix: building `DealProfile` as an object literal with
+possibly-undefined values failed strict TS — fixed by assigning fields additively (only set a key
+when a fact actually exists), which is also the more correct semantics: an absent field means "no
+fact recorded," not "fact recorded as undefined."
+
+**Not done:** the actual triage UI (needs `apps/web`, Phase 5), document pipeline (S7), waterfall
+tiers 2-5 (browser-agent/human), analysis engine (S9), billing (S12) — all deferred to whichever
+session continues DealPilot per the section 7 standalone-build contract.

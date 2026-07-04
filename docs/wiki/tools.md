@@ -1,6 +1,48 @@
 # Tools (wiki)
 
-full: [../raw/tools-internalization.md](../raw/tools-internalization.md)
+full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan: [../raw/tool-standardization-plan.md](../raw/tool-standardization-plan.md)
+
+## Standardization plan (LOCKED 2026-07-03, ADR-006)
+- **One monorepo.** `platform/` = single home. apps/web + apps/api + packages (tool-kit ·
+  tables · sourcing · dedupe · facts · llm · extraction) + tools/*. No new app shells EVER.
+- **Internal tool = capability** (headless, no nav): people-sourcing · company-sourcing ·
+  enrichment · recorder · extraction. **External tool = surface** (UI, registry entry):
+  Helpdesk · DealPilot · JobPilot · Card Scanner · Camera · Calendar · Conference. External
+  manifest declares `composes: [internal ids]` — Conference composes recorder, gets it free.
+- **Recon splits** → people-sourcing + company-sourcing internal tools. staging.jsonl parallel
+  governance DIES; everything through ONE intake seam → quarantine → proposal → Approvals.
+  hni folds into people-sourcing. Helpdesk migrates from prototype pages → tools/helpdesk
+  (why no Tools/helpdesk folder existed: predates tool model).
+- **Integrations platform-level ONLY.** Tools never own OAuth. Capability grants via Authority.
+  DealPilot CIM-request + JobPilot Gmail-router use the SAME google integration thru the gate.
+- **JobPilot/DealPilot specs** = requirement docs in raw/ (verbatim). Their standalone stacks
+  REJECTED: Hatchet/BullMQ not Trigger.dev · local plane not SQLite · pipeline not bespoke
+  review queues · Python = sidecars behind ports only (Docling, Resume-Matcher scorers).
+- **Order:** Phase 0 hygiene → 1 extract engine (tables/dedupe/facts/sourcing pkgs) →
+  2 internal tools → 3 **DealPilot FIRST** → 4 JobPilot + Helpdesk migration → 5 absorb
+  prototype, delete standalone apps.
+- **DoD any tool work:** manifest first · one intake seam · compose don't copy · no new shells ·
+  no tool OAuth · env-bound URLs fail-loud · conformance test + wiki + log.
+
+**Progress (2026-07-04):** Phase 1 complete + Phase 2 (people/company-sourcing) started.
+- Shipped packages: `tool-kit` (7 tests) · `tables` (9 tests) · `dedupe` (7 tests, bigram Dice
+  match scoring + strong/moderate/flag tiers) · `facts` (4 tests, append-only + living-profile) ·
+  `sourcing` (5 tests, tiered waterfall + budget ledger + 2 proof connectors: API client,
+  email-alert parser).
+- Shipped internal tools: `tools/people-sourcing` + `tools/company-sourcing` (3+4 tests) —
+  manifests validate against tool-kit, compose sourcing+dedupe+facts, domain treated as company
+  business key (exact-match strong tier, same role email plays for people).
+- Whole-monorepo `turbo run typecheck test build --force`: 36/36 tasks, 0 cached.
+- Two real bugs caught by actually running tests (not trusting green build): dedupe's trigram
+  scorer was too strict for short name typos (switched to bigram Dice); a `<=` vs `<` sentinel
+  bug silently dropped the only candidate in a blocking pool.
+- **Recorder extracted** (2026-07-04): `tools/recorder` (internal) wraps the existing
+  Tools/recorder FastAPI backend as a typed HTTP sidecar port (`RecorderPort`:
+  record/pasteTranscript/transcribe/summarize) — Python code untouched, base URL is a required
+  env-bound constructor arg (fails loud, no localhost default). 3 tests.
+- **Not done**: actual recon/hni data migration into people/company-sourcing (still separate
+  apps, frozen read-only per plan §4 is the NEXT step, not yet executed), the recorder's actual
+  frontend UI migration, Phase 3+ (DealPilot/JobPilot builds).
 
 **Call (2026-06-03):** Tool model = internalize external repos + two run modes + gated intake. Reuses EXISTING primitives, ZERO new subsystem. Triggered by 2 reference repos (`Tools/card-scanner`, `Tools/recorder`).
 

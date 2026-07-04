@@ -1,0 +1,25 @@
+{
+  "name": "@bridge/tool-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool manifest schema + registry loader + conformance tests — the single source of truth for internal/external tools (docs/raw/tool-standardization-plan.md, ADR-006).",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

@@ -8,6 +8,82 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN — Recon stranded outside the tool system.** Has `RECON_MANIFEST` + `buildCaptureEnvelope` +
+  "Add to Bridge" button (`Tools/recon/lib/bridge.ts`) but: no `tools.ts` registry entry, intake URL
+  never configured (button posts nowhere), staging.jsonl/permanent.jsonl = parallel governance never
+  reaching `tool_captures`/ledger/Approvals. Fix: register + wire intake + migrate staged facts.
+  Audit 2026-07-03.
+
+- **OPEN — Tool registry desync: 3 unlinked systems.** `tools.ts` (display) vs scattered per-tool
+  manifests vs `tool_captures` schema — no programmatic binding; no `tool_version`/`copy_ref` in
+  schema; manifests declare egress/plane but nothing enforces at runtime; hardcoded service URLs
+  (Ollama :11434, recorder :5174/:8000). Fix: manifest = single source, registry derives from it,
+  intake validates against manifest version. Audit 2026-07-03.
+
+- **RESOLVED (2026-07-03) — Table edits session-only (Notion-parity P0+P1).** Generalized the
+  Resources localStorage pattern into `lib/persist.ts` (`usePersistentState`); addedRows,
+  cellOverrides, customFields, savedLists, deletedIds, colVisible, communityTypeOverrides,
+  customTypes, columnLabelOverrides now all persist across refresh. Added per-tab `ViewState`
+  (sorts[], rowFilters, filterMatch all/any, groupBy, activeView) persisted + independent per tab —
+  switching tabs no longer resets sort/filter. Added: multi-sort (Sort popover, "then by" chaining),
+  OR-filter toggle, column rename (pencil icon in Columns list), dynamic Group-by (collapsible
+  sections, pagination suspended while grouped). Fixed add-row: rows now PREPEND (not append) +
+  jump to page 1 + set `highlightedRowId`, so a new row is immediately visible instead of landing on
+  the last page looking like a no-op; Add row also now shows in gallery/kanban, not just table view.
+  `tsc --noEmit` clean on DataEngine.tsx/GlideTable.tsx/persist.ts; `vite build` succeeds. Still
+  session-storage-tier (localStorage, not the API/pipeline) — swap-in point is `usePersistentState`
+  when the platform API is live. Remaining P2 (not done): peek panel, undo/redo, keyboard shortcuts,
+  kanban card drag, relation/formula column types, convergence of Resources/Helpdesk/Tools onto the
+  same TableSpec.
+
+- **IN PROGRESS — Prototype build NOT reproducible: untracked PII artifacts are hard imports.**
+  Fresh clone/worktree `vite build` FAILS: `network.ts` gitignored (PII) but imported by 6 modules
+  (`DataEngine.tsx:19`, `db.ts:5`, `signals.ts:8`, `helpdesk.ts:11`, `associations.ts:12`,
+  `ItemDetail.tsx:13`). 2026-07-03: created a local `dummy_`-prefixed stub at that exact path (loose
+  `[key: string]: any` index signatures + `dummy_`-prefixed sample rows) to unblock `tsc --noEmit`
+  and `vite build` on THIS machine — confirmed both pass. Still NOT committed (file stays gitignored
+  per design; needs your go-ahead per the earlier plan to commit it so every fresh checkout builds).
+  Also: ~5 pre-existing implicit-`any` errors remain in `ItemDetail.tsx` (unrelated to tables, not
+  yet fixed). Root cause of "deploy ≠ local". Audit 2026-07-03.
+
+- **OPEN — Add row looks broken.** 3 stacked causes: (1) new row appended to END of merged data
+  (`DataEngine.tsx:228`) → with pagination lands on last page, click looks like no-op; (2) button
+  only in `table` view + footer hidden on Signals/Map (`DataEngine.tsx:1136-1142`); (3) added rows =
+  session React state only — refresh loses them, never persisted. HelpdeskPage uses GlideTable w/o
+  footer → no add-row at all. Fix: insert at top of current page + scroll-to + persist (localStorage
+  or API). Audit 2026-07-03.
+
+- **OPEN — Silent local-fallback in prototype data loaders.** All 4 canonical loaders
+  (`db.ts:86-260`) catch-all → local fallback, zero warn/badge. Supabase down/misconfigured =
+  stale data shown as if live → "data inconsistent" perception. Fix: `console.warn` + source badge
+  ("local fallback") in DataEngine footer. Audit 2026-07-03.
+
+- **OPEN — Social registry silent fixture fallback.** `apps/api/src/social/registry.ts:56-62`:
+  missing OAuth creds → `makeFixtureProvider()` silently; dummy data flows into real pipeline,
+  UI reports sync success. Fix: fail-fast in prod, loud warn in dev, mark proposals synthetic.
+  (Google gateway correctly fails closed — social does not.) Audit 2026-07-03.
+
+- **OPEN — API: no env validation, in-memory ledger silently used, /health checks nothing.**
+  No `DATABASE_URL` → in-memory ledger, restart = data gone, `/health` still `ok:true`
+  (`server.ts:15`). No fail-fast on missing `BRIDGE_LOCAL_DIR`/`SUPABASE_*` in prod. Fix: startup
+  env assertions + `/health/ready` probing db + local plane. Audit 2026-07-03.
+
+- **OPEN — CORS `origin: true`** (`server.ts:16`). Combined w/ pinned pilot identity = any site can
+  drive the API as pilot user. Fix: allowlist from `API_ALLOWED_ORIGINS`. Audit 2026-07-03.
+
+- **OPEN — Gmail draft created on Google BEFORE approval.** `draftOutbound()` calls
+  `gmail.drafts.create` at propose; veto leaves orphan draft in user's Gmail. Fix: compose local at
+  propose, create Google draft post-approval (or delete on veto). Audit 2026-07-03.
+
+- **OPEN — Local+canonical dual-write non-transactional; token refresh fire-and-forget.** Intake
+  dual-write can partially fail (local ok, canonical fail) → orphans/dupes; `gateway-google.ts`
+  `client.on("tokens", void putToken)` — failed persist silent → stale token → 401 next sync.
+  Fix: idempotency key + retry queue; try/catch + signal on token persist fail. Audit 2026-07-03.
+
+- **OPEN — No CI; turbo cache replays across worktrees.** Zero `.github/workflows`. Turbo replays
+  cached test logs from OTHER worktrees (stale paths in output) → green run ≠ this checkout tested.
+  Fix: GH Actions (install/typecheck/test/build both apps) + `--force` in CI. Audit 2026-07-03.
+
 - **OPEN — Calendar fetch window: no `timeMax`, 250-event cap, refetch-per-nav.** `GoogleGateway.fetchEvents`
   lists from `timeMin` forward ordered by start (max 250), no upper bound. The Calendar surface passes
   `timeMin` = start of the visible period, so a single fetch covers the view + following events up to 250;

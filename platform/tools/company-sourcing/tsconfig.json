@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"],
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../packages/tool-kit" },
+    { "path": "../../packages/sourcing" },
+    { "path": "../../packages/dedupe" },
+    { "path": "../../packages/facts" },
+    { "path": "../people-sourcing" }
+  ],
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

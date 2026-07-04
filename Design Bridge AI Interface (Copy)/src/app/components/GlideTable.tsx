@@ -42,14 +42,15 @@ const bridgeTheme = {
 } as const;
 
 export function GlideTable({
-  rows, fields, rowHeight, onOpen, onSort, sort, selectable, onSelectedRowsChange, onCellEdit, onCellEdited, onRowMenu,
+  rows, fields, rowHeight, onOpen, onSort, sorts, selectable, onSelectedRowsChange, onCellEdit, onCellEdited, onRowMenu,
 }: {
   rows: any[];
   fields: GlideField[];
   rowHeight: number;
   onOpen: (row: any) => void;
   onSort?: (id: string) => void;
-  sort?: { id: string; dir: 'asc' | 'desc' } | null;
+  /** Multi-sort: index 0 = primary. Header shows a rank number (↑2) when more than one is active. */
+  sorts?: { id: string; dir: 'asc' | 'desc' }[];
   selectable?: boolean;
   onSelectedRowsChange?: (count: number, rowIndices: number[]) => void;
   /** Called when a non-name cell is clicked outside selection mode (popover-based editors). */
@@ -78,13 +79,15 @@ export function GlideTable({
   const baseCols = useMemo<SizedGridColumn[]>(() => {
     const colMap = new Map<string, SizedGridColumn>([
       ['name', { title: 'Name', id: 'name', width: 240 }],
-      ...fields.map(f => [f.id, {
-        title: pretty(f.label) + (sort?.id === f.id ? (sort.dir === 'asc' ? '  ↑' : '  ↓') : ''),
-        id: f.id, width: f.width || 180,
-      }] as [string, SizedGridColumn]),
+      ...fields.map(f => {
+        const idx = sorts?.findIndex(s => s.id === f.id) ?? -1;
+        const s = idx >= 0 ? sorts![idx] : undefined;
+        const arrow = s ? (s.dir === 'asc' ? '  ↑' : '  ↓') + ((sorts?.length ?? 0) > 1 ? String(idx + 1) : '') : '';
+        return [f.id, { title: pretty(f.label) + arrow, id: f.id, width: f.width || 180 }] as [string, SizedGridColumn];
+      }),
     ]);
     return colOrder.filter(id => colMap.has(id)).map(id => colMap.get(id)!);
-  }, [fields, sort, colOrder]);
+  }, [fields, sorts, colOrder]);
 
   const [widths, setWidths] = useState<Record<string, number>>({});
   const columns = useMemo(() => baseCols.map(c => ({ ...c, width: widths[c.id as string] ?? (c.width as number) })), [baseCols, widths]);
