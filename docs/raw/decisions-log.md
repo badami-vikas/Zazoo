@@ -14,6 +14,31 @@ Format per entry:
 - **Alternatives rejected:** and why.
 - **Consequences / follow-ups:** what this commits us to, what remains open.
 
+## 2026-07-05 — Drop the BusinessBroker.net licensed-feed build; route through the Claude-in-browser waterfall
+
+**Context:** `businessbroker.net/robots.txt` disallows `/listings/` and every query-string URL —
+DealPilot's `createBusinessBrokerNetConnector` has a real normalizer but no live fetcher. A
+licensed/partner data feed would unblock a real connector, but that's a vendor/cost/legal
+decision, not an engineering one, and there's no pilot fund yet whose deal flow depends on it.
+
+**Decision:** Don't pursue the licensed feed for now. BusinessBroker.net stays a `Brokerage`
+record (`data/brokerages.ts`, status `disconnected`) that routes through the existing
+`ConnectAppFlow` waterfall's `claude_browser` step ("Claude in browser" — Claude drives an
+actual browser session) the same way any no-API brokerage portal does. No new code needed —
+this is the wizard's existing fallback for exactly this case.
+
+**Rationale:** Zero build cost, no dead-end scraper code to maintain against a site that
+actively blocks it, and the user isn't blocked on sourcing BusinessBroker.net listings — they
+go through the same governed browser-driven flow as every other credential-gated brokerage.
+
+**Alternatives rejected:** building/maintaining a scraper that violates robots.txt (legal risk,
+fragile, explicitly rejected already); pausing on a licensed feed vendor search (no pilot fund
+yet to justify the cost/lead time).
+
+**Consequences / follow-ups:** `known-issues.md`'s BusinessBroker.net entry updated to point
+here. If a pilot fund later needs BusinessBroker.net volume a scraper can't deliver, revisit a
+licensed feed then, not speculatively now.
+
 ---
 
 ## 2026-07-04 — Generic manifest intake seam (@bridge/tool-kit), DealPilot wired first

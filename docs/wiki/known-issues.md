@@ -182,6 +182,10 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   therefore ships with a real *normalization* function (`normalizeBusinessBrokerRow`) but no
   live `fetcher` — the transport stays an injected seam. Real wiring needs a licensed/partner
   data feed, not a scraper. See decisions-log 2026-07-04 (dealpilot-connectors).
+  **DECIDED (2026-07-05): not pursuing the licensed feed for now.** BusinessBroker.net stays a
+  `Brokerage` record routed through the existing `ConnectAppFlow` waterfall's `claude_browser`
+  step — same governed no-API fallback every other brokerage portal uses. No build needed; see
+  decisions-log 2026-07-05.
 
 - **RESOLVED (intake seam only, 2026-07-04) — Generic manifest intake seam now exists.**
   `@bridge/tool-kit` gained `createToolSourceSkill`/`ToolIntakeMaterializer`/`ToolCaptureStore`
