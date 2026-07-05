@@ -41,6 +41,68 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
     line coverage — line coverage ≠ edge-case coverage), `jobpilot` overall 80.11%/86.31%.
   Fix: see `docs/raw/testing-strategy.md` for prioritized test list (once drafted).
 
+- **RESOLVED 2026-07-05 — Gmail sync double-propose window; N+1 sequential thread fetch;
+  unbounded multipart recursion/decode (integrations-google).** Three related fixes, all confined
+  to `platform/packages/integrations-google/`:
+  1. **Double-propose window** — `intake.ts`'s `hasExternal` check only excluded already-
+     MATERIALIZED records; two `syncGmail`/`syncCalendar` calls before a proposal was approved
+     staged duplicate PENDING proposals for the same thread/event, and approving both would
+     double-commit Touchpoints/Memories. Fix: `IntakeService` now tracks an in-process
+     `pendingSeeds: Map<seed, proposalId>` (no core change — confirmed `@bridge/core` exposes no
+     query-by-seed surface on the ledger/pipeline) — `stage()` returns the existing pending
+     proposal instead of creating a new one; the slot clears via `GoogleService.onApproved`
+     (fires on approve/veto/edit alike) so a vetoed item can be legitimately re-proposed later.
+  2. **N+1 sequential Gmail fetches** — `GoogleApiGateway.fetchThreads` did `threads.list` then a
+     SEQUENTIAL `threads.get` per thread, zero retry. Fix: bounded-concurrency fetch (cap 15) via
+     a new `mapWithConcurrency` helper, each call wrapped in a new file-local `withRetry` (3
+     attempts, linear backoff); a thread failing every retry is skipped (logged), not fatal to
+     the sync.
+  3. **Unbounded multipart recursion + full base64 decode** — `extractPlainText` had no depth
+     cap on MIME multipart recursion and no size cap before decoding. Fix: `MAX_MIME_DEPTH` (10)
+     stops recursion and falls back to the Gmail snippet; `MAX_BODY_BYTES` (5MB) truncates an
+     oversized body part instead of fully decoding it into memory.
+  New tests: `intake-dedup.test.ts`, `gateway-fetch-concurrency.test.ts` (mocks `googleapis` via
+  `node:test`'s `mock.module`, package `test` script gained `--experimental-test-module-mocks`),
+  `extract-plain-text-bounds.test.ts`. Full monorepo `turbo run build --force` + `turbo run test
+  --force`: all packages green except a pre-existing, unrelated `apps/api` `pagination.test.ts`
+  FK-violation failure from a parallel session's in-flight work (confirmed untouched by this
+  change) — that session's own pagination work has since landed and is green; see the
+  "No pagination on any list surface" entry below. See `All fixes.md` section 2/3 and Phase 2
+  item 9b for the full writeup, and `docs/raw/decisions-log.md`'s matching 2026-07-05 entry.
+
+- **RESOLVED 2026-07-05 — No pagination on any list surface (`dealpilot.list`,
+  `integration.list`).** `router.ts`'s `dealpilot.list` previously mapped the ENTIRE candidate
+  set through per-id `facts.livingProfile()` on every call; `integration.list` returned the full
+  `DrizzleIntegrationStore.list()` array with no slicing — both were an unbounded
+  full-table-scan-shaped response. Fix: both procedures now take zod-validated `limit`
+  (`1..200`, default `50`) + `offset` (`>=0`, default `0`) and return
+  `{ items, total, hasMore }` — a plain offset slice (not a cursor scheme), since the backing
+  stores are an in-memory array (`candidateIds`) and a full `store.list()` fetch with no stable
+  ordering key to cursor on yet. `dealpilot.list`'s input is `.optional().default({})` so the
+  existing no-arg prototype call site keeps working unchanged at the wire level;
+  `apiDealPilotList()` (`Design Bridge AI Interface (Copy)/src/app/data/api.ts`) was updated to
+  request `{ limit: 200, offset: 0 }` and unwrap `.items`, preserving today's "show everything"
+  UI behavior (no pager built yet) while the backend response stays bounded. New tests in
+  `platform/apps/api/test/pagination.test.ts`: explicit-limit pagination for both procedures
+  across two offsets, plus a "no unlimited default" test (75 `dummy_`-prefixed fixtures, confirms
+  a no-params call returns exactly the documented default of 50, not everything). Full
+  `turbo run build --force` + `turbo run test --force`: 28/28 packages green. See `All fixes.md`
+  section 3 and Phase 3 item 14c for the full writeup.
+
+- **RESOLVED 2026-07-05 — `decide()` dropped audit context on replay.** `core/src/pipeline.ts`'s
+  `decide()` reconstructed the request with `skill: "(replayed)"` and silently dropped the
+  original `context`/`dataScope` from the `LedgerEntry` (`pipeline.ts:320-334`) — the audit trail
+  couldn't answer which ritual produced a decision or what data tier it touched. Fix: `dataScope`/
+  `context` are now real fields on `LedgerEntry` and real `data_scope`/`context` columns on
+  `ledger` (same migration as the double-approve fix below); `#appendLedger` persists the
+  proposing request's `dataScope`/`context` at propose-time, and `#requestFromEntry` (the replay
+  path) threads the ORIGINAL values through on decide() instead of dropping them. `skill:
+  "(replayed)"` is kept only as the literal skill-name placeholder (the ledger never stored a
+  skill name — decide() never re-invokes a skill). New test in `pipeline.test.ts` asserts a
+  replayed decide's ledger rows and `Proposal.request` carry the original `dataScope`/`context`;
+  `ledger-store.test.ts` proves the round-trip through real Postgres/pglite columns. See
+  `All fixes.md` Phase 1 item 5 for the full writeup.
+
 - **OPEN — P0 batch from 2026-07-04 platform code review (3 parallel staff-level review passes).**
   Verified against code, each independently ship-blocking:
   1. **RLS not in version control.** No `ENABLE ROW LEVEL SECURITY` / `CREATE POLICY` anywhere in
@@ -78,11 +140,21 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
      Also still true: agent-floor DENY block in `0001` is a documented template, "not executed"
      — the DB-level backstop for the agent-floor invariant does not exist; enforcement is
      app-layer only (separate from the journal fix, remains open).
-  3. **`decide()` double-approve TOCTOU.** `core/src/pipeline.ts:171-206` get→decisionFor→append
-     with no transaction/lock; resolution linkage lives in jsonb magic key `__refLedgerId`
-     (`db/src/ledger-store.ts:17`) with no unique index. Two concurrent decides (double-click,
-     retry) both pass the check → double-commit → double-fire `onApproved` → external send twice.
-     Fix: real `ref_ledger_id` column + partial unique index + catch-unique-violation in decide.
+  3. **RESOLVED 2026-07-05 — `decide()` double-approve TOCTOU.** `core/src/pipeline.ts:171-206`
+     get→decisionFor→append had no transaction/lock; resolution linkage lived in jsonb magic key
+     `__refLedgerId` (`db/src/ledger-store.ts:17`) with no unique index — two concurrent decides
+     (double-click, retry) could both pass the check → double-commit → double-fire `onApproved`
+     → external send twice. Fix shipped: real `ref_ledger_id`/`seed`/`data_scope`/`context`
+     columns on `ledger` (`0003_ledger_ref_column.sql`) + a partial unique index
+     `ledger_ref_ledger_id_resolved_uq` (non-null `user_decision` only) enforcing "at most one
+     resolving decision per proposal" at the database; `ledger-store.ts` catches the resulting
+     unique-violation and translates it into a new typed `AlreadyResolvedError` (also thrown by
+     the in-process pre-check, and by a new atomic check-and-mark in `InMemoryLedger.append()`
+     for the in-memory ledger); `router.ts`'s `decide` procedure maps it to `409 CONFLICT`
+     (floor-deny now maps to `403 FORBIDDEN` via a new `AgentFloorDeniedError`, same pattern as
+     `IntegrationFloorScopeError`). New concurrent-decide tests in `pipeline.test.ts` (in-memory)
+     and `packages/db/test/ledger-store.test.ts` (real pglite) both prove exactly one of two
+     "concurrent" decides succeeds. See `All fixes.md` Phase 1 item 4 for the full writeup.
   4. **DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
      `wiring.ts:212` `createInMemoryCaptureStore()` with no DATABASE_URL branch (restart = sourced
      captures vanish; `tool_captures` table exists only in comments, not schema); `dealpilot.list`
@@ -98,6 +170,9 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
      + fire-and-forget token persist** (`gateway-google.ts:233-241` `void putToken` — rotated
      refresh token that fails to persist bricks the integration silently). Fix: shared
      backoff helper, `.catch()`+health flag on token persist, batch/limit thread fetches.
+     **RESOLVED 2026-07-05 (N+1/retry half) + RESOLVED 2026-07-04 (token-persist half)** — see
+     the dedicated entry above for the N+1/retry fix; token-persist fix already noted elsewhere
+     in this file.
   7. **`inputs: z.unknown()` through the "single validate+sanitize chokepoint"** (`router.ts:89`)
      → unvalidated client payload flows to `skill.run` and the ledger; `envelope as never` at
      `router.ts:310` bypasses typing entirely. Fix: per-skill zod schemas + discriminated union
@@ -108,8 +183,9 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   ritual halt leaves committed steps un-rolled-back, post-policy `block` is a no-op,
   `timeline_entries` has no workspace/occurred_at index, missing hnsw index on embeddings,
   nullable-unique dedup_key, enum-as-text without CHECKs, no updated_at on mutable tables,
-  BizBuySell parse-null-rate unmonitored, `hasExternal` check-then-act double-propose window,
-  Gmail sync double-click duplicate proposals).
+  BizBuySell parse-null-rate unmonitored. `hasExternal` check-then-act double-propose window /
+  Gmail sync double-click duplicate proposals — **RESOLVED 2026-07-05**, see the dedicated entry
+  above.
 
 - **OPEN — Persistent mode contradicts the local-ledger residency guarantee.** `wiring.ts` header
   says "The ledger MUST stay local for private proposals" but the `DATABASE_URL` branch binds
@@ -205,10 +281,16 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   staging-schema-mapping project). Either path is a multi-session architecture decision, not a
   same-pass bug fix — needs the user to pick a direction before implementation starts.
 
-- **OPEN — DealPilot API wiring has 1 remaining pilot-scale simplification.** `dealpilot.list`
-  (`router.ts`) uses a fixed empty thesis (`{industries:[],geo:[]}`) — no thesis-management UI/
-  storage exists yet, so every candidate scores on defaults. This is an `apps/api/src/wiring.ts`
-  follow-up, not an architecture gap.
+- **RESOLVED (2026-07-05) — DealPilot API wiring's pilot-scale simplification (fixed empty
+  thesis) closed; capture-list endpoint added.** `dealpilot.list` (`router.ts`) previously used a
+  fixed empty thesis (`{industries:[],geo:[]}`) — no thesis-management UI/storage existed, so
+  every candidate scored on defaults. Added basic in-memory thesis storage (`dealPilotThesis` in
+  `apps/api/src/wiring.ts`, mirrors the existing `dealPilotCandidateIds` session-lifetime pattern,
+  typed to `@bridge/dealpilot`'s `ThesisProfile`) plus `dealpilot.getThesis`/`dealpilot.setThesis`
+  tRPC procedures (`router.ts`); `dealpilot.list` now reads the live thesis. Also added
+  `dealpilot.captures` (`router.ts`), exposing `ctx.wiring.dealpilot.captures.list("dealpilot")`
+  so a user can see quarantined-but-not-yet-committed captures pending review. Full
+  thesis-management UI (frontend) is still a separate, larger open item.
 
 - **RESOLVED (2026-07-04) — DealPilot dedupe-on-commit now wired.** `wiring.ts`'s
   `dealPilotMaterializer.commit` now builds a `DedupeCandidate` from the incoming capture and
@@ -261,8 +343,12 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   `[key: string]: any` index signatures + `dummy_`-prefixed sample rows) to unblock `tsc --noEmit`
   and `vite build` on THIS machine — confirmed both pass. Still NOT committed (file stays gitignored
   per design; needs your go-ahead per the earlier plan to commit it so every fresh checkout builds).
-  Also: ~5 pre-existing implicit-`any` errors remain in `ItemDetail.tsx` (unrelated to tables, not
-  yet fixed). Root cause of "deploy ≠ local". Audit 2026-07-03.
+  Also: ~5 pre-existing implicit-`any` errors in `ItemDetail.tsx` — **RESOLVED 2026-07-05**: typed
+  `EditableText`/`ContactCard`'s `fv`/`Boundaries`' `Col`/`visMeta`, and added explicit `bio`,
+  `newsInsight`, `websiteUrl`, `githubHandle`, `instagramHandle`, `twitterHandle`, `skills`,
+  `education`, `previousCompanies` fields to `NetworkPerson` (`network.ts`) so the stub's loose
+  index signature stops leaking `any` into `.map()` callbacks; `tsc --noEmit` + `vite build` clean.
+  Root cause of "deploy ≠ local" (the untracked `network.ts` stub itself) still open. Audit 2026-07-03.
 
 - **OPEN — Add row looks broken.** 3 stacked causes: (1) new row appended to END of merged data
   (`DataEngine.tsx:228`) → with pagination lands on last page, click looks like no-op; (2) button
@@ -271,20 +357,33 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   footer → no add-row at all. Fix: insert at top of current page + scroll-to + persist (localStorage
   or API). Audit 2026-07-03.
 
-- **OPEN — Silent local-fallback in prototype data loaders.** All 4 canonical loaders
+- **RESOLVED 2026-07-05 — Silent local-fallback in prototype data loaders.** All 4 canonical loaders
   (`db.ts:86-260`) catch-all → local fallback, zero warn/badge. Supabase down/misconfigured =
-  stale data shown as if live → "data inconsistent" perception. Fix: `console.warn` + source badge
-  ("local fallback") in DataEngine footer. Audit 2026-07-03.
+  stale data shown as if live → "data inconsistent" perception. Fix shipped: `console.warn` in all
+  4 catch blocks naming loader + error; "Live · Supabase" / "Local fallback" pill now in
+  `DataEngine.tsx` People/Communities toolbar off the `source` field loaders already returned.
+  Audit 2026-07-03.
 
-- **OPEN — Social registry silent fixture fallback.** `apps/api/src/social/registry.ts:56-62`:
-  missing OAuth creds → `makeFixtureProvider()` silently; dummy data flows into real pipeline,
-  UI reports sync success. Fix: fail-fast in prod, loud warn in dev, mark proposals synthetic.
-  (Google gateway correctly fails closed — social does not.) Audit 2026-07-03.
+- **RESOLVED 2026-07-05 — Social registry silent fixture fallback.** `apps/api/src/social/registry.ts`:
+  missing OAuth creds → `makeFixtureProvider()` silently; dummy data flowed into the pipeline with
+  no operator-visible signal. Fix shipped: `resolveProvider()` now `console.warn`s the platform id
+  and reason (no live factory registered vs. creds missing) whenever it falls back to the fixture
+  seam; `read-pipeline.ts`'s `sourceToProposals()` now threads `provider.mode` into both the
+  `ActionRequest.inputs` and the returned `SourceResult`, so every proposal/audit row records
+  fixture-vs-live. New tests in `apps/api/test/social.test.ts` cover both. `fixtures.ts`/`provider.ts`
+  untouched (already had the right `mode` shape — this was a surfacing fix, not new state).
+  (Google gateway already failed closed — social did not; now it's loud instead.) Audit 2026-07-03.
 
-- **OPEN — API: no env validation, in-memory ledger silently used, /health checks nothing.**
-  No `DATABASE_URL` → in-memory ledger, restart = data gone, `/health` still `ok:true`
-  (`server.ts:15`). No fail-fast on missing `BRIDGE_LOCAL_DIR`/`SUPABASE_*` in prod. Fix: startup
-  env assertions + `/health/ready` probing db + local plane. Audit 2026-07-03.
+- **RESOLVED 2026-07-05 — API: no env validation, in-memory ledger silently used, /health checks
+  nothing.** No `DATABASE_URL` → in-memory ledger, restart = data gone, `/health` still `ok:true`
+  (`server.ts:15`). No fail-fast on missing `DATABASE_URL` in prod. Fix: `assertProductionEnv()`
+  throws at boot when `NODE_ENV=production` and `DATABASE_URL` is unset. New `GET /health/ready`
+  probes `wiring.ledger.get(...)` and `wiring.localPlane.graph.hasExternal(...)` with a
+  syntactically-valid probe id, returns `{ ready, persistent, checks }` and a real 503 on failure
+  — `/health` itself is unchanged (liveness only, still unconditionally `ok:true` by design). 4 new
+  tests in `server.test.ts`; `@bridge/api` 10/10, monorepo `turbo build`/`test --force` 28/28
+  green. `BRIDGE_LOCAL_DIR`/`SUPABASE_*` prod fail-fast still not asserted (narrower scope than
+  originally flagged — DATABASE_URL/ledger was the P0 half). Audit 2026-07-03.
 
 - **RESOLVED (2026-07-04) — CORS `origin: true`.** `server.ts` gained `corsOriginConfig()`:
   `API_ALLOWED_ORIGINS` (comma-separated) always wins when set; without it, dev
@@ -305,11 +404,17 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   at propose, gmail.drafts.create called only after human approval (idempotent)") — the calendar
   create/update/delete paths already had this coverage, email didn't. 6/6 green.
 
-- **RESOLVED (2026-07-04) — Local+canonical dual-write non-transactional; token refresh
-  fire-and-forget.** The token-persist half: `gateway-google.ts`'s `client.on("tokens", ...)` now
-  `.catch()`s and logs instead of a bare `void`. **Still open:** the dual-write half (intake can
-  partially fail — local ok, canonical fail — with no idempotency key or retry queue). Audit
-  2026-07-03.
+- **RESOLVED (2026-07-04, dual-write half 2026-07-05) — Local+canonical dual-write
+  non-transactional; token refresh fire-and-forget.** The token-persist half: `gateway-google.ts`'s
+  `client.on("tokens", ...)` now `.catch()`s and logs instead of a bare `void`. Dual-write half
+  (2026-07-05): `commitEntity` made idempotent in both `LocalGraphStore` backends —
+  `packages/local/src/stores/pglite.ts` (`ON CONFLICT (id) DO NOTHING`) and
+  `packages/local/src/stores/memory.ts` (duplicate id is now a no-op, not a thrown error) — plus a
+  small bounded `withRetry` wrapper (no new dependency) around the whole body of
+  `IntakeMaterializer.applyApproved` (`packages/integrations-google/src/intake.ts`), since every
+  step it performs (`upsertPersonIdentity`, `upsertPerson`, `commitEntity`, `recordExternal`) is now
+  idempotent, retrying the whole method on a transient failure is safe. See
+  `docs/raw/decisions-log.md`'s 2026-07-05 entry for the full rationale. Audit 2026-07-03.
 
 - **RESOLVED (2026-07-04) — No CI; turbo cache replays across worktrees.** `.github/workflows/ci.yml`
   now exists (added by a parallel session): platform typecheck+test+build with `--force` (explicit
@@ -318,13 +423,18 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   correctly using `--force`. Not yet verified green on a live run (no `gh` push performed this
   session) — flagging as resolved-pending-first-run, not fully closed.
 
-- **OPEN — Calendar fetch window: no `timeMax`, 250-event cap, refetch-per-nav.** `GoogleGateway.fetchEvents`
-  lists from `timeMin` forward ordered by start (max 250), no upper bound. The Calendar surface passes
-  `timeMin` = start of the visible period, so a single fetch covers the view + following events up to 250;
-  navigating FAR past/future or a very dense calendar can exceed the window (events missing until Refresh /
-  re-nav). Live-mode also refetches (an audited `external:fetch`) on each period change — by-design but chatty.
-  Fix later: add `timeMax` to the gateway + fetch exactly the visible range (and/or a local event cache).
-  Calendar P0–P2 (2026-06-24).
+- **RESOLVED 2026-07-05 — Calendar fetch window: no `timeMax`, 250-event cap, refetch-per-nav.**
+  `GoogleGateway.fetchEvents` listed from `timeMin` forward ordered by start (max 250), no upper
+  bound; the Calendar surface passed `timeMin` = start of the visible period only, relying on the
+  250-cap to cover the rest. Fix: added `timeMax` to `FetchEventsOpts` (`contracts.ts`) —
+  `GoogleApiGateway.fetchEvents` defaults it to `timeMin` + 90 days when omitted; threaded through
+  `skills.ts`/`intake.ts`/`service.ts`/`router.ts`. `CalendarPage.tsx` now computes a matching
+  `rangeEnd` (end of visible month/week/day, or +90d for agenda) alongside `rangeStart` and passes
+  both on every reload/refresh/write. Refetch-per-nav is unchanged (by-design, still chatty but not
+  a correctness bug) — local event cache remains a future optimization, not required for
+  correctness now that the range is bounded both ends. Verified: `turbo run build`/`test --force`
+  28/28 packages green; prototype `tsc --noEmit` + `vite build` clean; Month/Week/Agenda views
+  checked in-browser, no console errors. Calendar P0–P2 (2026-06-24).
 
 ---
 
@@ -352,3 +462,29 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   dummy_ + fixtures; tests need live creds). Not yet executed. See decisions-log
   2026-06-22 (dummy). Until done, `dummy_` data still in `integrations-google` gateway +
   tests + wiring seeds.
+
+
+- **RESOLVED 2026-07-05 — Agent-floor invariant triplicated across three packages, and had
+  actually drifted.** `AGENT_FLOOR_MUTATIONS` (`core/src/authority.ts`), `isForbiddenAgentToken`
+  (`core/src/agent-scope.ts`), and `ALWAYS_APPROVAL_SCOPES` (`db/src/integration-store.ts`) each
+  independently declared "what an agent may never do." `ALWAYS_APPROVAL_SCOPES` was missing the
+  whole governance-resource floor (`policy`/`policy_param`/`skill`/`agent`/`role`/`permission`/
+  `ledger`/`delegation`) the other two enforced. Fix: new
+  [agent-floor.ts](../../platform/packages/core/src/agent-floor.ts) in `@bridge/core` is the
+  single canonical source (union of the three = the safe strictest set); the other two now derive
+  from it instead of re-declaring. New
+  [agent-floor.test.ts](../../platform/packages/core/test/agent-floor.test.ts) smoke-tests the
+  relationship so a future one-sided edit fails loudly. **Still open:** the DB-level agent-floor
+  seed (`0001_governance_seed.sql:52-67`) remains a documented-not-executed template — the app-layer
+  floor above is real and enforced, but there is still no DB-level backstop.
+
+- **RESOLVED 2026-07-05 — JWKS verify failures explode context creation.**
+  [identity.ts](../../platform/apps/api/src/identity.ts): the remote JWKS verify call had no
+  timeout or catch — a slow/down JWKS endpoint (or any verify failure) turned every authenticated
+  request into an unhandled rejection during tRPC context creation instead of a clean 401. Fix:
+  `createRemoteJWKSet` now bounds the key-set fetch with jose's `timeoutDuration` (5s); the verify
+  call is wrapped in try/catch that raises a typed `IdentityVerificationError` on any failure
+  (timeout, network error, bad signature, expired/malformed token); `context.ts` catches that and
+  throws `TRPCError({code:"UNAUTHORIZED"})`, which the tRPC fastify adapter turns into a real 401.
+  New tests: `apps/api/test/identity.test.ts` + a `server.test.ts` end-to-end case (forged bearer
+  token against a live server via `app.inject` → `statusCode 401`, not a hang/500).

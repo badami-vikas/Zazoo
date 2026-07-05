@@ -43,6 +43,7 @@ interface SourceCalendarInputs {
   workspaceId: string;
   maxResults?: number;
   timeMin?: string;
+  timeMax?: string;
 }
 interface ComposeEmailInputs {
   integrationId: string;
@@ -53,6 +54,7 @@ interface ListCalendarInputs {
   integrationId: string;
   maxResults?: number;
   timeMin?: string;
+  timeMax?: string;
 }
 interface ComposeEventInputs {
   integrationId: string;
@@ -115,6 +117,7 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
       const { events } = await gw.fetchEvents({
         ...(i.maxResults ? { maxResults: i.maxResults } : {}),
         ...(i.timeMin ? { timeMin: i.timeMin } : {}),
+        ...(i.timeMax ? { timeMax: i.timeMax } : {}),
       });
       for (const e of events) {
         await deps.bodies.put({
@@ -155,6 +158,7 @@ function listCalendarSkill(deps: GoogleSkillDeps): Skill {
       const { events } = await gw.fetchEvents({
         ...(i.maxResults ? { maxResults: i.maxResults } : {}),
         ...(i.timeMin ? { timeMin: i.timeMin } : {}),
+        ...(i.timeMax ? { timeMax: i.timeMax } : {}),
       });
       return {
         proposedOutput: { source: CALENDAR_SOURCE, count: events.length, events },

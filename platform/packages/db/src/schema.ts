@@ -27,6 +27,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { uuidv7 } from "@bridge/core";
 
 /** pgvector column. v1 dim = 768 (nomic-embed-text-v1.5). */
 const vector = (name: string, dim: number) =>
@@ -40,6 +41,24 @@ const vector = (name: string, dim: number) =>
   })(name);
 
 const uuidPk = () => uuid("id").primaryKey().default(sql`gen_random_uuid()`);
+/**
+ * PK for append-only, high-write tables (ledger, events, timeline_entries).
+ * Random v4 uuids B-tree-page-split-thrash on high-insert-rate tables with no
+ * time locality; UUIDv7 (RFC 9562, time-prefixed) keeps new rows physically
+ * adjacent. `$defaultFn` generates the id application-side (Drizzle calls this
+ * before sending the INSERT) via `@bridge/core`'s `uuidv7()` — there is no
+ * native Postgres uuidv7() before PG18 (Supabase/pglite are both pre-v18), and
+ * this repo's convention is a small in-house generator over a new npm
+ * dependency (see docs/raw/decisions-log.md). The column DEFAULT is still
+ * gen_random_uuid() (v4) as a defense-in-depth backstop for direct-SQL inserts
+ * that bypass Drizzle — see migrations/0004_schema_hardening.sql's comment on
+ * item (2). Forward-only: existing v4 row ids are NOT migrated.
+ */
+const uuidPkV7 = () =>
+  uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`)
+    .$defaultFn(() => uuidv7());
 const now = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 // =====================================================================
@@ -94,67 +113,88 @@ export const teamMembers = pgTable(
 // =====================================================================
 // LAYER 2 — TWO-TIER NETWORK
 // =====================================================================
-export const peopleCanonical = pgTable("people_canonical", {
-  id: uuidPk(),
-  fullName: text("full_name"),
-  preferredName: text("preferred_name"),
-  currentTitle: text("current_title"),
-  currentCompanyName: text("current_company_name"),
-  bio: text("bio"),
-  linkedinUrl: text("linkedin_url"),
-  twitterHandle: text("twitter_handle"),
-  githubHandle: text("github_handle"),
-  websiteUrl: text("website_url"),
-  emails: text("emails").array(),
-  locationCity: text("location_city"),
-  locationCountry: text("location_country"),
-  avatarUrl: text("avatar_url"),
-  enrichmentSource: text("enrichment_source"),
-  lastEnrichedAt: timestamp("last_enriched_at", { withTimezone: true }),
-  enrichmentConfidence: numeric("enrichment_confidence"),
-  dedupKey: text("dedup_key").unique(),
-  // ── Extended social identity (added v1.1) ─────────────────────────────
-  instagramHandle: text("instagram_handle"),
-  tiktokHandle: text("tiktok_handle"),
-  blueskyHandle: text("bluesky_handle"),
-  mastodonUrl: text("mastodon_url"),
-  // ── Academic / research presence ──────────────────────────────────────
-  orcidId: text("orcid_id"),
-  scholarUrl: text("scholar_url"),
-  // ── Structured professional context ───────────────────────────────────
-  /** [{name, title, from?, to?}] */
-  previousCompanies: jsonb("previous_companies").$type<Array<{ name: string; title: string; from?: string; to?: string }>>(),
-  /** [{institution, degree?, field?, year?}] */
-  education: jsonb("education").$type<Array<{ institution: string; degree?: string; field?: string; year?: string }>>(),
-  skills: text("skills").array(),
-  // ── Recon enrichment state ─────────────────────────────────────────────
-  reconRunAt: timestamp("recon_run_at", { withTimezone: true }),
-  /** [{label, value, source, url?}] risk/compliance/exposure signals */
-  reconSignals: jsonb("recon_signals").$type<Array<{ label: string; value: string; source: string; url?: string }>>(),
-});
+export const peopleCanonical = pgTable(
+  "people_canonical",
+  {
+    id: uuidPk(),
+    fullName: text("full_name"),
+    preferredName: text("preferred_name"),
+    currentTitle: text("current_title"),
+    currentCompanyName: text("current_company_name"),
+    bio: text("bio"),
+    linkedinUrl: text("linkedin_url"),
+    twitterHandle: text("twitter_handle"),
+    githubHandle: text("github_handle"),
+    websiteUrl: text("website_url"),
+    emails: text("emails").array(),
+    locationCity: text("location_city"),
+    locationCountry: text("location_country"),
+    avatarUrl: text("avatar_url"),
+    enrichmentSource: text("enrichment_source"),
+    lastEnrichedAt: timestamp("last_enriched_at", { withTimezone: true }),
+    enrichmentConfidence: numeric("enrichment_confidence"),
+    // NOT `.unique()` — a plain drizzle-generated unique constraint here would
+    // recreate the exact role_permissions drift bug (`drizzle-kit push` testing
+    // a different constraint than what migrates to prod). The real constraint is
+    // a partial unique index (`people_canonical_dedup_key_uq`, WHERE dedup_key IS
+    // NOT NULL — multiple NULL-key rows are allowed, non-null duplicates are
+    // rejected) hand-written in migrations/0004_schema_hardening.sql.
+    dedupKey: text("dedup_key"),
+    // ── Extended social identity (added v1.1) ─────────────────────────────
+    instagramHandle: text("instagram_handle"),
+    tiktokHandle: text("tiktok_handle"),
+    blueskyHandle: text("bluesky_handle"),
+    mastodonUrl: text("mastodon_url"),
+    // ── Academic / research presence ──────────────────────────────────────
+    orcidId: text("orcid_id"),
+    scholarUrl: text("scholar_url"),
+    // ── Structured professional context ───────────────────────────────────
+    /** [{name, title, from?, to?}] */
+    previousCompanies: jsonb("previous_companies").$type<Array<{ name: string; title: string; from?: string; to?: string }>>(),
+    /** [{institution, degree?, field?, year?}] */
+    education: jsonb("education").$type<Array<{ institution: string; degree?: string; field?: string; year?: string }>>(),
+    skills: text("skills").array(),
+    // ── Recon enrichment state ─────────────────────────────────────────────
+    reconRunAt: timestamp("recon_run_at", { withTimezone: true }),
+    /** [{label, value, source, url?}] risk/compliance/exposure signals */
+    reconSignals: jsonb("recon_signals").$type<Array<{ label: string; value: string; source: string; url?: string }>>(),
+  },
+  (t) => [
+    // `= ANY(emails)` lookups (identity resolution) were a per-row array scan
+    // with no index at all. GIN supports `&&`/`@>`/`= ANY` array containment.
+    index("people_canonical_emails_idx").using("gin", t.emails),
+  ],
+);
 
-export const communitiesCanonical = pgTable("communities_canonical", {
-  id: uuidPk(),
-  name: text("name"),
-  kind: text("kind"),
-  description: text("description"),
-  websiteUrl: text("website_url"),
-  logoUrl: text("logo_url"),
-  linkedinUrl: text("linkedin_url"),
-  memberCountApprox: integer("member_count_approx"),
-  headquartersCity: text("headquarters_city"),
-  headquartersCountry: text("headquarters_country"),
-  dedupKey: text("dedup_key").unique(),
-  // ── Recon enrichment (added v1.1) ──────────────────────────────────────
-  techStack: text("tech_stack").array(),
-  twitterHandle: text("twitter_handle"),
-  githubOrg: text("github_org"),
-  employeeCountApprox: integer("employee_count_approx"),
-  foundedYear: integer("founded_year"),
-  /** [{title, url, postedAt?}] open roles from Greenhouse/Lever */
-  hiringSignals: jsonb("hiring_signals").$type<Array<{ title: string; url: string; postedAt?: string }>>(),
-  reconRunAt: timestamp("recon_run_at", { withTimezone: true }),
-});
+export const communitiesCanonical = pgTable(
+  "communities_canonical",
+  {
+    id: uuidPk(),
+    name: text("name"),
+    kind: text("kind"),
+    description: text("description"),
+    websiteUrl: text("website_url"),
+    logoUrl: text("logo_url"),
+    linkedinUrl: text("linkedin_url"),
+    memberCountApprox: integer("member_count_approx"),
+    headquartersCity: text("headquarters_city"),
+    headquartersCountry: text("headquarters_country"),
+    // NOT `.unique()` — see peopleCanonical.dedupKey above. Real constraint is
+    // the partial unique index `communities_canonical_dedup_key_uq` in
+    // migrations/0004_schema_hardening.sql.
+    dedupKey: text("dedup_key"),
+    // ── Recon enrichment (added v1.1) ──────────────────────────────────────
+    techStack: text("tech_stack").array(),
+    twitterHandle: text("twitter_handle"),
+    githubOrg: text("github_org"),
+    employeeCountApprox: integer("employee_count_approx"),
+    foundedYear: integer("founded_year"),
+    /** [{title, url, postedAt?}] open roles from Greenhouse/Lever */
+    hiringSignals: jsonb("hiring_signals").$type<Array<{ title: string; url: string; postedAt?: string }>>(),
+    reconRunAt: timestamp("recon_run_at", { withTimezone: true }),
+  },
+  () => [],
+);
 
 export const communities = pgTable("communities", {
   id: uuidPk(),
@@ -296,15 +336,19 @@ export const touchpoints = pgTable(
   (t) => [index("touchpoints_tree_idx").on(t.initiativeId, t.parentTouchpointId)],
 );
 
-export const timelineEntries = pgTable("timeline_entries", {
-  id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-  type: text("type").notNull(),
-  content: text("content"),
-  createdBy: text("created_by").notNull(),
-  createdAt: now(),
-});
+export const timelineEntries = pgTable(
+  "timeline_entries",
+  {
+    id: uuidPkV7(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    type: text("type").notNull(),
+    content: text("content"),
+    createdBy: text("created_by").notNull(),
+    createdAt: now(),
+  },
+  (t) => [index("timeline_entries_ws_occurred_idx").on(t.workspaceId, t.occurredAt)],
+);
 
 export const timelineEntryRefs = pgTable(
   "timeline_entry_refs",
@@ -354,6 +398,14 @@ export const embeddings = pgTable(
   (t) => [
     unique("embeddings_uq").on(t.entityType, t.entityId, t.embeddingModel),
     index("embeddings_entity_idx").on(t.entityType, t.entityId),
+    // ANN index for similarity search (docs/raw/SCHEMA.sql:171). Drizzle has no
+    // native `USING hnsw` index builder / vector distance-operator-class API, so
+    // the actual `CREATE INDEX ... USING hnsw (embedding vector_cosine_ops)` DDL
+    // lives in migrations/0004_schema_hardening.sql (hand-written, same pattern
+    // as the role_permissions coalesce-NULL index below and in 0001). This entry
+    // exists so `drizzle-kit push`/`generate` don't fight the hand-written index
+    // by re-diffing it away — Drizzle only "knows" the table has this shape via
+    // the migration journal, not via a declared index here.
   ],
 );
 
@@ -590,6 +642,19 @@ export const ledger = pgTable("ledger", {
   userDecision: text("user_decision"), // approve | veto | edit
   diff: jsonb("diff"),
   policyResults: jsonb("policy_results"),
+  /** Links a decision row back to the proposal it resolves. Real column (see
+   * 0003_ledger_ref_column.sql) — a partial unique index enforces "at most one
+   * non-rejected decision per ref_ledger_id" at the DB, closing the double-approve
+   * TOCTOU the old `diff->>'__refLedgerId'` jsonb-only linkage could not. */
+  refLedgerId: uuid("ref_ledger_id"),
+  /** Trace seed: ties a request to its originating event/signal. Real column —
+   * previously only round-tripped via a `diff` jsonb reserved key. */
+  seed: text("seed"),
+  /** Data tier this action touched (the access dropdown) — audit completeness. */
+  dataScope: text("data_scope"),
+  /** Original run context (initiative/community/ritual + runId) — audit completeness;
+   * lets a replayed decide() thread the SAME context instead of a synthetic one. */
+  context: jsonb("context"),
   createdAt: now(),
 });
 

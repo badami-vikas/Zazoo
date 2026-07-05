@@ -20,6 +20,9 @@
  */
 import type { Action, ResourceType } from "./types.js";
 import { intersectDataScope, type DataScope } from "./data-scope.js";
+import { isForbiddenAgentToken } from "./agent-floor.js";
+
+export { isForbiddenAgentToken };
 
 export type EgressTier = "none" | "read-graph" | "draft-graph" | "source-internet";
 
@@ -40,23 +43,6 @@ export function egressTierTokens(tier: EgressTier): string[] {
     case "source-internet":
       return [...SOURCE_INTERNET];
   }
-}
-
-/** Tokens an agent may never hold — escalation / self-modification / god-mode. */
-export function isForbiddenAgentToken(token: string): boolean {
-  if (token === "*") return true; // god-mode wildcard
-  return (
-    token.startsWith("external:send") ||
-    token.startsWith("network_graph:full") ||
-    token.startsWith("policy:") ||
-    token.startsWith("policy_param:") ||
-    token.startsWith("skill:") ||
-    token.startsWith("agent:") ||
-    token.startsWith("role:") ||
-    token.startsWith("permission:") ||
-    token.startsWith("ledger:") ||
-    token.startsWith("delegation:")
-  );
 }
 
 export interface BuiltAgentCapability {

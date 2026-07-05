@@ -8,6 +8,7 @@
  * in-tenant capability layer. They compose — neither replaces the other.
  */
 import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { z } from "zod";
 import type {
   AgentQuery,
   EphemeralQuery,
@@ -27,6 +28,46 @@ import {
 } from "./schema.js";
 
 type Effect = "allow" | "deny";
+
+/**
+ * `agents.capability_scope` jsonb shape. `tokens` is a legacy alias for
+ * `resources`; `dataScope` is optional (absent = "all"). This is the ONLY gate
+ * this jsonb passes through in either direction — malformed data must never
+ * be written (write time throws), and if a bad row is somehow already present
+ * (pre-fix data, another process, a raw insert), reading it must throw rather
+ * than silently filtering bad entries out or falling back to a default scope,
+ * since either of those failure modes silently changes what an agent is
+ * authorized to do.
+ */
+export const capabilityScopeSchema = z
+  .object({
+    resources: z.array(z.string().min(1)).optional(),
+    tokens: z.array(z.string().min(1)).optional(),
+    dataScope: z.enum(["all", "public", "private"]).optional(),
+  })
+  .strict();
+
+export const allowedSkillsSchema = z.array(z.string().min(1));
+
+/** Validate `agents.capability_scope` jsonb at read or write time. Throws on the first bad field. */
+export function parseCapabilityScope(
+  raw: unknown,
+): { resources?: string[]; tokens?: string[]; dataScope?: "all" | "public" | "private" } {
+  const result = capabilityScopeSchema.safeParse(raw ?? {});
+  if (!result.success) {
+    throw new Error(`Invalid agents.capability_scope jsonb: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/** Validate `agents.allowed_skills` at read or write time. Throws on the first bad entry. */
+export function parseAllowedSkills(raw: unknown): string[] {
+  const result = allowedSkillsSchema.safeParse(raw ?? []);
+  if (!result.success) {
+    throw new Error(`Invalid agents.allowed_skills: ${result.error.message}`);
+  }
+  return result.data;
+}
 
 function asGrant(row: {
   resourceType: string;

@@ -9,6 +9,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
+import { PILOT_WORKSPACE } from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -19,9 +20,14 @@ import type {
   RitualDefinition,
   RunContext,
 } from "@bridge/core";
-import { buildAgentCapability, validateRitualWithinAgents } from "@bridge/core";
+import {
+  AgentFloorDeniedError,
+  AlreadyResolvedError,
+  buildAgentCapability,
+  validateRitualWithinAgents,
+} from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
-import { scoreThesisFit } from "@bridge/dealpilot";
+import { scoreThesisFit, type ThesisProfile } from "@bridge/dealpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
@@ -40,6 +46,30 @@ function cleanContext(
 ): RunContext | undefined {
   if (!c) return undefined;
   return { type: c.type, id: c.id, ...(c.runId ? { runId: c.runId } : {}) };
+}
+
+/**
+ * Interim single-tenant safety fix (All fixes.md Phase 3 item 11a): the platform is
+ * single-tenant by construction (`PILOT_WORKSPACE` baked into `buildWiring()`), but
+ * several procedures accepted a `workspaceId` param and either silently ignored it
+ * (`dealpilot.list`, pre-fix) or never had the param to begin with (`google.*`).
+ * Full multi-tenancy is out of scope for this pass (Phase 5, pilot-recruitment-
+ * driven) — so instead of threading real per-tenant scoping through every store,
+ * every workspace-scoped procedure now EXPLICITLY REJECTS any workspaceId that isn't
+ * the pilot workspace, rather than silently proceeding as if it were. This turns a
+ * silent cross-tenant leak (if a second workspace id were ever passed) into a loud,
+ * typed 403 — an honest reflection of "this platform only serves one workspace right
+ * now," not a promise of real isolation.
+ */
+class NonPilotWorkspaceError extends Error {
+  constructor(readonly workspaceId: string) {
+    super(`workspaceId "${workspaceId}" is not the pilot workspace — multi-tenancy is not yet supported`);
+    this.name = "NonPilotWorkspaceError";
+  }
+}
+
+function assertPilotWorkspace(workspaceId: string): void {
+  if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
 }
 
 const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
@@ -85,7 +115,7 @@ const proposeInput = z.object({
   onBehalfOf: onBehalfOfSchema.optional(),
   action: actionEnum,
   resourceType: resourceTypeEnum,
-  resourceId: z.string().optional(),
+  resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
   skill: z.string().min(1),
   dataScope: dataScopeEnum.optional(),
@@ -109,7 +139,7 @@ const ritualStep = z.object({
   skill: z.string().min(1),
   action: actionEnum,
   resourceType: resourceTypeEnum,
-  resourceId: z.string().optional(),
+  resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
   dataScope: dataScopeEnum.optional(),
 });
@@ -167,6 +197,7 @@ export const appRouter = t.router({
   action: t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
     propose: t.procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
+      assertPilotWorkspace(input.workspaceId);
       // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request
       // body. An agent actor keeps its requested service identity but always drafts and
       // still requires a human approval downstream (agent-floor + require_approval).
@@ -204,13 +235,28 @@ export const appRouter = t.router({
     decide: t.procedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
       // claimed actor — the agent-floor in decide() blocks any agent from approving.
-      const resolved = await ctx.wiring.pipeline.decide(
-        input.proposalId,
-        input.decision,
-        ctx.identity,
-        ctx.run,
-        input.editedOutput,
-      );
+      let resolved;
+      try {
+        resolved = await ctx.wiring.pipeline.decide(
+          input.proposalId,
+          input.decision,
+          ctx.identity,
+          ctx.run,
+          input.editedOutput,
+        );
+      } catch (err) {
+        // Double-approve / already-resolved (including the persistent ledger's
+        // partial-unique-index race guard) → 409, not a generic 500.
+        if (err instanceof AlreadyResolvedError) {
+          throw new TRPCError({ code: "CONFLICT", message: err.message });
+        }
+        // Agent-floor DENY at the review gate (an agent attempted to approve) → 403,
+        // matching the IntegrationFloorScopeError → FORBIDDEN pattern above.
+        if (err instanceof AgentFloorDeniedError) {
+          throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+        }
+        throw err;
+      }
       // Post-approval Google side effects (no-op for unrelated proposals):
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
@@ -266,10 +312,20 @@ export const appRouter = t.router({
 
     /** Source Calendar through the gate → propose Touchpoints. */
     syncCalendar: t.procedure
-      .input(z.object({ maxResults: z.number().int().positive().max(100).optional() }).optional())
+      .input(
+        z
+          .object({
+            maxResults: z.number().int().positive().max(100).optional(),
+            timeMin: z.string().optional(),
+            timeMax: z.string().optional(),
+          })
+          .optional(),
+      )
       .mutation(async ({ input, ctx }) => {
         return ctx.wiring.google.syncCalendar(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
+          ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
+          ...(input?.timeMax ? { timeMax: input.timeMax } : {}),
         });
       }),
 
@@ -281,6 +337,7 @@ export const appRouter = t.router({
           .object({
             maxResults: z.number().int().positive().max(250).optional(),
             timeMin: z.string().optional(),
+            timeMax: z.string().optional(),
           })
           .optional(),
       )
@@ -288,6 +345,7 @@ export const appRouter = t.router({
         const events = await ctx.wiring.google.listCalendarEvents(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
+          ...(input?.timeMax ? { timeMax: input.timeMax } : {}),
         });
         return { events };
       }),
@@ -453,8 +511,8 @@ export const appRouter = t.router({
    * DealPilot — the first tool on the generic manifest intake seam (@bridge/tool-kit).
    * `source` quarantines through the pipeline as `external:fetch` (audited, policy-gated);
    * `commit` is the human "Add" that materializes ONE quarantined capture into DealPilot's
-   * facts + candidate list (capture ≠ commit). No thesis-management UI yet — a fixed pilot
-   * thesis stands in until one exists.
+   * facts + candidate list (capture ≠ commit). Thesis storage is basic get/set, in-memory
+   * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
    */
   dealpilot: t.router({
     source: t.procedure
@@ -477,15 +535,66 @@ export const appRouter = t.router({
       return ctx.wiring.dealpilot.materializer.add(input.captureId);
     }),
 
-    list: t.procedure.query(({ ctx }) => {
-      const { facts, candidateIds } = ctx.wiring.dealpilot;
-      const thesis = { industries: [], geo: [] }; // pilot default until thesis-management ships
-      return candidateIds.map((id) => {
-        const profile = facts.livingProfile(id);
-        const flat = Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, v.value]));
-        return { id, profile: flat, fit: scoreThesisFit(flat, thesis) };
-      });
+    /** Quarantined-but-not-yet-committed captures waiting for human review/"Add". */
+    captures: t.procedure.query(({ ctx }) => {
+      return ctx.wiring.dealpilot.captures.list("dealpilot");
     }),
+
+    getThesis: t.procedure.query(({ ctx }) => {
+      return ctx.wiring.dealpilot.thesis;
+    }),
+
+    setThesis: t.procedure
+      .input(
+        z.object({
+          industries: z.array(z.string()),
+          geo: z.array(z.string()),
+          sdeMin: z.number().optional(),
+          sdeMax: z.number().optional(),
+          revenueMin: z.number().optional(),
+          revenueMax: z.number().optional(),
+        }),
+      )
+      .mutation(({ input, ctx }) => {
+        const next: ThesisProfile = {
+          industries: input.industries,
+          geo: input.geo,
+          ...(input.sdeMin != null ? { sdeMin: input.sdeMin } : {}),
+          ...(input.sdeMax != null ? { sdeMax: input.sdeMax } : {}),
+          ...(input.revenueMin != null ? { revenueMin: input.revenueMin } : {}),
+          ...(input.revenueMax != null ? { revenueMax: input.revenueMax } : {}),
+        };
+        ctx.wiring.dealpilot.setThesis(next);
+        return ctx.wiring.dealpilot.thesis;
+      }),
+
+    /**
+     * Paginated (offset/limit): `candidateIds` is an in-memory array (wiring.ts), so a
+     * simple offset slice is correct and avoids over-engineering a cursor scheme for a
+     * backing store with no stable ordering keys yet. Default limit keeps this from
+     * mapping the entire candidate set through `facts.livingProfile()` on every call
+     * (All fixes.md §3 P1 "No pagination on any list surface").
+     */
+    list: t.procedure
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).default(50),
+            offset: z.number().int().min(0).default(0),
+          })
+          .default({}),
+      )
+      .query(({ input, ctx }) => {
+        const { facts, candidateIds, thesis } = ctx.wiring.dealpilot;
+        const total = candidateIds.length;
+        const page = candidateIds.slice(input.offset, input.offset + input.limit);
+        const items = page.map((id) => {
+          const profile = facts.livingProfile(id);
+          const flat = Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, v.value]));
+          return { id, profile: flat, fit: scoreThesisFit(flat, thesis) };
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
   }),
 
   tool: t.router({
@@ -520,11 +629,26 @@ export const appRouter = t.router({
       listProviderIds().map((id) => ({ id, oauthScopes: oauthScopesFor(id) })),
     ),
 
+    /**
+     * Paginated (offset/limit): `store.list` returns the full connected-integrations
+     * array with no store-level pagination support, so the router slices after the
+     * fetch. Same shape as `dealpilot.list` (All fixes.md §3 P1 "No pagination on any
+     * list surface").
+     */
     list: t.procedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
       .query(async ({ input }) => {
         const { store } = await getIntegrationStore();
-        return store.list(input.workspaceId);
+        const all = await store.list(input.workspaceId);
+        const total = all.length;
+        const items = all.slice(input.offset, input.offset + input.limit);
+        return { items, total, hasMore: input.offset + items.length < total };
       }),
 
     connect: t.procedure

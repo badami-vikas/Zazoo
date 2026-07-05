@@ -14,6 +14,403 @@ Format per entry:
 - **Alternatives rejected:** and why.
 - **Consequences / follow-ups:** what this commits us to, what remains open.
 
+## 2026-07-05 — Offset/limit pagination for `dealpilot.list`/`integration.list`, not a cursor scheme
+
+**Context:** Both procedures (`platform/apps/api/src/router.ts`) returned their ENTIRE backing
+collection on every call — `dealpilot.list` mapped ALL of `wiring.dealpilot.candidateIds` through
+per-id `facts.livingProfile()`; `integration.list` returned `DrizzleIntegrationStore.list()`'s
+full array unsliced. Both grow linearly with usage and were flagged P1 in the 2026-07-04 review
+(`All fixes.md` section 3, Phase 3 item 14c). The task brief left the offset-vs-cursor choice open,
+to be decided by what the backing store actually supports.
+
+**Decision:** Added zod-validated `limit` (`z.number().int().min(1).max(200).default(50)`) and
+`offset` (`z.number().int().min(0).default(0)`) to both procedures' inputs, and changed both
+return shapes to `{ items, total, hasMore }`. `dealpilot.list`'s whole input object is
+`.optional().default({})` (there was no previous input at all) so the existing no-arg prototype
+call site keeps compiling and running unchanged at the wire level. Implementation is a plain
+`Array.prototype.slice(offset, offset + limit)` in both cases — `candidateIds` is a bare in-memory
+array (`wiring.ts`) with no natural cursor key, and `DrizzleIntegrationStore.list()` (`@bridge/db`)
+has no store-level pagination support to cursor against either, so the router slices the array
+after the full fetch. `total`/`hasMore` are computed from the pre-slice length so callers can tell
+there's more without a second round-trip.
+
+**Rationale:** Offset/limit is the correct-and-simplest fit for the CURRENT backing stores: an
+in-memory array has no stable, monotonic ordering key to cursor on (candidates aren't inserted
+with a timestamp/sequence field today), and `DrizzleIntegrationStore.list()` already does a full
+table scan with no `ORDER BY`/keyset-friendly column exposed at the store API. Building a cursor
+scheme on top of that would add complexity (opaque cursor encoding, stability guarantees) without
+a real ordering guarantee underneath it to justify the complexity — over-engineering relative to
+what the task brief asked to avoid. `{ items, total, hasMore }` was chosen over a bare array or a
+`nextCursor`-shaped response because grep across this router and `@bridge/core`/`@bridge/db` found
+zero existing pagination-response convention to match (confirmed by search — this is the first
+paginated list surface in the codebase), so this shape sets the convention for both procedures
+touched here, favoring simplicity (three flat fields, no nesting) an eventual pager UI can
+generalize from later once a second offset-paginated surface exists.
+
+**Alternatives rejected:** (1) Cursor/keyset pagination (e.g. opaque cursor encoding the last id
+or offset) — rejected as premature: neither backing store has a real ordering key to make a cursor
+meaningfully different from an offset today, so it would be complexity theater. (2) Add real
+pagination support to `DrizzleIntegrationStore.list()` itself (a SQL `LIMIT`/`OFFSET` in the
+query) rather than slicing in the router — deferred: `@bridge/db` was intentionally left untouched
+(not explicitly forbidden this session, but the task brief scoped changes to the two router
+procedures only); the router-level slice is correct today given the FK/seeding gap uncovered while
+testing this (see follow-up below) means the store's real-world row counts are tiny regardless.
+(3) Leaving `dealpilot.list`'s params required (no `.default({})`) — rejected: would have broken
+the existing no-arg prototype call site (`Design Bridge AI Interface (Copy)/src/app/data/api.ts`'s
+`apiDealPilotList()`), and the task brief explicitly asked for backward compatibility over a
+breaking change here.
+
+**Consequences / follow-ups:** `apiDealPilotList()` now requests `{ limit: 200, offset: 0 }` and
+unwraps `.items` — the prototype UI still has no pager, so it asks for the max page size to
+preserve today's "show everything" behavior visually, while the backend response itself stays
+bounded regardless of what any future caller requests. New
+`platform/apps/api/test/pagination.test.ts` covers explicit-limit pagination and a "no unlimited
+default" case for both procedures. While building the FK-satisfying test fixture for
+`integration.list`, discovered `PILOT_WORKSPACE`/`PILOT_USER` (`wiring.ts`) are never actually
+inserted into the `workspaces`/`users` tables anywhere — a real (non-in-memory) DB write with a FK
+into either (e.g. `integration.connect`, or `workspace.create` called with the pilot user id)
+would throw a raw FK violation. Out of scope for this change (bootstrap/seeding, not pagination);
+spun off as a separate background task rather than fixed here. Also worth a future look: if a
+second offset-paginated list surface appears, consider whether `{ items, total, hasMore }` should
+move to a shared `@bridge/core` or router-level helper type rather than being re-declared per
+procedure.
+
+## 2026-07-05 — In-process seed-keyed dedup for Gmail intake, in `@bridge/integrations-google` rather than `@bridge/core`
+
+**Context:** Two related, currently-open bug-tracker items in `platform/packages/integrations-
+google/`: (1) `IntakeService`'s `hasExternal` guard only excludes already-MATERIALIZED external
+items — if `syncGmail`/`syncCalendar` runs twice before the user reaches the Approvals inbox, a
+second PENDING proposal gets staged for the same thread/event, and approving both double-commits
+Touchpoints/Memories; (2) `GoogleApiGateway.fetchThreads` fetched each thread body with a
+SEQUENTIAL `threads.get` call and no retry at all. The task brief for (1) suggested checking
+whether the pipeline/ledger already exposes a query method for "list pending proposals by seed"
+that could be reused instead of inventing new storage.
+
+**Decision:** For (1): investigated `@bridge/core`'s `LedgerStore` interface
+(`packages/core/src/ports.ts`) and `UniversalActionPipeline` (`packages/core/src/pipeline.ts`) —
+confirmed neither exposes a query/list/find method; `LedgerStore` only has
+`append`/`get(id)`/`decisionFor(proposalId)`, and `IntakeServiceDeps` deliberately carries only
+`pipeline`/`bodies`/`graph`, no ledger reference. `Proposal.request.seed` IS present on the
+returned `Proposal` (a `seed?: string` on `ActionRequest`), so the seed is recoverable without a
+new core query — there's just nowhere durable to index "seed → still-pending proposal id" without
+adding one. Rather than extend `@bridge/core` (a parallel session owned that package this
+session; also a query-by-seed method would be new API surface for a fairly narrow need), added an
+in-process `pendingSeeds: Map<seed, proposalId>` directly on `IntakeService`
+(`packages/integrations-google/src/intake.ts`) — `stage()` checks it before calling
+`pipeline.propose()` and short-circuits to the existing pending proposal's summary if the seed is
+already staged; a new `clearPendingSeed()` method removes the entry once the proposal resolves,
+called from `GoogleService.onApproved` (`service.ts`, already invoked after every `decide()` call
+regardless of approve/veto/edit) using `resolved.request.seed`. For (2): added a small
+`mapWithConcurrency` helper (bounded to 15 concurrent `threads.get` calls — a deliberate cap below
+Gmail's per-user rate limit, not "fire everything at once") and a file-local `withRetry` (3
+attempts, linear backoff) in `gateway-google.ts`, matching the shape of `intake.ts`'s existing
+`withRetry` of the same name (added in a recent prior session for the dual-write idempotency fix).
+A thread that exhausts retries is logged and skipped rather than aborting the whole sync.
+Additionally hardened `extractPlainText` in the same file with a `MAX_MIME_DEPTH` (10) recursion
+cap and a `MAX_BODY_BYTES` (5MB) decode cap, closing a related "unbounded multipart recursion +
+full base64 decode in memory" item from the same tracker section.
+
+**Rationale:** `IntakeService` is a long-lived singleton per `GoogleService` instance (constructed
+once in `wiring.ts`, lives for the process), so an in-process map correctly closes exactly the
+race window the bug describes — "two syncs before a proposal is approved" is bounded by process
+lifetime, not something that needs to survive a restart. Scoping the fix entirely inside
+`integrations-google` respects the session's constraint against touching `@bridge/core`,
+`apps/api/src/router.ts`, or `apps/api/src/identity.ts` (other agents' concurrent work), and
+avoids growing `LedgerStore`'s public surface for a need that's local to one package. Reusing
+`resolved.request.seed` (already flowing through `onApproved`) to clear the map means no new
+plumbing was needed to know when a proposal resolves — the existing post-decide hook was already
+the right seam. For the fetch fix, bounded concurrency (not fire-everything-at-once) plus retry is
+the standard fix for a sequential-N+1-with-no-resilience pattern, and reusing the `withRetry`
+name/shape from `intake.ts` keeps one convention across the package instead of two subtly
+different retry helpers.
+
+**Alternatives rejected:** (1) Add a `findPendingBySeed`/`list(filter)` method to `@bridge/core`'s
+`LedgerStore` — rejected: out of scope (core was off-limits this session), and a full query API is
+more surface than this one narrow need justifies; flagged as a possible future core gap if
+cross-session (not just cross-call) dedup-by-seed becomes a recurring pattern elsewhere. (2) Track
+pending seeds in `LocalGraphStore` (`@bridge/local`) alongside `hasExternal`/`recordExternal` —
+rejected: `@bridge/local` is a separate package this session wasn't scoped to touch either, and
+mixing "committed external records" with "still-pending proposal seeds" in the same store
+conflates two different lifecycle stages (capture ≠ commit is already a first-class distinction in
+this codebase). (3) Persist the pending-seed index to survive restarts — rejected as unnecessary
+for the bug as described (a same-process double-sync race); a restart naturally clears in-flight
+proposals from this map the same way it clears everything else in-memory, and there is no
+correctness gap introduced by that, since `hasExternal` still catches anything actually
+materialized. (4) Unbounded `Promise.all` for the thread fetches — rejected: would fire as many
+concurrent requests as threads in the batch, risking Gmail rate-limit errors on a large sync; a
+concurrency cap is the standard mitigation.
+
+**Consequences / follow-ups:** `IntakeService`/`GoogleService`/`IntakeMaterializer` public
+constructors are unchanged (no new required deps — `clearPendingSeed` is a new public method on
+the already-injected `IntakeService`, called from `GoogleService`, which already holds both).
+`gateway-google.ts`'s `test` script gained `--experimental-test-module-mocks` (Node >= 22) to
+support the new `node:test` `mock.module`-based gateway tests. New tests:
+`packages/integrations-google/test/intake-dedup.test.ts`,
+`packages/integrations-google/test/gateway-fetch-concurrency.test.ts`,
+`packages/integrations-google/test/extract-plain-text-bounds.test.ts`. Full monorepo `turbo run
+build --force` + `turbo run test --force` green except a pre-existing, unrelated `apps/api`
+`pagination.test.ts` FK-violation failure from a parallel session's in-flight pagination work
+(confirmed untouched by this change).
+
+## 2026-07-05 — Ledger `ref_ledger_id` as a real column + partial unique index, not a jsonb key
+
+**Context:** `decide()`'s double-approve check (`pipeline.ts`'s `decisionFor()` call) resolved
+proposal-resolution linkage via `diff->>'__refLedgerId'` — a reserved key inside the `diff` jsonb
+column, with no dedicated column, no index, and no uniqueness constraint. Two consequences: (1)
+any skill whose `diff` output happened to contain a key literally named `__refLedgerId` would
+corrupt double-approve detection (a correctness hazard baked into an unenforced naming
+convention), and (2) with no unique constraint backing it, the "already resolved?" check was a
+plain SELECT with no atomicity guarantee — two concurrent `decide()` calls (double-click, a client
+retry after a slow response, a retried webhook) could both read "not yet resolved," both append a
+resolving decision row, and both commit — firing `onApproved` twice (e.g. sending an approved
+email twice). The same in-memory ledger (`InMemoryLedger` in `packages/core/src/memory/stores.ts`)
+had an equivalent race: its `decisionFor()` check and the later `append()` were two separate
+non-atomic steps with an `await` in between.
+
+**Decision:** Added real `ref_ledger_id uuid`, `seed text`, `data_scope text`, `context jsonb`
+columns to the `ledger` table
+(`platform/packages/db/migrations/0003_ledger_ref_column.sql`, hand-written following the same
+convention as `0001_governance_seed.sql`, registered in `migrations/meta/_journal.json`), plus a
+**partial** unique index: `ledger_ref_ledger_id_resolved_uq` on `(ref_ledger_id) WHERE
+ref_ledger_id IS NOT NULL AND user_decision IS NOT NULL`. The predicate matters: it excludes
+rejected/floor-denied audit rows (which carry `refLedgerId` but a null `userDecision` — see the
+2026-07-04 "audited-rejection ledger row on agent-floor deny" entry) from the uniqueness
+constraint, so a blocked approve attempt never blocks the later legitimate resolution. No backfill
+was written — pre-launch, no production data to migrate. `packages/db/src/ledger-store.ts` was
+rewritten to read/write these as real columns (deleting the old `packDiff`/`unpack` jsonb-splicing
+functions entirely) and to catch the resulting unique-violation (SQLSTATE 23505, matched against
+the named index) and translate it into a new typed `AlreadyResolvedError`
+(`packages/core/src/pipeline.ts`, exported from `@bridge/core`) — the SAME error the in-process
+pre-check throws, so callers see one consistent type regardless of backing store. A companion
+`AgentFloorDeniedError` replaces the bare `Error` previously thrown on floor-deny. `apps/api/src/
+router.ts`'s `decide` procedure catches both and maps them to `TRPCError({code:"CONFLICT"})` /
+`TRPCError({code:"FORBIDDEN"})`, following the existing `IntegrationFloorScopeError` → `FORBIDDEN`
+pattern already in use at `router.ts:576`. For the in-memory ledger, `InMemoryLedger.append()`
+gained an atomic check-and-mark against a `Set<string>` of resolved proposal ids — the check and
+the mark happen in the same synchronous block with no `await` between them, so two "concurrent"
+JS calls (e.g. `Promise.all([decide(), decide()])` in a test, or two requests handled on the same
+event-loop turn) cannot both pass.
+
+**Rationale:** A partial unique index is the correct database-native way to express "at most one
+row of kind X per key" when "kind X" is a subset of rows (here: resolving decisions, not every
+ledger row) — it's the same idiom already used in this schema for `role_permissions_uq`'s
+coalesce-NULL unique index in `0001_governance_seed.sql`, so this fix follows an established
+in-repo pattern rather than introducing a new one. Enforcing the constraint at the database
+(rather than only in application code) is the only way to actually close a TOCTOU race across
+concurrent connections/processes — an in-process check-then-act, no matter how careful, cannot by
+itself prevent two different Node processes (or two requests interleaved on the event loop before
+either awaits) from both passing the check. The in-memory ledger doesn't have a database to lean
+on, so its fix has to be structurally different (synchronous check-and-mark) — but the invariant
+it enforces is identical, and both paths are tested to prove it.
+
+**Alternatives rejected:** (1) Wrap `decide()`'s read-then-write in an explicit SQL transaction
+with `SELECT ... FOR UPDATE` locking the proposal row — rejected as the heavier option: it requires
+a transaction to span the pipeline's authority/policy/skill-registry calls (or a narrower
+transaction just around the ledger read+append, which still needs a lock scope decision), and the
+persistent ledger's actual failure mode (two INSERTs of *new* append-only rows, not a competing
+UPDATE) is exactly what a unique index is designed to prevent without any row locking at all — a
+constraint is strictly simpler and correct for an append-only table. (2) Add the uniqueness rule
+as an application-level global lock (e.g. an in-process mutex keyed by proposal id) — rejected: it
+would only work within a single Node process/instance, not across horizontally-scaled API
+instances, whereas the database constraint is correct regardless of how many API processes are
+running. (3) Keep the `diff` jsonb linkage but add validation forbidding skills from ever
+producing a `__refLedgerId` key — rejected: it fixes the correctness hazard but does nothing for
+the TOCTOU race, which was the more serious of the two problems the review flagged, and jsonb keys
+still can't be indexed with a real uniqueness guarantee the way a column can.
+
+**Consequences / follow-ups:** `LedgerEntry` gained `dataScope`/`context` as real fields alongside
+`refLedgerId`/`seed` (feeds Phase 1 item 5's fix, tracked in the same migration/PR since both
+needed the same schema change). The persistent-ledger residency question (private proposals
+possibly landing in a cloud ledger once `DATABASE_URL` is set — All fixes.md Phase 1 item 7)
+remains open and is unaffected by this change — the new columns exist on whichever ledger table
+the deployment points at, local or cloud. `packages/db/test/ledger-store.test.ts` (new) and
+`packages/core/test/pipeline.test.ts` (extended) both prove the double-approve fix with a real
+`Promise.allSettled` concurrent-call test — one succeeds, one gets the typed 409-mapped error —
+against both the in-memory and pglite-backed ledger.
+
+## 2026-07-05 — Agent-floor consolidation: canonical union in `@bridge/core`, not a per-site truce
+
+**Context:** `AGENT_FLOOR_MUTATIONS` (`packages/core/src/authority.ts`), `isForbiddenAgentToken`
+(`packages/core/src/agent-scope.ts`), and `ALWAYS_APPROVAL_SCOPES` (`packages/db/src/integration-
+store.ts`) each independently declared the set of mutations/scopes an agent may never hold or be
+granted — the exact invariant a "governed agentic execution" platform depends on staying
+consistent. On inspection the three had actually drifted: `authority.ts` denied write/execute/
+archive/approve on 8 governance resource types (policy, policy_param, skill, agent, role,
+permission, ledger, delegation) plus `network_graph:full` read and `external:send`;
+`agent-scope.ts`'s `isForbiddenAgentToken` matched the same 8 resources but for EVERY action (a
+stricter check, e.g. it also blocked `agent:read`); `integration-store.ts`'s
+`ALWAYS_APPROVAL_SCOPES` was only `["external:send", "network_graph:full"]` — it never covered the
+governance-resource floor at all.
+
+**Decision:** Created `packages/core/src/agent-floor.ts` as the single canonical definition,
+exported from `@bridge/core`: `AGENT_FLOOR_PROTECTED_RESOURCES`, `AGENT_FLOOR_MUTATIONS`,
+`AGENT_FLOOR_ALWAYS_DENIED_SCOPES`, `ALWAYS_APPROVAL_SCOPES`, `isAgentFloorDenied`,
+`isForbiddenAgentToken`. `authority.ts`'s `agentFloorDeny` (kept its existing `Actor`-typed
+signature since `pipeline.ts` imports it and was out of scope to touch) now delegates to
+`isAgentFloorDenied` instead of re-declaring the resource/mutation sets. `agent-scope.ts` re-
+exports the canonical `isForbiddenAgentToken` directly. `@bridge/db`'s `integration-store.ts`
+imports and re-exports the canonical `ALWAYS_APPROVAL_SCOPES` instead of declaring its own array.
+The canonical set is the UNION of all three original lists (the strictest possible floor), not an
+intersection or a renegotiation — a floor must be at least as strict as anything ever enforced
+anywhere, so narrowing any of the three to match the others was not an option.
+
+**Rationale:** A single source of truth is the entire point of an "agent floor" — three
+independently-maintained copies is exactly how it silently drifted (proven by the actual
+discrepancy found). Picking the union preserves every guarantee any of the three call sites relied
+on; nothing that was previously denied becomes newly allowed. `ALWAYS_APPROVAL_SCOPES`'s own
+runtime behavior is unchanged by this fix (it only ever checked `resourceType` with no action, and
+those two exact scopes are unchanged) — the fix is entirely structural (derivation, not new
+denials), so no behavior-visible regression risk for existing callers.
+
+**Alternatives rejected:** (1) Keep three lists but add a comment cross-referencing each other —
+rejected, comments don't prevent drift, only imports do. (2) Intersect the three lists (keep only
+what all three agreed on) — rejected, would have silently loosened `agentFloorDeny` and
+`isForbiddenAgentToken`'s governance-resource coverage to match `ALWAYS_APPROVAL_SCOPES`'s gap,
+turning a bug (missing coverage) into a downgrade (removed coverage) elsewhere. (3) Put the
+canonical set directly in `authority.ts` rather than a new file — rejected; `agent-scope.ts` and
+`integration-store.ts` (a different package, `@bridge/db`) both need it, and `authority.ts` already
+carries the heavier `resolveAuthority` logic, so a small dedicated file keeps the floor
+independently reviewable.
+
+**Consequences / follow-ups:** `agentFloorDeny`'s exported signature and `pipeline.ts`'s only call
+site are unchanged (out of scope for this pass, not touched). The DB-level agent-floor seed
+(`0001_governance_seed.sql:52-67`) is still a documented-not-executed template — this fix closes
+the app-layer triplication only; a real DB-level backstop for the floor remains a separate, still-
+open item (see known-issues.md and All fixes.md Phase 1 item 6's remaining half). New smoke test
+`packages/core/test/agent-floor.test.ts` iterates the canonical constants against all three
+consumers so a future edit to only one of them fails a test instead of silently drifting again.
+
+## 2026-07-05 — JWKS verify failures become a typed 401, not an unhandled rejection
+
+**Context:** `identity.ts`'s `IdentityResolver.resolve` verified bearer tokens against either an
+HS256 shared secret or a remote JWKS set (`jose`'s `createRemoteJWKSet`/`jwtVerify`), with neither
+a timeout on the JWKS HTTP fetch nor a try/catch around the verify call. Any failure — a slow/down
+JWKS endpoint, a network blip, or simply an invalid/expired/malformed token — propagated as a raw
+rejection out of `createContext` (`context.ts`), which is invoked by the tRPC fastify adapter
+before any procedure runs. Nothing in the codebase converted that into an HTTP status, so it risked
+surfacing as an unhandled rejection / opaque 500 instead of a normal, expected 401 for bad
+credentials.
+
+**Decision:** Two changes. (1) `createRemoteJWKSet` now passes jose's native `timeoutDuration`
+option (5s) so the key-set fetch itself is bounded — this is a first-class jose option, not a
+hand-rolled `AbortController` race (no existing timeout helper/convention was found elsewhere in
+the codebase to reuse; the Google integrations package has no retry/timeout module either, despite
+being named as a possible source in the task brief). (2) The entire verify body (both the HS256
+and JWKS branches) is wrapped in try/catch in `identity.ts`; any failure is re-thrown as a new
+typed `IdentityVerificationError`. `context.ts`'s `createContext` catches that specific error type
+and re-throws `TRPCError({code:"UNAUTHORIZED"})`, which `@trpc/server`'s fastify adapter maps to a
+real HTTP 401 response.
+
+**Rationale:** A typed error class at the point of failure, caught at the one place
+(`createContext`) that has the tRPC vocabulary to translate it into a wire-level status, keeps
+`identity.ts` free of any tRPC dependency (it only knows about verification, not HTTP semantics)
+while still guaranteeing the failure surfaces correctly. Using jose's built-in `timeoutDuration`
+instead of a custom wrapper avoids a second, possibly-inconsistent timeout mechanism racing jose's
+own internal fetch/retry logic.
+
+**Alternatives rejected:** (1) Silently downgrade a verify failure to the pilot fallback identity —
+rejected outright, explicitly forbidden by this file's own header comment ("an invalid token is
+rejected, never silently downgraded to the pilot identity") since that would let a client
+sidestep verification by simply sending a bad token. (2) Catch-and-401 inside `identity.ts`
+directly (import `TRPCError` there) — rejected to keep `identity.ts` a pure verification module
+with no framework coupling; `context.ts` is the natural seam since it already owns the
+tRPC-context boundary. (3) A generic `AbortController`-based timeout wrapper — rejected in favor of
+jose's native `timeoutDuration`, which already covers exactly this case without extra code.
+
+**Consequences / follow-ups:** New tests: `apps/api/test/identity.test.ts` (HS256 bad-secret
+rejection, JWKS-unreachable-endpoint rejection completing within the bounded timeout instead of
+hanging, and the no-verifier-configured pilot-fallback path proving it's unaffected) plus one new
+end-to-end case in `apps/api/test/server.test.ts` (a forged-signature bearer token against a live
+`buildServer()` instance via `app.inject`, asserting `statusCode === 401`). Discovered along the way:
+`server.test.ts`'s existing `withEnv` test helper restores env vars in a synchronous `finally`
+block that does not await an async test body, so any async test using it races env restoration
+against its own logic — worked around locally with a new `withEnvAsync` helper in that file rather
+than touching the existing (possibly relied-upon) `withEnv`, since fixing it project-wide was out
+of scope for this pass.
+
+## 2026-07-05 — Prototype stays the frontend; `platform/` frontend migration deferred, not started
+
+**Context:** Asked to "retain platform and delete the reference design copy" on the premise that
+platform already has the design in place. Inspected `platform/apps` — it contains only `api`
+(a Fastify+tRPC backend). Zero pages/components/styling exist anywhere in `platform/`. The entire
+UI (all pages, the design system, `network.ts`/`db.ts` data-access layer) lives in
+`Design Bridge AI Interface (Copy)/`, which is also the source the live Cloudflare Pages prototype
+deploys from (per the `prototype-deploy-mechanism` memory) and carries real LinkedIn-derived PII
+(`prototype-now-tracked`). Today the prototype has two data paths: Google/Calendar goes through
+platform's tRPC api (`api.ts` → `google.*`); everything else (people/communities/resources/lists)
+reads Supabase directly from the browser with an embedded anon key, bypassing the api layer's
+governance (Authority resolver, audit ledger, draft-then-approve pipeline) entirely.
+
+**Decision:** Do not delete the prototype. Keep it as the real, actively-maintained frontend for
+now. Defer the "real" fix — a frontend app under `platform/apps` that ports the design and routes
+all reads/writes through the governed api layer — to a planned, separate initiative. It is not
+started; no scaffolding exists yet.
+
+**Rationale:** The premise behind the deletion request didn't hold (platform has no UI to fall
+back to), so deleting the prototype would have deleted the only working frontend and the live
+site's source with nothing to replace it — an irreversible, high-blast-radius mistake. The
+end-state (frontend inside platform, fully governed) is the right direction and matches the
+"governed agentic execution" principle in CLAUDE.md, but porting every page, adding the missing
+tRPC procedures (people/communities/resources/lists don't exist server-side yet — only `google.*`
+and `dealpilot.*` do), and verifying parity against the live prototype is a multi-day effort that
+shouldn't be started opportunistically inside an unrelated bug-fixing pass.
+
+**Alternatives rejected:** (1) Delete now, rebuild after — rejected, would break the live site
+with no working replacement, not reversible casually. (2) Silently keep going without flagging the
+security exposure — rejected; the client-side Supabase anon-key access to canonical PII is a real
+standing risk that should be visible, not just implicitly accepted.
+
+**Consequences / follow-ups:** Prototype continues to be the fix target for frontend issues in
+this tracker (as it has been all session). The migration is now a tracked, not-yet-scoped roadmap
+item (see Phase 4 / planned-but-never-built inventory) — needs a scoping pass (new tRPC procedures
+inventory, page-by-page port list, parity test plan) before implementation starts, and should
+happen as its own initiative with your explicit go-ahead given the live-site risk.
+
+## 2026-07-05 — Make `commitEntity` idempotent + bounded whole-method retry on the Google intake dual-write
+
+**Context:** `IntakeMaterializer.applyApproved` (`packages/integrations-google/src/intake.ts`)
+performs a dual-write on proposal approval: cloud canonical `upsertPersonIdentity`, then local
+`upsertPerson`, then per-entity `commitEntity`, then per-external-row `recordExternal`. If any
+step after the first throws (network blip, local pglite hiccup), the write is left partially
+applied. `upsertPersonIdentity`/`upsertPerson` (`ON CONFLICT ... DO UPDATE`) and `recordExternal`
+(`ON CONFLICT ... DO NOTHING`) were already idempotent and safe to retry — but `commitEntity` was
+not: pglite's version did a plain `INSERT` with no conflict clause (PK violation on retry), and
+the in-memory version explicitly `throw`s on a duplicate id. Known-issues row: "Non-transactional
+dual-write; fire-and-forget token refresh" (token-refresh half resolved 2026-07-04).
+
+**Decision:** Made `commitEntity` idempotent in both `LocalGraphStore` backends —
+`packages/local/src/stores/pglite.ts` now does `INSERT ... ON CONFLICT (id) DO NOTHING` (confirmed
+`id` is `local_entities`'s declared PRIMARY KEY in `INIT_SQL`); `packages/local/src/stores/memory.ts`
+now returns silently on a duplicate id instead of throwing, mirroring the file's existing
+`recordExternal` dedup pattern (`hasExternal`-guarded push). With every dual-write step now
+idempotent, added a small file-local `withRetry(label, attempts, delayMs, fn)` helper (a plain
+`for` loop + `try/catch` + linear backoff, no new npm dependency) in `intake.ts` and wrapped the
+entire body of `applyApproved` (extracted to a private `applyDirective`) in it — up to 3 attempts,
+`console.error`-logged on each retry (matching `gateway-google.ts`'s existing logging style for
+recoverable failures).
+
+**Rationale:** Retry-the-whole-method-from-scratch is strictly simpler than fine-grained per-step
+retry/compensation logic, and is now provably safe because every step it calls is idempotent by
+construction — a second full pass either re-applies the same facts (no-op) or completes the
+remaining steps. This also means a *future* retry-queue (mentioned in the original known-issues
+row) can safely re-invoke `applyApproved` wholesale without new bookkeeping.
+
+**Alternatives rejected:** Per-step retry with manual rollback/compensation on partial failure —
+rejected as unnecessary complexity once idempotency is established at the store layer; a
+generic retry/backoff npm dependency — rejected per the task's explicit constraint and because a
+~15-line loop covers the need with no external surface to audit.
+
+**Consequences / follow-ups:** `LocalGraphStore`/`CanonicalIdentityStore` port interfaces are
+unchanged (implementation-only fix). Gmail sync's separate `hasExternal`-before-fetch double-propose
+window (tracked as "9b" in `All fixes.md`) is a different bug and remains open. Tests added:
+`packages/local/test/pglite.test.ts` (commitEntity double-call no-ops) + new
+`packages/local/test/memory.test.ts`; new
+`packages/integrations-google/test/materializer-retry.test.ts` (transient-then-succeed recovers
+with no duplicate entity; persistent failure still surfaces after retries exhaust). Full monorepo
+`turbo run build --force` + `turbo run test --force`: 28/28 packages green.
+
+---
+
 ## 2026-07-05 — Drop the BusinessBroker.net licensed-feed build; route through the Claude-in-browser waterfall
 
 **Context:** `businessbroker.net/robots.txt` disallows `/listings/` and every query-string URL —

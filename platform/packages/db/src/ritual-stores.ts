@@ -4,9 +4,8 @@
  * Universal Action Pipeline. Runs are recorded in `ritual_runs`.
  */
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import type {
-  Action,
-  ResourceType,
   RitualDefinition,
   RitualRegistry,
   RitualRunRecorder,
@@ -17,21 +16,74 @@ import type {
 import type { Database } from "./client.js";
 import { ritualRuns, rituals, tools } from "./schema.js";
 
-function asStep(raw: unknown): RitualStepDef | null {
-  if (!raw || typeof raw !== "object") return null;
-  const s = raw as Record<string, unknown>;
-  if (typeof s.skill !== "string" || typeof s.action !== "string" || typeof s.resourceType !== "string") {
-    return null;
+/**
+ * Mirrors `RitualStepDef` (@bridge/core/src/ports.ts). This is the ONLY gate a
+ * ritual/tool step's jsonb passes through — malformed steps must never reach
+ * `rituals.skill_pipeline` / `tools.composition` (write time), and if they
+ * somehow do (pre-existing rows, another process, a raw SQL insert), reading
+ * them back must fail loudly rather than silently dropping the step. A
+ * silently-dropped step means a ritual "succeeds" while doing less than what
+ * was configured — worse than a crash.
+ */
+const actionSchema = z.enum(["read", "write", "execute", "share", "archive", "approve"]);
+
+const resourceTypeSchema = z.enum([
+  "person",
+  "community",
+  "initiative",
+  "touchpoint",
+  "ritual",
+  "tool",
+  "file",
+  "signal",
+  "policy",
+  "policy_param",
+  "skill",
+  "agent",
+  "role",
+  "permission",
+  "ledger",
+  "delegation",
+  "integration",
+  "network_graph:full",
+  "external:send",
+  "external:fetch",
+]);
+
+const dataScopeSchema = z.enum(["all", "public", "private"]);
+
+export const ritualStepDefSchema = z.object({
+  skill: z.string().min(1),
+  action: actionSchema,
+  resourceType: resourceTypeSchema,
+  resourceId: z.string().min(1).optional(),
+  inputs: z.record(z.unknown()).optional(),
+  dataScope: dataScopeSchema.optional(),
+}) satisfies z.ZodType<RitualStepDef>;
+
+export const ritualStepListSchema = z.array(ritualStepDefSchema);
+
+/** Composition jsonb shape for `tools.composition` = `{ steps: RitualStepDef[] }`. */
+export const toolCompositionSchema = z.object({
+  steps: ritualStepListSchema.default([]),
+});
+
+/** Validate a full `rituals.skill_pipeline` array at write time. Throws on the first bad step. */
+export function parseRitualSteps(raw: unknown): RitualStepDef[] {
+  const result = ritualStepListSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(`Invalid ritual skill_pipeline jsonb: ${result.error.message}`);
   }
-  const ds = s.dataScope;
-  return {
-    skill: s.skill,
-    action: s.action as Action,
-    resourceType: s.resourceType as ResourceType,
-    ...(typeof s.resourceId === "string" ? { resourceId: s.resourceId } : {}),
-    ...(s.inputs && typeof s.inputs === "object" ? { inputs: s.inputs as Record<string, unknown> } : {}),
-    ...(ds === "all" || ds === "public" || ds === "private" ? { dataScope: ds } : {}),
-  };
+  return result.data;
+}
+
+/** Validate a full `tools.composition` object at write time. Throws on the first bad step. */
+export function parseToolComposition(raw: unknown): { steps: RitualStepDef[] } {
+  const result = toolCompositionSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(`Invalid tool composition jsonb: ${result.error.message}`);
+  }
+  return result.data;
 }
 
 export class DrizzleRitualRegistry implements RitualRegistry {
@@ -48,9 +100,21 @@ export class DrizzleRitualRegistry implements RitualRegistry {
       .limit(1);
     const row = rows[0];
     if (!row) return null;
-    const raw = Array.isArray(row.pipeline) ? row.pipeline : [];
-    const steps = raw.map(asStep).filter((s): s is RitualStepDef => s !== null);
+    // Read-time validation: if a step fails to parse (pre-existing bad row,
+    // another process, a raw insert bypassing `saveSteps`), throw loudly
+    // rather than silently dropping the step — a ritual must never "succeed"
+    // while quietly running fewer steps than configured.
+    const steps = parseRitualSteps(row.pipeline);
     return { id: row.id, name: row.name, workspaceId, steps };
+  }
+
+  /** Write-time gate: validates the full pipeline and throws before anything is persisted. */
+  async saveSteps(workspaceId: string, ritualId: string, steps: unknown): Promise<void> {
+    const validated = parseRitualSteps(steps);
+    await this.#db
+      .update(rituals)
+      .set({ skillPipeline: validated })
+      .where(and(eq(rituals.workspaceId, workspaceId), eq(rituals.id, ritualId)));
   }
 }
 
@@ -69,10 +133,19 @@ export class DrizzleToolRegistry implements ToolRegistry {
     const row = rows[0];
     if (!row) return null;
     // composition jsonb = { "steps": [ {skill, action, resourceType, ...}, ... ] }.
-    const comp = (row.composition ?? {}) as { steps?: unknown };
-    const raw = Array.isArray(comp.steps) ? comp.steps : [];
-    const steps = raw.map(asStep).filter((s): s is RitualStepDef => s !== null);
+    // Read-time validation: throw loudly on a malformed composition instead of
+    // silently dropping steps (see DrizzleRitualRegistry.load for rationale).
+    const { steps } = parseToolComposition(row.composition ?? {});
     return { id: row.id, name: row.name, workspaceId, steps };
+  }
+
+  /** Write-time gate: validates the full composition and throws before anything is persisted. */
+  async saveSteps(workspaceId: string, toolId: string, steps: unknown): Promise<void> {
+    const validated = parseToolComposition({ steps });
+    await this.#db
+      .update(tools)
+      .set({ composition: validated })
+      .where(and(eq(tools.workspaceId, workspaceId), eq(tools.id, toolId)));
   }
 }
 

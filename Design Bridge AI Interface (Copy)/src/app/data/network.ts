@@ -22,6 +22,15 @@ export interface NetworkPerson {
   lastConnected: string;
   connectedOn: string;
   url: string;
+  bio?: string;
+  newsInsight?: string;
+  websiteUrl?: string;
+  githubHandle?: string;
+  instagramHandle?: string;
+  twitterHandle?: string;
+  skills?: string[];
+  education?: { institution: string; degree?: string; field?: string; year?: string }[];
+  previousCompanies?: { name: string; title?: string; period?: string }[];
   [key: string]: any;
 }
 

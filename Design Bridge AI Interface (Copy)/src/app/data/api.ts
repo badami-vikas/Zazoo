@@ -243,11 +243,12 @@ export interface CalendarEventDTO {
 export type CalendarWriteAction = 'create' | 'update' | 'delete';
 
 /** Full Google Calendar events for display. null when API disabled (demo mode). */
-export async function apiListCalendarEvents(opts?: { maxResults?: number; timeMin?: string }): Promise<CalendarEventDTO[] | null> {
+export async function apiListCalendarEvents(opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<CalendarEventDTO[] | null> {
   if (!API_ENABLED) return null;
   const r = await mutate<{ events: CalendarEventDTO[] }>('google.listEvents', {
     ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
     ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
+    ...(opts?.timeMax ? { timeMax: opts.timeMax } : {}),
   });
   return r?.events ?? [];
 }
@@ -392,10 +393,17 @@ export async function apiDealPilotCommit(captureId: string): Promise<boolean> {
   return Boolean(r?.committed);
 }
 
-/** Committed candidates, thesis-scored. null when API disabled (caller falls back to dummy_). */
+/** Committed candidates, thesis-scored. null when API disabled (caller falls back to dummy_).
+ * `dealpilot.list` is paginated server-side ({ items, total, hasMore }); this prototype UI
+ * has no pager yet, so we request the max page size to preserve today's "show everything"
+ * behavior while the backend stays bounded. */
 export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null> {
   if (!API_ENABLED) return null;
-  return query<DealPilotCandidateDTO[]>('dealpilot.list');
+  const page = await query<{ items: DealPilotCandidateDTO[]; total: number; hasMore: boolean }>(
+    'dealpilot.list',
+    { limit: 200, offset: 0 },
+  );
+  return page?.items ?? null;
 }
 
 // ── Workspace + Team (real backend, authenticated CRUD — not a governed pipeline action) ───────

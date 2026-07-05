@@ -26,6 +26,7 @@ import type {
   Decision,
   LedgerEntry,
   PolicyResult,
+  PostCommitPolicyResult,
   Proposal,
   SkillOutput,
 } from "./types.js";
@@ -39,6 +40,40 @@ export interface PipelineDeps {
   variance: VarianceAdjuster;
 }
 
+/**
+ * Thrown by `decide()` when a proposal has already been resolved (a referencing
+ * decision row already exists) — including the race where the DB-level partial
+ * unique index (`ledger_ref_ledger_id_resolved_uq`) catches a second concurrent
+ * decide that slipped past the in-process check. Maps to HTTP 409 at the API
+ * boundary (see router.ts's translation of this error, mirroring the
+ * `IntegrationFloorScopeError` → 403 pattern).
+ */
+export class AlreadyResolvedError extends Error {
+  constructor(
+    public readonly proposalId: string,
+    public readonly existingDecision?: string,
+  ) {
+    super(
+      `decide: proposal ${proposalId} already resolved` +
+        (existingDecision ? ` (${existingDecision})` : ""),
+    );
+    this.name = "AlreadyResolvedError";
+  }
+}
+
+/**
+ * Thrown by `decide()` when the decider is floor-denied (an agent attempting to
+ * approve/veto/edit — agents draft, only humans approve). The attempt is still
+ * audited (an audited-rejection ledger row is appended before this throws — see
+ * below). Maps to HTTP 403 at the API boundary.
+ */
+export class AgentFloorDeniedError extends Error {
+  constructor(public readonly reason: string) {
+    super(`decide: ${reason}`);
+    this.name = "AgentFloorDeniedError";
+  }
+}
+
 /** Approval is required if any pre/runtime policy says so, OR the actor is an agent
  * (governed agentic execution: agents always draft, humans approve). */
 function requiresApproval(actorType: string, results: PolicyResult[]): boolean {
@@ -48,6 +83,40 @@ function requiresApproval(actorType: string, results: PolicyResult[]): boolean {
 
 function blocked(results: PolicyResult[]): PolicyResult | undefined {
   return results.find((r) => r.effect === "block");
+}
+
+/**
+ * Narrows a phase="post" policy evaluation down to `PostCommitPolicyResult[]`
+ * — the type that makes `block` unrepresentable at this phase (see
+ * `PostCommitEffect` in types.ts). `PolicyStore.evaluate()` itself still
+ * returns the wide `PolicyResult[]` (shared across pre/runtime/post so
+ * `InMemoryPolicyStore`/`DrizzlePolicyStore` need no changes), so this is the
+ * one seam that narrows it for the post-commit call site in `#commit`.
+ *
+ * By the time `#commit` runs, the ledger row is already appended and (for
+ * approve/edit/auto) the action is already committed — there is no longer any
+ * runtime hook a `block` (or `require_approval`) effect could act on. If a
+ * post-commit policy still emits one, that is a policy-authoring bug, not
+ * something the pipeline can honor: we drop it and audit the anomaly via
+ * `ctx` isn't available here for a ledger append, so it's logged instead —
+ * loud enough to catch in observability without inventing a new runtime
+ * remediation/compensation path (out of scope; see decisions-log).
+ */
+function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] {
+  const out: PostCommitPolicyResult[] = [];
+  for (const r of results) {
+    if (r.effect === "block" || r.effect === "require_approval") {
+      // eslint-disable-next-line no-console -- post-commit block/require_approval is a
+      // policy-authoring bug: the action is already committed, so this MUST be
+      // surfaced (not silently dropped) even though it cannot be honored here.
+      console.warn(
+        `policy(post): effect "${r.effect}" from policy "${r.policyId}" (${r.reason}) cannot be enforced post-commit — ignored`,
+      );
+      continue;
+    }
+    out.push({ ...r, phase: "post", effect: r.effect });
+  }
+  return out;
 }
 
 export class UniversalActionPipeline {
@@ -187,16 +256,24 @@ export class UniversalActionPipeline {
         refLedgerId: original.id,
         createdAt: ctx.clock.nowISO(),
       });
-      throw new Error(`decide: ${floor}`);
+      throw new AgentFloorDeniedError(floor);
     }
 
     if (original.userDecision !== null) {
-      throw new Error(`decide: ${proposalId} is not a pending proposal (${original.userDecision})`);
+      throw new AlreadyResolvedError(proposalId, original.userDecision);
     }
-    // Append-only: resolution is the existence of a referencing decision row.
+    // Append-only: resolution is the existence of a referencing decision row. This
+    // check narrows the race window but is NOT itself atomic — two concurrent
+    // decide() calls can both pass it (TOCTOU). The real guarantee is downstream:
+    // - persistent ledger: a partial unique index on ref_ledger_id (non-null
+    //   user_decision only) makes the SECOND append() below fail with a unique
+    //   violation, which the store translates into AlreadyResolvedError.
+    // - in-memory ledger: append() performs its own atomic (synchronous,
+    //   no-await-in-between) check-and-mark, so a second "concurrent" call in
+    //   tests/single-process use cannot slip past it either.
     const existing = await ledger.decisionFor(proposalId);
     if (existing) {
-      throw new Error(`decide: proposal ${proposalId} already resolved (${existing.userDecision})`);
+      throw new AlreadyResolvedError(proposalId, existing.userDecision ?? undefined);
     }
 
     const committedOutput =
@@ -221,8 +298,17 @@ export class UniversalActionPipeline {
       policyResults: original.policyResults,
       refLedgerId: original.id,
       ...(original.seed ? { seed: original.seed } : {}),
+      ...(original.dataScope ? { dataScope: original.dataScope } : {}),
+      ...(original.context ? { context: original.context } : {}),
       createdAt: ctx.clock.nowISO(),
     };
+    // If a second concurrent decide() raced past the pre-check above, the store
+    // itself throws AlreadyResolvedError here: the persistent ledger's partial
+    // unique index rejects the second insert (translated by DrizzleLedgerStore),
+    // and the in-memory ledger's atomic check-and-mark rejects it directly (see
+    // InMemoryLedger.append). Either way callers see one consistent typed error
+    // regardless of backing store — left uncaught so it propagates to decide()'s
+    // caller (and the tRPC boundary maps it to 409).
     const persisted = await ledger.append(decisionRow);
 
     if (decision === "veto") {
@@ -250,9 +336,19 @@ export class UniversalActionPipeline {
     };
   }
 
-  /** Post-policy → Variance Adjuster → emit event. The "commit" side effects. */
+  /**
+   * Post-policy → Variance Adjuster → emit event. The "commit" side effects.
+   *
+   * Post-policy runs AFTER the ledger row is appended (and, for approve/edit/
+   * auto, after the action is already committed) — there is nothing left for a
+   * `block` effect to block. `toPostCommitResults` narrows the evaluation down
+   * to `PostCommitPolicyResult[]` (see types.ts), whose `effect` excludes
+   * `block`/`require_approval` by construction, so this call site can never be
+   * mistaken for one that honors blocking. The narrowed, advisory-only results
+   * are kept (not just discarded) for observability.
+   */
   async #commit(entry: LedgerEntry, ctx: RunCtx): Promise<void> {
-    await this.#deps.policies.evaluate({
+    const postResults = await this.#deps.policies.evaluate({
       workspaceId: entry.workspaceId,
       actor: { type: entry.actorType, id: entry.actorId },
       action: entry.action,
@@ -262,6 +358,8 @@ export class UniversalActionPipeline {
       inputs: entry.inputs,
       proposedOutput: entry.proposedOutput,
     });
+    const postCommitResults: PostCommitPolicyResult[] = toPostCommitResults(postResults);
+    void postCommitResults; // advisory-only; no phase="post" policy currently acts on this — kept typed for future use, see toPostCommitResults doc.
     await this.#deps.variance.observe(entry, ctx);
     await this.#deps.events.emit({
       id: ctx.ids.next(),
@@ -297,6 +395,8 @@ export class UniversalActionPipeline {
       ...(output.diff ? { diff: output.diff } : {}),
       policyResults,
       ...(req.seed ? { seed: req.seed } : {}),
+      ...(req.dataScope ? { dataScope: req.dataScope } : {}),
+      ...(req.context ? { context: req.context } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     return this.#deps.ledger.append(entry);
@@ -337,6 +437,19 @@ export class UniversalActionPipeline {
     };
   }
 
+  /**
+   * Reconstruct the ActionRequest a decision's Proposal echoes back. This used to
+   * synthesize `skill: "(replayed)"` and silently drop `context`/`dataScope` from
+   * the original ledger entry — breaking audit completeness (you couldn't tell
+   * which ritual produced a decision or what data tier it touched, since neither
+   * the skill name nor the original context/dataScope were persisted anywhere).
+   * Both are now real `LedgerEntry` fields (see schema.ts's `ledger.dataScope`/
+   * `ledger.context`), threaded through here unchanged. The skill name itself was
+   * never persisted on the ledger row at all (only `inputs`/`proposedOutput`
+   * are) — `"(replayed)"` is kept ONLY as the literal skill-name placeholder
+   * (decide() never re-invokes a skill), now clearly scoped to that one field
+   * rather than silently discarding audit context alongside it.
+   */
   #requestFromEntry(entry: LedgerEntry): ActionRequest {
     return {
       workspaceId: entry.workspaceId,
@@ -350,6 +463,8 @@ export class UniversalActionPipeline {
       inputs: entry.inputs,
       skill: "(replayed)",
       ...(entry.seed ? { seed: entry.seed } : {}),
+      ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
+      ...(entry.context ? { context: entry.context } : {}),
     };
   }
 }

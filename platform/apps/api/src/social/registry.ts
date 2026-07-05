@@ -52,7 +52,12 @@ function hasCreds(meta: ProviderMeta, env: Record<string, string | undefined>): 
   return meta.credEnv.length > 0 && meta.credEnv.every((k) => Boolean(env[k]));
 }
 
-/** Resolve a provider: a registered live client when creds are present, else the fixture seam. */
+/**
+ * Resolve a provider: a registered live client when creds are present, else the fixture seam.
+ * No fastify/logger instance is reachable from this pure module, so `console.warn` is the
+ * loud-fallback primitive here (matches the ambient-logger-if-available, console.warn/error-if-not
+ * convention established in wiring.ts/server.ts, e.g. `corsOriginConfig`'s warnings).
+ */
 export function resolveProvider(
   id: SocialProviderId,
   env: Record<string, string | undefined> = process.env,
@@ -60,5 +65,17 @@ export function resolveProvider(
   const meta = META[id];
   const live = liveFactories.get(id);
   if (live && hasCreds(meta, env)) return live(env);
+  if (!live) {
+    console.warn(
+      `[social/registry] "${id}": no live provider registered — serving dummy_ fixture data. ` +
+        "Live integration for this platform has not been wired yet.",
+    );
+  } else {
+    const missing = meta.credEnv.filter((k) => !env[k]);
+    console.warn(
+      `[social/registry] "${id}": live provider registered but missing credentials (${missing.join(", ")}) — ` +
+        "serving dummy_ fixture data instead of real data.",
+    );
+  }
   return makeFixtureProvider(id, meta.oauthScopes);
 }

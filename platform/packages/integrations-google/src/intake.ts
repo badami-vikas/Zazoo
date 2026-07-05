@@ -78,6 +78,9 @@ export interface SyncOpts {
   selfEmails: string[];
   maxResults?: number;
   query?: string;
+  /** Calendar-only: RFC3339 bounds for syncCalendar. */
+  timeMin?: string;
+  timeMax?: string;
 }
 
 export type MatchOutcome = "linked" | "new" | "ambiguous";
@@ -115,7 +118,36 @@ function counterpartyOf(participants: EmailAddress[], selfEmails: string[]): Ema
 }
 
 export class IntakeService {
+  /**
+   * Propose-time dedup: `graph.hasExternal` (checked below) only excludes items that
+   * have already been MATERIALIZED (i.e. an approved proposal has committed). It does
+   * NOT see proposals that are staged but still `pending_review` in the Approvals
+   * inbox. Without this, running syncGmail/syncCalendar twice before the user gets to
+   * the inbox stages a second PENDING proposal for the same thread/event, and if both
+   * are later approved you get duplicate Touchpoints/Memories (no dedup key on the
+   * entities themselves at commit time).
+   *
+   * `@bridge/core`'s `LedgerStore`/`UniversalActionPipeline` expose no query surface
+   * for "list pending proposals by seed" (only `get(id)` / `decisionFor(proposalId)`),
+   * and `IntakeServiceDeps` is intentionally narrow (pipeline/bodies/graph only) — so
+   * this tracks in-process which (source, sourceRecordId) seeds currently have an
+   * unresolved PENDING proposal outstanding, keyed by the same `seed` string already
+   * passed to `pipeline.propose()` (`stage()` below). Entries are added when `stage()`
+   * returns `pending_review` and removed once `IntakeMaterializer.applyApproved`
+   * resolves that seed (see `IntakeMaterializer#clearPendingSeed` wiring) — so the
+   * window this closes is exactly the "two syncs before approval" race described above.
+   * Scoped to this file/package only; no core change.
+   */
+  private readonly pendingSeeds = new Map<string, string>(); // seed -> proposalId
+
   constructor(private readonly deps: IntakeServiceDeps) {}
+
+  /** Called once a staged proposal resolves (approved, vetoed, or edited) so the seed
+   * is free to be re-proposed if the same external item is ever re-synced (e.g. after
+   * a veto). See `GoogleService.onApproved`/decide call sites, which call this. */
+  clearPendingSeed(seed: string | undefined): void {
+    if (seed) this.pendingSeeds.delete(seed);
+  }
 
   /** Source Gmail threads through the gate, then propose graph entries per thread. */
   async syncGmail(opts: SyncOpts, ctx: RunCtx): Promise<IntakeResult> {
@@ -179,6 +211,8 @@ export class IntakeService {
           integrationId: opts.integrationId,
           workspaceId,
           ...(opts.maxResults ? { maxResults: opts.maxResults } : {}),
+          ...(opts.timeMin ? { timeMin: opts.timeMin } : {}),
+          ...(opts.timeMax ? { timeMax: opts.timeMax } : {}),
         },
       },
       ctx,
@@ -429,6 +463,23 @@ export class IntakeService {
     },
     ctx: RunCtx,
   ): Promise<IntakeProposalSummary> {
+    const seed = `${args.directive.external[0]?.source}:${args.sourceRecordId}`;
+
+    // Propose-time dedup: a proposal for this exact external item is already sitting
+    // PENDING in the Approvals inbox (staged by an earlier sync in this process). Don't
+    // stage a second one — return the existing pending proposal's summary instead.
+    const existingPendingId = this.pendingSeeds.get(seed);
+    if (existingPendingId) {
+      return {
+        proposalId: existingPendingId,
+        status: "pending_review",
+        resourceType: args.resourceType,
+        sourceRecordId: args.sourceRecordId,
+        match: args.match,
+        resource: args.resource,
+      };
+    }
+
     const proposal = await this.deps.pipeline.propose(
       {
         workspaceId: args.workspaceId,
@@ -438,7 +489,7 @@ export class IntakeService {
         resourceType: args.resourceType,
         skill: SKILL_STAGE,
         dataScope: "all",
-        seed: `${args.directive.external[0]?.source}:${args.sourceRecordId}`,
+        seed,
         inputs: {
           directive: args.directive,
           display: {
@@ -455,6 +506,9 @@ export class IntakeService {
       },
       ctx,
     );
+    if (proposal.status === "pending_review") {
+      this.pendingSeeds.set(seed, proposal.id);
+    }
     return {
       proposalId: proposal.id,
       status: proposal.status,
@@ -473,16 +527,46 @@ export interface IntakeMaterializerDeps {
   canonical: CanonicalIdentityStore;
 }
 
+/** Bounded retries for a TRANSIENT failure in the dual-write (network blip, local
+ * pglite hiccup). Every step `applyApproved` performs is idempotent (upsertPersonIdentity
+ * / upsertPerson: ON CONFLICT DO UPDATE; commitEntity: ON CONFLICT DO NOTHING;
+ * recordExternal: ON CONFLICT DO NOTHING), so retrying the whole method from scratch
+ * is safe and far simpler than per-step retry logic. */
+async function withRetry<T>(label: string, attempts: number, delayMs: number, fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === attempts) break;
+      console.error(`${label}: attempt ${attempt} failed, retrying — ${(err as Error)?.message ?? err}`, err);
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw lastErr;
+}
+
 export class IntakeMaterializer {
   constructor(private readonly deps: IntakeMaterializerDeps) {}
 
   /** Apply a resolved (approved/edited) intake proposal to the LOCAL graph.
    * Dual-writes ONLY the public identity to cloud canonical. Returns true if it
-   * was a Google intake proposal (and was applied), false otherwise. */
+   * was a Google intake proposal (and was applied), false otherwise.
+   *
+   * The dual-write body is retried (bounded, idempotent) on transient failure —
+   * see withRetry above. */
   async applyApproved(resolved: Proposal, ctx: RunCtx): Promise<boolean> {
     const out = resolved.output?.proposedOutput as { directive?: IntakeDirective } | undefined;
     const directive = out?.directive;
     if (!directive) return false;
+
+    return withRetry(`IntakeMaterializer.applyApproved(${resolved.id})`, 3, 25, () =>
+      this.applyDirective(directive, resolved, ctx),
+    );
+  }
+
+  private async applyDirective(directive: IntakeDirective, resolved: Proposal, ctx: RunCtx): Promise<boolean> {
     const workspaceId = resolved.request.workspaceId;
     const createdAt = ctx.clock.nowISO();
 

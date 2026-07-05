@@ -110,6 +110,28 @@ export interface PolicyResult {
   reason: string;
 }
 
+/**
+ * The subset of `PolicyEffect` that is actually actionable in the POST-commit
+ * phase. By the time `pipeline.ts`'s `#commit` runs post-policy, the ledger row
+ * is already appended and (for approve/edit/auto) already committed — there is
+ * no runtime hook left that a `block` effect could act on. `block` is therefore
+ * deliberately excluded here: it is not "an effect we ignore", it is an effect
+ * that cannot be represented in this phase's type at all, so a post-commit
+ * policy can never even type-check as blocking. Only advisory/logging effects
+ * survive commit — `require_approval` also makes no sense post-commit (the
+ * review gate has already been passed), so the set narrows to `allow` (no-op)
+ * plus room for future advisory-only signals.
+ */
+export type PostCommitEffect = Exclude<PolicyEffect, "block" | "require_approval">;
+
+/** A `PolicyResult` restricted to the phase="post" call site, whose `effect`
+ * cannot be `block` (see `PostCommitEffect`). Used to type `#commit`'s discarded
+ * (but now explicitly audited/logged) post-policy evaluation in `pipeline.ts`. */
+export interface PostCommitPolicyResult extends Omit<PolicyResult, "phase" | "effect"> {
+  phase: "post";
+  effect: PostCommitEffect;
+}
+
 export interface AuthorityDecision {
   allowed: boolean;
   /** Human-readable basis for the decision (audited). */
@@ -164,6 +186,13 @@ export interface LedgerEntry {
   /** Links a decision row back to the proposal it resolves. */
   refLedgerId?: string;
   seed?: string;
+  /** Data tier this action touched (the access dropdown) — audit completeness;
+   * threaded through unchanged when decide() replays this entry as a Proposal's
+   * request instead of being silently dropped. */
+  dataScope?: import("./data-scope.js").DataScope;
+  /** Original run context (initiative/community/ritual + runId) this action ran
+   * under — audit completeness; threaded through unchanged on replay. */
+  context?: RunContext;
   createdAt: string;
 }
 

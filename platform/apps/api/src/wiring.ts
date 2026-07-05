@@ -2,10 +2,32 @@
  * Composition root — assembles the Universal Action Pipeline + the Google
  * integration from ports.
  *
- * Governance + ledger: in-memory adapters by default (zero infra); Drizzle/Supabase
- * when DATABASE_URL is set. The ledger MUST stay local for private proposals — in
- * this slice the integration runs against the in-memory (local) ledger, so Gmail/
- * Calendar bodies + derived entities never reach cloud canonical.
+ * Governance: in-memory adapters by default (zero infra); Drizzle/Supabase when
+ * DATABASE_URL is set — via the two typed factories below, `buildPersistentPorts()`
+ * and `buildInMemoryPorts()`. Each returns one fully-typed `ModePorts` object; there
+ * is no conditional reassignment of individual ports.
+ *
+ * Ledger residency (KNOWN OPEN GAP, All fixes.md Phase 1 item 7 — needs a product
+ * decision, not resolved here): even in persistent mode the ledger binds to whatever
+ * `DATABASE_URL` points at, which may be cloud Supabase. That means private-proposal
+ * ledger rows (bodies/diffs for Gmail/Calendar-derived actions) CAN land in a cloud
+ * ledger despite this file historically claiming "the ledger MUST stay local." We do
+ * NOT silently keep that claim — `buildPersistentPorts()` logs a loud warning at boot
+ * instead, so the gap is visible rather than papered over. Fixing it for real means
+ * either splitting the ledger by `data_scope` (local vs cloud) or formally dropping
+ * the guarantee; that decision is explicitly deferred to the user (see decisions-log).
+ *
+ * Capture store (DealPilot's `ToolCaptureStore`): no persistent (Drizzle/pglite)
+ * implementation exists yet anywhere in the codebase (All fixes.md Phase 3 item 11b,
+ * "persist tool_captures to a real table — still open"). `buildPersistentPorts()`
+ * therefore ALSO keeps this one in-memory even when `DATABASE_URL` is set, and logs a
+ * loud warning identifying exactly this gap, rather than faking persistence that
+ * doesn't exist. Restart in persistent mode still drops quarantined-but-uncommitted
+ * DealPilot captures.
+ *
+ * Canonical identity store: this one IS genuinely fixed here.
+ * `DrizzleCanonicalIdentityStore` already exists (@bridge/db) and is now wired in
+ * persistent mode instead of the in-memory fake — no more silent lie there.
  *
  * LOCAL plane: pglite (@bridge/local) — OAuth tokens + raw bodies + derived
  * Touchpoints/Memories/Signals persist here, never Supabase. The residency fix.
@@ -47,6 +69,7 @@ import {
   createDrizzlePorts,
   createLocalDb,
   createLocalMediaStore,
+  DrizzleCanonicalIdentityStore,
   DrizzleWorkspaceStore,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
@@ -68,13 +91,16 @@ import {
 } from "@bridge/integrations-google";
 import { createInMemoryCaptureStore, createToolSourceSkill, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
 import { createFactStore, type FactStore } from "@bridge/facts";
-import { createBizBuySellAlertConnector, createGmailFetchMessages } from "@bridge/dealpilot";
+import { createBizBuySellAlertConnector, createGmailFetchMessages, type ThesisProfile } from "@bridge/dealpilot";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
-const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
+// Exported: router.ts's `assertPilotWorkspace` uses it to explicitly REJECT any
+// other workspaceId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
+// — full multi-tenancy is out of scope for this pass).
+export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
@@ -116,6 +142,9 @@ export interface Wiring {
     materializer: ToolIntakeMaterializer;
     integrationId: string;
     candidateIds: string[];
+    /** Current pilot thesis (in-memory, session-lifetime — no thesis-management UI yet). */
+    thesis: ThesisProfile;
+    setThesis(next: ThesisProfile): void;
   };
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
   memory?: {
@@ -185,6 +214,113 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   ]);
 }
 
+/** The governance + ledger + registry ports a mode (persistent/in-memory) selects. */
+export interface ModePorts {
+  roles: RoleQuery;
+  agents: AgentQuery;
+  ephemeral: EphemeralQuery;
+  policyStore: PolicyStore;
+  ledger: LedgerStore;
+  ritualRegistry: RitualRegistry;
+  toolRegistry: ToolRegistry;
+  ritualRunRecorder: RitualRunRecorder;
+  canonical: CanonicalIdentityStore;
+  dealPilotCaptures: ToolCaptureStore;
+  workspaceStore: DrizzleWorkspaceStore;
+  memory?: Wiring["memory"];
+  closeDb: () => Promise<void>;
+}
+
+/**
+ * Persistent mode (`DATABASE_URL` set) — binds governance/ledger/registries to
+ * Drizzle/Postgres via `createDrizzlePorts`, and the canonical identity store to the
+ * real `DrizzleCanonicalIdentityStore` (no more in-memory fake once persistence is
+ * requested).
+ *
+ * Two ports CANNOT yet be made real and are kept in-memory on purpose, each with a
+ * loud boot-time warning instead of a silent fallback:
+ *  - the ledger residency question is still open (Phase 1 item 7 — needs a product
+ *    decision on local-vs-cloud split); the ledger itself IS the real Drizzle ledger
+ *    here, but which physical database it points at is whatever `DATABASE_URL` says,
+ *    which may be cloud — so the historical "ledger MUST stay local" guarantee is not
+ *    actually enforced. We warn rather than silently uphold a promise we don't keep.
+ *  - `ToolCaptureStore` (DealPilot's quarantine store) has no persistent
+ *    implementation anywhere in the codebase yet (Phase 3 item 11b) — it stays
+ *    in-memory even here, and we say so loudly at boot.
+ */
+export function buildPersistentPorts(env: { url: string }): ModePorts {
+  const { db, close } = createDb({ url: env.url });
+  const ports = createDrizzlePorts(db);
+
+  console.warn(
+    "[wiring] DATABASE_URL is set, but the ledger residency guarantee (\"ledger MUST " +
+      "stay local\") is NOT enforced: the ledger is bound to whatever DATABASE_URL " +
+      "points at, which may be a cloud Supabase instance. Private-proposal ledger rows " +
+      "(Gmail/Calendar-derived diffs) can therefore reach cloud canonical. This is a " +
+      "known open gap (All fixes.md Phase 1 item 7) awaiting a product decision " +
+      "(split-by-data_scope vs. drop the guarantee) — not silently upheld.",
+  );
+  console.warn(
+    "[wiring] DATABASE_URL is set, but DealPilot's ToolCaptureStore has NO persistent " +
+      "implementation yet (All fixes.md Phase 3 item 11b) — quarantined-but-uncommitted " +
+      "captures remain in-memory and are LOST on restart despite persistent mode being " +
+      "requested. This is an explicit, logged gap, not a silent one.",
+  );
+
+  return {
+    roles: ports.roles,
+    agents: ports.agents,
+    ephemeral: ports.ephemeral,
+    policyStore: ports.policies,
+    ledger: ports.ledger,
+    ritualRegistry: ports.ritualRegistry,
+    toolRegistry: ports.toolRegistry,
+    ritualRunRecorder: ports.ritualRunRecorder,
+    // The one genuinely-fixed lie: canonical identity now really persists to Postgres
+    // instead of an in-memory fake, once DATABASE_URL is set.
+    canonical: new DrizzleCanonicalIdentityStore(db),
+    dealPilotCaptures: createInMemoryCaptureStore(),
+    workspaceStore: ports.workspaceStore,
+    closeDb: close,
+  };
+}
+
+/**
+ * In-memory mode (`DATABASE_URL` unset) — zero-infra dev/test default. Seeds
+ * governance so the Google egress/intake agents are authorized, and binds workspace
+ * CRUD to the LOCAL pglite plane (same pattern as
+ * apps/api/src/social/integration-service.ts) since workspace/team rows are real
+ * relational data, not governance config with an in-memory port.
+ */
+export async function buildInMemoryPorts(env: { localDir: string | undefined }): Promise<ModePorts> {
+  const mRoles = new InMemoryRoleStore();
+  const mAgents = new InMemoryAgentStore();
+  const mEphemeral = new InMemoryEphemeralStore();
+  seedGovernance(mRoles, mAgents);
+
+  const { db: localDb, close: closeLocalDb } = await createLocalDb(
+    env.localDir ? { dataDir: env.localDir } : {},
+  );
+
+  return {
+    roles: mRoles,
+    agents: mAgents,
+    ephemeral: mEphemeral,
+    policyStore: new InMemoryPolicyStore(policies),
+    ledger: new InMemoryLedger(),
+    // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
+    // ritual.create (validated ritual ⊆ agent) and persist here for the session.
+    ritualRegistry: new InMemoryRitualRegistry(),
+    toolRegistry: new InMemoryToolRegistry(),
+    ritualRunRecorder: new InMemoryRitualRunRecorder(),
+    canonical: new InMemoryCanonicalIdentityStore(),
+    dealPilotCaptures: createInMemoryCaptureStore(),
+    workspaceStore: new DrizzleWorkspaceStore(localDb),
+    memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
+    closeDb: closeLocalDb,
+  };
+}
+
 export async function buildWiring(): Promise<Wiring> {
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry().register(stageMutation).register(stageCapture);
@@ -209,13 +345,32 @@ export async function buildWiring(): Promise<Wiring> {
   // Register the Google skills (source/stage/compose) into the pipeline registry.
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
 
+  // Mode ports: one fully-typed object per mode, no let-sprawl reassignment.
+  const modePorts: ModePorts = url
+    ? buildPersistentPorts({ url })
+    : await buildInMemoryPorts({ localDir });
+  const {
+    roles,
+    agents,
+    ephemeral,
+    policyStore,
+    ledger,
+    ritualRegistry,
+    toolRegistry,
+    ritualRunRecorder,
+    canonical,
+    dealPilotCaptures,
+    workspaceStore,
+    memory,
+    closeDb,
+  } = modePorts;
+
   // DealPilot: the first tool wired through the generic manifest intake seam
   // (@bridge/tool-kit createToolSourceSkill/ToolIntakeMaterializer) — sourcing quarantines
   // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
   // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
-  const dealPilotCaptures: ToolCaptureStore = createInMemoryCaptureStore();
   const dealPilotFacts: FactStore = createFactStore();
   const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
   skillRegistry.register(
@@ -226,6 +381,10 @@ export async function buildWiring(): Promise<Wiring> {
     }),
   );
   const dealPilotCandidateIds: string[] = [];
+  // Basic thesis storage (in-memory, session-lifetime — mirrors dealPilotCandidateIds).
+  // Full thesis-management UI is a separate, larger future item; this is just get/set state
+  // so `dealpilot.list`'s fit-scoring has something other than a hardcoded stand-in.
+  let dealPilotThesis: ThesisProfile = { industries: [], geo: [] };
   const dealPilotMaterializer = new ToolIntakeMaterializer({
     captures: dealPilotCaptures,
     commit: async (capture) => {
@@ -258,68 +417,17 @@ export async function buildWiring(): Promise<Wiring> {
     },
   });
 
-  let roles: RoleQuery;
-  let agents: AgentQuery;
-  let ephemeral: EphemeralQuery;
-  let policyStore: PolicyStore;
-  let ledger: LedgerStore;
-  let ritualRegistry: RitualRegistry;
-  let toolRegistry: ToolRegistry;
-  let ritualRunRecorder: RitualRunRecorder;
-  let canonical: CanonicalIdentityStore;
-  let closeDb: () => Promise<void> = async () => {};
-  let memory: Wiring["memory"];
-  let workspaceStore: DrizzleWorkspaceStore;
-
-  if (url) {
-    const { db, close } = createDb({ url });
-    const ports = createDrizzlePorts(db);
-    roles = ports.roles;
-    agents = ports.agents;
-    ephemeral = ports.ephemeral;
-    policyStore = ports.policies;
-    ledger = ports.ledger;
-    ritualRegistry = ports.ritualRegistry;
-    toolRegistry = ports.toolRegistry;
-    ritualRunRecorder = ports.ritualRunRecorder;
-    workspaceStore = ports.workspaceStore;
-    // Canonical dual-write stays an in-memory fake unless explicitly bound (avoids
-    // writing identity to Supabase without intent); the seam is identical.
-    canonical = new InMemoryCanonicalIdentityStore();
-    closeDb = close;
-  } else {
-    const mRoles = new InMemoryRoleStore();
-    const mAgents = new InMemoryAgentStore();
-    const mEphemeral = new InMemoryEphemeralStore();
-    seedGovernance(mRoles, mAgents);
-
-    roles = mRoles;
-    agents = mAgents;
-    ephemeral = mEphemeral;
-    policyStore = new InMemoryPolicyStore(policies);
-    ledger = new InMemoryLedger();
-    // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
-    // ritual.create (validated ritual ⊆ agent) and persist here for the session.
-    ritualRegistry = new InMemoryRitualRegistry();
-    toolRegistry = new InMemoryToolRegistry();
-    ritualRunRecorder = new InMemoryRitualRunRecorder();
-    canonical = new InMemoryCanonicalIdentityStore();
-    memory = { roles: mRoles, agents: mAgents, ephemeral: mEphemeral };
-
-    // Workspace CRUD has no in-memory port (users/workspaces are real relational
-    // rows, not governance config) — bind it to the same LOCAL pglite plane used
-    // for integrations (BRIDGE_LOCAL_DIR file-backed, else in-memory), same
-    // pattern as apps/api/src/social/integration-service.ts.
-    const { db: localDb, close: closeLocalDb } = await createLocalDb(
-      localDir ? { dataDir: localDir } : {},
-    );
-    workspaceStore = new DrizzleWorkspaceStore(localDb);
-    const prevClose = closeDb;
-    closeDb = async () => {
-      await prevClose();
-      await closeLocalDb();
-    };
-  }
+  // Idempotent bootstrap: the pilot workspace/user are structural constants (not
+  // migration seed data), but real DB writes FK-reference `workspaces.id`/`users.id`
+  // (e.g. `integration.connect` → `integrations.workspace_id`, `workspace.create` →
+  // `workspace_members.user_id`). Without this, any such write against a real/
+  // persistent DB throws a raw Postgres FK violation (23503) the first time it runs,
+  // because nothing ever inserts these rows. Safe to call every boot (no-op if present).
+  await workspaceStore.bootstrapPilotIdentities({
+    workspaceId: PILOT_WORKSPACE,
+    userId: PILOT_USER,
+    userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "dummy_pilot@bridge.local",
+  });
 
   // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
   // LOCAL_MEDIA_DIR set => persistent pglite on disk; unset => in-memory (zero-infra).
@@ -382,6 +490,12 @@ export async function buildWiring(): Promise<Wiring> {
       materializer: dealPilotMaterializer,
       integrationId: dealPilotIntegrationId,
       candidateIds: dealPilotCandidateIds,
+      get thesis() {
+        return dealPilotThesis;
+      },
+      setThesis(next: ThesisProfile) {
+        dealPilotThesis = next;
+      },
     },
     ritualRegistry,
     workspaceStore,

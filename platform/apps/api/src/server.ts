@@ -30,7 +30,29 @@ export function corsOriginConfig(): true | string[] {
   return process.env.NODE_ENV === "production" ? [] : true;
 }
 
+/**
+ * Fail fast in production rather than silently booting onto unsafe defaults. Today
+ * that means: a real ledger (DATABASE_URL) — without it every proposal/decision
+ * lives in `InMemoryLedger`, wiped on restart, while `/health` still reports
+ * `ok:true`. See known-issues.md "In-memory everything without DATABASE_URL".
+ */
+export function assertProductionEnv(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const missing: string[] = [];
+  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
+  if (missing.length > 0) {
+    throw new Error(
+      `Refusing to start in production without: ${missing.join(", ")}. ` +
+        "In-memory stores are unsafe for production (data loss on restart, no real audit trail).",
+    );
+  }
+}
+
+/** A syntactically-valid probe id — the stores below are queried by shape, not existence. */
+const HEALTH_PROBE_ID = "00000000-0000-0000-0000-000000000000";
+
 export async function buildServer() {
+  assertProductionEnv();
   const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
@@ -44,6 +66,35 @@ export async function buildServer() {
   await app.register(cors, { origin });
 
   app.get("/health", async () => ({ ok: true, service: "bridge-api" }));
+
+  // Liveness ("/health") only proves the process is up. Readiness actually probes the
+  // backing stores so a downed Postgres or corrupted local plane surfaces as a real
+  // failure instead of a silent `ok:true`.
+  app.get("/health/ready", async (_req, reply) => {
+    const checks: Record<string, "ok" | "error"> = {};
+    let ready = true;
+
+    try {
+      await wiring.ledger.get(HEALTH_PROBE_ID);
+      checks.ledger = "ok";
+    } catch (err) {
+      checks.ledger = "error";
+      ready = false;
+      app.log.error({ err }, "health/ready: ledger probe failed");
+    }
+
+    try {
+      await wiring.localPlane.graph.hasExternal(HEALTH_PROBE_ID, "healthcheck", "healthcheck");
+      checks.localPlane = "ok";
+    } catch (err) {
+      checks.localPlane = "error";
+      ready = false;
+      app.log.error({ err }, "health/ready: local plane probe failed");
+    }
+
+    reply.code(ready ? 200 : 503);
+    return { ready, persistent: wiring.persistent, checks };
+  });
 
   // OAuth redirect target (a GET, not tRPC): Google sends the user back here with a
   // `code`. We exchange it for tokens and persist them to the LOCAL plane (never

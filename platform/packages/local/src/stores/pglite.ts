@@ -231,9 +231,12 @@ class PgliteLocalGraphStore implements LocalGraphStore {
     return res.rows.map(rowToPerson);
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
+    // Idempotent: a retry after a partial dual-write failure re-commits the same
+    // deterministic id — that must be a silent no-op, not a PK violation.
     await this.db.query(
       `INSERT INTO local_entities (id, workspace_id, kind, person_id, payload, source, source_record_id, created_at)
-       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)
+       ON CONFLICT (id) DO NOTHING`,
       [
         entry.id,
         entry.workspaceId,

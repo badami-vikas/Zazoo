@@ -68,16 +68,57 @@ test("read: source → local quarantine → pending Touchpoint proposals; privat
 
   assert.equal(results.length, 2);
   assert.ok(results.every((r) => r.proposal.status === "pending_review"));
+  // Audit trail: fixture-sourced proposals must be distinguishable from live ones.
+  assert.ok(results.every((r) => r.mode === "fixture"));
   for (const req of gate.proposals) {
     assert.equal(req.resourceType, "touchpoint");
     assert.equal(req.action, "write");
     assert.equal(req.dataScope, "private");
+    assert.equal((req.inputs as { mode?: string }).mode, "fixture");
     // Residency: the raw private body must NEVER ride the proposal.
     assert.ok(!JSON.stringify(req.inputs).includes("direct message body"));
   }
   // The body IS captured locally in quarantine.
   assert.equal(quarantine.entries.length, 2);
   assert.ok(quarantine.entries.some((e) => e.item.text.includes("direct message body")));
+});
+
+test("sourceToProposals: proposal inputs.mode is 'fixture' for a fixture provider", async () => {
+  const gate = new RecordingGate();
+  const quarantine = new MemQuarantine();
+  const provider = makeFixtureProvider("x", []);
+
+  const results = await sourceToProposals({
+    gate,
+    provider,
+    quarantine,
+    workspaceId: "dummy_ws",
+    actor,
+    run,
+  });
+
+  assert.ok(results.length > 0);
+  for (const result of results) {
+    assert.equal(result.mode, "fixture");
+    assert.equal((result.proposal.request.inputs as { mode?: string }).mode, "fixture");
+  }
+});
+
+test("resolveProvider: warns when falling back to the fixture seam (no live factory registered)", async () => {
+  const warnCalls: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args);
+  };
+  try {
+    const provider = resolveProvider("x", {});
+    assert.equal(provider.mode, "fixture");
+    assert.equal(warnCalls.length, 1);
+    assert.match(String(warnCalls[0]?.[0]), /"x"/);
+    assert.match(String(warnCalls[0]?.[0]), /no live provider registered/i);
+  } finally {
+    console.warn = original;
+  }
 });
 
 test("write: draft never publishes; egress fires only after gate approval", async () => {
