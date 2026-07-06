@@ -4,7 +4,7 @@ type: raw
 doc_kind: plan
 status: DRAFT — coverage numbers measured 2026-07-04, priority list not yet executed
 companions: [decisions-log.md, ARCHITECTURE.md, SCHEMA.sql]
-related_wiki: ../wiki/known-issues.md
+related_wiki: ../BUGS.md
 updated: 2026-07-04
 tags: [testing, coverage, ci, governance, google-integration, dedupe]
 ---
@@ -12,7 +12,7 @@ tags: [testing, coverage, ci, governance, google-integration, dedupe]
 # Platform Testing Strategy
 
 Every package uses Node's built-in `node --test` against compiled `dist/test/*.test.js` —
-no vitest/jest, no coverage wired into `turbo run test`, no CI at all (see known-issues.md).
+no vitest/jest, no coverage wired into `turbo run test`, no CI at all (see BUGS.md).
 Numbers below are from a real `node --test --experimental-test-coverage` run on 2026-07-04
 after a from-scratch `pnpm install` + `turbo run build --force` in a worktree that had never
 been installed — not from cache, not estimated.

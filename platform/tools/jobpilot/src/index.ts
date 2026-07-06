@@ -10,7 +10,7 @@ export { createGreenhouseConnector, createAshbyConnector, createLeverConnector }
 export type { StageActor, StageEvent } from "./state-machine.js";
 export { InvalidTransitionError, transition } from "./state-machine.js";
 export type { AnswerSource, AnswerRecord, AnswerBank } from "./answer-bank.js";
-export { NeedsHuman, normalizeQuestion, isSensitiveQuestion, createAnswerBank } from "./answer-bank.js";
+export { NeedsHuman, normalizeQuestion, isSensitiveQuestion, createAnswerBank, FUZZY_THRESHOLD } from "./answer-bank.js";
 export type { OnboardingInput } from "./onboarding.js";
 export { extractSkills, proposeCategories, buildCandidateProfile } from "./onboarding.js";
 export type { EmailMessage, ApplicationRef, Classification, EmailClassifier, EmailDisposition, RouteResult } from "./gmail-router.js";

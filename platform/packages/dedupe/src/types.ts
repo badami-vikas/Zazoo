@@ -26,3 +26,11 @@ export interface MatchThresholds {
 }
 
 export const DEFAULT_THRESHOLDS: MatchThresholds = { strong: 0.92, moderate: 0.75 };
+
+// Generic fuzzy-match acceptance floor for callers that need a single scalar cutoff rather than
+// the strong/moderate tier pair above (e.g. JobPilot's AnswerBank: normalize -> exact -> fuzzy
+// >=0.9 -> LLM fallback, architecture doc S3 `answers.AnswerBank`). Kept as its own export instead
+// of overloading `DEFAULT_THRESHOLDS.moderate` — that pair is specifically about the
+// strong/moderate/flag REVIEW-QUEUE tiering, a different decision from AnswerBank's binary
+// accept-or-escalate-to-LLM cutoff.
+export const FUZZY_MATCH_THRESHOLD = 0.9;

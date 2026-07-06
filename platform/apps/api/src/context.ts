@@ -12,10 +12,18 @@
  * bearer token and deriving the real user — is the remaining Phase C work. Even
  * pinned, this closes the "client claims to be a human approver" hole, because the
  * decider is chosen by the server, not the request body.
+ *
+ * JWKS hardening: `identityResolver.resolve` can reject with
+ * `IdentityVerificationError` (JWKS timeout, network error, invalid token — see
+ * identity.ts). That is caught here and re-thrown as a `TRPCError({code:
+ * "UNAUTHORIZED"})`, which the tRPC fastify adapter maps to a clean 401 response.
+ * Without this, a JWKS outage would surface as an unhandled rejection during
+ * context creation instead of a normal auth failure.
  */
+import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
-import { createIdentityResolver } from "./identity.js";
+import { createIdentityResolver, IdentityVerificationError } from "./identity.js";
 
 export interface ApiContext {
   wiring: Wiring;
@@ -44,7 +52,15 @@ export function makeContextFactory(wiring: Wiring) {
     const clock = new SystemClock();
     const rng = new SeededRng(clock.nowMs() >>> 0); // boundary seed
     const authHeader = headerValue(args?.req?.headers?.["authorization"]);
-    const identity = await identityResolver.resolve(authHeader);
+    let identity: Actor;
+    try {
+      identity = await identityResolver.resolve(authHeader);
+    } catch (err) {
+      if (err instanceof IdentityVerificationError) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "invalid or unverifiable credentials", cause: err });
+      }
+      throw err;
+    }
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
     return {
       wiring,

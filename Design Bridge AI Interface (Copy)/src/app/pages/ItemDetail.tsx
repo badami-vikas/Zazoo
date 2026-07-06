@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type ElementType } from 'react';
 import {
   ChevronRight, ChevronDown, Link as LinkIcon, Building2, MapPin, FileText, Image as ImageIcon,
   FileSpreadsheet, Users, Edit2, Download, RefreshCw, Share2, MoreHorizontal, Eye, Lock, Globe2,
   Mail, Phone, Globe, Github, Linkedin, Instagram, Twitter, Plus, X as XIcon, Quote,
   Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash, Info,
+  type LucideIcon,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
@@ -18,7 +19,9 @@ type Filter = 'all' | Tier;
 
 const heading = 'text-2xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4';
 
-const EditableText = ({ text, onSave, className, multiline = false, as: Component = 'div' }: any) => {
+function EditableText({ text, onSave, className, multiline = false, as: Component = 'div' }: {
+  text: string; onSave: (v: string) => void; className?: string; multiline?: boolean; as?: ElementType;
+}) {
   const [isEditing, setIsEditing] = useState(false);
   const [val, setVal] = useState(text);
   useEffect(() => { setVal(text); }, [text]);
@@ -56,7 +59,7 @@ function TagEditor({ seed }: { seed: string[] }) {
   );
 }
 
-function ContactCard({ person, fv, setField }: { person?: NetworkPerson; fv: (f: string, b: any) => any; setField: (f: string, v: string) => void }) {
+function ContactCard({ person, fv, setField }: { person?: NetworkPerson; fv: (f: string, b: string) => string; setField: (f: string, v: string) => void }) {
   const email = person?.email || '';
   const linkedin = person?.url || '';
   const liHandle = linkedin ? linkedin.replace(/^https?:\/\/(www\.)?linkedin\.com\//, '').replace(/\/$/, '') : '';
@@ -171,7 +174,9 @@ function ToolsActionable() {
 function Boundaries({ entityName }: { entityName: string }) {
   const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)']);
   const [denied, setDenied] = useState(['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network']);
-  const Col = ({ title, items, setItems, tone, Icon }: any) => {
+  const Col = ({ title, items, setItems, tone, Icon }: {
+    title: string; items: string[]; setItems: (v: string[]) => void; tone: string; Icon: LucideIcon;
+  }) => {
     const [draft, setDraft] = useState('');
     return (
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: `color-mix(in srgb, ${tone} 30%, var(--color-border))` }}>
@@ -216,7 +221,7 @@ function Boundaries({ entityName }: { entityName: string }) {
   );
 }
 
-const visMeta: Record<Filter, { label: string; icon: any }> = {
+const visMeta: Record<Filter, { label: string; icon: LucideIcon }> = {
   all: { label: 'All', icon: Eye }, public: { label: 'Public', icon: Globe2 }, private: { label: 'Private', icon: Lock },
 };
 
@@ -251,7 +256,7 @@ export function ItemDetail() {
     try { const all = JSON.parse(localStorage.getItem(EDITS_KEY) || '{}'); all[initialName] = next; localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {}
     return next;
   });
-  const fv = (field: string, base: any) => (edits[field] !== undefined ? edits[field] : base);
+  const fv = (field: string, base: string) => (edits[field] !== undefined ? edits[field] : base);
   const initiatives = useInitiatives();
   const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Project brief.pdf', type: 'PDF', size: '0.4 MB' }]);
   const addFiles = (list: FileList | null) => {

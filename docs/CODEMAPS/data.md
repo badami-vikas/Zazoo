@@ -40,7 +40,7 @@ Knowledge        embeddings (vector(768), pinned single-model — NO hnsw index,
 Events           events (workspace_id+created_at indexed), signals (read-only, +saved col)
 ```
 
-## Known integrity gaps (see known-issues.md for verified detail)
+## Known integrity gaps (see ../BUGS.md for verified detail)
 
 - `dedup_key` nullable-unique on both canonical tables — NULL rows never dedupe.
 - Polymorphic type+id pairs (edges, touchpoints.assignee, file_refs) have zero FK/CHECK.
@@ -49,5 +49,5 @@ Events           events (workspace_id+created_at indexed), signals (read-only, +
   `status` text) with no documented rule for which table uses which.
 - `recon_signals` jsonb column has a GIN index and zero code reading or writing it.
 
-See also: [architecture.md](architecture.md), [../wiki/known-issues.md](../wiki/known-issues.md),
+See also: [architecture.md](architecture.md), [../BUGS.md](../BUGS.md),
 [../raw/SCHEMA.sql](../raw/SCHEMA.sql) (stale — treat schema.ts as authoritative).

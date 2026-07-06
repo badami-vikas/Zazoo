@@ -18,14 +18,20 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
+import { ALWAYS_APPROVAL_SCOPES } from "@bridge/core";
 import type { Database } from "./client.js";
 import { integrations, permissions } from "./schema.js";
 
 /** Actor type used for an integration's CBAC grants. */
 export const INTEGRATION_ACTOR_TYPE = "integration";
 
-/** Scopes that can never be a standing allow — always human-approved at run time. */
-export const ALWAYS_APPROVAL_SCOPES = ["external:send", "network_graph:full"] as const;
+/**
+ * Scopes that can never be a standing allow — always human-approved at run time.
+ * Re-exported from @bridge/core's canonical agent-floor definition (the single
+ * source of truth shared with `agentFloorDeny` and `isForbiddenAgentToken`) so
+ * this store's refusal never drifts from the runtime floor it is protecting.
+ */
+export { ALWAYS_APPROVAL_SCOPES };
 
 export interface IntegrationRow {
   id: string;
@@ -143,7 +149,7 @@ export class DrizzleIntegrationStore {
     grantedBy?: string;
     expiresAt?: Date;
   }): Promise<ScopeGrant> {
-    if ((ALWAYS_APPROVAL_SCOPES as readonly string[]).includes(args.resourceType)) {
+    if (ALWAYS_APPROVAL_SCOPES.includes(args.resourceType)) {
       throw new IntegrationFloorScopeError(args.resourceType);
     }
     const id = randomUUID();

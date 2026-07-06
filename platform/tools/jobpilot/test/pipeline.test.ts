@@ -10,7 +10,7 @@ const query = { kind: "company" as const, hints: { name: "Acme HVAC" } };
 
 test("processJobCandidate: new posting (no existing match) sources, records facts, and scores fit", async () => {
   const connector = createApiClientConnector({
-    id: "test-source",
+    id: "dummy_source",
     fetcher: async () => [{ company: "Acme HVAC", title: "Data Engineer", location: "Remote", isRemote: true }],
     confidenceOf: () => 0.9,
   });
@@ -27,7 +27,7 @@ test("processJobCandidate: new posting (no existing match) sources, records fact
 
 test("processJobCandidate: identical company+title+location dedupes against the existing posting", async () => {
   const connector = createApiClientConnector({
-    id: "test-source",
+    id: "dummy_source",
     fetcher: async () => [{ company: "Acme HVAC", title: "Data Engineer", location: "Remote" }],
     confidenceOf: () => 0.9,
   });
@@ -42,7 +42,7 @@ test("processJobCandidate: identical company+title+location dedupes against the 
 
 test("processJobCandidate: different posting at a company already applied to flags alreadyAppliedToCompany", async () => {
   const connector = createApiClientConnector({
-    id: "test-source",
+    id: "dummy_source",
     fetcher: async () => [{ company: "Acme HVAC", title: "Platform Engineer", location: "Remote" }],
     confidenceOf: () => 0.9,
   });

@@ -22,7 +22,20 @@ export {
   type RitualStepView,
   type RitualScopeViolation,
 } from "./agent-scope.js";
-export { UniversalActionPipeline, type PipelineDeps } from "./pipeline.js";
+export {
+  AGENT_FLOOR_PROTECTED_RESOURCES,
+  AGENT_FLOOR_MUTATIONS,
+  AGENT_FLOOR_ALWAYS_DENIED_SCOPES,
+  ALWAYS_APPROVAL_SCOPES,
+  isAgentFloorProtectedResourceToken,
+  isAgentFloorDenied,
+} from "./agent-floor.js";
+export {
+  UniversalActionPipeline,
+  AlreadyResolvedError,
+  AgentFloorDeniedError,
+  type PipelineDeps,
+} from "./pipeline.js";
 export {
   InProcessRitualExecutor,
   type RitualExecutor,

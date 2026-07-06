@@ -105,4 +105,24 @@ export class DrizzleWorkspaceStore {
     const rows = await this.#db.select().from(users).where(inArray(users.id, ids));
     return rows.map((r) => ({ userId: r.id, email: r.email, name: r.name ?? null }));
   }
+
+  /**
+   * Idempotent find-or-create for the pilot workspace + pilot user rows. Every FK'd
+   * write that references `workspaces.id`/`users.id` (e.g. `integrations.workspace_id`
+   * via `integration.connect`, or `workspace_members.user_id` via `workspace.create`)
+   * throws a raw Postgres FK violation (23503) against a real/persistent DB unless
+   * these rows already exist — there is no migration seed for them, since the pilot
+   * ids are structural constants (`wiring.ts`), not migration data. Safe to call on
+   * every boot: no-ops if the rows are already present.
+   */
+  async bootstrapPilotIdentities(input: { workspaceId: string; userId: string; userEmail: string }): Promise<void> {
+    await this.#db
+      .insert(workspaces)
+      .values({ id: input.workspaceId, name: "Pilot workspace", createdAt: new Date() })
+      .onConflictDoNothing({ target: workspaces.id });
+    await this.#db
+      .insert(users)
+      .values({ id: input.userId, email: input.userEmail, createdAt: new Date() })
+      .onConflictDoNothing({ target: users.id });
+  }
 }

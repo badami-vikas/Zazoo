@@ -10,7 +10,7 @@ const query = { kind: "company" as const, hints: { name: "Acme HVAC" } };
 
 test("processDealCandidate: new deal (no existing match) sources, records facts, and scores fit", async () => {
   const connector = createApiClientConnector({
-    id: "test-source",
+    id: "dummy_source",
     fetcher: async () => [{ name: "Acme HVAC", industry: "HVAC", geo: "Texas", domain: "acmehvac.com" }],
     confidenceOf: () => 0.9,
   });
@@ -26,7 +26,7 @@ test("processDealCandidate: new deal (no existing match) sources, records facts,
 
 test("processDealCandidate: exact domain match against an existing deal dedupes instead of creating a new one", async () => {
   const connector = createApiClientConnector({
-    id: "test-source",
+    id: "dummy_source",
     fetcher: async () => [{ name: "Acme HVAC Inc", industry: "HVAC", domain: "acmehvac.com" }],
     confidenceOf: () => 0.9,
   });

@@ -28,7 +28,7 @@ goes through `lib/persist.ts`'s `usePersistentState` → **localStorage only**, 
 documented as "prototype-tier; swap for a DB" — this is the intended swap point once the
 platform API is live for these surfaces.
 
-## Known structural issues (see ../wiki/known-issues.md)
+## Known structural issues (see ../BUGS.md)
 
 Duplicate merge-artifact config files at prototype root (`package-1.json`, `vite.config-1.ts`,
 `postcss.config-1.mjs`, `ATTRIBUTIONS-1.md`) — stale copies, not the live config.

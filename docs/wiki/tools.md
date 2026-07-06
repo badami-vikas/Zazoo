@@ -98,7 +98,7 @@ full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan
   `@bridge/integrations-google` gateway (no tool-owned OAuth). BusinessBroker.net = real
   `normalizeBusinessBrokerRow` only — its `robots.txt` Disallows `/listings/` + all query-string
   URLs (its search endpoint) and no feed exists, so live fetch is a blocked seam, not built
-  (see [known-issues.md](known-issues.md)). 19/19 dealpilot tests. Prototype `/dealpilot`
+  (see [BUGS.md](../BUGS.md)). 19/19 dealpilot tests. Prototype `/dealpilot`
   kanban page shipped (dummy_ data, honest connector-status strip).
 - **Generic intake seam (2026-07-04)**: `@bridge/tool-kit` `createToolSourceSkill` /
   `ToolIntakeMaterializer` / `ToolCaptureStore` — quarantine → pipeline `external:fetch`

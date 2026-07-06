@@ -13,7 +13,7 @@ test("manifest: kind internal, provides source.company", () => {
 });
 
 test("sourceCompany: waterfall result gets recorded into the entity's living profile", async () => {
-  const connector = createApiClientConnector({ id: "test-registry", fetcher: async () => [{ revenue: 500000 }], confidenceOf: () => 0.9 });
+  const connector = createApiClientConnector({ id: "dummy_registry", fetcher: async () => [{ revenue: 500000 }], confidenceOf: () => 0.9 });
   const ledger = createBudgetLedger(10);
   const facts = createFactStore();
   await sourceCompany({ kind: "company", hints: { name: "Acme" } }, [connector], ledger, facts, "deal_1");

@@ -80,6 +80,48 @@ test("read: source → local quarantine → pending Touchpoint proposals; privat
   assert.ok(quarantine.entries.some((e) => e.item.text.includes("direct message body")));
 });
 
+test("sourceToProposals: proposal inputs.mode is 'fixture' for a fixture provider", async () => {
+  const gate = new RecordingGate();
+  const quarantine = new MemQuarantine();
+  const provider = resolveProvider("x", {}); // no creds => fixture seam
+  assert.equal(provider.mode, "fixture");
+
+  const results = await sourceToProposals({
+    gate,
+    provider,
+    quarantine,
+    workspaceId: "dummy_ws",
+    actor,
+    run,
+  });
+
+  // Every proposal's inputs record the provider mode, so the audit trail can
+  // always answer "was this fixture or live data?" without reading code.
+  for (const req of gate.proposals) {
+    assert.equal((req.inputs as { mode?: string }).mode, "fixture");
+  }
+  for (const r of results) {
+    assert.equal(r.mode, "fixture");
+  }
+});
+
+test("resolveProvider: warns when falling back to the fixture seam (no live factory registered)", () => {
+  const warnCalls: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args);
+  };
+  try {
+    const provider = resolveProvider("facebook", {}); // no live factory registered for "facebook" in this test module
+    assert.equal(provider.mode, "fixture");
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(warnCalls.length, 1);
+  const [message] = warnCalls[0]!;
+  assert.match(String(message), /"facebook".*no live provider registered/);
+});
+
 test("write: draft never publishes; egress fires only after gate approval", async () => {
   const gate = new RecordingGate();
   const base = resolveProvider("x", {});

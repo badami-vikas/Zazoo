@@ -52,11 +52,11 @@ skills.ts             Skill registry; each skill.run(inputs: unknown, ctx) — n
                       zod validation (inputs is z.unknown() all the way from the router)
 ```
 
-## Cross-cutting gaps (see known-issues.md for full detail)
+## Cross-cutting gaps (see ../BUGS.md for full detail)
 
 - No rate limiting, no caching layer (grep-confirmed zero hits in apps/api, packages/core).
 - CORS `origin: true` — any site can call the API.
 - No CI; turbo build cache has replayed stale cross-worktree logs (reproduced live 2026-07-04).
 
 See also: [architecture.md](architecture.md), [data.md](data.md),
-[../wiki/known-issues.md](../wiki/known-issues.md).
+[../BUGS.md](../BUGS.md).

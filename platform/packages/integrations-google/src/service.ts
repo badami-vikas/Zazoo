@@ -76,13 +76,15 @@ export class GoogleService {
     );
   }
 
-  syncCalendar(ctx: RunCtx, opts?: { maxResults?: number }): Promise<IntakeResult> {
+  syncCalendar(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<IntakeResult> {
     return this.deps.intake.syncCalendar(
       {
         integrationId: this.integrationId,
         identities: this.deps.identities,
         selfEmails: this.deps.selfEmails,
         ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
+        ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
+        ...(opts?.timeMax ? { timeMax: opts.timeMax } : {}),
       },
       ctx,
     );
@@ -94,7 +96,7 @@ export class GoogleService {
    * calendar view authorizes the inbound read, so the service approves it). Does NOT
    * propose Touchpoints — that's syncCalendar. Returns the events for rendering.
    */
-  async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string }): Promise<CalendarEvent[]> {
+  async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<CalendarEvent[]> {
     const { workspaceId, egressAgentId, userId } = this.deps.identities;
     const proposal = await this.deps.pipeline.propose(
       {
@@ -109,6 +111,7 @@ export class GoogleService {
           integrationId: this.integrationId,
           ...(opts?.maxResults ? { maxResults: opts.maxResults } : {}),
           ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
+          ...(opts?.timeMax ? { timeMax: opts.timeMax } : {}),
         },
       },
       ctx,
@@ -191,6 +194,9 @@ export class GoogleService {
    * external:send through the gate. No-op for unrelated proposals.
    */
   async onApproved(originalProposalId: string, resolved: Proposal, ctx: RunCtx): Promise<{ materialized: boolean; sent: boolean }> {
+    // Free up the propose-time dedup slot (see IntakeService.pendingSeeds) now that this
+    // proposal has resolved — whether it ends up materializing or not.
+    this.deps.intake.clearPendingSeed(resolved.request.seed);
     if (resolved.status !== "applied") return { materialized: false, sent: false };
     const materialized = await this.deps.materializer.applyApproved(resolved, ctx);
     let sent = false;

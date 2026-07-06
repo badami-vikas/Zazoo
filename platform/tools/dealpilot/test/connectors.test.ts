@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { GoogleGateway, GoogleGatewayFactory } from "@bridge/integrations-google";
 import {
   parseBizBuySellAlert,
+  parseBizBuySellAlertBatch,
   createGmailFetchMessages,
   normalizeBusinessBrokerRow,
   createBizBuySellAlertConnector,
@@ -145,4 +146,114 @@ test("createBusinessBrokerNetConnector: confidence scales with how many core fie
 
   assert.equal(envelopes[0]!.confidence, 0.9);
   assert.equal(envelopes[1]!.confidence, 0.6);
+});
+
+// -------------------------------------------------------------------------------------------
+// Parse-null-rate metric — guards against BizBuySell template drift silently zeroing results.
+// -------------------------------------------------------------------------------------------
+
+function withConsoleWarnSpy<T>(fn: () => T): { result: T; warnings: string[] } {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    const result = fn();
+    return { result, warnings };
+  } finally {
+    console.warn = original;
+  }
+}
+
+async function withConsoleWarnSpyAsync<T>(fn: () => Promise<T>): Promise<{ result: T; warnings: string[] }> {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    const result = await fn();
+    return { result, warnings };
+  } finally {
+    console.warn = original;
+  }
+}
+
+test("parseBizBuySellAlertBatch: healthy batch parses fully and does not warn", () => {
+  const messages = [
+    {
+      subject: "New Listing Alert: dummy_hvac_co",
+      body: "Business: dummy_hvac_co\nAsking Price: $850,000\nLocation: Dallas, TX",
+    },
+    {
+      subject: "New Listing Alert: dummy_laundromat_co",
+      body: "Business: dummy_laundromat_co\nAsking Price: $500,000\nLocation: Tampa, FL",
+    },
+    {
+      subject: "New Listing Alert: dummy_deli_co",
+      body: "Business: dummy_deli_co\nAsking Price: $300,000\nLocation: Austin, TX",
+    },
+  ];
+
+  const { result, warnings } = withConsoleWarnSpy(() => parseBizBuySellAlertBatch(messages));
+
+  assert.equal(result.summary.attempted, 3);
+  assert.equal(result.summary.parsed, 3);
+  assert.equal(result.summary.parseRate, 1);
+  assert.equal(result.results.length, 3);
+  assert.equal(warnings.length, 0);
+});
+
+test("parseBizBuySellAlertBatch: template-drift batch (low parse rate) logs a loud warning naming template drift", () => {
+  // Simulates BizBuySell changing its alert-email template: none of the old labeled-field markup
+  // survives, so the regex-based parser can't find anything usable in most messages.
+  const messages = [
+    { subject: "dummy_notice_1", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_1</div>" },
+    { subject: "dummy_notice_2", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_2</div>" },
+    { subject: "dummy_notice_3", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_3</div>" },
+    {
+      subject: "New Listing Alert: dummy_survivor_co",
+      body: "Business: dummy_survivor_co\nAsking Price: $200,000",
+    },
+  ];
+
+  const { result, warnings } = withConsoleWarnSpy(() => parseBizBuySellAlertBatch(messages));
+
+  assert.equal(result.summary.attempted, 4);
+  assert.equal(result.summary.parsed, 1);
+  assert.equal(result.summary.parseRate, 0.25);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /template drift/i);
+  assert.match(warnings[0]!, /bizbuysell-alerts/);
+});
+
+test("createBizBuySellAlertConnector: warns when a fetched batch's parse rate is unhealthy", async () => {
+  const connector = createBizBuySellAlertConnector(async () => [
+    { subject: "dummy_notice_1", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_1</div>" },
+    { subject: "dummy_notice_2", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_2</div>" },
+    { subject: "dummy_notice_3", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_3</div>" },
+  ]);
+
+  const { result: envelopes, warnings } = await withConsoleWarnSpyAsync(() =>
+    connector.fetch({ kind: "company", hints: {} }),
+  );
+
+  assert.equal(envelopes.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /template drift/i);
+});
+
+test("createBizBuySellAlertConnector: does not warn when a fetched batch parses well", async () => {
+  const connector = createBizBuySellAlertConnector(async () => [
+    { subject: "New Listing Alert: dummy_hvac_co", body: "Business: dummy_hvac_co\nAsking Price: $850,000" },
+    { subject: "New Listing Alert: dummy_deli_co", body: "Business: dummy_deli_co\nAsking Price: $300,000" },
+  ]);
+
+  const { result: envelopes, warnings } = await withConsoleWarnSpyAsync(() =>
+    connector.fetch({ kind: "company", hints: {} }),
+  );
+
+  assert.equal(envelopes.length, 2);
+  assert.equal(warnings.length, 0);
 });

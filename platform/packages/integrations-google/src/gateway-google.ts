@@ -25,6 +25,58 @@ import type {
 import type { GoogleGateway, GoogleGatewayFactory } from "./gateway.js";
 import { clientFromToken, type GoogleOAuthConfig } from "./oauth.js";
 
+const DEFAULT_LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Cap on simultaneous in-flight `threads.get` calls per sync — parallelizes the
+ * previously-sequential N+1 fetch without firing hundreds of requests at once against
+ * Gmail's per-user rate limits. */
+const THREAD_FETCH_CONCURRENCY = 15;
+
+/** Bounded retries for a single transient Gmail API call (network blip, momentary
+ * 429/5xx). Mirrors intake.ts's `withRetry` (bounded linear backoff, logs each retry) —
+ * this package didn't have a retry helper before; scoped to this file only. */
+async function withRetry<T>(label: string, attempts: number, delayMs: number, fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === attempts) break;
+      console.error(`${label}: attempt ${attempt} failed, retrying — ${(err as Error)?.message ?? err}`, err);
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw lastErr;
+}
+
+/** Run `fn` over `items` with at most `concurrency` in flight at once, preserving
+ * input order in the returned array. A rejection from one item does not abort the
+ * others already in flight or queued (matches `Promise.allSettled` semantics per
+ * chunk) — callers decide what to do with individual failures. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { status: "fulfilled", value: await fn(items[i]!, i) };
+      } catch (err) {
+        results[i] = { status: "rejected", reason: err };
+      }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 function parseAddresses(header: string | undefined): EmailAddress[] {
   if (!header) return [];
   return header
@@ -49,17 +101,47 @@ interface GmailPayloadPart {
   parts?: GmailPayloadPart[] | null;
 }
 
-function extractPlainText(payload: GmailPayloadPart | undefined): string {
+/** Max multipart MIME recursion depth. Generous for any legitimate email (real
+ * messages nest a handful of levels at most — mixed/alternative/related), but bounded
+ * so a pathological or malicious deeply-nested multipart payload can't blow the stack. */
+const MAX_MIME_DEPTH = 10;
+
+/** Max decoded body size we'll base64-decode into memory per part, in bytes. A single
+ * huge (possibly hostile) attachment/body part is truncated rather than fully decoded,
+ * so it can't balloon process memory. 5MB is generous for plaintext/HTML email bodies. */
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
+function decodeBodyPart(data: string, source: string): string {
+  // Base64url expands ~4/3x; estimate decoded size from the encoded length before
+  // allocating the Buffer, so we can skip decoding oversized parts outright instead of
+  // materializing the full buffer first and cutting it after the fact.
+  const estimatedBytes = Math.ceil((data.length * 3) / 4);
+  if (estimatedBytes > MAX_BODY_BYTES) {
+    console.warn(
+      `google: skipping oversized ${source} body part (~${estimatedBytes} bytes > ${MAX_BODY_BYTES} cap) — truncated to avoid unbounded memory use`,
+    );
+    // Decode only up to the cap's worth of base64 chars (rounded to a multiple of 4).
+    const safeCharLen = Math.floor((MAX_BODY_BYTES * 4) / 3 / 4) * 4;
+    return Buffer.from(data.slice(0, safeCharLen), "base64url").toString("utf8");
+  }
+  return Buffer.from(data, "base64url").toString("utf8");
+}
+
+function extractPlainText(payload: GmailPayloadPart | undefined, depth = 0): string {
   if (!payload) return "";
+  if (depth >= MAX_MIME_DEPTH) {
+    console.warn(`google: multipart recursion exceeded max depth (${MAX_MIME_DEPTH}) — stopping, returning what was extracted so far`);
+    return "";
+  }
   if (payload.mimeType === "text/plain" && payload.body?.data) {
-    return Buffer.from(payload.body.data, "base64url").toString("utf8");
+    return decodeBodyPart(payload.body.data, "text/plain");
   }
   for (const part of payload.parts ?? []) {
-    const text = extractPlainText(part);
+    const text = extractPlainText(part, depth + 1);
     if (text) return text;
   }
   // Fallback: any body data at the root.
-  if (payload.body?.data) return Buffer.from(payload.body.data, "base64url").toString("utf8");
+  if (payload.body?.data) return decodeBodyPart(payload.body.data, "root");
   return "";
 }
 
@@ -89,10 +171,27 @@ export class GoogleApiGateway implements GoogleGateway {
       ...(opts.query ? { q: opts.query } : {}),
       ...(opts.pageToken ? { pageToken: opts.pageToken } : {}),
     });
+    const refs = (list.data.threads ?? []).filter((ref): ref is typeof ref & { id: string } => Boolean(ref.id));
+
+    // Fetch full thread bodies CONCURRENTLY (bounded), instead of one-at-a-time — a
+    // sequential loop here means a 25-thread sync makes 25 serialized round-trips.
+    // Each fetch is retried on transient failure; a thread that still fails after
+    // retries is skipped (logged) rather than aborting the whole sync.
+    const settled = await mapWithConcurrency(refs, THREAD_FETCH_CONCURRENCY, (ref) =>
+      withRetry(`google: fetchThreads(${ref.id})`, 3, 200, () =>
+        this.#gmail.users.threads.get({ userId: "me", id: ref.id, format: "full" }),
+      ),
+    );
+
     const threads: GmailThread[] = [];
-    for (const ref of list.data.threads ?? []) {
-      if (!ref.id) continue;
-      const full = await this.#gmail.users.threads.get({ userId: "me", id: ref.id, format: "full" });
+    for (let i = 0; i < settled.length; i++) {
+      const result = settled[i]!;
+      const ref = refs[i]!;
+      if (result.status === "rejected") {
+        console.error(`google: fetchThreads(${ref.id}) failed after retries — skipping this thread for this sync`, result.reason);
+        continue;
+      }
+      const full = result.value;
       const messages: GmailMessage[] = (full.data.messages ?? []).map((msg) => {
         const headers = msg.payload?.headers ?? undefined;
         const from = parseAddresses(headerOf(headers, "From"))[0] ?? { email: "unknown" };
@@ -124,12 +223,17 @@ export class GoogleApiGateway implements GoogleGateway {
   }
 
   async fetchEvents(opts: FetchEventsOpts): Promise<FetchEventsResult> {
+    const timeMin = opts.timeMin ?? new Date().toISOString();
+    // Bound the forward window: without a timeMax, a sparse calendar makes the API page
+    // arbitrarily far into the future to fill maxResults. Default to a 90-day lookahead.
+    const timeMax = opts.timeMax ?? new Date(new Date(timeMin).getTime() + DEFAULT_LOOKAHEAD_MS).toISOString();
     const list = await this.#calendar.events.list({
       calendarId: "primary",
       maxResults: opts.maxResults ?? 25,
       singleEvents: true,
       orderBy: "startTime",
-      timeMin: opts.timeMin ?? new Date().toISOString(),
+      timeMin,
+      timeMax,
       ...(opts.pageToken ? { pageToken: opts.pageToken } : {}),
     });
     const events: CalendarEvent[] = (list.data.items ?? []).map((e) => ({
@@ -218,16 +322,56 @@ export class GoogleApiGateway implements GoogleGateway {
   }
 }
 
-/** Real factory: loads tokens from the LOCAL SecretStore, refreshes, and persists. */
+interface CachedGateway {
+  gateway: GoogleApiGateway;
+  /** The token snapshot the cached client was built from — lets us detect an
+   * out-of-band token replacement (e.g. a fresh OAuth consent after disconnect)
+   * without needing an explicit invalidate() call for that path. */
+  tokenUpdatedAt: string;
+}
+
+/**
+ * Real factory: loads tokens from the LOCAL SecretStore, refreshes, and persists.
+ *
+ * Caches one OAuth2Client/GoogleApiGateway per integrationId (a plain in-process
+ * Map — the integration count for a single-tenant pilot is naturally small, so no
+ * eviction policy is needed beyond explicit invalidation on disconnect/reconnect).
+ * Before this cache existed, EVERY skill invocation called `forIntegration()` fresh,
+ * which built a brand-new `OAuth2Client` and attached a brand-new `tokens` listener
+ * to it on every single call — one gateway per call instead of one per integration,
+ * each with its own listener that's never removed (a slow listener/client leak across
+ * a long-running session, on top of the wasted client construction). Reusing the
+ * same client for the same integration means ONE listener total per integration.
+ */
 export class GoogleApiGatewayFactory implements GoogleGatewayFactory {
+  readonly #cache = new Map<string, CachedGateway>();
+
   constructor(
     private readonly cfg: GoogleOAuthConfig,
     private readonly secrets: SecretStore,
   ) {}
 
+  /** Evict a cached client — call this when credentials are known to have changed
+   * out from under the factory (explicit disconnect/rotate). */
+  invalidate(integrationId: string): void {
+    this.#cache.delete(integrationId);
+  }
+
   async forIntegration(integrationId: string): Promise<GoogleGateway> {
     const token = await this.secrets.getToken(integrationId);
-    if (!token) throw new Error(`google: integration ${integrationId} is not connected (no token)`);
+    if (!token) {
+      this.#cache.delete(integrationId);
+      throw new Error(`google: integration ${integrationId} is not connected (no token)`);
+    }
+
+    const cached = this.#cache.get(integrationId);
+    // Reuse the cached client unless the stored token has been replaced out from
+    // under us (e.g. disconnect+reconnect without going through invalidate()) —
+    // updatedAt changing is our signal that the cached client's credentials are stale.
+    if (cached && cached.tokenUpdatedAt === token.updatedAt) {
+      return cached.gateway;
+    }
+
     const client = clientFromToken(this.cfg, token);
     // Persist refreshed access tokens back to the local store (offline access). Google may
     // rotate the refresh token on this event; if the persist fails, the client keeps working
@@ -248,6 +392,8 @@ export class GoogleApiGatewayFactory implements GoogleGatewayFactory {
           console.error(`google: failed to persist refreshed token for integration ${integrationId} — next sync will use a stale token`, err);
         });
     });
-    return new GoogleApiGateway(client);
+    const gateway = new GoogleApiGateway(client);
+    this.#cache.set(integrationId, { gateway, tokenUpdatedAt: token.updatedAt });
+    return gateway;
   }
 }

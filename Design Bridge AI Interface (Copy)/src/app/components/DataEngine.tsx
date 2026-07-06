@@ -703,6 +703,18 @@ export function DataEngine() {
 
         <div className="w-px h-6 shrink-0 hidden @[400px]:block" style={{ backgroundColor: 'var(--color-border)' }} />
 
+        {/* Data source badge — lets the user tell at a glance whether they're viewing live Supabase data or the local fallback. */}
+        <span
+          title={source === 'supabase' ? 'Loaded from Supabase' : 'Supabase unreachable — showing local fallback data'}
+          className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${source === 'supabase' ? 'var(--success)' : 'var(--warning)'} 14%, transparent)`,
+            color: source === 'supabase' ? 'var(--success)' : 'var(--warning)',
+          }}
+        >
+          {source === 'supabase' ? 'Live · Supabase' : 'Local fallback'}
+        </span>
+
         {/* Search (row filter) */}
         <div className="relative shrink flex-1 max-w-[360px] min-w-[32px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />

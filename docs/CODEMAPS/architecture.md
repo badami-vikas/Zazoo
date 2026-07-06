@@ -43,7 +43,7 @@ agent-scope.ts, integration-store.ts) — see known-issues for the triplication 
 `apps/api/src/wiring.ts` builds all ports (ledger, policy, agent, role, ritual registry, media,
 capture stores) — branches on `DATABASE_URL` presence for persistent vs in-memory. **Known gap:**
 some stores silently stay in-memory even when persistent (canonical identity, capture store) —
-see `docs/wiki/known-issues.md`. `PILOT_WORKSPACE`/`PILOT_USER` are hardcoded constants baked
+see `docs/BUGS.md`. `PILOT_WORKSPACE`/`PILOT_USER` are hardcoded constants baked
 into this file — the system is single-tenant by construction today.
 
 ## Tool model
@@ -61,4 +61,4 @@ Ritual engine (DAG/Hatchet), Memory table + classification, Variance Adjuster, T
 relationship tier (Phase 6). See `docs/wiki/roadmap.md` for phase gates.
 
 See also: [backend.md](backend.md), [data.md](data.md), [dependencies.md](dependencies.md),
-[../wiki/known-issues.md](../wiki/known-issues.md), [../wiki/testing.md](../wiki/testing.md).
+[../BUGS.md](../BUGS.md), [../wiki/testing.md](../wiki/testing.md).

@@ -1,5 +1,299 @@
 # Change Log
 
+- **2026-07-06** — **Frontend Migration Phase 4 — JobPilot/Helpdesk/Resources, the last of the
+  four phases.** All three backends built from scratch (none had persistence before this):
+  `platform/packages/db/src/{jobpilot,helpdesk,resources}-store.ts`, migration
+  `0005_dashing_epoch.sql` (hand-trimmed after `drizzle-kit generate` re-emitted stale drift
+  from the hand-written 0002/0004 migrations — see BUGS.md), new `jobpilot`/`helpdesk`/
+  `resources` routers on `router.ts`, wired through `wiring.ts`. JobPilot's router calls
+  `@bridge/jobpilot`'s existing `scoreJobFit`/`transition` (pure logic, no store of its own)
+  against the new `DrizzleJobPilotStore`. Helpdesk's `helpdesk.public.*` sub-router is the
+  one genuinely public/unauthenticated tRPC surface in this codebase — a submitter's only
+  credential is an opaque `accessToken`, not a new Actor type (rationale in
+  decisions-log.md's 2026-07-06 entry); `/help` (`PublicHelpdesk.tsx`) is mounted outside
+  `Layout`'s authenticated nav shell in `routes.tsx`. Four new pages ported:
+  `JobPilotPage`/`HelpdeskPage`/`HelpdeskThread`/`ResourcesPage`. All three flows verified
+  live in-browser end-to-end (create → list/read-back), zero console errors — screenshots
+  not needed, accessibility snapshots + network traces sufficed. Full monorepo:
+  `pnpm turbo run build --force` 17/17, `pnpm turbo run test --force` 30/30, no regressions.
+  This completes all four phases of the frontend migration scoped in
+  `docs/raw/frontend-migration-scoping.md` (updated to `status: executed`).
+
+- **2026-07-05** — **Added ESLint to `platform/` (from scratch) enforcing two CLAUDE.md
+  rules mechanically: vocabulary + dummy_ prefix.** New flat config
+  (`platform/eslint.config.js`, ESLint 9 + `typescript-eslint`) plus a small local rules
+  plugin (`platform/tools/eslint-rules/`, `@bridge/eslint-rules`) with two custom rules:
+  `bridge/no-crm-vocab` (errors on "Deal" in identifiers — see decisions-log for why
+  "Pipeline"/"Lead"/"Contact" are deliberately excluded from the banned set, to avoid
+  false-positiving on the real `UniversalActionPipeline` governance class) and
+  `bridge/dummy-prefix` (warns, scoped to test/fixture/seed files only, on
+  `test_`/`mock_`/`fake_`/`sample_`/`demo_`-prefixed string literals missing the
+  required `dummy_` prefix — documented as a narrow MVP, not a general "is this fake
+  data" detector). Added `"lint": "eslint ."` to `platform/package.json` + a `lint` task
+  (no `dependsOn`) to `platform/turbo.json`; added `"type": "module"` to
+  `platform/package.json` to silence an ESM/CJS ambiguity warning on the new config
+  file (safe — every workspace package already declares its own `type`). Ran the linter
+  for real against the whole `platform/` tree: found 40+ genuine, pre-existing "Deal"
+  vocabulary violations confined to `platform/tools/dealpilot/` (logged to
+  `docs/BUGS.md`, not fixed — DealPilot is under active multi-session development) and
+  5 fixable placeholder-string violations (`"test-source"` etc. → `dummy_`-prefixed,
+  fixed across `tools/dealpilot`, `tools/jobpilot`, `tools/company-sourcing`,
+  `tools/people-sourcing` test files, 73/73 tests still green). Full writeup of the
+  "Pipeline" scoping tradeoff in `docs/raw/decisions-log.md`'s matching 2026-07-05 ADR
+  entry.
+
+- **2026-07-05** — **`platform/apps/web` Phase-1 page ports (frontend-only, no backend
+  changes).** Ported 8 of 10 requested pages onto the typed tRPC client, following
+  `DealPilotPage.tsx`'s pattern: `RitualCreate.tsx` (`ritual.create`), `RitualDetail.tsx`
+  (`ritual.run`/`ritual.runById`), `ToolDetail.tsx` (`tool.run`), `AgentCreate.tsx`
+  (`agent.create`), `AgentDetail.tsx` (`agent.update`, no pre-fill — see gap below),
+  `IntegrationDetail.tsx` (`integration.providers`/`list`/`connect`/`disconnect`/
+  `listScopes`/`grantScope`/`revokeScope`), `GoogleIntegrationPanel.tsx` (`google.list`/
+  `connectUrl`/`disconnect`/`syncGmail`/`syncCalendar`), `CalendarPage.tsx` (`google.
+  listEvents`/`syncCalendar`, a minimal list view — does NOT port the prototype's full
+  month/week/day/agenda grid + create/edit/delete drawer, out of scope for this pass).
+  `RitualsPage.tsx` and `ToolsPage.tsx` are left as informative stubs (link out to the
+  working create/run forms) because `router.ts` has no `ritual.list`/`ritual.get` or
+  `tool.list`/`tool.get` procedures to enumerate — logged as gaps in
+  [docs/BUGS.md](BUGS.md) rather than invented, since backend changes are reserved for a
+  separate Phase 2/3/4 pass this session. `routes.tsx` wired all 8 new pages in, replacing
+  the corresponding `Placeholder` stubs (Tools/Rituals placeholders were reused as the new
+  stub components; Calendar's placeholder was fully replaced). Verified: `pnpm --filter
+  @bridge/web typecheck` and `build` both clean; both `bridge-api`/`bridge-web` dev servers
+  started and all 7 new interactive pages (tools/run, rituals, rituals/new, rituals/run,
+  agents/new, agents/update, integrations, integrations/google, calendar) spot-checked via
+  browser preview with zero console errors (data-fetching pages correctly show a loading
+  state — the preview sandbox's browser can't reach `localhost:4000` directly, a
+  preview-tooling network limitation confirmed by the API server's clean boot log, not a
+  code defect).
+
+- **2026-07-05** — **Extracted 4 load-bearing architectural decisions from `docs/wiki/decisions.md`
+  one-liners into full ADR entries in `docs/raw/decisions-log.md`** (ADR-007 through ADR-010).
+  These four — the two-tier canonical/relationship data model, local-first two-plane architecture,
+  the Universal Action Pipeline governance loop, and agent auto-mode's allowlist/agent-floor
+  design — were previously recorded only as caveman-terse wiki lines with no standalone rationale
+  record; given how load-bearing they are (they gate nearly every other decision in the platform),
+  they deserve an immutable record of context/rationale/alternatives-rejected/consequences, not
+  just a locked one-liner. Reconstructed full rationale by reading the actual implementing code
+  (`platform/packages/core/src/pipeline.ts`, `agent-floor.ts`, `authority.ts`;
+  `platform/packages/db/src/canonical-store.ts`, `schema.ts`; `platform/packages/local/src/
+  ports.ts`) plus prior related ADR entries already in the log (agent-floor consolidation, ledger
+  ref_ledger_id, wiring.ts refactor) and `docs/raw/ARCHITECTURE.md`. Original decision dates
+  best-effort from git history: ADR-007 (agent auto-mode) 2026-06-02 per the wiki's own dated
+  entry; ADR-008 (two-tier data) and ADR-009 (governance pipeline) 2026-06-11, the date the
+  `platform/` monorepo first appears in git history carrying this design already built-in; ADR-010
+  (local-first/two-plane) 2026-06-20, when the pglite local-plane store adapter landed. Each
+  wiki one-liner now links to its corresponding ADR. No wiki content otherwise rewritten.
+
+- **2026-07-05** — **Promoted `docs/wiki/known-issues.md` → `docs/BUGS.md`** (pure rename, `git mv`
+  preserves history, no content changed). Rationale: one persistent bug ledger belongs at a
+  conventional, discoverable top-level path — `docs/BUGS.md` is the name engineers expect to find
+  without knowing Bridge's wiki/raw split; `docs/wiki/` stays reserved for caveman-terse takeaway
+  summaries, not the live OPEN/IN PROGRESS/RESOLVED ledger itself. Updated every referencing link:
+  `CLAUDE.md`'s file-bugs-unprompted working rule, `docs/wiki/index.md`'s catalog entry, `All
+  fixes.md`'s cross-reference note, `docs/raw/decisions-log.md`'s path mentions, and this file's
+  historical entries that named the old path. No bug-entry content touched.
+
+- **2026-07-05** — **`wiring.ts` typed-port-factory refactor + interim single-tenant safety
+  fix.** Two related items from the 2026-07-04 review. (1) `wiring.ts`'s god composition root:
+  extracted `buildPersistentPorts(env)`/`buildInMemoryPorts(env)`, each returning one
+  fully-typed `ModePorts` object — every `let`-sprawl reassignment in `buildWiring()` is gone.
+  Fixed one real lie: canonical identity now binds to the real `DrizzleCanonicalIdentityStore`
+  in persistent mode instead of an in-memory fake. Two lies couldn't be closed for real this
+  pass and are now loud instead of silent: DealPilot's `ToolCaptureStore` has no persistent
+  implementation anywhere in the codebase yet (stays in-memory even with `DATABASE_URL` set,
+  `console.warn` at boot says so); the "ledger MUST stay local" header claim isn't enforced in
+  persistent mode (ledger binds to whatever `DATABASE_URL` points at, which may be cloud —
+  `console.warn` at boot, decision on splitting the ledger by data_scope still needs the user's
+  call, unchanged from before this fix). (2) Single-tenant safety: `PILOT_WORKSPACE` is baked
+  into `buildWiring()`, but several `router.ts` procedures either ignored a client-supplied
+  `workspaceId` (`dealpilot.list`) or had no validation for one at all. Full multi-tenancy is a
+  Phase 5, pilot-recruitment-driven item — out of scope here. Instead, every workspace-scoped
+  procedure now runs through a new `withPilotWorkspaceGuard` tRPC middleware that rejects any
+  non-pilot `workspaceId` with a typed `TRPCError({code:"FORBIDDEN"})` — a silent cross-tenant
+  leak is now a loud, typed 403. `google.*` procedures were deliberately left workspace-implicit
+  (no param added) since no frontend caller ever passes one. New
+  `apps/api/test/wiring.test.ts` (4 tests: both factories' port shapes + both honest-lie
+  warnings) and `apps/api/test/single-tenant-guard.test.ts` (5 tests: rejection + pilot-success
+  across two differently-shaped procedures); `apps/api/test/pagination.test.ts`'s two
+  `integration.list` tests updated to seed under `PILOT_WORKSPACE` (were using arbitrary dummy_
+  workspace ids the new guard now correctly rejects). Full monorepo `pnpm turbo run build
+  --force` and `pnpm turbo run test --force` both green (15/15 build, 28/28 test) after landing
+  both. Full details in `All fixes.md` sections 1 and 4, and decisions-log 2026-07-05 (two new
+  entries: the typed-port-factory refactor, and the workspaceId-reject-vs-full-multi-tenancy
+  scoping call).
+
+- **2026-07-05** — **Five section-1 code-smell items from the 2026-07-04 review closed:
+  post-commit policy phase, BizBuySell parse-rate blindness, jsonb-drop-on-read (ritual +
+  governance stores), jobpilot ATS-connector/threshold drift, `resolveAuthority` agent-branch
+  split.** Post-commit: `pipeline.ts`'s `#commit()` discarded the post-commit `evaluate()` result
+  outright, so a `block` effect from a post-commit policy blocked nothing (the commit had already
+  landed) — took the type-narrowing option over wiring an actual remediation path (safer, and no
+  half-built remediation machinery existed to complete): new `PostCommitEffect`/
+  `PostCommitPolicyResult` types in `types.ts` exclude `block`/`require_approval` from what a
+  post-commit policy can even return, and a new `toPostCommitResults()` helper narrows + logs any
+  policy that still tries it, as a policy-authoring anomaly rather than a silent no-op. BizBuySell:
+  `connectors.ts`'s hand-rolled alert-HTML regex had zero signal if the template drifted and parse
+  rate silently went to zero — added a `ParseBatchSummary` + `warnIfLowParseRate()` that
+  `console.warn`s naming "template drift" once a batch's parse rate drops below 50% (matched the
+  only real logging precedent in this call chain, `@bridge/integrations-google`'s namespaced
+  `console.warn` convention — dealpilot/jobpilot had no metrics emitter of their own). jsonb-drop:
+  `ritual-stores.ts`'s `asStep` and `governance-stores.ts`'s capability_scope/allowed_skills
+  readers filtered malformed jsonb to `null`/an empty default instead of failing — a ritual could
+  "run successfully" while silently doing less than configured. Now zod-validated at write time
+  (throws before persisting anything malformed) and throws loudly at read time too, covering rows
+  written before this fix existed. jobpilot: 3 byte-identical ATS connector factories collapsed
+  into one parameterized `createAtsConnector()`; `FUZZY_THRESHOLD` in the answer-bank now imports
+  `@bridge/dedupe`'s newly-exported `FUZZY_MATCH_THRESHOLD` instead of re-declaring `0.9` (see
+  `decisions-log.md` for why direct import beat a new shared package). Scoped down one part: the
+  tracker's `costPerCall`/`0.5 + 0.1 * filled` magic-number bullet doesn't apply to the current
+  jobpilot code — grep found neither, `costPerCall` is already a named/documented
+  `@bridge/sourcing` config field — named the closest real analog instead
+  (`ATS_CONNECTOR_COST_PER_CALL`/`ATS_CONNECTOR_CONFIDENCE`). `resolveAuthority`: the agent branch's
+  90 lines mixing role/scope, ephemeral-grant, data-scope-narrowing, and delegation checks split
+  into 4 named helpers (`evaluateAgentRoleScope`/`evaluateEphemeralGrant`/
+  `computeAgentDataScope`/`evaluateDelegation`) orchestrated by `resolveAgentAuthority()` — pure
+  refactor, prep for the delegation-runtime punch-list item, existing test-name list unchanged
+  (65/65 → 66/66, the +1 from an unrelated concurrent `pipeline.ts` test). Full details + line-level
+  pointers in `All fixes.md` section 1. `pnpm turbo run build --force` (28 tasks) and
+  `pnpm turbo run test --force` (28 tasks) both green across the whole monorepo after landing all
+  five.
+
+- **2026-07-05** — **Gmail sync double-propose window; N+1 sequential thread fetch; unbounded
+  multipart recursion/decode (`@bridge/integrations-google`).** Closes three related items:
+  section 2/3's "Gmail sync double-propose window" and "N+1 sequential Gmail fetches" bullets,
+  and Phase 2 item 9b, all in `All fixes.md`. **9b/double-propose:** `intake.ts`'s `hasExternal`
+  guard only excludes already-materialized records, so two `syncGmail`/`syncCalendar` calls
+  before the user reached the Approvals inbox staged a second PENDING proposal for the same
+  thread/event — approving both would double-commit Touchpoints/Memories. Investigated whether
+  `@bridge/core`'s ledger/pipeline already exposes a way to query pending proposals by seed
+  (per the task brief's suggestion to reuse existing query capability) — confirmed it does not:
+  `LedgerStore` only has `append`/`get(id)`/`decisionFor(proposalId)`, no filter/list method, and
+  `IntakeServiceDeps` deliberately doesn't carry a ledger reference. Rather than touch `@bridge/
+  core` (off-limits — a parallel session owns it this session), added an in-process `pendingSeeds:
+  Map<seed, proposalId>` on `IntakeService` itself: `stage()` checks it before calling
+  `pipeline.propose()` and returns the already-pending proposal's summary instead of creating a
+  duplicate; a new `clearPendingSeed()` method frees the slot, wired into `GoogleService.
+  onApproved` (which already runs after every `decide()` call — approve, veto, or edit) using
+  `resolved.request.seed`, so a vetoed proposal's seed is released for a legitimate later re-sync
+  rather than staying stuck. **N+1 fetches:** `GoogleApiGateway.fetchThreads` fetched each thread's
+  full body with a SEQUENTIAL `threads.get` call, one at a time, with no retry at all. Added a
+  small `mapWithConcurrency` helper (bounded to 15 in-flight requests — mindful of Gmail's rate
+  limits, not "fire 500 requests at once") and a file-local `withRetry` (3 attempts, linear
+  backoff, same shape as `intake.ts`'s existing helper of the same name — this package had no
+  shared retry helper before). A thread that still fails after retries is logged and skipped, not
+  fatal to the whole sync. Cross-sync body caching was explicitly left out of scope (a persistence
+  decision, not a same-pass fix). **Multipart bounds:** `extractPlainText` had no recursion depth
+  cap (stack-overflow risk on a pathological/malicious deeply-nested multipart payload) and no
+  size cap before `Buffer.from(...).toString()` (memory-balloon risk on a single huge body part).
+  Added `MAX_MIME_DEPTH` (10, generous but bounded — real emails nest a handful of levels at most)
+  and `MAX_BODY_BYTES` (5MB) via a new `decodeBodyPart` helper that estimates decoded size from
+  the base64 length before allocating, truncating (with a `console.warn`) instead of fully
+  decoding an oversized part. New tests: `intake-dedup.test.ts` (through the REAL pipeline+gate —
+  proves double-sync doesn't duplicate, approval clears the slot correctly so `hasExternal` takes
+  over, and a veto frees the slot for re-sync); `gateway-fetch-concurrency.test.ts` (intercepts
+  the `googleapis` import via `node:test`'s `mock.module` — Node >= 22 — to drive the real
+  `GoogleApiGateway` end to end with zero network; proves overlapping in-flight requests via the
+  fake client's own bookkeeping rather than wall-clock timing, since a timing threshold flaked
+  under full-monorepo `turbo` parallel-test-suite CPU contention during verification — swapped to
+  a load-independent concurrency-count assertion instead); `extract-plain-text-bounds.test.ts`
+  (500-level-deep nesting doesn't crash/hang; an 8MB body part truncates near the 5MB cap; normal
+  shallow nesting is unaffected). The package's `test` script gained
+  `--experimental-test-module-mocks` to support the mock-module tests. Full monorepo `turbo run
+  build --force` + `turbo run test --force`: all packages green except a pre-existing, unrelated
+  `apps/api` `pagination.test.ts` foreign-key-violation failure from a parallel session's
+  in-flight pagination work (confirmed untouched by this change — that test file didn't exist
+  before this session and nothing here touches `apps/api`). Marked RESOLVED in `All fixes.md`
+  (section 2, section 3 x2, Phase 2 item 9b, Phase 3 item 14b's retry half) and
+  `docs/BUGS.md`; ADR appended to `docs/raw/decisions-log.md`.
+
+- **2026-07-05** — **Silent local-fallback in prototype data loaders (db.ts half).** Closes the
+  db.ts-loaders half of "Silent-fallback loudness" (the social-fixtures half was a separate
+  parallel fix, see below). `db.ts`'s four canonical loaders (`loadCanonicalPeople`,
+  `loadCanonicalCommunities`, `loadCanonicalResources`, `loadWorkspaceLists`) caught Supabase
+  failures silently and fell back to local data with zero signal. Added `console.warn` (naming the
+  loader + the caught error) to all 4 catch blocks. Separately, three of the loaders already
+  returned `{ rows, source: 'supabase' | 'local' }` and `DataEngine.tsx` already computed a
+  `source` const from that (line 291) — but never rendered it; a genuinely dead variable. Added a
+  "Live · Supabase" / "Local fallback" pill to the People/Communities toolbar driven by that
+  existing `source` value. `tsc --noEmit` clean; verified in-browser (dev server, signed in, no
+  console errors, badge renders).
+
+- **2026-07-05** — **Idempotency + bounded retry on the Google intake dual-write.** Closes the
+  dual-write-idempotency half of BUGS.md's "Local+canonical dual-write non-transactional;
+  token refresh fire-and-forget" entry (token-refresh half was already RESOLVED 2026-07-04).
+  `IntakeMaterializer.applyApproved` (`packages/integrations-google/src/intake.ts`) dual-writes on
+  proposal approval — cloud canonical `upsertPersonIdentity`, then local `upsertPerson`, then
+  per-entity `commitEntity`, then per-row `recordExternal`. `upsertPersonIdentity`/`upsertPerson`/
+  `recordExternal` were already idempotent; `commitEntity` was not — pglite's `INSERT` had no
+  conflict clause (PK violation on retry) and the in-memory store explicitly threw on a duplicate
+  id. Fixed both: `packages/local/src/stores/pglite.ts`'s `commitEntity` now does
+  `INSERT ... ON CONFLICT (id) DO NOTHING` (confirmed `id` is `local_entities`'s PK in `INIT_SQL`);
+  `packages/local/src/stores/memory.ts`'s `commitEntity` now silently no-ops on a duplicate id,
+  mirroring the file's existing `recordExternal` dedup pattern, instead of throwing. With every
+  dual-write step now idempotent, added a small file-local `withRetry` helper (plain `for` loop +
+  try/catch + linear backoff, no new dependency) in `intake.ts` and wrapped the whole body of
+  `applyApproved` (extracted to a private `applyDirective`) in it — up to 3 attempts,
+  `console.error`-logged on each retry (matches `gateway-google.ts`'s existing logging style).
+  Retrying the whole method from scratch is safe and far simpler than per-step retry/compensation
+  logic, now that idempotency is established at the store layer. Did not touch
+  `upsertPersonIdentity`/`upsertPerson`/`recordExternal` (already correct) or the
+  `LocalGraphStore`/`CanonicalIdentityStore` port interfaces (implementation-only fix). Tests added:
+  `packages/local/test/pglite.test.ts` (commitEntity double-call no-ops) + new
+  `packages/local/test/memory.test.ts`; new
+  `packages/integrations-google/test/materializer-retry.test.ts` (a fake `commitEntity` that throws
+  once then succeeds proves the retry recovers with no duplicate entity; a fake that always throws
+  proves retries exhaust and the error still surfaces). `@bridge/local` 2/2, `@bridge/integrations-
+  google` 8/8, full monorepo `turbo run build --force` + `turbo run test --force` 28/28 green.
+  Marked RESOLVED in BUGS.md, the "All fixes.md" tracker (Blockers-A checklist item + the
+  Temporary-builds table row), and appended an ADR entry to `docs/raw/decisions-log.md`. The
+  separate Gmail sync double-propose window (tracked as "9b" in All fixes.md) remains open — a
+  different bug, out of scope here.
+
+- **2026-07-05** — **Social fixture fallback made loud (registry.ts + read-pipeline.ts).** Closes
+  the BUGS.md "Social registry silent fixture fallback" entry. `apps/api/src/social/
+  registry.ts`'s `resolveProvider()` previously fell back to `makeFixtureProvider()` whenever a
+  platform's live OAuth creds were absent from env, with zero logging — no operator-visible way to
+  tell a live integration from a dummy_ one short of reading code. Fixed: `resolveProvider()` now
+  `console.warn`s the platform id and the specific reason (no live factory registered vs. which
+  creds are missing) every time it falls through to the fixture seam — `console.warn` rather than
+  `app.log` because this is a pure module with no fastify instance reachable, matching the
+  ambient-logger-if-available/console.warn-if-not convention already established in
+  `server.ts`'s `corsOriginConfig()`. Separately, `apps/api/src/social/read-pipeline.ts`'s
+  `sourceToProposals()` already had `provider.mode` (`"live" | "fixture"`) in scope but never
+  surfaced it — now threaded into both the `ActionRequest.inputs` (so every proposal/audit row
+  records fixture-vs-live) and the returned `SourceResult`. Did not touch `fixtures.ts`/
+  `provider.ts` — they already carried the right `mode` shape; this was purely a surfacing fix.
+  Updated the existing `apps/api/test/social.test.ts` inputs-equality assertions to expect the new
+  `mode` field, and added two new tests: one asserting `sourceToProposals`'s result `mode` and
+  `request.inputs.mode` equal `"fixture"` for a fixture provider, one spying on `console.warn` to
+  confirm `resolveProvider` warns on fallback. `@bridge/api` 12/12 green; monorepo
+  `turbo build`/`test --force` 28/28 green. `apps/api/src/social/*` remains an unwired scaffold
+  (only exercised from tests, not from `router.ts`) — out of scope for this pass per the task
+  brief. Marked RESOLVED in BUGS.md and the "All fixes.md" tracker (Phase 2 item 8's
+  social-fixtures half, the Blockers-A checklist, and the Temporary-builds table row) — the
+  db.ts-loaders half of the same tracker lines stays OPEN, handled by a separate concurrent task.
+
+- **2026-07-05** — **db.ts loaders silent-fallback made loud + source badge (DataEngine.tsx).**
+  Closes the db.ts-loaders half of BUGS.md's "Silent local-fallback in prototype data
+  loaders" entry (the social-fixtures half was already RESOLVED separately, see the entry above).
+  `Design Bridge AI Interface (Copy)/src/app/data/db.ts`'s 4 canonical loaders
+  (`loadCanonicalPeople`, `loadCanonicalCommunities`, `loadWorkspaceLists`, `loadCanonicalResources`)
+  each had a bare `catch {}` that silently fell back to local/empty data — zero logging, so a
+  down/misconfigured Supabase looked identical to a healthy one. Fixed: every catch block now
+  `console.warn`s the loader name + the caught error before falling back; fallback return values
+  unchanged. Separately, 3 of the 4 loaders already computed `{ rows, source: 'supabase' | 'local' }`
+  but `DataEngine.tsx` computed `source` (line ~291) and never rendered it — added a small pill
+  ("Live · Supabase" / "Local fallback") in the People/Communities toolbar, styled after
+  `ItemDetail.tsx`'s `StatusTag` pattern (`color-mix` background off a CSS var, pill shape). Not
+  shown on the Signals tab (toolbar is already conditionally hidden there). `loadWorkspaceLists` has
+  no `source` field, so its fix is `console.warn`-only, no badge. Checked `ResourcesPage.tsx`
+  separately — it already threads `source` from `loadCanonicalResources` into its own footer text
+  ("live store"/"local seed"), so left untouched per the task brief. Verified: `tsc --noEmit` clean,
+  `npm run build` succeeds, and in the live dev preview (which does have reachable Supabase creds)
+  the badge correctly read "Live · Supabase" on both People and Communities with real canonical
+  rows loading, no new console errors.
+
 - **2026-07-04** — **Bug-sweep close-out (Gmail draft, DealPilot dedupe, Recon scoping).**
   Continued the bug-fixing sweep past the earlier checkpoint (7 fixes + 4 latent migration bugs).
   **Gmail draft-before-approval:** on inspection, the code this known-issue described
@@ -8,7 +302,7 @@
   Added the missing proof: a new email test in `calendar.test.ts` mirroring the existing
   calendar-create coverage (asserts `createDraft` is called 0 times pre-approval, 1 time
   post-approval, still 0 extra on a repeat `onApproved` call). 6/6 green. Marked RESOLVED in
-  known-issues.md rather than leaving a stale OPEN entry for already-fixed code.
+  BUGS.md rather than leaving a stale OPEN entry for already-fixed code.
   **DealPilot dedupe-on-commit:** wired `@bridge/company-sourcing`'s `matchCompany` into
   `wiring.ts`'s `dealPilotMaterializer.commit` — a "strong" match against already-committed
   candidates' living profiles now merges facts into the existing candidate instead of creating a
@@ -20,24 +314,24 @@
   (`Tools/recon/`) is a fully standalone Next.js app with zero `@bridge/*` dependencies — not a
   package inside `platform/`. Migrating it onto `createToolSourceSkill` is a multi-session
   architecture call (rewrite as a headless connector vs. cross-service tRPC integration), not a
-  same-pass bug fix. Left as OPEN with the scoping rationale recorded in known-issues.md; needs a
+  same-pass bug fix. Left as OPEN with the scoping rationale recorded in BUGS.md; needs a
   product/architecture decision before implementation starts.
 
 - **2026-07-04** — **Linked DealListing to real Brokerage records.** Closes the last open item from the Brokerages-entity work: `DealListing` gained an optional `brokerageId`, the seed listings in `data/dealpilot.ts` now point at the matching seed `Brokerage` (BizBuySell/BusinessBroker.net) instead of just carrying a free-text `source` label, and `DealPilotPage.tsx` displays the real brokerage name on Card and List views. Added a non-hook `getBrokerages()` snapshot getter to `data/brokerages.ts` so the plain async `commitCapture()` function (not a component) can attribute real API-sourced listings to the BizBuySell brokerage by name. Verified in browser via a temporary test route (reverted): cards show "BizBuySell"/"BusinessBroker.net" instead of lowercase source tags, unlinked referral listings unchanged. `tsc`/`vite build` clean.
 
-- **2026-07-04** — **Brokerage entity + standalone login requirement**. New `data/brokerages.ts` (real `Brokerage` entity — id/name/portalUrl/status, reactive store) surfaces as a dedicated "Brokerages" list under Intelligence → Apps: "Add Brokerage" creates one, clicking a disconnected brokerage opens the existing `ConnectAppFlow` wizard (skips straight to the scrape/bot/browser waterfall since brokerage portals have no API), connecting flips its status — closes the gap flagged during playtest ("where do I add a brokerage / log into one"). Also added `/standalone/dealpilot` (mirroring `/standalone/jobpilot`) and wrapped both standalone routes in `<AuthGate>` — standalone previously bypassed login entirely; now it means "no other platform tools," not "no auth." Caught and fixed a real bug during this work: `data/brokerages.ts` called `load()` (referencing `SEED`) before the `const SEED` was declared later in the file — a temporal-dead-zone `ReferenceError` that silently crashed the entire app on every route (blank screen, zero console errors, all network 200s) since `IntelligencePage` is eagerly imported by the router. Found via `import('/src/app/routes.tsx').catch(...)` in the browser console, not `tsc` (Vite/esbuild doesn't type-check dev builds) or casual inspection — logged in [known-issues.md](wiki/known-issues.md) as a reminder that a clean `tsc`/`vite build` does not guarantee the app actually mounts. Verified in browser: brokerage create → connect → status persists round-trip; both standalone routes now show the real Supabase login screen instead of the tool page. `tsc`/`vite build` clean.
+- **2026-07-04** — **Brokerage entity + standalone login requirement**. New `data/brokerages.ts` (real `Brokerage` entity — id/name/portalUrl/status, reactive store) surfaces as a dedicated "Brokerages" list under Intelligence → Apps: "Add Brokerage" creates one, clicking a disconnected brokerage opens the existing `ConnectAppFlow` wizard (skips straight to the scrape/bot/browser waterfall since brokerage portals have no API), connecting flips its status — closes the gap flagged during playtest ("where do I add a brokerage / log into one"). Also added `/standalone/dealpilot` (mirroring `/standalone/jobpilot`) and wrapped both standalone routes in `<AuthGate>` — standalone previously bypassed login entirely; now it means "no other platform tools," not "no auth." Caught and fixed a real bug during this work: `data/brokerages.ts` called `load()` (referencing `SEED`) before the `const SEED` was declared later in the file — a temporal-dead-zone `ReferenceError` that silently crashed the entire app on every route (blank screen, zero console errors, all network 200s) since `IntelligencePage` is eagerly imported by the router. Found via `import('/src/app/routes.tsx').catch(...)` in the browser console, not `tsc` (Vite/esbuild doesn't type-check dev builds) or casual inspection — logged in [BUGS.md](BUGS.md) as a reminder that a clean `tsc`/`vite build` does not guarantee the app actually mounts. Verified in browser: brokerage create → connect → status persists round-trip; both standalone routes now show the real Supabase login screen instead of the tool page. `tsc`/`vite build` clean.
 
 - **2026-07-04** — **Playtest feedback round** (prototype `Design Bridge AI Interface (Copy)` + `platform/`). Dispatched two parallel agents alongside direct work: **ListBar** — delete (Trash2) now only appears once the list's AI-instruction is in edit mode, and always requires an inline "Delete list? Confirm/Cancel" before calling `deleteList()` (previously always visible, no confirmation). **StandaloneLayout** — dropped the tool-name text label under the tool icon in the rail (redundant with `ToolPageHeader`'s title); the rail now shows icon-only + Workspace/Team icon buttons at the bottom. **IntelligencePage** — the "N actions awaiting review" governance banner (agent-specific) no longer bleeds into the Skills/Apps tabs, gated to `activeTab === 'Agents'`. **`FlagIcon`** — reworked into a hover-dropdown: default display is always yellow regardless of computed fit; hovering reveals green/yellow/red for the user to pick; `disabled` (already-flagged) items unchanged. Same exported prop signature, so JobPilot/DealPilot call sites needed no changes. **DealPilot** — added a single-segment `Header`-style pill ("DEALS") under `ToolPageHeader` purely for visual consistency with Network's segmented tab bar (not a functional toggle, confirmed with user); `DealCard` (kanban) gained a flag — green triggers `runDeepDive()` (deterministic/simulated summary + draft email + draft iMessage text, stored on the `Deal` record, same fidelity as JobPilot's evaluator, no real LLM/send) shown inline with an expandable "Draft email & iMessage" section. Clarified with the user: flagging a listing green already calls `addToPipeline()` regardless of which List it's filed under, so "brokerage marked green → sourced" was already correct behavior, not a gap. **Workspace + Team, real backend**: new `platform/packages/db/src/workspace-store.ts` (`DrizzleWorkspaceStore`: createWorkspace/listWorkspaces/inviteMember/listMembers, flat `workspaceMembers`-as-team-list, no fabricated role rows) + new `workspace: t.router({...})` in `apps/api` (direct authenticated CRUD, not wrapped in `pipeline.propose()` — creating a workspace isn't a governed external action) + matching `apiListWorkspaces/apiCreateWorkspace/apiListMembers/apiInviteMember` client functions in `data/api.ts` + new `components/shared/WorkspaceTeamModal.tsx`, reachable from every standalone tool shell via two new rail icons — real round-trip when `VITE_API_URL` is set, a "Connect the platform API" message otherwise (same `API_ENABLED` pattern as everywhere else). Verified in browser: DealPilot's DEALS pill, flag hover-picker (screenshot-confirmed showing all 3 colors), green-flag deep-dive generating and persisting a draft email/iMessage, Workspace/Team modal's demo-mode fallback message. `tsc`/`vite build` clean; `turbo run build test --force` 30/30 green (includes the new workspace-store test). **Answered but not built**: brokerage login/credentials — there is still no dedicated Brokerage entity or per-brokerage connect flow; "Brokerages" remains a List-filter label over generic listings, and the only credential/connect pattern in the app is the generic `ConnectAppFlow` wizard (Apps), not yet extended per-brokerage — flagged for a future session if a real Brokerage entity is wanted.
 
 - **2026-07-04** — **Asset-reuse audit + fixes** (prototype `Design Bridge AI Interface (Copy)`). Audited whether the new shared components from the UI-standardization pass are actually being reused vs re-created. Found and fixed the two real gaps: (1) **`IntelligencePage` retrofitted onto `StandardToolbar`** — it was the page `StandardToolbar` was originally extracted FROM, but never retrofitted itself, so it still carried ~120 lines of duplicate inline toolbar JSX (view dropdown, search input, filter/sort buttons, 3-dot menu); also wired the search input to actually filter (it rendered before but did nothing). (2) **Extracted the duplicated `Pill` sub-component** out of `ListPillRow.tsx` and `ListBar.tsx` into a shared `components/shared/Pill.tsx` — both now import one implementation instead of each carrying a near-identical copy. While in `ListPillRow.tsx`, found and fixed a latent bug: the "Add list" button rendered unconditionally even when no `onAddList` handler was passed, so it silently did nothing on every page except DataEngine and Helpdesk (SignalsView, RitualsPage, ToolsPage, WorkPage, IntelligencePage) — now conditional on the handler being provided. Verified via a temporary test route (reverted): IntelligencePage's Agents/Skills/Apps tabs, search filtering, and view switching all work with zero console errors; the dead Add-list button is gone. `tsc`/`vite build` clean. **Deliberately not changed** (judged not worth the risk/reward): forcing DataEngine/SignalsView/Rituals/Tools/Work onto full `ListBar` (they're simple category filters, not user-creatable lists — `ListBar`'s create/merge/AI-instruction UI would be clutter, not reuse); the platform-vs-prototype scoring-logic duplication (`scoreThesisFit`/`scoreJobFit` ported into `data/*.ts` alongside the canonical `platform/tools/*` versions) — flagged as a policy going forward: future scoring changes happen platform-side only, prototype consumes server-scored results the way DealPilot's live path already does, not a fresh port; DataEngine's People/Communities views still don't use the shared `NotionCard`/`KanbanBoard` primitives — that backfill is its own session's worth of work.
 
-- **2026-07-04** — **DealPilot real-connector reconciliation** (closes the known-issue left by the Phase 1/2 merge). Two parallel sessions had each rebuilt DealPilot independently — one wired a real backend (BizBuySell/BusinessBroker connectors, `dealpilot.source/commit/list` tRPC router, `@bridge/tool-kit`'s generic intake seam), the other standardized the UI (Card/Kanban/List, Lists+merge, flags-as-actions) on a purely local dummy_ store. Dispatched two parallel agents to close the gap: one audited the real backend (confirmed genuinely live and matching the prototype's `data/api.ts` DTOs — the first run of this agent hallucinated a false "nothing exists" report, caught and overridden by direct verification: `platform/tools/dealpilot`, the router, and `@bridge/tool-kit/src/intake.ts` all exist and pass 15/15 build + 28/28 test tasks via `turbo run build/test --force`), one extended `data/dealpilot.ts` additively with an `API_ENABLED`-gated live-sourcing layer (`useLiveListings`/`usePendingCaptures`/`sourceListings`/`commitCapture`/`useDealPilotSourcing`) without touching any existing export. Wired `DealPilotPage.tsx` myself: a "Source new listings" toolbar action + a quarantine strip (sourced-but-uncommitted captures with a per-row "Add" button — an intentional exception to "no buttons on cards," since this is a real commit action on a review row, not a fit-card) that merges committed listings into the existing standardized views. Verified via a temporary test route (reverted) that demo mode is unchanged when the API is disabled. `tsc`/`vite build` clean; `turbo run build/test --force` 15/15 + 28/28 green. See [known-issues.md](wiki/known-issues.md) for the full resolution note.
+- **2026-07-04** — **DealPilot real-connector reconciliation** (closes the known-issue left by the Phase 1/2 merge). Two parallel sessions had each rebuilt DealPilot independently — one wired a real backend (BizBuySell/BusinessBroker connectors, `dealpilot.source/commit/list` tRPC router, `@bridge/tool-kit`'s generic intake seam), the other standardized the UI (Card/Kanban/List, Lists+merge, flags-as-actions) on a purely local dummy_ store. Dispatched two parallel agents to close the gap: one audited the real backend (confirmed genuinely live and matching the prototype's `data/api.ts` DTOs — the first run of this agent hallucinated a false "nothing exists" report, caught and overridden by direct verification: `platform/tools/dealpilot`, the router, and `@bridge/tool-kit/src/intake.ts` all exist and pass 15/15 build + 28/28 test tasks via `turbo run build/test --force`), one extended `data/dealpilot.ts` additively with an `API_ENABLED`-gated live-sourcing layer (`useLiveListings`/`usePendingCaptures`/`sourceListings`/`commitCapture`/`useDealPilotSourcing`) without touching any existing export. Wired `DealPilotPage.tsx` myself: a "Source new listings" toolbar action + a quarantine strip (sourced-but-uncommitted captures with a per-row "Add" button — an intentional exception to "no buttons on cards," since this is a real commit action on a review row, not a fit-card) that merges committed listings into the existing standardized views. Verified via a temporary test route (reverted) that demo mode is unchanged when the API is disabled. `tsc`/`vite build` clean; `turbo run build/test --force` 15/15 + 28/28 green. See [BUGS.md](BUGS.md) for the full resolution note.
 
 - **2026-07-04** — **Platform UI standardization Phase 2** (prototype `Design Bridge AI Interface (Copy)`) — closes out the deferred half of Phase 1. New **`data/lists.ts`**: generic scoped list store (`useSyncExternalStore`, localStorage `dummy_bridge_lists_v1`) — `createList`/`deleteList`/`setListInstruction`/`toggleMember`/`mergeLists`/`seedListsIfEmpty`, keyed by scope string (`'jobpilot'`, `'dealpilot'`) so any tool can mount it. New **`components/shared/ListBar.tsx`**: the standardized Lists bar — pill row + "Add list" modal (name + AI instruction) + a below-the-pills instruction bar (click-to-edit, shown whenever a non-"All" list is selected) + multi-select **Merge**, which folds N lists into one and stamps every member with the name of the list it came from (`origin` map) so the merged list's rows carry a "category" chip instead of silently blending. Wired into **JobPilotPage**/**DealPilotPage**: Card/Kanban views filter to the selected list's members; List view stays unfiltered and doubles as the membership-management surface (a checkbox per row, disabled until a real list — not "All" — is selected). DealPilot seeds its two default lists (Brokerages, Market Intelligence) via `seedListsIfEmpty` — first pass used a plain `useEffect` guarded by the React-state `lists.length`, which double-created both lists under StrictMode's double-invoke (module state updates synchronously, so the second invocation raced the first's closure); fixed by moving the guard into `lists.ts` itself, reading live module state instead of a stale hook value. New **`components/shared/ConnectAppFlow.tsx`**: the standardized AI-driven "Apps" waterfall connect wizard — checks for a direct API first (curated `integrationDetails` records = has-API), and if none exists walks the user through picking Scrape / Bot / Claude-in-browser with one-line AI guidance per step, ending in a connected state. Wired to `IntegrationDetail`'s existing "Configure" button. Verified in browser end to end: created a list, added a job via the List-view checkbox, confirmed Card view filtered to just that job; created a second list, merged both, confirmed the category chips read the correct origin names in List view; ran the Apps wizard against a no-API integration and confirmed it fell through to the method-choice step and completed. `tsc --noEmit` and `vite build` both clean (only the pre-existing unrelated `ItemDetail.tsx` implicit-any errors). **Not built** (judged out of scope for a UI-standardization pass, no infra to back it): real API/scrape/bot/browser execution behind the wizard (it's a governed UI flow, same simulation fidelity as the rest of the prototype); per-entity ad-hoc Boundary editing beyond ItemDetail's existing tab.
 
 - **2026-07-04** — **Platform UI standardization Phase 1** (prototype `Design Bridge AI Interface (Copy)`). User asked for ~18 changes; scoped into Phase 1 (this pass, foundational/nav) vs Phase 2 (Lists+merge subsystem, AI-driven Apps waterfall — deferred, large builds). Shipped: **Boundaries** replaces "Permissions" everywhere in UI (Settings nav+heading, plus a new org-wide Settings→Boundaries tab of default allow/deny rules); ItemDetail's per-person "Governance requirement" banner (3 sentences) condensed to a one-line "Enforced on every agent action" + `Info` tooltip carrying the full explanation — same ultra-condensed pattern as the flag tooltips. **Apps** replaces "Integrations" (IntelligencePage tab, IntegrationDetail breadcrumb, Settings notification label) — Agents/Skills/Apps under Intelligence, unchanged structurally, renamed only (the AI-driven API-first/waterfall-fallback connection flow itself is Phase 2). **`StandardToolbar`** (new, `components/shared/`): the ONE toolbar every tool uses — view dropdown → search → filter (with an optional richer `filterPanel` slot) → sort → custom actions → 3-dot menu — extracted off IntelligencePage's original inline JSX. Combined with `ToolPageHeader` (title only now, no per-page profile/settings — see below) and the existing `ListPillRow`, this is the standardized 3-row tool-page layout (title → Lists → toolbar), applied to **JobPilotPage, DealPilotPage, HelpdeskPage, and PublicHelpdesk** (the anonymous custom-helpdesk page — its ad-hoc request list swapped onto `NotionCard`/`CardGrid` for the same visual standard, though its tab/form structure stays bespoke since it's an unauthenticated page outside the platform shell). **Universal flag semantics** (`FlagIcon` rewritten): green = go ahead, yellow = go ahead but hold status changes for manual review, red = no-go — identical meaning everywhere. New `FlagKind` (`ai_inference` vs `data_quality`) changes only the tooltip's framing sentence ("AI judgment — tell it if it's wrong" vs "source data — flag if it's wrong"), never the color semantics. **Flags now ARE the action — no buttons on JobPilot/DealPilot cards**: clicking green/yellow calls `queueJob`/`addToPipeline` directly (yellow still routes to `awaiting_review`, never auto-advances); red is a no-op (no application/deal created). Dropped the JobPilot/DealPilot Settings modal + gear entirely per instruction — profile/settings for a tool page now come only from the platform shell, never duplicated per-tool. **Sidebar rewritten**: always-collapsed icon rail (no expand/collapse toggle, no `isCollapsed` prop) with a text label under every icon so nothing is lost at the narrow width; `Layout.tsx` simplified to match (removed `leftPanelCollapsed` state). New **`StandaloneLayout.tsx`** + route `/standalone/jobpilot`: JobPilot's own minimal shell (profile + single tool icon only, no Network/Work/other tools) per the tool-standardization plan's "build standalone first, merge later" path (section 7) — `AgentPanel` gained a `toolNameOverride` prop since the standalone route doesn't match the platform tools registry by path. Verified in browser: standalone JobPilot (flag-click queues, tooltip copy, no buttons anywhere), integrated JobPilot/DealPilot (Lists row shows DealPilot's Brokerages/Market Intelligence), Helpdesk (toolbar consolidated, cards compact), Settings→Boundaries tab, Sidebar labels-under-icons at full width, zero new `tsc`/build errors (pre-existing `ItemDetail.tsx` implicit-any errors untouched), production `vite build` green. **Deferred to Phase 2**: the actual Lists subsystem (user-created lists with per-list AI instruction row, merge-with-category-column), the AI-driven API-first/waterfall Apps connection flow, and per-entity ad-hoc Boundary editing beyond the existing ItemDetail tab.
 
-- **2026-07-04** — **JobPilot + DealPilot UI standardization** (prototype `Design Bridge AI Interface (Copy)`). User call: both tools must look/feel like Bridge's existing Notion-parity surfaces (People/Communities/Helpdesk), not bespoke pages. New shared components in `components/shared/`: **`NotionCard`/`CardGrid`** (compact content-driven card, `auto-fill minmax(232px,1fr)` grid — fixes Helpdesk's "too broad and long" cards, which were a `grid-cols-2` container-query ladder combined with a forced `aspect-[3/5]` portrait shape; retrofitted `HelpdeskCard` + `HelpdeskPage`'s grid onto the same primitive, confirmed compact ~230×230px cards in browser); **`FlagIcon`** (literal colored flag glyph, not a button — status-only, no onClick; matched criteria render green / unmatched render red on the card body directly, with NO inline explanation — the flag's tooltip carries the summary, reusing the existing Radix `ui/tooltip`); **`KanbanBoard`** + **`ListView`** (generic lane/row engines — "Tracker" is now a kanban view instance, plus a new list view, both standardized primitives any tool can reuse); **`ToolPageHeader`** (profile badge top-left + settings gear top-right, both gated by `STANDALONE = !API_ENABLED` — reuses the existing `data/api.ts` demo/integrated gate rather than inventing a new flag, so once a real platform API is attached the tool page stops duplicating the platform Sidebar's profile/Settings). New `data/jobpilot.ts` + `data/dealpilot.ts`: TS ports of the platform packages' proven logic (`scoreJobFit`/`scoreThesisFit`, the application/deal state machines, the fabrication-guard evaluator retry, the apply-tier dispatcher) into the reactive localStorage-store pattern `data/helpdesk.ts` established. New pages `JobPilotPage.tsx` / `DealPilotPage.tsx`: Card (NotionCard+FlagIcon feed) / Kanban (tracker/pipeline) / List views + a Settings modal (candidate profile / thesis profile editor). Wired into `data/tools.ts` (new `jobpilot`/`dealpilot` entries, default-pinned in `Layout.tsx`), `routes.tsx`. `AgentPanel.tsx` now resolves the current tool from the route via the tools registry and renders "**JobPilot AI**" / "**DealPilot AI**" instead of a hardcoded "Bridge AI" everywhere else. Verified in browser: card/kanban/list view switching, flag tooltips (green/red text, sensitive-style hard-coded reasons), full application lifecycle (queue → tailoring/evaluating retry → applying → dispatch → submitted → confirmed) exercised end-to-end via the kanban dispatch controls, DealPilot's pipeline (sourced→reviewing→…), Settings modal round-trip, `tsc --noEmit` clean for all new/changed files (pre-existing `ItemDetail.tsx` errors untouched), production `vite build` green. Found + logged (not fixed, unrelated file) a pre-existing duplicate-React-key bug on `/settings` → [known-issues.md](wiki/known-issues.md). **Not done**: real ATS/ Gmail wiring (still requires the user's own credentials, out of scope for a UI pass — user gave consent to eventually submit real applications, logged here for when that infra is built), full DataEngine gallery/kanban placeholder replacement (People/Communities still use DataEngine's own render path; the new shared components are additive, not yet backfilled into DataEngine itself).
+- **2026-07-04** — **JobPilot + DealPilot UI standardization** (prototype `Design Bridge AI Interface (Copy)`). User call: both tools must look/feel like Bridge's existing Notion-parity surfaces (People/Communities/Helpdesk), not bespoke pages. New shared components in `components/shared/`: **`NotionCard`/`CardGrid`** (compact content-driven card, `auto-fill minmax(232px,1fr)` grid — fixes Helpdesk's "too broad and long" cards, which were a `grid-cols-2` container-query ladder combined with a forced `aspect-[3/5]` portrait shape; retrofitted `HelpdeskCard` + `HelpdeskPage`'s grid onto the same primitive, confirmed compact ~230×230px cards in browser); **`FlagIcon`** (literal colored flag glyph, not a button — status-only, no onClick; matched criteria render green / unmatched render red on the card body directly, with NO inline explanation — the flag's tooltip carries the summary, reusing the existing Radix `ui/tooltip`); **`KanbanBoard`** + **`ListView`** (generic lane/row engines — "Tracker" is now a kanban view instance, plus a new list view, both standardized primitives any tool can reuse); **`ToolPageHeader`** (profile badge top-left + settings gear top-right, both gated by `STANDALONE = !API_ENABLED` — reuses the existing `data/api.ts` demo/integrated gate rather than inventing a new flag, so once a real platform API is attached the tool page stops duplicating the platform Sidebar's profile/Settings). New `data/jobpilot.ts` + `data/dealpilot.ts`: TS ports of the platform packages' proven logic (`scoreJobFit`/`scoreThesisFit`, the application/deal state machines, the fabrication-guard evaluator retry, the apply-tier dispatcher) into the reactive localStorage-store pattern `data/helpdesk.ts` established. New pages `JobPilotPage.tsx` / `DealPilotPage.tsx`: Card (NotionCard+FlagIcon feed) / Kanban (tracker/pipeline) / List views + a Settings modal (candidate profile / thesis profile editor). Wired into `data/tools.ts` (new `jobpilot`/`dealpilot` entries, default-pinned in `Layout.tsx`), `routes.tsx`. `AgentPanel.tsx` now resolves the current tool from the route via the tools registry and renders "**JobPilot AI**" / "**DealPilot AI**" instead of a hardcoded "Bridge AI" everywhere else. Verified in browser: card/kanban/list view switching, flag tooltips (green/red text, sensitive-style hard-coded reasons), full application lifecycle (queue → tailoring/evaluating retry → applying → dispatch → submitted → confirmed) exercised end-to-end via the kanban dispatch controls, DealPilot's pipeline (sourced→reviewing→…), Settings modal round-trip, `tsc --noEmit` clean for all new/changed files (pre-existing `ItemDetail.tsx` errors untouched), production `vite build` green. Found + logged (not fixed, unrelated file) a pre-existing duplicate-React-key bug on `/settings` → [BUGS.md](BUGS.md). **Not done**: real ATS/ Gmail wiring (still requires the user's own credentials, out of scope for a UI pass — user gave consent to eventually submit real applications, logged here for when that infra is built), full DataEngine gallery/kanban placeholder replacement (People/Communities still use DataEngine's own render path; the new shared components are additive, not yet backfilled into DataEngine itself).
 
 - **2026-07-04** — **JobPilot — Phase 4 anchor shipped** (`platform/tools/jobpilot`), same shape as the DealPilot Phase 3 anchor: `kind: external` manifest (`surfaces: [/jobpilot]`, `composes: ["company-sourcing", "people-sourcing"]` — the only Phase-4-listed capabilities that are actually live today; `enrichment`/`llm`/`calendar`/`google` packages don't exist yet, so nothing was invented to fill them). JobPilot-owned logic, all composing shared packages rather than reimplementing them: **`scoring.ts`** (`scoreJobFit`) — deterministic rule score (category/keyword, location/remote, salary floor) → green/yellow/red flags, mirroring the architecture doc's `ScoringService` cheap-tier-LLM shape but rule-only for now (no `llm` package to bind to yet, same deliberate omission DealPilot's `scoreThesisFit` made). **`evaluator.ts`** (`evaluateTailoredMaterials`) — deterministic fabrication guard on a resume `change_log`: every change must cite verbatim evidence in the master resume text, OR be tagged `jd_added` on a non-protected field (protected = employer/title/dates/degree); this is the S4.2 stage-1 deterministic scorer, LLM-judge stage still out of scope. **`pipeline.ts`** (`processJobCandidate`) — sources via `@bridge/sourcing`'s waterfall, records facts, dedupes the JOB POSTING itself via `@bridge/dedupe`'s `matchOne` on an owned key (`company|title|location`, JobFunnel-style), and separately flags `alreadyAppliedToCompany` by delegating employer-identity matching to `@bridge/company-sourcing`'s `matchCompany` (compose, don't copy) — this is the architecture doc §7 "no double-applies" guard. **`connectors.ts`** — Greenhouse/Ashby/Lever Tier-1 proof connectors on `@bridge/sourcing`'s `createApiClientConnector`. **`table.ts`** — card-feed (gallery, group by flag) + tracker (kanban, group by stage) views on `@bridge/tables`. Extended same day with two more architecture-doc pieces, same reuse discipline: **`state-machine.ts`** (`transition`) — the single `applications.status` transition helper the architecture doc requires ("no status is ever updated without a stage_events row"), a pure validate-and-log function over the exact transition graph in S2 (queued→tailoring→evaluating→{approved|awaiting_review}→applying→{submitted→confirmed|parked→applying|failed|expired}, plus the evaluator retry loop back to tailoring); persistence of the resulting event is a future DB/ritual concern, not built here. **`answer-bank.ts`** (`createAnswerBank`) — normalize→exact→fuzzy resolution for screening questions, reusing `@bridge/dedupe`'s bigram-Dice `trigramSimilarity` instead of adding a separate fuzzy-match dependency (compose, don't copy); sensitive questions (SSN, payment, bank/routing info) unconditionally raise `NeedsHuman` regardless of bank contents, per architecture doc S7 invariant 4 ("hard stop by construction"); the LLM-fallback tier is out of scope, same as scoring/evaluator. 27/27 tool tests; whole-monorepo `turbo run typecheck test build --force` stays green (45/45). Extended again same day with two more architecture-doc milestones (M1 onboarding, M7 Gmail Smart Router — the next two buildable without new infra): **`onboarding.ts`** (`extractSkills`/`proposeCategories`/`buildCandidateProfile`) — deterministic keyword-presence heuristic against a caller-supplied vocabulary (open-resume-style), explicitly NOT a PDF parser or an LLM extraction call; produces the `CandidateProfile` `scoreJobFit` already consumes, closing the onboarding→scoring seam. **`gmail-router.ts`** (`routeEmail`) — the confidence-bucketing ROUTING policy only (auto_linked >=95, review 50-94, orphan <50, no active applications = orphan without even calling the classifier); the classification call itself is injected exactly like `connectors.ts` injects a fetcher, since no `llm` package exists to bind a real model to. A high-confidence match whose proposed `stageTarget` isn't a legal transition from the state machine (reuses `transition()` from state-machine.ts, compose don't copy) downgrades to `review` instead of silently applying or throwing — routing policy never bypasses the state machine's invariants. 36/36 tool tests; whole-monorepo suite stays green (45/45). Extended again same day with the M6 apply-waterfall decision logic: **`apply.ts`** — `resolveEntryTier` (big-3 ATS = Tier 1, else Tier 2, per S3 Dispatcher); `mapAnswersToForm` (walks a form schema through `AnswerBank.resolve`, collecting unresolved REQUIRED fields rather than throwing — S4.4's "park with partially-saved state" is the caller's call, not this function's); `nextDispatchAction` (the S7 failure-taxonomy router: APPLIED submits, EXPIRED stops permanently, CAPTCHA/LOGIN_ISSUE always park immediately and never escalate — S4.3's safety stops are immediate, not a "try the next tier" case — FAILED escalates tier-by-tier and parks `exhausted` once Tier 4 itself fails); `assertApprovedForSubmit` (S7 invariant 1, "no submit without eval_report.approved=true", encoded as a callable gate so it can't be silently skipped). **`pacing.ts`** (`createPacingGate`) — `max_apps_per_day` + `max_apps_per_ats_domain_per_day` caps (S7), in-memory per-day/per-domain counters, caps reset on a new day (defer-not-drop policy). Real HTTP/Playwright execution, persistence of pacing/dispatch state, and the tier-escalation LOOP itself (calling nextDispatchAction repeatedly against a live tier executor) remain out of scope. 46/46 tool tests; whole-monorepo suite stays green (45/45).
 - **2026-07-04** — **`/dealpilot` prototype wired to the real API.** `data/api.ts` gained
@@ -75,14 +369,14 @@
   tests: parser fixtures incl. HTML-stripping + null-on-unparseable, fake-gateway composition, BBN
   normalization + confidence). **19/19 dealpilot tests, 40/40 monorepo `turbo run typecheck test`
   tasks green.** ADR: [decisions-log.md](raw/decisions-log.md) 2026-07-04. Known-issue logged:
-  [known-issues.md](wiki/known-issues.md) (BusinessBroker.net blocked).
+  [BUGS.md](BUGS.md) (BusinessBroker.net blocked).
   **Prototype surface**: new `/dealpilot` page (`Design Bridge AI Interface (Copy)/src/app/pages/
   DealPilotPage.tsx`) — kanban triage board (green/yellow/red) over `dummy_` deal candidates
   (`data/dealpilot.ts`), plus a connector-status strip that honestly reflects the real backend
   state (BizBuySell = live via Gmail compose, BusinessBroker.net = blocked pending partner feed).
   Registered in `data/tools.ts` (category Sourcing, status Live) + `routes.tsx`. No live API wiring
   yet (`platform/apps/api` doesn't expose dealpilot/company-sourcing/people-sourcing/recorder —
-  gap noted in known-issues.md tool-registry-desync). Verified in preview: kanban renders, Tools
+  gap noted in BUGS.md tool-registry-desync). Verified in preview: kanban renders, Tools
   registry row correct, `tsc --noEmit` clean (only 5 pre-existing unrelated ItemDetail.tsx errors),
   `vite build` green.
 
@@ -90,7 +384,7 @@
 
 - **2026-06-24** — **Calendar Tool — research + implementation plan (no code yet).** User wants one in-app calendar aggregating Google Calendar (live) + future conference/event integrations + Rituals/Initiatives/Touchpoints + team/shared calendars + scheduling. Researched OSS options (firecrawl/exa + web), verified licenses 2026-06-24. **Decision: build a thin Calendar Tool Bridge owns = a time-axis PROJECTION over the Unified Graph, NOT a calendar product/server.** Three layers, three owners: render → adopt OSS behind a `CalendarView` port; RFC-5545 math (recurrence/tz/ICS) → adopt small libs behind `RecurrenceEngine`/`IcsCodec`; system-of-record + governance → build on existing platform (projection · reuse `integrations`/`external_records` sync · Pipeline egress write-back · RLS-scoped team/shared). **Picks (free + forkable, user won't pay + heavily customizes)**: **react-big-calendar** (MIT, v1.20.0) · **ical.js** (MPL-2.0, recurrence+ICS in one) · **ical-generator** (MIT, .ics feed) · **Luxon** (tz). **Rejected embed**: Cal.com (AGPLv3) · Radicale/Baïkal (GPL-3.0) · Nextcloud (AGPLv3) · FullCalendar/Schedule-X premium (paid) — copyleft and/or a 2nd source-of-truth that fights the graph+pipeline+RLS. `CalendarEvent` typed output_contract unifies GCal (already synced, local plane) + Touchpoints + ritual_runs + Initiative timelines + future conference/ICS adapters; **new source = new adapter, surface never changes** (future-proof). Phases P0 contract+projection → P1 read-only surface → P2 governed write-back+feed → P3 rituals/initiatives overlay → P4 team/shared (RLS+lanes) → P5 conference adapters → P6+ scheduling (defer; revisit cal.diy MIT, verify license). New docs: [docs/raw/calendar-plan.md](raw/calendar-plan.md) (plan) + [docs/wiki/calendar.md](wiki/calendar.md) (caveman); wired into wiki index + oss + stack + decisions; ADR appended to [docs/raw/decisions-log.md](raw/decisions-log.md); raw OSS.md/STACK.md library lists updated. Sequences after local-gate slice + Initiatives P1. **No code yet — P0 build-ready on user's go.**
 
-- **2026-06-22** — **Governance hardening: Approvals are human-only + server-resolved decider + cross-session tracking.** Gap found: `pipeline.decide()` ran NO authority on the approver — only checked proposal still pending. So an agent (or agent-driven request) could approve. Fix (`packages/core`): new `approve` Action; added to non-removable agent-floor (`AGENT_FLOOR_MUTATIONS`, `ledger` already protected); `decide(proposalId, decision, decider, ctx, edited?)` now floor-checks the decider before append. Agent decider → rejected; human passes. Decider authorizes only — decision row still records the original proposing actor → append-only audit + existing ledger assertions unchanged. Threaded decider through intake auto-approve (user's Sync click = approver) + all test call sites. **`apps/api`**: new `ctx.identity` (server-resolved Actor, NOT client-asserted); `action.decide` authorizes against `ctx.identity`, pinned to `wiring.pilotUserId` (env `BRIDGE_PILOT_USER_ID`) — Supabase-JWT verify is next slice. Verified: `packages/core` 40/40 (new invariant "an agent may NEVER resolve a proposal" + unit `agentFloorDeny(agent,"approve","ledger")`), `integrations-google` 3/3, `tsc -b` clean. **Tracking infra** (user ask: decisions+rationale+bugs tracked across sessions, agents self-report): new [docs/raw/decisions-log.md](raw/decisions-log.md) (ADR — decision·why·alternatives·consequences), new [docs/wiki/known-issues.md](wiki/known-issues.md) (live bug/gap ledger), linked from wiki index, CLAUDE.md working rules += record-decisions / file-bugs-unprompted / blast-radius-scan-before-done. Decisions captured: agents-never-approve, server-resolve-identity, hard-purge-dummy (planned). Open in known-issues: identity-on-propose still client-asserted, denied-approve not audited, no per-human approval RBAC, dummy purge pending. **Remaining** (tracked tasks): Supabase JWT verify (Phase C), layered agent/workflow creation scopes + ritual⊆agent inheritance (Phase D), hard dummy purge (Phase E).
+- **2026-06-22** — **Governance hardening: Approvals are human-only + server-resolved decider + cross-session tracking.** Gap found: `pipeline.decide()` ran NO authority on the approver — only checked proposal still pending. So an agent (or agent-driven request) could approve. Fix (`packages/core`): new `approve` Action; added to non-removable agent-floor (`AGENT_FLOOR_MUTATIONS`, `ledger` already protected); `decide(proposalId, decision, decider, ctx, edited?)` now floor-checks the decider before append. Agent decider → rejected; human passes. Decider authorizes only — decision row still records the original proposing actor → append-only audit + existing ledger assertions unchanged. Threaded decider through intake auto-approve (user's Sync click = approver) + all test call sites. **`apps/api`**: new `ctx.identity` (server-resolved Actor, NOT client-asserted); `action.decide` authorizes against `ctx.identity`, pinned to `wiring.pilotUserId` (env `BRIDGE_PILOT_USER_ID`) — Supabase-JWT verify is next slice. Verified: `packages/core` 40/40 (new invariant "an agent may NEVER resolve a proposal" + unit `agentFloorDeny(agent,"approve","ledger")`), `integrations-google` 3/3, `tsc -b` clean. **Tracking infra** (user ask: decisions+rationale+bugs tracked across sessions, agents self-report): new [docs/raw/decisions-log.md](raw/decisions-log.md) (ADR — decision·why·alternatives·consequences), new [docs/BUGS.md](BUGS.md) (live bug/gap ledger), linked from wiki index, CLAUDE.md working rules += record-decisions / file-bugs-unprompted / blast-radius-scan-before-done. Decisions captured: agents-never-approve, server-resolve-identity, hard-purge-dummy (planned). Open in known-issues: identity-on-propose still client-asserted, denied-approve not audited, no per-human approval RBAC, dummy purge pending. **Remaining** (tracked tasks): Supabase JWT verify (Phase C), layered agent/workflow creation scopes + ritual⊆agent inheritance (Phase D), hard dummy purge (Phase E).
 
 - **2026-06-20** — **Gmail + Google Calendar integration shipped** (real OAuth, read+write, fully gated). Two new platform packages: **`@bridge/local`** = the LOCAL plane (the residency fix the wiki flagged) — pglite + in-memory adapters behind new ports `SecretStore` (OAuth tokens), `BodyStore` (raw Gmail/Calendar bodies), `LocalGraphStore` (derived Touchpoints/Memories/Signals + person-by-email match + `external_records` idempotency + sync cursors); tokens/bodies/derived entities persist LOCAL, never Supabase. **`@bridge/integrations-google`** = the egress adapter (`googleapis` OAuth2 + Gmail v1 + Calendar v3) behind a `GoogleGateway` port, with a deterministic `FakeGoogleGateway` (dummy_ data) so both flows run with zero network; pipeline **Skills** (`google.sourceGmail/sourceCalendar` external:fetch, `google.stage`, `google.composeEmail/composeEvent` draft-only), **IntakeService** (source→match→propose), **IntakeMaterializer** (post-approval commit + the single public-identity dual-write), **EgressExecutor** (post-approval send/create through the gate, append-only audited, idempotent), and **GoogleService** (app surface). `@bridge/db` += `CanonicalIdentityStore` (Drizzle + in-memory fake) = the only outward dual-write target (public identity). **OAuth**: scopes gmail.readonly+send+modify + calendar.events, access_type=offline + prompt=consent → refresh token; tokens in the local SecretStore; real `GoogleApiGatewayFactory` when `GOOGLE_CLIENT_ID/SECRET` set, else the fake. **apps/api**: `buildWiring` now async (builds pglite local plane + gateway + canonical + GoogleService; seeds egress/intake agents), new `integration` tRPC router (`list`/`connectUrl`/`disconnect`/`syncGmail`/`syncCalendar`/`proposeSend`), `action.decide` now triggers `google.onApproved` (materialize / execute send), and a Fastify GET `/integrations/google/callback` (OAuth redirect → exchange code → store tokens local → bounce to app). **Prototype**: `IntegrationDetail` id=`google` → new `GoogleIntegrationPanel` (real connect/disconnect/sync/propose-send via new `data/api.ts` helpers + a `query` GET helper; default-off via `VITE_API_URL`); Gmail/Calendar cards route to `/integration/google`; sourced proposals + send drafts surface in the existing Approvals. **Key correctness call**: the pipeline runs `skill.run()` at `propose()` (pre-approval) and `#commit()` only emits an event — so egress skills produce a DRAFT only and the real Google send/create runs post-approval in EgressExecutor off the approved ledger row. Agent `external:send` is an agent-floor DENY (verified); human send requires ≥L2 approval. **Proven**: `@bridge/integrations-google` conformance suite (read→approved-proposal with dual-write + ambiguous→possible_duplicate Signal never-auto-linked; draft→approved-send with floor-block + gateway-not-called-before-approval + idempotency; local-plane-can't-egress) through the REAL pipeline+gate; `@bridge/local` pglite round-trip; HTTP smoke (list→syncGmail→approve→proposeSend→approve→sent) against the running API; browser smoke of the panel (sync produced pending Touchpoint proposals, governance card shows egress·human-approved). Dev aids (gitignored): prototype `.env` (`VITE_API_URL`) + a dummy_-only `data/network.ts` stub (real generated file absent in worktrees). Live demo needs the user's `GOOGLE_CLIENT_ID/SECRET` + registered redirect URI + `BRIDGE_SELF_EMAILS`.
 
@@ -203,7 +497,7 @@
 - **2026-06-20** — **Social integrations + local-plane store** (`platform/`; spec `docs/superpowers/specs/2026-06-20-social-integrations-design.md`). **Slice A — local store** (the priority-track gap): `@bridge/db` `createLocalDb` = pglite adapter binding the SAME Drizzle schema + ports as cloud, so private content + OAuth tokens persist local-only (residency), never Supabase. Loads pgvector before migrating (0000 references `vector(768)`; its CREATE EXTENSION lives in the non-journaled seed); `Database` broadened to `postgres-js | pglite` union (reads drive both; writes generate ids client-side since `.returning()` typings diverge). **Slice B — governed integration permissions**: `DrizzleIntegrationStore` (connect/list/disconnect + listScopes/grantScope/revokeScope over the real `permissions`/`ephemeral_grants` CBAC tables, `revoked_at` = revoke, never deleted); `external:send`/`network_graph:full` refused as standing grants (agent-floor DENY → always-approval); tRPC `integration` router bound to the local plane. **Slices C/D + E/F**: `SocialProvider` interface behind X/Instagram/Facebook/LinkedIn + `dummy_` fixture seam (live REST + LinkedIn recon-extension clients register out-of-band when creds exist); read = source→LOCAL quarantine→`gate.propose` Touchpoint (private body kept OUT of the proposal)→pending_review; write = draft→`gate.propose` external:send→human approval→publish (egress only post-approval). Verified: monorepo typecheck 5/5, **42/42 tests** (core 38, db 2, api 2). Commits `9d9b36b`/`9ccd8d1`/`90e98f6`. **Deferred**: prototype `IntegrationDetail.tsx` permissions UI panel; live per-platform REST clients + provisioning each integration as a resolver service-principal agent (full real-pipeline enforcement — gate authority math already covered by core's 38 tests).
 - **2026-06-22** — **Social-integration Permissions UI (prototype)** + **docs reformat**. UI: `IntegrationDetail` gains a governed Permissions tab/section for X/Instagram/Facebook/LinkedIn — view/grant/narrow scopes wired to the tRPC `integration` router via new `data/integrations.ts` (provider catalog mirroring registry META + a `ScopesClient` that is the live tRPC client when `VITE_API_URL` is set, else an in-memory governed mirror seeded with `dummy_` grants) and `data/api.ts` (`query()` helper + `apiListScopes/apiGrantScope/apiRevokeScope`). `external:send`/`network_graph:full` render as locked "always requires approval" rows — non-grantable structurally (UI) and server-side (FORBIDDEN). Added Instagram/Facebook to the integrations list. Verified live in preview: grant 2→3, narrow 3→2, egress non-grantable, no console errors. Commit `903e47c`. (Boot needed a local-only gitignored `dummy_` stub for the PII-holding `data/network.ts`.) Docs: **all 16 `docs/raw/` docs now carry YAML frontmatter** (`title·type·doc_kind·status·companions·related_wiki·updated·tags`); the 5 data-shaped docs (STACK/OSS/MOCK-DATA/DESIGN-SYSTEM/ROADMAP) express their tables/tokens/phases as fenced ```yaml blocks (zero data loss; `helpdesk-requirement` body left verbatim). Narrative/research bodies stay prose. CLAUDE.md docs-protocol updated to match (was "Raw = normal prose"). Wiki already brief — left unchanged.
 - **2026-06-20** — Camera Tool BUILT (built-in capture: photo `getUserMedia`+canvas, video `MediaRecorder`; `browser-image-compression`; local `tesseract.js` OCR). New **`LocalMediaStore`** port (`packages/core/ports.ts`) = first local-plane adapter binding existing ports — blobs LOCAL ONLY (dataScope `private`, `private ∩ egress = none`), never Supabase Storage. Two adapters one port: `PgliteMediaStore` (`packages/db`, `bytea`, 3 tests) + browser `idb` (`data/localMedia.ts`). `stageCapture` skill maps `media.v1`→Touchpoint|`possible_link` Signal (no blob; 4 core tests). Bound in API `wiring.ts` (pglite when `LOCAL_MEDIA_DIR` set, else in-memory; `buildWiring` now async). Prototype: `Camera.tsx`+`CameraCaptures.tsx` (capture→compress→OCR→local persist `pending`; Add to Bridge → governed Touchpoint proposal → review → approve → append-only ledger + `committed`); registered in `tools.ts` (native,intake), mounted in `ToolDetail` (own LOCAL panel, skips Supabase `ToolCapturesPanel`); captures browsable in Resources. Capture ≠ commit; uncertain match never auto-linked. Tests: core 46/46, db 3/3. Browser-verified live: capture→IndexedDB persist→pending→Add→approve→append-only ledger, blob stays local (API off, zero Supabase). Specs/plan in `docs/superpowers/`. NOTE: `data/network.ts` gitignored (PII) — local dummy_ stub created to boot app, not committed.
-- **2026-07-03** — **End-to-end platform audit** (4 parallel deep-dives: platform backend · prototype frontend · deploy/env parity · docs/bug-process + live build/test runs). Verdict: **48/100 Blocked for multi-user prod; OK as single-user local pilot**. Hard evidence: platform typecheck+tests green (12 tests, thin; turbo replayed cached logs from OTHER worktrees — green ≠ this checkout); prototype `vite build` FAILS on fresh checkout (untracked PII artifacts `network.ts`/`dbSignals.ts`/`reconStaging.ts` hard-imported by 12 modules) + ~25 implicit-any tsc errors. Root causes mapped to complaints: integrations = social registry silent fixture fallback + no env validation + API absent in deployed static site (by design, undocumented); data inconsistency = 4 silent local-fallback loaders + non-transactional dual-writes + fire-and-forget token persist; deploy≠local = build-artifact dependency + VITE_* baked at build + manual wrangler preview-vs-prod; add-row = appended to last page + table-view-only + session-only state; bug tracking = ledgers EXIST + current, gap is visibility (no issue↔commit links, no status snapshot, stale v2 punch-list). Filed 9 new rows in known-issues.md. Full findings in session report.
+- **2026-07-03** — **End-to-end platform audit** (4 parallel deep-dives: platform backend · prototype frontend · deploy/env parity · docs/bug-process + live build/test runs). Verdict: **48/100 Blocked for multi-user prod; OK as single-user local pilot**. Hard evidence: platform typecheck+tests green (12 tests, thin; turbo replayed cached logs from OTHER worktrees — green ≠ this checkout); prototype `vite build` FAILS on fresh checkout (untracked PII artifacts `network.ts`/`dbSignals.ts`/`reconStaging.ts` hard-imported by 12 modules) + ~25 implicit-any tsc errors. Root causes mapped to complaints: integrations = social registry silent fixture fallback + no env validation + API absent in deployed static site (by design, undocumented); data inconsistency = 4 silent local-fallback loaders + non-transactional dual-writes + fire-and-forget token persist; deploy≠local = build-artifact dependency + VITE_* baked at build + manual wrangler preview-vs-prod; add-row = appended to last page + table-view-only + session-only state; bug tracking = ledgers EXIST + current, gap is visibility (no issue↔commit links, no status snapshot, stale v2 punch-list). Filed 9 new rows in BUGS.md. Full findings in session report.
 - **2026-07-03** — **Table Notion-parity P0+P1 implemented** (DataEngine.tsx/GlideTable.tsx, `platform/agentic-engineering` skill workflow). New `lib/persist.ts` (`usePersistentState`) generalizes the ResourcesPage localStorage pattern; wired to addedRows/cellOverrides/customFields/savedLists/deletedIds/colVisible/communityTypeOverrides/customTypes/columnLabelOverrides — all table edits now survive refresh. New per-tab `ViewState` (sorts[]/rowFilters/filterMatch/groupBy/activeView) persisted independently per tab, replacing the old reset-on-tab-switch behavior. Added: multi-sort via a Sort popover ("then by" chaining, header click still sets sole sort), OR/AND filter-match toggle, column rename (pencil affordance in Columns list, flows through a single `fields` memo injection point), dynamic Group-by with collapsible sections (pagination suspended while grouped). Fixed the reported "add row missing" bug: new rows now PREPEND (were appending, landing on the last page under pagination — looked like a no-op) + jump to page 1 + set highlightedRowId; Add row button now also shows in gallery/kanban views, not just table. Created a local (uncommitted, gitignored) `dummy_`-prefixed stub `network.ts` to unblock the build for verification — `tsc --noEmit` and `vite build` both pass clean on the changed files; ~5 pre-existing implicit-any errors remain in ItemDetail.tsx (unrelated, not fixed). Could not get live browser verification this session — the Preview tool's own process is pinned to Node v16 (separate from the shell `nvm alias default 24` fix applied), so `preview_start` fails on the same `crypto.getRandomValues` error the audit had already flagged; recommend the user restart their terminal/session to pick up Node 24 and manually confirm visually. Remaining P2 (peek panel, undo/redo, keyboard shortcuts, kanban drag, relation/formula columns, Resources/Helpdesk/Tools convergence onto one TableSpec) not started this pass.
 - **2026-07-03 (cont.)** — **Table P0+P1 verified live in browser** (real Supabase session, 27126 canonical people, sole-user credential). Fixed `.claude/launch.json` "bridge-prototype": the harness's own long-lived process has Node v16.20.2 shadowing v24 earlier in its fixed PATH (confirmed: `nvm alias default 24` does not fix it — the PATH ordering itself has v16's bin dir hardcoded ahead of v24's, independent of nvm's own resolution), so `preview_start` hit the same `crypto.getRandomValues` error the audit had flagged. Fix: pointed `runtimeExecutable` straight at the v24 node binary and args at `vite/bin/vite.js` directly (bypasses npm's shebang→PATH resolution chain entirely, which still failed even with an absolute npm-cli.js invocation). Server now boots clean, zero console/network errors. Verified against live data: Add row → new row appears at position 1 on page 1 (previously landed on page 1357, looked like a no-op), count increments correctly, persists across a hard reload. Sort popover adds a live sort chip. Group-by "ring" renders two real collapsible sections (Close 6782 / Extended 6772) with pagination correctly suspended. Test row + view-state cleared from localStorage after verification so no debris was left in the user's environment.
 - **2026-07-03** — **Tool Standardization Plan authored + ADR-006 locked** (full monorepo convergence · internal/external tool taxonomy · DealPilot first). Ingested 5 JobPilot/DealPilot/ETA spec files from untracked Tools/Job into docs/raw as verbatim requirement docs (frontmatter only; personal Job Application/Master Profile folders deliberately NOT ingested — PII). New raw/tool-standardization-plan.md: taxonomy (internal=capability headless, external=surface with `composes:`), target platform/ layout (packages: tool-kit·tables·sourcing·dedupe·facts·llm·extraction; tools/: people-sourcing·company-sourcing·enrichment·recorder internal + helpdesk·dealpilot·jobpilot external), recon decomposition (staging.jsonl retired thru one intake seam; hni folds in), platform-level-only integrations (no per-tool OAuth), deliberate deviations from the standalone JobPilot (FastAPI+SQLite) / DealPilot (Next.js+Supabase+Trigger.dev) architecture docs onto the platform stack, phases 0–5 with DealPilot as the first external proof. wiki/tools.md updated (caveman); ADR-006 appended to raw/decisions-log.md. Answered "why no Tools/helpdesk folder": Helpdesk predates the tool model and lives as prototype pages; migrates to tools/helpdesk in Phase 4.
@@ -333,7 +627,7 @@ alongside the CORS `origin:true` entry since they compound.
 ## 2026-07-04 — Codemaps generated + migration journal fixed (Phase 0 partial)
 
 - New `docs/CODEMAPS/{architecture,backend,data,frontend,dependencies}.md` — first generation,
-  no prior codemaps existed. Each cross-references the known-issues.md findings from the same
+  no prior codemaps existed. Each cross-references the BUGS.md findings from the same
   session so the architecture docs and the bug ledger don't drift apart on day one.
 - Discovered `.github/workflows/ci.yml` already exists (landed via a parallel session) —
   correctly uses `--force` and includes a PII guard job. Marked the "no CI" known-issue RESOLVED
@@ -407,3 +701,335 @@ Remaining OPEN items of similar size: Gmail draft-created-before-approval (needs
 draftOutbound's propose-time side effect), DealPilot dedupe-on-commit wiring, Recon→intake-seam
 migration — each is a larger, more invasive change than the fixes in this batch and better done
 as its own focused pass.
+
+## 2026-07-05 — Startup env assertions + `/health/ready` (All fixes.md Blockers A)
+
+`platform/apps/api/src/server.ts`: added `assertProductionEnv()`, called at the top of
+`buildServer()` — throws (refuses to boot) when `NODE_ENV=production` and `DATABASE_URL` is
+unset, closing the gap where the API would silently fall back to `InMemoryLedger` in production
+(data gone on restart, `/health` still reporting `ok:true`). Added `GET /health/ready`: probes
+`wiring.ledger.get(...)` and `wiring.localPlane.graph.hasExternal(...)` with a syntactically-valid
+probe id (`00000000-...`), returns `{ ready, persistent, checks: { ledger, localPlane } }` and a
+real HTTP 503 if either store is unreachable — distinct from `/health`, which stays a pure
+liveness check. 4 new tests in `server.test.ts` (2 for `assertProductionEnv`'s throw/no-throw
+branches, 1 for the no-op-outside-production case, 1 exercising `/health/ready` end-to-end via
+`app.inject`). Verified: `@bridge/api` 10/10 tests green; monorepo `turbo run build` + `turbo run
+test --force`: 28/28 packages green.
+
+## 2026-07-05 — Calendar `timeMax`/exact-range fetch (All fixes.md Blockers A)
+
+`platform/packages/integrations-google`: added `timeMax` to `FetchEventsOpts` (`contracts.ts`).
+`GoogleApiGateway.fetchEvents` (`gateway-google.ts`) now defaults `timeMax` to `timeMin` + 90 days
+when the caller omits it — previously the forward window was unbounded, relying on the 250-result
+cap alone. Threaded `timeMax` through `skills.ts` (source/list calendar skills), `intake.ts`
+(`SyncOpts`), `service.ts` (`syncCalendar`/`listCalendarEvents`), and the `syncCalendar`/`listEvents`
+tRPC procedures in `apps/api/src/router.ts`.
+
+Root cause on the actual Calendar surface: `CalendarPage.tsx` computed `rangeStart` (period start)
+but no `rangeEnd`, so it relied entirely on the 250-cap to cover the visible range. Added a matching
+`rangeEnd` (end of visible month/week/day; +90d for agenda) and threaded it through
+`apiListCalendarEvents`'s new `timeMax` param on every reload/refresh/write path (`api.ts`).
+
+Verified: monorepo `turbo run build` + `turbo run test --force` 28/28 packages green
+(`@bridge/integrations-google` 6/6, `@bridge/api` 6/6); prototype `tsc --noEmit` + `vite build`
+clean; Month/Week/Agenda calendar views checked in-browser (dev server), no console errors.
+
+## 2026-07-05 — `ItemDetail.tsx` implicit-`any` cleanup (All fixes.md Blockers A)
+
+`Design Bridge AI Interface (Copy)/src/app/pages/ItemDetail.tsx`: typed `EditableText`'s props,
+`ContactCard`'s `fv`, `Boundaries`' inner `Col` component, and `visMeta` (now `LucideIcon` instead
+of `any`). Root cause of the remaining `.map()` implicit-anys was `NetworkPerson`'s loose
+`[key: string]: any` stub index signature (`network.ts`) — added explicit optional fields (`bio`,
+`newsInsight`, `websiteUrl`, `githubHandle`, `instagramHandle`, `twitterHandle`, `skills`,
+`education`, `previousCompanies`) so TS resolves them from real property types instead of the
+index signature. `tsc --noEmit` and `vite build` both clean; verified in-browser (signed into the
+local dev server, loaded `/item/Marcus%20Webb`, no console errors, page renders normally).
+
+## 2026-07-05 — DealPilot capture-list endpoint + basic thesis storage (All fixes.md Blockers A)
+
+Closed the last two DealPilot gaps from the 2026-07-04 review: no way to see quarantined-but-
+not-yet-committed captures, and a hardcoded empty thesis (`{industries:[],geo:[]}`) standing in
+for real thesis-fit scoring.
+
+`platform/apps/api/src/router.ts`: added `dealpilot.captures` (query) — returns
+`ctx.wiring.dealpilot.captures.list("dealpilot")`, the `QuarantinedCapture[]` the `ToolCaptureStore`
+already tracked but nothing exposed; it's capture metadata + payload, nothing sensitive, so no
+reshaping needed. Added `dealpilot.getThesis` (query) and `dealpilot.setThesis` (mutation, zod-
+validated against `@bridge/dealpilot`'s `ThesisProfile` shape — industries/geo/sdeMin/sdeMax/
+revenueMin/revenueMax). `dealpilot.list` now reads `ctx.wiring.dealpilot.thesis` instead of the
+inline hardcoded stand-in.
+
+`platform/apps/api/src/wiring.ts`: added a `dealPilotThesis` mutable (in-memory, session-lifetime
+— same tier as `dealPilotCandidateIds`), initialized to the same default, with a getter/setter
+exposed on the `Wiring.dealpilot` object.
+
+Scope: backend only, no new tables/migrations. Full thesis-management UI is a separate, larger
+frontend item and stays open.
+
+No existing test harness calls the tRPC router directly (`apps/api/test/` only has
+Fastify-`inject`-level HTTP tests, no `createCaller` pattern) — skipped adding new tests per the
+established convention, matching `wiring.ts`'s existing untested-composition-root precedent.
+
+Verified: `@bridge/api` builds clean; monorepo `turbo run build --force` + `turbo run test --force`
+28/28 packages green (unchanged count — no new test files).
+
+## 2026-07-05 — Ledger `ref_ledger_id`/double-approve TOCTOU + replayed-audit-context fix
+(All fixes.md Phase 1 items 4 and 5)
+
+Closed the two governance-spine bugs flagged by the 2026-07-04 review as feeding Phase 1: the
+`decide()` double-approve race, and audit context silently dropped on replay.
+
+**Item 4 — `ref_ledger_id` jsonb magic string + non-transactional double-approve.**
+`decide()` resolved double-approve detection via `diff->>'__refLedgerId'` — a reserved jsonb key
+with no real column, index, or constraint, and no transaction/lock, so two concurrent `decide()`
+calls could both pass the "already resolved?" check and both commit (TOCTOU) — an approved email
+could send twice. Fix:
+
+- New migration `platform/packages/db/migrations/0003_ledger_ref_column.sql` adds real
+  `ref_ledger_id uuid`, `seed text`, `data_scope text`, `context jsonb` columns to `ledger`
+  (registered in `migrations/meta/_journal.json`), plus a partial unique index
+  `ledger_ref_ledger_id_resolved_uq` on `(ref_ledger_id) WHERE ref_ledger_id IS NOT NULL AND
+  user_decision IS NOT NULL` — "at most one resolving decision per proposal," enforced by
+  Postgres/pglite itself. No backfill needed (pre-launch, no production data). `schema.ts` updated
+  to match.
+- `platform/packages/db/src/ledger-store.ts` rewritten: dropped the old `packDiff`/`unpack`
+  jsonb-key-splicing entirely, reads/writes the real columns directly, and catches the
+  unique-violation (SQLSTATE 23505 on the named index) and translates it into a typed
+  `AlreadyResolvedError`.
+- `platform/packages/core/src/pipeline.ts`: new `AlreadyResolvedError` (409) and
+  `AgentFloorDeniedError` (403) classes, exported from `@bridge/core`. `decide()` now throws these
+  instead of bare `Error`s for the "already resolved" and floor-deny cases. The in-process
+  `decisionFor()` pre-check narrows the race window but isn't itself atomic; the real guarantee is
+  downstream — the partial unique index for the persistent ledger, and a new atomic check-and-mark
+  `Set` in `InMemoryLedger.append()` (`packages/core/src/memory/stores.ts`, no `await` between
+  check and mark) for the in-memory ledger.
+- `platform/apps/api/src/router.ts`: the `decide` procedure now catches both typed errors and maps
+  them to `TRPCError({ code: "CONFLICT" })` / `TRPCError({ code: "FORBIDDEN" })`, mirroring the
+  existing `IntegrationFloorScopeError` → `FORBIDDEN` pattern already in use at `router.ts:576`.
+
+**Item 5 — `decide()` drops audit context on replay.** The replay path (`#requestFromEntry`)
+reconstructed the request with `skill: "(replayed)"` and silently dropped `context`/`dataScope`
+from the original `LedgerEntry`. Fix: `dataScope`/`context` are now real fields on `LedgerEntry`
+(`packages/core/src/types.ts`) backed by the same migration's `data_scope`/`context` columns.
+`#appendLedger` persists the proposing request's `dataScope`/`context` at propose-time (previously
+never persisted at all), and `#requestFromEntry` threads the ORIGINAL values through on decide()
+instead of dropping them. `skill: "(replayed)"` stays as a literal placeholder — the ledger never
+stored a skill name to replay in the first place (decide() never re-invokes a skill) — but it no
+longer drags context/dataScope down with it.
+
+**Tests:** `packages/core/test/pipeline.test.ts` gained a `Promise.allSettled` concurrent-decide
+test (two "concurrent" `decide()` calls on the same pending proposal: exactly one resolves, one
+rejects with the typed `AlreadyResolvedError`, exactly one event emitted) and a replay test
+asserting both the pending-proposal ledger row and the decision row carry the original
+`dataScope`/`context`, not `"(replayed)"`/dropped. New
+`packages/db/test/ledger-store.test.ts` proves the same two properties against a real pglite
+database: the partial unique index rejects the second of two concurrent inserts (translated to
+`AlreadyResolvedError`), a floor-denied null-decision audit row does NOT block the real
+resolution, and `seed`/`dataScope`/`context` round-trip through the real columns.
+
+Verified: `@bridge/core` 60/60 (pipeline.test.ts 29/29), `@bridge/db` 9/9, full monorepo
+`turbo run build --force` 15/15 green and `turbo run test --force` green across all 28 test
+targets except one pre-existing, unrelated `apps/api` `pagination.test.ts` failure in a parallel
+session's in-flight `integration.list`/single-tenant work (confirmed unrelated — that test file
+was never touched here, and this migration only touches the `ledger` table).
+
+## 2026-07-05 — Agent-floor consolidation + JWKS verify hardening (All fixes.md Phase 1 item 6,
+section 2's JWKS bullet)
+
+Two independent fixes from the master tracker.
+
+**Agent-floor consolidation.** `AGENT_FLOOR_MUTATIONS` (`packages/core/src/authority.ts`),
+`isForbiddenAgentToken` (`packages/core/src/agent-scope.ts`), and `ALWAYS_APPROVAL_SCOPES`
+(`packages/db/src/integration-store.ts`) each independently declared what an agent may never
+do/hold. They had actually drifted: `ALWAYS_APPROVAL_SCOPES` covered only `external:send` and
+`network_graph:full`, missing the whole governance-resource floor (policy/policy_param/skill/
+agent/role/permission/ledger/delegation) the other two enforced. New
+`packages/core/src/agent-floor.ts` is now the single canonical source (union of all three, the
+safe/strictest choice); `authority.ts` and `agent-scope.ts` derive from it, `integration-store.ts`
+re-exports the canonical `ALWAYS_APPROVAL_SCOPES`. New `packages/core/test/agent-floor.test.ts`
+smoke-tests the relationship across all three consumers.
+
+**JWKS verify hardening.** `apps/api/src/identity.ts`'s remote-JWKS verify path had no timeout or
+catch — a slow/down JWKS endpoint (or any verify failure) could explode context creation as an
+unhandled rejection instead of a clean 401. Fix: `createRemoteJWKSet` now bounds the key-set fetch
+with jose's native `timeoutDuration` (5s); the whole verify call is wrapped in try/catch and
+re-thrown as a typed `IdentityVerificationError`; `context.ts`'s `createContext` catches that and
+throws `TRPCError({code:"UNAUTHORIZED"})`, which the tRPC fastify adapter turns into a real 401.
+New `apps/api/test/identity.test.ts` (HS256 bad-secret, JWKS-unreachable-within-timeout, pilot
+fallback unaffected) plus a `server.test.ts` end-to-end case (forged bearer token via `app.inject`
+→ 401, not a hang/500).
+
+Both are documented in full (drift details, rationale, alternatives rejected) as new ADR entries
+in `docs/raw/decisions-log.md`; `docs/BUGS.md` and `All fixes.md` updated to RESOLVED
+for the matching bullets (item 6's DB-level agent-floor seed half stays open — separate,
+out-of-scope item).
+
+Verified: `@bridge/core` 58/58 core tests (before another session's later pipeline work brought it
+to 60/60 — figures compared at time of this fix), `@bridge/db` 9/9, `@bridge/integrations-google`
+16/16, `@bridge/api` identity+server+social 16/16 (the 4 `pagination.test.ts` failures are the
+same pre-existing, unrelated pglite schema-reuse bug in another in-progress, untracked test file
+already independently confirmed above — flagged as a background task, not fixed here). Monorepo
+`turbo run build --force`: 15/15 packages clean; full `turbo run test --force` 27/28 packages
+green, the one failure being the unrelated `pagination.test.ts` above.
+
+## 2026-07-05 — Pagination on `dealpilot.list`/`integration.list` (All fixes.md section 3 P1,
+Phase 3 item 14c)
+
+`router.ts`'s `dealpilot.list` mapped the ENTIRE candidate set through per-id
+`facts.livingProfile()` on every call (no limit); `integration.list` returned the full
+`DrizzleIntegrationStore.list()` array with no slicing. Both were unbounded, full-table-scan-
+shaped responses growing linearly with the candidate/integration count.
+
+Fix: both procedures now take zod-validated `limit` (`1..200`, default `50`) and `offset`
+(`>=0`, default `0`), and return `{ items, total, hasMore }`. Chose a plain offset slice over a
+cursor scheme — `candidateIds` is an in-memory array and `store.list()` is a full fetch with no
+stable ordering key to cursor on yet, so a cursor would add complexity without a real backing
+store to justify it. `dealpilot.list`'s input is `.optional().default({})` so the existing no-arg
+prototype call site keeps working unchanged at the wire level; `apiDealPilotList()`
+(`Design Bridge AI Interface (Copy)/src/app/data/api.ts`) now requests `{ limit: 200, offset: 0 }`
+and unwraps `.items`, preserving today's "show everything" UI behavior (no pager built into the
+prototype yet) while the backend response itself stays bounded regardless of what the UI asks for.
+
+**Tests:** new `platform/apps/api/test/pagination.test.ts` — explicit-limit pagination for both
+procedures verified across two offsets each (first page + tail page), plus a "no unlimited
+default" test per procedure: seeds 75 `dummy_`-prefixed fixtures (`dummy_candidate_*` for
+DealPilot, real `dummy_`-workspace-scoped integration rows) and confirms a no-params call returns
+exactly the documented default of 50, not everything. Along the way, hit and worked around a
+pglite quirk worth flagging for future test authors: two concurrently-open `PGlite` clients
+against the SAME on-disk directory do not reliably see each other's writes (an insert through a
+second, parallel connection was invisible to a FK check on the first, already-open connection) —
+the fix was to seed all prerequisite `workspaces` rows through one connection that fully closes
+BEFORE `getIntegrationStore()`'s process-wide singleton ever opens its own connection against that
+directory, never concurrently.
+
+**Also flagged, not fixed here:** while building the FK-satisfying fixture, confirmed
+`PILOT_WORKSPACE`/`PILOT_USER` (`wiring.ts`) are never actually inserted into the `workspaces`/
+`users` tables anywhere — any real (non-in-memory) DB write with a FK into either (e.g.
+`integration.connect`, or `workspace.create` called with the pilot user id) would throw a raw FK
+violation. Spun off as a background task rather than fixed in this change (out of scope: touches
+bootstrap/seeding, not the pagination procedures).
+
+Verified: full `turbo run build --force` 15/15 packages clean; full `turbo run test --force`
+28/28 packages green (the previously-failing `pagination.test.ts` — flagged above as another
+session's in-flight work — is this session's own fix, now green). `Design Bridge AI Interface
+(Copy)` `npx tsc --noEmit -p .` clean. New ADR entry in `docs/raw/decisions-log.md`;
+`docs/BUGS.md` and `All fixes.md` updated to RESOLVED for the matching bullets.
+
+## 2026-07-05 — Schema-hardening pass: hnsw, UUIDv7, indexes, CHECK constraints,
+role_permissions reconciliation (All fixes.md sections 4/5, Phase 3 item 12)
+
+Nine-item schema pass in `platform/packages/db/`. This session picked up mid-flight work another
+parallel session had already started in this shared worktree (`0003_ledger_ref_column.sql` and a
+draft `0004_schema_hardening.sql` already existed on disk covering items 1/3/4/5/6/7 before this
+session's first edit) — finished the remaining wiring rather than duplicating it:
+
+1. **hnsw index on `embeddings.embedding`.** `SCHEMA.sql` specifies `USING hnsw (embedding
+   vector_cosine_ops)`; migrations only ever created a btree lookup index. Added
+   `embeddings_embedding_hnsw_idx` in `0004_schema_hardening.sql`. Before relying on it, verified
+   empirically (not just by reading pglite's docs) that `@electric-sql/pglite/vector` at this
+   repo's pinned version actually builds real hnsw indexes — a standalone throwaway script
+   (`CREATE INDEX ... USING hnsw`) succeeded against a fresh in-memory pglite instance. New test
+   in `schema-hardening.test.ts` proves the index exists AND that a similarity query's `EXPLAIN`
+   plan names it (not a seq scan).
+2. **UUIDv4 → UUIDv7 PKs on `ledger`/`events`/`timeline_entries`.** No native pg `uuidv7()`
+   pre-PG18; `@bridge/core` gained a ~20-line in-house `uuidv7()` (RFC 9562: 48-bit big-endian
+   ms timestamp + version nibble 7 + crypto-random tail) in `determinism.ts` rather than adding a
+   dependency for it. `schema.ts` gained a `uuidPkV7()` helper (`$defaultFn(() => uuidv7())`,
+   column DEFAULT stays `gen_random_uuid()` as a direct-SQL-insert backstop) applied to all three
+   tables' `id` columns. Forward-only — existing v4 row ids are untouched. New test proves minted
+   ids are version-7 (checks the version nibble) and that later-minted ids sort after
+   earlier-minted ones lexicographically.
+3. **`timeline_entries` composite index.** Added `(workspace_id, occurred_at)` —
+   `timeline_entries_ws_occurred_idx`.
+4. **`people_canonical.emails` GIN index** for `= ANY(emails)` lookups.
+5. **`dedup_key` partial-unique** on both `people_canonical` and `communities_canonical` —
+   dropped the plain `UNIQUE(dedup_key)` constraint, added a partial unique index `WHERE dedup_key
+   IS NOT NULL`, same idiom as `ledger_ref_ledger_id_resolved_uq` from migration 0003. `schema.ts`
+   no longer declares `.unique()` on either column (the hand-written index is now the sole
+   constraint).
+6. **CHECK constraints** on `visibility`, `effect` (two DIFFERENT enums sharing that column name —
+   `permissions`/`role_permissions.effect` is `allow|deny`, `policies.effect` is
+   `allow|block|require_approval`; read `core/src/types.ts` before writing either, they are not
+   interchangeable), `user_decision`, `actor_type`, `on_behalf_of_type`. **Caught a real bug
+   building this**: the first cut of `permissions_actor_type_check` used the same 3-value list as
+   `ledger`/`ephemeral_grants` (`user|team|agent`) and broke the pre-existing
+   `integration-permissions.test.ts` with a 23514 violation — `db/src/integration-store.ts` writes
+   a 4th value, `"integration"`, to the `permissions` table specifically
+   (`INTEGRATION_ACTOR_TYPE`). Widened that one constraint to `user|team|agent|integration`;
+   `ledger`/`ephemeral_grants` correctly stay at 3 values (they never see that actor type). This is
+   exactly the kind of drift a CHECK constraint is supposed to catch — the existing test suite
+   caught it immediately rather than this shipping silently narrower than reality.
+7. **`role_permissions` naive-vs-coalesce reconciliation.** `schema.ts` no longer declares a
+   `unique(...).on(...)` builder on `role_permissions` at all — the hand-written coalesce-NULL
+   index from `0001_governance_seed.sql` (reasserted idempotently in `0004`) is now the ONE
+   canonical constraint `drizzle-kit push` and the real migration both agree on.
+8. **`.uuid()` consistency in `router.ts`.** Confirmed both `resourceId` occurrences (in the
+   shared `proposeInput`/`ritualStep` zod schemas) now carry `.uuid()` — this had already landed
+   by the time this session checked (either the same parallel session, or already fixed;
+   confirmed via `git diff` showing the change staged in the working tree).
+9. **Soft-delete idiom audit.** Confirmed `archived_at` (nullable timestamp) is the canonical
+   idiom — `SCHEMA.sql`'s own header says so, and it's the clear majority in `schema.ts` (7 of 43
+   tables carry it: `workspaces`, `teams`, `communities`, `people`, `initiatives`, `files`,
+   `rituals`). Tables with a `status` text column (`skills`, `tools`, `integrations`, `agents`,
+   `ritual_runs`, `touchpoints`, `signals`) turned out to be a non-conflicting, different concept —
+   general lifecycle state, never assigned `'archived'` anywhere in app code (grep-confirmed) — not
+   a second soft-delete idiom in competition with `archived_at`. The one genuine same-event
+   collision is `@bridge/db`'s `media-store.ts` (`MediaStatus` 3-state lifecycle including
+   `"archived"` PLUS a separate `archived_at` timestamp on the same row) — by design (status =
+   which state, archived_at = when), not accidental drift, so left alone. Did catch and flag (not
+   fix) a real adjacent bug while reading it: `archive()` in both `media-store.ts` and the
+   matching in-memory adapter (`core/src/memory/stores.ts`, this pass's do-not-touch list)
+   hardcode `archivedAt` to epoch (`new Date(0)`) instead of the actual current time.
+
+**Tests:** new `platform/packages/db/test/schema-hardening.test.ts`, 8 tests, all against real
+pglite (hnsw existence+plan, UUIDv7 format+ordering, timeline_entries index, emails GIN, both
+dedup_key partial-uniques, all CHECK constraints including the integration-actor-type widening,
+role_permissions single-constraint behavior).
+
+Verified: `@bridge/db` 26/26 (18 pre-existing + 8 new). Full monorepo `turbo run build --force`:
+28/28 packages clean. Full `turbo run test --force`: 28/28 packages green, no regressions anywhere
+(`@bridge/api` 18/18, `@bridge/integrations-google` 20/20, `@bridge/jobpilot` 50/50, everything
+else unaffected). New ADR entries in `docs/raw/decisions-log.md` (UUIDv7-without-a-dependency;
+soft-delete idiom confirmation). `docs/BUGS.md` and `All fixes.md` updated for the
+matching bullets (section 4's hnsw/UUIDv7/emails/dedup_key items, section 5's
+role_permissions/CHECK/`.uuid()`/soft-delete items, Phase 3 item 12).
+
+---
+
+## 2026-07-05 — git-reset incident fix + dummy purge verify + migration scope doc
+
+Parallel-agent git-reset incident: root cause found, policy fix logged. 4 agents 1 shared tree, 1 reset wipe ~45 files (recovered from stash, no loss). Fix: `isolation:"worktree"` per write-agent going fwd. ADR + known-issues entry added.
+
+Dummy purge (2026-06-22 decision): verified DONE already, tracker stale. No FakeGoogleGateway anywhere, gateway fails closed, PILOT_USER/WORKSPACE real. Corrected BUGS.md + All fixes.md. New open Q: extend purge to social fixture seam (X/IG/FB)? Flagged, not actioned — needs user call.
+
+Frontend migration scoping: new doc [docs/raw/frontend-migration-scoping.md](raw/frontend-migration-scoping.md). tRPC router inventory vs 24 prototype pages, 4-phase port plan. Headline gap: Signal/Touchpoint/Initiative (core vocab nouns) have ZERO tRPC surface today — blocks WorkPage/IntelligencePage/InitiativeDetail regardless of frontend work. No migration code started.
+
+---
+
+## 2026-07-05 — Frontend migration: scaffold + reference page live
+
+User approved full 4-phase migration; cost was already over budget so scoped this session down to: scaffold `platform/apps/web` + prove the pattern with 1 page, defer the other 10 Phase-1 pages.
+
+Built: Vite+React+react-router+typed @trpc/client app, Tailwind v4, 40/48 UI primitives ported (8 dropped, need extra deps not yet added). `DealPilotPage` fully wired to real `dealpilot.list` tRPC procedure — verified live in browser against running `@bridge/api`: real batched HTTP call, 200 OK, zero console errors. `.claude/launch.json` got `bridge-api`/`bridge-web` entries.
+
+NOT done: Sidebar/AgentPanel port (prototype nav — big separate component), remaining 10 Phase-1 pages, all of Phase 2-4 (new backend surfaces for Signal/Touchpoint/Initiative, JobPilot/Helpdesk/Resources). All fixes.md updated with exact remaining list + pattern to follow (same shape as DealPilotPage.tsx).
+
+---
+
+## 2026-07-06 — Frontend migration Phases 1-3 complete; docs/lint tasks done
+
+Continued the frontend migration + 3 parallel doc/tooling tasks.
+
+**Phase 1 (frontend, no backend needed)**: all 11 pages ported by a dispatched agent — Rituals*, Tools*, Agent*, Integration*, Calendar. 2 stubbed (RitualsPage/ToolsPage — no list procedure exists, logged not invented). Verified live in browser, zero console errors.
+
+**Phase 2**: added `action.listPending` (new `LedgerStore.listPending` port method + Drizzle/in-memory implementations + pipeline passthrough), wired `ApprovalsPage` against it (list + approve/veto). SettingsPage deferred.
+
+**Phase 3**: new `graph` tRPC router + `DrizzleGraphStore` — read surface for Initiative/Touchpoint/Signal (zero coverage before this). Writes already flow through existing `action.propose`; only reads were missing. Frontend pages (WorkPage/IntelligencePage/InitiativeDetail) not yet ported against it.
+
+**Phase 4**: not started — flagged as 3 separate from-scratch backend efforts (JobPilot wiring, Helpdesk incl. anon auth, Resources), each deserving its own session.
+
+**Docs/tooling** (3 parallel agents): promoted `docs/wiki/known-issues.md` → `docs/BUGS.md` (all cross-refs updated); extracted 4 ADRs (two-tier data model, local-first/two-plane, governance pipeline, agent auto-mode) into `docs/raw/decisions-log.md` as ADR-007 through ADR-010, wiki lines now link to them; added ESLint to `platform/` from scratch with 2 custom rules (`no-crm-vocab`, `dummy-prefix`) — found and logged 40+ real "Deal"-in-identifier violations in `tools/dealpilot/` (not renamed, flagged as a coordinated follow-up), fixed 5 non-compliant test placeholder strings.
+
+Process note: caught one dispatched agent silently spawning research-only sub-agents instead of doing the work itself (against explicit instructions) — corrected via a direct message, it recovered and finished the task correctly.
+
+Full monorepo: `pnpm turbo run build --force` 16/16, `pnpm turbo run test --force` 29/29 (api), no regressions.

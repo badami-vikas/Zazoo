@@ -56,6 +56,9 @@ export interface FetchEventsOpts {
   maxResults?: number;
   /** RFC3339 lower bound. */
   timeMin?: string;
+  /** RFC3339 upper bound. Defaults to `timeMin` + 90 days when omitted — an unbounded
+   * forward window means a sparse calendar pages arbitrarily far into the future. */
+  timeMax?: string;
   pageToken?: string;
 }
 

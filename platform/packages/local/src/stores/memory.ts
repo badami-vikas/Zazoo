@@ -66,9 +66,9 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
     return this.people.filter((p) => p.workspaceId === workspaceId);
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
-    if (this.entities.some((e) => e.id === entry.id)) {
-      throw new Error(`local graph: duplicate entity id ${entry.id}`);
-    }
+    // Idempotent: a retry after a partial dual-write failure re-commits the same
+    // deterministic id — that must be a silent no-op (mirrors recordExternal below).
+    if (this.entities.some((e) => e.id === entry.id)) return;
     this.entities.push({ ...entry });
   }
   async listEntities(workspaceId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]> {

@@ -19,6 +19,8 @@ export interface QuarantineStore {
 export interface SourceResult {
   quarantinedId: string;
   proposal: Proposal;
+  /** Whether the sourced item came from a live provider or the dummy_ fixture seam. */
+  mode: SocialProvider["mode"];
 }
 
 export async function sourceToProposals(args: {
@@ -49,13 +51,15 @@ export async function sourceToProposals(args: {
         occurredAt: item.occurredAt,
         counterparty: item.counterparty ?? null,
         quarantinedId,
+        // Audit trail must be able to tell a fixture-sourced Touchpoint from a live one.
+        mode: provider.mode,
       },
       skill: "stageMutation",
       dataScope: "private",
       seed: `social:${provider.id}:${item.sourceId}`,
     };
     const proposal = await gate.propose(request, run);
-    out.push({ quarantinedId, proposal });
+    out.push({ quarantinedId, proposal, mode: provider.mode });
   }
   return out;
 }

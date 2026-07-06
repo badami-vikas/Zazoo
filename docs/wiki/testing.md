@@ -19,4 +19,4 @@ numbers).
 session's P0 bugs were the 3 worst/untested files. Don't trust package-average %, read file-by-file.
 
 Full plan + priority test list → [../raw/testing-strategy.md](../raw/testing-strategy.md).
-Bug ledger → [known-issues](known-issues.md).
+Bug ledger → [BUGS](../BUGS.md).

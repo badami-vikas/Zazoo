@@ -119,11 +119,103 @@ export function createGmailFetchMessages(
   };
 }
 
+/**
+ * Batch parse-rate summary for one `fetchMessages` call's worth of alert emails. Exposed so
+ * callers (and tests) can inspect the rate directly instead of only ever seeing "fewer results"
+ * with no signal as to why.
+ */
+export interface ParseBatchSummary {
+  attempted: number;
+  parsed: number;
+  parseRate: number; // 0..1; 1 when attempted === 0 (nothing to fail on)
+}
+
+/** Below this parse rate (with at least this many attempts) a batch is considered suspect. */
+const LOW_PARSE_RATE_THRESHOLD = 0.5;
+const LOW_PARSE_RATE_MIN_ATTEMPTS = 2;
+
+/**
+ * When more than half a batch fails to parse, logs a loud `console.warn` naming the likely cause
+ * explicitly (BizBuySell template drift) — matching this platform's existing convention of plain
+ * `console.warn`/`console.error` calls prefixed with a `"<namespace>: ..."` label (see
+ * @bridge/integrations-google's gateway-google.ts / intake.ts; there is no shared logger/metrics
+ * package in this monorepo to plug into instead).
+ */
+function warnIfLowParseRate(attempted: number, parsed: number): void {
+  const parseRate = attempted === 0 ? 1 : parsed / attempted;
+  if (attempted >= LOW_PARSE_RATE_MIN_ATTEMPTS && parseRate < LOW_PARSE_RATE_THRESHOLD) {
+    console.warn(
+      `bizbuysell-alerts: parse rate ${(parseRate * 100).toFixed(0)}% (${parsed}/${attempted}) fell below the ` +
+        `${(LOW_PARSE_RATE_THRESHOLD * 100).toFixed(0)}% healthy floor for this batch — likely cause: TEMPLATE ` +
+        `DRIFT. BizBuySell appears to have changed its alert-email template and the regex-based parser ` +
+        `(parseBizBuySellAlert) no longer matches it. Results are being silently under-reported, not failing ` +
+        `loudly, so check this before trusting a sudden drop in DealPilot listings.`,
+    );
+  }
+}
+
+/**
+ * Runs `parse` (default `parseBizBuySellAlert`) over a batch of alert messages, tracking
+ * successful-parses vs total-attempts. Warns loudly (see `warnIfLowParseRate`) when the batch's
+ * parse rate is unhealthy, and returns the batch summary alongside the parsed results so callers
+ * can inspect the rate themselves rather than only seeing fewer results with no signal why.
+ */
+export function parseBizBuySellAlertBatch(
+  messages: Array<{ subject: string; body: string }>,
+  parse: (message: { subject: string; body: string }) => Record<string, unknown> | null = parseBizBuySellAlert,
+): { results: Array<Record<string, unknown>>; summary: ParseBatchSummary } {
+  const results: Array<Record<string, unknown>> = [];
+  let parsed = 0;
+  for (const message of messages) {
+    const payload = parse(message);
+    if (payload) {
+      parsed += 1;
+      results.push(payload);
+    }
+  }
+  const attempted = messages.length;
+  warnIfLowParseRate(attempted, parsed);
+
+  return { results, summary: { attempted, parsed, parseRate: attempted === 0 ? 1 : parsed / attempted } };
+}
+
 export function createBizBuySellAlertConnector(
   fetchMessages: (query: SourceQuery) => Promise<Array<{ subject: string; body: string }>>,
   parse: (message: { subject: string; body: string }) => Record<string, unknown> | null = parseBizBuySellAlert,
 ): SourceConnector {
-  return createEmailAlertConnector({ id: "bizbuysell-alerts", fetchMessages, parse, costPerMessage: 0.5 });
+  // createEmailAlertConnector (owned by @bridge/sourcing) calls `parse` once per message and has
+  // no batch concept of its own, so batch-rate tracking is layered on here: each `fetch()` call
+  // gets its own tallying `parse` wrapper, reset per batch, that still returns exactly what the
+  // underlying connector shape expects (a payload or null per message).
+  let batchTally = { attempted: 0, parsed: 0 };
+
+  const wrappedParse = (message: { subject: string; body: string }): Record<string, unknown> | null => {
+    const payload = parse(message);
+    batchTally.attempted += 1;
+    if (payload) batchTally.parsed += 1;
+    return payload;
+  };
+
+  const fetchMessagesWithTally: typeof fetchMessages = async (query) => {
+    batchTally = { attempted: 0, parsed: 0 };
+    return fetchMessages(query);
+  };
+
+  const connector = createEmailAlertConnector({
+    id: "bizbuysell-alerts",
+    fetchMessages: fetchMessagesWithTally,
+    parse: wrappedParse,
+    costPerMessage: 0.5,
+  });
+
+  return {
+    ...connector,
+    async fetch(query) {
+      const envelopes = await connector.fetch(query);
+      warnIfLowParseRate(batchTally.attempted, batchTally.parsed);
+      return envelopes;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { trigramSimilarity } from "@bridge/dedupe";
+import { trigramSimilarity, FUZZY_MATCH_THRESHOLD } from "@bridge/dedupe";
 
 // AnswerBank (architecture doc S3 `answers.AnswerBank`: "normalize -> exact -> fuzzy(rapidfuzz
 // >=90) -> LLM(cheap) with profile context -> persist as source='llm'; unknown-and-risky -> raise
@@ -7,8 +7,10 @@ import { trigramSimilarity } from "@bridge/dedupe";
 // copy) — the LLM-fallback tier is a later llm-package concern, same deliberate omission as
 // scoring.ts and evaluator.ts. The sensitive-question hard stop (SSN, payment details) is
 // unconditional: those questions are NEVER auto-answered regardless of bank contents, per
-// architecture doc S7 invariant 4 ("hard stop by construction").
-const FUZZY_THRESHOLD = 0.9;
+// architecture doc S7 invariant 4 ("hard stop by construction"). The fuzzy acceptance floor
+// itself is @bridge/dedupe's own FUZZY_MATCH_THRESHOLD (0.9) — imported, not re-declared, so the
+// two packages can't silently drift apart on what "close enough" means.
+export const FUZZY_THRESHOLD = FUZZY_MATCH_THRESHOLD;
 
 const SENSITIVE_PATTERNS = [/social security/i, /\bssn\b/i, /national id/i, /bank account/i, /routing number/i, /credit card/i, /payment/i];
 

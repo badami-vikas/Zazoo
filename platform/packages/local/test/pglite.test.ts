@@ -60,6 +60,20 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
     await plane.graph.recordExternal({ workspaceId: "ws-1", source: "gmail", sourceRecordId: "thread_1", entityType: "touchpoint", entityId: "tp1", createdAt: "2026-06-20T00:00:00.000Z" });
     assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "idempotent: no double-commit");
 
+    // commitEntity itself must be idempotent (retry-the-whole-dual-write safety):
+    // calling it again with the SAME id is a silent no-op, not a PK violation.
+    await plane.graph.commitEntity({
+      id: "tp1",
+      workspaceId: "ws-1",
+      kind: "touchpoint",
+      personId: "p1",
+      payload: { touchpointKind: "email" },
+      source: "gmail",
+      sourceRecordId: "thread_1",
+      createdAt: "2026-06-20T00:00:00.000Z",
+    });
+    assert.equal((await plane.graph.listEntities("ws-1", "touchpoint")).length, 1, "commitEntity retry is a no-op");
+
     // Sync cursor.
     await plane.graph.setSyncCursor("integ-1", "gmail", "cursor-abc");
     assert.equal(await plane.graph.getSyncCursor("integ-1", "gmail"), "cursor-abc");

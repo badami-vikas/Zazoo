@@ -82,8 +82,9 @@ export function CalendarPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // The earliest day visible in the current view — drives timeMin so navigating to a
-  // past period actually loads its events (Google's events.list defaults timeMin to now).
+  // The visible period — drives timeMin/timeMax so navigating to a past/future period
+  // loads exactly its events instead of relying on the 250-result cap to cover them
+  // (Google's events.list defaults timeMin to now and has no upper bound otherwise).
   const rangeStart = useMemo(() => {
     if (view === 'month') return startOfWeek(startOfMonth(cursor));
     if (view === 'week') return startOfWeek(cursor);
@@ -91,11 +92,22 @@ export function CalendarPage() {
     return startOfDay(new Date()); // agenda = upcoming
   }, [view, cursor]);
 
-  const reload = useCallback(async (timeMin?: string) => {
+  const rangeEnd = useMemo(() => {
+    if (view === 'month') return endOfWeek(endOfMonth(cursor));
+    if (view === 'week') return endOfWeek(cursor);
+    if (view === 'day') return addDays(startOfDay(cursor), 1);
+    return addDays(startOfDay(new Date()), 90); // agenda = upcoming 90 days
+  }, [view, cursor]);
+
+  const reload = useCallback(async (timeMin?: string, timeMax?: string) => {
     if (!API_ENABLED) { setEvents(dummySeed()); setMode('demo'); return; }
     setLoading(true); setError(null);
     try {
-      const evs = await apiListCalendarEvents({ maxResults: 250, ...(timeMin ? { timeMin } : {}) });
+      const evs = await apiListCalendarEvents({
+        maxResults: 250,
+        ...(timeMin ? { timeMin } : {}),
+        ...(timeMax ? { timeMax } : {}),
+      });
       setEvents(evs ?? []); setMode('live');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load Google Calendar');
@@ -103,7 +115,7 @@ export function CalendarPage() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void reload(rangeStart.toISOString()); }, [reload, rangeStart]);
+  useEffect(() => { void reload(rangeStart.toISOString(), rangeEnd.toISOString()); }, [reload, rangeStart, rangeEnd]);
 
   useEffect(() => {
     if (!toast) return;
@@ -119,7 +131,7 @@ export function CalendarPage() {
         const p = await apiProposeCalendarWrite(action, envelope);
         if (!p?.id) throw new Error('proposal not created');
         const res = await apiApproveProposal(p.id);
-        await reload(rangeStart.toISOString());
+        await reload(rangeStart.toISOString(), rangeEnd.toISOString());
         setToast(`${label} · ${res?.sent ? 'synced to Google' : 'queued'} · audited in Approvals`);
       } else {
         // Demo mode: mutate local dummy_ state so the UI is fully demoable with no backend.
@@ -219,7 +231,7 @@ export function CalendarPage() {
           <h1 className="text-base font-semibold ml-1" style={{ color: 'var(--color-navy)' }}>{title}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <ModePill mode={mode} loading={loading} onRefresh={() => void reload(rangeStart.toISOString())} />
+          <ModePill mode={mode} loading={loading} onRefresh={() => void reload(rangeStart.toISOString(), rangeEnd.toISOString())} />
           <div className="flex items-center rounded-lg border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
             {(['month', 'week', 'day', 'agenda'] as View[]).map(v => (
               <button key={v} onClick={() => setView(v)} className="text-xs font-semibold px-3 py-1.5 capitalize transition-colors"

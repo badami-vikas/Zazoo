@@ -98,7 +98,8 @@ export async function loadCanonicalPeople(): Promise<{ rows: NetworkPerson[]; so
     }
 
     return { rows: data.map((d, i) => mapCanonical(d, i, communityLocs)), source: 'supabase' };
-  } catch {
+  } catch (err) {
+    console.warn('[db] loadCanonicalPeople: Supabase unreachable, falling back to local data', err);
     return { rows: localPeople, source: 'local' };
   }
 }
@@ -184,7 +185,8 @@ export async function loadCanonicalCommunities(): Promise<{ rows: NetworkCompany
       })
       .sort((a, b) => b.connections - a.connections || a.name.localeCompare(b.name));
     return { rows, source: 'supabase' };
-  } catch {
+  } catch (err) {
+    console.warn('[db] loadCanonicalCommunities: Supabase unreachable, falling back to local data', err);
     return { rows: localCompanies, source: 'local' };
   }
 }
@@ -212,7 +214,8 @@ export async function loadWorkspaceLists(): Promise<WorkspaceList[]> {
       return { id: c.id as string, name: (c.name_override || c.id) as string, memberIds };
     }));
     return results;
-  } catch {
+  } catch (err) {
+    console.warn('[db] loadWorkspaceLists: Supabase unreachable, returning no lists', err);
     return [];
   }
 }
@@ -255,7 +258,8 @@ export async function loadCanonicalResources(): Promise<{ rows: NetworkResource[
       .order('name');
     if (error || !data || data.length === 0) return { rows: localResources, source: 'local' };
     return { rows: data.map(mapResource), source: 'supabase' };
-  } catch {
+  } catch (err) {
+    console.warn('[db] loadCanonicalResources: Supabase unreachable, falling back to local data', err);
     return { rows: localResources, source: 'local' };
   }
 }
