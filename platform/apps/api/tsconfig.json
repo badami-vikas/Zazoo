@@ -3,19 +3,48 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/local" },
-    { "path": "../../packages/integrations-google" },
-    { "path": "../../packages/tool-kit" },
-    { "path": "../../packages/facts" },
-    { "path": "../../packages/dedupe" },
-    { "path": "../../tools/dealpilot" },
-    { "path": "../../tools/company-sourcing" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/local"
+    },
+    {
+      "path": "../../packages/integrations-google"
+    },
+    {
+      "path": "../../packages/tool-kit"
+    },
+    {
+      "path": "../../packages/facts"
+    },
+    {
+      "path": "../../packages/dedupe"
+    },
+    {
+      "path": "../../tools/dealpilot"
+    },
+    {
+      "path": "../../tools/helpdesk"
+    },
+    {
+      "path": "../../tools/company-sourcing"
+    },
+    {
+      "path": "../../packages/models"
+    }
   ],
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ]
 }

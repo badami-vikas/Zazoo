@@ -150,6 +150,26 @@ export interface EventBus {
   emit(event: DomainEvent): Promise<void>;
 }
 
+/**
+ * ModelProvider — the seam every model call in the kernel goes through (never
+ * a direct SDK/fetch call inline in a skill/tool). `plane` mirrors the
+ * two-plane gate (types.ts `Plane`): a `local` provider (e.g. Ollama) is safe
+ * to bind for capture/sensor-plane work per CLAUDE.md ("capture/sensor plane =
+ * local models default"); a `cloud` provider (e.g. Anthropic) is subject to
+ * the same egress rules as any other cloud call — binding one does not itself
+ * grant egress, the Authority resolver still gates the surrounding action.
+ * `embed` is optional because not every provider/binding needs embeddings
+ * (e.g. a pure-completion model). Kept here as TYPES ONLY — @bridge/core stays
+ * zero-runtime-deps; the real HTTP-backed implementations live in
+ * @bridge/models.
+ */
+export interface ModelProvider {
+  id: string;
+  plane: "local" | "cloud";
+  complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }>;
+  embed?(texts: string[]): Promise<number[][]>;
+}
+
 /** A Skill is the atomic unit of work — produces a proposed output from inputs. */
 export interface Skill {
   name: string;

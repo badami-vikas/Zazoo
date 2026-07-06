@@ -815,3 +815,123 @@ export const resources = pgTable(
   },
   (t) => [index("resources_ws_idx").on(t.workspaceId, t.createdAt)],
 );
+
+// =====================================================================
+// LAYER 8 — CAPABILITY TRUST MODEL (vision pivot 2026-07-06,
+// docs/wiki/vision.md "Capability Trust Model" + "Promotion defaults")
+// =====================================================================
+
+/**
+ * One row per registered capability (skill/workflow/agent/tool/integration/
+ * view/dashboard). Risk is COMPUTED (packages/core/src/capability/risk.ts),
+ * never self-declared by the generator — `computedRisk` here is the cached
+ * result of that computation, recomputed whenever the manifest or its
+ * dependency closure changes. `lineageManifestId` self-references this table
+ * (a Fork/copy points back at its origin — see vision.md "Workspaces =
+ * projections", the Fork verb); nullable because most manifests have no
+ * lineage. Unique (workspace_id, name, version) — the same version-pinning
+ * discipline `skills_uq` already uses.
+ */
+export const capabilityManifests = pgTable(
+  "capability_manifests",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    capabilityType: text("capability_type").notNull(), // skill | workflow | agent | tool | integration | view | dashboard
+    name: text("name").notNull(),
+    version: text("version").notNull().default("1.0.0"),
+    origin: text("origin").notNull().default("user_code"), // built_in | template | community | ai_generated | user_code
+    audience: text("audience").notNull().default("private"), // private | team | external_visible
+    /** inputs/outputs/permissions/connectors/evidence/rollback/evaluation — the
+     * generalized Capability Manifest (tool-kit's ToolManifest is the tool-shaped
+     * special case; this is the superset covering every capability_type). */
+    manifest: jsonb("manifest").notNull().default({}),
+    /** Computed (never self-declared): informational | advisory | transformational | operational | external. */
+    computedRisk: text("computed_risk").notNull().default("informational"),
+    /** [{manifestId, versionRange}] — the dependency closure computeRisk() walks. */
+    dependencies: jsonb("dependencies").notNull().default([]),
+    lineageManifestId: uuid("lineage_manifest_id"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id),
+    createdAt: now(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("capability_manifests_uq").on(t.workspaceId, t.name, t.version),
+    index("capability_manifests_ws_idx").on(t.workspaceId, t.capabilityType),
+  ],
+);
+
+/**
+ * Current lifecycle state, one row per manifest (unique manifest_id — this is
+ * a 1:1 "current state" projection, not a history log; the ledger is the
+ * append-only history of how a manifest got here). States:
+ * draft → validated → approved → active → trusted → deprecated → archived
+ * (packages/core/src/capability/lifecycle.ts owns the transition guards).
+ * `trustedUntil` = the 90-day TTL set on entering `trusted` (PROMOTION_DEFAULTS.trustedTtlDays);
+ * dependency change demotes trusted→validated (trustedUntil cleared).
+ * `suspended` is a SEPARATE flag from `state` — failure suspends immediately
+ * without an approval and without moving the state machine backwards, so the
+ * capability can be un-suspended back to its prior state once resolved.
+ */
+export const capabilityStates = pgTable(
+  "capability_states",
+  {
+    id: uuidPk(),
+    manifestId: uuid("manifest_id").notNull().references(() => capabilityManifests.id),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    state: text("state").notNull().default("draft"),
+    trustedUntil: timestamp("trusted_until", { withTimezone: true }),
+    suspended: boolean("suspended").notNull().default(false),
+    suspendReason: text("suspend_reason"),
+    /** { runCount, successRate, violationCount, ageDays, ... } — the evidence
+     * PROMOTION_DEFAULTS thresholds are evaluated against. */
+    evidence: jsonb("evidence").notNull().default({}),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("capability_states_manifest_uq").on(t.manifestId)],
+);
+
+/**
+ * A workspace/user-scoped trust grant for a capability CLASS (not a single
+ * manifest instance) — e.g. "auto-activate any 'advisory'-risk skill this user
+ * authored". `scope` narrows who/where it applies; `autoActivate` decides
+ * whether matching capabilities skip the approval gate (still subject to the
+ * budgets + external-band hard floor in approvals.ts). Revocable, never hard-deleted.
+ */
+export const trustGrants = pgTable(
+  "trust_grants",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    capabilityClass: text("capability_class").notNull(),
+    scope: jsonb("scope").notNull().default({}), // { workspaceId?, userId? }
+    grantedBy: uuid("granted_by").references(() => users.id),
+    riskBand: text("risk_band").notNull(), // informational | advisory | transformational | operational | external
+    autoActivate: boolean("auto_activate").notNull().default(false),
+    createdAt: now(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [index("trust_grants_ws_class_idx").on(t.workspaceId, t.capabilityClass)],
+);
+
+/**
+ * A generated workspace blueprint (vocabulary, node types used, views,
+ * capabilities) — P1 onboarding writes these; the table is created now so the
+ * shape exists ahead of that work (see CLAUDE.md status: "workspace_definitions"
+ * punch-list item). `version` increments on republish (Publish Blueprint verb,
+ * vision.md "Workspaces = projections"); `status` tracks draft/active/archived
+ * the same way other registries do.
+ */
+export const workspaceDefinitions = pgTable(
+  "workspace_definitions",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    blueprint: jsonb("blueprint").notNull().default({}),
+    version: integer("version").notNull().default(1),
+    status: text("status").notNull().default("draft"), // draft | active | archived
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: now(),
+  },
+  (t) => [index("workspace_definitions_ws_idx").on(t.workspaceId, t.version)],
+);

@@ -1472,3 +1472,695 @@ sidecars behind ports.
 **Consequences:** migration phases 0–5 in raw/tool-standardization-plan.md; prototype folder
 eventually retires; Tools/* standalone apps frozen then deleted post-extraction; short-term
 overhead maintaining the prototype bridge inside apps/web during migration.
+
+## ADR-011 — Vision pivot: Living Software / Capability Lifecycle Platform (2026-07-06)
+
+**Context:** User adopted a new brand ("Software that builds itself around your work" — adaptive
+workspace for professionals and teams) and declared NO prior decision locked; everything re-audited.
+Inputs: New Data platform research (Vida-style capture breakdown, Invoko teardown, ~200 agentic
+platforms), an adaptive-OS vision doc, and an agent's pushbacks (Capability Trust Model; kernel/
+product/interaction separation; fork/compose workspace model) which the user asked to be reviewed
+critically and largely adopted with amendments.
+
+**Decision (user-confirmed):**
+(a) Bridge = Living Software: Kernel → Compiler → Runtime → Generated Workspace. Core principle
+"Everything is proposed, governed, and continuously evolved" (replaces "everything is generated").
+(b) Capability Trust Model: risk axis (Informational→Advisory→Transformational→Operational→External,
+COMPUTED from manifests, never generator-declared) × origin axis (Built-in→Template→Community→
+AI-generated→User code) × audience; release-style lifecycle states; credential broker (temporary
+scoped grants, capabilities never own secrets); trust-based approvals per class — REVERSES the
+2026-06-22 human-only-approvals hardening (External band keeps explicit human approval); auto-suspend
+on failure precedes any demotion approval; Trusted decays (90d TTL, dep-change resets).
+(c) Kernel/Products/Interactions orthogonal. Products = compiled workspaces (DealPilot first — sold
+as a product, not a demo). Ambient split: SENSING = day-1 kernel sensor (desktop capture, system
+events, browser — user override of the reviewer's defer-capture advice); ACTING = Phase-4 interaction
+model. Desktop-first: Tauri shell = flagship form factor.
+(d) Workspaces = projections over one shared graph. Verbs: Fork/Compose/Publish/Archive. Capabilities
+compose (VS Code-extensions model), never auto-merge; policy composition = deny-wins (not CSS);
+audit immutable + referenced with provenance; day-1 capability sharing ⇒ day-1 versioning+pinning+lineage.
+(e) Universal Object System satisfied by node_types registry (universal-entity table still rejected).
+(f) Adopt Mem0 + Mastra components behind ports (REVERSES Initiatives-era Mem0 rejection); local-plane
+compatible required.
+(g) Vocabulary re-scoped: kernel keeps Bridge vocab; compiled workspaces may use domain vocab; user
+override wins; ESLint no-crm-vocab re-scoped to kernel paths.
+(h) Promotion evidence defaults defined as policy_params constants (workflow ≥5 reps/30d etc. — raw §5),
+Variance-Adjuster-tunable; success metrics = adaptive proxies, not hard-coded.
+(i) Capture contract: every capture → inspectable Memory entry; avatar blink = tell; raw capture
+local-plane only; graceful degradation without OS permissions.
+
+**Alternatives rejected:** rebuild-from-scratch and clone-and-modify (engine already implements the
+kernel's governance/execution layers); universal-entity table (again); CSS-style policy cascade;
+human-only approvals retained as-is (too restrictive for adaptive autonomy); deferring capture to a
+later phase (user requires day-1 sensing); graph merge/split (projections instead).
+
+**Consequences:** Rust/Tauri capture core enters the Phase-0 critical path (macOS entitlements,
+notarization, S0/S1/S2 local store, PII scrubbing, resource governor); <DataViews> shell becomes
+Phase-1 critical path (view-grammar enforcement point); schema v2 punch-list extended (capability
+manifests/states/trust_grants/workspace_definitions/versioning); ESLint rule re-scope + DealPilot
+"Deal" identifiers become conformant; CLAUDE.md and wiki rewritten to the new brand; competitive set
+shifts to Vida/Invoko/AirJelly + Notion/Fibery + Retrace/AgentOS (Dialllog/Affinity only for DealPilot);
+OS-vendor dependency (screen-capture permissions) is a named platform risk requiring graceful degradation.
+
+Full detail: docs/raw/vision-pivot-living-software.md (re-audit verdict table §3, trust model §4,
+promotion constants §5, roadmap §10, flags §11).
+
+## ADR-012 — Vision pivot second-pass amendments: no dummy data, Recon add-on, multi-surface, competitor framing (2026-07-06)
+
+**Context:** Same-day follow-up to ADR-011. User issued four directives while also asking the
+ESLint no-crm-vocab task (see docs/BUGS.md 2026-07-06 entry) to be completed via `/hookify`.
+
+**Decision (user-confirmed):**
+(a) **No dummy data** — REVERSES the pre-pivot `dummy_`-prefix convention. Platform shows real,
+connected data only; no seeded demo state/network created going forward. Existing `dummy_`
+instances (prototype seeds, `dummy_pilot@bridge.local` structural default, the `bridge/dummy-prefix`
+ESLint rule itself) are tracked debt, not purged in this pass. Unit-test fixture literals are a
+distinct category left as an open question pending explicit user direction, not folded into this
+reversal unilaterally. Onboarding must function from a user's real connected accounts from session
+one; an unwired connector states that plainly rather than substituting seeded data.
+(b) **Recon = an add-on capability package**, same tier as Helpdesk — `Tools/recon/`'s draft-then-
+approve match-tier model already fits the Capability Trust Model's External/Operational bands.
+Phase 2 ships DealPilot + Helpdesk + Recon as the initial capability-package set.
+(c) **Multi-surface architecture, Notion model** — web app + desktop app + mobile app, one kernel.
+"Desktop-first" (ADR-011 C7) is corrected to mean build SEQUENCING (desktop shell built first),
+not an architectural constraint: the kernel is surface-agnostic over the existing tRPC/API layer;
+the Sensor SPI (desktop capture/system events/browser) is an OPTIONAL capability available only on
+the desktop shell, never a kernel dependency — web and mobile clients are fully functional without
+it. View-grammar components must render at mobile widths from day one even though mobile ships
+last. The overlay avatar's OS-level meditate/awake/blink behavior is desktop-shell-specific; web/
+mobile carry a lighter in-page persona only.
+(d) **Competitive framing** — drops the OS-vendor (Windows/Mac) competitor framing from all narrative
+docs entirely (retained only as an engineering risk note: graceful degradation, macOS entitlements).
+Stated competitor set: ambient desktop agents (Vida, Invoko, AirJelly), generated/flexible
+workspaces (Notion AI, Fibery, Noloco), agent-ops platforms (Retrace, AgentOS).
+(e) **Dynamic competitor discovery** — the Learning Agent must research a compiled product's
+competitive landscape live at onboarding/blueprint time (web search, egress via the pipeline like
+all Learning Agent research) rather than Bridge shipping a static, hardcoded competitor lookup
+table per product. Prior mentions of "Dialllog/Affinity" for DealPilot in these docs are historical/
+illustrative context, not a runtime fact the platform relies on.
+
+**Separately, same session:** re-scoped `bridge/no-crm-vocab` to kernel paths only
+(`packages/*/**`, `apps/api/**`) by implementing the check inside the rule
+(`platform/tools/eslint-rules/src/no-crm-vocab.js`, via `context.filename` against a
+`KERNEL_PATH` regex) rather than editing `eslint.config.js`, because the repo's `config-protection`
+hook blocks all edits to that file outright and `/hookify` (tried per user instruction) manages a
+different, unrelated hook system and had no mechanism to exempt it. Verified `tools/dealpilot`
+40 errors -> 0; kernel paths still enforce (confirmed via a throwaway violating file); found and
+fixed one genuine kernel-scope violation (`apps/api/src/wiring.ts` `existingDeals` -> renamed
+`existingDealPilotCandidates`, matching its sibling `dealPilot*`-prefixed variables). Full repo
+lint: 0 errors / 2 pre-existing unrelated warnings; `turbo run test --force`: 30/30 green.
+
+**Alternatives rejected:** disabling/editing the config-protection hook via `.claude/settings.json`
+surgery (user offered this as a fallback option; the in-rule scoping achieved the identical result
+without touching any protected file or hook, so it was unnecessary) · purging all existing
+`dummy_` data in this same pass (large surface, out of scope for a same-day amendment — logged as
+debt instead) · keeping a static per-product competitor table for speed (rejected as contradicting
+brand principle 3, "Built From Reality," and the Learning Agent's own stated research capability).
+
+**Consequences:** `docs/wiki/vision.md` and `docs/wiki/roadmap.md` updated (P2 now DealPilot +
+Helpdesk + Recon); mobile-viewport support becomes a `<DataViews>` shell requirement from Phase 1,
+not deferred; the `bridge/dummy-prefix` ESLint rule's future is now an open question (still active,
+scope may need revisiting once real-data-only is enforced product-wide); test-fixture convention
+undecided pending explicit user call.
+
+## ADR-012 — Capability Trust Model: kernel implementation shape (2026-07-06)
+
+**Decision:** Implemented the Capability Trust Model (docs/wiki/vision.md "Capability Trust
+Model" + "Promotion defaults") as a new `packages/core/src/capability/` module (types, risk,
+lifecycle, approvals, credential-broker, ports) exported from `@bridge/core`'s barrel, a new
+`packages/db/src/capability-store.ts` (`DrizzleCapabilityStore`) mirroring `governance-stores.ts`/
+`ledger-store.ts`'s shape, four new tables (`capability_manifests`, `capability_states`,
+`trust_grants`, `workspace_definitions` — schema.ts LAYER 8 + mirrored into `docs/raw/SCHEMA.sql`
+LAYER 8, migration `0006_lonely_human_cannonball.sql`), and a new `capability.*` tRPC namespace in
+`apps/api/src/router.ts` (register/submitForValidation/approve/activate/suspend/
+demoteOnDependencyChange/list/get), wired into both `buildPersistentPorts`/`buildInMemoryPorts` in
+`apps/api/src/wiring.ts`.
+
+**Why these specific choices:**
+- **Risk is computed, not stored-then-trusted** (`risk.ts`'s `computeRisk`) — a pure function over
+  a manifest's declared permissions/connectors + a caller-supplied dependency resolver (cycle-safe
+  via a visited-set, not recursion-depth limiting), so it stays testable with plain objects and
+  matches the "never self-declared by the generator" requirement literally: nothing lets a
+  registering caller pass its own risk band in.
+- **`PROMOTION_DEFAULTS`/`AUTO_ACTIVATION_BUDGETS` as single exported constants**, shaped 1:1 for
+  future `policy_params` rows (mirrors how `policies`/`policy_params` already separate rule from
+  tunable value) — avoids scattering magic numbers the Variance Adjuster will eventually need to
+  tune, per the spec's explicit instruction.
+- **External-band hard floor in `approvals.ts`** mirrors `agent-floor.ts`'s non-removable-deny
+  shape on purpose: checked first, returns unconditionally, no trust grant/kill-switch/budget can
+  move it — same invariant class as the agent floor, so a future reader recognizes the pattern.
+- **`capability.approve` routes through `pipeline.propose`/an implicit human-decide gate** rather
+  than writing its own approval mechanism, so the SAME agent-floor + audit-ledger guarantees
+  `action.decide` already provides apply unchanged (additive use of the existing pipeline, per the
+  task's explicit "do not rewrite pipeline.ts semantics" constraint). `resourceType: "skill"` is
+  used as the nearest existing governed-registry token since capability rows do not yet have their
+  own `ResourceType` — flagged below as a known gap, not silently worked around.
+- **Credential broker returns only an opaque grant reference**, never a secret — `CredentialBroker`
+  is a port (mirroring `EphemeralQuery`'s shape) with `InMemoryCredentialBroker` as the dev/test
+  default; a capability's connector, not the broker or the capability, resolves the reference into
+  a real credential (unchanged "tools never own OAuth" invariant, ADR-006).
+- **Budgets + kill switch stay in-memory in BOTH `buildPersistentPorts` and `buildInMemoryPorts`**
+  for now (no persistent implementation exists anywhere yet) — matches the existing honest-lie
+  pattern `buildPersistentPorts` already uses for `ToolCaptureStore` (loud comment, not a silent
+  fake-durability claim). A real workspace-settings-backed kill switch and a durable budget counter
+  are explicit future work, not pretended to exist here.
+
+**Alternatives rejected:** storing risk as a manifest-supplied field with a separate validation
+pass (rejected — reintroduces the self-declared-risk hole the spec explicitly closes) · giving
+`capability.approve` its own bespoke ledger-adjacent approval table instead of reusing
+`pipeline.propose`/`decide` (rejected — duplicates the agent-floor/append-only guarantees instead
+of inheriting them, and the task explicitly said not to rewrite pipeline semantics) · adding a
+dedicated `ResourceType` enum value for capability rows in this pass (deferred — `router.ts`'s
+`resourceTypeEnum` and `types.ts`'s `ResourceType` are both kernel-wide shared surfaces; widening
+them belongs with the P1 `workspace_definitions`/onboarding work that will also consume this
+table, not bolted on here as a one-off).
+
+**Consequences:** `capability_manifests`/`capability_states`/`trust_grants`/`workspace_definitions`
+exist in both Drizzle schema and `docs/raw/SCHEMA.sql`, ahead of any UI consuming them (P1
+onboarding is the intended first consumer of `workspace_definitions`). `resourceType: "skill"` on
+`capability.approve`'s proposal is a known, temporary stand-in — a future pass should add a real
+`capability` resource type once the governance-vocabulary surface is revisited. Auto-activation
+budgets and the kill switch are in-memory only (process-lifetime, not durable) in every mode until
+a persistent implementation lands. 32 new `@bridge/core` tests + 7 new `@bridge/db` tests added;
+full monorepo `turbo run build --force` / `turbo run test --force` / `eslint .` all green (0 new
+errors; 2 pre-existing, unrelated warnings in `determinism.ts`/`pipeline.ts`, both untouched by
+this change).
+
+## ADR-013 — Practice hardening from 2026-07 research sweep (agents/skills/workflows/evals)
+
+**Date**: 2026-07-06. **Status**: adopted.
+
+**Decision**: Fold externally-validated practices into the roadmap (wiki roadmap "Practice hardening"
+section; full findings in docs/raw/research-agent-skill-workflow-practices-2026.md). Headline
+adoptions: (1) lethal-trifecta auto-escalation policy (private-data read + untrusted-content ingest
++ egress => External band regardless of computed risk — from MCP security guidance); (2) two-gate
+promotion for generated capabilities — output-quality pass rate AND trigger precision/recall scored
+independently (Anthropic skill-creator), plus generalization-on-novel-tasks test (MUSE-Autoskill),
+held-out eval selection, and baseline-vs-with-capability parallel runs; (3) approval-as-resumable-
+state through the workflow layer (durable zero-compute waits — Temporal/Hatchet/Inngest convergent);
+(4) star agent topology — Chief of Staff sole router, no peer handoffs, hard chain-depth cap;
+(5) Zapier-style version lifecycle (single live version, auto-demote prior, rollback = fork-from-
+history never in-place); (6) dry-run mode + per-step approval gates shipped as first-class (verified
+absent from Zapier/Make/n8n — differentiation); (7) ≤20 active tools per agent turn with deferred
+registry lookup; (8) description-tuning as its own subsystem with human-approved trigger eval sets.
+
+**Why**: user directive to research Hermes/OpenClaw-class agents, Claude/Pi skills, workflow/ritual
+engines and strengthen the roadmap. Research confirmed two Bridge bets independently (autonomy ramps
+DOWN from 100% review — CrewAI postmortem; nobody ships promotion gates or pre-apply blueprint
+approval as first-class — competitive gap) and imported concrete mechanisms Bridge lacked (two-gate
+promotion, trifecta rule, durable approval waits).
+
+**Alternatives rejected**: adopting an existing agent framework wholesale (LangGraph/CrewAI) —
+rejected again; the runtime stays thin-custom + engine bindings behind ports, practices imported as
+kernel rules not dependencies. Treating Hermes auto-skill-from-repetition claims as precedent —
+rejected pending primary sources (content-mill only). Building skill template libraries from
+precedent — none exists; if built, it is original design.
+
+**Consequences**: PROMOTION_DEFAULTS gains trigger-accuracy + generalization evidence fields (P3);
+policy engine needs the trifecta rule as a seeded, non-removable policy row (P0 punch-list item);
+RitualExecutor seam requirements now explicitly include durable signal/wait + idempotency-key
+convention (ritual_run_id + step_id); capability lifecycle gains Zapier-style Available state
+semantics question (Active vs Trusted mapping) to resolve during P3 design.
+
+## ADR-014 — Sensor SPI design: context-provider registry, observations → timeline_entries, sensors as capabilities (2026-07-06)
+
+**Decision**: P0 Sensor SPI ships as `@bridge/sensors`, shaped as the CONTEXT PROVIDER registry
+from docs/raw/client-architecture-context-providers.md (9 provider kinds: apps · accessibility ·
+screen · voice · clipboard · filesystem · browser · documents · emails) rather than the vision
+doc's original three sensor kinds. Four load-bearing choices:
+
+1. **Observations map to `timeline_entries` (+ `events`), not a new table and not `signals`.**
+   `timeline_entries` already IS the inspectable-Memory-entry shape (workspace-scoped,
+   `occurred_at`, free `type`, human-readable `content`, `created_by` provenance, entity links via
+   `timeline_entry_refs`) and is where derived Memories from other intake paths land — the capture
+   contract ("every capture → inspectable Memory entry") is satisfied without inventing schema.
+   The blink tell is a `sensor.capture` DomainEvent on the EventBus (→ `events` table), emitted per
+   ingest. `signals` was rejected as the target: schema requires `recommended_action` NOT NULL and
+   the v2 punch-list makes signals read-only/derived — a capture is a fact, not a recommendation;
+   signal generation from context stays a downstream consumer.
+2. **Sensors are capabilities, not kernel deps.** Registering a provider creates a capability
+   manifest (origin `built_in`, type `integration`, audience `private`) whose risk band is
+   COMPUTED by the capability module — read-only/no-egress kinds (clipboard, apps…) honestly
+   compute `informational`; emails/browser carry a signal-write permission and compute `advisory`
+   (matches the wiki's "emails/browser score higher than clipboard"). State starts `draft`
+   (generation ≠ activation, even for built-ins). The kernel runs with zero providers — nothing in
+   `@bridge/core` imports `@bridge/sensors`; web/mobile surfaces work with none registered.
+   Alternative rejected: hard-wiring sensors into the pipeline (would make capture a kernel
+   dependency and break the "optional capability, desktop-only" rule).
+3. **Raw vs derived split at the TYPE level.** Providers emit `CaptureEmission = { raw:
+   RawCapture; observation: ContextObservation }` — two unrelated types. The consumer API
+   (`SensorHub.subscribe`) carries only `ContextObservation`; raw is reachable solely via
+   `readRawCapture(id, plane)`, which refuses `plane === "cloud"` unconditionally (planeGate
+   semantics). "Learning Agent consumes context, not screenshots" is therefore structural, not a
+   convention. Alternative rejected: one observation type with an optional `raw` field stripped at
+   runtime — a forgotten strip would leak; the type split cannot.
+4. **Per-surface subsets are data (`SURFACE_PROVIDER_KINDS`)**, enforced at registration: desktop =
+   all 9, browser = browser/documents, mobile = voice/documents (photo capture rides the existing
+   LocalMediaStore camera path). The Tauri shell's Rust capture core implements the desktop subset
+   against this SPI; its `sensor_bridge` commands are typed stubs until the macOS core lands
+   (NSWorkspace focus / AX tree / CGWindowList on-demand screenshots — Phase-0 follow-up).
+
+**Consequences**: a Drizzle `CaptureLedger` binding over timeline_entries/timeline_entry_refs is
+needed when the desktop shell wires persistence (in-memory ledger today); durable raw storage on
+the local plane (pglite/LocalMediaStore) is likewise follow-up; `context:*` resource types used in
+provider permissions are risk-computation vocabulary only (CapabilityPermission.resourceType is a
+free string) — they are not (yet) authority-resolver ResourceTypes.
+
+## ADR-015 — ModelProvider seam: port in core, impls in @bridge/models, plane-asymmetric router (2026-07-06)
+
+**Decision**: `ModelProvider` port ({id, plane, complete, embed?}) lives in `@bridge/core`
+ports.ts as types only (core stays zero-runtime-deps; `EchoModelProvider` test double in
+memory/stores.ts). Real impls in new `@bridge/models`: `OllamaProvider` (local plane,
+OLLAMA_URL → /api/generate + /api/embed) and `AnthropicProvider` (cloud plane, Messages API,
+ANTHROPIC_MODEL default claude-fable-5; key from env at construction, fail-loud — never stored on
+a manifest, consistent with tools-never-own-secrets). `createModelRouter` resolves tool-kit
+`modelBinding`s with a deliberate ASYMMETRY: planeDefault=local NEVER falls back to a cloud
+provider (capture/sensor-plane content must not leak to a cloud model — resolution fails loud
+instead), while planeDefault=cloud MAY fall back to local (falling toward more privacy is always
+safe). Both providers take an injected fetch (recorder's SidecarFetch pattern) so tests shape
+requests with zero network. Wired into apps/api wiring.ts ModePorts: in-memory mode = echo double;
+persistent mode = Ollama always + Anthropic iff ANTHROPIC_API_KEY (no fake fallback, same
+fail-closed posture as the Google gateway). Alternatives rejected: Vercel AI SDK/LiteLLM now
+(heavier dep for two providers; still the plan at gateway stage, behind this same port); putting
+impls in core (breaks zero-deps); symmetric fallback (violates the local-first gate's whole point).
+
+## ADR-016 — macOS capture core P0 slice: objc2 crates, polling over notifications, clipboard raw/derived split, drain-not-push (2026-07-06)
+
+**Decision**: `apps/desktop/src-tauri/src/sensor_bridge.rs` gets its first two REAL macOS
+providers — "apps" (frontmost-app) and "clipboard" — replacing their stubs; "screen" stays a
+stub (see below). Four load-bearing choices:
+
+1. **Crate choice: `objc2` + `objc2-foundation` + `objc2-app-kit` (0.6 / 0.3 / 0.3), not
+   `cocoa`+`objc`.** The `objc2` family is the actively maintained successor (the older
+   `cocoa`/`objc` crates are effectively unmaintained) and ships safe, typed AppKit bindings
+   (`NSWorkspace`, `NSRunningApplication`, `NSPasteboard`) generated from Apple's headers, so
+   `frontmostApplication()`/`localizedName()`/`bundleIdentifier()`/`changeCount()`/
+   `stringForType()` are ordinary (mostly-safe) Rust calls instead of hand-rolled `msg_send!`.
+   Pulled in with `default-features = false` + an explicit feature list (NSWorkspace,
+   NSRunningApplication, NSPasteboard, NSPasteboardItem, NSApplication on the app-kit side;
+   NSString/NSNotification/NSDictionary/NSArray/NSObject/NSValue/NSGeometry on the foundation
+   side) rather than the crate's "all features" default — cuts compile time materially (the
+   default pulls in ~300 AppKit class bindings this slice never touches) and keeps the
+   dependency surface auditable.
+2. **Polling (~1s), not `NSWorkspace.didActivateApplicationNotification` / distributed
+   notification observers, for both apps and clipboard.** A notification observer needs a live
+   `NSRunLoop` on the registering thread — either the main thread (contending with the webview's
+   own run loop, and Tauri's `AppHandle` isn't `Send`-friendly for this) or a hand-bridged Cocoa
+   run loop on a background thread, which is materially more moving parts for a P0 slice.
+   Polling on a plain `std::thread` with a channel back to the hub needs neither: NSWorkspace's
+   `frontmostApplication` and NSPasteboard's `changeCount` are cheap reads, and neither "apps" nor
+   "clipboard" has a real-time latency requirement (sub-second focus-change or paste latency
+   isn't part of the capture contract). Revisit if a future provider genuinely needs push
+   notification latency.
+3. **Clipboard: derived observation carries type + length + hash only; raw text goes ONLY into
+   the bounded ring buffer, reachable solely via `sensor_read_raw`.** Clipboard content is the
+   textbook case the capture contract exists to protect against — pasted passwords, tokens, PII
+   moving between apps. Reusing the SPI's structural raw/derived type split (ADR-014) rather than
+   trusting a runtime "don't log the text" convention means a forgotten call site literally cannot
+   leak clipboard text into an `Observation` or the `sensor.capture` event payload — the type
+   doesn't have a field for it. The ring buffer is the only place raw text lives, capped at 256
+   entries (bounded, LRU-evicted), and it is process-local memory only — nothing about it crosses
+   a wire or a plane boundary; that only happens if `sensor_read_raw` is called explicitly.
+4. **Provider lifecycle drains, it does not push.** `sensor_start`/`sensor_stop` start/stop a
+   background thread per provider; emissions land in an `mpsc::Sender` the hub owns, get pumped
+   into an `ObservationQueue` (derived) + `RawRingBuffer` (raw), and are only handed to the caller
+   via the new `sensor_drain` command (returns a JSON array, drains fully, empties the queue) or
+   `sensor_read_raw(id)` (one raw entry by id). Rust does zero HTTP egress; the JS side owns
+   POSTing drained observations to the CaptureLedger. A `sensor.capture` Tauri event still fires
+   per observation on drain as the blink-tell hook, so the overlay avatar can react without the JS
+   side needing to poll `sensor_drain` at high frequency purely for the blink.
+
+**Screen provider**: `capture_screenshot_on_demand` stays a stub — ScreenCaptureKit /
+`CGWindowListCreateImage` both require the Screen Recording permission to be granted
+interactively (no headless grant path), so there is no capture path to build and verify without a
+live interactive macOS session with the permission pre-granted. Instead, `sensor_list` now reports
+per-provider `availability` + `permission_note` honestly: "apps"/"clipboard" → `available` (no
+permission gate on macOS), "screen" → `not_implemented` with a note naming the Screen Recording
+permission and the still-stubbed capture path. This turns the old blanket
+`SENSOR_NOT_IMPLEMENTED` on `sensor_list` itself into real, per-provider capability data the web
+shell can render (e.g. "grant Screen Recording to enable" vs. "not built yet").
+
+**Testing**: `cargo test` covers only the pure parts — `RawRingBuffer` (id assignment, eviction at
+capacity, capacity floor of 1, missing-id lookup) and `ObservationQueue` (FIFO drain, drain
+idempotency when empty) in `providers/mod.rs`. AppKit-touching code (`providers/apps.rs`,
+`providers/clipboard.rs`) is deliberately NOT unit-tested — it calls live NSWorkspace/NSPasteboard
+APIs with no seam for a fake, and a "test" that mocks the ObjC runtime would verify the mock, not
+the capture. `cargo check` and `cargo clippy -- -D warnings` both pass clean; that is the
+verification level for the AppKit-touching modules in this slice.
+
+**Consequences**: `voice`/`filesystem`/`browser`/`documents`/`emails` provider kinds remain
+unimplemented (same SPI, no shell changes needed when they land, per ADR-014). The web/JS side of
+`apps/desktop` still needs to (a) call `sensor_drain` on an interval and POST results to the
+CaptureLedger, and (b) subscribe to `sensor.capture` for the avatar blink — neither exists yet;
+this ADR covers only the Rust capture core. `Cargo.toml` gained `objc2`/`objc2-foundation`/
+`objc2-app-kit` as macOS-relevant dependencies; they compile (and are exercised) only under
+`#[cfg(target_os = "macos")]`, so non-macOS builds of this crate don't pull them in at all for the
+provider modules (though the crate-level `Cargo.toml` deps themselves are unconditional — a
+follow-up could gate them with `target_os = "macos"` in `[target.'cfg(...)'.dependencies]` if a
+non-macOS desktop build is ever needed; not done here since Tauri's desktop shell is macOS-only
+for P0).
+
+## ADR-017 — P1 Workspace Generator: `<DataViews>` registry as grammar enforcement point + blueprint as a governed proposal (2026-07-06)
+
+**Decision:** Implemented the first slice of P1 (Workspace Generator, docs/wiki/vision.md "View
+grammar" + docs/wiki/roadmap.md): a pure `compileBlueprint()` in a new flat file
+`packages/core/src/blueprint.ts` (validated `WorkspaceBlueprint` -> `CompiledWorkspace`), a new
+`WorkspaceDefinitionStore` port (`packages/core/src/workspace-definition.ts`, in-memory default)
+bound by `DrizzleWorkspaceDefinitionStore` (`packages/db/src/workspace-definition-store.ts`) to the
+existing `workspace_definitions` table (landed with the Capability Trust Model, ADR-012), a new
+`workspace.blueprint.{get,propose,activate}` tRPC namespace in `apps/api/src/router.ts`, and the
+frontend `<DataViews>` shell (`apps/web/src/app/dataviews/`) consuming `@bridge/tables`' un-consumed
+`TableSpec`/`ViewConfig`/engine for the first time. `JobPilotPage` was migrated to render its
+tracked-applications list through `<DataViews>` (data flow via `trpc.jobpilot.*` unchanged) to prove
+the shell against real data instead of only synthetic fixtures; a new `WorkspacePage` (`/workspace`)
+fetches the active blueprint, compiles it client-side, and renders each entity's views with real
+data from the existing `graph.*` endpoints (Initiative/Touchpoint/Signal) — entities without a
+wired data source (per CLAUDE.md's "no dummy data") get an honest "not yet wired" empty state.
+
+**Why these specific choices:**
+- **`<DataViews>`'s `ViewComponentRegistry` (`apps/web/src/app/dataviews/registry.ts`) is the
+  grammar ENFORCEMENT POINT**, not a convention: a plain `Record<ViewConfig["kind"], Component>`,
+  never a dynamic import or string-keyed lookup that could resolve an arbitrary component. An
+  unregistered `view.kind` renders `DataViews.tsx`'s own explicit error-boundary message — there is
+  no code path from an unknown string to a rendered component. This is the literal reading of the
+  vision doc's "Generation = configurations of REGISTERED components only, never new components"
+  and "`<DataViews>` shell = enforcement point."
+- **`compileBlueprint()` is pure, zero-deps, and does NOT import `@bridge/tables`** — `@bridge/core`
+  is a zero-runtime-dependency package by its own `package.json` description, so
+  `packages/core/src/blueprint.ts` defines `BlueprintColumnSpec`/`BlueprintTableSpec`/
+  `CompiledViewConfig` as a deliberate STRUCTURAL MIRROR of `@bridge/tables`' `ColumnSpec`/
+  `TableSpec`/`ViewConfig` rather than a type import. Consumers that already depend on both packages
+  (apps/web, apps/api) get drop-in-compatible shapes with no cast needed; core stays free of a new
+  cross-package dependency for a compiler that has no actual runtime need of `@bridge/tables`'
+  code (only its shape).
+- **The compiler enforces two grammar rules structurally, not by convention**: an entity's
+  `nodeType` must be in a caller-supplied registry list (rejects unknown node types — no
+  universal-entity escape hatch, matching the vision doc's registry-over-open-string decision), and
+  a relationship-shaped entity's views are restricted to `network` (graph) or `table` — any other
+  kind throws `BlueprintCompileError` at compile time, before it ever reaches a component.
+- **Blueprint changes are a GOVERNED PROPOSAL, not a direct write** — `workspace.blueprint.propose`
+  always creates a `draft` `workspace_definitions` row (mirrors `capability.register`'s "generation
+  only ever creates draft"); `workspace.blueprint.activate` round-trips through the SAME
+  `pipeline.propose`/implicit-decide semantics `capability.approve` already uses, so a human
+  decision (never an agent — the agent-floor applies unchanged) resolves it, the attempt is
+  ledgered either way, and only on resolution does it bump the version + archive the prior active
+  row (the one place "at most one active row per workspace" is enforced). No competitor in this
+  category (Notion AI, Fibery, Noloco — the generated/flexible-workspace peer set) ships a
+  pre-apply human-approval gate on generated workspace structure itself; see
+  `docs/raw/research-agent-skill-workflow-practices-2026.md` §5 on why "propose, don't auto-apply"
+  is the harder, correctter default for anything an agent (or a Learning Agent doing blueprint
+  research) could generate.
+- **`workspace.blueprint.*` was merged into the EXISTING `workspace: t.router({...})` namespace**
+  (workspace CRUD/members) rather than a new top-level `workspace` key — tRPC routers cannot declare
+  the same top-level key twice; the merge keeps the wire surface `workspace.blueprint.get` as
+  specced while reusing the router that already owns workspace-scoped concerns.
+- **`JobPilotPage`, not `ResourcesPage`, is the migrated page** — `ResourcesPage`'s list is a plain
+  `<ul>` with two fields; JobPilot's list has real multi-column, sortable/groupable structure
+  (title/company/location/stage/flag) that actually exercises `<DataViews>`' switcher, column
+  show/hide, and `@bridge/tables`' `groupBy`. The stage-advance state-machine action stays a thin
+  list below `<DataViews>` rather than inside it — `<DataViews>` deliberately knows nothing about
+  JobPilot's application state machine.
+- **CalendarView is a from-scratch minimal month grid**, not `react-big-calendar` — confirmed via
+  grep before writing that no calendar dependency exists anywhere in the repo, and the P1 spec
+  explicitly said "if react-big-calendar is not already a dependency, build a minimal month grid."
+  It collapses to a single-column agenda list below the `sm:` breakpoint (a 7-column grid is not
+  legible at 375px) — the mobile-width-safe requirement is met by breakpoint-swapping the whole
+  layout, not by shrinking the grid.
+- **`GraphView` is an explicit table fallback with a visible banner**, not a silent stand-in — the
+  vision doc's grammar allows graph OR table for relationships, and real node-link rendering is
+  future work; the banner says so rather than pretending to be a graph.
+
+**Alternatives rejected:** a dynamic-import-by-string-kind resolver for view components (rejected —
+defeats the entire "registered components only" enforcement, turns any coined string into a
+render); importing `@bridge/tables` types directly into `@bridge/core` (rejected — breaks the
+zero-runtime-dependency invariant for a compiler with no real runtime need of the package, only its
+shapes); a bespoke approval table for blueprint activation instead of reusing
+`pipeline.propose`/`decide` (rejected — same reasoning as ADR-012's capability approvals: duplicates
+agent-floor/audit guarantees instead of inheriting them); migrating `ResourcesPage` instead of
+`JobPilotPage` (rejected — too thin a list to prove the shell's switcher/column/groupBy surface).
+
+**Consequences:** `packages/core/src/blueprint.ts` and `workspace-definition.ts` are new flat files
+exported from `@bridge/core`'s barrel (10 new `node --test` cases in
+`packages/core/test/blueprint.test.ts`); `packages/db/src/workspace-definition-store.ts` binds the
+port to the existing `workspace_definitions` table (6 new `node --test` cases in
+`packages/db/test/workspace-definition-store.test.ts`, including a write-time jsonb-validation
+throw, mirroring `capability-store.test.ts`'s shape). `apps/api/src/wiring.ts` gained
+`workspaceDefinitionStore` in both `Wiring`/`ModePorts` and both `buildPersistentPorts`/
+`buildInMemoryPorts` (Drizzle bound to `localDb` in-memory mode, same pattern as
+`capabilityStore`). `apps/web` gained `@bridge/core`/`@bridge/tables` as real dependencies (previously
+unused in the frontend) — `apps/web/src/app/dataviews/` (registry + `DataViews` shell +
+TableView/KanbanView/CalendarView/GalleryView/GraphView/DashboardView) and a new `/workspace` route
++ sidebar link. The kernel node-type registry `WorkspacePage.tsx` uses to compile client-side is a
+hand-maintained mirror of `router.ts`'s server-side `BLUEPRINT_NODE_TYPE_REGISTRY` (both reuse
+`ResourceType`'s literal set + `"edge"` for relationships) — there is no shared runtime registry
+endpoint yet, so the two lists can drift; flagged in both files' comments, not silently assumed to
+stay in sync. `capability.approve`'s existing `resourceType: "skill"` stand-in (ADR-012's known
+gap) is now shared by `workspace.blueprint.activate` too, for the same reason (no dedicated
+`ResourceType` for either registry row yet). Full monorepo `turbo run build --force` (19/19) /
+`turbo run test --force` (34/34, up from 34 tasks with more total test cases) / `eslint .` (0
+errors, 2 pre-existing unrelated warnings) all green; `pnpm --filter @bridge/web build` (vite)
+passes. Graph rendering for relationship views, a persistent runtime node-type registry endpoint,
+and a dedicated `capability`/`workspace_definition` `ResourceType` remain open follow-ups.
+
+## ADR-018 — Capability package format: agentskills.io disclosure + Zapier lifecycle + computed-risk install (2026-07-06, docs-only)
+
+**Decision:** Documented (design-only, no code changed) `docs/raw/capability-package-format.md`
+— the shipping-unit format ABOVE a single `capability_manifests` row (ADR-012's trust-model
+kernel, read-only here). A package = `package.yaml` (name/version/kind/summary+description/
+lineage_manifest_id/dependencies[exact-pinned]/capabilities[]/context_providers[]/
+workspace_vocab) + a directory (`README.md`/`capabilities/`/`scripts/`/`references/`/`assets/`/
+`migrations/`/`tests/`) bundling MULTIPLE `CapabilityManifest`-shaped entries, one package
+containing many trust-model units rather than being one itself. Install is a governed proposal
+through the EXISTING `pipeline.propose`/`decide` (no new approval mechanism): register each
+capability as `draft` (registration≠activation, per ADR-012) → `computeRisk()` walks the FULL
+dependency closure including transitive package deps, never trusting the package's own
+description/summary as a risk signal → a NEW lethal-trifecta check runs over the UNION of every
+capability's permissions in the package (private-read + untrusted-ingest + egress anywhere in
+the union escalates the WHOLE package to `external`, catching a trifecta assembled ACROSS
+individually-safe capabilities that no single-capability check would catch) → `requiredApproval`/
+`resolveActivationApproval` run unchanged on the resulting band, External staying the same
+non-removable hard floor. Versioning = Zapier's single-live-version-per-workspace model (promote
+new ⇒ auto-demote prior `available` to `legacy`, never two live side by side); rollback = fork a
+new draft from historical version, never in-place revert (matches the append-only-ledger
+invariant everywhere else in Bridge); dependencies pinned to an EXACT version (no npm-style
+ranges) — a dependency bump is itself a new version proposal through the same install flow,
+because a bump can change the computed risk of the whole package. Sketched DealPilot (repackages
+existing `tools/dealpilot`, transformational scoring skill + external-risk sourcing workflow),
+Helpdesk (in-Bridge MVP, new kernel Help Request entity, team-audience-raised routing/drafting
+skills), and Recon (not yet migrated from standalone `Tools/recon/`; target shape composing
+people-sourcing/company-sourcing per `tools.md`'s existing split — egress-read osint-search is
+both independently `external` AND a lethal-trifecta candidate; carries its 3 match tiers/
+per-source verify/draft-then-approve as documentation, introducing no new mechanism; External-
+band audience makes install always `explicit_human`, matching "External-band always human at
+launch" in `decisions.md`).
+
+**Why these specific choices:**
+- **agentskills.io's 3-level progressive disclosure maps directly onto a package directory**
+  (`docs/raw/research-agent-skill-workflow-practices-2026.md` §2): `package.yaml`+`README.md` as
+  L1 (always loaded, ~100 tokens, description states what+when for Learning-Agent install
+  recommendations exactly as a SKILL.md description drives trigger matching); each capability's
+  own manifest/impl as L2 (<500 lines, loaded on inspection); `scripts/`/`references/`/`assets/`/
+  `migrations/` as L3 (zero-cost until read; script CODE never enters model context, only its
+  output does — same rule the spec gives SKILL.md scripts). Reusing this shape instead of
+  inventing a bespoke directory convention keeps the format legible to the same tooling/mental
+  model the Capability Builder and Learning Agent already use for skills.
+- **Zapier's version lifecycle, not n8n's pinned-production model or a custom scheme** — Zapier's
+  Private→Promoted(only one)→Available(auto-demotes prior)→Legacy→Deprecating→Deprecated is the
+  cleanest "single live version" shape found in the research sweep (§7) and was already adopted
+  for capability versioning in roadmap.md's P5 practice-hardening line; this ADR is the first
+  place it gets ENFORCEMENT LOGIC (package_installations state + auto-demote-in-same-transaction)
+  rather than staying a wiki bullet.
+- **Risk computed over the package's full dependency closure, never trusted from package hints**
+  — direct continuation of ADR-012's risk.ts design and the MCP "a server can lie" finding
+  (research §6): a package's `summary`/`description` exists for Learning-Agent triage and human
+  review, never as computeRisk() input. Extending computeRisk()'s existing cycle-safe walk to
+  cross package-dependency boundaries (not just single-capability dependencies) was the natural
+  generalization rather than a parallel risk function for packages.
+- **Lethal-trifecta check moved from single-capability to package-union scope** — the P0 roadmap
+  line states the rule per-capability; a package is exactly the boundary where three
+  individually-innocuous capabilities (one reads private data, another ingests an external feed,
+  a third has an egress permission for an unrelated reason) could compose into the trifecta
+  without any single manifest tripping it. Checking the union at install time closes that gap
+  without changing the underlying rule's definition.
+- **Dependency pinning is exact-version-only, npm ranges explicitly rejected** — a `^`/`~` range
+  would let a dependency silently gain a new permission (and therefore new risk) between installs
+  without ever going through `computeRisk()` again; exact pins force every risk-relevant change to
+  re-enter the install/approval flow as a new version proposal, matching the "propose, don't
+  auto-apply" stance ADR-017 already took for blueprint activation.
+- **Recon sketched as NOT YET a real package** (still standalone `Tools/recon/`) rather than
+  invented as fully-migrated — the migration itself is out of scope for this docs-only pass and
+  is already tracked as pending in `tools.md`'s progress log; sketching its target shape without
+  claiming it exists avoids the doc silently overstating build status.
+
+**Alternatives rejected:**
+- **npm-style semver ranges for dependency pins** — rejected because a range reintroduces the
+  exact "risk changes without a review" gap ADR-012's computed-risk model exists to close;
+  exact pins keep every risk-relevant bump inside the governed install flow.
+- **Trusting a package's self-declared risk/permission summary as an install-time shortcut**
+  (e.g. a fast-path for packages that claim low risk) — rejected on the same "manifest/server can
+  lie" grounds as ADR-012 itself; there is no scenario where a package's own claim should ever
+  substitute for `computeRisk()`'s output.
+- **Multiple live package versions per workspace** (e.g. side-by-side v1/v2 for gradual
+  migration) — rejected as the harder invariant to reason about for audit/rollback purposes;
+  Zapier's single-live-version model was chosen deliberately over this for the same reasons it
+  was chosen for capability versioning generally (roadmap.md P5), and per-package exceptions
+  would fragment that story.
+
+**Consequences:** No code changed — `docs/raw/capability-package-format.md` (new),
+`docs/wiki/packages.md` (new), `docs/wiki/index.md` (one new line) are the only artifacts. Six
+open questions are recorded rather than resolved: package-owned migrations vs. shared kernel
+schema; the vocab-alignment enforcement mechanism (lint vs. Learning-Agent rewrite vs. doc-only);
+the still-missing dedicated `ResourceType` for capability/package rows (inherits ADR-012's known
+gap, not newly introduced); where a package registry physically lives (new table vs.
+computed-at-install); whether package `tests/` fixtures inherit the still-open no-dummy-data
+fixture question from CLAUDE.md; and diamond-dependency resolution when two packages in one
+workspace pin different versions of one shared underlying capability. None of these block the
+format from being a coherent design; they are the next design passes, likely triggered when
+DealPilot's actual repackaging or Recon's actual migration is attempted against this spec.
+
+## ADR-019 — P1 Workspace Generator: onboarding pop-up, Chief of Staff v1 star-topology router, approval cards (2026-07-06)
+
+**Decision:** Landed the remaining three P1 slices (docs/wiki/roadmap.md "Workspace Generator")
+on top of ADR-017's blueprint compiler + `<DataViews>` shell: (1) an **onboarding pop-up**
+(`apps/web/src/app/onboarding/questions.ts` + `OnboardingDialog.tsx`) running a 5-12 question
+adaptive flow that compiles straight into a `WorkspaceBlueprint` and submits it via the existing
+`workspace.blueprint.propose` as a governed draft, previewed client-side with the SAME
+`compileBlueprint()` the server validates with; (2) **Chief of Staff v1**
+(`packages/core/src/chief-of-staff.ts` + `apps/api`'s new `chiefOfStaff.converse` procedure +
+`apps/web`'s `ChiefOfStaffPage.tsx`) — a pure intent classifier with a model path and a
+deterministic keyword-fallback path, enforcing star topology (at most one route per turn, hard
+chain-depth cap) structurally; (3) **approval cards**
+(`apps/web/src/app/pages/ApprovalsPage.tsx`, rewritten) — a governance inbox surface with
+what/why, an honestly-labeled risk estimate, requester, and a real diff preview for blueprint-
+activation proposals, mobile-safe from 375px.
+
+**Why these specific choices:**
+- **Adaptive branching is a small explicit step function (`nextQuestion(answers)`), not a
+  linear array or a big if/else in the component.** `apps/web/src/app/onboarding/questions.ts`
+  keeps ALL branching logic (solo-vs-team unlocks `team_size`; domain choice unlocks/skips
+  `vocab_name`; every domain always asks `watch_first`/`view_style`/`workspace_name`) in one
+  pure, framework-free function so the shortest real path (solo + relationships domain) asks 5
+  questions and the longest (team + a domain needing a vocabulary override) asks 7 — both inside
+  the 5-12 band with no padding questions asked just to hit a minimum count. `OnboardingDialog.tsx`
+  is a thin React shell over it (single/multi/text question renderers + a preview/submit step),
+  so the adaptive logic itself is unit-testable without a DOM (not exercised by a dedicated test
+  file this pass — see Consequences).
+- **The pre-apply preview compiles with the real `compileBlueprint()`, not a mocked one.**
+  `OnboardingDialog.tsx` imports `compileBlueprint` from `@bridge/core` directly and renders
+  whatever it returns (or its thrown `BlueprintCompileError` message) — the same enforcement
+  point WorkspacePage.tsx already established in ADR-017, applied one step earlier in the
+  lifecycle. This is deliberately the ONE thing no competitor in the generated/flexible-workspace
+  peer set (Notion AI, Fibery, Noloco) ships: a pre-apply, human-legible diff before the
+  workspace is even proposed, let alone activated.
+- **Chief of Staff's star topology is enforced by TYPE SHAPE, not convention.**
+  `RoutingDecision` (chief-of-staff.ts) has a single optional `route: string` field — there is no
+  array/list field anywhere in the type for "route to multiple capabilities," so a second route
+  per turn is not a bug to avoid, it is a shape that does not exist. `assertChainDepth`/
+  `MAX_CHAIN_DEPTH` (=3) throw a typed `ChainDepthExceededError` the caller must handle — modeled
+  as a real thrown error (checked in router.ts's `converse` procedure BEFORE attempting to
+  classify) rather than a depth counter callers could forget to consult, mirroring
+  `capability/approvals.ts`'s external-band hard-floor pattern (checked first, cannot be
+  loosened).
+- **classifyIntent's keyword fallback is not a lesser stand-in for the model path — it is the
+  SAME contract with a different signal source.** Both paths validate their candidate route
+  against the identical caller-supplied `RoutableCapability[]` registry; a model response naming
+  an unregistered id degrades to `"clarify"` exactly like a keyword total-miss does. This is what
+  "kernel runs with ZERO providers" (roadmap.md P0) requires for a router, not just a sensor.
+- **In-memory mode's `EchoModelProvider` is explicitly EXCLUDED from Chief of Staff's model
+  selection** (`apps/api/src/router.ts`'s `converse` procedure filters `provider.id !== "echo"`)
+  rather than left wired in. Echo only echoes `system\nprompt` back verbatim — feeding that
+  through `classifyIntent`'s model-response parser would ALWAYS fail to match a registered id and
+  silently degrade every turn to `"clarify"`, masking the keyword fallback this mode is supposed
+  to exercise. Excluding it by id (a one-line, clearly-commented filter) means in-memory/test mode
+  genuinely runs the offline-required keyword path, not a model path rigged to always miss.
+- **A routed Chief-of-Staff turn is ALWAYS a `pipeline.propose` call, never a direct skill
+  execution** — `chiefOfStaff.converse` proposes `{ action: "execute", resourceType: "skill",
+  skill: "stageMutation", inputs: { route, message } }` through the exact same governed pipeline
+  `action.propose` uses, so an agent-classified route still lands in the Approvals inbox rather
+  than running unsupervised. `stageMutation` (the existing generic staging skill) is reused rather
+  than inventing a new one — there is no real downstream skill for any registry entry
+  (jobpilot/dealpilot/calendar/helpdesk/resources) to actually execute yet, so staging the intent
+  is the honest ceiling of what this slice can do.
+- **Approval cards' risk band is an explicitly-labeled CLIENT-SIDE ESTIMATE, not a fabricated
+  authoritative score.** There is no per-proposal computed risk for a generic `Proposal` today —
+  `computeRisk` (`capability/risk.ts`) only runs over Capability Manifests at capability-
+  registration time, a different object entirely. Inventing a confident-looking number for
+  ledger-level proposals would misrepresent what the platform actually knows. `ApprovalsPage.tsx`'s
+  `estimateRiskBand` instead maps action/resourceType onto the SAME `RiskBand` vocabulary
+  (external for send/share — the one confident bucket, mirroring `approvals.ts`'s hard floor —
+  down to informational as the default) and the UI renders it with a visible "(estimated)"
+  suffix, never claiming it is the governed computed-risk number.
+- **The blueprint-activation diff preview is honest about a real, named gap**: `workspace.
+  blueprint.get` (ADR-017) only ever returns the currently-ACTIVE definition, never an arbitrary
+  draft by id, and `workspace.blueprint.activate`'s proposal `inputs` carry only `{ definitionId,
+  fromStatus }` (not the blueprint payload itself) — so `ApprovalsPage.tsx` can only render a real
+  diff for a blueprint-activation proposal when the referenced draft ALSO happens to already be
+  the active definition (the common single-draft case), and shows an honest "no diff preview
+  available for this draft yet" note otherwise rather than fabricating one. Logged as an open gap
+  below and in docs/BUGS.md, not silently left implicit.
+
+**Alternatives rejected:** a fixed linear onboarding question list (rejected — roadmap.md
+explicitly calls for ADAPTIVE branching, and a fixed list can't skip `vocab_name` for a domain
+that doesn't need one without either asking a pointless question or special-casing it in the
+renderer anyway); giving `RoutingDecision` a `routes: string[]` field with "just always length
+1" as an unenforced convention (rejected — the whole point of the star-topology requirement is
+that peer handoffs are IMPOSSIBLE, not merely discouraged); computing a real numeric risk score
+for every proposal type via ad hoc heuristics presented as authoritative (rejected — indistinguishable
+from the real Capability Trust Model risk computation to a user, actively misleading); adding a
+`workspace.blueprint.getById` endpoint to fully close the diff-preview gap in this pass (deferred
+— touches the same "no dedicated ResourceType for workspace_definitions yet" surface as ADR-017's
+open gap and is more surface than a P1 slice needs; the honest partial note is the correct scope
+call here).
+
+**Consequences:** `packages/core/src/chief-of-staff.ts` is new (10 new `node --test` cases in
+`packages/core/test/chief-of-staff.test.ts`, all passing against both the model path via a fake
+provider and the keyword-fallback path). `apps/api/src/router.ts` gained a `chiefOfStaff` t.router
+with one `converse` mutation (4 new `node --test` cases in `apps/api/test/chief-of-staff.test.ts`,
+reusing the existing `appRouter.createCaller`/`buildWiring` test harness pattern from
+`single-tenant-guard.test.ts`). `apps/web` gained `apps/web/src/app/onboarding/` (questions.ts +
+OnboardingDialog.tsx, no dedicated frontend test — `questions.ts`'s pure functions are exercised
+only manually/by the compiled build this pass, a real gap tracked in docs/BUGS.md),
+`pages/ChiefOfStaffPage.tsx`, a rewritten `pages/ApprovalsPage.tsx`, and `Layout.tsx` now mounts
+`OnboardingDialog` (auto-opens once at mount when `workspace.blueprint.get` reports no active
+definition; reopenable via a persistent sidebar link). Full monorepo `turbo run build --force`
+(19/19) / `turbo run test --force` (34/34 tasks — @bridge/core 112→122 cases, @bridge/api 29→33
+cases) / `eslint .` (0 errors, the same 2 pre-existing unrelated warnings ADR-017 already noted)
+all green; `pnpm --filter @bridge/web build` and a standalone `tsc --noEmit` against
+`apps/web/tsconfig.json` both pass clean. Open, explicitly tracked gaps: no dedicated frontend
+unit test for `questions.ts`'s adaptive branching/compile logic; the approval-card diff preview
+degrades to an honest empty note whenever the referenced draft isn't also the active definition;
+Chief of Staff's registry (`CHIEF_OF_STAFF_REGISTRY` in router.ts) can only ever stage a generic
+`stageMutation` proposal — no registry entry has a real downstream skill to execute yet, so a
+routed turn is always a proposal-to-nowhere-specific until those skills exist; no model provider
+is configured in this repo's dev/test environment, so the model-classification path is exercised
+only by a fake `ModelProvider` in `chief-of-staff.test.ts` (core), never against a live
+Ollama/Anthropic call.
+
+## ADR-020 — Roadmap v2 ingest: Commons, five agents, packages-not-products, dual-axis governance (2026-07-06)
+
+**Decision** (user calls, batch): (1) Roadmap v2 (docs/raw/roadmap-v2-universal-commons.md) ingested as ADD-ONs to the existing 7 phases, not a replacement. (2) Universal Commons adopted: v1 = curated human-published capability-package registry (ADR-018 format), absorbing old P5 publish + P6 marketplace; automated archetype mining deferred; convergence threshold N = 10% of users ≤100 · 5% ≤500 · 1% ≤2000 · 0.1% beyond. Commons contribution = External band by definition (lethal trifecta: private-read + egress) → human reviews the exact generalized artifact. (3) Control plane centralized in cloud: onboarding possible from any surface (mobile/desktop/web); desktop demoted from "base platform" to richest client + local execution runtime. Sync/identity/registry live in a "Bridge Cloud" control plane kept as a SEPARATE service from Commons — Commons never holds per-user workspace data. Each surface functions independently offline; Commons = update/distribution channel (iPhone-updates model). (4) workflow/skill/agent/tool = PEERS; promotion ladder = trust/evidence ladder, never type mutation. "Responsibility" = standing mandate (scope + trigger) attached to an agent, bounded by governance rules everywhere (no separate autonomy-ceiling concept). (5) Governance Agent may auto-approve MINOR changes per the dual-axis risk mechanism (impact × reversibility); moderate/major escalations = human-only (agent-floor DENY unchanged for those bands). This mechanizes the existing auto-activation budgets under an agent identity, ledgered. (6) DealPilot/Helpdesk/Recon = mix-and-match add-on capability packages over one workspace (Pi-extensions model), NOT separate products. (7) NEW PRINCIPLE — integration over custom development: before building a capability, the Learning Agent checks installed software + browser apps (explicit permission, intent clearly stated) and proposes integration first; "build from scratch" offered as an open-source-based option.
+
+**Why**: user direction 2026-07-06 after critique round; keeps revenue phase (P2) while adopting Commons network effect; privacy promise stays mechanical (External-band review + N-threshold), not aspirational.
+
+**Alternatives rejected**: roadmap v2 as replacement (drops market-contact phase); Commons doubling as sync backend (couples privacy promise to user-data hosting — one breach kills both); autonomy-ceiling field on Responsibility (redundant with governance rules); products as separate SKUs (splits the graph, contradicts one-engine-many-workspaces).
+
+**Consequences**: Bridge Cloud vs Commons service split must be reflected in P5/P6 design; risk mechanism needs dual-axis (impact × reversibility) computation layered on computeRisk() bands — design note in docs/raw/risk-mechanism-auto-mode-practices.md (pending); Governance Agent gains a decider identity with policy-bounded auto-approval; onboarding modal must stay surface-agnostic (it already is — web modal over tRPC).
+
+## ADR-021 — P2 slice 1: package runtime + install flow + DealPilot/Helpdesk packaged (2026-07-06)
+
+**Decision**: Implemented ADR-018's package format as running code. (1) New `packages/core/src/package/` module (types/manifest/risk/lifecycle/ports): `PackageManifest` type (name/version exact-semver/kind/summary/description ≤1024/lineage_manifest_id/dependencies exact-pinned no-ranges/capabilities[] = full `CapabilityManifest` shapes/context_providers/workspace_vocab); `parsePackageManifest` — pure, zero-deps (no yaml/zod in core; callers hand in a parsed object), accepts camelCase AND YAML snake_case keys, throws typed `PackageManifestValidationError` (never silently defaults); `computePackageRisk` — max(computeRisk) over every bundled capability AND every resolvable dependency-package's capabilities (cycle-safe visited set, unresolved package dep escalates to ≥operational, mirroring capability risk's conservative-unknown rule) PLUS the lethal-trifecta UNION check (private-read + untrusted-ingest + egress assembled ACROSS different bundled capabilities ⇒ whole package escalates to `external`, overriding composite); single-live-version lifecycle (`private→promoted→available→legacy→deprecating→deprecated`), `promoteToAvailable` auto-demotes the prior available row to `legacy` (pure fn returns both state changes, caller applies atomically), `rollbackFromHistory` FORKS a new `private`/`pending_review` row versioned `{current}-rollback-from-{target}` with `lineageManifestId` chained — never mutates history; `PackageStore` port + `InMemoryPackageStore` (mirrors CapabilityStore's shape). (2) `packages.{register,install,list,get,promote,rollback}` tRPC namespace in apps/api: register = parse+validate → `private`/`pending_review` row, NO risk computed (registration ≠ install); install = computePackageRisk over the closure → package audience = strictest across bundled capabilities → `resolveActivationApproval` (same kill-switch/budget/external-hard-floor path capability.activate uses) → every bundled capability registered as a DRAFT `capability_manifests` row regardless of outcome (registration ≠ activation) → non-auto bands park a `pipeline.propose` proposal with the same interim `resourceType:"skill"` token capability.approve uses; promote/rollback are thin wrappers over the pure lifecycle fns. `PackageStore` wired in `Wiring`/both mode ports as in-memory in BOTH modes (honest gap, same pattern as capabilityBudgets/killSwitch — no Drizzle table this slice). (3) DealPilot repackaged: `tools/dealpilot/bridge.package.yaml` describes the EXISTING code as 3 capabilities — thesis-fit-scoring (skill, transformational-shape writes), sourcing-waterfall (workflow, external_fetch egress:true ⇒ external band, BizBuySell connector), commit-dedupe (workflow) — no logic rewritten; parse+risk verified: `external`, trifecta not tripped (no private-read leg). (4) Helpdesk package MVP: new `tools/helpdesk` (@bridge/helpdesk, pure logic, no store) — `routeHelpRequest` (deterministic topic-token-overlap routing over caller-supplied graph candidates, honest empty result on zero match) + `draftHelpOffer` (proposal-inputs shape only, never sends); `bridge.package.yaml` declares capability-routing (transformational) + offer-drafting (advisory `recommendation` write), audience=team; wired as `helpdesk.route` (members as default candidates, topics caller-supplied until the graph carries topic data) + `helpdesk.stageAnswer` (stages via `pipeline.propose`, resourceType `signal`) in apps/api. (5) Recon NOT migrated (per plan — ADR-018 sketch only).
+
+**Why**: P2's premise ("packages = the SKU", ADR-020 item 6) needs the install/version/rollback machinery to exist before any package can ship; building it ON the shipped capability trust model (computeRisk/lifecycle/approvals reused, never reimplemented) keeps one risk model and one approval path.
+
+**Alternatives rejected**: new Drizzle `package_installations` table this slice (deferred — in-memory port keeps the slice reviewable; ADR-018's "reuse capability_manifests lineage" allowance invoked, table + migration is the flagged next step); yaml/zod parsing inside @bridge/core (violates core's zero-runtime-deps discipline; validation stays at the seam like every other jsonb boundary); renaming the existing helpdesk ticket surface to Help Request vocab (out of scope churn — the PACKAGE layer uses kernel-safe help_request/help_route/help_offer terms, existing store/router untouched); in-place version revert for rollback (breaks the append-only invariant every other mutation follows).
+
+**Consequences / gaps (also in docs/BUGS.md)**: package rows are in-memory in persistent mode (lost on restart, loudly documented not silently faked); re-installing two package versions whose bundled capability keeps the SAME (name,version) violates `capability_manifests_uq` — capability re-registration is not idempotent yet; `bridge.package.yaml` deviates from ADR-018's `package.yaml` filename because pnpm treats package.yaml as a project-manifest format and it shadows package.json inside a workspace dir (spec doc should be amended); package install proposals reuse the interim `resourceType:"skill"` token (inherits the known dedicated-ResourceType gap); trust_grants lookup still not wired into install (same gap as capability.activate); helpdesk routing topics are caller-supplied until the graph carries per-person topic/skill data.
+
+## ADR-022 — GroqProvider added to ModelProvider seam (2026-07-06)
+
+**Decision**: added `GroqProvider` (platform/packages/models/src/groq-provider.ts) implementing the existing `ModelProvider` port, matching `AnthropicProvider`'s conventions exactly: `plane: "cloud"`, fail-loud constructor if `GROQ_API_KEY` is absent, no key ever stored on a manifest/capability, key sourced from env only. Talks to Groq's OpenAI-compatible `/openai/v1/chat/completions` endpoint (default model `llama-3.3-70b-versatile`). Wired into `apps/api/src/wiring.ts`'s persistent-mode `modelProviders` list, registered only when `GROQ_API_KEY` is set (same fail-closed posture as Anthropic/Google gateway — no silent fallback). 7 new unit tests (2 Groq-specific + reused shared `provider errors surface status + body` case), all passing via injected fetch, zero network. `GROQ_API_KEY` set in a local, git-ignored `platform/.env` — never committed, never logged.
+
+**Why**: user supplied a Groq key and asked for it to be usable; low-latency inference is a good fit for Chief of Staff intent classification and other latency-sensitive cloud calls, without displacing Anthropic as the default.
+
+**Alternatives rejected**: hardcoding the key into source or a tracked env file (violates credential-broker-territory rule and CLAUDE.md's "tools never own OAuth/secrets"); building a bespoke Groq SDK wrapper instead of reusing the OpenAI-compatible surface (unnecessary — Groq's chat/completions endpoint is a drop-in shape).
+
+**Consequences**: user should rotate the pasted key in the Groq console (it was shared in plaintext chat, which this session treats as exposed regardless of where it ends up stored). `createModelRouter`'s plane rules apply unchanged — Groq can never bind a `planeDefault: "local"` slot.

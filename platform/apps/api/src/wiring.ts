@@ -52,6 +52,14 @@ import {
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
   stageCapture,
+  InMemoryCapabilityStore,
+  InMemoryAutoActivationBudgetStore,
+  InMemoryKillSwitch,
+  InMemoryCredentialBroker,
+  InMemoryWorkspaceDefinitionStore,
+  InMemoryPackageStore,
+  EchoModelProvider,
+  type ModelProvider,
   type AgentQuery,
   type EphemeralQuery,
   type LedgerStore,
@@ -63,6 +71,12 @@ import {
   type RoleQuery,
   type Skill,
   type ToolRegistry,
+  type CapabilityStore,
+  type AutoActivationBudgetStore,
+  type KillSwitchPort,
+  type CredentialBroker,
+  type WorkspaceDefinitionStore,
+  type PackageStore,
 } from "@bridge/core";
 import {
   createDb,
@@ -75,10 +89,13 @@ import {
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
+  DrizzleCapabilityStore,
+  DrizzleWorkspaceDefinitionStore,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
+import { AnthropicProvider, GroqProvider, OllamaProvider, createModelRouter, type ModelRouter } from "@bridge/models";
 import {
   EgressExecutor,
   GoogleApiGatewayFactory,
@@ -147,6 +164,32 @@ export interface Wiring {
   helpdeskStore: DrizzleHelpdeskStore;
   /** Resources catalog (replaces the prototype's Supabase-direct read). */
   resourcesStore: DrizzleResourcesStore;
+  /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
+  capabilityStore: CapabilityStore;
+  /** P1 Workspace Generator — workspace_definitions (blueprint/version/status), the
+   * governed-proposal artifact workspace.blueprint.* compiles via @bridge/core's
+   * compileBlueprint (docs/wiki/vision.md "View grammar"). */
+  workspaceDefinitionStore: WorkspaceDefinitionStore;
+  /** P2 capability packages (docs/raw/capability-package-format.md, ADR-018) —
+   * package_installations-shaped rows. In-memory in BOTH modes for now (no
+   * Drizzle-backed table exists yet — see docs/BUGS.md); mirrors the honest-gap
+   * pattern capabilityBudgets/capabilityKillSwitch already follow rather than
+   * silently faking persistence. */
+  packageStore: PackageStore;
+  /** Daily auto-activation budget counters (informational/advisory bands). In-memory in both
+   * modes for now — no persistent implementation exists yet (mirrors the ledger-residency-gap
+   * pattern: a real budget counter is future work, not silently faked as durable). */
+  capabilityBudgets: AutoActivationBudgetStore;
+  /** Workspace-level kill switch forcing every capability activation to explicit approval. */
+  capabilityKillSwitch: KillSwitchPort;
+  /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
+  credentialBroker: CredentialBroker;
+  /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
+   * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
+   * fallback). In-memory mode registers the network-free echo double; persistent mode
+   * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
+   * API keys are set). */
+  models: ModelRouter;
   /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
   dealpilot: {
     captures: ToolCaptureStore;
@@ -247,6 +290,10 @@ export interface ModePorts {
   jobpilotStore: DrizzleJobPilotStore;
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
+  capabilityStore: CapabilityStore;
+  workspaceDefinitionStore: WorkspaceDefinitionStore;
+  /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
+  modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
   closeDb: () => Promise<void>;
 }
@@ -305,6 +352,16 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     jobpilotStore: new DrizzleJobPilotStore(db),
     helpdeskStore: new DrizzleHelpdeskStore(db),
     resourcesStore: new DrizzleResourcesStore(db),
+    capabilityStore: new DrizzleCapabilityStore(db),
+    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(db),
+    // Real providers in persistent mode: Ollama is always registered (local plane,
+    // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
+    // no fake fallback, same fail-closed posture as the Google gateway.
+    modelProviders: [
+      new OllamaProvider(),
+      ...(process.env.ANTHROPIC_API_KEY ? [new AnthropicProvider()] : []),
+      ...(process.env.GROQ_API_KEY ? [new GroqProvider()] : []),
+    ],
     closeDb: close,
   };
 }
@@ -344,6 +401,11 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
     resourcesStore: new DrizzleResourcesStore(localDb),
+    capabilityStore: new DrizzleCapabilityStore(localDb),
+    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(localDb),
+    // Echo double (local plane) — zero-infra mode makes no network calls, model
+    // calls included; anything needing a real model runs in persistent mode.
+    modelProviders: [new EchoModelProvider()],
     memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
     closeDb: closeLocalDb,
   };
@@ -393,9 +455,28 @@ export async function buildWiring(): Promise<Wiring> {
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
+    capabilityStore,
+    workspaceDefinitionStore,
+    modelProviders,
     memory,
     closeDb,
   } = modePorts;
+
+  // ModelProvider registry/router — resolves tool-kit modelBindings honoring
+  // planeDefault (local-default bindings NEVER fall through to a cloud provider).
+  const models = createModelRouter(modelProviders);
+
+  // Capability Trust Model support ports (docs/wiki/vision.md): budgets + kill
+  // switch stay in-memory in BOTH modes for now — no persistent implementation
+  // exists yet anywhere in the codebase, mirroring how ToolCaptureStore is kept
+  // in-memory even in persistent mode (see buildPersistentPorts's loud warning
+  // pattern above) rather than silently faking durability that doesn't exist.
+  const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
+  const capabilityKillSwitch = new InMemoryKillSwitch();
+  const credentialBroker = new InMemoryCredentialBroker();
+  // P2 capability packages — in-memory in both modes (docs/BUGS.md: no Drizzle
+  // package_installations table exists yet).
+  const packageStore: PackageStore = new InMemoryPackageStore();
 
   // DealPilot: the first tool wired through the generic manifest intake seam
   // (@bridge/tool-kit createToolSourceSkill/ToolIntakeMaterializer) — sourcing quarantines
@@ -424,7 +505,7 @@ export async function buildWiring(): Promise<Wiring> {
       // `processDealCandidate` uses) so two captures of the same company merge into one
       // candidate instead of piling up duplicate rows. A "strong" match merges facts into
       // the existing candidate; anything weaker commits as its own new candidate.
-      const existingDeals: DedupeCandidate[] = dealPilotCandidateIds.map((id) => {
+      const existingDealPilotCandidates: DedupeCandidate[] = dealPilotCandidateIds.map((id) => {
         const profile = dealPilotFacts.livingProfile(id);
         return {
           id,
@@ -439,7 +520,7 @@ export async function buildWiring(): Promise<Wiring> {
         domain: capture.payload.domain as string | undefined,
         industry: capture.payload.industry as string | undefined,
       };
-      const match = matchCompany(candidateForMatch, existingDeals);
+      const match = matchCompany(candidateForMatch, existingDealPilotCandidates);
       const candidateId = match.tier === "strong" ? match.targetId : capture.captureId;
 
       for (const [field, value] of Object.entries(capture.payload)) {
@@ -535,6 +616,13 @@ export async function buildWiring(): Promise<Wiring> {
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
+    capabilityStore,
+    workspaceDefinitionStore,
+    packageStore,
+    capabilityBudgets,
+    capabilityKillSwitch,
+    credentialBroker,
+    models,
     ...(memory ? { memory } : {}),
     close: async () => {
       await localPlane.close();

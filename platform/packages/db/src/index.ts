@@ -34,6 +34,16 @@ export { DrizzleGraphStore, type PageOpts, type Page } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
 export { DrizzleHelpdeskStore, type TicketRow, type MessageRow } from "./helpdesk-store.js";
 export { DrizzleResourcesStore, type ResourceRow, type CreateResourceInput as CreateResourceStoreInput } from "./resources-store.js";
+export {
+  DrizzleCapabilityStore,
+  parseDependencies,
+  parseEvidence,
+} from "./capability-store.js";
+export {
+  DrizzleWorkspaceDefinitionStore,
+  parseBlueprint,
+  workspaceBlueprintSchema,
+} from "./workspace-definition-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

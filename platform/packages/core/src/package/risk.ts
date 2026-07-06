@@ -1,0 +1,142 @@
+/**
+ * Package-level risk computation (docs/raw/capability-package-format.md §2
+ * steps 2-3, ADR-018). Builds on packages/core/src/capability/risk.ts's
+ * `computeRisk`/`maxRisk` — never reimplements single-capability risk.
+ *
+ * Two rules, both from the format doc:
+ *  1. Composite package risk = max(computeRisk) over EVERY bundled capability
+ *     AND every dependency package's capabilities (cycle-safe).
+ *  2. Lethal-trifecta union check: if the UNION of permissions across ALL
+ *     bundled capabilities contains a private-data read, an untrusted/
+ *     external-ingest read, AND an egress permission — even if no SINGLE
+ *     capability carries all three legs — the whole package escalates to
+ *     `external`, overriding whatever the composite alone produced. This is
+ *     what catches a package composing three individually-safe capabilities
+ *     that together assemble the trifecta.
+ */
+import { computeRisk, maxRisk } from "../capability/risk.js";
+import type { CapabilityManifest, CapabilityPermission, ResolveDependency, RiskBand } from "../capability/types.js";
+import type { PackageManifest, ResolvePackageDependency } from "./types.js";
+
+/** A permission counts as "untrusted/external ingest" for the trifecta check
+ * when it reads a public/all-scope external-fetch-shaped resource, or reads
+ * with dataScope "public" (the untrusted-content leg) — mirrors the
+ * capability-level lethal-trifecta policy rule (roadmap.md P0). */
+function isUntrustedIngest(p: CapabilityPermission): boolean {
+  return p.action === "read" && (p.resourceType === "external_fetch" || p.resourceType === "external:fetch" || p.dataScope === "public");
+}
+
+/** A permission counts as "private-data read" for the trifecta check. */
+function isPrivateRead(p: CapabilityPermission): boolean {
+  return p.action === "read" && p.dataScope === "private";
+}
+
+/** A permission or connector counts as "egress" for the trifecta check. */
+function hasEgress(m: CapabilityManifest): boolean {
+  if (m.permissions.some((p) => p.egress || p.action === "send")) return true;
+  if (m.connectors.some((c) => c.externalSend)) return true;
+  return false;
+}
+
+/**
+ * The union trifecta check, across ALL capabilities passed in (a package's
+ * own bundled capabilities plus every dependency package's capabilities —
+ * the same population computePackageRisk() walks for composite risk). Legs
+ * may come from DIFFERENT capabilities — this is deliberately not "does any
+ * one capability contain all three."
+ */
+export function packageHasLethalTrifecta(capabilities: CapabilityManifest[]): boolean {
+  let sawPrivateRead = false;
+  let sawUntrustedIngest = false;
+  let sawEgress = false;
+
+  for (const cap of capabilities) {
+    if (cap.permissions.some(isPrivateRead)) sawPrivateRead = true;
+    if (cap.permissions.some(isUntrustedIngest)) sawUntrustedIngest = true;
+    if (hasEgress(cap)) sawEgress = true;
+  }
+
+  return sawPrivateRead && sawUntrustedIngest && sawEgress;
+}
+
+/**
+ * Walk a package's own capabilities plus its full dependency-package closure
+ * (cycle-safe via a visited set on `name@version`), collecting every
+ * `CapabilityManifest` encountered — the population both the composite-risk
+ * max and the trifecta union check operate over.
+ */
+function collectClosureCapabilities(
+  pkg: PackageManifest,
+  resolveDependency: ResolvePackageDependency,
+  visited: Set<string>,
+): CapabilityManifest[] {
+  const key = `${pkg.name}@${pkg.version}`;
+  if (visited.has(key)) return [];
+  visited.add(key);
+
+  const capabilities = [...pkg.capabilities];
+  for (const dep of pkg.dependencies) {
+    const depKey = `${dep.manifestId}@${dep.version}`;
+    if (visited.has(depKey)) continue;
+    const depPkg = resolveDependency(dep.manifestId, dep.version);
+    if (!depPkg) continue; // unresolved package dependency — capability-level computeRisk already
+    // treats an unresolved CAPABILITY dependency as conservative (operational); an unresolved
+    // PACKAGE dependency has no capabilities to contribute here, so composite risk falls back to
+    // the escalation in computePackageRisk() below rather than silently under-counting.
+    capabilities.push(...collectClosureCapabilities(depPkg, resolveDependency, visited));
+  }
+  return capabilities;
+}
+
+export interface PackageRiskResult {
+  /** max(computeRisk) over the full bundled+dependency-closure population. */
+  compositeRisk: RiskBand;
+  /** True when the trifecta union check escalated the result to `external`. */
+  trifectaEscalated: boolean;
+  /** compositeRisk, or "external" if trifectaEscalated. The value to store as
+   * the package's computed risk / feed into requiredApproval(). */
+  effectiveRisk: RiskBand;
+  /** Dependency-package ids that could not be resolved (documentation/audit only —
+   * mirrors computeRisk()'s conservative "operational" treatment of an unknown
+   * capability dependency, surfaced here so callers can log/flag it). */
+  unresolvedDependencies: string[];
+}
+
+/**
+ * Package-level `computeRisk()` — composite max over every bundled
+ * capability's own dependency closure (via the existing `computeRisk`), AND
+ * over every dependency PACKAGE's capabilities, THEN the union lethal-
+ * trifecta check across the whole population. A package's own
+ * `summary`/`description` text is NEVER read as a risk signal — only
+ * permissions/connectors/dependencies feed this computation ("a manifest can
+ * lie").
+ */
+export function computePackageRisk(
+  pkg: PackageManifest,
+  resolveCapabilityDependency: ResolveDependency,
+  resolvePackageDependency: ResolvePackageDependency,
+): PackageRiskResult {
+  const visited = new Set<string>();
+  const allCapabilities = collectClosureCapabilities(pkg, resolvePackageDependency, visited);
+
+  const unresolvedDependencies: string[] = [];
+  for (const dep of pkg.dependencies) {
+    if (!resolvePackageDependency(dep.manifestId, dep.version)) {
+      unresolvedDependencies.push(`${dep.manifestId}@${dep.version}`);
+    }
+  }
+
+  let compositeRisk: RiskBand = "informational";
+  for (const cap of allCapabilities) {
+    compositeRisk = maxRisk(compositeRisk, computeRisk(cap, resolveCapabilityDependency));
+  }
+  // An unresolved package dependency is conservative-escalated the same way an
+  // unresolved capability dependency is inside computeRisk() ("operational",
+  // never silently harmless).
+  if (unresolvedDependencies.length > 0) compositeRisk = maxRisk(compositeRisk, "operational");
+
+  const trifectaEscalated = packageHasLethalTrifecta(allCapabilities);
+  const effectiveRisk: RiskBand = trifectaEscalated ? "external" : compositeRisk;
+
+  return { compositeRisk, trifectaEscalated, effectiveRisk, unresolvedDependencies };
+}

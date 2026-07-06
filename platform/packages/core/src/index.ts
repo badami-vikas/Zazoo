@@ -47,3 +47,104 @@ export {
 } from "./ritual-executor.js";
 export * from "./memory/stores.js";
 export * from "./skills.js";
+
+// Capability Trust Model (docs/wiki/vision.md "Capability Trust Model" +
+// "Promotion defaults") — additive to the pipeline; agent-floor/human-decide
+// guarantees are untouched.
+export * from "./capability/types.js";
+export { computeRisk, maxRisk, baseRiskForManifest } from "./capability/risk.js";
+export {
+  PROMOTION_DEFAULTS,
+  InvalidTransitionError,
+  EvidenceThresholdError,
+  newDraftState,
+  trustedThresholdFailure,
+  advance,
+  demoteOnDependencyChange,
+  suspendOnFailure,
+  resumeFromSuspension,
+  type TransitionResult,
+  type SuspendResult,
+} from "./capability/lifecycle.js";
+export {
+  requiredApproval,
+  resolveActivationApproval,
+  AUTO_ACTIVATION_BUDGETS,
+  isBudgetedBand,
+  InMemoryAutoActivationBudgetStore,
+  InMemoryKillSwitch,
+  type ApprovalRequirement,
+  type TrustGrantView,
+  type BudgetedRiskBand,
+  type AutoActivationBudgetStore,
+  type KillSwitchPort,
+  type ActivationDecision,
+} from "./capability/approvals.js";
+export {
+  InMemoryCredentialBroker,
+  type CredentialBroker,
+  type CredentialGrantRef,
+} from "./capability/credential-broker.js";
+export {
+  InMemoryCapabilityStore,
+  type CapabilityStore,
+  type CapabilityManifestRow,
+  type CapabilityStateRow,
+} from "./capability/ports.js";
+
+// Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
+// shipping unit ABOVE one capability_manifests row. Builds on capability/*
+// above; never redefines its trust-model types.
+export * from "./package/types.js";
+export { parsePackageManifest, PackageManifestValidationError } from "./package/manifest.js";
+export { computePackageRisk, packageHasLethalTrifecta, type PackageRiskResult } from "./package/risk.js";
+export {
+  InvalidPackageTransitionError,
+  advancePackageState,
+  promoteToAvailable,
+  rollbackFromHistory,
+  type PromoteResult,
+} from "./package/lifecycle.js";
+export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+
+// Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
+// P1 "Workspace Generator") — pure, zero-deps, additive to the pipeline.
+export {
+  compileBlueprint,
+  BlueprintCompileError,
+  type BlueprintColumnKind,
+  type BlueprintColumnSpec,
+  type BlueprintTableSpec,
+  type BlueprintSortSpec,
+  type BlueprintFilterOp,
+  type BlueprintRowFilter,
+  type DataViewKind,
+  type BlueprintViewKind,
+  type BlueprintFieldSpec,
+  type BlueprintEntitySpec,
+  type BlueprintViewSpec,
+  type WorkspaceBlueprint,
+  type NavigationEntry,
+  type CompiledWorkspace,
+  type CompiledViewConfig,
+} from "./blueprint.js";
+export {
+  InMemoryWorkspaceDefinitionStore,
+  type WorkspaceDefinitionStatus,
+  type WorkspaceDefinitionRow,
+  type WorkspaceDefinitionStore,
+} from "./workspace-definition.js";
+
+// Chief of Staff v1 (docs/wiki/roadmap.md P1 "Chief of Staff v1") — pure intent
+// classification + star-topology routing types. No I/O; apps/api's
+// chiefOfStaff.converse is the only place a RoutingDecision becomes a
+// pipeline.propose call.
+export {
+  classifyIntent,
+  assertChainDepth,
+  ChainDepthExceededError,
+  MAX_CHAIN_DEPTH,
+  type RoutableCapability,
+  type RoutingDecision,
+  type ClassifyIntentArgs,
+} from "./chief-of-staff.js";

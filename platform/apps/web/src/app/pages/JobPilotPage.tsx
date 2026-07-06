@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { DataViews, type DataRow } from "../dataviews/index";
 
 type JobPage = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
 
@@ -11,14 +13,19 @@ const STAGES = [
   "applying", "parked", "submitted", "confirmed", "rejected_by_user", "failed", "expired",
 ] as const;
 
-/** Maps to router.ts's `jobpilot.*` — the first Phase 4 backend, wiring the
- * pure `@bridge/jobpilot` scoring/state-machine logic to real persistence. */
+/** JobPilot's list, migrated to render through <DataViews> (P1 Workspace
+ * Generator: proving the shell/registry against a real page instead of only
+ * synthetic fixtures) — the data flow (fetch/create/transition via
+ * trpc.jobpilot.*) is UNCHANGED, only the list's rendering moved from a plain
+ * <ul> to the registered TableView/KanbanView via the DataViews shell. Maps to
+ * router.ts's `jobpilot.*`. */
 export function JobPilotPage() {
   const [page, setPage] = useState<JobPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
+  const [view, setView] = useState<ViewConfig>(() => defaultViewConfig("jobpilot.applications", "table"));
 
   function refresh() {
     trpc.jobpilot.list
@@ -48,7 +55,7 @@ export function JobPilotPage() {
     }
   }
 
-  async function advance(applicationId: string, from: string, to: string) {
+  async function advanceStage(applicationId: string, from: string, to: string) {
     setError(null);
     try {
       await trpc.jobpilot.transition.mutate({ workspaceId: PILOT_WORKSPACE, applicationId, from, to });
@@ -58,12 +65,50 @@ export function JobPilotPage() {
     }
   }
 
+  // TableSpec — the tracked-applications table's columns, schema-driven (not a
+  // hardcoded JSX column list) per @bridge/tables' "views as data" contract.
+  const spec: TableSpec = useMemo(
+    () => ({
+      id: "jobpilot.applications",
+      columns: [
+        { id: "title", label: "Title", kind: "text" },
+        { id: "company", label: "Company", kind: "text" },
+        { id: "location", label: "Location", kind: "text" },
+        { id: "stage", label: "Stage", kind: "select", options: [...STAGES] },
+        { id: "flag", label: "Flag", kind: "text" },
+      ],
+    }),
+    [],
+  );
+
+  // Flatten each item (job + nested application) into one row per @bridge/tables'
+  // Record<string, unknown> row shape — same data trpc.jobpilot.list already
+  // returns, just reshaped for the engine's filter/sort/group functions.
+  const rows: DataRow[] = useMemo(
+    () =>
+      (page?.items ?? []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        company: item.company,
+        location: item.location ?? "",
+        stage: item.application?.stage ?? "unknown",
+        flag: item.application?.flag ?? "",
+        _applicationId: item.application?.id ?? null,
+      })),
+    [page],
+  );
+
+  function nextStageFor(stage: string): string | null {
+    const idx = STAGES.indexOf(stage as (typeof STAGES)[number]);
+    return idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1]! : null;
+  }
+
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
+    <div className="p-6 space-y-6">
       <h1 className="text-lg font-medium">JobPilot</h1>
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      <section className="space-y-2 border rounded-md p-4">
+      <section className="space-y-2 border rounded-md p-4 max-w-2xl">
         <h2 className="text-sm font-medium">Track a job</h2>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
@@ -86,34 +131,35 @@ export function JobPilotPage() {
         <h2 className="text-sm font-medium">
           {page?.total ?? "…"} tracked{page?.hasMore ? " (more available)" : ""}
         </h2>
-        <ul className="divide-y">
-          {page?.items.map((item) => {
-            const app = item.application;
-            const idx = app ? STAGES.indexOf(app.stage as (typeof STAGES)[number]) : -1;
-            const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
-            return (
-              <li key={item.id} className="py-3 flex items-center justify-between gap-4 text-sm">
-                <div>
-                  <div className="font-medium">
-                    {item.title} · {item.company}
-                  </div>
-                  <div className="text-muted-foreground">
-                    {item.location ?? "—"} · stage: {app?.stage ?? "unknown"}
-                    {app?.flag ? ` · flag: ${app.flag}` : ""}
-                  </div>
-                </div>
-                {app && next && (
-                  <Button size="sm" variant="outline" onClick={() => advance(app.id, app.stage, next)}>
+        <DataViews
+          spec={spec}
+          view={{ ...view, groupBy: view.groupBy ?? "stage" }}
+          data={rows}
+          onViewChange={setView}
+        />
+        {/* Stage-advance actions stay separate from the generic view (DataViews
+            doesn't know about JobPilot's state machine) — a thin action list
+            keyed off the same rows already rendered above. */}
+        {rows.length > 0 && (
+          <div className="border rounded-md divide-y">
+            {rows.map((row) => {
+              const stage = String(row["stage"]);
+              const next = nextStageFor(stage);
+              const applicationId = row["_applicationId"] as string | null;
+              if (!applicationId || !next) return null;
+              return (
+                <div key={String(row["id"])} className="flex items-center justify-between gap-4 p-2 text-sm">
+                  <span>
+                    {String(row["title"])} · {String(row["company"])} — {stage}
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => advanceStage(applicationId, stage, next)}>
                     → {next}
                   </Button>
-                )}
-              </li>
-            );
-          })}
-          {page && page.items.length === 0 && (
-            <li className="py-2 text-sm text-muted-foreground">No jobs tracked yet.</li>
-          )}
-        </ul>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
     </div>
   );

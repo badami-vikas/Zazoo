@@ -11,6 +11,7 @@ import type {
   MediaCaptureRecord,
   MediaKind,
   MediaStatus,
+  ModelProvider,
   PolicyEvalInput,
   PolicyStore,
   RitualDefinition,
@@ -293,6 +294,34 @@ export class InMemoryMediaStore implements LocalMediaStore {
     const r = this.records.get(id);
     if (!r) throw new Error(`media: no record ${id}`);
     this.records.set(id, { ...r, status: "archived", archivedAt: "1970-01-01T00:00:00.000Z" });
+  }
+}
+
+/**
+ * Echo test double for `ModelProvider` — no network, deterministic. Lets
+ * in-memory mode (and any test) exercise a model-shaped seam without pulling
+ * in @bridge/models. Mirrors the `system`/`prompt` back so assertions can
+ * check request-shaping without a real model call. `plane` defaults to
+ * "local" (the safe default for capture/sensor-plane work); pass "cloud" to
+ * simulate a cloud-bound provider in tests that need to exercise plane gating.
+ */
+export class EchoModelProvider implements ModelProvider {
+  readonly id: string;
+  readonly plane: "local" | "cloud";
+  constructor(id = "echo", plane: "local" | "cloud" = "local") {
+    this.id = id;
+    this.plane = plane;
+  }
+  async complete(req: { system?: string; prompt: string; maxTokens?: number }): Promise<{ text: string }> {
+    return { text: req.system ? `${req.system}\n${req.prompt}` : req.prompt };
+  }
+  async embed(texts: string[]): Promise<number[][]> {
+    // Deterministic pseudo-embedding: vector of char-code sums, fixed length 8.
+    return texts.map((t) => {
+      const v = new Array(8).fill(0);
+      for (let i = 0; i < t.length; i++) v[i % 8] += t.charCodeAt(i);
+      return v;
+    });
   }
 }
 

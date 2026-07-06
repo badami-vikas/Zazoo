@@ -17,6 +17,8 @@ import { HelpdeskPage } from "./pages/HelpdeskPage";
 import { HelpdeskThread } from "./pages/HelpdeskThread";
 import { ResourcesPage } from "./pages/ResourcesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
+import { WorkspacePage } from "./pages/WorkspacePage";
+import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
@@ -53,6 +55,10 @@ export const router = createBrowserRouter([
       { path: "helpdesk/:ticketId", Component: HelpdeskThread },
 
       { path: "resources", Component: ResourcesPage },
+
+      { path: "workspace", Component: WorkspacePage },
+
+      { path: "chief-of-staff", Component: ChiefOfStaffPage },
     ],
   },
 ]);

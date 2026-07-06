@@ -1,5 +1,44 @@
 # Change Log
 
+- **2026-07-06** — **P1 Workspace Generator complete: onboarding pop-up + Chief of Staff v1 +
+  approval cards (ADR-019).** Landed the three remaining P1 slices on top of ADR-017's blueprint
+  compiler/`<DataViews>` shell. **Onboarding**: `apps/web/src/app/onboarding/questions.ts` (pure,
+  5-12 adaptive question step function — solo/team and domain choice branch later questions) +
+  `OnboardingDialog.tsx` (modal, previews with the real `compileBlueprint()`, submits via
+  `workspace.blueprint.propose` as a governed draft); `Layout.tsx` auto-opens it once when
+  `workspace.blueprint.get` reports no active definition, reopenable from the sidebar.
+  **Chief of Staff v1**: new `packages/core/src/chief-of-staff.ts` (`classifyIntent` — model path
+  + deterministic keyword fallback, both validated against the same closed capability registry;
+  `assertChainDepth`/`MAX_CHAIN_DEPTH=3` enforcing the star topology's hard chain-depth cap) + new
+  `chiefOfStaff.converse` tRPC procedure (always proposes a routed action through
+  `pipeline.propose`, never executes directly) + `apps/web/src/app/pages/ChiefOfStaffPage.tsx`
+  (chat panel). **Approval cards**: `ApprovalsPage.tsx` rewritten — what/why, an honestly-labeled
+  client-side risk estimate, requester, a real diff preview for blueprint-activation proposals
+  (with an honest gap note when the referenced draft isn't the active one), mobile-safe from
+  375px. 14 new `node --test` cases (10 core, 4 api). Full monorepo `turbo run build --force`
+  (19/19) / `turbo run test --force` (34/34 tasks) / `eslint .` (0 errors) all green;
+  `pnpm --filter @bridge/web build` + standalone `tsc --noEmit` on `apps/web` both clean. ADR-019
+  in decisions-log; roadmap.md P1 marked complete; open gaps in BUGS.md.
+
+- **2026-07-06** — **macOS capture core P0 slice: apps + clipboard providers real, screen stays
+  stub.** `platform/apps/desktop/src-tauri/src/sensor_bridge.rs` gains real lifecycle: new
+  `providers/` module (`apps.rs` = NSWorkspace frontmost-app polling, `clipboard.rs` = NSPasteboard
+  changeCount polling, both ~1s, via `objc2`/`objc2-foundation`/`objc2-app-kit`). `sensor_start`/
+  `sensor_stop` actually start/stop background poller threads; new `sensor_drain` command returns
+  buffered derived observations as JSON (JS side owns POSTing to CaptureLedger — Rust does no HTTP
+  egress); new `sensor_read_raw(id)` reads one raw entry from a 256-entry bounded ring buffer.
+  Clipboard's derived observation carries content-type + length + hash only — raw text lives only
+  in the ring buffer, structurally unreachable from the observation/event path (mirrors ADR-014's
+  raw/derived type split). `sensor_list` now reports honest per-provider `availability` +
+  `permission_note` (apps/clipboard = available, screen = not_implemented, Screen Recording
+  permission named) instead of a blanket not-implemented error. `sensor.capture` Tauri event fires
+  per drained observation (the blink-tell hook). `capture_screenshot_on_demand` stays a stub — no
+  headless grant path for the Screen Recording permission. Rationale + crate/polling/raw-split/
+  drain-design tradeoffs: ADR-016. Quality gates: `cargo check` clean, `cargo clippy -- -D
+  warnings` clean, `cargo test` 6/6 passing (pure `RawRingBuffer`/`ObservationQueue` logic in
+  `providers/mod.rs`; AppKit-touching code not unit-tested, no fake-ObjC-runtime seam exists —
+  verified via check+clippy instead). BUGS.md sensor-stub row added, marked partially resolved.
+
 - **2026-07-06** — **Frontend Migration Phase 4 — JobPilot/Helpdesk/Resources, the last of the
   four phases.** All three backends built from scratch (none had persistence before this):
   `platform/packages/db/src/{jobpilot,helpdesk,resources}-store.ts`, migration
@@ -1033,3 +1072,143 @@ Continued the frontend migration + 3 parallel doc/tooling tasks.
 Process note: caught one dispatched agent silently spawning research-only sub-agents instead of doing the work itself (against explicit instructions) — corrected via a direct message, it recovered and finished the task correctly.
 
 Full monorepo: `pnpm turbo run build --force` 16/16, `pnpm turbo run test --force` 29/29 (api), no regressions.
+
+## 2026-07-06 — VISION PIVOT: Living Software / Capability Lifecycle Platform
+
+User adopted new brand ("Software that builds itself around your work") and declared NO prior
+decision locked. Full re-audit of every prior decision executed (RETAIN/MODIFIED/SUPERSEDED/REVERSED
+verdicts). New: docs/raw/vision-pivot-living-software.md + docs/wiki/vision.md. Rewritten:
+wiki/roadmap.md (7 hypothesis-phases, kernel-first, capture day-1), wiki/decisions.md (pivot header +
+re-audit pointers), wiki/index.md, CLAUDE.md (brand/vocab/status). ADR-011 appended.
+
+Headlines: Capability Trust Model (computed risk × origin × audience; manifests; lifecycle states;
+credential broker; trust-based approvals — REVERSES human-only approvals, External band keeps human);
+workspaces = projections (Fork/Compose/Publish); desktop-first Tauri + day-1 capture sensors
+(capture → inspectable Memory + avatar blink tell; raw capture local-only); Mem0/Mastra adoption
+behind ports (REVERSES Initiatives-era reject); vocabulary re-scoped kernel-vs-workspace (DealPilot
+"Deal" now conformant — ESLint no-crm-vocab needs path re-scope); promotion evidence constants in
+policy_params; Helpdesk = first installable capability package (in-Bridge MVP scope re-confirmed).
+
+## 2026-07-06 — Vision pivot second-pass amendments + no-crm-vocab rule re-scoped
+
+Four user directives layered onto the same-day pivot (ADR-011): (1) no dummy data — REVERSES the
+`dummy_`-prefix convention, platform shows real connected data only going forward, existing
+instances = tracked debt; (2) Recon added as a second add-on capability package alongside Helpdesk;
+(3) multi-surface Notion model — web+desktop(Tauri)+mobile over one surface-agnostic kernel,
+"desktop-first" corrected to mean build sequencing only, Sensor SPI = optional desktop-only
+capability; (4) competitive framing drops OS-vendor hedging entirely (Vida/Invoko/AirJelly ·
+Notion AI/Fibery/Noloco · Retrace/AgentOS stated plainly), and competitor discovery for compiled
+products (e.g. DealPilot) must be the Learning Agent researching live at blueprint time, never a
+hardcoded lookup table. Updated: docs/raw/vision-pivot-living-software.md §12, wiki/vision.md,
+wiki/roadmap.md, wiki/decisions.md, ADR-012.
+
+Also completed the background task from the prior session: re-scoped `bridge/no-crm-vocab`
+ESLint rule to kernel paths only, implemented inside the rule (not eslint.config.js, which a
+config-protection hook blocks) via `context.filename`. tools/dealpilot 40→0 errors; kernel
+enforcement verified intact; fixed one real kernel-scope violation (`wiring.ts` existingDeals →
+existingDealPilotCandidates); full lint 0 errors, turbo test 30/30 green. See docs/BUGS.md.
+
+## 2026-07-06 — Capability Trust Model kernel implementation (P0, ADR-012)
+
+Implemented the P0 Capability Trust Model from the pivot's punch-list: `packages/core/src/
+capability/` (types/risk/lifecycle/approvals/credential-broker/ports), `DrizzleCapabilityStore`
+(`packages/db/src/capability-store.ts`), four new tables (`capability_manifests`,
+`capability_states`, `trust_grants`, `workspace_definitions` — schema.ts LAYER 8, mirrored into
+`docs/raw/SCHEMA.sql`, migration `0006_lonely_human_cannonball.sql`), and a `capability.*` tRPC
+namespace (register/submitForValidation/approve/activate/suspend/demoteOnDependencyChange/list/
+get) wired into both `buildPersistentPorts`/`buildInMemoryPorts`. Risk is computed (never
+self-declared) from manifest permissions/connectors with cycle-safe dependency-closure max;
+lifecycle guards the 90-day trusted TTL + immediate-suspend-on-failure + approval-gated demotion;
+approvals enforce a non-removable external-band hard floor + daily auto-activation budgets + a
+kill switch; the credential broker never returns raw secrets, only opaque grant references.
+`capability.approve` reuses the existing pipeline's `propose`/`decide` (human-only, agent-floor
+intact) rather than a bespoke approval path. 32 new `@bridge/core` tests + 7 new `@bridge/db`
+tests; full monorepo build/test/lint green (0 new errors). Full rationale + rejected alternatives
++ known gaps (no dedicated `capability` ResourceType yet; budgets/kill-switch in-memory only) in
+ADR-012 (docs/raw/decisions-log.md). Wiki punch-list (docs/wiki/decisions.md) updated to mark the
+capability_manifests/capability_states/trust_grants/workspace_definitions items done.
+
+## 2026-07-06 — Client architecture + context providers (user requirement, adopted)
+New verbatim requirement doc docs/raw/client-architecture-context-providers.md (frontmatter only,
+body untouched): one platform / three clients (desktop = depth + local execution runtime; browser =
+reach + delegation to desktop for privileged native ops; mobile = capture/awareness/approvals),
+cross-platform Voice Command Center, capability matrix, onboarding = pop-up screen. Sensing layer
+generalized from 3 sensor kinds to a CONTEXT PROVIDER registry (apps · accessibility · screen ·
+voice · clipboard · filesystem · browser · documents · emails) — "Learning Agent consumes context,
+not screenshots": consumers only ever see derived ContextEntry/Memory observations; raw payloads
+stay local-plane, enforced at the type level. New wiki page docs/wiki/clients.md; index updated.
+In-flight Sensor SPI build (P0 wave 1b) re-briefed mid-build to implement the provider registry.
+
+## 2026-07-06 — Research sweep + roadmap hardening (ADR-013)
+Web-research sub-agents surveyed agent frameworks (Claude Agent SDK, OpenAI Agents SDK, LangGraph,
+CrewAI, Agno, AutoGen, Hermes, OpenClaw, Vida/Invoko/AirJelly), skill specs (agentskills.io; Pi has
+NO public spec — pi.dev is an unrelated OSS agent), eval harnesses (promptfoo/Braintrust/Mastra),
+durable engines (Temporal/Hatchet/Inngest), workflow builders (Zapier/Make/n8n), and generated-
+workspace approval UX (Notion AI/Fibery/Noloco — none ship pre-apply approval; Bridge's blueprint-
+as-governed-proposal = moat). Synthesis: docs/raw/research-agent-skill-workflow-practices-2026.md.
+Roadmap wiki gained a "Practice hardening" section (two-gate promotion, lethal-trifecta rule,
+durable approval waits, star topology, Zapier-style version lifecycle, dry-run + per-step gates as
+differentiators). ADR-013 records rationale. Ops note: recursive sub-agent delegation caused a
+rate-limit cascade mid-session; killed and reran flat — lesson matches the star-topology finding.
+
+## 2026-07-06 — P0 kernel slice: ModelProvider real, Sensor SPI, Tauri desktop scaffold
+`ModelProvider` port added to @bridge/core (types only + EchoModelProvider double); new
+@bridge/models (OllamaProvider local · AnthropicProvider cloud · createModelRouter with
+local-never-falls-to-cloud rule); wired into apps/api wiring.ts both modes. New @bridge/sensors =
+Sensor SPI as context-provider registry (9 kinds, per-surface subsets, providers = optional
+built_in capabilities w/ computed risk, raw/derived split at type level, capture → timeline_entries
+Memory entry + sensor.capture blink event, kernel runs with zero providers). New apps/desktop =
+Tauri v2 shell scaffold hosting apps/web (sensor_bridge Rust stubs naming their macOS APIs; JS
+build/test no-op so turbo stays green). Docs: stack.md updated; ADR-014 (Sensor SPI design) +
+ADR-015 (ModelProvider seam) in decisions-log. Full build/test/lint green.
+
+## 2026-07-06 — P1 Workspace Generator: `<DataViews>` shell + blueprint compiler (ADR-017)
+New `packages/core/src/blueprint.ts` — pure `compileBlueprint()` (WorkspaceBlueprint ->
+CompiledWorkspace), enforcing the view grammar (registered node types only, relationship views
+restricted to graph|table, vocabulary label overrides) with zero deps on @bridge/tables (structural
+type mirror instead). New `WorkspaceDefinitionStore` port (core) + `DrizzleWorkspaceDefinitionStore`
+(db) binding the existing `workspace_definitions` table. New `workspace.blueprint.{get,propose,
+activate}` tRPC procedures — propose always drafts, activate routes through the same
+pipeline.propose/decide semantics capability.approve uses (governed proposal, human-only). New
+`apps/web/src/app/dataviews/` — `<DataViews>` shell + `ViewComponentRegistry` (the grammar
+enforcement point: unknown kind -> explicit error, never a dynamic render) + TableView/KanbanView/
+CalendarView (from-scratch month grid, no new dep)/GalleryView/GraphView (table fallback)/
+DashboardView, all mobile-width-safe from 375px. `JobPilotPage` migrated to render through
+`<DataViews>` (data flow unchanged); new `/workspace` route (`WorkspacePage`) compiles the active
+blueprint client-side and renders real graph.* data, honest empty states where unwired. 16 new
+`node --test` cases (10 core, 6 db). Full build (19/19) / test (34/34) / eslint (0 errors) green;
+`pnpm --filter @bridge/web build` passes. ADR-017 in decisions-log.
+
+## 2026-07-06 — Capability package format (docs-only, ADR-018)
+New `docs/raw/capability-package-format.md`: the shipping unit ABOVE one `capability_manifests`
+row (ADR-012 trust model = kernel this builds on, unchanged, no code touched this pass). Package
+manifest (`package.yaml`) bundles MULTIPLE capability manifests + a dir following agentskills.io
+progressive disclosure (L1 `package.yaml`/`README.md` · L2 `capabilities/` · L3 `scripts/`/
+`references/`/`assets/`/`migrations/`/`tests/`). Install = governed proposal through the existing
+`pipeline.propose`/`decide` — risk COMPUTED via `computeRisk()` over the full dependency closure
+(package hints never trusted), plus a NEW lethal-trifecta check over the UNION of a package's
+capabilities' permissions (catches a trifecta assembled across individually-safe capabilities).
+Versioning = Zapier single-live-version-per-workspace + auto-demote-prior-to-available; rollback
+= fork-from-history, never in-place; dependencies pinned EXACT (no ranges) — a bump reproposes
+through the same flow since risk can change. Sketched DealPilot (repackage of `tools/dealpilot`),
+Helpdesk (in-Bridge MVP, new Help Request entity), and Recon (not yet migrated from standalone
+`Tools/recon/`; target shape only, External-band always-human per decisions.md). Six open
+questions recorded (package migrations vs. shared schema, vocab-alignment enforcement mechanism,
+inherited capability `ResourceType` gap, package registry location, fixture-vocab question,
+diamond-dependency version conflicts). New `docs/wiki/packages.md` + one line in
+`docs/wiki/index.md`. ADR-018 in decisions-log.
+
+## 2026-07-06 — Roadmap v2 ingest + Commons decisions (ADR-020)
+User roadmap v2 saved verbatim (docs/raw/roadmap-v2-universal-commons.md), ingested as add-ons into docs/wiki/roadmap.md ("Roadmap v2 ingest" section + P2 reframed to add-on packages). ADR-020 records: Commons v1 curated registry + N thresholds, Bridge Cloud vs Commons service split, five platform agents, peers-not-ladder, dual-axis governance (Governance Agent auto-approves minor only), integration-over-custom principle, packages-not-products. Bridge Commons UI design prototype shipped as artifact (taste-skill, brand tokens).
+
+## 2026-07-06 — User decisions: progressive permissions, package links, ETA simulation
+(1) PROGRESSIVE PERMISSIONS: onboarding asks ONLY for permissions relevant to the stated user goal; everything else requested on demand at first use (just-in-time consent cards). Never a wall of permission prompts up front. (2) Package links APPROVED: shareable install links ("install DealPilot into your Bridge") — registry/link design goes to the P2/P5 backlog. (3) Simulation ordered: ETA searcher persona through the real onboarding questionnaire, output blueprint compared against DealPilot's actual design — report drives improve-agent vs approve-plan call. ADR to follow at commit (numbering held to avoid collision with in-flight Agent G append).
+
+## 2026-07-06 — Onboarding vs. DealPilot simulation (docs/raw/onboarding-vs-dealpilot-simulation.md)
+Ran a solo ETA searcher through the real `nextQuestion`/`buildBlueprintFromAnswers` step function (6 questions: solo, sales_deals domain, all 4 watch_first options, vocab_name="Deal", kanban, workspace name) and hand-traced `compileBlueprint`. Result: a near-empty shell — one Initiative("Deal") entity with only Name+Stage fields, kanban/signal-table/touchpoint-table views, `capabilities: []`. Compared against DealPilot's real code (`platform/tools/dealpilot/`): typed Industry/Geo/SDE/Revenue/Triage/ThesisFit fields, RYG kanban grouped by triage, real BizBuySell/BusinessBroker.net connectors, dedupe-composed sourcing pipeline, deterministic thesis-fit scoring. Biggest gap: onboarding never asks for domain-specific fields (same blueprint for "sales pipeline" and "job search"). Also found a real bug — the `watch_first: "calendar"` answer is collected but never read by `buildBlueprintFromAnswers` (silently dropped), and view `groupBy` is never set even when a stage field exists. Sourcing/dedupe/scoring logic correctly stays package-owned (out of onboarding's scope). Full differences table + per-item verdicts in the raw doc.
+
+## 2026-07-06 — P2 slice 1 shipped: package runtime + install flow + first two packages (ADR-021)
+Built ADR-018 as code. `packages/core/src/package/` (types/manifest/risk/lifecycle/ports): parsePackageManifest (pure, typed errors, camelCase+snake_case), computePackageRisk (max over bundled+dep-closure capabilities + lethal-trifecta UNION check across capabilities ⇒ external), single-live-version lifecycle (promote auto-demotes prior→legacy; rollback = fork-from-history, never revert), PackageStore port + in-memory impl. `packages.{register,install,list,get,promote,rollback}` tRPC in apps/api — install routes through the same resolveActivationApproval + pipeline.propose path capability.approve uses; every bundled capability registers as a draft capability_manifests row. DealPilot repackaged (`tools/dealpilot/bridge.package.yaml`, 3 capabilities, computes external — no logic rewritten). Helpdesk package MVP: new `tools/helpdesk` (@bridge/helpdesk pure routing/offer-draft logic + bridge.package.yaml) + `helpdesk.route`/`helpdesk.stageAnswer` (answer staged via pipeline.propose as a signal). Recon untouched (stays standalone). Filename deviation: `bridge.package.yaml` not `package.yaml` (pnpm treats package.yaml as a project manifest — shadows package.json). Gates: build 20/20 (was 19, +@bridge/helpdesk), test 36/36 tasks (was 34; core 150 cases, api 42), eslint 0 errors. Gaps → docs/BUGS.md: in-memory package store in both modes, capability re-registration not idempotent across package versions, interim resourceType:"skill" token, caller-supplied routing topics. Wiki: packages.md + roadmap.md P2 annotated.
+
+## 2026-07-06 — GroqProvider added (ADR-022)
+GroqProvider implementing ModelProvider port, wired fail-closed alongside Anthropic in apps/api/src/wiring.ts. Key stored in local git-ignored platform/.env only. 7 new tests, models package 15/15 green.

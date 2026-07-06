@@ -43,6 +43,13 @@
       "when": 1783316500666,
       "tag": "0005_dashing_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783349830111,
+      "tag": "0006_lonely_human_cannonball",
+      "breakpoints": true
     }
   ]
 }

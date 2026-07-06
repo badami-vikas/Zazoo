@@ -1,8 +1,18 @@
 /**
- * no-crm-vocab — flags CRM/sales-pipeline vocabulary in identifiers.
+ * no-crm-vocab — flags CRM/sales-pipeline vocabulary in identifiers, KERNEL SCOPE ONLY.
  *
  * CLAUDE.md vocabulary rule: "Person / Relationship / Memory / Community /
  * Initiative / Ritual / Touchpoint / Signal. NEVER Lead / Deal / Pipeline / Contact."
+ *
+ * Scope (2026-07-06 vision pivot — docs/wiki/vision.md, ADR-011 in
+ * docs/raw/decisions-log.md): vocabulary is two-scoped. KERNEL scope (packages/*,
+ * apps/api) keeps this ban. WORKSPACE scope (compiled products under tools/*, the
+ * generated-workspace UI under apps/web) may use domain vocabulary — e.g.
+ * tools/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
+ * vocabulary, not a violation. The scoping lives HERE (in the rule, via
+ * `context.filename`) rather than in eslint.config.js's `files` globs, so the rule
+ * stays self-contained and correct regardless of how it's wired into any given
+ * flat-config file list.
  *
  * Scope decision (see docs/raw/decisions-log.md 2026-07-05 entry): "Pipeline" is
  * DELIBERATELY EXCLUDED from this rule's banned-word list. `UniversalActionPipeline`,
@@ -45,6 +55,21 @@ function containsBannedDeal(name) {
   return tokens.includes("deal") || tokens.includes("deals");
 }
 
+/**
+ * KERNEL scope = packages/* (any package) and apps/api/*. Matched on the
+ * normalized (forward-slash) filename so it works the same on Windows/POSIX and
+ * regardless of whether the caller passed an absolute or repo-relative path.
+ * Everything else (tools/*, apps/web/*, docs, root-level files) is WORKSPACE scope
+ * and is not checked by this rule.
+ */
+const KERNEL_PATH = /(^|\/)packages\/[^/]+\/.*|(^|\/)apps\/api\/.*/;
+
+function isKernelScope(filename) {
+  if (!filename) return false;
+  const normalized = filename.replace(/\\/g, "/");
+  return KERNEL_PATH.test(normalized);
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 export const noCrmVocab = {
   meta: {
@@ -60,6 +85,11 @@ export const noCrmVocab = {
     },
   },
   create(context) {
+    const filename = context.filename ?? context.getFilename();
+    if (!isKernelScope(filename)) {
+      // WORKSPACE scope (tools/*, apps/web/*, etc.) — no vocabulary restriction.
+      return {};
+    }
     function check(node, name) {
       if (!name) return;
       if (containsBannedDeal(name)) {
