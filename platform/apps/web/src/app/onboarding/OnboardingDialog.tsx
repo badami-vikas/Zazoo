@@ -45,14 +45,22 @@ export interface OnboardingDialogProps {
 
 type Step = "questions" | "preview" | "submitted";
 
+/** Outcome of the propose→activate chain, so the final step can tell the user
+ * what ACTUALLY happened instead of a generic "check Approvals" that may be
+ * empty (the dead-end bug in BUGS.md, found live-testing 2026-07-06). */
+type SubmitOutcome = "activated" | "pending_review" | null;
+
 /**
  * Onboarding pop-up (docs/wiki/clients.md: "pop-up screen, not a separate
  * page/app" — user decision 2026-07-06). Runs the adaptive question set from
  * ./questions.ts, compiles a live preview with the SAME compileBlueprint()
  * apps/api validates against server-side, and submits via
- * workspace.blueprint.propose as a governed DRAFT — never activated directly.
- * The pre-apply preview + approval requirement is the moat documented in
- * roadmap.md ("NO competitor ships pre-apply approval").
+ * workspace.blueprint.propose followed by workspace.blueprint.activate — the
+ * activation is itself a governed pipeline proposal (ledgered; parks in
+ * Approvals when policy requires human review), so chaining them never skips
+ * governance, it just makes the outcome visible. The pre-apply preview +
+ * approval requirement is the moat documented in roadmap.md ("NO competitor
+ * ships pre-apply approval").
  *
  * Dismissible + re-openable: this component is purely controlled (`open`/
  * `onOpenChange`) so the sidebar can reopen it at any time; it does not track
@@ -65,6 +73,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [textDraft, setTextDraft] = useState("");
+  const [outcome, setOutcome] = useState<SubmitOutcome>(null);
 
   const question = useMemo(() => nextQuestion(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
@@ -83,6 +92,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
     setStep("questions");
     setError(null);
     setTextDraft("");
+    setOutcome(null);
     onOpenChange(false);
   }
 
@@ -103,7 +113,19 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
     setSubmitting(true);
     setError(null);
     try {
-      await trpc.workspace.blueprint.propose.mutate({ workspaceId: PILOT_WORKSPACE, blueprint });
+      // propose writes the draft; activate is the governed step (pipeline
+      // round-trip, ledgered). Without chaining them the draft was orphaned:
+      // Approvals showed nothing and /workspace stayed empty (BUGS.md
+      // 2026-07-06 "onboarding leaves an orphaned draft").
+      const { definition } = await trpc.workspace.blueprint.propose.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        blueprint,
+      });
+      const result = await trpc.workspace.blueprint.activate.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        definitionId: definition.id,
+      });
+      setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
       onProposed?.();
     } catch (e) {
@@ -206,7 +228,8 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
                     : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground pt-1">
-                  Honest note: this is a draft. Nothing is created until you approve it in Approvals.
+                  Honest note: submitting proposes this through governance. If policy requires review, it waits in
+                  Approvals; otherwise it activates immediately.
                 </div>
               </div>
             )}
@@ -224,10 +247,17 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
 
         {step === "submitted" && (
           <div className="space-y-3">
-            <p className="text-sm">
-              Proposed. Your workspace draft is now waiting for approval in the <strong>Approvals</strong> inbox — it
-              won't apply until you (or a teammate) approve it there.
-            </p>
+            {outcome === "activated" ? (
+              <p className="text-sm">
+                Your workspace is live. Open the <strong>Workspace</strong> page to see it — every change from here on
+                goes through the same propose-and-approve flow you just used.
+              </p>
+            ) : (
+              <p className="text-sm">
+                Proposed. Governance policy requires a human decision on this one — it's waiting in the{" "}
+                <strong>Approvals</strong> inbox and applies the moment it's approved.
+              </p>
+            )}
             <DialogFooter>
               <Button onClick={resetAndClose}>Done</Button>
             </DialogFooter>
