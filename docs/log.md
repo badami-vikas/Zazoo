@@ -1212,3 +1212,6 @@ Built ADR-018 as code. `packages/core/src/package/` (types/manifest/risk/lifecyc
 
 ## 2026-07-06 — GroqProvider added (ADR-022)
 GroqProvider implementing ModelProvider port, wired fail-closed alongside Anthropic in apps/api/src/wiring.ts. Key stored in local git-ignored platform/.env only. 7 new tests, models package 15/15 green.
+
+## 2026-07-06 — Shell IA restructure decided (ADR-023)
+Six-container chrome (Intelligence/KnowledgeBase/Settings bottom; pinned Projects+Tools left). Network→KnowledgeBase (People/Communities/Resources/Projects toggles). Ritual→Workflow, Initiative→Project as DISPLAY labels only (kernel ids unchanged). Signals merged into Approvals as tabs (pinned governance tool). View convertibility rules (kanban/card always; calendar⇐date; map⇐location; graph⇐relation) into compileBlueprint + DataViews switcher. Implementation wave launched (web IA agent + kernel/api agent).

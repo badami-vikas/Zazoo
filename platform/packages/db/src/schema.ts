@@ -935,3 +935,53 @@ export const workspaceDefinitions = pgTable(
   },
   (t) => [index("workspace_definitions_ws_idx").on(t.workspaceId, t.version)],
 );
+
+/**
+ * One row per (workspace, package name, version) install — the persistent
+ * binding for @bridge/core's `PackageStore` port (packages/core/src/package/
+ * ports.ts's `PackageInstallationRow`). Mirrors `capabilityManifests`'
+ * shape one level up (ADR-018's format doc, ADR-021's P2 slice 1, ADR-023's
+ * Drizzle-backing pass): a package BUNDLES one or more capability manifests,
+ * and this table is the shipping-unit row those bundles get installed as.
+ * `manifest` jsonb round-trips the FULL parsed `PackageManifest` (name/
+ * version/kind/capabilities[]/dependencies/etc — package/types.ts), validated
+ * at the read/write boundary the same way capability-store.ts validates
+ * `dependencies`/`evidence` — @bridge/core stays zero-runtime-deps, so the
+ * zod schema for this jsonb lives in package-store.ts, not here.
+ * `lineageManifestId` self-references this table (a rollback fork points
+ * back at the historical row it forked from — lifecycle.ts's
+ * `rollbackFromHistory`), nullable for a v1 package. NOT unique on
+ * (workspace_id, name, version) the way `capability_manifests_uq` is —
+ * package re-registration idempotency is handled at the store layer
+ * (package-store.ts's `create`: same name+version reuses the existing row
+ * instead of inserting a duplicate), not via a DB constraint, because a
+ * package's `manifest` jsonb can legitimately be re-registered with the
+ * IDENTICAL name+version during iterative local development before its
+ * first real install (see ADR-023).
+ */
+export const packageInstallations = pgTable(
+  "package_installations",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    packageName: text("package_name").notNull(),
+    packageVersion: text("package_version").notNull(),
+    manifest: jsonb("manifest").notNull().default({}),
+    /** Computed (never self-declared, mirrors capability_manifests.computed_risk):
+     * informational | advisory | transformational | operational | external. */
+    computedRisk: text("computed_risk").notNull().default("informational"),
+    /** Single-live-version lifecycle state (package/lifecycle.ts):
+     * private | promoted | available | legacy | deprecating | deprecated. */
+    state: text("state").notNull().default("private"),
+    /** pending_review | installed | rejected — registration/install outcome,
+     * orthogonal to `state` (mirrors capability_states.suspended being a
+     * separate flag from capability_states.state). */
+    status: text("status").notNull().default("pending_review"),
+    lineageManifestId: uuid("lineage_manifest_id"),
+    createdAt: now(),
+  },
+  (t) => [
+    index("package_installations_ws_name_idx").on(t.workspaceId, t.packageName),
+    index("package_installations_ws_state_idx").on(t.workspaceId, t.packageName, t.state),
+  ],
+);

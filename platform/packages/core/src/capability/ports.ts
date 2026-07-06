@@ -44,6 +44,13 @@ export interface CapabilityStateRow {
 export interface CapabilityStore {
   createManifest(row: Omit<CapabilityManifestRow, "createdAt">): Promise<CapabilityManifestRow>;
   getManifest(id: string): Promise<CapabilityManifestRow | null>;
+  /** Look up an existing manifest by its (workspace_id, name, version) natural
+   * key — the same triple `capability_manifests_uq` enforces at the DB. Lets a
+   * caller (e.g. `packages.install`, ADR-023) check-before-insert instead of
+   * colliding with the unique constraint when re-registering a bundled
+   * capability whose (name, version) hasn't changed across a package
+   * re-install. Returns null when no such row exists yet. */
+  getManifestByNameVersion(workspaceId: string, name: string, version: string): Promise<CapabilityManifestRow | null>;
   listManifests(workspaceId: string, opts: { limit: number; offset: number }): Promise<{ items: CapabilityManifestRow[]; total: number }>;
 
   /** Insert-or-update the ONE current-state row for a manifest (unique manifest_id). */
@@ -68,6 +75,13 @@ export class InMemoryCapabilityStore implements CapabilityStore {
 
   async getManifest(id: string): Promise<CapabilityManifestRow | null> {
     return this.manifests.get(id) ?? null;
+  }
+
+  async getManifestByNameVersion(workspaceId: string, name: string, version: string): Promise<CapabilityManifestRow | null> {
+    for (const m of this.manifests.values()) {
+      if (m.workspaceId === workspaceId && m.name === name && m.version === version) return m;
+    }
+    return null;
   }
 
   async listManifests(

@@ -91,6 +91,7 @@ import {
   DrizzleResourcesStore,
   DrizzleCapabilityStore,
   DrizzleWorkspaceDefinitionStore,
+  DrizzlePackageStore,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
 } from "@bridge/db";
@@ -171,10 +172,9 @@ export interface Wiring {
    * compileBlueprint (docs/wiki/vision.md "View grammar"). */
   workspaceDefinitionStore: WorkspaceDefinitionStore;
   /** P2 capability packages (docs/raw/capability-package-format.md, ADR-018) —
-   * package_installations-shaped rows. In-memory in BOTH modes for now (no
-   * Drizzle-backed table exists yet — see docs/BUGS.md); mirrors the honest-gap
-   * pattern capabilityBudgets/capabilityKillSwitch already follow rather than
-   * silently faking persistence. */
+   * package_installations-shaped rows. Real DrizzlePackageStore in persistent
+   * mode (ADR-023); InMemoryPackageStore in in-memory mode — same split every
+   * other Drizzle-backed store in this file already follows. */
   packageStore: PackageStore;
   /** Daily auto-activation budget counters (informational/advisory bands). In-memory in both
    * modes for now — no persistent implementation exists yet (mirrors the ledger-residency-gap
@@ -292,6 +292,10 @@ export interface ModePorts {
   resourcesStore: DrizzleResourcesStore;
   capabilityStore: CapabilityStore;
   workspaceDefinitionStore: WorkspaceDefinitionStore;
+  /** P2 capability packages (docs/raw/capability-package-format.md, ADR-018/ADR-023) —
+   * package_installations-shaped rows. Real Drizzle-backed table in persistent mode
+   * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
+  packageStore: PackageStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
@@ -354,6 +358,9 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     resourcesStore: new DrizzleResourcesStore(db),
     capabilityStore: new DrizzleCapabilityStore(db),
     workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(db),
+    // P2 packages: real Drizzle-backed store in persistent mode (ADR-023) — no
+    // longer in-memory-only once DATABASE_URL is set.
+    packageStore: new DrizzlePackageStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
     // no fake fallback, same fail-closed posture as the Google gateway.
@@ -403,6 +410,9 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     resourcesStore: new DrizzleResourcesStore(localDb),
     capabilityStore: new DrizzleCapabilityStore(localDb),
     workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(localDb),
+    // In-memory mode keeps packages in-memory (no persistent backing store needed
+    // for zero-infra dev/test) — persistent mode uses the real DrizzlePackageStore.
+    packageStore: new InMemoryPackageStore(),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
     modelProviders: [new EchoModelProvider()],
@@ -457,6 +467,7 @@ export async function buildWiring(): Promise<Wiring> {
     resourcesStore,
     capabilityStore,
     workspaceDefinitionStore,
+    packageStore,
     modelProviders,
     memory,
     closeDb,
@@ -474,9 +485,9 @@ export async function buildWiring(): Promise<Wiring> {
   const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
   const capabilityKillSwitch = new InMemoryKillSwitch();
   const credentialBroker = new InMemoryCredentialBroker();
-  // P2 capability packages — in-memory in both modes (docs/BUGS.md: no Drizzle
-  // package_installations table exists yet).
-  const packageStore: PackageStore = new InMemoryPackageStore();
+  // P2 capability packages — now backed by DrizzlePackageStore in persistent mode
+  // (ADR-023); `packageStore` comes from modePorts (see above), same split every
+  // other per-mode port already follows.
 
   // DealPilot: the first tool wired through the generic manifest intake seam
   // (@bridge/tool-kit createToolSourceSkill/ToolIntakeMaterializer) — sourcing quarantines

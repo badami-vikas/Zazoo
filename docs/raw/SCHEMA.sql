@@ -368,6 +368,25 @@ create table workspace_definitions (                -- generated workspace bluep
 );
 create index on workspace_definitions (workspace_id, version);
 
+-- P2 package runtime (ADR-021/ADR-023): one row per (workspace, package name, version) install —
+-- the shipping unit ABOVE one capability_manifests row (a package bundles >=1 capability manifests).
+-- NOT unique on (workspace_id, package_name, package_version) via a DB constraint — re-registration
+-- idempotency (same name+version returns the existing row) is enforced at the store layer
+-- (package-store.ts's create()), not the database, since a package manifest can legitimately be
+-- re-registered unchanged during iterative local dev before its first real install.
+create table package_installations (
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
+  package_name text not null, package_version text not null,
+  manifest jsonb not null default '{}',              -- full parsed PackageManifest (name/version/kind/capabilities[]/dependencies/etc)
+  computed_risk text not null default 'informational', -- COMPUTED at install time (computePackageRisk), same vocabulary as capability_manifests.computed_risk
+  state text not null default 'private',             -- private|promoted|available|legacy|deprecating|deprecated (package/lifecycle.ts)
+  status text not null default 'pending_review',     -- pending_review|installed|rejected — orthogonal to `state`
+  lineage_manifest_id uuid,                           -- self-FK: a rollback fork points back at the historical row it forked from
+  created_at timestamptz not null default now()
+);
+create index on package_installations (workspace_id, package_name);
+create index on package_installations (workspace_id, package_name, state);
+
 -- =====================================================================
 -- RLS — APPLIED (Supabase project Bridge AI; migration `rls_policies_v1`). Isolation PROVEN 2026-05-31 via JWT-impersonation test.
 -- Helpers (SECURITY DEFINER, search_path=public) break policy recursion; EXECUTE locked to `authenticated` (migration `harden_helper_grants`):

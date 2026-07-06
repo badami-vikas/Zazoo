@@ -122,6 +122,25 @@ export class DrizzleCapabilityStore implements CapabilityStore {
     return row ? unpackManifest(row) : null;
   }
 
+  /** Idempotency lookup (ADR-023): the (workspace_id, name, version) natural
+   * key `capability_manifests_uq` enforces at the DB — lets a caller check
+   * before insert instead of colliding with the unique constraint. */
+  async getManifestByNameVersion(workspaceId: string, name: string, version: string): Promise<CapabilityManifestRow | null> {
+    const rows = await this.#db
+      .select()
+      .from(capabilityManifests)
+      .where(
+        and(
+          eq(capabilityManifests.workspaceId, workspaceId),
+          eq(capabilityManifests.name, name),
+          eq(capabilityManifests.version, version),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? unpackManifest(row) : null;
+  }
+
   async listManifests(
     workspaceId: string,
     opts: { limit: number; offset: number },
