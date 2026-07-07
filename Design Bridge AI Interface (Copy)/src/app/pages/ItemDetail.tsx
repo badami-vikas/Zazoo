@@ -469,6 +469,40 @@ export function ItemDetail() {
                     <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>Private note</div>
                     <EditableText multiline text={fv('privateNote', 'Add a private note — only you can see this.')} onSave={(val: string) => setField('privateNote', val)} className="text-sm text-[var(--color-navy-mid)]" />
                   </div>
+                  {/* F4b — per-relationship visibility (schema: people.visibility; default from workspace_settings.default_visibility). Moved here from the orphaned PersonTiers.tsx when ItemDetail's inline two-tier view superseded it. */}
+                  <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Eye className="w-3.5 h-3.5" style={{ color: 'var(--color-navy-mid)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-navy-mid)' }}>Who can see this relationship</span>
+                    </div>
+                    <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--color-surface)' }}>
+                      {([
+                        ['private', Lock, 'Only you', 'No one else can see this relationship or its notes.'],
+                        ['team', Users, 'Your team', 'Everyone on your team can see this relationship.'],
+                        ['workspace', Globe, 'Whole workspace', 'Everyone in the workspace can see this relationship.'],
+                      ] as [string, LucideIcon, string, string][]).map(([v, VIcon, vLabel]) => {
+                        const active = fv('visibility', 'team') === v;
+                        return (
+                          <button
+                            key={v}
+                            onClick={() => setField('visibility', v)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                            style={{ backgroundColor: active ? 'white' : 'transparent', color: active ? 'var(--color-steel)' : 'var(--color-warm-gray)', boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+                          >
+                            <VIcon className="w-3.5 h-3.5" /> {vLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[11px]" style={{ color: 'var(--color-navy-mid)' }}>
+                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the workspace can see this relationship.' }[fv('visibility', 'team')]}
+                      </span>
+                      {fv('visibility', 'team') === 'team' && (
+                        <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>workspace default</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
               {s.id === 'opinions' && <Opinions />}
