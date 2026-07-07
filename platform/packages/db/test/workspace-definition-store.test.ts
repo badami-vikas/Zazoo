@@ -9,7 +9,7 @@ import { createLocalDb, DrizzleWorkspaceDefinitionStore, parseBlueprint, schema 
 import type { WorkspaceBlueprint } from "@bridge/core";
 
 async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "dummy_ws_blueprint" }).returning({ id: schema.workspaces.id });
+  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_blueprint" }).returning({ id: schema.workspaces.id });
   assert.ok(ws);
   return ws.id;
 }

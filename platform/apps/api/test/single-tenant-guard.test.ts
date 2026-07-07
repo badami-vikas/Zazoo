@@ -20,7 +20,7 @@ import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 
-const NON_PILOT_WORKSPACE = "d0000000-0000-4000-a000-00000000dead"; // dummy_ — deliberately not PILOT_WORKSPACE
+const NON_PILOT_WORKSPACE = "d0000000-0000-4000-a000-00000000dead"; // test_fixture_ — deliberately not PILOT_WORKSPACE
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -32,7 +32,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "dummy_single_tenant_guard_user" },
+    identity: { type: "user", id: "test_fixture_single_tenant_guard_user" },
   });
 }
 
@@ -83,10 +83,10 @@ test("action.propose: a non-pilot workspaceId is rejected with FORBIDDEN (guard 
       () =>
         caller.action.propose({
           workspaceId: NON_PILOT_WORKSPACE,
-          actor: { type: "user", id: "dummy_single_tenant_guard_user" },
+          actor: { type: "user", id: "test_fixture_single_tenant_guard_user" },
           action: "write",
           resourceType: "touchpoint",
-          inputs: { note: "dummy_note" },
+          inputs: { note: "test_fixture_note" },
           skill: "stageMutation",
         }),
       (err: unknown) => {
@@ -106,10 +106,10 @@ test("action.propose: the pilot workspace's own id still works normally", async 
     const caller = await makeCaller(wiring);
     const result = await caller.action.propose({
       workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: "dummy_single_tenant_guard_user" },
+      actor: { type: "user", id: "test_fixture_single_tenant_guard_user" },
       action: "write",
       resourceType: "touchpoint",
-      inputs: { note: "dummy_note" },
+      inputs: { note: "test_fixture_note" },
       skill: "stageMutation",
     });
     assert.ok(result.id, "propose should succeed and return a proposal id for the pilot workspace");

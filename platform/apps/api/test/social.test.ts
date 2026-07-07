@@ -2,11 +2,13 @@
  * Slice C/D + E/F — social provider framework + read/write pipeline wiring.
  *
  * Tests the orchestration against the GovernedGate contract with a recording gate,
- * the fixture provider seam, and an in-memory local quarantine. Proves:
- *  - read: capture → local quarantine → pending Touchpoint proposals, with the
- *    private body kept OUT of the proposal (residency);
+ * the unconfigured-provider seam (no live client/creds — real-data-only policy,
+ * 2026-07-06: this seam sources nothing rather than fabricating content), and an
+ * in-memory local quarantine. Proves:
+ *  - read: with no live provider wired, sourcing is an honest no-op (zero items,
+ *    zero proposals) — never invented posts/DMs;
  *  - write: the draft step never publishes; egress (external:send) fires only after
- *    a gate approval.
+ *    a gate approval, and without a live client publish() honestly reports failure.
  * The gate's own authority + agent-floor enforcement is covered by @bridge/core.
  */
 import assert from "node:assert/strict";
@@ -49,63 +51,49 @@ class MemQuarantine implements QuarantineStore {
 }
 
 const run = {} as RunCtx; // the gate contract ignores run in these tests
-const actor: Actor = { type: "agent", id: "dummy_integration_agent", plane: "cloud" };
+const actor: Actor = { type: "agent", id: "test_fixture_integration_agent", plane: "cloud" };
 
-test("read: source → local quarantine → pending Touchpoint proposals; private body stays local", async () => {
+test("read: with no live provider wired, sourcing is an honest no-op (no fabricated items)", async () => {
   const gate = new RecordingGate();
   const quarantine = new MemQuarantine();
-  const provider = resolveProvider("x", {}); // no creds => fixture seam
+  const provider = resolveProvider("x", {}); // no creds => unconfigured seam
   assert.equal(provider.mode, "fixture");
 
   const results = await sourceToProposals({
     gate,
     provider,
     quarantine,
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     actor,
     run,
   });
 
-  assert.equal(results.length, 2);
-  assert.ok(results.every((r) => r.proposal.status === "pending_review"));
-  for (const req of gate.proposals) {
-    assert.equal(req.resourceType, "touchpoint");
-    assert.equal(req.action, "write");
-    assert.equal(req.dataScope, "private");
-    // Residency: the raw private body must NEVER ride the proposal.
-    assert.ok(!JSON.stringify(req.inputs).includes("direct message body"));
-  }
-  // The body IS captured locally in quarantine.
-  assert.equal(quarantine.entries.length, 2);
-  assert.ok(quarantine.entries.some((e) => e.item.text.includes("direct message body")));
+  // No live provider is wired, so there is nothing real to source — zero items,
+  // zero proposals, zero quarantine entries. Never invented posts/DMs.
+  assert.equal(results.length, 0);
+  assert.equal(gate.proposals.length, 0);
+  assert.equal(quarantine.entries.length, 0);
 });
 
-test("sourceToProposals: proposal inputs.mode is 'fixture' for a fixture provider", async () => {
+test("sourceToProposals: an unconfigured provider never populates the quarantine or gate", async () => {
   const gate = new RecordingGate();
   const quarantine = new MemQuarantine();
-  const provider = resolveProvider("x", {}); // no creds => fixture seam
+  const provider = resolveProvider("x", {}); // no creds => unconfigured seam
   assert.equal(provider.mode, "fixture");
 
   const results = await sourceToProposals({
     gate,
     provider,
     quarantine,
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     actor,
     run,
   });
 
-  // Every proposal's inputs record the provider mode, so the audit trail can
-  // always answer "was this fixture or live data?" without reading code.
-  for (const req of gate.proposals) {
-    assert.equal((req.inputs as { mode?: string }).mode, "fixture");
-  }
-  for (const r of results) {
-    assert.equal(r.mode, "fixture");
-  }
+  assert.deepEqual(results, []);
 });
 
-test("resolveProvider: warns when falling back to the fixture seam (no live factory registered)", () => {
+test("resolveProvider: warns when falling back to the unconfigured seam (no live factory registered)", () => {
   const warnCalls: unknown[][] = [];
   const originalWarn = console.warn;
   console.warn = (...args: unknown[]) => {
@@ -122,7 +110,7 @@ test("resolveProvider: warns when falling back to the fixture seam (no live fact
   assert.match(String(message), /"facebook".*no live provider registered/);
 });
 
-test("write: draft never publishes; egress fires only after gate approval", async () => {
+test("write: draft never publishes; egress fires only after gate approval; unconfigured publish reports failure honestly", async () => {
   const gate = new RecordingGate();
   const base = resolveProvider("x", {});
   let publishCount = 0;
@@ -137,8 +125,8 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
   const draft = await draftOutbound({
     gate,
     provider,
-    action: { kind: "post", text: "dummy_outbound post" },
-    workspaceId: "dummy_ws",
+    action: { kind: "post", text: "test_fixture_outbound post" },
+    workspaceId: "test_fixture_ws",
     actor,
     run,
   });
@@ -150,7 +138,8 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
   assert.equal(draft.status, "pending_review");
   assert.equal(publishCount, 0);
 
-  // Approve → publish fires exactly once.
+  // Approve → publish fires exactly once. No live client is wired for "x" in this
+  // test, so the honest result is a reported failure (never a fabricated success).
   const res = await approveAndPublish({
     gate,
     provider,
@@ -161,16 +150,16 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
   assert.equal(gate.decisions.length, 1);
   assert.equal(gate.decisions[0]?.decision, "approve");
   assert.equal(publishCount, 1);
-  assert.equal(res.ok, true);
+  assert.equal(res.ok, false);
 });
 
 test("fixture provider: two drafts created before any publish get distinct draftIds", async () => {
   const provider = makeFixtureProvider("x", []);
-  const first = await provider.draftAction({ kind: "post", text: "dummy_first" });
-  const second = await provider.draftAction({ kind: "post", text: "dummy_second" });
+  const first = await provider.draftAction({ kind: "post", text: "test_fixture_first" });
+  const second = await provider.draftAction({ kind: "post", text: "test_fixture_second" });
   // Regression: draftId was previously derived from `published.length + 1`, which only
-  // publish() mutates — two drafts before any publish shared "dummy_x_draft_1".
+  // publish() mutates — two drafts before any publish shared the same draftId.
   assert.notEqual(first.draftId, second.draftId);
-  assert.equal(first.draftId, "dummy_x_draft_1");
-  assert.equal(second.draftId, "dummy_x_draft_2");
+  assert.equal(first.draftId, "unconfigured_x_draft_1");
+  assert.equal(second.draftId, "unconfigured_x_draft_2");
 });

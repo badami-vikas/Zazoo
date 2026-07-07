@@ -7,7 +7,7 @@
 //
 // Two modes, same contract — exactly like data/api.ts:
 //   • API_ENABLED (VITE_API_URL set) → the panel talks to the real governed store over tRPC.
-//   • default OFF                    → an in-memory governed store, seeded with `dummy_` grants,
+//   • default OFF                    → an in-memory governed store, seeded with baseline default grants,
 //                                      drives the panel so it is fully interactive offline.
 import { API_ENABLED, apiListScopes, apiGrantScope, apiRevokeScope } from './api';
 
@@ -124,8 +124,8 @@ let offlineSeq = 7001;
 function ensureSeed(id: SocialProviderId): ScopeGrant[] {
   if (!offlineScopes.has(id)) {
     offlineScopes.set(id, [
-      { id: `dummy_perm_${id}_fetch`, resourceType: 'external:fetch', action: 'read', effect: 'allow', expiresAt: null },
-      { id: `dummy_perm_${id}_touchpoint`, resourceType: 'touchpoint', action: 'write', effect: 'allow', expiresAt: null },
+      { id: `perm_${id}_fetch`, resourceType: 'external:fetch', action: 'read', effect: 'allow', expiresAt: null },
+      { id: `perm_${id}_touchpoint`, resourceType: 'touchpoint', action: 'write', effect: 'allow', expiresAt: null },
     ]);
   }
   return offlineScopes.get(id)!;
@@ -148,7 +148,7 @@ function offlineClient(id: SocialProviderId): ScopesClient {
     },
     async grant(resourceType, action) {
       if (isApprovalOnly(resourceType)) throw new FloorScopeError(resourceType);
-      const grant: ScopeGrant = { id: `dummy_perm_${offlineSeq++}`, resourceType, action, effect: 'allow', expiresAt: null };
+      const grant: ScopeGrant = { id: `perm_${offlineSeq++}`, resourceType, action, effect: 'allow', expiresAt: null };
       ensureSeed(id).push(grant);
       return { ...grant };
     },

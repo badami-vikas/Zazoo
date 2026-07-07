@@ -67,14 +67,14 @@ export function resolveProvider(
   if (live && hasCreds(meta, env)) return live(env);
   if (!live) {
     console.warn(
-      `[social/registry] "${id}": no live provider registered — serving dummy_ fixture data. ` +
+      `[social/registry] "${id}": no live provider registered — sourcing nothing (no fake data served). ` +
         "Live integration for this platform has not been wired yet.",
     );
   } else {
     const missing = meta.credEnv.filter((k) => !env[k]);
     console.warn(
       `[social/registry] "${id}": live provider registered but missing credentials (${missing.join(", ")}) — ` +
-        "serving dummy_ fixture data instead of real data.",
+        "sourcing nothing instead of fabricating data.",
     );
   }
   return makeFixtureProvider(id, meta.oauthScopes);

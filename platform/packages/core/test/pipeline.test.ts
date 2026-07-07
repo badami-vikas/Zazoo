@@ -294,7 +294,7 @@ test("double-approve TOCTOU: two concurrent decide() calls on the same proposal 
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(
-    req({ actor: { type: "agent", id: "agent-1" }, inputs: { full_name_override: "dummy_Ada" } }),
+    req({ actor: { type: "agent", id: "agent-1" }, inputs: { full_name_override: "test_fixture_Ada" } }),
     ctx,
   );
   assert.equal(p.status, "pending_review");
@@ -365,7 +365,7 @@ test("decide() persists and replays the ORIGINAL dataScope + context, not '(repl
     { resourceType: "person", resourceId: null, action: "write", effect: "allow", dataScope: "all" },
   ]);
   const ctx = freshCtx();
-  const originalContext = { type: "initiative" as const, id: "dummy_init-9", runId: "dummy_run-1" };
+  const originalContext = { type: "initiative" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
   const p = await h.pipeline.propose(
     req({
       actor: { type: "agent", id: "agent-1" },

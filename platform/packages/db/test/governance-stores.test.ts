@@ -20,14 +20,14 @@ async function seedWorkspaceAndAgent(
 ) {
   const [ws] = await db
     .insert(schema.workspaces)
-    .values({ name: "dummy_ws_agent_scope" })
+    .values({ name: "test_fixture_ws_agent_scope" })
     .returning({ id: schema.workspaces.id });
   assert.ok(ws);
   const [agent] = await db
     .insert(schema.agents)
     .values({
       workspaceId: ws.id,
-      name: "dummy_agent",
+      name: "test_fixture_agent",
       capabilityScope: overrides.capabilityScope ?? {},
     })
     .returning({ id: schema.agents.id });
@@ -97,7 +97,7 @@ test("agent store: write-time — saveAllowedSkills throws on a malformed list i
     const store = new DrizzleAgentStore(db);
 
     await assert.rejects(
-      () => store.saveAllowedSkills(agentId, ["dummy_skill_ok", 42]),
+      () => store.saveAllowedSkills(agentId, ["test_fixture_skill_ok", 42]),
       /Invalid agents.allowed_skills jsonb/,
     );
 

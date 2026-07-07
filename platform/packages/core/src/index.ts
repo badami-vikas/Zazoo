@@ -91,6 +91,22 @@ export {
   type CapabilityManifestRow,
   type CapabilityStateRow,
 } from "./capability/ports.js";
+export type {
+  ForeignCapabilitySource,
+  ForeignImportSandboxPolicy,
+  ForeignCapabilityImport,
+} from "./capability/foreign-import.js";
+
+// Context Provider contract (docs/wiki/clients.md, Sensor SPI) — desktop-only,
+// optional capability; screen capture is one provider among nine, never the
+// kernel's dependency.
+export type {
+  ContextProviderName,
+  ContextDataScope,
+  ContextRetention,
+  ContextItem,
+  ContextProvider,
+} from "./context-provider.js";
 
 // Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
 // shipping unit ABOVE one capability_manifests row. Builds on capability/*

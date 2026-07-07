@@ -32,6 +32,16 @@ Ordered by **irreversibility** (kernel hardest first) + **one hypothesis per pha
 - **P5 Fork/Compose/Publish** — proves *"many softwares, one engine."* Egg-spawn/Fork · Compose · Publish Blueprint · versioned+pinned shared capabilities · deny-wins policy compose.
 - **P6 Domain + Ecosystem** — proves *"compiler generalizes."* JobPilot/ResearchPilot · community marketplace · Windows capture port · E2EE tier (old P6 lands here).
 
+## Consolidation sprint (2026-07-06 session 2, ADR-026 — full: [../raw/execution-plan-2026-07.md](../raw/execution-plan-2026-07.md))
+Tracks A–G, subagent-executable, 4-week sequence. Headline changes to phases:
+- **Avatar UN-DEFERRED → P1 NOW** (Track D): web in-page persona (meditate/awaken/blink on `sensor.capture`, click→inspectable Memory entry) + onboarding egg/spirit-animal/hatch; Tauri overlay follows same track. Personality = Pi 4th pillar, ships day 1.
+- **P0 additions**: Builder toolbelt (fs:read/fs:write/code:exec + SandboxProvider port — kernel has no Read/Write/Edit/Bash today) · PromptAssembler (layered prompt uplift) · ladder-audit invariant (threshold checks = pure fn/SQL, never model calls).
+- **P1 additions**: onboarding v2 (free-text profession-led, email→workspace-name rule, hypothesis+permission step, registry-search step, LinkedIn REJECTED) · prototype-skin migration onto ADR-023 IA (Track C) · control-panel icon on every broad table.
+- **P2 additions**: Pi package importer (manifest translator → governed Community capability; Activepieces pieces via same seam) · progressive disclosure of package contents (extends ≤20-tools rule) · Docling DocumentProvider · Nango ConnectorProvider.
+- **P3 additions**: E2B/Daytona sandbox adapter · Langfuse-vs-Mastra-evals bake-off · dream cycle = named nightly ritual · CoS weekly board-meeting reflection ritual.
+- **P5/P6 additions**: virtual office (Termi-like) optional package.
+- **Dummy purge NOW** (Track B) — supersedes "tracked debt, not purged this pass".
+
 ## Productivity-app research ingest (2026-07-06)
 User's scattered CSV/txt research (productivity/task/calendar apps + agentic platforms) + live Product Hunt scan, consolidated (no duplication) into: [../raw/productivity-app-research-2026.md](../raw/productivity-app-research-2026.md). Source CSVs stay in `My Data/New Data/` (not moved).
 - **P0**: surface trust/permission state visibly per-surface in approval-card UI (Vellum precedent — credential isolation as UX, not just backend policy).

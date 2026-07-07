@@ -9,7 +9,7 @@ import test from "node:test";
 import { createLocalDb, DrizzleCapabilityStore, parseDependencies, parseEvidence, schema } from "../src/index.js";
 
 async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "dummy_ws_capability" }).returning({ id: schema.workspaces.id });
+  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_capability" }).returning({ id: schema.workspaces.id });
   assert.ok(ws);
   return ws.id;
 }
@@ -24,7 +24,7 @@ test("capability store: createManifest + getManifest round-trip, dependencies js
       id: "20000000-0000-4000-8000-000000000001",
       workspaceId,
       capabilityType: "skill",
-      name: "dummy_skill_alpha",
+      name: "test_fixture_skill_alpha",
       version: "1.0.0",
       origin: "user_code",
       audience: "private",
@@ -32,7 +32,7 @@ test("capability store: createManifest + getManifest round-trip, dependencies js
       computedRisk: "informational",
       dependencies: [{ manifestId: "20000000-0000-4000-8000-000000000002", versionRange: "^1.0.0" }],
     });
-    assert.equal(created.name, "dummy_skill_alpha");
+    assert.equal(created.name, "test_fixture_skill_alpha");
 
     const fetched = await store.getManifest(created.id);
     assert.ok(fetched);
@@ -55,7 +55,7 @@ test("capability store: listManifests paginates within a workspace", async () =>
         id: `30000000-0000-4000-8000-00000000000${i}`,
         workspaceId,
         capabilityType: "tool",
-        name: `dummy_tool_${i}`,
+        name: `test_fixture_tool_${i}`,
         version: "1.0.0",
         origin: "built_in",
         audience: "private",
@@ -81,7 +81,7 @@ test("capability store: getManifestByNameVersion finds an existing manifest by i
       id: "25000000-0000-4000-8000-000000000001",
       workspaceId,
       capabilityType: "skill",
-      name: "dummy_shared_capability",
+      name: "test_fixture_shared_capability",
       version: "1.0.0",
       origin: "user_code",
       audience: "private",
@@ -90,14 +90,14 @@ test("capability store: getManifestByNameVersion finds an existing manifest by i
       dependencies: [],
     });
 
-    const found = await store.getManifestByNameVersion(workspaceId, "dummy_shared_capability", "1.0.0");
+    const found = await store.getManifestByNameVersion(workspaceId, "test_fixture_shared_capability", "1.0.0");
     assert.ok(found);
     assert.equal(found.id, created.id);
 
-    const missingVersion = await store.getManifestByNameVersion(workspaceId, "dummy_shared_capability", "2.0.0");
+    const missingVersion = await store.getManifestByNameVersion(workspaceId, "test_fixture_shared_capability", "2.0.0");
     assert.equal(missingVersion, null);
 
-    const missingName = await store.getManifestByNameVersion(workspaceId, "dummy_nonexistent", "1.0.0");
+    const missingName = await store.getManifestByNameVersion(workspaceId, "test_fixture_nonexistent", "1.0.0");
     assert.equal(missingName, null);
   } finally {
     await close();
@@ -113,7 +113,7 @@ test("capability store: upsertState creates then updates the ONE current-state r
       id: "40000000-0000-4000-8000-000000000001",
       workspaceId,
       capabilityType: "workflow",
-      name: "dummy_workflow",
+      name: "test_fixture_workflow",
       version: "1.0.0",
       origin: "ai_generated",
       audience: "private",
@@ -159,7 +159,7 @@ test("capability store: write-time — createManifest throws on malformed depend
           id: "50000000-0000-4000-8000-000000000001",
           workspaceId,
           capabilityType: "skill",
-          name: "dummy_bad_deps",
+          name: "test_fixture_bad_deps",
           version: "1.0.0",
           origin: "user_code",
           audience: "private",
@@ -186,7 +186,7 @@ test("capability store: read-time — getManifest throws on a dependencies shape
       id: "60000000-0000-4000-8000-000000000001",
       workspaceId,
       capabilityType: "skill",
-      name: "dummy_malformed_row",
+      name: "test_fixture_malformed_row",
       version: "1.0.0",
       origin: "user_code",
       audience: "private",

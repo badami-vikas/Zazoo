@@ -21,13 +21,13 @@ import {
 test("agentFloorDeny (authority.ts) denies every protected-resource × mutation pair", () => {
   for (const resourceType of AGENT_FLOOR_PROTECTED_RESOURCES) {
     for (const action of AGENT_FLOOR_MUTATIONS) {
-      const reason = agentFloorDeny({ type: "agent", id: "dummy_agent_1" }, action, resourceType);
+      const reason = agentFloorDeny({ type: "agent", id: "test_fixture_agent_1" }, action, resourceType);
       assert.ok(reason, `agentFloorDeny should deny agent ${action} on ${resourceType}`);
     }
   }
   // Non-agent actors are never subject to the floor.
   for (const resourceType of AGENT_FLOOR_PROTECTED_RESOURCES) {
-    assert.equal(agentFloorDeny({ type: "user", id: "dummy_user_1" }, "write", resourceType), null);
+    assert.equal(agentFloorDeny({ type: "user", id: "test_fixture_user_1" }, "write", resourceType), null);
   }
 });
 
@@ -58,6 +58,6 @@ test("drift regression: every always-denied scope is also caught by isForbiddenA
   for (const scope of ALWAYS_APPROVAL_SCOPES) {
     assert.ok(isForbiddenAgentToken(scope));
   }
-  assert.ok(agentFloorDeny({ type: "agent", id: "dummy_agent_1" }, "read", "network_graph:full"));
-  assert.ok(agentFloorDeny({ type: "agent", id: "dummy_agent_1" }, "write", "external:send"));
+  assert.ok(agentFloorDeny({ type: "agent", id: "test_fixture_agent_1" }, "read", "network_graph:full"));
+  assert.ok(agentFloorDeny({ type: "agent", id: "test_fixture_agent_1" }, "write", "external:send"));
 });

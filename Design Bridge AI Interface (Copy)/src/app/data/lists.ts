@@ -16,7 +16,7 @@ export interface ToolList {
   createdAt: number;
 }
 
-const KEY = 'dummy_bridge_lists_v1';
+const KEY = 'bridge_lists_v1';
 let state: Record<string, ToolList[]> = load();
 const listeners = new Set<() => void>();
 
@@ -34,7 +34,7 @@ function persist() {
   listeners.forEach((l) => l());
 }
 
-function id() { return `dummy_list_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
+function id() { return `list_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
 
 export function useLists(scope: string): ToolList[] {
   return useSyncExternalStore(

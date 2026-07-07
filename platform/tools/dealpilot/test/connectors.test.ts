@@ -183,16 +183,16 @@ async function withConsoleWarnSpyAsync<T>(fn: () => Promise<T>): Promise<{ resul
 test("parseBizBuySellAlertBatch: healthy batch parses fully and does not warn", () => {
   const messages = [
     {
-      subject: "New Listing Alert: dummy_hvac_co",
-      body: "Business: dummy_hvac_co\nAsking Price: $850,000\nLocation: Dallas, TX",
+      subject: "New Listing Alert: test_fixture_hvac_co",
+      body: "Business: test_fixture_hvac_co\nAsking Price: $850,000\nLocation: Dallas, TX",
     },
     {
-      subject: "New Listing Alert: dummy_laundromat_co",
-      body: "Business: dummy_laundromat_co\nAsking Price: $500,000\nLocation: Tampa, FL",
+      subject: "New Listing Alert: test_fixture_laundromat_co",
+      body: "Business: test_fixture_laundromat_co\nAsking Price: $500,000\nLocation: Tampa, FL",
     },
     {
-      subject: "New Listing Alert: dummy_deli_co",
-      body: "Business: dummy_deli_co\nAsking Price: $300,000\nLocation: Austin, TX",
+      subject: "New Listing Alert: test_fixture_deli_co",
+      body: "Business: test_fixture_deli_co\nAsking Price: $300,000\nLocation: Austin, TX",
     },
   ];
 
@@ -209,12 +209,12 @@ test("parseBizBuySellAlertBatch: template-drift batch (low parse rate) logs a lo
   // Simulates BizBuySell changing its alert-email template: none of the old labeled-field markup
   // survives, so the regex-based parser can't find anything usable in most messages.
   const messages = [
-    { subject: "dummy_notice_1", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_1</div>" },
-    { subject: "dummy_notice_2", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_2</div>" },
-    { subject: "dummy_notice_3", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_3</div>" },
+    { subject: "test_fixture_notice_1", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_1</div>" },
+    { subject: "test_fixture_notice_2", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_2</div>" },
+    { subject: "test_fixture_notice_3", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_3</div>" },
     {
-      subject: "New Listing Alert: dummy_survivor_co",
-      body: "Business: dummy_survivor_co\nAsking Price: $200,000",
+      subject: "New Listing Alert: test_fixture_survivor_co",
+      body: "Business: test_fixture_survivor_co\nAsking Price: $200,000",
     },
   ];
 
@@ -230,9 +230,9 @@ test("parseBizBuySellAlertBatch: template-drift batch (low parse rate) logs a lo
 
 test("createBizBuySellAlertConnector: warns when a fetched batch's parse rate is unhealthy", async () => {
   const connector = createBizBuySellAlertConnector(async () => [
-    { subject: "dummy_notice_1", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_1</div>" },
-    { subject: "dummy_notice_2", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_2</div>" },
-    { subject: "dummy_notice_3", body: "<div class='dummy_new_layout'>dummy_unstructured_blob_3</div>" },
+    { subject: "test_fixture_notice_1", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_1</div>" },
+    { subject: "test_fixture_notice_2", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_2</div>" },
+    { subject: "test_fixture_notice_3", body: "<div class='test_fixture_new_layout'>test_fixture_unstructured_blob_3</div>" },
   ]);
 
   const { result: envelopes, warnings } = await withConsoleWarnSpyAsync(() =>
@@ -246,8 +246,8 @@ test("createBizBuySellAlertConnector: warns when a fetched batch's parse rate is
 
 test("createBizBuySellAlertConnector: does not warn when a fetched batch parses well", async () => {
   const connector = createBizBuySellAlertConnector(async () => [
-    { subject: "New Listing Alert: dummy_hvac_co", body: "Business: dummy_hvac_co\nAsking Price: $850,000" },
-    { subject: "New Listing Alert: dummy_deli_co", body: "Business: dummy_deli_co\nAsking Price: $300,000" },
+    { subject: "New Listing Alert: test_fixture_hvac_co", body: "Business: test_fixture_hvac_co\nAsking Price: $850,000" },
+    { subject: "New Listing Alert: test_fixture_deli_co", body: "Business: test_fixture_deli_co\nAsking Price: $300,000" },
   ]);
 
   const { result: envelopes, warnings } = await withConsoleWarnSpyAsync(() =>
