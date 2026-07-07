@@ -92,6 +92,18 @@ export {
   type CapabilityStateRow,
 } from "./capability/ports.js";
 
+// Foreign-capability importer (docs/raw/execution-plan-2026-07.md Track F3) —
+// translates a Pi package / MCP server / Activepieces piece / generic OSS
+// integration descriptor into a Bridge CapabilityManifest. Builds on
+// capability/types.ts; never forks CapabilityManifest.
+export * from "./capability/foreign-import.js";
+export {
+  translateForeignCapability,
+  ForeignImportSandboxRequiredError,
+  ForeignImportValidationError,
+  type ForeignImportResult,
+} from "./capability/importer.js";
+
 // Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
 // shipping unit ABOVE one capability_manifests row. Builds on capability/*
 // above; never redefines its trust-model types.
