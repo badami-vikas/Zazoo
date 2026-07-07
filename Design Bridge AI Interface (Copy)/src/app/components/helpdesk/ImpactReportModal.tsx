@@ -31,15 +31,19 @@ export function ImpactReportModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="px-6 py-5">
-          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Top 5 moments you helped others.</div>
-          <ol className="flex flex-col gap-1.5">
-            {r.moments.map((m, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-white/80">
-                <span className="w-5 h-5 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                <span>{m.replace(/^dummy_\s*/, '')}</span>
-              </li>
-            ))}
-          </ol>
+          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Top moments you helped others.</div>
+          {r.moments.length > 0 ? (
+            <ol className="flex flex-col gap-1.5">
+              {r.moments.map((m, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-white/80">
+                  <span className="w-5 h-5 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <span>{m}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-white/60">No moments recorded yet — they'll show up here as you help people.</p>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-white/10 flex justify-end">

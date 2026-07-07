@@ -5,75 +5,32 @@ import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { RitualCanvas } from '../components/RitualCanvas';
 
-const playbookDetails: Record<string, any> = {
-  'PB-001': {
-    name: 'dummy_New Relationship Onboarding',
-    type: 'dummy_Onboarding',
-    status: 'Active',
-    description: 'dummy_Automatically onboards new relationships with a structured sequence of touchpoints designed to accelerate time-to-value and increase conversion rate from MQL to SQL.',
-    owner: 'dummy_Tony S.',
-    created: 'dummy_9009-01-15',
-    lastModified: 'dummy_9009-03-28',
-    successRate: 9009,
-    totalRuns: 9009,
-    avgDuration: 'dummy_9009 days',
-    triggers: [
-      { id: 't1', type: 'dummy_Record Created', condition: 'dummy_New relationship added to People database', icon: Plus, color: 'text-[var(--success)] bg-[var(--success)]/10 border-[var(--success)]/30' },
-      { id: 't2', type: 'dummy_Field Change', condition: 'dummy_Stage changes to "Discovery"', icon: Filter, color: 'text-[var(--info)] bg-[var(--info)]/10 border-[var(--info)]/30' },
-      { id: 't3', type: 'dummy_Manual Trigger', condition: 'dummy_Triggered by sales rep', icon: Zap, color: 'text-[var(--info)] bg-[var(--info)]/10 border-[var(--info)]/30' },
-    ],
-    steps: [
-      { id: 's1', order: 1, type: 'Email', name: 'dummy_Welcome Email', description: 'dummy_Send personalized welcome email with product overview', delay: 'dummy_Immediately', icon: Mail, status: 'active' },
-      { id: 's2', order: 2, type: 'Wait', name: 'dummy_Wait 9009 days', description: 'dummy_Pause before next touchpoint', delay: 'dummy_9009 days', icon: Clock, status: 'active' },
-      { id: 's3', order: 3, type: 'Touchpoint', name: 'dummy_Assign SDR Follow-up', description: 'dummy_Create touchpoint for SDR to call relationship', delay: 'dummy_Day 9009', icon: CheckCircle, status: 'active' },
-      { id: 's4', order: 4, type: 'Email', name: 'dummy_Value Proposition Email', description: 'dummy_Send industry-specific case study', delay: 'dummy_Day 9009', icon: Mail, status: 'active' },
-      { id: 's5', order: 5, type: 'Condition', name: 'dummy_Check Engagement', description: 'dummy_Branch: email opened?', delay: 'dummy_Day 9009', icon: GitBranch, status: 'active' },
-      { id: 's6', order: 6, type: 'Notification', name: 'dummy_Alert AE on High Engagement', description: 'dummy_Notify account executive if opened', delay: 'dummy_Day 9009 (branch A)', icon: Bell, status: 'active' },
-      { id: 's7', order: 7, type: 'Email', name: 'dummy_Re-engagement Nudge', description: 'dummy_Send follow-up if no email open', delay: 'dummy_Day 9009 (branch B)', icon: Mail, status: 'active' },
-      { id: 's8', order: 8, type: 'Touchpoint', name: 'dummy_Schedule Discovery Call', description: 'dummy_Create calendar invite for discovery call', delay: 'dummy_Day 9009', icon: Calendar, status: 'active' },
-    ],
-    analytics: {
-      runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009],
-      successRates: [9009, 9009, 9009, 9009, 9009, 9009, 9009],
-      months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'],
-      topDropoff: 'dummy_Step 9009 — Check Engagement (9009% drop)',
-      avgTimeToComplete: 'dummy_9009 days',
-      emailOpenRate: 'dummy_9009%',
-      meetingBookRate: 'dummy_9009%',
-    },
-  },
-};
+const playbookDetails: Record<string, any> = {};
 
+// No matching record → an honest "not configured yet" state. Rituals created via the New Ritual
+// flow are not yet persisted to a backing store this page reads from (see RitualCreate.tsx);
+// once wired, this fallback goes away.
 const defaultPlaybook = {
-  name: 'dummy_Stalled Initiative Revival',
-  type: 'dummy_Re-engagement',
-  status: 'Active',
-  description: 'dummy_Automatically identifies and re-engages stalled initiatives with targeted outreach sequences and executive escalations.',
-  owner: 'dummy_Bruce W.',
-  created: 'dummy_9009-02-10',
-  lastModified: 'dummy_9009-04-01',
-  successRate: 9009,
-  totalRuns: 9009,
-  avgDuration: 'dummy_9009 days',
-  triggers: [
-    { id: 't1', type: 'dummy_Inactivity', condition: 'dummy_No activity for 9009 days', icon: Clock, color: 'text-[var(--warning)] bg-[var(--warning)]/10 border-[var(--warning)]/30' },
-    { id: 't2', type: 'dummy_Field Change', condition: 'dummy_Stage stays in "Negotiation" for 9009+ days', icon: Filter, color: 'text-[var(--danger)] bg-[var(--danger)]/10 border-[var(--danger)]/30' },
-  ],
-  steps: [
-    { id: 's1', order: 1, type: 'Email', name: 'dummy_Re-engagement Email', description: 'dummy_Send personalized re-engagement email', delay: 'dummy_Immediately', icon: Mail, status: 'active' },
-    { id: 's2', order: 2, type: 'Wait', name: 'dummy_Wait 9009 days', description: 'dummy_Pause before escalation', delay: 'dummy_9009 days', icon: Clock, status: 'active' },
-    { id: 's3', order: 3, type: 'Notification', name: 'dummy_Escalate to Manager', description: 'dummy_Alert initiative owner\'s manager', delay: 'dummy_Day 9009', icon: Bell, status: 'active' },
-    { id: 's4', order: 4, type: 'Touchpoint', name: 'dummy_Schedule Executive Call', description: 'dummy_Book exec-level outreach', delay: 'dummy_Day 9009', icon: Calendar, status: 'active' },
-    { id: 's5', order: 5, type: 'Condition', name: 'dummy_Evaluate Response', description: 'dummy_Mark initiative as lost if no response', delay: 'dummy_Day 9009', icon: GitBranch, status: 'active' },
-  ],
+  name: 'Ritual',
+  type: 'Not yet configured',
+  status: 'Paused',
+  description: 'This ritual has not been created yet. Once it is set up, its triggers, steps, and run history will appear here.',
+  owner: '—',
+  created: '—',
+  lastModified: '—',
+  successRate: 0,
+  totalRuns: 0,
+  avgDuration: '—',
+  triggers: [],
+  steps: [],
   analytics: {
-    runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009],
-    successRates: [9009, 9009, 9009, 9009, 9009, 9009, 9009],
-    months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'],
-    topDropoff: 'dummy_Step 9009 — Escalation (9009% drop)',
-    avgTimeToComplete: 'dummy_9009 days',
-    emailOpenRate: 'dummy_9009%',
-    meetingBookRate: 'dummy_9009%',
+    runs: [0, 0, 0, 0, 0, 0, 0],
+    successRates: [0, 0, 0, 0, 0, 0, 0],
+    months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
+    topDropoff: '—',
+    avgTimeToComplete: '—',
+    emailOpenRate: '—',
+    meetingBookRate: '—',
   },
 };
 
@@ -103,7 +60,7 @@ export function RitualDetail() {
     Action: 'bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/30',
   };
 
-  const maxBarValue = Math.max(...pb.analytics.runs);
+  const maxBarValue = Math.max(1, ...pb.analytics.runs);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden relative">
@@ -235,6 +192,11 @@ export function RitualDetail() {
                   All triggers use <span className="font-semibold text-[var(--color-navy-mid)] px-1">OR</span> logic — any single trigger will activate the ritual.
                 </div>
               )}
+              {pb.triggers.length === 0 && (
+                <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+                  No triggers configured yet.
+                </div>
+              )}
             </div>
           </div>
 
@@ -258,7 +220,7 @@ export function RitualDetail() {
                 { label: 'Email Open Rate', value: pb.analytics.emailOpenRate, color: 'text-[var(--info)]' },
                 { label: 'Meeting Book Rate', value: pb.analytics.meetingBookRate, color: 'text-[var(--color-steel)]' },
                 { label: 'Avg Time to Complete', value: pb.analytics.avgTimeToComplete, color: 'text-[var(--warning)]' },
-                { label: 'Top Drop-off', value: 'dummy_Step 9009', color: 'text-[var(--danger)]' },
+                { label: 'Top Drop-off', value: pb.analytics.topDropoff, color: 'text-[var(--danger)]' },
               ].map(m => (
                 <div key={m.label} className="bg-white border border-[var(--color-border)] rounded-xl p-4 shadow-sm">
                   <div className={clsx('text-xl font-bold mb-1', m.color)}>{m.value}</div>

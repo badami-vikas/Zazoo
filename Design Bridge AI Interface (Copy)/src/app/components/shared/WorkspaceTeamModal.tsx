@@ -1,6 +1,6 @@
 // Workspace + Team management, available from every standalone tool shell (StandaloneLayout).
 // Real backend-persisted (Supabase, via apps/api's workspace.* tRPC procedures) — not a local
-// dummy_ round-trip like most of this prototype. Falls back to a connect-the-API message when
+// mock round-trip like much of this prototype. Falls back to a connect-the-API message when
 // VITE_API_URL isn't set, matching every other API_ENABLED-gated surface in this app.
 import { useEffect, useState } from 'react';
 import { Building2, Users, Plus, X, Loader2 } from 'lucide-react';

@@ -32,50 +32,20 @@ const agentDetails: Record<string, any> = {
     ],
     analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
   },
-  'AG-001': {
-    name: 'dummy_Aria', specialization: 'dummy_Prospecting', model: 'dummy_GPT-4o', status: 'Active',
-    desc: 'dummy_Aria is a specialized prospecting agent trained to identify, qualify, and engage new relationships across all data sources. She excels at cold outreach personalization and intent signal detection.',
-    avatar: 'dummy_A', color: '#4D7EA8',
-    accuracy: 9009, runs: 9009, rituals: 9009, lastActive: 'dummy_9009 min ago',
-    skills: [
-      { id: 'SK-001', name: 'dummy_NLP Inference', category: 'Language', strength: 9009, locked: false },
-      { id: 'SK-004', name: 'dummy_Web Research', category: 'Data', strength: 9009, locked: false },
-      { id: 'SK-010', name: 'dummy_Person Intelligence', category: 'Data', strength: 9009, locked: false },
-      { id: 'SK-002', name: 'dummy_Email Drafting', category: 'Communication', strength: 9009, locked: false },
-      { id: 'SK-006', name: 'dummy_Sentiment Analysis', category: 'Language', strength: 9009, locked: false },
-      { id: 'SK-003', name: 'dummy_Relationship Scoring', category: 'Analytics', strength: 9009, locked: false },
-    ],
-    connectedWorkflows: ['dummy_WF-001 — New Relationship Onboarding', 'dummy_WF-005 — Competitive Displacement', 'dummy_WF-010 — Inbound MQL Qualification', 'dummy_WF-011 — Executive Relationship Builder'],
-    activity: [
-      { time: 'dummy_10:41 AM', event: 'dummy_Prospecting run started for Aaron Estes', type: 'run' },
-      { time: 'dummy_10:43 AM', event: 'dummy_Person intelligence pulled from Apollo.io', type: 'data' },
-      { time: 'dummy_10:44 AM', event: 'dummy_Personalized outreach email drafted', type: 'output' },
-      { time: 'dummy_11:02 AM', event: 'dummy_Prospecting run started for Gloria Nguyen', type: 'run' },
-      { time: 'dummy_11:05 AM', event: 'dummy_Relationship score: 9009/9009 → flagged as High Priority', type: 'output' },
-      { time: 'dummy_2:30 PM', event: 'dummy_Weekly accuracy calibration completed', type: 'system' },
-    ],
-    analytics: { runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-  },
 };
 
+// No matching record → an honest "not configured yet" state rather than fabricated metrics.
+// helpdesk-ai is currently the only real, live agent; everything else routes here until the
+// agent runtime (P0 Kernel) ships real agents with real run history.
 const defaultAgent = {
-  name: 'dummy_Agent', specialization: 'dummy_General', model: 'dummy_GPT-4o', status: 'Active',
-  desc: 'dummy_A Bridge AI agent optimized for automated touchpoint execution across rituals.',
-  avatar: 'dummy_?', color: '#4D7EA8',
-  accuracy: 9009, runs: 9009, rituals: 9009, lastActive: 'dummy_9009 hour ago',
-  skills: [
-    { id: 'SK-001', name: 'dummy_NLP Inference', category: 'Language', strength: 9009, locked: false },
-    { id: 'SK-002', name: 'dummy_Email Drafting', category: 'Communication', strength: 9009, locked: false },
-    { id: 'SK-003', name: 'dummy_Relationship Scoring', category: 'Analytics', strength: 9009, locked: false },
-    { id: 'SK-004', name: 'dummy_Web Research', category: 'Data', strength: 9009, locked: false },
-    { id: 'SK-010', name: 'dummy_Person Intelligence', category: 'Data', strength: 9009, locked: false },
-  ],
-  connectedWorkflows: ['dummy_WF-001 — New Relationship Onboarding', 'dummy_WF-003 — Enterprise Expansion'],
-  activity: [
-    { time: 'dummy_09:30 AM', event: 'dummy_Run started', type: 'run' },
-    { time: 'dummy_09:32 AM', event: 'dummy_Touchpoint completed', type: 'output' },
-  ],
-  analytics: { runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
+  name: 'Agent', specialization: 'Not yet configured', model: '—', status: 'Inactive',
+  desc: 'This agent has not been created yet. Once the agent runtime is connected, its skills, activity, and run history will appear here.',
+  avatar: '?', color: '#B8B4A8',
+  accuracy: 0, runs: 0, rituals: 0, lastActive: 'Never',
+  skills: [],
+  connectedWorkflows: [],
+  activity: [],
+  analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
 };
 
 const navTabs = ['Overview', 'Skill Matrix', 'Activity', 'Connections', 'Settings'];
@@ -198,9 +168,9 @@ export function AgentDetail() {
     document.getElementById(`ag-${tab.toLowerCase().replace(' ', '-')}`)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const maxBar = Math.max(...raw.analytics.runs);
+  const maxBar = Math.max(1, ...raw.analytics.runs);
 
-  const avgStrength = Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length);
+  const avgStrength = skills.length ? Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length) : 0;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
@@ -368,7 +338,7 @@ export function AgentDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">dummy_Today · April 9009, 9009</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <span className="text-xs text-[var(--color-warm-gray)]">{raw.runs} total events</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
@@ -383,6 +353,9 @@ export function AgentDetail() {
                     </div>
                   );
                 })}
+                {raw.activity.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this agent hasn't run.</div>
+                )}
               </div>
             </div>
 
@@ -426,6 +399,9 @@ export function AgentDetail() {
                       <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--color-steel)] transition-colors" />
                     </Link>
                   ))}
+                  {raw.connectedWorkflows.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No rituals connected yet.</div>
+                  )}
                 </div>
               </div>
               {/* Skills */}
@@ -447,6 +423,9 @@ export function AgentDetail() {
                       </div>
                     </Link>
                   ))}
+                  {skills.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No skills loaded yet.</div>
+                  )}
                 </div>
               </div>
             </div>

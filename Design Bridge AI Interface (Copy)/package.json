@@ -8,6 +8,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "check:no-dummy-runtime": "rg \"dummy_|9009\" src/app -g '*.ts' -g '*.tsx' && exit 1 || exit 0",
     "deploy": "vite build && npx wrangler@latest pages deploy dist --project-name=bridge-ai"
   },
   "dependencies": {

@@ -116,12 +116,17 @@ function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }
   );
 }
 
-// was "Testimonials" → now "Opinions" (dummy_ labeled)
+// was "Testimonials" → now "Opinions". No real opinions have been recorded for this person yet —
+// an honest empty state, no fabricated quotes.
 function Opinions() {
-  const data = [
-    { quote: 'dummy_ Sharp operator — turns ambiguous strategy into shipped outcomes fast.', author: 'dummy_Reviewer One', role: 'dummy_Managing Partner' },
-    { quote: 'dummy_ Generous with introductions and exact in follow-through.', author: 'dummy_Reviewer Two', role: 'dummy_Founder & CEO' },
-  ];
+  const data: Array<{ quote: string; author: string; role: string }> = [];
+  if (data.length === 0) {
+    return (
+      <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+        No opinions recorded yet.
+      </div>
+    );
+  }
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {data.map((t, i) => (
@@ -172,7 +177,7 @@ function ToolsActionable() {
 
 // Editable Boundaries + strong governance requirement (agents check boundaries first)
 function Boundaries({ entityName }: { entityName: string }) {
-  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)']);
+  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (sender-approved draft)']);
   const [denied, setDenied] = useState(['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network']);
   const Col = ({ title, items, setItems, tone, Icon }: {
     title: string; items: string[]; setItems: (v: string[]) => void; tone: string; Icon: LucideIcon;
@@ -242,7 +247,7 @@ export function ItemDetail() {
   const bio = isCommunity
     ? `${community!.connections} people you know in this community${community!.sampleRoles?.[0] ? ` - common role: ${community!.sampleRoles[0]}` : ''}.`
     : person ? (person.bio || (person.position && person.company ? `${person.position} at ${person.company}.` : person.newsInsight || `${person.firstName}'s profile.`))
-      : 'dummy_ profile bio.';
+      : 'No profile found.';
   const subtitle = isCommunity ? `${community!.connections} members` : (person?.company || '');
   const location = person?.location || '';
 

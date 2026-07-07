@@ -54,8 +54,8 @@ export function DealPilotPage() {
     ]);
   }, []);
 
-  // Real API-sourced listings (BizBuySell/BusinessBroker via the governed pipeline) sit alongside
-  // the dummy_ demo set — empty in demo mode, populated once a capture is committed when API_ENABLED.
+  // Real API-sourced listings only (BizBuySell/BusinessBroker via the governed pipeline) — empty
+  // until the user clicks "Source new listings" and commits a capture.
   const allListings = useMemo(() => [...LISTINGS, ...liveListings], [liveListings]);
 
   const searched = useMemo(() => {
@@ -134,22 +134,28 @@ export function DealPilotPage() {
 
       <div className="flex-1 overflow-auto">
         {view === 'card' && (
-          <CardGrid>
-            {scored.map(({ listing, fit }) => {
-              const deal = dealForListing(listing.id);
-              return (
-                <NotionCard
-                  key={listing.id}
-                  title={listing.name}
-                  subtitle={`${listing.industry} · ${listing.geo}`}
-                  cornerBadge={<FlagIcon color={fit.triage} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={deal ? undefined : (c) => onFlagAction(listing.id, c)} disabled={!!deal} />}
-                  bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
-                  metaChips={[brokerageLabel(listing), `SDE $${listing.sde.toLocaleString()}`, `rev $${listing.revenue.toLocaleString()}`]}
-                  footer={<span className="text-xs font-medium" style={{ color: deal ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{deal ? `${DEAL_STAGE_LABEL[deal.stage]} — in pipeline` : 'Not sourced — click the flag'}</span>}
-                />
-              );
-            })}
-          </CardGrid>
+          scored.length > 0 ? (
+            <CardGrid>
+              {scored.map(({ listing, fit }) => {
+                const deal = dealForListing(listing.id);
+                return (
+                  <NotionCard
+                    key={listing.id}
+                    title={listing.name}
+                    subtitle={`${listing.industry} · ${listing.geo}`}
+                    cornerBadge={<FlagIcon color={fit.triage} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={deal ? undefined : (c) => onFlagAction(listing.id, c)} disabled={!!deal} />}
+                    bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
+                    metaChips={[brokerageLabel(listing), `SDE $${listing.sde.toLocaleString()}`, `rev $${listing.revenue.toLocaleString()}`]}
+                    footer={<span className="text-xs font-medium" style={{ color: deal ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{deal ? `${DEAL_STAGE_LABEL[deal.stage]} — in pipeline` : 'Not sourced — click the flag'}</span>}
+                  />
+                );
+              })}
+            </CardGrid>
+          ) : (
+            <div className="p-10 text-center border border-dashed rounded-xl m-4" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+              No listings yet. Click <span className="font-semibold">Source new listings</span> above to pull from your connected brokerages.
+            </div>
+          )
         )}
 
         {view === 'kanban' && (
