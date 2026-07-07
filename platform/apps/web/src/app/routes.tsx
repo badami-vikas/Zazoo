@@ -22,18 +22,47 @@ import { KnowledgeBasePage } from "./pages/KnowledgeBasePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IntelligencePage } from "./pages/IntelligencePage";
 import { SignalsPage } from "./pages/SignalsPage";
+// Ported prototype surface (faithful visual port, 2026-07-07)
+import { HomePage } from "./pages/HomePage";
+import { WorkPage } from "./pages/WorkPage";
+import { ItemDetail } from "./pages/ItemDetail";
+import { InitiativeDetail } from "./pages/InitiativeDetail";
+import { SkillDetail } from "./pages/SkillDetail";
+import { ToolsPage } from "./pages/ToolsPage";
+import { DataEngine } from "./components/DataEngine";
 
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
   // (frontend-migration-scoping.md gap #5: a genuinely different auth model).
   { path: "/help", Component: PublicHelpdesk },
+  // Prototype's shareable public helpdesk URL shape (slug-addressed).
+  { path: "/help/:slug", Component: PublicHelpdesk },
 
   {
     path: "/",
     Component: Layout,
     children: [
-      { index: true, Component: DealPilotPage },
+      // HomePage is the index (prototype parity); DealPilot keeps /dealpilot.
+      { index: true, Component: HomePage },
+      { path: "home", Component: HomePage },
       { path: "dealpilot", Component: DealPilotPage },
+
+      // Ported prototype surface (2026-07-07): the prototype mounted the
+      // network DataEngine at "/" — here it lives at /network so HomePage
+      // can own the index.
+      { path: "network", Component: DataEngine },
+      { path: "item/:id", Component: ItemDetail },
+      { path: "work", Component: WorkPage },
+      { path: "initiative/:id", Component: InitiativeDetail },
+      { path: "ritual/create", Component: RitualCreate },
+      { path: "ritual/:id", Component: RitualDetail },
+      { path: "agent/create", Component: AgentCreate },
+      { path: "agent/:id", Component: AgentDetail },
+      { path: "skill/:id", Component: SkillDetail },
+      { path: "integration/:id", Component: IntegrationDetail },
+      { path: "tools", Component: ToolsPage },
+      { path: "tool/:id", Component: ToolDetail },
+      { path: "helpdesk/ask/:id", Component: HelpdeskThread },
 
       // Standalone Tools destination removed (user revision 2026-07-06):
       // Intelligence (/intelligence) owns the capability surface now; pinned

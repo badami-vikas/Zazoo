@@ -19,8 +19,24 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
-*(none — nothing dummy currently in the runtime tree as of 2026-07-07; see [BUGS.md](BUGS.md) for the
-2026-07-06 purge history that got the tree to this state)*
+- **2026-07-07 — ported prototype fixture data modules** (`platform/apps/web/src/app/data/`:
+  `actionQueue.ts`, `api.ts`, `associations.ts`, `brokerages.ts`, `db.ts`, `dealpilot.ts`,
+  `governance.ts`, `helpdesk.ts`, `helpdeskRemote.ts`, `initiatives.ts`, `integrations.ts`,
+  `jobpilot.ts`, `ledger.ts`, `localMedia.ts`, `network.ts`, `resources.generated.ts`,
+  `signals.ts`, `toolCaptures.ts`, `tools.ts`).
+  **Reason:** user-ordered faithful visual port of the prototype, 2026-07-07 — the full prototype
+  page surface (HomePage/WorkPage/ItemDetail/ToolsPage/SkillDetail + rich JobPilot/Helpdesk/
+  Approvals/Calendar/Rituals/Resources/Settings, DataEngine at /network) had to land visually
+  intact before real-data wiring; these modules are the fixture content those pages render.
+  **Real element each stands in for:** people/communities → `graph.listPeople` /
+  `graph.listCommunities` (exist today); approvals → `action.listPending` (exists); signals →
+  signal read procedures (pending schema v2); rituals/agents/skills/integrations/tools →
+  capability manifests + `packages.list` (packages.list exists; per-capability reads pending);
+  initiatives/work → Initiative procedures (pending); helpdesk/jobpilot/dealpilot → their
+  capability packages' backends (pending); ledger/governance → execution-ledger + trust-grant
+  reads (pending).
+  **Removal condition:** each page wired to real endpoints in the shell-v2 pass — a module's
+  entry moves to Resolved when its consuming page(s) read tRPC instead of the module.
 
 ## Resolved
 
