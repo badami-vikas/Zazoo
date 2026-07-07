@@ -19,7 +19,7 @@ test("integration permissions: connect, grant, list, narrow, floor-scope guard, 
   const { db, close } = await createLocalDb();
   try {
     // Seed the workspace the integration + grants reference (FK target).
-    const [ws] = await db.insert(schema.workspaces).values({ name: "dummy_ws" }).returning({
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws" }).returning({
       id: schema.workspaces.id,
     });
     assert.ok(ws, "workspace seeded");

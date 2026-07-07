@@ -24,7 +24,7 @@ import { getIntegrationStore } from "../src/social/integration-service.js";
 // `integration.list` now rejects any workspaceId that isn't PILOT_WORKSPACE (interim
 // single-tenant safety fix, All fixes.md Phase 3 item 11a — see router.ts's
 // `assertPilotWorkspace`), so these fixtures must be seeded under PILOT_WORKSPACE
-// itself rather than an arbitrary dummy_ workspace id. The two `integration.list`
+// itself rather than an arbitrary test_fixture_ workspace id. The two `integration.list`
 // tests below share one process-lifetime pglite store (see setupIntegrationFixtures),
 // so seeding both under the SAME workspace id means each test's assertions are
 // against `<rows already present> + FIXTURE_COUNT`, not a bare FIXTURE_COUNT — see
@@ -92,13 +92,13 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "dummy_pagination_user" },
+    identity: { type: "user", id: "test_fixture_pagination_user" },
   });
 }
 
 function seedDealPilotCandidates(wiring: Wiring, count: number): void {
   for (let i = 0; i < count; i += 1) {
-    const id = `dummy_candidate_${i}`;
+    const id = `test_fixture_candidate_${i}`;
     wiring.dealpilot.candidateIds.push(id);
     wiring.dealpilot.facts.append({
       entityId: id,

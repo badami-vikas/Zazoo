@@ -8,6 +8,25 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **RESOLVED 2026-07-06 — `apps/api/src/social/fixtures.ts` fabricated fake social posts/DMs as runtime fallback data (ADR-026).**
+  When no live platform (X/Instagram/Facebook/LinkedIn) credentials were configured, `makeFixtureProvider`'s
+  `sourceItems()` synthesized two plausible-looking fake items per platform (fabricated handles, a fake
+  name "Jordan Rivera", fake DM body text) and pushed them through `sourceToProposals` into real
+  `pending_review` Touchpoint proposals at the governance gate — real product code presenting fabricated
+  content in a way a human reviewer could mistake for genuine sourced data. Violated the real-data-only
+  policy (CLAUDE.md, reversed 2026-07-06). Also swept: the retired `dummy_` naming convention was still
+  present throughout the platform (`wiring.ts`'s pilot-email fallback, `ToolDetail.tsx`/`RitualDetail.tsx`
+  actor-id defaults, `PublicHelpdesk.tsx`'s localStorage key, and 324 occurrences across 38 test files).
+  FIX: `sourceItems()` now returns an honest empty array when unconfigured (no fabricated data); draft/publish
+  id bookkeeping renamed `dummy_` → `unconfigured_` (internal correlation ids, not business data); the two
+  UI form defaults changed to empty strings (both inputs already `required`); the localStorage key renamed off
+  `dummy_`; the pilot email fallback renamed to a plain `pilot@bridge.local` (same structural-constant category
+  as `PILOT_WORKSPACE`/`PILOT_USER`); all test-file `dummy_` literals renamed to `test_fixture_`; the retired
+  `bridge/dummy-prefix` ESLint rule's implementation turned into a documented no-op (kept because the protected
+  `eslint.config.js` still references it by name); new `platform/package.json` script `check:no-dummy-runtime`
+  added as a mechanical backstop against reintroduction. `turbo run build`/`turbo run test --force` both green
+  (36/36 test tasks, 0 failures); `pnpm lint` 0 errors. See ADR-026 in decisions-log.md for full rationale.
+
 - **OPEN 2026-07-06 — P1 Chief of Staff v1 / approval cards: honest gaps from ADR-019.**
   (1) `apps/web/src/app/pages/ApprovalsPage.tsx`'s blueprint-activation diff preview can only
   render a real diff when the referenced `definitionId` happens to ALSO be the currently-active

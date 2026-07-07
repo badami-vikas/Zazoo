@@ -11,7 +11,7 @@ import type { PackageManifest } from "@bridge/core";
 import { createLocalDb, DrizzlePackageStore, parsePackageManifestRow, schema } from "../src/index.js";
 
 async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
-  const [ws] = await db.insert(schema.workspaces).values({ name: "dummy_ws_package" }).returning({ id: schema.workspaces.id });
+  const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_package" }).returning({ id: schema.workspaces.id });
   assert.ok(ws);
   return ws.id;
 }
@@ -21,14 +21,14 @@ function dummyManifest(overrides: Partial<PackageManifest> = {}): PackageManifes
     name: "dummy-package",
     version: "1.0.0",
     kind: "workflow",
-    summary: "dummy_summary",
-    description: "dummy_description",
+    summary: "test_fixture_summary",
+    description: "test_fixture_description",
     lineageManifestId: null,
     dependencies: [],
     capabilities: [
       {
         id: "cap-1",
-        name: "dummy_capability",
+        name: "test_fixture_capability",
         version: "1.0.0",
         capabilityType: "workflow",
         origin: "user_code",
@@ -65,7 +65,7 @@ test("package store: create + get round-trip, manifest jsonb preserved", async (
     const fetched = await store.get(created.id);
     assert.ok(fetched);
     assert.equal(fetched.manifest.capabilities.length, 1);
-    assert.equal(fetched.manifest.capabilities[0]?.name, "dummy_capability");
+    assert.equal(fetched.manifest.capabilities[0]?.name, "test_fixture_capability");
   } finally {
     await close();
   }

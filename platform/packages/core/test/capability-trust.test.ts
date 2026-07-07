@@ -25,8 +25,8 @@ import {
 
 function manifest(overrides: Partial<CapabilityManifest> = {}): CapabilityManifest {
   return {
-    id: "dummy_cap_1",
-    name: "dummy_capability",
+    id: "test_fixture_cap_1",
+    name: "test_fixture_capability",
     version: "1.0.0",
     capabilityType: "skill",
     origin: "user_code",
@@ -71,21 +71,21 @@ test("computeRisk: any egress permission is external, regardless of action", () 
 });
 
 test("computeRisk: a connector capable of external send is external even with no risky permissions", () => {
-  const m = manifest({ connectors: [{ id: "dummy_connector", externalSend: true }] });
+  const m = manifest({ connectors: [{ id: "test_fixture_connector", externalSend: true }] });
   assert.equal(computeRisk(m, () => undefined), "external");
 });
 
 test("computeRisk: composite risk = max over the dependency closure", () => {
   const leaf = manifest({
-    id: "dummy_dep_leaf",
+    id: "test_fixture_dep_leaf",
     permissions: [{ resourceType: "external:send", action: "send", dataScope: "public", egress: true }],
   });
   const mid = manifest({
-    id: "dummy_dep_mid",
+    id: "test_fixture_dep_mid",
     dependencies: [{ manifestId: leaf.id, versionRange: "^1.0.0" }],
   });
   const root = manifest({
-    id: "dummy_root",
+    id: "test_fixture_root",
     permissions: [{ resourceType: "person", action: "read", dataScope: "private", egress: false }],
     dependencies: [{ manifestId: mid.id, versionRange: "^1.0.0" }],
   });
@@ -97,11 +97,11 @@ test("computeRisk: composite risk = max over the dependency closure", () => {
 });
 
 test("computeRisk: cycle-safe — a dependency cycle does not infinite-loop", () => {
-  const a = manifest({ id: "dummy_cycle_a", dependencies: [{ manifestId: "dummy_cycle_b", versionRange: "*" }] });
+  const a = manifest({ id: "test_fixture_cycle_a", dependencies: [{ manifestId: "test_fixture_cycle_b", versionRange: "*" }] });
   const b = manifest({
-    id: "dummy_cycle_b",
+    id: "test_fixture_cycle_b",
     permissions: [{ resourceType: "touchpoint", action: "write", dataScope: "private", egress: false }],
-    dependencies: [{ manifestId: "dummy_cycle_a", versionRange: "*" }],
+    dependencies: [{ manifestId: "test_fixture_cycle_a", versionRange: "*" }],
   });
   const registry = new Map([
     [a.id, a],
@@ -112,7 +112,7 @@ test("computeRisk: cycle-safe — a dependency cycle does not infinite-loop", ()
 });
 
 test("computeRisk: an unresolvable dependency is treated conservatively (operational), not skipped", () => {
-  const m = manifest({ dependencies: [{ manifestId: "dummy_missing_dep", versionRange: "*" }] });
+  const m = manifest({ dependencies: [{ manifestId: "test_fixture_missing_dep", versionRange: "*" }] });
   assert.equal(computeRisk(m, () => undefined), "operational");
 });
 
@@ -187,10 +187,10 @@ test("lifecycle: dependency change on a non-trusted state is a no-op", () => {
 });
 
 test("lifecycle: failure suspends immediately with no approval required — safety never queues", () => {
-  const result = suspendOnFailure("dummy_failure_reason");
+  const result = suspendOnFailure("test_fixture_failure_reason");
   assert.equal(result.suspended, true);
   assert.equal(result.requiresApproval, false);
-  assert.equal(result.reason, "dummy_failure_reason");
+  assert.equal(result.reason, "test_fixture_failure_reason");
 });
 
 test("lifecycle: resuming from suspension always requires approval", () => {
@@ -212,7 +212,7 @@ test("approvals: base band mapping — informational/advisory auto, transformati
 });
 
 test("approvals: external is ALWAYS explicit_human even with a matching auto-activate trust grant (hard floor)", () => {
-  const grants = [{ capabilityClass: "dummy_class", riskBand: "external" as const, autoActivate: true }];
+  const grants = [{ capabilityClass: "test_fixture_class", riskBand: "external" as const, autoActivate: true }];
   assert.equal(requiredApproval("external", "private", grants), "explicit_human");
   assert.equal(requiredApproval("external", "team", grants), "explicit_human");
 });
@@ -223,13 +223,13 @@ test("approvals: audience raises but never lowers — informational x shared != 
 });
 
 test("approvals: a matching trust grant lowers transformational to auto for private audience", () => {
-  const grants = [{ capabilityClass: "dummy_class", riskBand: "transformational" as const, autoActivate: true }];
+  const grants = [{ capabilityClass: "test_fixture_class", riskBand: "transformational" as const, autoActivate: true }];
   assert.equal(requiredApproval("transformational", "private", grants), "auto");
 });
 
 test("approvals: a revoked trust grant does not lower the requirement", () => {
   const grants = [
-    { capabilityClass: "dummy_class", riskBand: "transformational" as const, autoActivate: true, revokedAt: "2026-01-01T00:00:00.000Z" },
+    { capabilityClass: "test_fixture_class", riskBand: "transformational" as const, autoActivate: true, revokedAt: "2026-01-01T00:00:00.000Z" },
   ];
   assert.equal(requiredApproval("transformational", "private", grants), "user_pref");
 });
@@ -237,7 +237,7 @@ test("approvals: a revoked trust grant does not lower the requirement", () => {
 test("approvals budgets: 21st informational auto-activation of the day requires approval (budget exhausted)", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
   const killSwitch = new InMemoryKillSwitch();
-  const workspaceId = "dummy_ws_budget";
+  const workspaceId = "test_fixture_ws_budget";
   const today = "2026-07-06";
 
   let lastDecision;
@@ -263,14 +263,14 @@ test("approvals budgets: 21st informational auto-activation of the day requires 
 test("approvals kill switch: forces explicit_human regardless of risk band or trust grants", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
   const killSwitch = new InMemoryKillSwitch();
-  const workspaceId = "dummy_ws_killswitch";
+  const workspaceId = "test_fixture_ws_killswitch";
   killSwitch.engage(workspaceId);
 
   const decision = await resolveActivationApproval({
     workspaceId,
     riskBand: "informational",
     audience: "private",
-    trustGrants: [{ capabilityClass: "dummy_class", riskBand: "informational", autoActivate: true }],
+    trustGrants: [{ capabilityClass: "test_fixture_class", riskBand: "informational", autoActivate: true }],
     killSwitch,
     budgets,
     todayKey: "2026-07-06",
@@ -280,10 +280,10 @@ test("approvals kill switch: forces explicit_human regardless of risk band or tr
 
 test("approvals: distinct workspaces/bands have independent budgets", async () => {
   const budgets = new InMemoryAutoActivationBudgetStore();
-  await budgets.recordAutoActivation("dummy_ws_a", "informational", "2026-07-06");
-  assert.equal(await budgets.countToday("dummy_ws_b", "informational", "2026-07-06"), 0);
-  assert.equal(await budgets.countToday("dummy_ws_a", "advisory", "2026-07-06"), 0);
-  assert.equal(await budgets.countToday("dummy_ws_a", "informational", "2026-07-06"), 1);
+  await budgets.recordAutoActivation("test_fixture_ws_a", "informational", "2026-07-06");
+  assert.equal(await budgets.countToday("test_fixture_ws_b", "informational", "2026-07-06"), 0);
+  assert.equal(await budgets.countToday("test_fixture_ws_a", "advisory", "2026-07-06"), 0);
+  assert.equal(await budgets.countToday("test_fixture_ws_a", "informational", "2026-07-06"), 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -292,10 +292,10 @@ test("approvals: distinct workspaces/bands have independent budgets", async () =
 
 test("credential broker: requestGrant never returns a raw secret — only an opaque grant reference", async () => {
   const broker = new InMemoryCredentialBroker();
-  const ref = await broker.requestGrant("dummy_capability_1", "dummy_connector", ["scope:read"], 60);
+  const ref = await broker.requestGrant("test_fixture_capability_1", "test_fixture_connector", ["scope:read"], 60);
   assert.ok(ref.grantId);
-  assert.equal(ref.capabilityId, "dummy_capability_1");
-  assert.equal(ref.connector, "dummy_connector");
+  assert.equal(ref.capabilityId, "test_fixture_capability_1");
+  assert.equal(ref.connector, "test_fixture_connector");
   // The reference object must not carry any secret-shaped field.
   const keys = Object.keys(ref);
   for (const forbidden of ["secret", "token", "apiKey", "password"]) {
@@ -305,7 +305,7 @@ test("credential broker: requestGrant never returns a raw secret — only an opa
 
 test("credential broker: isActive is true within TTL, false after expiry or revocation", async () => {
   const broker = new InMemoryCredentialBroker();
-  const ref = await broker.requestGrant("dummy_capability_1", "dummy_connector", [], 60);
+  const ref = await broker.requestGrant("test_fixture_capability_1", "test_fixture_connector", [], 60);
 
   const soon = new Date(Date.now() + 1000).toISOString();
   assert.equal(await broker.isActive(ref.grantId, soon), true);
@@ -319,7 +319,7 @@ test("credential broker: isActive is true within TTL, false after expiry or revo
 
 test("credential broker: isActive is false for an unknown grantId", async () => {
   const broker = new InMemoryCredentialBroker();
-  assert.equal(await broker.isActive("dummy_unknown_grant", new Date().toISOString()), false);
+  assert.equal(await broker.isActive("test_fixture_unknown_grant", new Date().toISOString()), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -329,10 +329,10 @@ test("credential broker: isActive is false for an unknown grantId", async () => 
 test("InMemoryCapabilityStore: createManifest rejects a duplicate id (append-like uniqueness)", async () => {
   const store = new InMemoryCapabilityStore();
   const row = {
-    id: "dummy_manifest_dup",
-    workspaceId: "dummy_ws_1",
+    id: "test_fixture_manifest_dup",
+    workspaceId: "test_fixture_ws_1",
     capabilityType: "skill" as const,
-    name: "dummy_skill",
+    name: "test_fixture_skill",
     version: "1.0.0",
     origin: "user_code" as const,
     audience: "private" as const,
@@ -347,10 +347,10 @@ test("InMemoryCapabilityStore: createManifest rejects a duplicate id (append-lik
 test("InMemoryCapabilityStore: getManifestByNameVersion finds an existing manifest by its (workspace, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
   const store = new InMemoryCapabilityStore();
   const row = {
-    id: "dummy_manifest_natural_key",
-    workspaceId: "dummy_ws_1",
+    id: "test_fixture_manifest_natural_key",
+    workspaceId: "test_fixture_ws_1",
     capabilityType: "skill" as const,
-    name: "dummy_shared_capability",
+    name: "test_fixture_shared_capability",
     version: "1.0.0",
     origin: "user_code" as const,
     audience: "private" as const,
@@ -360,27 +360,27 @@ test("InMemoryCapabilityStore: getManifestByNameVersion finds an existing manife
   };
   await store.createManifest(row);
 
-  const found = await store.getManifestByNameVersion("dummy_ws_1", "dummy_shared_capability", "1.0.0");
-  assert.equal(found?.id, "dummy_manifest_natural_key");
+  const found = await store.getManifestByNameVersion("test_fixture_ws_1", "test_fixture_shared_capability", "1.0.0");
+  assert.equal(found?.id, "test_fixture_manifest_natural_key");
 
-  assert.equal(await store.getManifestByNameVersion("dummy_ws_1", "dummy_shared_capability", "2.0.0"), null);
-  assert.equal(await store.getManifestByNameVersion("dummy_ws_2", "dummy_shared_capability", "1.0.0"), null);
-  assert.equal(await store.getManifestByNameVersion("dummy_ws_1", "dummy_other", "1.0.0"), null);
+  assert.equal(await store.getManifestByNameVersion("test_fixture_ws_1", "test_fixture_shared_capability", "2.0.0"), null);
+  assert.equal(await store.getManifestByNameVersion("test_fixture_ws_2", "test_fixture_shared_capability", "1.0.0"), null);
+  assert.equal(await store.getManifestByNameVersion("test_fixture_ws_1", "test_fixture_other", "1.0.0"), null);
 });
 
 test("InMemoryCapabilityStore: upsertState creates then updates the ONE current-state row per manifest", async () => {
   const store = new InMemoryCapabilityStore();
-  const manifestId = "dummy_manifest_state";
+  const manifestId = "test_fixture_manifest_state";
   const first = await store.upsertState({
     manifestId,
-    workspaceId: "dummy_ws_1",
+    workspaceId: "test_fixture_ws_1",
     state: "draft",
     suspended: false,
     evidence: {},
   });
   const second = await store.upsertState({
     manifestId,
-    workspaceId: "dummy_ws_1",
+    workspaceId: "test_fixture_ws_1",
     state: "validated",
     suspended: false,
     evidence: { activeRunCount: 1 },

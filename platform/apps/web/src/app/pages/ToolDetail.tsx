@@ -15,7 +15,7 @@ type RunResult = Awaited<ReturnType<typeof trpc.tool.run.mutate>>;
  */
 export function ToolDetail() {
   const [toolId, setToolId] = useState("");
-  const [actorId, setActorId] = useState("dummy_user_1");
+  const [actorId, setActorId] = useState("");
   const [paramsJson, setParamsJson] = useState("{}");
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);

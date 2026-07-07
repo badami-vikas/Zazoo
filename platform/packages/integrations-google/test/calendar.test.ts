@@ -1,6 +1,6 @@
 /**
  * Calendar CRUD conformance — the Calendar tool's read + write round-trip through the
- * REAL pipeline + gate, with a fake gateway (dummy_ data, zero network).
+ * REAL pipeline + gate, with a fake gateway (test_fixture_ data, zero network).
  *
  * Asserts the governed contract the Calendar surface depends on:
  *   - listCalendarEvents READS through the gate (external:fetch) and returns events.
@@ -53,44 +53,44 @@ const EGRESS_AGENT = "agent-egress";
 const INTAKE_AGENT = "agent-intake";
 const USER = "user-1";
 
-// Dummy calendar events the fake gateway "fetches" — clearly dummy_-prefixed.
-const dummy_events: CalendarEvent[] = [
+// Dummy calendar events the fake gateway "fetches" — clearly test_fixture_-prefixed.
+const test_fixture_events: CalendarEvent[] = [
   {
-    eventId: "dummy_evt_standup",
-    summary: "dummy_ Daily Standup",
+    eventId: "test_fixture_evt_standup",
+    summary: "test_fixture_ Daily Standup",
     start: "2026-06-25T09:00:00.000Z",
     end: "2026-06-25T09:30:00.000Z",
-    organizer: { email: "dummy_self@example.com" },
-    attendees: [{ email: "dummy_teammate@example.com" }],
+    organizer: { email: "test_fixture_self@example.com" },
+    attendees: [{ email: "test_fixture_teammate@example.com" }],
   },
   {
-    eventId: "dummy_evt_lunch",
-    summary: "dummy_ Lunch with Alex",
-    location: "dummy_ Cafe",
+    eventId: "test_fixture_evt_lunch",
+    summary: "test_fixture_ Lunch with Alex",
+    location: "test_fixture_ Cafe",
     start: "2026-06-25T12:00:00.000Z",
     end: "2026-06-25T13:00:00.000Z",
-    organizer: { email: "dummy_self@example.com" },
-    attendees: [{ email: "dummy_alex@example.com" }],
+    organizer: { email: "test_fixture_self@example.com" },
+    attendees: [{ email: "test_fixture_alex@example.com" }],
   },
 ];
 
 /** Records every gateway call so tests can assert what crossed the gate (and when). */
-class dummy_FakeGateway implements GoogleGateway {
+class test_fixture_FakeGateway implements GoogleGateway {
   calls: { method: string; args: unknown }[] = [];
   async fetchThreads(): Promise<FetchThreadsResult> {
     return { threads: [] };
   }
   async fetchEvents(): Promise<FetchEventsResult> {
     this.calls.push({ method: "fetchEvents", args: {} });
-    return { events: dummy_events };
+    return { events: test_fixture_events };
   }
   async createDraft(_e: SendEmailEnvelope): Promise<CreateDraftResult> {
     this.calls.push({ method: "createDraft", args: _e });
-    return { providerDraftId: "dummy_draft_1" };
+    return { providerDraftId: "test_fixture_draft_1" };
   }
   async createEvent(env: CreateEventEnvelope): Promise<CreateEventResult> {
     this.calls.push({ method: "createEvent", args: env });
-    return { providerEventId: "dummy_created_1", htmlLink: "https://dummy/event/created" };
+    return { providerEventId: "test_fixture_created_1", htmlLink: "https://dummy/event/created" };
   }
   async updateEvent(eventId: string, env: Partial<CreateEventEnvelope>): Promise<CreateEventResult> {
     this.calls.push({ method: "updateEvent", args: { eventId, env } });
@@ -105,7 +105,7 @@ class dummy_FakeGateway implements GoogleGateway {
   }
 }
 
-class dummy_FakeFactory implements GoogleGatewayFactory {
+class test_fixture_FakeFactory implements GoogleGatewayFactory {
   constructor(private readonly gw: GoogleGateway) {}
   async forIntegration(): Promise<GoogleGateway> {
     return this.gw;
@@ -119,7 +119,7 @@ const externalApprovalPolicy: PolicyFn = (i) =>
 
 async function build(): Promise<{
   google: GoogleService;
-  gw: dummy_FakeGateway;
+  gw: test_fixture_FakeGateway;
   ledger: InMemoryLedger;
   localPlane: LocalPlane;
 }> {
@@ -151,8 +151,8 @@ async function build(): Promise<{
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
 
-  const gw = new dummy_FakeGateway();
-  const gateways = new dummy_FakeFactory(gw);
+  const gw = new test_fixture_FakeGateway();
+  const gateways = new test_fixture_FakeFactory(gw);
   const localPlane = await createMemoryLocalPlane();
   const canonical = new InMemoryCanonicalIdentityStore();
 
@@ -175,7 +175,7 @@ async function build(): Promise<{
     egress: new EgressExecutor({ ledger, gateways, graph: localPlane.graph }),
     secrets: localPlane.secrets,
     identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
-    selfEmails: ["dummy_self@example.com"],
+    selfEmails: ["test_fixture_self@example.com"],
   });
 
   return { google, gw, ledger, localPlane };
@@ -191,8 +191,8 @@ test("listCalendarEvents reads full events through the gate (display projection)
   const { google, gw, localPlane } = await build();
   const events = await google.listCalendarEvents(ctx(), { maxResults: 50 });
   assert.equal(events.length, 2);
-  assert.deepEqual(events.map((e) => e.eventId), ["dummy_evt_standup", "dummy_evt_lunch"]);
-  assert.equal(events[1]?.location, "dummy_ Cafe"); // full event, not a stripped manifest
+  assert.deepEqual(events.map((e) => e.eventId), ["test_fixture_evt_standup", "test_fixture_evt_lunch"]);
+  assert.equal(events[1]?.location, "test_fixture_ Cafe"); // full event, not a stripped manifest
   assert.equal(gw.countOf("fetchEvents"), 1);
   await localPlane.close();
 });
@@ -202,10 +202,10 @@ test("create event is draft-only at propose, written only after human approval (
   const c = ctx();
 
   const envelope: CreateEventEnvelope = {
-    summary: "dummy_ New Sync",
+    summary: "test_fixture_ New Sync",
     start: "2026-06-26T15:00:00.000Z",
     end: "2026-06-26T15:30:00.000Z",
-    attendees: ["dummy_guest@example.com"],
+    attendees: ["test_fixture_guest@example.com"],
   };
   const proposal = await google.proposeSend(c, { kind: "calendar", action: "create", envelope });
 
@@ -218,7 +218,7 @@ test("create event is draft-only at propose, written only after human approval (
   const effects = await google.onApproved(proposal.id, decided, c);
   assert.equal(effects.sent, true);
   assert.equal(gw.countOf("createEvent"), 1);
-  assert.deepEqual((gw.calls.find((x) => x.method === "createEvent")?.args as CreateEventEnvelope).summary, "dummy_ New Sync");
+  assert.deepEqual((gw.calls.find((x) => x.method === "createEvent")?.args as CreateEventEnvelope).summary, "test_fixture_ New Sync");
 
   // Idempotency: re-running the post-approval side effect never double-writes.
   const again = await google.onApproved(proposal.id, decided, c);
@@ -233,9 +233,9 @@ test("email send is draft-only at propose, gmail.drafts.create called only after
   const c = ctx();
 
   const envelope: SendEmailEnvelope = {
-    to: ["dummy_recipient@example.com"],
-    subject: "dummy_ Hello",
-    bodyText: "dummy_ body",
+    to: ["test_fixture_recipient@example.com"],
+    subject: "test_fixture_ Hello",
+    bodyText: "test_fixture_ body",
   };
   const proposal = await google.proposeSend(c, { kind: "email", envelope });
 
@@ -247,7 +247,7 @@ test("email send is draft-only at propose, gmail.drafts.create called only after
   const effects = await google.onApproved(proposal.id, decided, c);
   assert.equal(effects.sent, true);
   assert.equal(gw.countOf("createDraft"), 1);
-  assert.deepEqual((gw.calls.find((x) => x.method === "createDraft")?.args as SendEmailEnvelope).to, ["dummy_recipient@example.com"]);
+  assert.deepEqual((gw.calls.find((x) => x.method === "createDraft")?.args as SendEmailEnvelope).to, ["test_fixture_recipient@example.com"]);
 
   // Idempotency: re-running the post-approval side effect never double-drafts.
   const again = await google.onApproved(proposal.id, decided, c);
@@ -264,7 +264,7 @@ test("update event routes through compose → approve → gateway.updateEvent", 
   const proposal = await google.proposeSend(c, {
     kind: "calendar",
     action: "update",
-    envelope: { eventId: "dummy_evt_lunch", summary: "dummy_ Lunch (moved)", start: "2026-06-25T12:30:00.000Z" },
+    envelope: { eventId: "test_fixture_evt_lunch", summary: "test_fixture_ Lunch (moved)", start: "2026-06-25T12:30:00.000Z" },
   });
   assert.equal(proposal.status, "pending_review");
   assert.equal(gw.countOf("updateEvent"), 0);
@@ -274,8 +274,8 @@ test("update event routes through compose → approve → gateway.updateEvent", 
   assert.equal(effects.sent, true);
   assert.equal(gw.countOf("updateEvent"), 1);
   const args = gw.calls.find((x) => x.method === "updateEvent")?.args as { eventId: string; env: Partial<CreateEventEnvelope> };
-  assert.equal(args.eventId, "dummy_evt_lunch");
-  assert.equal(args.env.summary, "dummy_ Lunch (moved)");
+  assert.equal(args.eventId, "test_fixture_evt_lunch");
+  assert.equal(args.env.summary, "test_fixture_ Lunch (moved)");
 
   await localPlane.close();
 });
@@ -284,7 +284,7 @@ test("delete event routes through compose → approve → gateway.deleteEvent", 
   const { google, gw, localPlane } = await build();
   const c = ctx();
 
-  const proposal = await google.proposeSend(c, { kind: "calendar", action: "delete", envelope: { eventId: "dummy_evt_standup" } });
+  const proposal = await google.proposeSend(c, { kind: "calendar", action: "delete", envelope: { eventId: "test_fixture_evt_standup" } });
   assert.equal(proposal.status, "pending_review");
   assert.equal(gw.countOf("deleteEvent"), 0);
 
@@ -292,7 +292,7 @@ test("delete event routes through compose → approve → gateway.deleteEvent", 
   const effects = await google.onApproved(proposal.id, decided, c);
   assert.equal(effects.sent, true);
   assert.equal(gw.countOf("deleteEvent"), 1);
-  assert.equal((gw.calls.find((x) => x.method === "deleteEvent")?.args as { eventId: string }).eventId, "dummy_evt_standup");
+  assert.equal((gw.calls.find((x) => x.method === "deleteEvent")?.args as { eventId: string }).eventId, "test_fixture_evt_standup");
 
   await localPlane.close();
 });
@@ -303,7 +303,7 @@ test("an agent can never approve a calendar external:send proposal (agent-floor)
   const proposal = await google.proposeSend(c, {
     kind: "calendar",
     action: "create",
-    envelope: { summary: "dummy_ Blocked", start: "2026-06-27T10:00:00.000Z", end: "2026-06-27T10:30:00.000Z" },
+    envelope: { summary: "test_fixture_ Blocked", start: "2026-06-27T10:00:00.000Z", end: "2026-06-27T10:30:00.000Z" },
   });
   await assert.rejects(
     () => pipelineOf(google).decide(proposal.id, "approve", { type: "agent", id: EGRESS_AGENT }, c),

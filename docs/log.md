@@ -1,5 +1,21 @@
 # Change Log
 
+- **2026-07-06** — **Real-data-only enforcement pass: retired `dummy_` runtime data + convention
+  (ADR-026).** `apps/api/src/social/fixtures.ts`'s `makeFixtureProvider` was fabricating two fake
+  social posts/DMs per platform (fake handles, a fake name) whenever no live credentials were
+  configured, and pushing them through the governance gate as real `pending_review` Touchpoint
+  proposals — genuine fake business data in runtime code, not just a naming issue. Fixed to an
+  honest empty read (`sourceItems()` returns `[]`). Also retired the platform-wide `dummy_` naming
+  convention per CLAUDE.md's 2026-07-06 reversal: `wiring.ts`'s pilot-email fallback, two web-app
+  form defaults (`ToolDetail.tsx`/`RitualDetail.tsx`), `PublicHelpdesk.tsx`'s localStorage key, and
+  324 `dummy_`-prefixed literals across 38 test files all renamed off the retired prefix (test files
+  → new `test_fixture_` convention). The `bridge/dummy-prefix` ESLint rule's implementation is now a
+  documented no-op (kept because `eslint.config.js`, a protected file, still references it by name).
+  New `platform/package.json` script `check:no-dummy-runtime` greps for `dummy_` outside test/fixture
+  dirs and fails the build if any is found — a mechanical backstop against reintroduction. Gates:
+  `turbo run build` 20/20 green, `turbo run test --force` 36/36 green (0 failures across all
+  packages), `pnpm lint` 0 errors. BUGS.md row + ADR-026 in decisions-log.md carry full detail.
+
 - **2026-07-06** — **P1 Workspace Generator complete: onboarding pop-up + Chief of Staff v1 +
   approval cards (ADR-019).** Landed the three remaining P1 slices on top of ADR-017's blueprint
   compiler/`<DataViews>` shell. **Onboarding**: `apps/web/src/app/onboarding/questions.ts` (pure,

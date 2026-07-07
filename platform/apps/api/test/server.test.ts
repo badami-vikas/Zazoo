@@ -42,11 +42,11 @@ async function withEnvAsync<T>(vars: Record<string, string | undefined>, fn: () 
 }
 
 test("CORS: explicit API_ALLOWED_ORIGINS always wins, in any NODE_ENV", () => {
-  withEnv({ API_ALLOWED_ORIGINS: "https://dummy_a.example, https://dummy_b.example", NODE_ENV: "production" }, () => {
-    assert.deepEqual(corsOriginConfig(), ["https://dummy_a.example", "https://dummy_b.example"]);
+  withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example, https://test_fixture_b.example", NODE_ENV: "production" }, () => {
+    assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example", "https://test_fixture_b.example"]);
   });
-  withEnv({ API_ALLOWED_ORIGINS: "https://dummy_a.example", NODE_ENV: undefined }, () => {
-    assert.deepEqual(corsOriginConfig(), ["https://dummy_a.example"]);
+  withEnv({ API_ALLOWED_ORIGINS: "https://test_fixture_a.example", NODE_ENV: undefined }, () => {
+    assert.deepEqual(corsOriginConfig(), ["https://test_fixture_a.example"]);
   });
 });
 
@@ -72,7 +72,7 @@ test("assertProductionEnv: refuses to boot in production without DATABASE_URL", 
 });
 
 test("assertProductionEnv: passes in production when DATABASE_URL is set", () => {
-  withEnv({ NODE_ENV: "production", DATABASE_URL: "postgres://dummy_user:dummy_pw@localhost:5432/dummy_db" }, () => {
+  withEnv({ NODE_ENV: "production", DATABASE_URL: "postgres://test_fixture_user:test_fixture_pw@localhost:5432/test_fixture_db" }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
   });
 });
@@ -85,15 +85,15 @@ test("assertProductionEnv: no-op outside production even without DATABASE_URL", 
 
 test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled rejection — even when the tRPC procedure itself needs no auth", async () => {
   await withEnvAsync(
-    { SUPABASE_JWT_SECRET: "dummy_correct_secret", SUPABASE_URL: undefined },
+    { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
     async () => {
       const app = await buildServer();
       try {
-        const forged = await new SignJWT({ sub: "dummy_attacker" })
+        const forged = await new SignJWT({ sub: "test_fixture_attacker" })
           .setProtectedHeader({ alg: "HS256" })
           .setIssuedAt()
           .setExpirationTime("5m")
-          .sign(new TextEncoder().encode("dummy_wrong_secret"));
+          .sign(new TextEncoder().encode("test_fixture_wrong_secret"));
 
         const res = await app.inject({
           method: "GET",

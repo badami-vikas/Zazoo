@@ -15,7 +15,7 @@ type Thread = Awaited<ReturnType<typeof trpc.helpdesk.public.getThread.query>>;
  * kept client-side (localStorage) so returning visitors can reload their thread.
  */
 export function PublicHelpdesk() {
-  const [token, setToken] = useState(() => localStorage.getItem("dummy_helpdesk_token") ?? "");
+  const [token, setToken] = useState(() => localStorage.getItem("bridge_helpdesk_token") ?? "");
   const [thread, setThread] = useState<Thread | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +34,7 @@ export function PublicHelpdesk() {
         submitterEmail: email,
         body,
       });
-      localStorage.setItem("dummy_helpdesk_token", ticket.accessToken);
+      localStorage.setItem("bridge_helpdesk_token", ticket.accessToken);
       setToken(ticket.accessToken);
       await loadThread(ticket.accessToken);
     } catch (e) {

@@ -12,8 +12,8 @@ import {
 
 function row(overrides: Partial<PackageInstallationRow> = {}): PackageInstallationRow {
   return {
-    id: "dummy_row_1",
-    workspaceId: "dummy_ws",
+    id: "test_fixture_row_1",
+    workspaceId: "test_fixture_ws",
     packageName: "dummy-package",
     packageVersion: "1.0.0",
     manifest: {
@@ -100,7 +100,7 @@ test("rollbackFromHistory: rejects a cross-package rollback target", () => {
 test("InMemoryPackageStore: create/get/list round trip", async () => {
   const store = new InMemoryPackageStore();
   const created = await store.create({
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     packageName: "dummy-package",
     packageVersion: "1.0.0",
     manifest: row().manifest,
@@ -112,7 +112,7 @@ test("InMemoryPackageStore: create/get/list round trip", async () => {
   assert.ok(created.id);
   const fetched = await store.get(created.id);
   assert.equal(fetched?.packageName, "dummy-package");
-  const { items, total } = await store.list("dummy_ws", { limit: 10, offset: 0 });
+  const { items, total } = await store.list("test_fixture_ws", { limit: 10, offset: 0 });
   assert.equal(total, 1);
   assert.equal(items[0]?.id, created.id);
 });
@@ -120,7 +120,7 @@ test("InMemoryPackageStore: create/get/list round trip", async () => {
 test("InMemoryPackageStore: getAvailable returns the one available version", async () => {
   const store = new InMemoryPackageStore();
   const v1 = await store.create({
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     packageName: "dummy-package",
     packageVersion: "1.0.0",
     manifest: row().manifest,
@@ -130,7 +130,7 @@ test("InMemoryPackageStore: getAvailable returns the one available version", asy
     lineageManifestId: null,
   });
   await store.create({
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     packageName: "dummy-package",
     packageVersion: "0.9.0",
     manifest: row().manifest,
@@ -139,14 +139,14 @@ test("InMemoryPackageStore: getAvailable returns the one available version", asy
     status: "installed",
     lineageManifestId: null,
   });
-  const available = await store.getAvailable("dummy_ws", "dummy-package");
+  const available = await store.getAvailable("test_fixture_ws", "dummy-package");
   assert.equal(available?.id, v1.id);
 });
 
 test("InMemoryPackageStore: setState/setStatus mutate a single row", async () => {
   const store = new InMemoryPackageStore();
   const created = await store.create({
-    workspaceId: "dummy_ws",
+    workspaceId: "test_fixture_ws",
     packageName: "dummy-package",
     packageVersion: "1.0.0",
     manifest: row().manifest,

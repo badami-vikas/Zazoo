@@ -20,17 +20,17 @@ function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<
 
 test("identity: HS256 verify failure (bad secret) rejects with IdentityVerificationError, not a raw jose error", async () => {
   await withEnv(
-    { SUPABASE_JWT_SECRET: "dummy_correct_secret", SUPABASE_URL: undefined },
+    { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
     async () => {
-      const resolver = createIdentityResolver("dummy_pilot_user");
+      const resolver = createIdentityResolver("test_fixture_pilot_user");
       assert.equal(resolver.verifying, true);
       // Signed with a DIFFERENT secret than the resolver is configured with —
       // simulates an invalid/forged bearer token.
-      const forged = await new SignJWT({ sub: "dummy_attacker" })
+      const forged = await new SignJWT({ sub: "test_fixture_attacker" })
         .setProtectedHeader({ alg: "HS256" })
         .setIssuedAt()
         .setExpirationTime("5m")
-        .sign(new TextEncoder().encode("dummy_wrong_secret"));
+        .sign(new TextEncoder().encode("test_fixture_wrong_secret"));
 
       await assert.rejects(
         () => resolver.resolve(`Bearer ${forged}`),
@@ -52,7 +52,7 @@ test("identity: JWKS verify failure (unreachable endpoint) rejects with Identity
       SUPABASE_URL: "https://192.0.2.1",
     },
     async () => {
-      const resolver = createIdentityResolver("dummy_pilot_user");
+      const resolver = createIdentityResolver("test_fixture_pilot_user");
       assert.equal(resolver.verifying, true);
       // Any syntactically-plausible bearer token — the JWKS fetch itself is what
       // must fail (timeout/network error), before signature checking even runs.
@@ -71,9 +71,9 @@ test("identity: JWKS verify failure (unreachable endpoint) rejects with Identity
 
 test("identity: no verifier configured + no token => pilot fallback, unaffected by JWKS hardening", async () => {
   await withEnv({ SUPABASE_JWT_SECRET: undefined, SUPABASE_URL: undefined }, async () => {
-    const resolver = createIdentityResolver("dummy_pilot_user");
+    const resolver = createIdentityResolver("test_fixture_pilot_user");
     assert.equal(resolver.verifying, false);
     const actor = await resolver.resolve(undefined);
-    assert.deepEqual(actor, { type: "user", id: "dummy_pilot_user" });
+    assert.deepEqual(actor, { type: "user", id: "test_fixture_pilot_user" });
   });
 });
