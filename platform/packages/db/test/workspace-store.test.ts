@@ -12,15 +12,15 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
   const { db, close } = await createLocalDb();
   try {
     // Seed the creator user (FK target for workspace_members.user_id).
-    const [creator] = await db.insert(schema.users).values({ email: "dummy_creator@example.com" }).returning({
+    const [creator] = await db.insert(schema.users).values({ email: "test_fixture_creator@example.com" }).returning({
       id: schema.users.id,
     });
     assert.ok(creator, "creator user seeded");
 
     const store = new DrizzleWorkspaceStore(db);
 
-    const ws = await store.createWorkspace("dummy_workspace", creator.id);
-    assert.equal(ws.name, "dummy_workspace");
+    const ws = await store.createWorkspace("test_fixture_workspace", creator.id);
+    assert.equal(ws.name, "test_fixture_workspace");
     assert.ok(ws.id);
     assert.ok(ws.createdAt);
 
@@ -32,7 +32,7 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     );
 
     // A different user has no workspaces yet.
-    const [otherUser] = await db.insert(schema.users).values({ email: "dummy_other@example.com" }).returning({
+    const [otherUser] = await db.insert(schema.users).values({ email: "test_fixture_other@example.com" }).returning({
       id: schema.users.id,
     });
     assert.deepEqual(await store.listWorkspaces(otherUser!.id), []);
@@ -41,25 +41,25 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     const membersBeforeInvite = await store.listMembers(ws.id);
     assert.deepEqual(
       membersBeforeInvite.map((m) => m.email),
-      ["dummy_creator@example.com"],
+      ["test_fixture_creator@example.com"],
     );
 
     // Invite a brand-new email — find-or-create the user, then add as a member.
-    const invited = await store.inviteMember(ws.id, "dummy_invitee@example.com");
-    assert.equal(invited.email, "dummy_invitee@example.com");
+    const invited = await store.inviteMember(ws.id, "test_fixture_invitee@example.com");
+    assert.equal(invited.email, "test_fixture_invitee@example.com");
     assert.ok(invited.userId);
 
     const membersAfterInvite = await store.listMembers(ws.id);
     assert.deepEqual(
       membersAfterInvite.map((m) => m.email).sort(),
-      ["dummy_creator@example.com", "dummy_invitee@example.com"].sort(),
+      ["test_fixture_creator@example.com", "test_fixture_invitee@example.com"].sort(),
     );
 
     // Inviting an EXISTING user (e.g. otherUser's email) reuses their user row and
     // does not duplicate membership if invited twice.
-    const reInvited = await store.inviteMember(ws.id, "dummy_other@example.com");
+    const reInvited = await store.inviteMember(ws.id, "test_fixture_other@example.com");
     assert.equal(reInvited.userId, otherUser!.id);
-    const invitedTwice = await store.inviteMember(ws.id, "dummy_other@example.com");
+    const invitedTwice = await store.inviteMember(ws.id, "test_fixture_other@example.com");
     assert.equal(invitedTwice.userId, otherUser!.id);
     const membersAfterReinvite = await store.listMembers(ws.id);
     // No duplicate row for otherUser despite inviting twice.

@@ -135,7 +135,7 @@ export function ApprovalsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" title={source === 'supabase' ? 'Pending rows loaded from the Supabase ledger (append-only)' : 'Supabase unreachable/empty — using local demo data'} style={{ backgroundColor: source === 'supabase' ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--color-surface)', color: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" title={source === 'supabase' ? 'Pending rows loaded from the Supabase ledger (append-only)' : 'Supabase unreachable — showing local fallback (empty)'} style={{ backgroundColor: source === 'supabase' ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--color-surface)', color: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }} /> {source === 'supabase' ? 'Supabase ledger' : 'Local'}
           </span>
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)' }}>

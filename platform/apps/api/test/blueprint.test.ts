@@ -19,7 +19,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    // Real seeded user id (not a dummy_-prefixed string) — workspace_definitions.created_by
+    // Real seeded user id (not a test_fixture_-prefixed string) — workspace_definitions.created_by
     // is a real FK to users, so an arbitrary caller id would violate it.
     identity: { type: "user", id: PILOT_USER },
   });

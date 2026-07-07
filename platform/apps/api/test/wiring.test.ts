@@ -15,7 +15,7 @@ import { buildInMemoryPorts, buildPersistentPorts } from "../src/wiring.js";
 /** A syntactically-valid Postgres URL that is never actually connected to: postgres-js's
  * client is lazy (no TCP connection until a query runs), so constructing/closing it is
  * safe without a live database — see packages/db/src/client.ts. */
-const DUMMY_POSTGRES_URL = "postgres://dummy_user:dummy_pass@127.0.0.1:1/dummy_bridge_test";
+const DUMMY_POSTGRES_URL = "postgres://test_fixture_user:test_fixture_pass@127.0.0.1:1/test_fixture_bridge_test";
 
 function withCapturedWarnings<T>(fn: () => T): { result: T; warnings: string[] } {
   const warnings: string[] = [];

@@ -17,27 +17,20 @@ const navItems = [
 
 // Org-wide default boundary rules — applied to every new profile unless overridden per-entity
 // (see ItemDetail's per-person Boundaries tab). Same allow/deny shape, workspace scope.
-const defaultAllowed = ['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)'];
+const defaultAllowed = ['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (sender-approved draft)'];
 const defaultDenied = ['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network'];
 
-const teamMembers = [
-  { id: 'dummy_member_1', name: 'dummy_Tony Stark', email: 'dummy_tony@acmecorp.com', role: 'dummy_Admin', avatar: 'T', status: 'active', lastSeen: 'dummy_9009 min ago' },
-  { id: 'dummy_member_2', name: 'dummy_Bruce Wayne', email: 'dummy_bruce@acmecorp.com', role: 'dummy_Member', avatar: 'B', status: 'active', lastSeen: 'dummy_9009 hour ago' },
-  { id: 'dummy_member_3', name: 'dummy_Clark Kent', email: 'dummy_clark@acmecorp.com', role: 'dummy_Member', avatar: 'C', status: 'active', lastSeen: 'dummy_9009 hours ago' },
-  { id: 'dummy_member_4', name: 'dummy_Norman Osborn', email: 'dummy_norman@acmecorp.com', role: 'dummy_Viewer', avatar: 'N', status: 'inactive', lastSeen: 'dummy_9009 days ago' },
-  { id: 'dummy_member_5', name: 'dummy_Miles Davis', email: 'dummy_miles@acmecorp.com', role: 'dummy_Member', avatar: 'M', status: 'active', lastSeen: 'dummy_Today' },
-];
+// Real team members load from apiListMembers() (data/api.ts) once a workspace is connected —
+// empty here rather than fabricated people, matching WorkspaceTeamModal's real backend pattern.
+const teamMembers: Array<{ id: string; name: string; email: string; role: string; avatar: string; status: string; lastSeen: string }> = [];
 
-const apiKeys = [
-  { id: 'dummy_key_1', name: 'dummy_Production Key', prefix: 'dummy_brg_live_xK8p...', created: 'dummy_9009-01-10', lastUsed: 'dummy_9009-04-08', active: true },
-  { id: 'dummy_key_2', name: 'dummy_Development Key', prefix: 'dummy_brg_test_mN2q...', created: 'dummy_9009-02-15', lastUsed: 'dummy_9009-04-07', active: true },
-  { id: 'dummy_key_3', name: 'dummy_Analytics Integration', prefix: 'dummy_brg_live_pR7w...', created: 'dummy_9009-03-01', lastUsed: 'dummy_9009-03-28', active: false },
-];
+// Real API keys are provisioned per-workspace — none exist until the user creates one.
+const apiKeys: Array<{ id: string; name: string; prefix: string; created: string; lastUsed: string; active: boolean }> = [];
 
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState('workspace');
-  const [workspaceName, setWorkspaceName] = useState('dummy_Acme Corp');
-  const [domain, setDomain] = useState('dummy_acmecorp.com');
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [domain, setDomain] = useState('');
   const [showApiKey, setShowApiKey] = useState<string | null>(null);
   const [members, setMembers] = useState(teamMembers);
   const [notifications, setNotifications] = useState({
@@ -295,6 +288,11 @@ export function SettingsPage() {
                       </td>
                     </tr>
                   ))}
+                  {members.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No team members yet. Invite someone to get started.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -347,62 +345,14 @@ export function SettingsPage() {
               <p className="text-sm text-[var(--color-navy-mid)]">Manage your subscription and payment details.</p>
             </div>
 
-            {/* Current Plan */}
-            <div className="bg-gradient-to-br from-[var(--color-steel)] to-[var(--color-navy-mid)] rounded-2xl p-6 text-white shadow-lg shadow-[var(--color-steel)]/20">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-widest opacity-70 mb-1">Current Plan</div>
-                  <div className="text-2xl font-semibold">dummy_Enterprise</div>
-                </div>
-                <div className="px-3 py-1.5 bg-white/20 rounded-lg text-xs font-bold uppercase tracking-wider">Active</div>
-              </div>
-              <div className="grid grid-cols-3 gap-4 mb-5">
-                {[
-                  { label: 'Users', value: 'dummy_9009 / 9009' },
-                  { label: 'Rituals', value: 'dummy_9009 / Unlimited' },
-                  { label: 'AI Credits', value: 'dummy_9009 / 9009' },
-                ].map(m => (
-                  <div key={m.label}>
-                    <div className="font-bold">{m.value}</div>
-                    <div className="text-xs opacity-70">{m.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                <button className="px-4 py-2 bg-white text-[var(--color-steel)] text-xs font-bold rounded-lg hover:bg-[var(--color-surface)] transition-colors">
-                  Manage Plan
-                </button>
-                <button className="px-4 py-2 bg-white/20 text-white text-xs font-semibold rounded-lg hover:bg-white/30 transition-colors">
-                  View Invoices
-                </button>
-              </div>
-            </div>
-
-            {/* Billing Info */}
-            <div className="bg-white border border-[var(--color-border)] rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
-                <h3 className="font-semibold text-[var(--color-navy)] text-sm">Payment Method</h3>
-                <button className="text-xs font-semibold text-[var(--color-steel)] hover:underline">Update</button>
-              </div>
-              <div className="p-6 flex items-center gap-4">
-                <div className="w-14 h-10 rounded-lg bg-[var(--color-navy)] flex items-center justify-center">
-                  <CreditCard className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <div className="font-semibold text-[var(--color-navy)] text-sm">•••• •••• •••• 9009</div>
-                  <div className="text-xs text-[var(--color-navy-mid)]">Expires 9009/9009 · Visa</div>
-                </div>
-                <span className="ml-auto px-2 py-0.5 bg-[var(--success)]/10 text-[var(--success)] text-xs font-semibold rounded border border-[var(--success)]/30">Default</span>
-              </div>
-            </div>
-
-            {/* Next Invoice */}
-            <div className="flex items-center gap-4 p-5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl">
-              <AlertCircle className="w-5 h-5 text-[var(--warning)] shrink-0" />
-              <div>
-                <div className="font-semibold text-[var(--color-navy)] text-sm">Next Invoice</div>
-                <div className="text-xs text-[var(--color-navy-mid)] mt-0.5">$9,009.00 due on May 9009, 9009 for dummy_Enterprise plan (annual).</div>
-              </div>
+            {/* No billing provider connected yet — honest empty state, no fabricated plan/card/invoice */}
+            <div className="flex flex-col items-center gap-3 p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)' }}>
+              <CreditCard className="w-8 h-8" style={{ color: 'var(--color-warm-gray)' }} />
+              <div className="text-sm font-semibold text-[var(--color-navy)]">No plan connected</div>
+              <p className="text-xs max-w-sm" style={{ color: 'var(--color-warm-gray)' }}>Connect a billing provider to see your plan, payment method, and upcoming invoices here.</p>
+              <button className="px-4 py-2 text-white text-xs font-bold rounded-lg hover:opacity-90 transition-opacity" style={{ backgroundColor: 'var(--color-steel)' }}>
+                Connect billing
+              </button>
             </div>
           </div>
         );
@@ -457,8 +407,7 @@ export function SettingsPage() {
               </div>
               <div className="divide-y divide-[var(--color-border)]">
                 {[
-                  { device: 'dummy_MacBook Pro 9009"', location: 'dummy_San Francisco, CA', current: true, time: 'dummy_Active now' },
-                  { device: 'dummy_iPhone 9009 Pro', location: 'dummy_San Francisco, CA', current: false, time: 'dummy_9009 hours ago' },
+                  { device: typeof navigator !== 'undefined' ? navigator.userAgent.split(' ').slice(-2).join(' ') : 'This device', location: '—', current: true, time: 'Active now' },
                 ].map((s, i) => (
                   <div key={i} className="flex items-center justify-between px-6 py-4">
                     <div>
@@ -521,7 +470,7 @@ export function SettingsPage() {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <code className="text-xs font-mono bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">
-                            {showApiKey === key.id ? 'dummy_brg_live_xK8pMn2qR7wAbCd1EfGh3IjKl4' : key.prefix}
+                            {key.prefix}
                           </code>
                           <button onClick={() => setShowApiKey(showApiKey === key.id ? null : key.id)} className="p-1 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] transition-colors">
                             {showApiKey === key.id ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -545,6 +494,11 @@ export function SettingsPage() {
                       </td>
                     </tr>
                   ))}
+                  {apiKeys.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No API keys yet. Generate one to get started.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

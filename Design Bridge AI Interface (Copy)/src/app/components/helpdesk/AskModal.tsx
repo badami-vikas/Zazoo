@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { X, ChevronDown, Search, Lock, Check, Sparkles, Info, ShieldCheck } from 'lucide-react';
 import {
-  submitRequest, suggestWaysToHelp, myHelpdesks, publicHelpdesks, dummy_myCommunities, dummy_youProfile,
+  submitRequest, suggestWaysToHelp, myHelpdesks, publicHelpdesks, myCommunities, youProfile,
   type HelpAttachment, type AudienceTarget,
 } from '../../data/helpdesk';
 import { AttachmentPicker } from './HelpdeskBits';
@@ -24,14 +24,14 @@ export function AskModal({ scope = 'all', onClose, onCreated }: { scope?: AskSco
   const [capRouting, setCapRouting] = useState(true);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [bq, setBq] = useState('');
-  const [identity, setIdentity] = useState({ ...dummy_youProfile });
+  const [identity, setIdentity] = useState({ ...youProfile });
 
   const options = useMemo<Opt[]>(() => {
     const ch: Opt[] = [
       { id: 'network', name: 'My Network', public: false, locked: false, group: 'channel' },
       { id: 'bridge-ai', name: 'Bridge AI', public: false, locked: true, group: 'channel' },
     ];
-    const comm: Opt[] = dummy_myCommunities.map(c => ({ id: c.id, name: c.name, public: false, locked: false, group: 'community' as const }));
+    const comm: Opt[] = myCommunities.map(c => ({ id: c.id, name: c.name, public: false, locked: false, group: 'community' as const }));
     const mine: Opt[] = myHelpdesks().map(w => ({ id: w.id, name: w.name, public: w.visibility === 'public', locked: w.visibility !== 'public', group: 'helpdesk' as const }));
     const pub: Opt[] = publicHelpdesks().map(w => ({ id: w.id, name: w.name, public: true, locked: false, group: 'helpdesk' as const }));
     if (scope === 'network') return [...ch, ...comm];

@@ -19,7 +19,7 @@ export interface QuarantineStore {
 export interface SourceResult {
   quarantinedId: string;
   proposal: Proposal;
-  /** Whether the sourced item came from a live provider or the dummy_ fixture seam. */
+  /** Whether the sourced item came from a live provider or the unconfigured (no-op) seam. */
   mode: SocialProvider["mode"];
 }
 

@@ -83,24 +83,15 @@ export interface Application {
   unresolved?: string[]; createdAt: string;
 }
 
-// ── dummy_ seed data ─────────────────────────────────────────────────────────────────────────
+// No seeded job postings or fabricated candidate profile — real postings arrive once a job-board
+// sourcing connector is wired (same shape as DealPilot's governed brokerage pipeline).
 const DEFAULT_CANDIDATE: CandidateProfile = {
-  categories: ['data engineer', 'platform engineer'],
-  skills: ['python', 'sql', 'kubernetes', 'airflow'],
-  minSalary: 140000,
-  locations: ['remote', 'Austin'],
+  categories: [],
+  skills: [],
+  locations: [],
 };
 
-export const JOBS: JobPosting[] = [
-  { id: 'dummy_job_1', company: 'Acme Analytics', title: 'Senior Data Engineer', location: 'Remote', isRemote: true, salaryMax: 180000, ats: 'greenhouse' },
-  { id: 'dummy_job_2', company: 'Northwind Systems', title: 'Platform Engineer', location: 'Austin', isRemote: false, salaryMax: 155000, ats: 'lever', needsVisaQuestion: true },
-  { id: 'dummy_job_3', company: 'Globex', title: 'Data Engineer', location: 'Austin', isRemote: false, salaryMax: 110000, ats: 'ashby' },
-  { id: 'dummy_job_4', company: 'Initech', title: 'Marketing Manager', location: 'Paris', isRemote: false, salaryMax: 90000, ats: 'workday' },
-  { id: 'dummy_job_5', company: 'Umbrella Cloud', title: 'Senior Data Platform Engineer', location: 'Remote', isRemote: true, salaryMax: 210000, ats: 'greenhouse' },
-  { id: 'dummy_job_6', company: 'Stark Data', title: 'Data Engineer II', location: 'New York', isRemote: false, salaryMax: 165000, ats: 'lever', needsVisaQuestion: true },
-  { id: 'dummy_job_7', company: 'Wayne Analytics', title: 'Business Analyst', location: 'Remote', isRemote: true, salaryMax: 120000, ats: 'ashby' },
-  { id: 'dummy_job_8', company: 'Hooli Infra', title: 'Platform Reliability Engineer', location: 'Remote', isRemote: true, salaryMax: 190000, ats: 'lever', descriptionKeywords: ['platform engineer', 'kubernetes', 'sre'] },
-];
+export const JOBS: JobPosting[] = [];
 
 // ── reactive localStorage store ─────────────────────────────────────────────────────────────
 const K = { candidate: 'bridge.jobpilot.candidate.v1', apps: 'bridge.jobpilot.applications.v1' };
@@ -133,7 +124,7 @@ let seq = 0;
 export function queueJob(job: JobPosting, reviewMode: 'auto' | 'review') {
   seq += 1;
   const fit = scoreJobFit(job, candidate);
-  const app: Application = { id: `dummy_app_${seq}`, jobId: job.id, company: job.company, title: job.title, ats: job.ats, stage: 'queued', fit, tier: job.ats === 'greenhouse' || job.ats === 'lever' || job.ats === 'ashby' ? 1 : 2, createdAt: new Date().toISOString() };
+  const app: Application = { id: `app_${seq}`, jobId: job.id, company: job.company, title: job.title, ats: job.ats, stage: 'queued', fit, tier: job.ats === 'greenhouse' || job.ats === 'lever' || job.ats === 'ashby' ? 1 : 2, createdAt: new Date().toISOString() };
   app.stage = transition(app.stage, 'tailoring');
   app.stage = transition(app.stage, 'evaluating');
 

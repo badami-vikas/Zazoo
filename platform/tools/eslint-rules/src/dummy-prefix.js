@@ -1,28 +1,19 @@
 /**
- * dummy-prefix — flags obviously-placeholder string literals that are missing the
- * required `dummy_` prefix.
+ * dummy-prefix — RETIRED 2026-07-06.
  *
- * CLAUDE.md rule: "Dummy data MUST be dummy_-prefixed: every mock/demo/seed value
- * (ids, names, sample fields, localStorage seeds) carries a dummy_ prefix."
+ * The old `dummy_` prefix convention this rule enforced has itself been retired.
+ * Per the 2026-07-06 real-data-only policy (CLAUDE.md, "NO dummy data (REVERSED
+ * 2026-07-06 — was 'dummy_-prefix everything')"): the platform shows real,
+ * connected data only, and synthetic test fixtures now use the `test_fixture_`
+ * naming convention instead. There is no longer a "dummy_ prefix" for this rule
+ * to enforce, so it is kept as a documented no-op rather than deleted outright
+ * (eslint.config.js still references "bridge/dummy-prefix" and is a protected
+ * file this change is not allowed to edit — see tools/eslint-rules/package.json
+ * and platform/eslint.config.js's own header comment for the historical context).
  *
- * SCOPING / LIMITS (read before relying on this rule):
- * This is NOT a general "is this fake data" detector — that is not mechanically
- * checkable (a linter cannot know intent). This rule catches exactly one narrow,
- * confirmed anti-pattern: a string literal that already LOOKS like placeholder/test
- * data (matches /^(test|mock|fake|sample|demo)[-_]/i) but was written WITHOUT the
- * project's dummy_ prefix — i.e. someone wrote "mock_user" instead of "dummy_user".
- * It only runs on test files (**\/*.test.ts, **\/*.spec.ts) and files under a
- * `fixtures/` or `seed/` path, to keep it from flagging incidental substrings in
- * unrelated application code/comments.
- *
- * What it CANNOT catch: real-looking dummy data with no placeholder-ish prefix at
- * all (e.g. a literal "Jordan Rivera" used as a fake name has no lexical signal this
- * rule can key on) — enforcing the full CLAUDE.md rule in general requires human
- * review / the existing "OPEN" known-issues process, not a lint rule.
+ * If eslint.config.js is ever revisited, this rule entry can be dropped entirely;
+ * until then it is registered but reports nothing.
  */
-
-const PLACEHOLDER_PATTERN = /^(test|mock|fake|sample|demo)[-_]/i;
-const DUMMY_PREFIX_PATTERN = /^dummy_/;
 
 /** @type {import('eslint').Rule.RuleModule} */
 export const dummyPrefix = {
@@ -30,29 +21,16 @@ export const dummyPrefix = {
     type: "suggestion",
     docs: {
       description:
-        "Warn on placeholder-looking string literals (test_/mock_/fake_/sample_/demo_) that should use the project's dummy_ prefix instead, in test/fixture/seed files.",
+        "Retired 2026-07-06 — no-op. The dummy_ prefix convention was replaced by the test_fixture_ convention under the real-data-only policy; see this file's header.",
     },
     schema: [],
-    messages: {
-      missingDummyPrefix:
-        "String literal '{{value}}' looks like placeholder data but is not dummy_-prefixed. Per CLAUDE.md, every mock/demo/seed value must carry a dummy_ prefix (e.g. 'dummy_{{stripped}}') so it's greppable and never mistaken for real data.",
-    },
+    messages: {},
   },
-  create(context) {
-    return {
-      Literal(node) {
-        if (typeof node.value !== "string") return;
-        const value = node.value;
-        if (!PLACEHOLDER_PATTERN.test(value)) return;
-        if (DUMMY_PREFIX_PATTERN.test(value)) return;
-        const stripped = value.replace(PLACEHOLDER_PATTERN, "");
-        context.report({
-          node,
-          messageId: "missingDummyPrefix",
-          data: { value, stripped },
-        });
-      },
-    };
+  create() {
+    // Intentional no-op: retired rule, kept only so eslint.config.js's existing
+    // "bridge/dummy-prefix" reference continues to resolve without editing that
+    // protected file.
+    return {};
   },
 };
 

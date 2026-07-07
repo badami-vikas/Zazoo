@@ -12,7 +12,7 @@ test("manifest: kind internal, has no surfaces, quarantine forced true", () => {
 });
 
 test("sourcePeople: waterfall result gets recorded into the entity's living profile", async () => {
-  const connector = createApiClientConnector({ id: "dummy_api", fetcher: async () => [{ title: "VP Engineering" }], confidenceOf: () => 0.9 });
+  const connector = createApiClientConnector({ id: "test_fixture_api", fetcher: async () => [{ title: "VP Engineering" }], confidenceOf: () => 0.9 });
   const ledger = createBudgetLedger(10);
   const facts = createFactStore();
   await sourcePeople({ kind: "person", hints: { name: "Jane Doe" } }, [connector], ledger, facts, "person_1");

@@ -16,7 +16,7 @@ type RunByIdResult = Awaited<ReturnType<typeof trpc.ritual.runById.mutate>>;
  */
 export function RitualDetail() {
   const [ritualId, setRitualId] = useState("");
-  const [actorId, setActorId] = useState("dummy_user_1");
+  const [actorId, setActorId] = useState("");
   const [stepsJson, setStepsJson] = useState(
     '[\n  { "skill": "example.skill", "action": "read", "resourceType": "touchpoint", "inputs": {} }\n]',
   );

@@ -84,7 +84,7 @@ export function ConnectAppFlow({ appName, apiAvailable, onClose, onConnected }: 
               {method === 'api' ? (
                 <>
                   <label className="text-xs font-semibold" style={{ color: 'var(--color-navy-mid)' }}>API key</label>
-                  <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="dummy_sk-..." className="px-3 py-2 rounded-lg border text-sm font-mono" style={{ borderColor: 'var(--color-border)' }} />
+                  <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..." className="px-3 py-2 rounded-lg border text-sm font-mono" style={{ borderColor: 'var(--color-border)' }} />
                 </>
               ) : (
                 <p className="text-xs" style={{ color: 'var(--color-navy-mid)' }}>

@@ -13,7 +13,7 @@ import test from "node:test";
 import { createLocalDb, DrizzleRitualRegistry, DrizzleToolRegistry, schema } from "../src/index.js";
 
 const validStep = {
-  skill: "dummy_send_note",
+  skill: "test_fixture_send_note",
   action: "write" as const,
   resourceType: "touchpoint" as const,
 };
@@ -21,7 +21,7 @@ const validStep = {
 async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
   const [ws] = await db
     .insert(schema.workspaces)
-    .values({ name: "dummy_ws_ritual_validation" })
+    .values({ name: "test_fixture_ws_ritual_validation" })
     .returning({ id: schema.workspaces.id });
   assert.ok(ws);
   return ws.id;
@@ -35,7 +35,7 @@ test("ritual store: write-time — saveSteps throws on a malformed step instead 
       .insert(schema.rituals)
       .values({
         workspaceId,
-        name: "dummy_ritual_write_reject",
+        name: "test_fixture_ritual_write_reject",
         trigger: {},
         skillPipeline: [],
       })
@@ -46,7 +46,7 @@ test("ritual store: write-time — saveSteps throws on a malformed step instead 
 
     // Missing required `action` field — must throw, never silently no-op.
     await assert.rejects(
-      () => registry.saveSteps(workspaceId, ritual.id, [{ skill: "dummy_bad_step", resourceType: "touchpoint" }]),
+      () => registry.saveSteps(workspaceId, ritual.id, [{ skill: "test_fixture_bad_step", resourceType: "touchpoint" }]),
       /Invalid ritual skill_pipeline jsonb/,
     );
 
@@ -66,7 +66,7 @@ test("ritual store: write-time — saveSteps persists and load() round-trips a v
       .insert(schema.rituals)
       .values({
         workspaceId,
-        name: "dummy_ritual_write_ok",
+        name: "test_fixture_ritual_write_ok",
         trigger: {},
         skillPipeline: [],
       })
@@ -78,7 +78,7 @@ test("ritual store: write-time — saveSteps persists and load() round-trips a v
 
     const loaded = await registry.load(workspaceId, ritual.id);
     assert.equal(loaded?.steps.length, 1);
-    assert.equal(loaded?.steps[0]?.skill, "dummy_send_note");
+    assert.equal(loaded?.steps[0]?.skill, "test_fixture_send_note");
   } finally {
     await close();
   }
@@ -95,9 +95,9 @@ test("ritual store: read-time — load() throws (not silently drops) a step alre
       .insert(schema.rituals)
       .values({
         workspaceId,
-        name: "dummy_ritual_already_bad",
+        name: "test_fixture_ritual_already_bad",
         trigger: {},
-        skillPipeline: [{ skill: "dummy_bad", action: "not-a-real-action", resourceType: "touchpoint" }],
+        skillPipeline: [{ skill: "test_fixture_bad", action: "not-a-real-action", resourceType: "touchpoint" }],
       })
       .returning({ id: schema.rituals.id });
     assert.ok(ritual);
@@ -117,8 +117,8 @@ test("tool store: write-time — saveSteps throws on a malformed composition ins
       .insert(schema.tools)
       .values({
         workspaceId,
-        name: "dummy_tool_write_reject",
-        surface: "dummy_surface",
+        name: "test_fixture_tool_write_reject",
+        surface: "test_fixture_surface",
         composition: { steps: [] },
       })
       .returning({ id: schema.tools.id });
@@ -145,10 +145,10 @@ test("tool store: read-time — load() throws (not silently drops) a step alread
       .insert(schema.tools)
       .values({
         workspaceId,
-        name: "dummy_tool_already_bad",
-        surface: "dummy_surface",
+        name: "test_fixture_tool_already_bad",
+        surface: "test_fixture_surface",
         // Bypasses DrizzleToolRegistry.saveSteps entirely.
-        composition: { steps: [{ skill: "dummy_bad", resourceType: "touchpoint" }] }, // missing `action`
+        composition: { steps: [{ skill: "test_fixture_bad", resourceType: "touchpoint" }] }, // missing `action`
       })
       .returning({ id: schema.tools.id });
     assert.ok(tool);

@@ -116,12 +116,17 @@ function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }
   );
 }
 
-// was "Testimonials" → now "Opinions" (dummy_ labeled)
+// was "Testimonials" → now "Opinions". No real opinions have been recorded for this person yet —
+// an honest empty state, no fabricated quotes.
 function Opinions() {
-  const data = [
-    { quote: 'dummy_ Sharp operator — turns ambiguous strategy into shipped outcomes fast.', author: 'dummy_Reviewer One', role: 'dummy_Managing Partner' },
-    { quote: 'dummy_ Generous with introductions and exact in follow-through.', author: 'dummy_Reviewer Two', role: 'dummy_Founder & CEO' },
-  ];
+  const data: Array<{ quote: string; author: string; role: string }> = [];
+  if (data.length === 0) {
+    return (
+      <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+        No opinions recorded yet.
+      </div>
+    );
+  }
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {data.map((t, i) => (
@@ -172,7 +177,7 @@ function ToolsActionable() {
 
 // Editable Boundaries + strong governance requirement (agents check boundaries first)
 function Boundaries({ entityName }: { entityName: string }) {
-  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)']);
+  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (sender-approved draft)']);
   const [denied, setDenied] = useState(['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network']);
   const Col = ({ title, items, setItems, tone, Icon }: {
     title: string; items: string[]; setItems: (v: string[]) => void; tone: string; Icon: LucideIcon;
@@ -242,7 +247,7 @@ export function ItemDetail() {
   const bio = isCommunity
     ? `${community!.connections} people you know in this community${community!.sampleRoles?.[0] ? ` - common role: ${community!.sampleRoles[0]}` : ''}.`
     : person ? (person.bio || (person.position && person.company ? `${person.position} at ${person.company}.` : person.newsInsight || `${person.firstName}'s profile.`))
-      : 'dummy_ profile bio.';
+      : 'No profile found.';
   const subtitle = isCommunity ? `${community!.connections} members` : (person?.company || '');
   const location = person?.location || '';
 
@@ -463,6 +468,40 @@ export function ItemDetail() {
                   <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
                     <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>Private note</div>
                     <EditableText multiline text={fv('privateNote', 'Add a private note — only you can see this.')} onSave={(val: string) => setField('privateNote', val)} className="text-sm text-[var(--color-navy-mid)]" />
+                  </div>
+                  {/* F4b — per-relationship visibility (schema: people.visibility; default from workspace_settings.default_visibility). Moved here from the orphaned PersonTiers.tsx when ItemDetail's inline two-tier view superseded it. */}
+                  <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Eye className="w-3.5 h-3.5" style={{ color: 'var(--color-navy-mid)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-navy-mid)' }}>Who can see this relationship</span>
+                    </div>
+                    <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--color-surface)' }}>
+                      {([
+                        ['private', Lock, 'Only you', 'No one else can see this relationship or its notes.'],
+                        ['team', Users, 'Your team', 'Everyone on your team can see this relationship.'],
+                        ['workspace', Globe, 'Whole workspace', 'Everyone in the workspace can see this relationship.'],
+                      ] as [string, LucideIcon, string, string][]).map(([v, VIcon, vLabel]) => {
+                        const active = fv('visibility', 'team') === v;
+                        return (
+                          <button
+                            key={v}
+                            onClick={() => setField('visibility', v)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                            style={{ backgroundColor: active ? 'white' : 'transparent', color: active ? 'var(--color-steel)' : 'var(--color-warm-gray)', boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+                          >
+                            <VIcon className="w-3.5 h-3.5" /> {vLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[11px]" style={{ color: 'var(--color-navy-mid)' }}>
+                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the workspace can see this relationship.' }[fv('visibility', 'team')]}
+                      </span>
+                      {fv('visibility', 'team') === 'team' && (
+                        <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>workspace default</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

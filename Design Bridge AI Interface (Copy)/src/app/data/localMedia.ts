@@ -45,7 +45,7 @@ const DB_NAME = 'bridge.localMedia.v1';
 const STORE_MEDIA = 'captures';
 const STORE_BLOBS = 'blobs';
 const STORE_LEDGER = 'ledger';
-const WORKSPACE = 'dummy_ws_local'; // single local workspace in the prototype
+const WORKSPACE = 'ws_local'; // single local workspace in the prototype
 
 let dbp: Promise<IDBPDatabase> | null = null;
 function db(): Promise<IDBPDatabase> {

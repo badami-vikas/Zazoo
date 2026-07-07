@@ -11,11 +11,12 @@ export interface Brokerage {
   addedAt: string;
 }
 
-const K = 'dummy_bridge_brokerages_v1';
+const K = 'bridge_brokerages_v1';
 
+// Real, named deal-sourcing platforms — not fake data, but not yet connected (status reflects that).
 const SEED: Brokerage[] = [
-  { id: 'dummy_brokerage_1', name: 'BizBuySell', portalUrl: 'https://www.bizbuysell.com', status: 'connected', addedAt: new Date().toISOString() },
-  { id: 'dummy_brokerage_2', name: 'BusinessBroker.net', portalUrl: 'https://www.businessbroker.net', status: 'disconnected', addedAt: new Date().toISOString() },
+  { id: 'brokerage_bizbuysell', name: 'BizBuySell', portalUrl: 'https://www.bizbuysell.com', status: 'disconnected', addedAt: new Date().toISOString() },
+  { id: 'brokerage_businessbroker', name: 'BusinessBroker.net', portalUrl: 'https://www.businessbroker.net', status: 'disconnected', addedAt: new Date().toISOString() },
 ];
 
 function load(): Brokerage[] {
@@ -45,7 +46,7 @@ export function useBrokerages(): Brokerage[] {
 export function getBrokerages(): Brokerage[] { return brokerages; }
 
 export function addBrokerage(name: string, portalUrl: string): Brokerage {
-  const b: Brokerage = { id: `dummy_brokerage_${Date.now()}`, name, portalUrl, status: 'disconnected', addedAt: new Date().toISOString() };
+  const b: Brokerage = { id: `brokerage_${Date.now()}`, name, portalUrl, status: 'disconnected', addedAt: new Date().toISOString() };
   brokerages = [...brokerages, b];
   persist();
   return b;

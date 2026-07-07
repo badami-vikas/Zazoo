@@ -1,0 +1,315 @@
+/**
+ * Persistent avatar overlay — bottom-right, mounted once in <Layout> inside
+ * the authed shell so it renders across every route (docs/raw/spec-
+ * consolidation-2026-07.md section 3: "Avatar Day-1 — Operational Status
+ * Surface, Personality Secondary").
+ *
+ * Operational status is the PRIMARY surface (idle/listening/reading_context/
+ * drafting/awaiting_approval/blocked_by_policy/error) — the spirit-animal
+ * shape is just the vessel it's rendered in, not the point. No image assets;
+ * every animal is a small geometric SVG built from Bridge palette tokens.
+ */
+import { useEffect, useRef, useState } from "react";
+import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import {
+  CAPTURE_EVENT,
+  STATUS_LABEL,
+  useAvatarStatus,
+  type AvatarStatus,
+  type SpiritAnimal,
+} from "./avatar-store";
+
+export interface AvatarOverlayProps {
+  animal: SpiritAnimal;
+  avatarName?: string;
+  workspaceName?: string;
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+  return reduced;
+}
+
+/** State → accent color, drawn from Bridge tokens (never an arbitrary hex). */
+const STATUS_COLOR: Record<AvatarStatus, string> = {
+  idle: "var(--color-sage)",
+  listening: "var(--color-steel)",
+  reading_context: "var(--color-steel-light)",
+  drafting: "var(--color-amber-soft)",
+  awaiting_approval: "var(--color-amber-soft)",
+  blocked_by_policy: "var(--color-navy-mid)",
+  error: "#C0573E",
+};
+
+/**
+ * Minimal geometric creature per spirit animal — simple shapes only (no path
+ * data lifted from icon libraries, so this can't collide with lucide exports
+ * the way whole-word codemods have before). Eyes are the expressive part:
+ * closed arcs for idle/meditating, open circles otherwise, wide for
+ * listening, narrowed for drafting/reading.
+ */
+export function Creature({
+  animal,
+  status,
+  blinking,
+  reducedMotion,
+}: {
+  animal: SpiritAnimal;
+  status: AvatarStatus;
+  blinking: boolean;
+  reducedMotion: boolean;
+}) {
+  const eyesClosed = status === "idle" || blinking;
+  const eyeRy = eyesClosed ? 0.4 : status === "listening" ? 3.4 : 2.6;
+  const bodyFill = "var(--color-surface)";
+  const strokeColor = "var(--color-navy)";
+  const accent = STATUS_COLOR[status];
+
+  // Per-animal head/ear silhouette (body circle shared across all).
+  const earsByAnimal: Record<SpiritAnimal, React.ReactNode> = {
+    owl: (
+      <>
+        <path d="M20 22 L26 8 L32 22 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M44 22 L38 8 L32 22 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    fox: (
+      <>
+        <path d="M18 20 L24 4 L30 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M46 20 L40 4 L34 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    turtle: (
+      <path d="M14 30 Q32 14 50 30 L50 38 Q32 46 14 38 Z" fill="var(--color-sage)" stroke={strokeColor} strokeWidth="1.5" opacity="0.55" />
+    ),
+    crane: (
+      <path d="M32 6 L32 22" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+    ),
+    wolf: (
+      <>
+        <path d="M16 22 L23 6 L29 22 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M48 22 L41 6 L35 22 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    cat: (
+      <>
+        <path d="M18 20 L22 6 L30 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M46 20 L42 6 L34 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+  };
+
+  const snoutByAnimal: Record<SpiritAnimal, React.ReactNode> = {
+    owl: null,
+    fox: <path d="M32 34 L28 40 L36 40 Z" fill="var(--color-amber-soft)" opacity="0.7" />,
+    turtle: null,
+    crane: <path d="M32 34 L44 38 L32 40 Z" fill="var(--color-amber-soft)" opacity="0.8" />,
+    wolf: <path d="M32 34 L27 40 L37 40 Z" fill="var(--color-warm-gray)" opacity="0.7" />,
+    cat: <path d="M29 36 L32 39 L35 36 Z" fill="var(--color-amber-soft)" opacity="0.6" />,
+  };
+
+  return (
+    <svg viewBox="0 0 64 64" width="100%" height="100%" role="presentation" aria-hidden="true">
+      {/* soft status halo */}
+      <circle cx="32" cy="32" r="30" fill={accent} opacity="0.12" />
+      {earsByAnimal[animal]}
+      {/* head */}
+      <circle cx="32" cy="30" r="18" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      {snoutByAnimal[animal]}
+      {/* eyes */}
+      <g>
+        <ellipse
+          cx="25"
+          cy="29"
+          rx="3.2"
+          ry={eyeRy}
+          fill={strokeColor}
+          style={reducedMotion ? undefined : { transition: "ry 120ms ease-out" }}
+        />
+        <ellipse
+          cx="39"
+          cy="29"
+          rx="3.2"
+          ry={eyeRy}
+          fill={strokeColor}
+          style={reducedMotion ? undefined : { transition: "ry 120ms ease-out" }}
+        />
+      </g>
+      {/* status ring */}
+      <circle
+        cx="32"
+        cy="32"
+        r="30"
+        fill="none"
+        stroke={accent}
+        strokeWidth="2"
+        opacity={status === "idle" ? 0.35 : 0.85}
+      />
+    </svg>
+  );
+}
+
+/**
+ * Small fixed-size avatar badge for chrome slots that need an identity icon but
+ * not the full overlay (e.g. the AI chat panel header) — same live status/animal
+ * as the overlay, just rendered compact with no popover/blink wiring.
+ */
+export function AvatarIcon({ animal, size = 24 }: { animal: SpiritAnimal; size?: number }) {
+  const status = useAvatarStatus();
+  const reducedMotion = usePrefersReducedMotion();
+  return (
+    <div style={{ width: size, height: size }} className="shrink-0 rounded-md overflow-hidden">
+      <Creature animal={animal} status={status} blinking={false} reducedMotion={reducedMotion} />
+    </div>
+  );
+}
+
+export function AvatarOverlay({ animal, avatarName, workspaceName }: AvatarOverlayProps) {
+  const status = useAvatarStatus();
+  const reducedMotion = usePrefersReducedMotion();
+  const [open, setOpen] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const [blinking, setBlinking] = useState(false);
+  const [lastCapture, setLastCapture] = useState<{ at: string; detail?: Record<string, unknown> } | null>(null);
+  const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The blink tell (spec section 3): every `bridge:capture` window event
+  // triggers a brief eye-close, proving the capture happened without being
+  // startling. No blink permission ⇒ this listener simply never fires.
+  useEffect(() => {
+    function onCapture(e: Event) {
+      const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
+      setLastCapture({ at: new Date().toISOString(), ...(detail ? { detail } : {}) });
+      if (reducedMotion) return; // Respect prefers-reduced-motion: no blink animation, tell still recorded.
+      setBlinking(true);
+      if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
+      blinkTimeout.current = setTimeout(() => setBlinking(false), 200);
+    }
+    window.addEventListener(CAPTURE_EVENT, onCapture);
+    return () => {
+      window.removeEventListener(CAPTURE_EVENT, onCapture);
+      if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
+    };
+  }, [reducedMotion]);
+
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [pendingError, setPendingError] = useState(false);
+
+  function wake() {
+    if (status !== "idle") {
+      setOpen((v) => !v);
+      return;
+    }
+    setOpen(true);
+    setPendingError(false);
+    trpc.action.listPending
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+      .then((res) => setPendingCount(res.total))
+      .catch(() => {
+        setPendingCount(null);
+        setPendingError(true);
+      });
+  }
+
+  const label = STATUS_LABEL[status];
+  const name = avatarName || animal[0]!.toUpperCase() + animal.slice(1);
+
+  return (
+    <div
+      style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50 }}
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+    >
+      {open && (
+        <div
+          role="dialog"
+          aria-label={`${name} context`}
+          className="absolute bottom-[72px] right-0 w-72 rounded-[var(--radius-card)] border border-border bg-background shadow-lg p-4 text-sm"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-medium text-[var(--color-navy)]">{name}</p>
+            <button
+              type="button"
+              aria-label="Close"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => setOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="space-y-1.5 text-[var(--color-navy-mid)]">
+            <p>
+              <span className="text-muted-foreground">Workspace: </span>
+              {workspaceName || "Unnamed workspace"}
+            </p>
+            <p>
+              <span className="text-muted-foreground">Route: </span>
+              {typeof window !== "undefined" ? window.location.pathname : "/"}
+            </p>
+            <p>
+              <span className="text-muted-foreground">Pending approvals: </span>
+              {pendingError
+                ? "no context providers connected yet"
+                : pendingCount === null
+                  ? "checking…"
+                  : pendingCount}
+            </p>
+            {lastCapture && (
+              <p className="text-xs text-muted-foreground pt-1 border-t border-border mt-2">
+                Last capture blink: {new Date(lastCapture.at).toLocaleTimeString()}. Every capture becomes an
+                inspectable Memory entry.
+              </p>
+            )}
+            {!lastCapture && (
+              <p className="text-xs text-muted-foreground pt-1 border-t border-border mt-2">
+                No captures yet this session. When something is noticed, {name} blinks — every capture becomes an
+                inspectable Memory entry.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {hovering && !open && (
+        <div className="absolute bottom-[72px] right-0 whitespace-nowrap rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2 py-1">
+          {label}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={wake}
+        aria-label={`${name}, ${label}`}
+        title={label}
+        className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
+        style={{
+          animation: reducedMotion || status !== "idle" ? undefined : "bridge-avatar-breathe 3.2s ease-in-out infinite",
+        }}
+      >
+        <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
+          <Creature animal={animal} status={status} blinking={blinking} reducedMotion={reducedMotion} />
+        </div>
+      </button>
+
+      {/* ARIA live region — announces state changes without visual noise. */}
+      <div className="sr-only" aria-live="polite">
+        {name} is {label.toLowerCase()}.
+      </div>
+
+      <style>{`
+        @keyframes bridge-avatar-breathe {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.04); }
+        }
+      `}</style>
+    </div>
+  );
+}

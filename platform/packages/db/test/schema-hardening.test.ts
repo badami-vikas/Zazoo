@@ -36,7 +36,7 @@ test("schema hardening: hnsw index exists on embeddings.embedding and is used by
     // similarity query plans through the hnsw index (not a seq scan).
     await db.execute(sql`
       insert into embeddings (entity_type, entity_id, embedding)
-      values ('dummy_entity', gen_random_uuid(), (select array_fill(0.1, array[768])::vector))
+      values ('test_fixture_entity', gen_random_uuid(), (select array_fill(0.1, array[768])::vector))
     `);
     const explainRows = (await db.execute(sql`
       explain select id from embeddings
@@ -55,7 +55,7 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
   try {
     const [ws] = await db
       .insert(schema.workspaces)
-      .values({ name: "dummy_ws_uuidv7" })
+      .values({ name: "test_fixture_ws_uuidv7" })
       .returning({ id: schema.workspaces.id });
     assert.ok(ws);
 
@@ -67,14 +67,14 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
         actorId: "00000000-0000-0000-0000-00000000dead",
         action: "write",
         resourceType: "person",
-        inputs: { note: "dummy_input" },
+        inputs: { note: "test_fixture_input" },
       })
       .returning({ id: schema.ledger.id });
     const [eventRow] = await db
       .insert(schema.events)
       .values({
         workspaceId: ws.id,
-        type: "dummy_event",
+        type: "test_fixture_event",
         entityType: "person",
         entityId: "00000000-0000-0000-0000-00000000dead",
       })
@@ -84,8 +84,8 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
       .values({
         workspaceId: ws.id,
         occurredAt: new Date(),
-        type: "dummy_note",
-        createdBy: "dummy_user",
+        type: "test_fixture_note",
+        createdBy: "test_fixture_user",
       })
       .returning({ id: schema.timelineEntries.id });
 
@@ -103,12 +103,12 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
     // when compared lexicographically (the point of UUIDv7 over v4).
     const [firstId] = await db
       .insert(schema.events)
-      .values({ workspaceId: ws.id, type: "dummy_first", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
+      .values({ workspaceId: ws.id, type: "test_fixture_first", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
       .returning({ id: schema.events.id });
     await new Promise((r) => setTimeout(r, 5));
     const [secondId] = await db
       .insert(schema.events)
-      .values({ workspaceId: ws.id, type: "dummy_second", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
+      .values({ workspaceId: ws.id, type: "test_fixture_second", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
       .returning({ id: schema.events.id });
     assert.ok(firstId!.id < secondId!.id, "later-minted UUIDv7 id must sort after an earlier one");
   } finally {
@@ -145,12 +145,12 @@ test("schema hardening: people_canonical.dedup_key partial-unique allows many NU
   const { db, close } = await createLocalDb();
   try {
     // Many NULL dedup_key rows must be allowed (not deduped-against-each-other).
-    await db.insert(schema.peopleCanonical).values({ fullName: "dummy_Null_One" });
-    await db.insert(schema.peopleCanonical).values({ fullName: "dummy_Null_Two" });
+    await db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Null_One" });
+    await db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Null_Two" });
 
-    await db.insert(schema.peopleCanonical).values({ fullName: "dummy_Keyed_One", dedupKey: "dummy_dedupe_key_1" });
+    await db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Keyed_One", dedupKey: "test_fixture_dedupe_key_1" });
     await assert.rejects(
-      () => db.insert(schema.peopleCanonical).values({ fullName: "dummy_Keyed_Two", dedupKey: "dummy_dedupe_key_1" }),
+      () => db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Keyed_Two", dedupKey: "test_fixture_dedupe_key_1" }),
       /duplicate key|unique/i,
       "a second row with the same non-null dedup_key must be rejected",
     );
@@ -162,12 +162,12 @@ test("schema hardening: people_canonical.dedup_key partial-unique allows many NU
 test("schema hardening: communities_canonical.dedup_key partial-unique allows many NULLs, rejects duplicate non-NULLs", async () => {
   const { db, close } = await createLocalDb();
   try {
-    await db.insert(schema.communitiesCanonical).values({ name: "dummy_Community_Null_One" });
-    await db.insert(schema.communitiesCanonical).values({ name: "dummy_Community_Null_Two" });
+    await db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Null_One" });
+    await db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Null_Two" });
 
-    await db.insert(schema.communitiesCanonical).values({ name: "dummy_Community_Keyed", dedupKey: "dummy_community_key_1" });
+    await db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Keyed", dedupKey: "test_fixture_community_key_1" });
     await assert.rejects(
-      () => db.insert(schema.communitiesCanonical).values({ name: "dummy_Community_Keyed_2", dedupKey: "dummy_community_key_1" }),
+      () => db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Keyed_2", dedupKey: "test_fixture_community_key_1" }),
       /duplicate key|unique/i,
     );
   } finally {
@@ -180,21 +180,21 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
   try {
     const [ws] = await db
       .insert(schema.workspaces)
-      .values({ name: "dummy_ws_check_constraints" })
+      .values({ name: "test_fixture_ws_check_constraints" })
       .returning({ id: schema.workspaces.id });
     assert.ok(ws);
 
     // visibility (people)
     const [checkUser] = await db
       .insert(schema.users)
-      .values({ email: "dummy_check@example.com" })
+      .values({ email: "test_fixture_check@example.com" })
       .returning({ id: schema.users.id });
     await assert.rejects(
       () =>
         db.insert(schema.people).values({
           workspaceId: ws!.id,
           userId: checkUser!.id,
-          visibility: "dummy_bogus_visibility",
+          visibility: "test_fixture_bogus_visibility",
         }),
       /violates check constraint/i,
     );
@@ -208,7 +208,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           actorId: "00000000-0000-0000-0000-00000000dead",
           resourceType: "person",
           action: "read",
-          effect: "dummy_bogus_effect",
+          effect: "test_fixture_bogus_effect",
         }),
       /violates check constraint/i,
     );
@@ -219,9 +219,9 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
         db.insert(schema.policies).values({
           workspaceId: ws!.id,
           scopeType: "workspace",
-          name: "dummy_policy",
+          name: "test_fixture_policy",
           rule: {},
-          effect: "dummy_bogus_effect",
+          effect: "test_fixture_bogus_effect",
         }),
       /violates check constraint/i,
     );
@@ -235,7 +235,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           actorId: "00000000-0000-0000-0000-00000000dead",
           action: "write",
           resourceType: "person",
-          userDecision: "dummy_bogus_decision",
+          userDecision: "test_fixture_bogus_decision",
         }),
       /violates check constraint/i,
     );
@@ -245,7 +245,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
       () =>
         db.insert(schema.ledger).values({
           workspaceId: ws!.id,
-          actorType: "dummy_bogus_actor",
+          actorType: "test_fixture_bogus_actor",
           actorId: "00000000-0000-0000-0000-00000000dead",
           action: "write",
           resourceType: "person",
@@ -259,7 +259,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
       () =>
         db.insert(schema.permissions).values({
           workspaceId: ws!.id,
-          actorType: "dummy_bogus_actor",
+          actorType: "test_fixture_bogus_actor",
           actorId: "00000000-0000-0000-0000-00000000dead",
           resourceType: "person",
           action: "read",
@@ -307,9 +307,9 @@ test("schema hardening: role_permissions has exactly one uniqueness constraint (
       .insert(schema.roles)
       .values({
         workspaceId: (
-          await db.insert(schema.workspaces).values({ name: "dummy_ws_role_perms" }).returning({ id: schema.workspaces.id })
+          await db.insert(schema.workspaces).values({ name: "test_fixture_ws_role_perms" }).returning({ id: schema.workspaces.id })
         )[0]!.id,
-        name: "dummy_role",
+        name: "test_fixture_role",
       })
       .returning({ id: schema.roles.id, workspaceId: schema.roles.workspaceId });
     assert.ok(role);

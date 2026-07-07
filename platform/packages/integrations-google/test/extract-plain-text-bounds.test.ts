@@ -47,15 +47,15 @@ function fakeGmailClientForPayload(payload: GmailPayloadPartLike) {
   return {
     users: {
       threads: {
-        list: async () => ({ data: { threads: [{ id: "dummy_thread_bounds" }] } }),
+        list: async () => ({ data: { threads: [{ id: "test_fixture_thread_bounds" }] } }),
         get: async () => ({
           data: {
             historyId: "hist-bounds",
             messages: [
               {
-                id: "dummy_msg_bounds",
+                id: "test_fixture_msg_bounds",
                 internalDate: "1751500000000",
-                snippet: "dummy_ snippet",
+                snippet: "test_fixture_ snippet",
                 payload,
               },
             ],
@@ -70,7 +70,7 @@ function fakeGmailClientForPayload(payload: GmailPayloadPartLike) {
 test("extractPlainText does not crash/hang on multipart nesting far beyond the depth cap, and returns bounded output", async (t) => {
   // Nested WAY past any sane depth cap (500 levels) — this used to be unbounded
   // recursion; a naive implementation risks a stack overflow here.
-  const deeplyNested = nestedMultipart(500, "dummy_ leaf text that is unreachable past the depth cap");
+  const deeplyNested = nestedMultipart(500, "test_fixture_ leaf text that is unreachable past the depth cap");
 
   const googleapisMock = t.mock.module("googleapis", {
     namedExports: {
@@ -92,7 +92,7 @@ test("extractPlainText does not crash/hang on multipart nesting far beyond the d
   // Past the depth cap, extraction stops and returns "" for that branch; the gateway's
   // fallback then uses the Gmail snippet instead of the leaf text nested 500 levels
   // deep and unreachable through a bounded recursion.
-  assert.equal(msg.bodyText, "dummy_ snippet", "depth-capped extraction falls back to the snippet rather than the unreachable deep leaf");
+  assert.equal(msg.bodyText, "test_fixture_ snippet", "depth-capped extraction falls back to the snippet rather than the unreachable deep leaf");
 
   googleapisMock.restore();
 });
@@ -130,7 +130,7 @@ test("extractPlainText does not fully materialize an oversized body part in memo
 });
 
 test("extractPlainText handles a payload nested within the depth cap normally (no regression)", async (t) => {
-  const nested = nestedMultipart(5, "dummy_ this text IS reachable, well within the depth cap");
+  const nested = nestedMultipart(5, "test_fixture_ this text IS reachable, well within the depth cap");
 
   const googleapisMock = t.mock.module("googleapis", {
     namedExports: {
@@ -147,7 +147,7 @@ test("extractPlainText handles a payload nested within the depth cap normally (n
 
   assert.equal(
     result.threads[0]!.messages[0]!.bodyText,
-    "dummy_ this text IS reachable, well within the depth cap",
+    "test_fixture_ this text IS reachable, well within the depth cap",
     "normal shallow multipart nesting still extracts correctly",
   );
 

@@ -35,26 +35,26 @@ class FakeSecretStore implements SecretStore {
 function dummyToken(integrationId: string, updatedAt: string): OAuthTokenRecord {
   return {
     integrationId,
-    workspaceId: "dummy_ws_1",
+    workspaceId: "test_fixture_ws_1",
     provider: "google",
-    accessToken: "dummy_access_token",
-    refreshToken: "dummy_refresh_token",
-    scope: "dummy_scope",
+    accessToken: "test_fixture_access_token",
+    refreshToken: "test_fixture_refresh_token",
+    scope: "test_fixture_scope",
     tokenType: "Bearer",
     updatedAt,
   };
 }
 
-const cfg = { clientId: "dummy_client_id", clientSecret: "dummy_client_secret", redirectUri: "http://localhost/dummy_callback" };
+const cfg = { clientId: "test_fixture_client_id", clientSecret: "test_fixture_client_secret", redirectUri: "http://localhost/test_fixture_callback" };
 
 test("forIntegration reuses the same gateway/client across repeated calls for the same integrationId", async () => {
   const secrets = new FakeSecretStore();
-  secrets.tokens.set("dummy_integration_1", dummyToken("dummy_integration_1", "2026-01-01T00:00:00.000Z"));
+  secrets.tokens.set("test_fixture_integration_1", dummyToken("test_fixture_integration_1", "2026-01-01T00:00:00.000Z"));
   const factory = new GoogleApiGatewayFactory(cfg, secrets);
 
-  const gw1 = await factory.forIntegration("dummy_integration_1");
-  const gw2 = await factory.forIntegration("dummy_integration_1");
-  const gw3 = await factory.forIntegration("dummy_integration_1");
+  const gw1 = await factory.forIntegration("test_fixture_integration_1");
+  const gw2 = await factory.forIntegration("test_fixture_integration_1");
+  const gw3 = await factory.forIntegration("test_fixture_integration_1");
 
   assert.equal(gw1, gw2, "second call must reuse the same gateway instance");
   assert.equal(gw2, gw3, "third call must reuse the same gateway instance");
@@ -62,42 +62,42 @@ test("forIntegration reuses the same gateway/client across repeated calls for th
 
 test("forIntegration returns distinct gateways for distinct integrationIds", async () => {
   const secrets = new FakeSecretStore();
-  secrets.tokens.set("dummy_integration_1", dummyToken("dummy_integration_1", "2026-01-01T00:00:00.000Z"));
-  secrets.tokens.set("dummy_integration_2", dummyToken("dummy_integration_2", "2026-01-01T00:00:00.000Z"));
+  secrets.tokens.set("test_fixture_integration_1", dummyToken("test_fixture_integration_1", "2026-01-01T00:00:00.000Z"));
+  secrets.tokens.set("test_fixture_integration_2", dummyToken("test_fixture_integration_2", "2026-01-01T00:00:00.000Z"));
   const factory = new GoogleApiGatewayFactory(cfg, secrets);
 
-  const gw1 = await factory.forIntegration("dummy_integration_1");
-  const gw2 = await factory.forIntegration("dummy_integration_2");
+  const gw1 = await factory.forIntegration("test_fixture_integration_1");
+  const gw2 = await factory.forIntegration("test_fixture_integration_2");
 
   assert.notEqual(gw1, gw2);
 });
 
 test("disconnect (token deleted) then reconnect (new token) yields a fresh gateway, not the stale cached one", async () => {
   const secrets = new FakeSecretStore();
-  secrets.tokens.set("dummy_integration_1", dummyToken("dummy_integration_1", "2026-01-01T00:00:00.000Z"));
+  secrets.tokens.set("test_fixture_integration_1", dummyToken("test_fixture_integration_1", "2026-01-01T00:00:00.000Z"));
   const factory = new GoogleApiGatewayFactory(cfg, secrets);
 
-  const gwBefore = await factory.forIntegration("dummy_integration_1");
+  const gwBefore = await factory.forIntegration("test_fixture_integration_1");
 
   // Disconnect: token removed from the store.
-  await secrets.deleteToken("dummy_integration_1");
-  await assert.rejects(() => factory.forIntegration("dummy_integration_1"), /not connected/);
+  await secrets.deleteToken("test_fixture_integration_1");
+  await assert.rejects(() => factory.forIntegration("test_fixture_integration_1"), /not connected/);
 
   // Reconnect: a fresh token (new updatedAt) is written.
-  secrets.tokens.set("dummy_integration_1", dummyToken("dummy_integration_1", "2026-02-01T00:00:00.000Z"));
-  const gwAfter = await factory.forIntegration("dummy_integration_1");
+  secrets.tokens.set("test_fixture_integration_1", dummyToken("test_fixture_integration_1", "2026-02-01T00:00:00.000Z"));
+  const gwAfter = await factory.forIntegration("test_fixture_integration_1");
 
   assert.notEqual(gwBefore, gwAfter, "post-reconnect gateway must not be the stale cached one");
 });
 
 test("explicit invalidate() forces a fresh gateway on next use even without a token change", async () => {
   const secrets = new FakeSecretStore();
-  secrets.tokens.set("dummy_integration_1", dummyToken("dummy_integration_1", "2026-01-01T00:00:00.000Z"));
+  secrets.tokens.set("test_fixture_integration_1", dummyToken("test_fixture_integration_1", "2026-01-01T00:00:00.000Z"));
   const factory = new GoogleApiGatewayFactory(cfg, secrets);
 
-  const gwBefore = await factory.forIntegration("dummy_integration_1");
-  factory.invalidate("dummy_integration_1");
-  const gwAfter = await factory.forIntegration("dummy_integration_1");
+  const gwBefore = await factory.forIntegration("test_fixture_integration_1");
+  factory.invalidate("test_fixture_integration_1");
+  const gwAfter = await factory.forIntegration("test_fixture_integration_1");
 
   assert.notEqual(gwBefore, gwAfter);
 });
