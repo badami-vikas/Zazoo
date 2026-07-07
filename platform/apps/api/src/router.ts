@@ -1264,7 +1264,9 @@ export const appRouter = t.router({
    * WRITES already flow through the generic `action.propose` (resourceType
    * "initiative" | "touchpoint" — see resourceTypeEnum above); this router only
    * adds the query-back path the pipeline itself doesn't provide (same reason
-   * `dealpilot`/`integration` needed their own `.list`).
+   * `dealpilot`/`integration` needed their own `.list`). `listPeople`/
+   * `listCommunities` were added later for KnowledgeBasePage's People/Communities
+   * tabs — same pattern, same store.
    */
   graph: t.router({
     listInitiatives: procedure
@@ -1299,6 +1301,28 @@ export const appRouter = t.router({
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         const { items, total } = await ctx.wiring.graphStore.listSignals(input.workspaceId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    listPeople: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const { items, total } = await ctx.wiring.graphStore.listPeople(input.workspaceId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    listCommunities: procedure
+      .input(paginatedInput)
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const { items, total } = await ctx.wiring.graphStore.listCommunities(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
         });

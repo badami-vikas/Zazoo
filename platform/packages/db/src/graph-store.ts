@@ -1,11 +1,14 @@
 /**
  * DrizzleGraphStore — READ-only surface for Bridge's core vocabulary nouns
- * (Initiative/Touchpoint/Signal) that had zero tRPC coverage
+ * (Initiative/Touchpoint/Signal/Person/Community) that had zero tRPC coverage
  * (frontend-migration-scoping.md Phase 3). WRITES to `initiatives`/`touchpoints`
  * already flow through the governed pipeline generically (`action.propose` with
  * `resourceType: "initiative" | "touchpoint"`, see router.ts's `resourceTypeEnum`)
  * — this store exists only because the pipeline has no query-back path, the same
  * reason `dealpilot.list`/`integration.list` needed their own read stores.
+ * `listPeople`/`listCommunities` were added later (KnowledgeBasePage's People/
+ * Communities tabs) to the same store rather than a new one, since it's already
+ * the generic home for workspace-scoped node reads.
  *
  * `signal_actions` (act/dismiss/save) is the one exception: it's the user's
  * reaction bookkeeping to a Signal, not a mutation of Person/Relationship data,
@@ -16,7 +19,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, count } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { initiatives, touchpoints, signals, signalActions } from "./schema.js";
+import { initiatives, touchpoints, signals, signalActions, people, communities } from "./schema.js";
 
 export interface PageOpts {
   limit: number;
@@ -67,6 +70,26 @@ export class DrizzleGraphStore {
     const [rows, totalRows] = await Promise.all([
       this.#db.select().from(signals).where(where).orderBy(desc(signals.createdAt)).limit(opts.limit).offset(opts.offset),
       this.#db.select({ value: count() }).from(signals).where(where),
+    ]);
+    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+  }
+
+  async listPeople(workspaceId: string, opts: PageOpts): Promise<Page<typeof people.$inferSelect>> {
+    const where = eq(people.workspaceId, workspaceId);
+    const [rows, totalRows] = await Promise.all([
+      this.#db.select().from(people).where(where).orderBy(desc(people.createdAt)).limit(opts.limit).offset(opts.offset),
+      this.#db.select({ value: count() }).from(people).where(where),
+    ]);
+    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+  }
+
+  // `communities` has no `createdAt` column (unlike `people`/`initiatives`/`signals`),
+  // so pagination orders by `id` for a stable (if arbitrary) row order instead.
+  async listCommunities(workspaceId: string, opts: PageOpts): Promise<Page<typeof communities.$inferSelect>> {
+    const where = eq(communities.workspaceId, workspaceId);
+    const [rows, totalRows] = await Promise.all([
+      this.#db.select().from(communities).where(where).orderBy(communities.id).limit(opts.limit).offset(opts.offset),
+      this.#db.select({ value: count() }).from(communities).where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
