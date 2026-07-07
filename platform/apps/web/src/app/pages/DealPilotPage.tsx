@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Handshake, LayoutGrid, List as ListIcon, Table as TableIcon, RefreshCw } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { ToolPageHeader } from "../components/shared/ToolPageHeader";
 import { Header } from "../components/shared/Header";
 import { ListBar } from "../components/shared/ListBar";
 import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
@@ -85,8 +84,9 @@ export function DealPilotPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
-      <ToolPageHeader icon={Handshake} title="DealPilot" />
-      <Header tabs={[{ id: "Deals", icon: Handshake }]} activeTab="Deals" onTabChange={() => {}} />
+      {/* No separate title row — the centered toggle IS the page's identity element per the
+          standard shell spec (2026-07-07): one tab per tool section, no tool-name row above it. */}
+      <Header tabs={[{ id: "DealPilot", icon: Handshake }]} activeTab="DealPilot" onTabChange={() => {}} />
       <ListBar scope={SCOPE} selected={selectedList} onSelect={setSelectedList} allLabel="All Deals" />
       <StandardToolbar
         view={view}
