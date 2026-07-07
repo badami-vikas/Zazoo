@@ -96,6 +96,13 @@ export type {
   ForeignImportSandboxPolicy,
   ForeignCapabilityImport,
 } from "./capability/foreign-import.js";
+export {
+  translateForeignCapability,
+  ForeignImportSandboxRequiredError,
+  ForeignImportValidationError,
+  type ForeignCapabilityDescriptorInput,
+  type ForeignImportResult,
+} from "./capability/importer.js";
 
 // Builder toolbelt (execution-plan-2026-07.md Track F2) -- governed
 // Read/Write/Edit/Bash-equivalent primitives + the SandboxProvider port
