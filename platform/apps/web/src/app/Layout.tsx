@@ -4,6 +4,8 @@ import { Target, Wrench, Brain, BookOpen, Settings, Plus, X } from "lucide-react
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { getPinnedProjects, getPinnedTools, unpinProject, unpinTool, type PinnedItem } from "./lib/pins";
+import { AvatarOverlay } from "./avatar/AvatarOverlay";
+import { hasStoredPrefs, loadAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
 
 /**
  * Shell IA (ADR-023, docs/raw/decisions-log.md last entry): permanent chrome
@@ -27,6 +29,8 @@ export default function Layout() {
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [pinnedProjects, setPinnedProjectsState] = useState<PinnedItem[]>([]);
   const [pinnedTools, setPinnedToolsState] = useState<PinnedItem[]>([]);
+  const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     setPinnedProjectsState(getPinnedProjects());
@@ -37,13 +41,36 @@ export default function Layout() {
     trpc.workspace.blueprint.get
       .query({ workspaceId: PILOT_WORKSPACE })
       .then((res) => {
-        if (!res.definition) setOnboardingOpen(true);
+        // Existing users (a workspace already has an active blueprint) never
+        // see onboarding forced back open; the avatar just defaults to a
+        // neutral hatched owl if this browser never saved prefs (spec section
+        // 4, item 4 — "no forced re-onboarding").
+        const hasWorkspace = Boolean(res.definition);
+        if (!hasWorkspace) setOnboardingOpen(true);
+        if (!hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(hasWorkspace));
       })
       .catch(() => {
         // Honest no-op: if the check itself fails (e.g. API unreachable), don't
         // force the modal open on top of an already-broken app shell.
       })
       .finally(() => setCheckedOnboarding(true));
+
+    // Independent of the blueprint check above: load whatever prefs this
+    // browser already has immediately, so the overlay doesn't flash/wait on
+    // the network round-trip for returning users.
+    if (hasStoredPrefs()) setAvatarPrefs(loadAvatarPrefs(true));
+  }, []);
+
+  useEffect(() => {
+    trpc.workspace.list
+      .query()
+      .then((rows) => {
+        const mine = rows.find((w) => w.id === PILOT_WORKSPACE);
+        if (mine?.name) setWorkspaceName(mine.name);
+      })
+      .catch(() => {
+        // Honest no-op — the avatar popover falls back to "Unnamed workspace".
+      });
   }, []);
 
   // Intelligence = the capability surface (Tools/Integrations/Agents/
@@ -205,6 +232,19 @@ export default function Layout() {
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
           onProposed={() => {}}
+          onHatched={(prefs) => setAvatarPrefs(prefs)}
+        />
+      )}
+
+      {/* Persistent avatar overlay — every route, inside the authed shell
+          (spec-consolidation-2026-07.md section 3). Renders once prefs are
+          resolved (either from localStorage or the existing-user fallback)
+          so it never flashes a default animal before the real one loads. */}
+      {avatarPrefs && (
+        <AvatarOverlay
+          animal={avatarPrefs.animal}
+          {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
+          {...(workspaceName ? { workspaceName } : {})}
         />
       )}
     </div>

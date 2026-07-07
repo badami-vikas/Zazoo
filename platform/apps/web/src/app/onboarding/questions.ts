@@ -14,6 +14,7 @@
  * vocabulary) — no filler questions asked just to hit a minimum count.
  */
 import type { WorkspaceBlueprint } from "@bridge/core";
+import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
 
 export type QuestionKind = "single_select" | "multi_select" | "text";
 
@@ -105,6 +106,21 @@ const Q_NAME: OnboardingQuestion = {
   placeholder: "e.g. My Deals",
 };
 
+/** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
+ * build brief item 2): a curated set of six, matching avatar-store.ts's
+ * `SPIRIT_ANIMALS`. This answer has NO effect on the compiled blueprint
+ * (unlike every other question here) — it only selects which creature the
+ * avatar overlay renders as after hatching. Asked early (right after
+ * solo/team) so the egg has something to visually anticipate for the rest of
+ * the flow. */
+const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
+  id: "spirit_animal",
+  kind: "single_select",
+  prompt: "Pick your avatar's spirit animal.",
+  helpText: "Purely cosmetic — you can change this later in Settings.",
+  options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
+};
+
 /**
  * The adaptive step function: given the answers collected SO FAR, returns the
  * next question to ask, or null when onboarding is complete. This is the
@@ -113,11 +129,13 @@ const Q_NAME: OnboardingQuestion = {
  * "relationships" domain (Bridge's own vocabulary already fits).
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
- * (solo + relationships) asks 5; the longest (team + a domain needing a vocab
- * override) asks 7 — both comfortably inside the 5-12 band without padding.
+ * (solo + relationships) asks 6 (incl. spirit animal); the longest (team + a
+ * domain needing a vocab override) asks 8 — both comfortably inside the 5-12
+ * band without padding.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.mode === undefined) return Q_MODE;
+  if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
   if (answers.domain === undefined) return Q_DOMAIN;
   if (answers.mode === "team" && answers.team_size === undefined) return Q_TEAM_SIZE;
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
@@ -125,6 +143,19 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   if (answers.view_style === undefined) return Q_VIEW_STYLE;
   if (answers.workspace_name === undefined) return Q_NAME;
   return null;
+}
+
+/** Total number of questions in the LONGEST real path (team + vocab-needing
+ * domain) — used only as the denominator for egg-growth progress, never for
+ * branching logic itself (that stays in `nextQuestion`). */
+export const MAX_QUESTIONS = 8;
+
+/** How many questions have been answered so far — the egg's "questions
+ * answered" progress input (spec section 4, Stage 1-2: egg grows with real
+ * step completion, not a fake timer). */
+export function answeredCount(answers: OnboardingAnswers): number {
+  return Object.values(answers).filter((v) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
+    .length;
 }
 
 /** Node type + starter fields per domain — the entities a fresh workspace
