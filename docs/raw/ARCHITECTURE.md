@@ -6,10 +6,13 @@ status: governance-authority narrative synced to Schema v2 (roles/delegation/eph
 audience: founding engineering + product
 companions: [SCHEMA.sql, ROADMAP.md]
 related_wiki: ../wiki/architecture.md
-updated: 2026-06-22
+updated: 2026-07-07
 tags: [architecture, governance, platform]
 ---
 # Bridge AI — Platform Architecture (v1)
+
+> **Primitive ontology note (2026-07-07, ADR-026):** canonical primitive taxonomy lives in [../wiki/ontology.md](../wiki/ontology.md) + [primitive-specifications.md](primitive-specifications.md). Terms in this doc map as: `ritual`/"Workflow" = Automation · `tool`/ToolManifest = implementation surface (user-facing primitive = Workspace) · Connection = Integration · Signal = derived Incident · Chief of Staff = Agent archetype · Project = ElementType. Code/table names here are unchanged; promotion never mutates primitive category.
+
 
 ---
 

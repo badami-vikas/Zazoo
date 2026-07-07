@@ -1,6 +1,6 @@
 # Initiatives (wiki)
 
-full: [../raw/initiatives-taskade-research.md](../raw/initiatives-taskade-research.md)
+full: [../raw/initiatives-taskade-research.md](../raw/initiatives-taskade-research.md) · Initiative (display "Project") = an **ElementType**, not a separate primitive ([ontology](ontology.md)).
 
 **Call: build THIN slice of Taskade, not platform.** ~30% of dump affirms locked choices; ~70% conflicts w/ Bridge identity.
 

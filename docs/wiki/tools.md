@@ -2,6 +2,8 @@
 
 full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan: [../raw/tool-standardization-plan.md](../raw/tool-standardization-plan.md)
 
+**Primitive mapping** ([ontology](ontology.md), 2026-07-07): "tool"/`ToolManifest` here = implementation/package surface; the user-facing primitive = **Workspace**. Internal tools ≈ Skill/Integration capabilities; external tools ≈ Workspace surfaces. Page keeps code vocab.
+
 ## Standardization plan (LOCKED 2026-07-03, ADR-006)
 - **One monorepo.** `platform/` = single home. apps/web + apps/api + packages (tool-kit ·
   tables · sourcing · dedupe · facts · llm · extraction) + tools/*. No new app shells EVER.

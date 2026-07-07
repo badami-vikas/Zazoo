@@ -5,6 +5,9 @@ full: [../raw/capability-package-format.md](../raw/capability-package-format.md)
 **What:** shipping unit ABOVE one `capability_manifests` row (ADR-012 trust model = kernel this
 builds on, unchanged). Package = `package.yaml` + dir, bundles MULTIPLE capability manifests +
 impl. Distribution/bundling concern only — no new risk model, no new approval mechanism.
+Manifest `kind` values map to primitives ([ontology](../wiki/ontology.md)): workflow=**Automation** ·
+tool=implementation surface (user-facing primitive=**Workspace**) · integration_bundle=**Integration** ·
+view=**View** · workspace_definition=**Workspace** definition. Code enum unchanged.
 
 ## Manifest shape
 `name·version(semver, exact, no ranges)·kind(skill|workflow|agent|tool|view|integration_bundle|

@@ -1,6 +1,6 @@
 # Rituals (wiki)
 
-full: [../raw/rituals-engine-research.md](../raw/rituals-engine-research.md)
+full: [../raw/rituals-engine-research.md](../raw/rituals-engine-research.md) · code `ritual` / UI "Workflow" = **Automation** primitive ([ontology](ontology.md)); this page keeps the code term.
 
 **Call:** most of user's ritual/governance dump = Bridge ALREADY has it. Value = net-new bits + 3 conflicts to reshape. Took as opinion, researched, decided.
 

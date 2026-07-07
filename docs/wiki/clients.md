@@ -48,7 +48,7 @@ Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/p
 
 **View convertibility**: every table-backed view gets switcher. table/kanban/card (gallery) ALWAYS eligible. calendar ⇐ date-kind column exists. map ⇐ location-kind column exists (heuristic today — `ColumnKind` has no dedicated location kind yet, BUGS.md). graph/network ⇐ relation-kind column exists. Eligibility computed client-side from spec columns (`apps/web/src/app/dataviews/eligibility.ts`), DataViews.tsx switcher uses it as default when no explicit override. Map has no rendering lib in repo → honest "map view (list fallback)" grouped-by-location list (MapView.tsx), not a fake map.
 
-**Display-vocab renames** (workspace-scope only, kernel ids untouched): Initiative→Project, Ritual→Workflow, Network→KnowledgeBase. User's own naming always wins.
+**Display-vocab renames** (workspace-scope only, kernel ids untouched): Initiative→Project, Ritual→Workflow, Network→KnowledgeBase. User's own naming always wins. Ontological primitives behind the labels ([ontology](ontology.md)): "Workflow"/`ritual` = **Automation** · "Project"/`initiative` = **ElementType** · Apps/connections = **Integration** · user-facing tool surfaces = **Workspace**.
 
 **Peer-grouping heuristics** (blueprint-level, compiler-encoded): similar task → toggle sub-pages. different tasks → separate tools. same process+task, separate data → separate lists. Proposes structure, never silently imposes.
 

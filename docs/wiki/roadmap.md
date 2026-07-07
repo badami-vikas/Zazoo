@@ -4,6 +4,8 @@ full: [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-softwa
 
 Ordered by **irreversibility** (kernel hardest first) + **one hypothesis per phase**. Ambient sensing = day 1; ambient acting = Phase 4.
 
+**Primitive vocab** (2026-07-07, [ontology](ontology.md)): "workflow" = Automation · "tool" = implementation surface, user-facing primitive = Workspace · Chief of Staff = Agent archetype · Signal = derived Incident · Project = ElementType. Promotion ladder = trust ladder, never category mutation (a promoted Skill stays a Skill; new governed object consumes it).
+
 ## Practice hardening (2026-07-06 research sweep — folded into phases below)
 - **P0**: lethal-trifecta policy rule (private-read + untrusted-ingest + egress ⇒ auto-External band, overrides computed risk) · ≤20 active tools per agent turn, deferred registry lookup beyond · sensing = CONTEXT PROVIDER registry (9 kinds, raw/derived split at type level) not 3 sensor kinds · approval = durable resumable state (zero-compute wait, engine signal/wait primitives), never poll.
 - **P1**: onboarding = pop-up screen · blueprint = persisted draft + diff + approval card (NO competitor ships pre-apply approval — Notion/Fibery/Noloco all post-hoc undo — this is the moat).

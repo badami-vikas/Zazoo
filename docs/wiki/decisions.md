@@ -2,6 +2,9 @@
 
 Canonical. Mirror of memory `bridge-strategy-decisions`.
 
+## 2026-07-07 — Primitive ontology adopted (ADR-026, [ontology](ontology.md))
+Canonical taxonomy: actors Human/Agent/Automation · capabilities Skill/Integration · work Request/Action/Incident/Artifact · surface Workspace/Element/ElementType/View · context Memory/Knowledge. Mappings (code names unchanged): `ritual`/"Workflow"=Automation · `tool`/ToolManifest=implementation surface, user-facing primitive=Workspace · Connection=Integration · Intent=raw Human Request · Chief of Staff=Agent archetype · Signal=derived Incident · Project=ElementType. **Promotion never mutates primitive category** — mints a new governed object consuming the old. Docs-only alignment; older entries below keep historical vocab.
+
 ## ⚠️ 2026-07-06 VISION PIVOT — nothing below is "locked"; ALL items re-audited
 User call: no locked decisions. Full re-audit verdicts (RETAIN / MODIFIED / SUPERSEDED / REVERSED per item) → [vision](vision.md) + [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-software.md) §3 + ADR-011 (§12 + ADR-012 = second-pass amendments same day: no dummy data, Recon add-on, multi-surface Notion model, competitor framing).
 - **Bridge = Living Software** — adaptive workspace platform (Kernel → Compiler → Runtime → Generated Workspace) for professionals + teams. "Everything is proposed, governed, continuously evolved." Capability Lifecycle Platform.
