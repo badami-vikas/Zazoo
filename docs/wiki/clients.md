@@ -35,7 +35,7 @@ Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/p
 **KnowledgeBase** (was: no standalone "Network" page existed — this IS the concept target) = toggle tabs **People / Communities / Resources / Projects**.
 - Projects = display label for `initiative` node type (kernel id unchanged). Cross-disciplinary container (people+orgs+resources+chat) — today wired to `graph.listInitiatives` only, cross-linking is a real gap.
 - Resources = websites/media/platforms, reuses existing ResourcesPage (`resources.list`).
-- People/Communities = honest empty state, no `graph.listPeople`/`listCommunities` procedure yet (BUGS.md).
+- People/Communities = `graph.listPeople`/`graph.listCommunities` procedures now exist (2026-07-07, same paginated/workspace-scoped pattern as `listInitiatives`); apps/web wiring to KnowledgeBasePage is a separate follow-up track (still honest `NotWiredYet` in the UI as of this note).
 - New toggle section = governed proposal (minor, Governance Agent may auto-approve), never silent restructure.
 
 **Tools** = section tabs **Skills / Agents / Apps / Workflows** (Workflow = display label for `ritual`, kernel id unchanged).
