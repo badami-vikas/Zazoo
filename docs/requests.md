@@ -16,6 +16,7 @@ All explicit product and engineering requirements from Vikas, recorded verbatim 
 | R-006 | 2026-07-07 | requests.md — record all user requirements here | **Done** | This file. |
 | R-007 | 2026-07-07 | Intelligence tab: add Packages toggle before Tools | **Done** | Committed in 4e68d85. Wired to real packages.list tRPC procedure. |
 | R-008 | 2026-07-07 | Egg version: minimal, bare-bone, not bulky | **Partial** | Onboarding is 2-question minimal. Bulk concern is likely overlay being page-embedded not floating (R-002). Revisit after R-002 lands. |
+| R-009 | 2026-07-07 | Standard page shell for all pages except Home/Settings: centered toggle → Lists → toolbar (view dropdown/search/filter/3-dot) → filter chips (if selected) → dashboard (analytics row) → content (table/kanban/card per view) | **In Progress** | Root cause found: apps/web pages were migrated as bare tRPC-plumbing stubs — the prototype's real UI (StandardToolbar/ListBar/Header/KanbanBoard/etc.) was never ported. Shell components + DealPilotPage done and verified live. Remaining: JobPilot, Helpdesk, KnowledgeBase, Signals, Approvals, Intelligence, Calendar, Rituals, Workspace, ChiefOfStaff. |
 
 ---
 
