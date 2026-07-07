@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
+import { Target, Wrench, Brain, BookOpen, Settings, Plus, X } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { getPinnedProjects, getPinnedTools, unpinProject, unpinTool, type PinnedItem } from "./lib/pins";
@@ -49,9 +50,9 @@ export default function Layout() {
   // Workflows/Skills — user revision 2026-07-06), NOT the Chief of Staff
   // chat, which stays a pinnable tool at /chief-of-staff.
   const bottomBarLinks = [
-    { to: "/intelligence", label: "Intelligence" },
-    { to: "/knowledge-base", label: "KnowledgeBase" },
-    { to: "/settings", label: "Settings" },
+    { to: "/intelligence", label: "Intelligence", icon: Brain },
+    { to: "/knowledge-base", label: "KnowledgeBase", icon: BookOpen },
+    { to: "/settings", label: "Settings", icon: Settings },
   ];
 
   function isActive(to: string): boolean {
@@ -61,87 +62,139 @@ export default function Layout() {
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
       {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar. */}
-      <nav className="hidden sm:flex w-56 shrink-0 border-r flex-col">
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+      <nav className="hidden sm:flex w-56 shrink-0 border-r border-border bg-background flex-col">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
           <div className="space-y-1">
-            <div className="text-xs font-medium text-muted-foreground px-1">Projects</div>
-            {pinnedProjects.map((p) => (
-              <div key={p.id} className="flex items-center gap-1 group">
-                <Link to={p.to} className="text-sm hover:underline flex-1 truncate">
-                  {p.label}
-                </Link>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
-                  onClick={() => setPinnedProjectsState(unpinProject(p.id))}
-                  aria-label={`Unpin ${p.label}`}
+            <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              <Target className="w-3.5 h-3.5" />
+              Projects
+            </div>
+            {pinnedProjects.map((p) => {
+              const active = isActive(p.to.split("?")[0]);
+              return (
+                <div
+                  key={p.id}
+                  className={`relative flex items-center gap-1 group rounded-md pl-2 pr-1 py-1.5 transition-colors ${
+                    active ? "bg-[color-mix(in_srgb,var(--color-steel-light)_20%,transparent)]" : "hover:bg-surface"
+                  }`}
                 >
-                  ×
-                </button>
-              </div>
-            ))}
-            {pinnedProjects.length === 0 && <div className="text-xs text-muted-foreground px-1">No pinned projects.</div>}
+                  {active && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full bg-[var(--color-steel)]" />
+                  )}
+                  <Link
+                    to={p.to}
+                    className={`text-sm flex-1 truncate no-underline ${active ? "font-medium text-[var(--color-steel)]" : "text-[var(--color-navy-mid)]"}`}
+                  >
+                    {p.label}
+                  </Link>
+                  <button
+                    type="button"
+                    className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                    onClick={() => setPinnedProjectsState(unpinProject(p.id))}
+                    aria-label={`Unpin ${p.label}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+            {pinnedProjects.length === 0 && <div className="text-xs text-muted-foreground px-2">No pinned projects.</div>}
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs font-medium text-muted-foreground px-1">Tools</div>
-            {pinnedTools.map((t) => (
-              <div key={t.id} className="flex items-center gap-1 group">
-                <Link to={t.to} className="text-sm hover:underline flex-1 truncate">
-                  {t.label}
-                </Link>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
-                  onClick={() => setPinnedToolsState(unpinTool(t.id))}
-                  aria-label={`Unpin ${t.label}`}
+            <div className="flex items-center gap-1.5 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              <Wrench className="w-3.5 h-3.5" />
+              Tools
+            </div>
+            {pinnedTools.map((t) => {
+              const active = isActive(t.to.split("?")[0]);
+              return (
+                <div
+                  key={t.id}
+                  className={`relative flex items-center gap-1 group rounded-md pl-2 pr-1 py-1.5 transition-colors ${
+                    active ? "bg-[color-mix(in_srgb,var(--color-steel-light)_20%,transparent)]" : "hover:bg-surface"
+                  }`}
                 >
-                  ×
-                </button>
-              </div>
-            ))}
-            {pinnedTools.length === 0 && <div className="text-xs text-muted-foreground px-1">No pinned tools.</div>}
+                  {active && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full bg-[var(--color-steel)]" />
+                  )}
+                  <Link
+                    to={t.to}
+                    className={`text-sm flex-1 truncate no-underline ${active ? "font-medium text-[var(--color-steel)]" : "text-[var(--color-navy-mid)]"}`}
+                  >
+                    {t.label}
+                  </Link>
+                  <button
+                    type="button"
+                    className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                    onClick={() => setPinnedToolsState(unpinTool(t.id))}
+                    aria-label={`Unpin ${t.label}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+            {pinnedTools.length === 0 && <div className="text-xs text-muted-foreground px-2">No pinned tools.</div>}
           </div>
 
           <button
             type="button"
-            className="text-sm text-left text-muted-foreground hover:underline mt-2 pt-2 border-t"
+            className="flex items-center gap-1.5 text-sm text-left text-muted-foreground hover:text-[var(--color-steel)] mt-2 pt-3 border-t border-border no-underline"
             onClick={() => setOnboardingOpen(true)}
           >
+            <Plus className="w-3.5 h-3.5" />
             Set up workspace…
           </button>
         </div>
 
         {/* Bottom-of-sidebar chrome: Intelligence · KnowledgeBase · Settings. */}
-        <div className="border-t p-3 flex flex-col gap-2 shrink-0">
-          {bottomBarLinks.map((l) => (
-            <Link
-              key={l.to}
-              to={l.to}
-              className={`text-sm hover:underline ${isActive(l.to) ? "font-medium" : "text-muted-foreground"}`}
-            >
-              {l.label}
-            </Link>
-          ))}
+        <div className="border-t border-border p-3 flex flex-col gap-1 shrink-0">
+          {bottomBarLinks.map((l) => {
+            const active = isActive(l.to);
+            return (
+              <Link
+                key={l.to}
+                to={l.to}
+                className={`relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm no-underline transition-colors ${
+                  active
+                    ? "bg-[color-mix(in_srgb,var(--color-steel-light)_20%,transparent)] font-medium text-[var(--color-steel)]"
+                    : "text-muted-foreground hover:bg-surface"
+                }`}
+              >
+                {active && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full bg-[var(--color-steel)]" />
+                )}
+                <l.icon className="w-4 h-4 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                {l.label}
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
-      <div className="flex-1 overflow-auto pb-14 sm:pb-0">
+      <div className="flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
         <Outlet />
       </div>
 
       {/* Mobile bottom tab bar — the "bottom bar on narrow widths" variant of the
           same three chrome links. */}
-      <nav className="sm:hidden fixed bottom-0 inset-x-0 border-t bg-background flex items-stretch h-14 z-10">
-        {bottomBarLinks.map((l) => (
-          <Link
-            key={l.to}
-            to={l.to}
-            className={`flex-1 flex items-center justify-center text-xs ${isActive(l.to) ? "font-medium" : "text-muted-foreground"}`}
-          >
-            {l.label}
-          </Link>
-        ))}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 border-t border-border bg-background flex items-stretch h-14 z-10">
+        {bottomBarLinks.map((l) => {
+          const active = isActive(l.to);
+          return (
+            <Link
+              key={l.to}
+              to={l.to}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs no-underline ${
+                active ? "font-medium text-[var(--color-steel)]" : "text-muted-foreground"
+              }`}
+            >
+              <l.icon className="w-4 h-4" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+              {l.label}
+            </Link>
+          );
+        })}
       </nav>
 
       {checkedOnboarding && (
