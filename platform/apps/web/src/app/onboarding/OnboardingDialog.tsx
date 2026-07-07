@@ -117,7 +117,10 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
           : "✓ Proposed — awaiting approval";
 
   // Egg stage derives from step + outcome, not a separate tracked value, so
-  // it can never drift out of sync with what actually happened.
+  // it can never drift out of sync with what actually happened. Deliberately
+  // keyed on [step, outcome] only — spiritAnimal/answered/onHatched are read
+  // at fire time (via closure), not re-triggers: re-running this effect on
+  // every keystroke of unrelated answers would restart the hatch timer.
   useEffect(() => {
     if (step === "submitted" && outcome === "activated") {
       setEggStage("hatching");
@@ -134,7 +137,6 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
     if (step === "preview") setEggStage("ready");
     else if (step === "questions") setEggStage(answered > 0 ? "growing" : "incubating");
     return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, outcome]);
 
   const compiled: CompiledWorkspace | { error: string } | null = useMemo(() => {
