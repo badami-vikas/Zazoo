@@ -46,12 +46,16 @@ const SECTIONS: { id: IntelligenceSection; label: string }[] = [
   { id: "skills", label: "Skills" },
 ];
 
-const TOOLS = [
-  { to: "/dealpilot", label: "DealPilot", desc: "Sourcing waterfall + thesis-fit scoring" },
-  { to: "/jobpilot", label: "JobPilot", desc: "Job search tracker + application pipeline" },
-  { to: "/helpdesk", label: "Helpdesk", desc: "Support ticket inbox + routing" },
-  { to: "/chief-of-staff", label: "Chief of Staff", desc: "Conversational router — one governed route per turn" },
-];
+// Maps package name → route + display metadata. Only packages in packages.list
+// with state="available" are rendered in the Tools tab. Add a row here when a
+// new workspace_definition package ships — the package must also be seeded in
+// apps/api/src/built-in-packages.ts or registered through Learning Agent.
+const PACKAGE_ROUTES: Record<string, { to: string; label: string; desc: string }> = {
+  "deal-pilot": { to: "/dealpilot", label: "DealPilot", desc: "Sourcing waterfall + thesis-fit scoring" },
+  "job-pilot": { to: "/jobpilot", label: "JobPilot", desc: "Job search tracker + application pipeline" },
+  helpdesk: { to: "/helpdesk", label: "Helpdesk", desc: "Support ticket inbox + routing" },
+  "chief-of-staff": { to: "/chief-of-staff", label: "Chief of Staff", desc: "Conversational router — one governed route per turn" },
+};
 
 function NotWiredYet({ label, note }: { label: string; note: string }) {
   return (
@@ -126,6 +130,47 @@ function IntegrationsSection() {
   );
 }
 
+function ToolsSection() {
+  const [result, setResult] = useState<Awaited<ReturnType<typeof trpc.packages.list.query>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.packages.list
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
+      .then(setResult)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  if (error) return <div className="text-sm text-red-600 break-words max-w-2xl">{error}</div>;
+  if (result === null) return <div className="text-sm text-muted-foreground">Loading…</div>;
+
+  const available = result.items
+    .filter((r) => r.state === "available" && r.packageName in PACKAGE_ROUTES)
+    .map((r) => ({ ...PACKAGE_ROUTES[r.packageName]!, risk: r.computedRisk }));
+
+  if (available.length === 0) {
+    return (
+      <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-2xl">
+        No packages installed yet — Tools appear here once a workspace_definition package reaches <code>available</code> state.
+      </div>
+    );
+  }
+
+  return (
+    <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {available.map((tool) => (
+        <li key={tool.to} className="border rounded-md p-4">
+          <Link to={tool.to} className="font-medium hover:underline">
+            {tool.label}
+          </Link>
+          <p className="text-sm text-muted-foreground mt-1">{tool.desc}</p>
+          <span className="mt-2 inline-block border rounded px-1.5 py-0.5 text-xs text-muted-foreground">{tool.risk}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 type PackagesResult = Awaited<ReturnType<typeof trpc.packages.list.query>>;
 
 function PackagesSection() {
@@ -188,18 +233,7 @@ export function IntelligencePage() {
 
       <div>
         {section === "packages" && <PackagesSection />}
-        {section === "tools" && (
-          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {TOOLS.map((tool) => (
-              <li key={tool.to} className="border rounded-md p-4">
-                <Link to={tool.to} className="font-medium hover:underline">
-                  {tool.label}
-                </Link>
-                <p className="text-sm text-muted-foreground mt-1">{tool.desc}</p>
-              </li>
-            ))}
-          </ul>
-        )}
+        {section === "tools" && <ToolsSection />}
         {section === "integrations" && <IntegrationsSection />}
         {section === "agents" && <NotWiredYet label="agent.list" note="registered agents" />}
         {section === "workflows" && (

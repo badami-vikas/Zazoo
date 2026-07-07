@@ -116,6 +116,7 @@ import { createFactStore, type FactStore } from "@bridge/facts";
 import { createBizBuySellAlertConnector, createGmailFetchMessages, type ThesisProfile } from "@bridge/dealpilot";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
+import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -555,6 +556,25 @@ export async function buildWiring(): Promise<Wiring> {
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
+
+  // Seed built-in workspace-definition packages as available+installed.
+  // Idempotent: checks existing rows before inserting so a restart doesn't duplicate.
+  const existing = await packageStore.list(PILOT_WORKSPACE, { limit: 100, offset: 0 });
+  const existingNames = new Set(existing.items.map((r) => r.packageName));
+  for (const pkg of BUILT_IN_PACKAGES) {
+    if (!existingNames.has(pkg.manifest.name)) {
+      await packageStore.create({
+        workspaceId: PILOT_WORKSPACE,
+        packageName: pkg.manifest.name,
+        packageVersion: pkg.manifest.version,
+        manifest: pkg.manifest,
+        computedRisk: pkg.computedRisk,
+        state: "available",
+        status: "installed",
+        lineageManifestId: null,
+      });
+    }
+  }
 
   // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
   // LOCAL_MEDIA_DIR set => persistent pglite on disk; unset => in-memory (zero-infra).
