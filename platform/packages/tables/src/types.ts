@@ -13,7 +13,14 @@ export type ColumnKind =
   | "url"
   | "relation"
   | "formula"
-  | "tool";
+  | "tool"
+  // "location" (ADR-023/ADR-024 view-convertibility grammar): lets map-view
+  // eligibility be computed from a real column kind instead of the
+  // `apps/web` id/label-substring heuristic (dataviews/eligibility.ts,
+  // MapView.tsx — see docs/BUGS.md "@bridge/tables ColumnKind missing
+  // location" row, 2026-07-06). Mirrors `@bridge/core`'s
+  // `BlueprintColumnKind`, which added this member first.
+  | "location";
 
 export interface ColumnSpec {
   id: string;

@@ -344,6 +344,30 @@ test("InMemoryCapabilityStore: createManifest rejects a duplicate id (append-lik
   await assert.rejects(() => store.createManifest(row));
 });
 
+test("InMemoryCapabilityStore: getManifestByNameVersion finds an existing manifest by its (workspace, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
+  const store = new InMemoryCapabilityStore();
+  const row = {
+    id: "dummy_manifest_natural_key",
+    workspaceId: "dummy_ws_1",
+    capabilityType: "skill" as const,
+    name: "dummy_shared_capability",
+    version: "1.0.0",
+    origin: "user_code" as const,
+    audience: "private" as const,
+    manifest: {},
+    computedRisk: "informational" as const,
+    dependencies: [],
+  };
+  await store.createManifest(row);
+
+  const found = await store.getManifestByNameVersion("dummy_ws_1", "dummy_shared_capability", "1.0.0");
+  assert.equal(found?.id, "dummy_manifest_natural_key");
+
+  assert.equal(await store.getManifestByNameVersion("dummy_ws_1", "dummy_shared_capability", "2.0.0"), null);
+  assert.equal(await store.getManifestByNameVersion("dummy_ws_2", "dummy_shared_capability", "1.0.0"), null);
+  assert.equal(await store.getManifestByNameVersion("dummy_ws_1", "dummy_other", "1.0.0"), null);
+});
+
 test("InMemoryCapabilityStore: upsertState creates then updates the ONE current-state row per manifest", async () => {
   const store = new InMemoryCapabilityStore();
   const manifestId = "dummy_manifest_state";

@@ -54,6 +54,12 @@ function blueprintDefinitionId(item: PendingItem): string | null {
  * existing `action.decide` (server-resolved identity, agent-floor applies).
  * Mobile-width-safe from 375px: single-column stacked layout, no fixed widths
  * wider than the viewport, buttons wrap instead of overflowing.
+ *
+ * Approvals-ONLY surface (user revision 2026-07-06, overriding ADR-023 item
+ * 4's tabs-merge): Signals is a SEPARATE pinned governance tool — see
+ * SignalsPage.tsx. Both appear as pinned tools in the left nav by default
+ * (lib/pins.ts), each surface keeping its own count so consent decisions
+ * never drown in observation noise.
  */
 export function ApprovalsPage() {
   const [page, setPage] = useState<PendingPage | null>(null);

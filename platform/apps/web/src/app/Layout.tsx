@@ -1,21 +1,36 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
+import { getPinnedProjects, getPinnedTools, unpinProject, unpinTool, type PinnedItem } from "./lib/pins";
 
 /**
- * Minimal nav shell — proves routing end-to-end. NOT a port of the prototype's
- * Sidebar/AgentPanel (large components with their own data layer); that's a separate,
- * larger follow-up increment. See docs/raw/frontend-migration-scoping.md.
+ * Shell IA (ADR-023, docs/raw/decisions-log.md last entry): permanent chrome
+ * is SIX containers — bottom bar Intelligence/KnowledgeBase/Settings, main
+ * nav area pinned Projects + pinned Tools. Chrome is fixed; everything INSIDE
+ * the containers is generated/installed on demand ("minimal-egg pattern").
  *
- * Onboarding pop-up (docs/wiki/clients.md, roadmap.md P1): shown automatically
- * when `workspace.blueprint.get` reports no active workspace_definition yet —
- * checked once at mount. Also re-openable any time from the sidebar's "Set up
- * workspace" link, per the "dismissible, re-openable" requirement.
+ * Bottom bar becomes a horizontal bar on narrow widths (< sm) per the ADR's
+ * "bottom of left sidebar (or bottom bar on narrow widths)" — this shell
+ * renders the same three links in both a left-sidebar footer (desktop/tablet)
+ * and a fixed bottom tab bar (mobile), rather than trying to make one layout
+ * serve both.
+ *
+ * Pinning is client-side/localStorage today (see lib/pins.ts) — server-side
+ * pin persistence is tracked debt (docs/BUGS.md), not silently pretended to
+ * be durable.
  */
 export default function Layout() {
+  const location = useLocation();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
+  const [pinnedProjects, setPinnedProjectsState] = useState<PinnedItem[]>([]);
+  const [pinnedTools, setPinnedToolsState] = useState<PinnedItem[]>([]);
+
+  useEffect(() => {
+    setPinnedProjectsState(getPinnedProjects());
+    setPinnedToolsState(getPinnedTools());
+  }, []);
 
   useEffect(() => {
     trpc.workspace.blueprint.get
@@ -30,39 +45,114 @@ export default function Layout() {
       .finally(() => setCheckedOnboarding(true));
   }, []);
 
-  const links = [
-    { to: "/approvals", label: "Approvals" },
-    { to: "/chief-of-staff", label: "Chief of Staff" },
-    { to: "/dealpilot", label: "DealPilot" },
-    { to: "/tools", label: "Tools" },
-    { to: "/rituals", label: "Rituals" },
-    { to: "/calendar", label: "Calendar" },
-    { to: "/jobpilot", label: "JobPilot" },
-    { to: "/helpdesk", label: "Helpdesk" },
-    { to: "/resources", label: "Resources" },
-    { to: "/workspace", label: "Workspace" },
+  // Intelligence = the capability surface (Tools/Integrations/Agents/
+  // Workflows/Skills — user revision 2026-07-06), NOT the Chief of Staff
+  // chat, which stays a pinnable tool at /chief-of-staff.
+  const bottomBarLinks = [
+    { to: "/intelligence", label: "Intelligence" },
+    { to: "/knowledge-base", label: "KnowledgeBase" },
+    { to: "/settings", label: "Settings" },
   ];
+
+  function isActive(to: string): boolean {
+    return location.pathname === to || location.pathname.startsWith(`${to}/`);
+  }
+
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
-      <nav className="w-48 shrink-0 border-r p-4 flex flex-col gap-2">
-        {links.map((l) => (
-          <Link key={l.to} to={l.to} className="text-sm hover:underline">
+      {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar. */}
+      <nav className="hidden sm:flex w-56 shrink-0 border-r flex-col">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground px-1">Projects</div>
+            {pinnedProjects.map((p) => (
+              <div key={p.id} className="flex items-center gap-1 group">
+                <Link to={p.to} className="text-sm hover:underline flex-1 truncate">
+                  {p.label}
+                </Link>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                  onClick={() => setPinnedProjectsState(unpinProject(p.id))}
+                  aria-label={`Unpin ${p.label}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {pinnedProjects.length === 0 && <div className="text-xs text-muted-foreground px-1">No pinned projects.</div>}
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground px-1">Tools</div>
+            {pinnedTools.map((t) => (
+              <div key={t.id} className="flex items-center gap-1 group">
+                <Link to={t.to} className="text-sm hover:underline flex-1 truncate">
+                  {t.label}
+                </Link>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
+                  onClick={() => setPinnedToolsState(unpinTool(t.id))}
+                  aria-label={`Unpin ${t.label}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {pinnedTools.length === 0 && <div className="text-xs text-muted-foreground px-1">No pinned tools.</div>}
+          </div>
+
+          <button
+            type="button"
+            className="text-sm text-left text-muted-foreground hover:underline mt-2 pt-2 border-t"
+            onClick={() => setOnboardingOpen(true)}
+          >
+            Set up workspace…
+          </button>
+        </div>
+
+        {/* Bottom-of-sidebar chrome: Intelligence · KnowledgeBase · Settings. */}
+        <div className="border-t p-3 flex flex-col gap-2 shrink-0">
+          {bottomBarLinks.map((l) => (
+            <Link
+              key={l.to}
+              to={l.to}
+              className={`text-sm hover:underline ${isActive(l.to) ? "font-medium" : "text-muted-foreground"}`}
+            >
+              {l.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <div className="flex-1 overflow-auto pb-14 sm:pb-0">
+        <Outlet />
+      </div>
+
+      {/* Mobile bottom tab bar — the "bottom bar on narrow widths" variant of the
+          same three chrome links. */}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 border-t bg-background flex items-stretch h-14 z-10">
+        {bottomBarLinks.map((l) => (
+          <Link
+            key={l.to}
+            to={l.to}
+            className={`flex-1 flex items-center justify-center text-xs ${isActive(l.to) ? "font-medium" : "text-muted-foreground"}`}
+          >
             {l.label}
           </Link>
         ))}
-        <button
-          type="button"
-          className="text-sm text-left text-muted-foreground hover:underline mt-2 pt-2 border-t"
-          onClick={() => setOnboardingOpen(true)}
-        >
-          Set up workspace…
-        </button>
       </nav>
-      <div className="flex-1 overflow-auto">
-        <Outlet />
-      </div>
+
       {checkedOnboarding && (
-        <OnboardingDialog open={onboardingOpen} onOpenChange={setOnboardingOpen} onProposed={() => setOnboardingOpen(false)} />
+        <OnboardingDialog
+          open={onboardingOpen}
+          onOpenChange={setOnboardingOpen}
+          // Does NOT close the dialog (see OnboardingDialog.tsx's prop comment,
+          // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
+          // no longer needs to auto-open on a future mount.
+          onProposed={() => {}}
+        />
       )}
     </div>
   );

@@ -38,7 +38,12 @@
  * cross-package dependency.
  */
 
-/** Structural mirror of @bridge/tables' ColumnKind. */
+/** Structural mirror of @bridge/tables' ColumnKind, PLUS "location" (ADR-023/
+ * ADR-024 view-convertibility grammar: map-view eligibility needs a real
+ * location-kind column instead of a name-based heuristic). @bridge/tables'
+ * own ColumnKind does not have this member yet — additive-only here per
+ * CLAUDE.md's backward-compatibility rule for kernel type changes; a
+ * follow-up can widen @bridge/tables' ColumnKind to match. */
 export type BlueprintColumnKind =
   | "text"
   | "number"
@@ -49,7 +54,8 @@ export type BlueprintColumnKind =
   | "url"
   | "relation"
   | "formula"
-  | "tool";
+  | "tool"
+  | "location";
 
 /** Structural mirror of @bridge/tables' ColumnSpec. */
 export interface BlueprintColumnSpec {
@@ -158,6 +164,17 @@ export interface CompiledViewConfig {
   rowFilters: BlueprintRowFilter[];
   filterMatch: "all" | "any";
   groupBy: string | null;
+  /** View-convertibility grammar (ADR-023 item 6 / ADR-024): which
+   * DataViewKinds this view's owning entity could morph into, computed from
+   * the entity's OWN column kinds — not the view's declared `kind`. Always
+   * includes table/kanban/gallery ("card") for any table-backed entity;
+   * "calendar" is added when a "date" column exists, "map" when a "location"
+   * column exists, "network" (graph) when a "relation" column exists. A
+   * relationship-shaped entity (per `relationshipNodeTypes`) is restricted to
+   * exactly ["table", "network"], mirroring the RELATIONSHIP_ALLOWED_KINDS
+   * compile-time restriction below. Non-tabular views (chatbot/dashboard/
+   * canvas) carry an empty array — they have no TableSpec to morph from. */
+  convertibleKinds: DataViewKind[];
 }
 
 export class BlueprintCompileError extends Error {
@@ -173,6 +190,32 @@ function tableSpecId(nodeType: string): string {
 
 function viewConfigId(entity: string, kind: BlueprintViewKind, index: number): string {
   return `${entity}.${kind}.${index}`;
+}
+
+/** ADR-023/ADR-024 view-convertibility grammar: table/kanban/gallery ("card")
+ * are always convertible for any table-backed entity; calendar/map/network
+ * are gated on the entity actually carrying a column kind that could drive
+ * them, so a switcher never offers a view guaranteed to render empty. A
+ * relationship-shaped entity is restricted to exactly table+network,
+ * mirroring RELATIONSHIP_ALLOWED_KINDS' compile-time restriction. */
+function computeConvertibleKinds(entity: BlueprintEntitySpec, isRelationship: boolean): DataViewKind[] {
+  if (isRelationship) return ["table", "network"];
+  const kinds: DataViewKind[] = ["table", "kanban", "gallery"];
+  if (entity.fields.some((f) => f.kind === "date")) kinds.push("calendar");
+  if (entity.fields.some((f) => f.kind === "location")) kinds.push("map");
+  if (entity.fields.some((f) => f.kind === "relation")) kinds.push("network");
+  return kinds;
+}
+
+/** ADR-023/ADR-024: a kanban view's default `groupBy` is the entity's own
+ * "select"-kind column (its stage/status field) when one exists and the
+ * blueprint author didn't already specify one — never overrides an explicit
+ * `config.groupBy` (including an explicit `null`, which means "no grouping,
+ * intentionally"). Picks the FIRST select-kind field in declaration order;
+ * a blueprint with more than one select column should name the intended one
+ * explicitly via `config.groupBy`. */
+function defaultKanbanGroupBy(entity: BlueprintEntitySpec): string | null {
+  return entity.fields.find((f) => f.kind === "select")?.id ?? null;
 }
 
 /**
@@ -248,6 +291,13 @@ export function compileBlueprint(
     viewsByEntityIndex.set(view.entity, index + 1);
     const id = viewConfigId(view.entity, view.kind, index);
 
+    const isRelationship = relationshipSet.has(view.entity);
+    // groupBy: an explicit config.groupBy (including explicit null) always
+    // wins; otherwise a kanban view defaults to the entity's own select-kind
+    // ("stage") column when one exists, else null (ungrouped).
+    const groupBy =
+      view.config?.groupBy !== undefined ? view.config.groupBy : view.kind === "kanban" ? defaultKanbanGroupBy(entity) : null;
+
     viewConfigs.push({
       id,
       entity: view.entity,
@@ -255,7 +305,10 @@ export function compileBlueprint(
       sorts: view.config?.sorts ?? [],
       rowFilters: view.config?.rowFilters ?? [],
       filterMatch: view.config?.filterMatch ?? "all",
-      groupBy: view.config?.groupBy ?? null,
+      groupBy,
+      convertibleKinds: DATA_VIEW_KINDS.includes(view.kind as DataViewKind)
+        ? computeConvertibleKinds(entity, isRelationship)
+        : [],
     });
 
     const list = navByEntity.get(view.entity) ?? [];

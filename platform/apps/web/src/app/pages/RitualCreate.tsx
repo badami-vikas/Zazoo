@@ -55,7 +55,7 @@ export function RitualCreate() {
 
   return (
     <div className="p-6 space-y-4 max-w-xl">
-      <h1 className="text-lg font-medium">Create Ritual</h1>
+      <h1 className="text-lg font-medium">Create Workflow</h1>
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="name">Name</Label>
@@ -76,7 +76,7 @@ export function RitualCreate() {
           />
         </div>
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Creating…" : "Create Ritual"}
+          {submitting ? "Creating…" : "Create Workflow"}
         </Button>
       </form>
       {error && <div className="text-sm text-red-600">{error}</div>}

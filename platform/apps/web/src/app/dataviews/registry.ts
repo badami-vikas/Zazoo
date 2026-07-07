@@ -19,6 +19,7 @@ import { KanbanView } from "./views/KanbanView.js";
 import { CalendarView } from "./views/CalendarView.js";
 import { GalleryView } from "./views/GalleryView.js";
 import { GraphView } from "./views/GraphView.js";
+import { MapView } from "./views/MapView.js";
 
 /** Exactly @bridge/tables' ViewConfig["kind"] — the data-view grammar. Dashboard/
  * chatbot/canvas (the blueprint's non-tabular views, see packages/core/src/
@@ -30,7 +31,7 @@ export const VIEW_COMPONENT_REGISTRY: Record<ViewConfig["kind"], ComponentType<D
   kanban: KanbanView,
   calendar: CalendarView,
   gallery: GalleryView,
-  map: GraphView, // map: no map-rendering component exists yet — honest table/list fallback via GraphView's shape
+  map: MapView, // no map-rendering library in this repo — honest grouped-by-location list fallback (ADR-023, docs/BUGS.md)
   network: GraphView,
 };
 

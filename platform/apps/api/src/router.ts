@@ -353,7 +353,7 @@ const BLUEPRINT_RELATIONSHIP_NODE_TYPES = ["edge"] as const;
 const blueprintFieldInput = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool"]),
+  kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool", "location"]),
   options: z.array(z.string()).optional(),
   toolId: z.string().optional(),
 });
@@ -428,6 +428,10 @@ function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): W
 }
 
 const blueprintGetInput = z.object({ workspaceId: z.string().min(1) });
+const blueprintGetByIdInput = z.object({
+  workspaceId: z.string().min(1),
+  definitionId: z.string().min(1),
+});
 const blueprintProposeInput = z.object({
   workspaceId: z.string().min(1),
   blueprint: workspaceBlueprintInput,
@@ -1156,6 +1160,25 @@ export const appRouter = t.router({
         assertPilotWorkspace(input.workspaceId);
         const active = await ctx.wiring.workspaceDefinitionStore.getActive(input.workspaceId);
         return { definition: active };
+      }),
+
+      /**
+       * getById (ADR-023/ADR-024): returns a workspace_definition by id
+       * REGARDLESS of status (draft/active/archived) — `get` above only ever
+       * returns the currently-active row, so a draft that hasn't been
+       * activated yet (the common ApprovalsPage diff-preview case) was
+       * previously unreachable. Identity-scoped like every sibling endpoint:
+       * the row's own `workspaceId` must match the caller-supplied
+       * `workspaceId`, so a definitionId from another workspace 404s rather
+       * than leaking cross-workspace data.
+       */
+      getById: procedure.input(blueprintGetByIdInput).query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const definition = await ctx.wiring.workspaceDefinitionStore.get(input.definitionId);
+        if (!definition || definition.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown workspace_definition" });
+        }
+        return { definition };
       }),
 
       /** Always creates a DRAFT workspace_definition — never activates it. The
@@ -1949,21 +1972,36 @@ export const appRouter = t.router({
       // enforces. This happens regardless of the approval outcome, mirroring
       // "install_flow.1_propose" in the format doc (registration precedes the
       // approval decision).
+      //
+      // Idempotency (ADR-024): re-installing a package version whose bundled
+      // capability keeps the SAME (name, version) must not collide with
+      // `capability_manifests_uq`. Check-before-insert via
+      // `getManifestByNameVersion` (the natural key the unique constraint
+      // enforces) and reuse the existing manifest row instead of re-creating
+      // it — a second install of the identical capability is a no-op
+      // re-registration, not a new manifest.
       const registeredManifestIds: string[] = [];
       for (const cap of installation.manifest.capabilities) {
-        const capId = ctx.run.ids.next();
-        await ctx.wiring.capabilityStore.createManifest({
-          id: capId,
-          workspaceId: input.workspaceId,
-          capabilityType: cap.capabilityType,
-          name: cap.name,
-          version: cap.version,
-          origin: cap.origin,
-          audience: cap.audience,
-          manifest: { permissions: cap.permissions, connectors: cap.connectors },
-          computedRisk: risk.effectiveRisk,
-          dependencies: cap.dependencies,
-        });
+        const existingManifest = await ctx.wiring.capabilityStore.getManifestByNameVersion(
+          input.workspaceId,
+          cap.name,
+          cap.version,
+        );
+        const capId = existingManifest?.id ?? ctx.run.ids.next();
+        if (!existingManifest) {
+          await ctx.wiring.capabilityStore.createManifest({
+            id: capId,
+            workspaceId: input.workspaceId,
+            capabilityType: cap.capabilityType,
+            name: cap.name,
+            version: cap.version,
+            origin: cap.origin,
+            audience: cap.audience,
+            manifest: { permissions: cap.permissions, connectors: cap.connectors },
+            computedRisk: risk.effectiveRisk,
+            dependencies: cap.dependencies,
+          });
+        }
         await ctx.wiring.capabilityStore.upsertState({
           manifestId: capId,
           workspaceId: input.workspaceId,

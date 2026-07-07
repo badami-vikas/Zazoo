@@ -39,7 +39,13 @@ export interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful propose — lets the caller (App shell) refresh
-   * its "does an active workspace exist" check without a full page reload. */
+   * its "does an active workspace exist" check without a full page reload.
+   * MUST NOT close the dialog itself (that was the cause of the "dialog
+   * auto-closes before the success message can be read" cosmetic bug,
+   * docs/BUGS.md 2026-07-06): this component is `open`-controlled, so if the
+   * caller's `onProposed` flips `open` to false, the "submitted" step's
+   * message never gets a render. The dialog now only closes via the explicit
+   * "Done" button (`resetAndClose`) or the user dismissing it. */
   onProposed?: () => void;
 }
 

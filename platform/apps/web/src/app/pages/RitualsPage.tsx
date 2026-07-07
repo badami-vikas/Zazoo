@@ -10,17 +10,17 @@ import { Link } from "react-router";
 export function RitualsPage() {
   return (
     <div className="p-6 space-y-3 text-sm">
-      <h1 className="text-lg font-medium">Rituals</h1>
+      <h1 className="text-lg font-medium">Workflows</h1>
       <p className="text-muted-foreground">
         No <code>ritual.list</code> procedure exists yet on the backend — this page can't
-        enumerate registered rituals. Tracked in docs/BUGS.md.
+        enumerate registered workflows. Tracked in docs/BUGS.md.
       </p>
       <div className="flex gap-4">
         <Link to="/rituals/new" className="underline">
-          Create a ritual
+          Create a workflow
         </Link>
         <Link to="/rituals/run" className="underline">
-          Run a ritual
+          Run a workflow
         </Link>
       </div>
     </div>

@@ -72,6 +72,38 @@ test("capability store: listManifests paginates within a workspace", async () =>
   }
 });
 
+test("capability store: getManifestByNameVersion finds an existing manifest by its (workspace, name, version) natural key, null when absent (ADR-024 idempotency lookup)", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleCapabilityStore(db);
+    const created = await store.createManifest({
+      id: "25000000-0000-4000-8000-000000000001",
+      workspaceId,
+      capabilityType: "skill",
+      name: "dummy_shared_capability",
+      version: "1.0.0",
+      origin: "user_code",
+      audience: "private",
+      manifest: {},
+      computedRisk: "informational",
+      dependencies: [],
+    });
+
+    const found = await store.getManifestByNameVersion(workspaceId, "dummy_shared_capability", "1.0.0");
+    assert.ok(found);
+    assert.equal(found.id, created.id);
+
+    const missingVersion = await store.getManifestByNameVersion(workspaceId, "dummy_shared_capability", "2.0.0");
+    assert.equal(missingVersion, null);
+
+    const missingName = await store.getManifestByNameVersion(workspaceId, "dummy_nonexistent", "1.0.0");
+    assert.equal(missingName, null);
+  } finally {
+    await close();
+  }
+});
+
 test("capability store: upsertState creates then updates the ONE current-state row per manifest (unique manifest_id)", async () => {
   const { db, close } = await createLocalDb();
   try {

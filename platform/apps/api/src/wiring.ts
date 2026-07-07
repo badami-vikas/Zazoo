@@ -126,7 +126,10 @@ export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
-const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
+// Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
+// seeded user id — workspace_definitions.created_by is a real FK to `users`,
+// so an arbitrary dummy_-prefixed caller id would violate that constraint.
+export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;

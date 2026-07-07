@@ -84,7 +84,7 @@ const Q_VOCAB: OnboardingQuestion = {
   id: "vocab_name",
   kind: "text",
   prompt: "What do you call the thing you're tracking? (e.g. \"Deal\", \"Candidate\", \"Case\")",
-  helpText: "Bridge's kernel calls this an Initiative — your own word for it is what you'll see everywhere.",
+  helpText: "Bridge calls this a Project by default — your own word for it is what you'll see everywhere.",
   placeholder: "e.g. Deal",
 };
 
@@ -131,9 +131,14 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
+// "label" is display-only text (ADR-023: Initiative -> Project rename is a
+// WORKSPACE-scope display label, kernel nodeType stays "initiative" — CLAUDE.md's
+// two-scope vocab rule). A user's own `vocab_name` answer still overrides this
+// default via `vocabulary` below; "Project" is simply the honest starting label
+// instead of the raw kernel identifier.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Initiative" },
-  job_search: { nodeType: "initiative", label: "Initiative" },
+  sales_deals: { nodeType: "initiative", label: "Project" },
+  job_search: { nodeType: "initiative", label: "Project" },
   support: { nodeType: "touchpoint", label: "Touchpoint" },
   relationships: { nodeType: "person", label: "Person" },
 };
@@ -152,11 +157,19 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   const viewStyle = (answers.view_style as string | undefined) === "kanban" ? "kanban" : "table";
   const vocabName = (answers.vocab_name as string | undefined)?.trim();
 
+  const wantsCalendar = watchFirst.includes("calendar");
+
   const fields = [
     { id: "name", label: "Name", kind: "text" as const },
     ...(watchFirst.includes("track_stage")
       ? [{ id: "stage", label: "Stage", kind: "select" as const, options: ["new", "active", "closed"] }]
       : []),
+    // "Keep an eye on my calendar" (watch_first: "calendar") was collected but
+    // never read — see docs/BUGS.md "onboarding drops watch_first: calendar
+    // answer". A calendar VIEW needs a date column to group by (CalendarView.tsx
+    // falls back to "no date column" otherwise), so this adds one whenever the
+    // user asked for it.
+    ...(wantsCalendar ? [{ id: "next_step_date", label: "Next step date", kind: "date" as const }] : []),
   ];
 
   const vocabulary: Record<string, string> = {};
@@ -166,7 +179,19 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
     vocabulary,
     entities: [{ nodeType: entityDef.nodeType, label: entityDef.label, fields }],
     views: [
-      { entity: entityDef.nodeType, kind: viewStyle },
+      {
+        entity: entityDef.nodeType,
+        kind: viewStyle,
+        // "onboarding kanban never sets groupBy" (docs/BUGS.md): when the
+        // generated entity has a stage field AND the user picked the kanban
+        // view style, group by it so the board renders grouped instead of
+        // one flat unlabeled column. Lives under `config.groupBy`, per
+        // blueprint.ts's BlueprintViewSpec shape (mirrors CompiledViewConfig).
+        ...(viewStyle === "kanban" && watchFirst.includes("track_stage")
+          ? { config: { groupBy: "stage" } }
+          : {}),
+      },
+      ...(wantsCalendar ? [{ entity: entityDef.nodeType, kind: "calendar" as const }] : []),
       ...(watchFirst.includes("surface_signals") ? [{ entity: "signal", kind: "table" as const }] : []),
       ...(watchFirst.includes("log_touchpoints") && entityDef.nodeType !== "touchpoint"
         ? [{ entity: "touchpoint", kind: "table" as const }]

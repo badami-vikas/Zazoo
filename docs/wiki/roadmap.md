@@ -31,3 +31,12 @@ Ordered by **irreversibility** (kernel hardest first) + **one hypothesis per pha
 - **P4 Interaction Expansion** — proves *"natural interaction."* Command Center (keyboard/voice/context) · **ambient ACTING** (suggestions, quick actions, insertion) · Communications skill gate.
 - **P5 Fork/Compose/Publish** — proves *"many softwares, one engine."* Egg-spawn/Fork · Compose · Publish Blueprint · versioned+pinned shared capabilities · deny-wins policy compose.
 - **P6 Domain + Ecosystem** — proves *"compiler generalizes."* JobPilot/ResearchPilot · community marketplace · Windows capture port · E2EE tier (old P6 lands here).
+
+## Productivity-app research ingest (2026-07-06)
+User's scattered CSV/txt research (productivity/task/calendar apps + agentic platforms) + live Product Hunt scan, consolidated (no duplication) into: [../raw/productivity-app-research-2026.md](../raw/productivity-app-research-2026.md). Source CSVs stay in `My Data/New Data/` (not moved).
+- **P0**: surface trust/permission state visibly per-surface in approval-card UI (Vellum precedent — credential isolation as UX, not just backend policy).
+- **P3**: capability *shape* taxonomy gains "continuous-reconciliation" (re-evaluates own prior output against new state — Reclaim/Motion/Amie/Skedpal auto-scheduling pattern) alongside one-shot + ambient-acting; seed Capability Builder's archetype library with "time-allocation drift" as first concrete archetype (TimelineAI/Rescue Time pattern).
+- **P4**: Voice Command Center gains a documented "chat-surface-native, no dedicated screen" interaction mode (jared.so pattern) alongside voice/keyboard.
+- **P5**: Fork/Compose scope explicitly includes "export + self-host compiled workspace" as a compose target (n8n/Activepieces/Automatisch self-host demand), not just publish-to-Commons.
+- **P6**: add NeoCognition (stealth 2026, largest seed in agent-platform category, "agents that learn on the job") as a standing Learning Agent competitor-watch item, not a one-time citation.
+- Most CSV content (Zapier lifecycle, Notion/Fibery/Noloco approval gaps, desktop-copilot capture, agent-framework internals, personal-CRM/enterprise-CRM/dev-tool categories) confirmed ALREADY COVERED by existing practice-hardening research or out of kernel scope (Bridge ≠ CRM) — not re-added, full skip list in the raw doc.

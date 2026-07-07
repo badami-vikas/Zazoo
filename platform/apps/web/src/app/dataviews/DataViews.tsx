@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import { VIEW_COMPONENT_REGISTRY, REGISTERED_VIEW_KINDS, isRegisteredViewKind } from "./registry.js";
+import { computeEligibleKinds } from "./eligibility.js";
 import type { DataRow } from "./types.js";
 
 /** Relationship-shaped table ids are grammar-restricted to graph|table (see
@@ -55,10 +56,15 @@ export function DataViews({ spec, view, data, onViewChange, isRelationship = fal
   const [filterDraft, setFilterDraft] = useState("");
 
   const switcherKinds = useMemo(() => {
-    const base = availableKinds ?? REGISTERED_VIEW_KINDS;
+    // ADR-023 item 6: eligibility is COMPUTED from the spec's own columns when
+    // the caller doesn't explicitly override it — table/kanban/card always,
+    // calendar/map/graph only when a date/location/relation column exists —
+    // rather than always offering every registered kind regardless of whether
+    // the spec can actually support it.
+    const base = availableKinds ?? computeEligibleKinds(spec, isRelationship);
     const restricted = isRelationship ? base.filter((k) => RELATIONSHIP_ALLOWED_KINDS.includes(k)) : base;
     return restricted.filter(isRegisteredViewKind);
-  }, [availableKinds, isRelationship]);
+  }, [availableKinds, isRelationship, spec]);
 
   const visibleSpec: TableSpec = useMemo(
     () => ({ ...spec, columns: spec.columns.filter((c) => !hiddenColumns.has(c.id)) }),

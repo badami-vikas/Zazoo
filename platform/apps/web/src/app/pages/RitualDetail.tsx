@@ -70,9 +70,9 @@ export function RitualDetail() {
 
   return (
     <div className="p-6 space-y-4 max-w-xl">
-      <h1 className="text-lg font-medium">Run Ritual</h1>
+      <h1 className="text-lg font-medium">Run Workflow</h1>
       <div className="space-y-1.5">
-        <Label htmlFor="ritualId">Ritual ID</Label>
+        <Label htmlFor="ritualId">Workflow ID</Label>
         <Input id="ritualId" value={ritualId} onChange={(e) => setRitualId(e.target.value)} required />
       </div>
       <div className="space-y-1.5">

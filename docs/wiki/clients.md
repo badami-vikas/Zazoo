@@ -25,3 +25,31 @@ Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/p
 
 ## Onboarding
 = pop-up screen (user call 2026-07-06). Not separate page/app.
+
+## Shell IA (ADR-023, 2026-07-06)
+6 permanent chrome containers. Chrome fixed, contents generated/installed on demand — minimal-egg pattern.
+
+**Bottom bar** (sidebar footer desktop/tablet, fixed bottom tab bar < sm): **Intelligence · KnowledgeBase · Settings**.
+**Main nav area**: pinned Projects + pinned Tools (user's regulars). Full indexes reachable via KnowledgeBase/Tools pages, not the pin list.
+
+**KnowledgeBase** (was: no standalone "Network" page existed — this IS the concept target) = toggle tabs **People / Communities / Resources / Projects**.
+- Projects = display label for `initiative` node type (kernel id unchanged). Cross-disciplinary container (people+orgs+resources+chat) — today wired to `graph.listInitiatives` only, cross-linking is a real gap.
+- Resources = websites/media/platforms, reuses existing ResourcesPage (`resources.list`).
+- People/Communities = honest empty state, no `graph.listPeople`/`listCommunities` procedure yet (BUGS.md).
+- New toggle section = governed proposal (minor, Governance Agent may auto-approve), never silent restructure.
+
+**Tools** = section tabs **Skills / Agents / Apps / Workflows** (Workflow = display label for `ritual`, kernel id unchanged).
+- Apps = installed capability packages (DealPilot/JobPilot/Helpdesk) — real, wired.
+- Skills/Agents/Workflows = honest empty, no list/get read procedure on backend yet (BUGS.md, pre-existing gap).
+
+**Approvals** = pinned governance tool, now tabbed: **Approvals** (default) + **Signals** (2nd tab). Separate unread counts per tab — consent decisions never drown in signal noise. No standalone Signals page ever existed to remove.
+
+**Capability landing rule**: Capability Builder output worth keeping → Tool. Q&A/chat output not worth a tool → saved under a Project.
+
+**View convertibility**: every table-backed view gets switcher. table/kanban/card (gallery) ALWAYS eligible. calendar ⇐ date-kind column exists. map ⇐ location-kind column exists (heuristic today — `ColumnKind` has no dedicated location kind yet, BUGS.md). graph/network ⇐ relation-kind column exists. Eligibility computed client-side from spec columns (`apps/web/src/app/dataviews/eligibility.ts`), DataViews.tsx switcher uses it as default when no explicit override. Map has no rendering lib in repo → honest "map view (list fallback)" grouped-by-location list (MapView.tsx), not a fake map.
+
+**Display-vocab renames** (workspace-scope only, kernel ids untouched): Initiative→Project, Ritual→Workflow, Network→KnowledgeBase. User's own naming always wins.
+
+**Peer-grouping heuristics** (blueprint-level, compiler-encoded): similar task → toggle sub-pages. different tasks → separate tools. same process+task, separate data → separate lists. Proposes structure, never silently imposes.
+
+**Pins** = client-side localStorage today (`lib/pins.ts`). Server-side persistence = tracked gap (BUGS.md) — breaks the "learning in one client benefits all clients" promise above until fixed.

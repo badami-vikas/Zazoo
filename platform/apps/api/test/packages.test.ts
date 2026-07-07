@@ -282,3 +282,51 @@ test("packages.list: paginates a workspace's installations", async () => {
     await wiring.close();
   }
 });
+
+test("packages.install: re-installing two package versions whose bundled capability keeps the SAME (name, version) is idempotent — reuses the existing manifest instead of colliding with capability_manifests_uq (ADR-024)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    // Both package versions bundle the identical capability id+version —
+    // this is the exact known-gap shape from docs/BUGS.md: capability
+    // version does NOT track package version here.
+    const sharedCapability = {
+      id: "dummy.shared-capability",
+      capability_type: "skill",
+      version: "1.0.0",
+      permissions: [{ resource_type: "person", action: "read", data_scope: "all", egress: false }],
+      connectors: [],
+    };
+    const { installation: v1 } = await caller.packages.register({
+      workspaceId: PILOT_WORKSPACE,
+      manifest: dummyManifest({ version: "1.0.0", capabilities: [sharedCapability] }),
+    });
+    const resultV1 = await caller.packages.install({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: v1.id,
+      todayKey: "2026-07-06",
+    });
+    assert.equal(resultV1.installed, true);
+    assert.equal(resultV1.registeredManifestIds.length, 1);
+
+    const { installation: v2 } = await caller.packages.register({
+      workspaceId: PILOT_WORKSPACE,
+      manifest: dummyManifest({ version: "2.0.0", capabilities: [sharedCapability] }),
+    });
+    // Must NOT throw a capability_manifests_uq violation.
+    const resultV2 = await caller.packages.install({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: v2.id,
+      todayKey: "2026-07-06",
+    });
+    assert.equal(resultV2.installed, true);
+    assert.equal(resultV2.registeredManifestIds.length, 1);
+    // Same underlying manifest id is reused, not a second row.
+    assert.equal(resultV2.registeredManifestIds[0], resultV1.registeredManifestIds[0]);
+
+    const { total } = await wiring.capabilityStore.listManifests(PILOT_WORKSPACE, { limit: 100, offset: 0 });
+    assert.equal(total, 1);
+  } finally {
+    await wiring.close();
+  }
+});
