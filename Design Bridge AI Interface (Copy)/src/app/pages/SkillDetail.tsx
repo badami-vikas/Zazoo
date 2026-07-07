@@ -4,38 +4,19 @@ import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion } from 'motion/react';
 
-const skillDetails: Record<string, any> = {
-  'SK-001': {
-    name: 'dummy_NLP Inference', category: 'dummy_Language', version: 'dummy_v2.3', status: 'Stable',
-    desc: 'dummy_High-performance natural language processing skill enabling semantic understanding, intent classification, and entity extraction across all agent communication channels.',
-    agentsUsing: 9009, avgPerformance: 9009, callsToday: 9009, latencyP99: 'dummy_9009ms', tokenLimit: 'dummy_9009K',
-    providers: ['dummy_OpenAI GPT-4o', 'dummy_Claude 3.5'],
-    agentList: ['dummy_AG-001 — Aria', 'dummy_AG-002 — Rex', 'dummy_AG-003 — Sage', 'dummy_AG-004 — Nova', 'dummy_AG-006 — Orion', 'dummy_AG-007 — Lyra'],
-    metadata: { inputSchema: 'dummy_text | message[]', outputSchema: 'dummy_intent | entities | sentiment', costPer1k: 'dummy_$0.012', cacheHitRate: 'dummy_9009%' },
-    logs: [
-      { time: 'dummy_10:41 AM', event: 'dummy_Called by Aria — Relationship intent: "evaluate pricing"', latency: 'dummy_9009ms', status: 'ok' },
-      { time: 'dummy_10:43 AM', event: 'dummy_Called by Nova — Entity extraction from email', latency: 'dummy_9009ms', status: 'ok' },
-      { time: 'dummy_11:02 AM', event: 'dummy_Called by Rex — Qualification intent signal', latency: 'dummy_9009ms', status: 'ok' },
-      { time: 'dummy_11:30 AM', event: 'dummy_Called by Sage — Document analysis', latency: 'dummy_9009ms', status: 'slow' },
-      { time: 'dummy_12:05 PM', event: 'dummy_Cache hit — Aria (identical prompt)', latency: 'dummy_9009ms', status: 'cached' },
-      { time: 'dummy_2:15 PM', event: 'dummy_Batch job: 9009 relationships processed', latency: 'dummy_9009s', status: 'ok' },
-    ],
-    analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], perf: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-  },
-};
+// No skill ships with fabricated usage/performance metrics or fake connected-agent lists.
+// Real skill telemetry is not wired yet — every skill shows honest zero/empty values until it is.
+const skillDetails: Record<string, any> = {};
 
 const defaultSkill = {
-  name: 'dummy_Skill', category: 'dummy_General', version: 'dummy_v1.0', status: 'Stable',
-  desc: 'dummy_A Bridge AI skill module that provides specialized capability to connected agents.',
-  agentsUsing: 9009, avgPerformance: 9009, callsToday: 9009, latencyP99: 'dummy_9009ms', tokenLimit: 'dummy_9009K',
-  providers: ['dummy_Bridge AI Core'],
-  agentList: ['dummy_AG-001 — Aria'],
-  metadata: { inputSchema: 'dummy_text', outputSchema: 'dummy_text', costPer1k: 'dummy_$0.008', cacheHitRate: 'dummy_9009%' },
-  logs: [
-    { time: 'dummy_10:00 AM', event: 'dummy_Skill invoked successfully', latency: 'dummy_9009ms', status: 'ok' },
-    { time: 'dummy_10:30 AM', event: 'dummy_Skill invoked successfully', latency: 'dummy_9009ms', status: 'ok' },
-  ],
-  analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], perf: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
+  name: 'Skill', category: 'General', version: 'v1.0', status: 'Stable',
+  desc: 'A Bridge AI skill module that provides specialized capability to connected agents.',
+  agentsUsing: 0, avgPerformance: 0, callsToday: 0, latencyP99: '—', tokenLimit: '—',
+  providers: [] as string[],
+  agentList: [] as string[],
+  metadata: { inputSchema: '—', outputSchema: '—', costPer1k: '—', cacheHitRate: '—' },
+  logs: [] as { time: string; event: string; latency: string; status: string }[],
+  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], perf: [0, 0, 0, 0, 0, 0, 0], months: ['', '', '', '', '', '', ''] },
 };
 
 const navTabs = ['Overview', 'Activity', 'Connections', 'Settings'];
@@ -52,7 +33,7 @@ export function SkillDetail() {
     document.getElementById(`sk-${tab.toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const maxCalls = Math.max(...sk.analytics.calls);
+  const maxCalls = Math.max(1, ...sk.analytics.calls);
 
   const statusStyle: Record<string, string> = { ok: 'text-[var(--success)]', slow: 'text-[var(--warning)]', cached: 'text-[var(--info)]', error: 'text-[var(--danger)]' };
 
@@ -183,11 +164,13 @@ export function SkillDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">dummy_Today · April 9009, 9009</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Activity</span>
                 <span className="text-xs text-[var(--color-warm-gray)]">{sk.callsToday} calls today</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {sk.logs.map((log: any, i: number) => (
+                {sk.logs.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet.</div>
+                ) : sk.logs.map((log: any, i: number) => (
                   <div key={i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--color-surface)] transition-colors">
                     <div className={clsx('w-1.5 h-1.5 rounded-full shrink-0', log.status === 'ok' ? 'bg-[var(--success)]' : log.status === 'slow' ? 'bg-[var(--warning)]' : log.status === 'cached' ? 'bg-[var(--info)]' : 'bg-[var(--danger)]')} />
                     <span className="text-xs font-mono text-[var(--color-warm-gray)] w-20 shrink-0">{log.time}</span>
@@ -210,7 +193,9 @@ export function SkillDetail() {
                   <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{sk.agentList.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {sk.agentList.map((ag: string) => (
+                  {sk.agentList.length === 0 ? (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents using this skill yet.</div>
+                  ) : sk.agentList.map((ag: string) => (
                     <Link key={ag} to={`/agent/${encodeURIComponent(ag.split(' — ')[0])}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
                       <div className="w-7 h-7 rounded-full bg-[var(--info)]/15 flex items-center justify-center text-xs font-bold text-[var(--info)]">
@@ -228,11 +213,13 @@ export function SkillDetail() {
                   <span className="font-semibold text-[var(--color-navy)] text-sm">Provider Health</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {sk.providers.map((p: string) => (
+                  {sk.providers.length === 0 ? (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No providers configured yet.</div>
+                  ) : sk.providers.map((p: string) => (
                     <div key={p} className="flex items-center gap-3 px-5 py-3.5">
                       <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
                       <span className="text-sm font-medium text-[var(--color-navy)]">{p}</span>
-                      <span className="ml-auto text-xs text-[var(--success)] font-semibold">dummy_Operational</span>
+                      <span className="ml-auto text-xs text-[var(--success)] font-semibold">Operational</span>
                     </div>
                   ))}
                 </div>

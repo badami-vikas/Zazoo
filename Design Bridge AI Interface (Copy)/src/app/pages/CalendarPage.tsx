@@ -26,24 +26,10 @@ import {
 
 type View = 'month' | 'week' | 'day' | 'agenda';
 
-// ── Demo seed (API off) — all dummy_-prefixed so it's greppable, never mistaken for real ──
-function dummySeed(): CalendarEventDTO[] {
-  const base = startOfDay(new Date());
-  const at = (dayOffset: number, h: number, m = 0) => {
-    const d = addDays(base, dayOffset); d.setHours(h, m, 0, 0); return d.toISOString();
-  };
-  return [
-    { eventId: 'dummy_evt_standup', summary: 'dummy_ Daily Standup', start: at(0, 9), end: at(0, 9, 30),
-      organizer: { email: 'dummy_self@example.com' }, attendees: [{ email: 'dummy_team@example.com' }], location: 'dummy_ Meet' },
-    { eventId: 'dummy_evt_lunch', summary: 'dummy_ Lunch with Alex', start: at(0, 12, 30), end: at(0, 13, 30),
-      organizer: { email: 'dummy_self@example.com' }, attendees: [{ email: 'dummy_alex@example.com' }], location: 'dummy_ Cafe' },
-    { eventId: 'dummy_evt_review', summary: 'dummy_ Portfolio Review', start: at(1, 15), end: at(1, 16),
-      organizer: { email: 'dummy_self@example.com' }, attendees: [], description: 'dummy_ quarterly check' },
-    { eventId: 'dummy_evt_call', summary: 'dummy_ Intro call — Founder', start: at(2, 11), end: at(2, 11, 45),
-      organizer: { email: 'dummy_self@example.com' }, attendees: [{ email: 'dummy_founder@example.com' }] },
-    { eventId: 'dummy_evt_dinner', summary: 'dummy_ Dinner — LP', start: at(4, 19), end: at(4, 21),
-      organizer: { email: 'dummy_self@example.com' }, attendees: [{ email: 'dummy_lp@example.com' }], location: 'dummy_ Bistro' },
-  ];
+// No fabricated events ship when the API/Google Calendar isn't connected. The calendar shows an
+// honest empty state (see the 'demo' mode empty-state UI below) rather than invented meetings.
+function localFallbackEvents(): CalendarEventDTO[] {
+  return [];
 }
 
 // ── Event time helpers ─────────────────────────────────────────────────────────
@@ -100,7 +86,7 @@ export function CalendarPage() {
   }, [view, cursor]);
 
   const reload = useCallback(async (timeMin?: string, timeMax?: string) => {
-    if (!API_ENABLED) { setEvents(dummySeed()); setMode('demo'); return; }
+    if (!API_ENABLED) { setEvents(localFallbackEvents()); setMode('demo'); return; }
     setLoading(true); setError(null);
     try {
       const evs = await apiListCalendarEvents({
@@ -134,11 +120,11 @@ export function CalendarPage() {
         await reload(rangeStart.toISOString(), rangeEnd.toISOString());
         setToast(`${label} · ${res?.sent ? 'synced to Google' : 'queued'} · audited in Approvals`);
       } else {
-        // Demo mode: mutate local dummy_ state so the UI is fully demoable with no backend.
+        // Local mode: mutate local component state (user-created events only) so the UI works with no backend.
         setEvents(prev => {
           if (action === 'delete') return prev.filter(e => e.eventId !== envelope.eventId);
           if (action === 'update') return prev.map(e => e.eventId === envelope.eventId ? { ...e, ...(envelope as Partial<CalendarEventDTO>) } : e);
-          const ne = { ...(envelope as unknown as CalendarEventDTO), eventId: `dummy_evt_${Date.now()}`, organizer: { email: 'dummy_self@example.com' }, attendees: [] };
+          const ne = { ...(envelope as unknown as CalendarEventDTO), eventId: `evt_${Date.now()}`, organizer: { email: '' }, attendees: [] };
           return [...prev, ne];
         });
         setToast(`${label} · demo only — connect Google in Integrations to sync`);

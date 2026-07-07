@@ -1,5 +1,5 @@
 // DealPilot — local reactive store + the ThesisFit scoring proven in platform/tools/dealpilot.
-// Same standardization pass as JobPilot: card/kanban/list views over one dummy_ dataset.
+// Same standardization pass as JobPilot: card/kanban/list views over one listings dataset.
 import { useSyncExternalStore, useState } from 'react';
 
 export interface ThesisProfile { industries: string[]; geo: string[]; sdeMin?: number; sdeMax?: number; revenueMin?: number; revenueMax?: number }
@@ -59,17 +59,10 @@ export interface Deal { id: string; listingId: string; name: string; industry: s
 
 const DEFAULT_THESIS: ThesisProfile = { industries: ['HVAC', 'Landscaping', 'IT Services'], geo: ['Texas', 'Florida'], sdeMin: 300000, sdeMax: 900000 };
 
-// Linked to the two seed Brokerage records in data/brokerages.ts (dummy_brokerage_1 = BizBuySell,
-// dummy_brokerage_2 = BusinessBroker.net) — a brokerage-sourced listing now points at a real,
-// connectable brokerage instead of just carrying a free-text label.
-export const LISTINGS: DealListing[] = [
-  { id: 'dummy_deal_1', name: 'Alamo HVAC Services', industry: 'HVAC', geo: 'Texas', sde: 520000, revenue: 2100000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
-  { id: 'dummy_deal_2', name: 'Sunbelt Landscaping Co', industry: 'Landscaping', geo: 'Florida', sde: 410000, revenue: 1800000, source: 'businessbroker', brokerageId: 'dummy_brokerage_2' },
-  { id: 'dummy_deal_3', name: 'Gulf Coast IT Services', industry: 'IT Services', geo: 'Texas', sde: 260000, revenue: 1200000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
-  { id: 'dummy_deal_4', name: 'Pacific Grill Franchise', industry: 'Restaurant', geo: 'California', sde: 180000, revenue: 900000, source: 'businessbroker', brokerageId: 'dummy_brokerage_2' },
-  { id: 'dummy_deal_5', name: 'Lone Star Mechanical', industry: 'HVAC', geo: 'Texas', sde: 810000, revenue: 3400000, source: 'referral' },
-  { id: 'dummy_deal_6', name: 'Everglades Lawn & Tree', industry: 'Landscaping', geo: 'Florida', sde: 95000, revenue: 500000, source: 'bizbuysell', brokerageId: 'dummy_brokerage_1' },
-];
+// No placeholder listings ship. Real listings come from the governed sourcing pipeline
+// (useLiveListings/useDealPilotSourcing below, gated on API_ENABLED) or a brokerage connection
+// (data/brokerages.ts). This constant stays empty until the user sources or connects real listings.
+export const LISTINGS: DealListing[] = [];
 
 const K = { thesis: 'bridge.dealpilot.thesis.v1', deals: 'bridge.dealpilot.deals.v1' };
 function read<T>(k: string, fallback: T): T { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) as T : fallback; } catch { return fallback; } }
@@ -94,7 +87,7 @@ let seq = 0;
 export function addToPipeline(listing: DealListing) {
   seq += 1;
   const fit = scoreThesisFit(listing, thesis);
-  const deal: Deal = { id: `dummy_pipeline_${seq}`, listingId: listing.id, name: listing.name, industry: listing.industry, geo: listing.geo, sde: listing.sde, revenue: listing.revenue, stage: 'sourced', fit, createdAt: new Date().toISOString() };
+  const deal: Deal = { id: `pipeline_${seq}`, listingId: listing.id, name: listing.name, industry: listing.industry, geo: listing.geo, sde: listing.sde, revenue: listing.revenue, stage: 'sourced', fit, createdAt: new Date().toISOString() };
   deals = [...deals, deal]; persist();
 }
 export function advanceDeal(dealId: string, to: DealStage) {
@@ -117,7 +110,7 @@ export function runDeepDive(dealId: string) {
 }
 
 // ── REAL-backend sourcing layer (additive, gated by API_ENABLED) ───────────────────────────────
-// DESIGN CHOICE: `LISTINGS` stays exactly as-is (a plain exported dummy_ array) — DealPilotPage.tsx
+// DESIGN CHOICE: `LISTINGS` stays exactly as-is (a plain exported array, empty by default) — DealPilotPage.tsx
 // uses it in a `.filter().map()` chain and a plain `.find()`, both inside the component body but
 // as a bare identifier, not a hook call. Converting it to a hook (`useListings()`) would still
 // require touching DealPilotPage.tsx's call sites, which is out of scope here. Instead we add a
@@ -147,7 +140,7 @@ function persistLive() {
 function subscribeLive(fn: () => void) { liveSubs.add(fn); return () => liveSubs.delete(fn); }
 
 /** API-sourced listings only (empty array when API disabled or nothing committed yet). Merge with
- * the dummy_ `LISTINGS` constant at the call site, e.g. `[...LISTINGS, ...useLiveListings()]`. */
+ * the `LISTINGS` constant at the call site, e.g. `[...LISTINGS, ...useLiveListings()]`. */
 export function useLiveListings(): Listing[] { return useSyncExternalStore(subscribeLive, () => liveListings, () => []); }
 
 /** Quarantined-but-uncommitted captures awaiting a human "Add" decision. */

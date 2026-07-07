@@ -17,7 +17,7 @@ import { apiCreateRitual, API_ENABLED } from '../data/api';
 // scope and warns on any step that asks for something outside the assigned agents' scope.
 //
 // Assignable agents come from props/local state (no dummy data). The two seeded options
-// below reflect real least-privilege presets the user can pick from; they carry no dummy_ values.
+// below reflect real least-privilege presets the user can pick from; they carry no placeholder values.
 
 interface AssignableAgent {
   id: string;

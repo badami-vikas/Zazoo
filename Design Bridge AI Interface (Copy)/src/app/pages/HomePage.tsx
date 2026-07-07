@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, MessageSquare, Send } from 'lucide-react';
+import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, MessageSquare, Send, Inbox } from 'lucide-react';
 
 interface CanvasBlock {
   id: string;
@@ -12,44 +12,10 @@ interface CanvasBlock {
   accent: string;
 }
 
-const defaultBlocks: CanvasBlock[] = [
-  {
-    id: 'b1',
-    kind: 'signal',
-    title: 'dummy_Top signal — Maya Rodriguez',
-    body: 'dummy_Inner-ring relationship decaying (9009 months silent). She just left Stripe — high-leverage moment to reconnect before she lands.',
-    cta: 'dummy_Send a personal note',
-    icon: RefreshCw,
-    accent: '#C4955A',
-  },
-  {
-    id: 'b2',
-    kind: 'reconnect',
-    title: 'dummy_Suggested reconnect',
-    body: 'dummy_James Chen ↔ Priya Patel — strong topical match for his seed round. You hold warm trust with both.',
-    cta: 'dummy_Draft double-opt-in intro',
-    icon: UserPlus,
-    accent: '#4D7EA8',
-  },
-  {
-    id: 'b3',
-    kind: 'initiative',
-    title: 'dummy_In-flight initiative',
-    body: 'dummy_Q9009 hiring tracker — Aaron Estes (Anthropic) has 9009 senior eng roles. 9009 candidates in your network match.',
-    cta: 'dummy_Open initiative',
-    icon: Briefcase,
-    accent: '#2E4057',
-  },
-  {
-    id: 'b4',
-    kind: 'draft',
-    title: 'dummy_Message to draft',
-    body: 'dummy_Allison Ford asked about onboarding flows yesterday — your Patreon redesign is a tight match. Low-effort, high reciprocity.',
-    cta: 'dummy_Draft a reply',
-    icon: MessageSquare,
-    accent: '#6B7C65',
-  },
-];
+// No canvas blocks ship as placeholder content. Real blocks are generated from the user's own
+// Signals, calendar, and active Initiatives once those sources are connected/populated — until
+// then the canvas shows an honest empty state below.
+const defaultBlocks: CanvasBlock[] = [];
 
 export function HomePage() {
   const [intent, setIntent] = useState('');
@@ -107,6 +73,21 @@ export function HomePage() {
           </button>
         </form>
 
+        {blocks.length === 0 ? (
+          <div
+            className="flex flex-col items-center justify-center gap-3 border rounded-xl bg-white py-16 px-6 text-center"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 12%, transparent)' }}>
+              <Inbox className="w-5 h-5" style={{ color: 'var(--color-steel)' }} />
+            </div>
+            <p className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>No adaptive blocks yet</p>
+            <p className="text-sm max-w-sm" style={{ color: 'var(--color-warm-gray)' }}>
+              Blocks appear here once Bridge has real Signals, calendar activity, or active Initiatives to draw from.
+              Connect a data source or create your first Initiative to get started.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 @[700px]:grid-cols-2 gap-3">
           {blocks.map((b, i) => {
             const Icon = b.icon;
@@ -147,6 +128,7 @@ export function HomePage() {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

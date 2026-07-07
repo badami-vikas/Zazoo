@@ -533,32 +533,29 @@ export function suggestWaysToHelp(title: string, body: string): string[] {
 }
 
 // ── redesign: "you" identity auto-populated on Bridge-user public asks (editable) ─
-export const dummy_youProfile = { name: YOU_NAME, email: 'dummy_you@bridge.ai', phone: 'dummy_+1 (555) 0100' };
+// No placeholder email/phone ships — only the real display name is pre-filled; contact fields
+// start empty for the user to fill in themselves.
+export const youProfile = { name: YOU_NAME, email: '', phone: '' };
 
 // ── redesign: my / public helpdesks + communities ───────────────────────────────
 // Locally-created workspaces are MINE (private/invite-link by default — NOT public).
 // "Public Helpdesks" = ones that are public OR shared with me via a link I opened
-// (click link → addLinkedHelpdesk → appears in the Public Helpdesks list). dummy_-seeded.
-const dummy_publicHelpdesks: HelpWorkspace[] = [
-  { id: 'dummy_hw_eship', name: 'Entrepreneurship Hub', slug: 'entrepreneurship-hub', description: 'Founders helping founders.', visibility: 'public', broadcastDefault: true, createdAt: '2026-01-01T00:00:00.000Z', brandColor: '#4D7EA8' },
-  { id: 'dummy_hw_climate', name: 'Climate Builders', slug: 'climate-builders', description: 'Public climate-tech helpdesk.', visibility: 'public', broadcastDefault: true, createdAt: '2026-01-01T00:00:00.000Z' },
-];
+// (click link → addLinkedHelpdesk → appears in the Public Helpdesks list). No placeholder
+// public helpdesks ship — the list starts empty until a real public helpdesk exists or is linked.
+const seededPublicHelpdesks: HelpWorkspace[] = [];
 // Helpdesks I joined by opening a shared link (persisted).
 const LINKED_KEY = 'bridge.helpdesk.linked.v1';
 let linkedHelpdesks: HelpWorkspace[] = (() => { if (typeof window === 'undefined') return []; try { const v = JSON.parse(localStorage.getItem(LINKED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
 function persistLinked() { try { localStorage.setItem(LINKED_KEY, JSON.stringify(linkedHelpdesks)); } catch {} emit(); }
 export function addLinkedHelpdesk(ws: HelpWorkspace) { if (!linkedHelpdesks.some(w => w.id === ws.id)) { linkedHelpdesks = [ws, ...linkedHelpdesks]; persistLinked(); } }
 export function myHelpdesks(): HelpWorkspace[] { return workspaces; }
-export function publicHelpdesks(): HelpWorkspace[] { return [...linkedHelpdesks, ...dummy_publicHelpdesks]; }
+export function publicHelpdesks(): HelpWorkspace[] { return [...linkedHelpdesks, ...seededPublicHelpdesks]; }
 export function allHelpdesks(): HelpWorkspace[] { return [...workspaces, ...publicHelpdesks()]; }
 const helpdeskNameById = (id: string | null) => id ? (allHelpdesks().find(w => w.id === id)?.name) : undefined;
 export { helpdeskNameById };
-// My communities (for the My-Network broadcast scope; Bridge-AI-focused). dummy_-seeded.
-export const dummy_myCommunities = [
-  { id: 'dummy_comm_wustl', name: 'WashU Founders' },
-  { id: 'dummy_comm_climate', name: 'Climate Tech Circle' },
-  { id: 'dummy_comm_gp', name: 'GP / LP Network' },
-];
+// My communities (for the My-Network broadcast scope; Bridge-AI-focused). No placeholder
+// communities ship — real communities come from the user's own Community records.
+export const myCommunities: { id: string; name: string }[] = [];
 
 // ── redesign: per-card pin (My asks pinned by default; any card pin/unpinnable) ──
 const ASKPIN_KEY = 'bridge.helpdesk.askpins.v1';
@@ -567,40 +564,22 @@ export function isAskPinned(r: HelpRequest): boolean { return askPins[r.id] ?? i
 export function toggleAskPin(r: HelpRequest) { askPins = { ...askPins, [r.id]: !isAskPinned(r) }; try { localStorage.setItem(ASKPIN_KEY, JSON.stringify(askPins)); } catch {} emit(); }
 export function useAskPins() { return useStore(() => askPins); }
 
-// ── redesign: gamification (all dummy_-seeded; People-Helped reactive where cheap) ─
+// ── redesign: gamification (real, derived from actual activity — no placeholder stats) ─
 export interface Streak { count: number; unit: 'days' | 'weeks' }
 export interface Badge { id: string; label: string }
 export interface ImpactReport { peopleHelped: number; communities: number; followUps: number; topContribution: string; moments: string[] }
-const dummy_streak: Streak = { count: 7, unit: 'weeks' };
-const dummy_badges: Badge[] = [
-  { id: 'dummy_badge_trusted', label: 'Trusted Helper' },
-  { id: 'dummy_badge_community', label: 'Community Builder' },
-  { id: 'dummy_badge_advisor', label: 'Startup Advisor' },
-];
-const dummy_peopleHelpedBase = 42;
-// Reputation earned from real helping patterns (dummy_-seeded by person name).
-const dummy_reputation: Record<string, string> = {
-  'daniel salinas': 'Community Builder',
-  'manoj keshav': 'Startup Advisor',
-  'clive muir, phd': 'Career Guide',
-  'you': 'Trusted Helper',
-};
-const dummy_impact: ImpactReport = {
-  peopleHelped: 83, communities: 6, followUps: 42, topContribution: 'Career Advice',
-  moments: [
-    'dummy_ Helped a first-time founder close their founding engineer.',
-    'dummy_ Reviewed a pre-seed deck that went on to raise.',
-    'dummy_ Tutored a student through linear algebra finals.',
-    'dummy_ Introduced two operators who now co-run a community.',
-    'dummy_ Gave career guidance that led to a new role.',
-  ],
-};
-export function getStreak(): Streak { return dummy_streak; }
-export function getBadges(): Badge[] { return dummy_badges; }
-export function getImpactReport(): ImpactReport { return dummy_impact; }
-export function reputationFor(name: string): string | null { return dummy_reputation[(name || '').trim().toLowerCase()] ?? null; }
-// People-Helped = dummy_ base + the count of asks YOU actually offered help on (reactive).
-export function peopleHelpedCount(): number { return dummy_peopleHelpedBase + offers.filter(o => o.helperId === YOU_ID).length; }
+// No streak/badges/reputation/impact ship as invented numbers. Streaks and badges require real
+// historical activity to compute honestly; until that's wired, these report zero/empty rather
+// than fabricated counts. reputationFor also returns null for everyone until real reputation
+// (earned from actual completed helps) is tracked.
+export function getStreak(): Streak { return { count: 0, unit: 'days' }; }
+export function getBadges(): Badge[] { return []; }
+export function getImpactReport(): ImpactReport {
+  return { peopleHelped: peopleHelpedCount(), communities: 0, followUps: 0, topContribution: '', moments: [] };
+}
+export function reputationFor(_name: string): string | null { return null; }
+// People-Helped = the count of asks YOU actually offered help on (real, reactive — no seeded base).
+export function peopleHelpedCount(): number { return offers.filter(o => o.helperId === YOU_ID).length; }
 // Impact report fires every Dec 31 (prototype UI may read the clock; engine code may not).
 export function shouldShowImpactReport(d: Date): boolean { return d.getMonth() === 11 && d.getDate() === 31; }
 
@@ -632,37 +611,9 @@ export function useAiMode() { return useStore(getAiMode); }
 /** Inbound routes addressed to YOU (the recipient inbox) — invisible-by-default already applied. */
 export function inboxRoutes(): HelpRoute[] { return routes.filter(r => r.recipientId === YOU_ID && r.status === 'proposed'); }
 
-// ── one-time demo seed: inbound requests where YOU are a candidate helper ────────
+// No placeholder inbound requests ship — the inbox starts empty (honest empty state) until real
+// asks arrive from the user's own network or connected helpdesks. Kept as a no-op so existing
+// call sites (HelpdeskPage) don't need to change.
 export function seedInboxIfEmpty() {
-  if (typeof window === 'undefined') return;
-  if (requests.some(r => r.requesterId !== YOU_ID)) return; // already seeded inbound
-  const youToks = tokenize(YOU_CAPABILITY);
-  const youKinds: CapKind[] = ['founder', 'product', 'investor'];
-  const dummy_seeds: Array<{ requester: string; title: string; body: string }> = [
-    { requester: 'Daniel Salinas', title: 'Feedback on a pre-seed startup idea', body: 'Building a climate-tech marketplace. Looking for product and fundraising feedback before I talk to investors.' },
-    { requester: 'Manoj Keshav', title: 'Looking for a design partner intro', body: 'Need an intro to an early design partner for a B2B product, and any go-to-market advice.' },
-    { requester: 'Clive Muir, PhD', title: 'Recruiting advice for a first founding hire', body: 'How should I think about my first founding engineer / recruiting? Any playbook helps.' },
-  ];
-  const made: { reqs: HelpRequest[]; rts: HelpRoute[] } = { reqs: [], rts: [] };
-  for (const s of dummy_seeds) {
-    const intents = classifyIntents(s.title, s.body);
-    const needTags = needTagsFrom(s.title, s.body);
-    const sc = scorePersona(intents, needTags, youKinds, youToks, 'Founder · product');
-    const req: HelpRequest = {
-      id: nid('dummy_hr'), workspaceId: null, requesterId: `dummy_seed-${s.requester}`, requesterName: s.requester,
-      title: s.title, body: s.body, needTags, status: 'open', routingMode: 'ai_assisted', autoFilter: true,
-      createdAt: new Date().toISOString(),
-      waysToHelp: suggestWaysToHelp(s.title, s.body),
-      audience: { network: true, helpdesks: [] },
-    };
-    made.reqs.push(req);
-    made.rts.push({
-      id: nid('rt'), requestId: req.id, recipientId: YOU_ID, recipientName: YOU_NAME, status: 'proposed',
-      score: Math.max(sc.score, 1.5), reason: sc.reason,
-      assistancePaths: sc.paths.length ? sc.paths : KIND_DEFAULT_PATHS.founder, createdAt: req.createdAt,
-    });
-  }
-  requests = [...made.reqs, ...requests];
-  routes = [...made.rts, ...routes];
-  persist();
+  /* intentionally empty: no fabricated inbound requests */
 }

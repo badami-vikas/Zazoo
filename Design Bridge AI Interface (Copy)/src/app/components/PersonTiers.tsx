@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Globe, Lock, ShieldCheck, Check, X, Clock, Users, User, Building2,
+  Globe, Lock, ShieldCheck, Check, X, Users, User, Building2,
   Eye, EyeOff, ArrowLeftRight, Sparkles, Handshake, Info, MapPin,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -155,61 +155,27 @@ export function PersonTiers({ name, person }: { name: string; person?: any }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// F4c — Both-party-consent intro flow.  An intro is an edges(INTRODUCED) row with
-// a consent state machine: requested → awaiting_both → active | declined.  Neither
-// side is "connected" until BOTH approve.  No silent enrichment, no auto-send.
+// F4c — Sender-approved intro flow (ADR-026, ruling 2026-07-06: both-party consent is
+// NOT required). An intro is a governed draft the SENDER (the person making the intro)
+// approves themselves — a single human approval, same as any other outbound send. It is
+// NOT gated on the other party approving first: the user already holds trust with both
+// sides and can vet the match themselves. State machine: drafted → sent | declined.
+// Still private-by-default and still human-approved before anything goes out — no
+// silent enrichment, no auto-send.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Consent = 'pending' | 'approved' | 'declined';
-type IntroState = 'requested' | 'awaiting_both' | 'active' | 'declined';
-
-function consentVisual(c: Consent) {
-  if (c === 'approved') return { icon: Check, token: 'var(--success)', label: 'Approved' };
-  if (c === 'declined') return { icon: X, token: 'var(--danger)', label: 'Declined' };
-  return { icon: Clock, token: 'var(--warning)', label: 'Waiting' };
-}
+type IntroState = 'drafted' | 'sent' | 'declined';
 
 export function IntroConsentCard({ personName }: { personName: string }) {
   const requester = 'You';
   const partyA = personName;        // the person whose page we're on
   const partyB = 'Dana Cole';       // the other side of the intro
-  const [a, setA] = useState<Consent>('approved'); // this person already said yes
-  const [b, setB] = useState<Consent>('pending');
-
-  const state: IntroState =
-    a === 'declined' || b === 'declined' ? 'declined'
-      : a === 'approved' && b === 'approved' ? 'active'
-        : a === 'approved' || b === 'approved' ? 'awaiting_both'
-          : 'requested';
+  const [state, setState] = useState<IntroState>('drafted');
 
   const stateMeta: Record<IntroState, { label: string; token: string }> = {
-    requested: { label: 'Requested', token: 'var(--color-warm-gray)' },
-    awaiting_both: { label: 'Awaiting both parties', token: 'var(--warning)' },
-    active: { label: 'Introduction active', token: 'var(--success)' },
+    drafted: { label: 'Draft — awaiting your approval', token: 'var(--color-warm-gray)' },
+    sent: { label: 'Introduction sent', token: 'var(--success)' },
     declined: { label: 'Declined', token: 'var(--danger)' },
-  };
-
-  const Party = ({ who, c, onSet, isOther }: { who: string; c: Consent; onSet: (c: Consent) => void; isOther?: boolean }) => {
-    const v = consentVisual(c);
-    return (
-      <div className="flex-1 rounded-lg border px-3 py-2.5 flex flex-col gap-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{who.charAt(0)}</div>
-          <span className="text-sm font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{who}</span>
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: v.token }}>
-            <v.icon className="w-3 h-3" /> {v.label}
-          </span>
-        </div>
-        {c === 'pending' ? (
-          <div className="flex gap-1.5">
-            <button onClick={() => onSet('approved')} className="flex-1 text-xs font-semibold py-1 rounded-md text-white" style={{ backgroundColor: 'var(--success)' }}>Approve</button>
-            <button onClick={() => onSet('declined')} className="flex-1 text-xs font-semibold py-1 rounded-md border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>Decline</button>
-          </div>
-        ) : (
-          <button onClick={() => onSet('pending')} className="text-[11px] font-medium self-start" style={{ color: 'var(--color-warm-gray)' }}>Reset</button>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -224,12 +190,12 @@ export function IntroConsentCard({ personName }: { personName: string }) {
 
       <div className="px-4 py-3 flex flex-col gap-3">
         <div className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>
-          <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{requester}</span> proposed connecting <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{partyA}</span> and <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{partyB}</span>.
+          <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{requester}</span> drafted an introduction connecting <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{partyA}</span> and <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{partyB}</span>. You know and trust both sides, so you can vet this match yourself — no separate approval from either party is required before you send it.
         </div>
 
         {/* state machine ribbon */}
         <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--color-warm-gray)' }}>
-          {(['requested', 'awaiting_both', 'active'] as IntroState[]).map((s, i) => (
+          {(['drafted', 'sent'] as IntroState[]).map((s, i) => (
             <span key={s} className="flex items-center gap-1.5">
               {i > 0 && <span style={{ color: 'var(--color-border)' }}>→</span>}
               <span className="px-1.5 py-0.5 rounded" style={{ backgroundColor: state === s ? `color-mix(in srgb, ${stateMeta[s].token} 16%, transparent)` : 'transparent', color: state === s ? stateMeta[s].token : 'var(--color-warm-gray)', fontWeight: state === s ? 700 : 500 }}>{stateMeta[s].label}</span>
@@ -237,31 +203,33 @@ export function IntroConsentCard({ personName }: { personName: string }) {
           ))}
         </div>
 
-        {/* both parties' consent */}
-        <div className="flex gap-2">
-          <Party who={partyA} c={a} onSet={setA} />
-          <Party who={partyB} c={b} onSet={setB} isOther />
-        </div>
-
         {/* what will be shared */}
         <div className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />
-          <span>On approval, each party shares only their <span className="font-medium">name, role, and the reason for the intro</span>. No private notes or warmth are ever shared.</span>
+          <span>On send, each party is shared only their <span className="font-medium">name, role, and the reason for the intro</span>. No private notes or warmth are ever shared.</span>
         </div>
+
+        {/* your approval — single sender approval, not both-party */}
+        {state === 'drafted' && (
+          <div className="flex gap-1.5">
+            <button onClick={() => setState('sent')} className="flex-1 text-xs font-semibold py-1.5 rounded-md text-white" style={{ backgroundColor: 'var(--success)' }}>Approve & send</button>
+            <button onClick={() => setState('declined')} className="flex-1 text-xs font-semibold py-1.5 rounded-md border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>Discard draft</button>
+          </div>
+        )}
 
         {/* hard rule / outcome */}
         <AnimatePresence mode="wait">
-          {state === 'active' ? (
-            <motion.div key="active" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)' }}>
-              <Check className="w-3.5 h-3.5" /> Both approved — the introduction edge is now active.
+          {state === 'sent' ? (
+            <motion.div key="sent" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 10%, transparent)', color: 'var(--success)' }}>
+              <Check className="w-3.5 h-3.5" /> You approved and sent it — the introduction is now active.
             </motion.div>
           ) : state === 'declined' ? (
             <motion.div key="declined" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg" style={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)', color: 'var(--danger)' }}>
-              <X className="w-3.5 h-3.5" /> Declined — no connection was made, nothing was shared.
+              <X className="w-3.5 h-3.5" /> Discarded — nothing was shared.
             </motion.div>
           ) : (
             <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg" style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 10%, transparent)', color: 'var(--warning)' }}>
-              <Lock className="w-3.5 h-3.5" /> Not connected yet — both sides must approve. No silent enrichment, no auto-send.
+              <Lock className="w-3.5 h-3.5" /> Not sent yet — awaiting your approval. No silent enrichment, no auto-send.
             </motion.div>
           )}
         </AnimatePresence>

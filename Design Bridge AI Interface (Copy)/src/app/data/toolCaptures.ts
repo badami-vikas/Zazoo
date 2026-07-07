@@ -69,24 +69,10 @@ function rowToCapture(r: any): ToolCapture {
   };
 }
 
-// A couple of demo captures so the surface is legible when Supabase is unreachable
-// (e.g. signed-out) — clearly marked local, never written anywhere.
+// No local demo captures: when Supabase is unreachable (e.g. signed-out), the pending-capture
+// surface shows an honest empty state rather than fake business-card scans.
 function localDemo(): ToolCapture[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: 'demo-cap-1', toolId: 'card-scanner', status: 'quarantined', dataScope: 'public', contract: 'person.v1',
-      person: { name: 'dummy_Asha Rao', title: 'dummy_Founder', company: 'dummy_Northwind Labs', emails: ['asha@northwind.example'], phones: ['+1 555 0142'], address: '', website: 'northwind.example', notes: '' },
-      touchpoint: { text: 'Met dummy_Asha Rao — scanned business card', capturedAt: now },
-      provenance: { model: 'llava', source: 'ollama' }, capturedAt: now,
-    },
-    {
-      id: 'demo-cap-2', toolId: 'card-scanner', status: 'quarantined', dataScope: 'public', contract: 'person.v1',
-      person: { name: 'dummy_Marco Diaz', title: 'dummy_Partner', company: 'dummy_Atlas Ventures', emails: ['marco@atlas.example'], phones: [], address: '', website: '', notes: '' },
-      touchpoint: { text: 'Met dummy_Marco Diaz — scanned business card', capturedAt: now },
-      provenance: { model: 'llava', source: 'ollama' }, capturedAt: now,
-    },
-  ];
+  return [];
 }
 
 export async function loadPendingCaptures(toolId?: string): Promise<{ captures: ToolCapture[]; source: CaptureSource }> {

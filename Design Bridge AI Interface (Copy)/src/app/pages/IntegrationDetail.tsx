@@ -7,38 +7,20 @@ import { socialProviderFor } from '../data/integrations';
 import { IntegrationPermissions } from '../components/IntegrationPermissions';
 import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 
-const integrationDetails: Record<string, any> = {
-  'IN-001': {
-    name: 'OpenAI GPT-4o', provider: 'OpenAI', category: 'dummy_AI/LLM', status: 'Connected', region: 'dummy_US-West',
-    desc: 'dummy_Core AI inference provider powering all language model calls across Bridge AI agents, rituals, and co-pilot suggestions.',
-    health: 9009, lastSync: 'dummy_9009 min ago', recordsSynced: 'dummy_—', latency: 'dummy_9009ms',
-    endpoint: 'dummy_https://api.openai.com/v1',
-    apiVersion: 'dummy_v1', rateLimit: 'dummy_9009 TPM', costToDate: 'dummy_$9009',
-    logs: [
-      { time: 'dummy_10:41 AM', event: 'dummy_Chat completion — Aria (prospecting)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_10:43 AM', event: 'dummy_Chat completion — Nova (email draft)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_11:02 AM', event: 'dummy_Chat completion — Rex (qualification)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_11:30 AM', event: 'dummy_Embedding batch — 9009 relationships', tokens: 9009, status: 'ok' },
-      { time: 'dummy_2:15 PM', event: 'dummy_Function call — CRM enrichment', tokens: 9009, status: 'ok' },
-      { time: 'dummy_3:00 PM', event: 'dummy_Rate limit warning — 9009% of quota', tokens: 0, status: 'warn' },
-    ],
-    analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], success: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-    connectedAgents: ['dummy_AG-001 — Aria', 'dummy_AG-002 — Rex', 'dummy_AG-003 — Sage', 'dummy_AG-004 — Nova', 'dummy_AG-006 — Orion'],
-  },
-};
+// No integration ships with fabricated health/usage/cost metrics. Real integrations report their
+// own status via their own live panel (e.g. GoogleIntegrationPanel); anything without a live
+// telemetry source shows "Not connected" and empty logs/analytics rather than invented numbers.
+const integrationDetails: Record<string, any> = {};
 
 const defaultIntegration = {
-  name: 'dummy_Integration', provider: 'dummy_Provider', category: 'dummy_General', status: 'Connected', region: 'dummy_US-East',
-  desc: 'dummy_A Bridge AI integration connecting external systems to the platform.',
-  health: 9009, lastSync: 'dummy_9009 min ago', recordsSynced: 'dummy_9009K', latency: 'dummy_9009ms',
-  endpoint: 'dummy_https://api.provider.com/v1',
-  apiVersion: 'dummy_v1', rateLimit: 'dummy_9009/min', costToDate: 'dummy_$9009',
-  logs: [
-    { time: 'dummy_10:00 AM', event: 'dummy_Sync completed', tokens: 0, status: 'ok' },
-    { time: 'dummy_10:30 AM', event: 'dummy_Record pull — 9009 people', tokens: 0, status: 'ok' },
-  ],
-  analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], success: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-  connectedAgents: ['dummy_AG-001 — Aria'],
+  name: 'Integration', provider: 'Provider', category: 'General', status: 'Not connected', region: '—',
+  desc: 'A Bridge AI integration connecting external systems to the platform. Connect it to see live status.',
+  health: 0, lastSync: '—', recordsSynced: '—', latency: '—',
+  endpoint: '—',
+  apiVersion: '—', rateLimit: '—', costToDate: '—',
+  logs: [] as { time: string; event: string; tokens: number; status: string }[],
+  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], success: [0, 0, 0, 0, 0, 0, 0], months: ['', '', '', '', '', '', ''] },
+  connectedAgents: [] as string[],
 };
 
 export function IntegrationDetail() {
@@ -65,7 +47,7 @@ export function IntegrationDetail() {
     document.getElementById(`in-${tab.toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const maxCalls = Math.max(...intg.analytics.calls);
+  const maxCalls = Math.max(1, ...intg.analytics.calls);
   const statusColor = intg.status === 'Connected' ? 'text-[var(--success)] bg-[var(--success)]/10 border-[var(--success)]/30' : intg.status === 'Degraded' ? 'text-[var(--warning)] bg-[var(--warning)]/10 border-[var(--warning)]/30' : 'text-[var(--danger)] bg-[var(--danger)]/10 border-[var(--danger)]/30';
   const StatusIcon = intg.status === 'Connected' ? CheckCircle : intg.status === 'Degraded' ? AlertCircle : WifiOff;
 
@@ -224,11 +206,13 @@ export function IntegrationDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">dummy_Today · April 9009, 9009</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Activity</span>
                 <button className="text-xs text-[var(--color-steel)] hover:underline flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {intg.logs.map((log: any, i: number) => (
+                {intg.logs.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet.</div>
+                ) : intg.logs.map((log: any, i: number) => (
                   <div key={i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--color-surface)] transition-colors">
                     <div className={clsx('w-2 h-2 rounded-full shrink-0', log.status === 'ok' ? 'bg-[var(--success)]' : log.status === 'warn' ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]')} />
                     <span className="text-xs font-mono text-[var(--color-warm-gray)] w-20 shrink-0">{log.time}</span>
@@ -251,7 +235,9 @@ export function IntegrationDetail() {
                 <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{intg.connectedAgents.length}</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {intg.connectedAgents.map((ag: string) => (
+                {intg.connectedAgents.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents connected yet.</div>
+                ) : intg.connectedAgents.map((ag: string) => (
                   <Link key={ag} to={`/agent/${encodeURIComponent(ag.split(' — ')[0])}`}
                     className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
                     <div className="w-7 h-7 rounded-full bg-[var(--info)]/15 flex items-center justify-center text-xs font-bold text-[var(--info)]">

@@ -24,22 +24,28 @@ export function ImpactReportModal({ onClose }: { onClose: () => void }) {
               <div><span className="text-sm text-white/60">{s.label} </span><span className="text-base font-bold text-white">{s.value}</span></div>
             </div>
           ))}
-          <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10">
-            <div className="text-sm text-white/60">Your most common contribution:</div>
-            <div className="text-lg font-bold text-white">{r.topContribution}</div>
-          </div>
+          {r.topContribution && (
+            <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10">
+              <div className="text-sm text-white/60">Your most common contribution:</div>
+              <div className="text-lg font-bold text-white">{r.topContribution}</div>
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-5">
-          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Top 5 moments you helped others.</div>
-          <ol className="flex flex-col gap-1.5">
-            {r.moments.map((m, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-white/80">
-                <span className="w-5 h-5 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                <span>{m.replace(/^dummy_\s*/, '')}</span>
-              </li>
-            ))}
-          </ol>
+          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Moments you helped others.</div>
+          {r.moments.length === 0 ? (
+            <div className="text-sm text-white/60">No moments recorded yet — they'll show up here as you help people.</div>
+          ) : (
+            <ol className="flex flex-col gap-1.5">
+              {r.moments.map((m, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-white/80">
+                  <span className="w-5 h-5 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <span>{m}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-white/10 flex justify-end">

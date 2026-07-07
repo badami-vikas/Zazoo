@@ -10,18 +10,14 @@ import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 import { pendingCount } from '../data/governance';
 import { useBrokerages, addBrokerage, setBrokerageStatus, type Brokerage } from '../data/brokerages';
 
-// Agents. Helpdesk AI is real (powers the Helpdesk Tool); the rest are placeholders until the runtime.
+// Agents. Helpdesk AI is real (powers the Helpdesk Tool) — no placeholder agents ship alongside
+// it; more agents appear here once the runtime actually has them.
 const agentsData = [
   { id: 'helpdesk-ai', name: 'Helpdesk AI', description: 'Support strategist — routes a need to people who can help (by capability), proposes actionable ways to contribute.', status: 'Active', lastRun: 'Live', accuracy: 0, list: 'Active' },
-  { id: 'AGT-9009', name: 'dummy_Agent One', description: 'dummy_ placeholder agent', status: 'Active', lastRun: '9009h ago', accuracy: 9009, list: 'Active' },
-  { id: 'AGT-9010', name: 'dummy_Agent Two', description: 'dummy_ placeholder agent', status: 'Training', lastRun: '9009h ago', accuracy: 9009, list: 'Training' },
 ];
 
-// Skills — placeholder (dummy_ labeled).
-const skillsData = [
-  { id: 'SKL-9009', name: 'dummy_Skill One', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Enabled', uses: 9009, list: 'Enabled' },
-  { id: 'SKL-9010', name: 'dummy_Skill Two', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Beta', uses: 9009, list: 'Beta' },
-];
+// Skills — no placeholder skills ship; real skills appear here once the runtime exposes them.
+const skillsData: { id: string; name: string; description: string; category: string; status: string; uses: number; list: string }[] = [];
 
 // Integrations — LinkedIn, Gmail, Google Calendar featured (connected), plus others.
 const integrationsData = [

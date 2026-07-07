@@ -4,7 +4,7 @@
 //   • owner (authenticated) creates a workspace → INSERT helpdesk_workspaces (owner_id = auth.uid())
 //   • anyone with the link (anon) reads public asks + posts asks/offers, gated by anon RLS.
 // Every call degrades gracefully: on any error it returns null/empty so callers can fall
-// back to the local store. dummy_ note: no seed data lives here — this is the live wire.
+// back to the local store. No seed data lives here — this is the live wire.
 import { supabase } from '../lib/supabase';
 import { moderate, type ModerationStatus, type ContactVisibility } from './helpdesk';
 

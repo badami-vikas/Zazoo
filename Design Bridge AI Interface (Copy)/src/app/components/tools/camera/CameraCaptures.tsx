@@ -56,7 +56,7 @@ export default function CameraCaptures() {
   }
   async function onFlagLink(r: MediaCaptureRecord) {
     setBusy(r.id);
-    await flagPossibleLink(r.id, 'dummy_unconfirmed person');
+    await flagPossibleLink(r.id, 'unconfirmed person');
     setBusy(null);
     flash('Filed a possible_link Signal — uncertain matches are never auto-linked.');
     refresh();

@@ -55,7 +55,7 @@ export function DealPilotPage() {
   }, []);
 
   // Real API-sourced listings (BizBuySell/BusinessBroker via the governed pipeline) sit alongside
-  // the dummy_ demo set — empty in demo mode, populated once a capture is committed when API_ENABLED.
+  // the static LISTINGS constant (empty by default) — populated once a capture is committed when API_ENABLED.
   const allListings = useMemo(() => [...LISTINGS, ...liveListings], [liveListings]);
 
   const searched = useMemo(() => {

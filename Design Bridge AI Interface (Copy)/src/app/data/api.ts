@@ -393,8 +393,9 @@ export async function apiDealPilotCommit(captureId: string): Promise<boolean> {
   return Boolean(r?.committed);
 }
 
-/** Committed candidates, thesis-scored. null when API disabled (caller falls back to dummy_).
- * `dealpilot.list` is paginated server-side ({ items, total, hasMore }); this prototype UI
+/** Committed candidates, thesis-scored. null when API disabled (caller falls back to the local
+ * LISTINGS store — see data/dealpilot.ts). `dealpilot.list` is paginated server-side
+ * ({ items, total, hasMore }); this prototype UI
  * has no pager yet, so we request the max page size to preserve today's "show everything"
  * behavior while the backend stays bounded. */
 export async function apiDealPilotList(): Promise<DealPilotCandidateDTO[] | null> {
