@@ -128,7 +128,7 @@ const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
 // seeded user id — workspace_definitions.created_by is a real FK to `users`,
-// so an arbitrary dummy_-prefixed caller id would violate that constraint.
+// so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
 export interface Wiring {
@@ -553,7 +553,7 @@ export async function buildWiring(): Promise<Wiring> {
   await workspaceStore.bootstrapPilotIdentities({
     workspaceId: PILOT_WORKSPACE,
     userId: PILOT_USER,
-    userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "dummy_pilot@bridge.local",
+    userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
 
   // LOCAL-plane media store (the priority track). bytea blobs live here, never cloud.
