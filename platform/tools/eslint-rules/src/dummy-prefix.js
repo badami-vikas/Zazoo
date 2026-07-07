@@ -1,17 +1,18 @@
 /**
- * dummy-prefix — RETIRED 2026-07-06, real-data-only policy — see CLAUDE.md.
+ * dummy-prefix — RETIRED 2026-07-06.
  *
- * The `dummy_` convention this rule enforced ("every mock/demo/seed value carries
- * a dummy_ prefix so it's greppable") is retired: the platform no longer treats
- * seeded/demo/placeholder product state as an ongoing pattern to be marked-safe —
- * it simply must not exist in runtime paths. Test fixtures now use the
- * `test_fixture_` naming convention instead (enforced by convention + code review,
- * not by this rule).
+ * The old `dummy_` prefix convention this rule enforced has itself been retired.
+ * Per the 2026-07-06 real-data-only policy (CLAUDE.md, "NO dummy data (REVERSED
+ * 2026-07-06 — was 'dummy_-prefix everything')"): the platform shows real,
+ * connected data only, and synthetic test fixtures now use the `test_fixture_`
+ * naming convention instead. There is no longer a "dummy_ prefix" for this rule
+ * to enforce, so it is kept as a documented no-op rather than deleted outright
+ * (eslint.config.js still references "bridge/dummy-prefix" and is a protected
+ * file this change is not allowed to edit — see tools/eslint-rules/package.json
+ * and platform/eslint.config.js's own header comment for the historical context).
  *
- * This rule is kept as a no-op (rather than deleted) because `eslint.config.js`
- * is a protected file and still references `bridge/dummy-prefix` in its rule set
- * — removing the export would break config load. The `create()` below returns an
- * empty visitor so the rule never reports anything.
+ * If eslint.config.js is ever revisited, this rule entry can be dropped entirely;
+ * until then it is registered but reports nothing.
  */
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -20,12 +21,15 @@ export const dummyPrefix = {
     type: "suggestion",
     docs: {
       description:
-        "Retired 2026-07-06 (real-data-only policy — see CLAUDE.md). No-op: kept only because eslint.config.js (protected) still references the rule id.",
+        "Retired 2026-07-06 — no-op. The dummy_ prefix convention was replaced by the test_fixture_ convention under the real-data-only policy; see this file's header.",
     },
     schema: [],
     messages: {},
   },
   create() {
+    // Intentional no-op: retired rule, kept only so eslint.config.js's existing
+    // "bridge/dummy-prefix" reference continues to resolve without editing that
+    // protected file.
     return {};
   },
 };

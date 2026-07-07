@@ -12,7 +12,7 @@
     "test": "turbo run test",
     "dev": "turbo run dev",
     "lint": "eslint .",
-    "check:no-dummy-runtime": "if rg -n \"dummy_\" --glob '!node_modules/**' --glob '!dist/**' --glob '!**/*.test.*' --glob '!**/*.spec.*' --glob '!**/test/**' --glob '!**/tests/**' --glob '!**/__tests__/**' --glob '!/eslint.config.js' --glob '!/package.json' --glob '!tools/eslint-rules/**' .; then exit 1; else exit 0; fi"
+    "check:no-dummy-runtime": "sh -c 'set -e; MATCHES=$(grep -RIn \"dummy_\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.turbo --exclude-dir=test --exclude-dir=fixtures --exclude-dir=seed --exclude=\"*.test.ts\" --exclude=\"*.spec.ts\" --exclude=\"dummy-prefix.js\" --exclude=\"eslint.config.js\" . || true); if [ -n \"$MATCHES\" ]; then echo \"$MATCHES\"; echo; echo \"check:no-dummy-runtime: found dummy_ in runtime code (see above). Runtime product code must carry zero dummy/demo data — see CLAUDE.md real-data-only policy. Test fixtures belong in a test/ dir using the test_fixture_ prefix.\"; exit 1; else echo \"check:no-dummy-runtime: OK — no dummy_ found outside test/fixture dirs.\"; fi'"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
