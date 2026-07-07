@@ -1,8 +1,9 @@
 ---
 title: Authority Model
 type: raw
-doc_kind: governance
+doc_kind: design
 status: draft
+related_wiki: ../wiki/ontology.md
 updated: 2026-07-07
 companions:
   - primitive-specifications.md

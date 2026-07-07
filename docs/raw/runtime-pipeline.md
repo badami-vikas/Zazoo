@@ -1,8 +1,9 @@
 ---
 title: Runtime Pipeline
 type: raw
-doc_kind: architecture
+doc_kind: design
 status: draft
+related_wiki: ../wiki/ontology.md
 updated: 2026-07-07
 companions:
   - primitive-specifications.md

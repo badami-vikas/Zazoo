@@ -4,6 +4,8 @@ full: [../raw/ARCHITECTURE.md](../raw/ARCHITECTURE.md)
 
 Platform-first: substrate + governance spine + capability registries. Pages/Rituals/Tools = config instances, not bespoke code.
 
+**Primitive mapping** ([ontology](ontology.md), 2026-07-07): code `ritual` = **Automation** · code `tool`/ToolManifest = implementation surface, user-facing primitive = **Workspace** · Connection = **Integration** · Signal = derived **Incident** (not a root primitive) · Chief of Staff = **Agent** archetype. This page keeps code names; primitives per ontology.
+
 **3 shared interconnect mechanisms** (pages never call each other direct):
 - Unified Graph = shared state.
 - Event/Signal Bus = propagation.

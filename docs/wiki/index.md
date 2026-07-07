@@ -10,7 +10,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [decisions](decisions.md) — decision set + pivot re-audit verdicts (nothing "locked").
 - [clients](clients.md) — **one platform, three clients** (desktop depth / browser reach / mobile accessibility) + context-provider registry (Learning Agent consumes context, not screenshots) + voice command center.
 - [architecture](architecture.md) — planes, pipeline, registries, local↔gate↔cloud two-plane agents.
-- [ontology](ontology.md) — primitive taxonomy; Intent=Request state, Chief of Staff=Agent archetype, Project=ElementType, Signal=derived Incident, Workspace replaces user-facing Tool language.
+- [ontology](ontology.md) — **canonical primitive taxonomy (2026-07-07, ADR-028)**: actors Human/Agent/Automation · capabilities Skill/Integration · work Request/Action/Incident/Artifact · surface Workspace/Element/ElementType/View · context Memory/Knowledge. Mappings: Intent=raw Human Request, Chief of Staff=Agent archetype, Project=ElementType, Signal=derived Incident, code `ritual`/"Workflow"=Automation, code `tool`=implementation surface (user-facing primitive=Workspace), Connection=Integration. Promotion NEVER mutates category.
 - [initiatives](initiatives.md) — thin-slice Taskade call: views-over-one-tree; reject CRDT/universal-entity.
 - [rituals](rituals.md) — engine call: planner/executor split (swarm plans, DAG runs); broker/levels/snapshots/versioning; 3 reconciles.
 - [tools](tools.md) — tool model: internalize external repos · two run modes (standalone/shared-link + account-bound) · gated intake; reuses pipeline/contracts/versions.

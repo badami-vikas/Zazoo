@@ -4,6 +4,8 @@ full: [../raw/SCHEMA.sql](../raw/SCHEMA.sql)
 
 Postgres/Supabase. RLS deny-default. soft-delete. append-only ledger/timeline/events/signal_actions.
 
+Table names = code vocab; primitives per [ontology](ontology.md): `rituals` = **Automation** · `tools` = Workspace implementation surface · `integrations` = **Integration** · `signals` = derived **Incidents**.
+
 **Layers**:
 - Tenancy: users · workspaces · **workspace_settings(default_visibility)** · workspace_members(role_id) · teams · team_members.
 - Two-tier network: people_canonical/communities_canonical (platform, global, dedup_key, public only) · people/communities (per-(workspace,user); overrides via COALESCE + **visibility** + warmth/ring/dormancy) · community_members · **node_types(plane)** · edges (mirror + whitelisted cross-plane).
