@@ -19,6 +19,25 @@ interface HeaderProps {
  * transition instead of a shared layoutId animation).
  */
 export function Header({ tabs, activeTab, onTabChange }: HeaderProps) {
+  // Single-section pages get a plain centered Title-case name — no toggle
+  // chrome around a one-item group (user spec 2026-07-07, requests.md R-013).
+  const only = tabs.length === 1 ? tabs[0] : undefined;
+  if (only) {
+    const Icon = only.icon;
+    return (
+      <header
+        className="h-14 flex items-center justify-center px-6 border-b shrink-0 z-10 w-full shadow-sm"
+        style={{ backgroundColor: "white", borderColor: "var(--color-border)" }}
+      >
+        <div className="flex items-center gap-2">
+          <Icon className="w-4 h-4" style={{ color: "var(--color-steel)" }} />
+          <span className="text-base font-semibold" style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}>
+            {only.id}
+          </span>
+        </div>
+      </header>
+    );
+  }
   return (
     <header
       className="h-14 flex items-center justify-center px-6 border-b shrink-0 z-10 w-full shadow-sm"

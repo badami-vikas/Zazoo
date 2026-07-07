@@ -92,10 +92,12 @@ export function AgentPanel() {
       <button
         onClick={() => setCollapsedPersisted(false)}
         title="Open AI chat"
-        className="w-9 shrink-0 border-l flex items-start justify-center pt-4"
+        className="w-12 shrink-0 border-l flex flex-col items-center gap-1.5 pt-3"
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
       >
-        <ChevronsLeft className="w-5 h-5" style={{ color: "var(--color-warm-gray)" }} />
+        {/* Collapsed rail leads with the avatar, not a chevron/logo (requests.md R-014). */}
+        <AvatarIcon animal={animal} size={28} />
+        <ChevronsLeft className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
       </button>
     );
   }
