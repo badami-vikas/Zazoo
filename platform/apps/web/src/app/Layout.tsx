@@ -6,6 +6,7 @@ import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { getPinnedProjects, getPinnedTools, unpinProject, unpinTool, type PinnedItem } from "./lib/pins";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
 import { hasStoredPrefs, loadAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
+import { AgentPanel } from "./components/shared/AgentPanel";
 
 /**
  * Shell IA (ADR-023, docs/raw/decisions-log.md last entry): permanent chrome
@@ -202,6 +203,12 @@ export default function Layout() {
 
       <div className="flex-1 overflow-auto pb-14 sm:pb-0 bg-background">
         <Outlet />
+      </div>
+
+      {/* Persistent AI chat — nav | content | AI chat (reference UI at bridge-ai-1ay.pages.dev).
+          Hidden below sm: a 336px side panel doesn't fit alongside the mobile bottom tab bar. */}
+      <div className="hidden sm:flex">
+        <AgentPanel />
       </div>
 
       {/* Mobile bottom tab bar — the "bottom bar on narrow widths" variant of the

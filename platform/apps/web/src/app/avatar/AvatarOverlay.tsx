@@ -56,7 +56,7 @@ const STATUS_COLOR: Record<AvatarStatus, string> = {
  * closed arcs for idle/meditating, open circles otherwise, wide for
  * listening, narrowed for drafting/reading.
  */
-function Creature({
+export function Creature({
   animal,
   status,
   blinking,
@@ -154,6 +154,21 @@ function Creature({
         opacity={status === "idle" ? 0.35 : 0.85}
       />
     </svg>
+  );
+}
+
+/**
+ * Small fixed-size avatar badge for chrome slots that need an identity icon but
+ * not the full overlay (e.g. the AI chat panel header) — same live status/animal
+ * as the overlay, just rendered compact with no popover/blink wiring.
+ */
+export function AvatarIcon({ animal, size = 24 }: { animal: SpiritAnimal; size?: number }) {
+  const status = useAvatarStatus();
+  const reducedMotion = usePrefersReducedMotion();
+  return (
+    <div style={{ width: size, height: size }} className="shrink-0 rounded-md overflow-hidden">
+      <Creature animal={animal} status={status} blinking={false} reducedMotion={reducedMotion} />
+    </div>
   );
 }
 
