@@ -26,9 +26,10 @@ import {
 
 type View = 'month' | 'week' | 'day' | 'agenda';
 
-// No fabricated events ship when the API/Google Calendar isn't connected. The calendar shows an
-// honest empty state (see the 'demo' mode empty-state UI below) rather than invented meetings.
-function localFallbackEvents(): CalendarEventDTO[] {
+// When the API is off (no Google Calendar connected), there are no real events to show — an
+// honest empty calendar beats fabricated meetings. The "connect Google in Integrations" CTA
+// (rendered below when API_ENABLED is false) is the real next step.
+function demoSeed(): CalendarEventDTO[] {
   return [];
 }
 
@@ -86,7 +87,7 @@ export function CalendarPage() {
   }, [view, cursor]);
 
   const reload = useCallback(async (timeMin?: string, timeMax?: string) => {
-    if (!API_ENABLED) { setEvents(localFallbackEvents()); setMode('demo'); return; }
+    if (!API_ENABLED) { setEvents(demoSeed()); setMode('demo'); return; }
     setLoading(true); setError(null);
     try {
       const evs = await apiListCalendarEvents({
@@ -120,7 +121,7 @@ export function CalendarPage() {
         await reload(rangeStart.toISOString(), rangeEnd.toISOString());
         setToast(`${label} · ${res?.sent ? 'synced to Google' : 'queued'} · audited in Approvals`);
       } else {
-        // Local mode: mutate local component state (user-created events only) so the UI works with no backend.
+        // Demo mode: mutate local state so the UI is interactive with no backend connected yet.
         setEvents(prev => {
           if (action === 'delete') return prev.filter(e => e.eventId !== envelope.eventId);
           if (action === 'update') return prev.map(e => e.eventId === envelope.eventId ? { ...e, ...(envelope as Partial<CalendarEventDTO>) } : e);

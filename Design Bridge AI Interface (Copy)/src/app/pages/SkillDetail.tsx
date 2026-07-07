@@ -4,19 +4,19 @@ import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion } from 'motion/react';
 
-// No skill ships with fabricated usage/performance metrics or fake connected-agent lists.
-// Real skill telemetry is not wired yet — every skill shows honest zero/empty values until it is.
 const skillDetails: Record<string, any> = {};
 
+// No matching record → an honest "not configured yet" state. The skill runtime hasn't shipped
+// yet (see roadmap P0 Kernel), so there is no real skill catalog to show.
 const defaultSkill = {
-  name: 'Skill', category: 'General', version: 'v1.0', status: 'Stable',
-  desc: 'A Bridge AI skill module that provides specialized capability to connected agents.',
+  name: 'Skill', category: 'Not yet configured', version: '—', status: 'Not available',
+  desc: 'This skill has not been created yet. Once the skill runtime is connected, its performance, logs, and connected agents will appear here.',
   agentsUsing: 0, avgPerformance: 0, callsToday: 0, latencyP99: '—', tokenLimit: '—',
-  providers: [] as string[],
-  agentList: [] as string[],
+  providers: [],
+  agentList: [],
   metadata: { inputSchema: '—', outputSchema: '—', costPer1k: '—', cacheHitRate: '—' },
-  logs: [] as { time: string; event: string; latency: string; status: string }[],
-  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], perf: [0, 0, 0, 0, 0, 0, 0], months: ['', '', '', '', '', '', ''] },
+  logs: [],
+  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], perf: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
 };
 
 const navTabs = ['Overview', 'Activity', 'Connections', 'Settings'];
@@ -164,13 +164,11 @@ export function SkillDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Activity</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <span className="text-xs text-[var(--color-warm-gray)]">{sk.callsToday} calls today</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {sk.logs.length === 0 ? (
-                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet.</div>
-                ) : sk.logs.map((log: any, i: number) => (
+                {sk.logs.map((log: any, i: number) => (
                   <div key={i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--color-surface)] transition-colors">
                     <div className={clsx('w-1.5 h-1.5 rounded-full shrink-0', log.status === 'ok' ? 'bg-[var(--success)]' : log.status === 'slow' ? 'bg-[var(--warning)]' : log.status === 'cached' ? 'bg-[var(--info)]' : 'bg-[var(--danger)]')} />
                     <span className="text-xs font-mono text-[var(--color-warm-gray)] w-20 shrink-0">{log.time}</span>
@@ -178,6 +176,9 @@ export function SkillDetail() {
                     <span className={clsx('text-xs font-mono font-semibold ml-auto', statusStyle[log.status])}>{log.latency}</span>
                   </div>
                 ))}
+                {sk.logs.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this skill hasn't been invoked.</div>
+                )}
               </div>
             </div>
           </section>
@@ -193,9 +194,7 @@ export function SkillDetail() {
                   <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{sk.agentList.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {sk.agentList.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents using this skill yet.</div>
-                  ) : sk.agentList.map((ag: string) => (
+                  {sk.agentList.map((ag: string) => (
                     <Link key={ag} to={`/agent/${encodeURIComponent(ag.split(' — ')[0])}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
                       <div className="w-7 h-7 rounded-full bg-[var(--info)]/15 flex items-center justify-center text-xs font-bold text-[var(--info)]">
@@ -205,6 +204,9 @@ export function SkillDetail() {
                       <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--color-sage)] transition-colors" />
                     </Link>
                   ))}
+                  {sk.agentList.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents use this skill yet.</div>
+                  )}
                 </div>
               </div>
               <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
@@ -213,15 +215,16 @@ export function SkillDetail() {
                   <span className="font-semibold text-[var(--color-navy)] text-sm">Provider Health</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {sk.providers.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No providers configured yet.</div>
-                  ) : sk.providers.map((p: string) => (
+                  {sk.providers.map((p: string) => (
                     <div key={p} className="flex items-center gap-3 px-5 py-3.5">
                       <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
                       <span className="text-sm font-medium text-[var(--color-navy)]">{p}</span>
                       <span className="ml-auto text-xs text-[var(--success)] font-semibold">Operational</span>
                     </div>
                   ))}
+                  {sk.providers.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No providers connected yet.</div>
+                  )}
                 </div>
               </div>
             </div>

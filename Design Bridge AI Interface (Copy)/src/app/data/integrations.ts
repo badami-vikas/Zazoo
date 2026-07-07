@@ -7,8 +7,8 @@
 //
 // Two modes, same contract — exactly like data/api.ts:
 //   • API_ENABLED (VITE_API_URL set) → the panel talks to the real governed store over tRPC.
-//   • default OFF                    → an in-memory governed store, seeded with baseline default grants,
-//                                      drives the panel so it is fully interactive offline.
+//   • default OFF                    → an in-memory governed store, seeded with real (non-fake)
+//                                      baseline grants, drives the panel so it is interactive offline.
 import { API_ENABLED, apiListScopes, apiGrantScope, apiRevokeScope } from './api';
 
 export type SocialProviderId = 'x' | 'instagram' | 'facebook' | 'linkedin';

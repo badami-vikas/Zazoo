@@ -10,14 +10,14 @@ import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 import { pendingCount } from '../data/governance';
 import { useBrokerages, addBrokerage, setBrokerageStatus, type Brokerage } from '../data/brokerages';
 
-// Agents. Helpdesk AI is real (powers the Helpdesk Tool) — no placeholder agents ship alongside
-// it; more agents appear here once the runtime actually has them.
+// Agents. Helpdesk AI is real (powers the Helpdesk Tool); more agents appear here once the
+// agent runtime (P0 Kernel) ships and users create them via "New Agent".
 const agentsData = [
   { id: 'helpdesk-ai', name: 'Helpdesk AI', description: 'Support strategist — routes a need to people who can help (by capability), proposes actionable ways to contribute.', status: 'Active', lastRun: 'Live', accuracy: 0, list: 'Active' },
 ];
 
-// Skills — no placeholder skills ship; real skills appear here once the runtime exposes them.
-const skillsData: { id: string; name: string; description: string; category: string; status: string; uses: number; list: string }[] = [];
+// Skills — none shipped yet; appears once the skill runtime is connected.
+const skillsData: Array<{ id: string; name: string; description: string; category: string; status: string; uses: number; list: string }> = [];
 
 // Integrations — LinkedIn, Gmail, Google Calendar featured (connected), plus others.
 const integrationsData = [
@@ -372,9 +372,15 @@ export function IntelligencePage() {
               exit={{ opacity: 0 }}
               className="p-6"
             >
-              <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
-                {currentData.map(item => renderCard(item))}
-              </div>
+              {currentData.length > 0 ? (
+                <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
+                  {currentData.map(item => renderCard(item))}
+                </div>
+              ) : (
+                <div className="p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+                  No {activeTab.toLowerCase()} yet.
+                </div>
+              )}
             </motion.div>
           )}
 

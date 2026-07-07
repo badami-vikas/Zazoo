@@ -532,30 +532,28 @@ export function suggestWaysToHelp(title: string, body: string): string[] {
   return [...out.slice(0, 7), 'Something else'];
 }
 
-// ── redesign: "you" identity auto-populated on Bridge-user public asks (editable) ─
-// No placeholder email/phone ships — only the real display name is pre-filled; contact fields
-// start empty for the user to fill in themselves.
+// ── "you" identity auto-populated on Bridge-user public asks (editable). Empty until the user's
+// real profile (name/email/phone) is wired in from account settings — no fabricated contact info.
 export const youProfile = { name: YOU_NAME, email: '', phone: '' };
 
-// ── redesign: my / public helpdesks + communities ───────────────────────────────
+// ── my / public helpdesks + communities ───────────────────────────────
 // Locally-created workspaces are MINE (private/invite-link by default — NOT public).
 // "Public Helpdesks" = ones that are public OR shared with me via a link I opened
-// (click link → addLinkedHelpdesk → appears in the Public Helpdesks list). No placeholder
-// public helpdesks ship — the list starts empty until a real public helpdesk exists or is linked.
-const seededPublicHelpdesks: HelpWorkspace[] = [];
+// (click link → addLinkedHelpdesk → appears in the Public Helpdesks list). None seeded — this
+// list is empty until a real public helpdesk exists or the user opens a share link.
 // Helpdesks I joined by opening a shared link (persisted).
 const LINKED_KEY = 'bridge.helpdesk.linked.v1';
 let linkedHelpdesks: HelpWorkspace[] = (() => { if (typeof window === 'undefined') return []; try { const v = JSON.parse(localStorage.getItem(LINKED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
 function persistLinked() { try { localStorage.setItem(LINKED_KEY, JSON.stringify(linkedHelpdesks)); } catch {} emit(); }
 export function addLinkedHelpdesk(ws: HelpWorkspace) { if (!linkedHelpdesks.some(w => w.id === ws.id)) { linkedHelpdesks = [ws, ...linkedHelpdesks]; persistLinked(); } }
 export function myHelpdesks(): HelpWorkspace[] { return workspaces; }
-export function publicHelpdesks(): HelpWorkspace[] { return [...linkedHelpdesks, ...seededPublicHelpdesks]; }
+export function publicHelpdesks(): HelpWorkspace[] { return linkedHelpdesks; }
 export function allHelpdesks(): HelpWorkspace[] { return [...workspaces, ...publicHelpdesks()]; }
 const helpdeskNameById = (id: string | null) => id ? (allHelpdesks().find(w => w.id === id)?.name) : undefined;
 export { helpdeskNameById };
-// My communities (for the My-Network broadcast scope; Bridge-AI-focused). No placeholder
-// communities ship — real communities come from the user's own Community records.
-export const myCommunities: { id: string; name: string }[] = [];
+// My communities (for the My-Network broadcast scope). Empty until the user has real communities
+// in their graph — no fabricated membership.
+export const myCommunities: Array<{ id: string; name: string }> = [];
 
 // ── redesign: per-card pin (My asks pinned by default; any card pin/unpinnable) ──
 const ASKPIN_KEY = 'bridge.helpdesk.askpins.v1';
@@ -564,21 +562,30 @@ export function isAskPinned(r: HelpRequest): boolean { return askPins[r.id] ?? i
 export function toggleAskPin(r: HelpRequest) { askPins = { ...askPins, [r.id]: !isAskPinned(r) }; try { localStorage.setItem(ASKPIN_KEY, JSON.stringify(askPins)); } catch {} emit(); }
 export function useAskPins() { return useStore(() => askPins); }
 
-// ── redesign: gamification (real, derived from actual activity — no placeholder stats) ─
+// ── gamification — derived from real activity only; no fabricated streak/badges/history ─
 export interface Streak { count: number; unit: 'days' | 'weeks' }
 export interface Badge { id: string; label: string }
 export interface ImpactReport { peopleHelped: number; communities: number; followUps: number; topContribution: string; moments: string[] }
-// No streak/badges/reputation/impact ship as invented numbers. Streaks and badges require real
-// historical activity to compute honestly; until that's wired, these report zero/empty rather
-// than fabricated counts. reputationFor also returns null for everyone until real reputation
-// (earned from actual completed helps) is tracked.
-export function getStreak(): Streak { return { count: 0, unit: 'days' }; }
-export function getBadges(): Badge[] { return []; }
-export function getImpactReport(): ImpactReport {
-  return { peopleHelped: peopleHelpedCount(), communities: 0, followUps: 0, topContribution: '', moments: [] };
+// Streak/badges require a real activity history to compute honestly — not yet wired, so they
+// report zero/empty rather than fabricated numbers.
+const emptyStreak: Streak = { count: 0, unit: 'days' };
+const noBadges: Badge[] = [];
+function computeImpact(): ImpactReport {
+  const helped = offers.filter(o => o.helperId === YOU_ID);
+  return {
+    peopleHelped: helped.length,
+    communities: myCommunities.length,
+    followUps: helped.length,
+    topContribution: helped.length ? 'Recent help offered' : '—',
+    moments: [],
+  };
 }
+export function getStreak(): Streak { return emptyStreak; }
+export function getBadges(): Badge[] { return noBadges; }
+export function getImpactReport(): ImpactReport { return computeImpact(); }
+// Reputation earned from real helping patterns — not yet computed from real history.
 export function reputationFor(_name: string): string | null { return null; }
-// People-Helped = the count of asks YOU actually offered help on (real, reactive — no seeded base).
+// People-Helped = the count of asks YOU actually offered help on (reactive, real).
 export function peopleHelpedCount(): number { return offers.filter(o => o.helperId === YOU_ID).length; }
 // Impact report fires every Dec 31 (prototype UI may read the clock; engine code may not).
 export function shouldShowImpactReport(d: Date): boolean { return d.getMonth() === 11 && d.getDate() === 31; }
@@ -610,10 +617,3 @@ export function useAiMode() { return useStore(getAiMode); }
 
 /** Inbound routes addressed to YOU (the recipient inbox) — invisible-by-default already applied. */
 export function inboxRoutes(): HelpRoute[] { return routes.filter(r => r.recipientId === YOU_ID && r.status === 'proposed'); }
-
-// No placeholder inbound requests ship — the inbox starts empty (honest empty state) until real
-// asks arrive from the user's own network or connected helpdesks. Kept as a no-op so existing
-// call sites (HelpdeskPage) don't need to change.
-export function seedInboxIfEmpty() {
-  /* intentionally empty: no fabricated inbound requests */
-}

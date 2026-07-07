@@ -20,12 +20,12 @@ const navItems = [
 const defaultAllowed = ['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (sender-approved draft)'];
 const defaultDenied = ['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network'];
 
-// No team members or API keys ship as placeholder content. Real team membership is managed via
-// WorkspaceTeamModal (backed by apps/api's workspace.* tRPC procedures); this page's own team/API
-// key lists are local-only UI state that a user populates themselves, starting empty.
-const teamMembers: { id: string; name: string; email: string; role: string; avatar: string; status: string; lastSeen: string }[] = [];
+// Real team members load from apiListMembers() (data/api.ts) once a workspace is connected —
+// empty here rather than fabricated people, matching WorkspaceTeamModal's real backend pattern.
+const teamMembers: Array<{ id: string; name: string; email: string; role: string; avatar: string; status: string; lastSeen: string }> = [];
 
-const apiKeys: { id: string; name: string; prefix: string; created: string; lastUsed: string; active: boolean }[] = [];
+// Real API keys are provisioned per-workspace — none exist until the user creates one.
+const apiKeys: Array<{ id: string; name: string; prefix: string; created: string; lastUsed: string; active: boolean }> = [];
 
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState('workspace');
@@ -90,7 +90,7 @@ export function SettingsPage() {
             <div className="grid sm:grid-cols-2 gap-4">
               {[
                 { icon: BookOpen, title: 'Documentation', desc: 'Concepts, vocabulary, and how rituals, signals, and governance fit together.', cta: 'Open docs' },
-                { icon: MessageCircle, title: 'Reach out to support', desc: 'Reach the Bridge team for setup, billing, or anything urgent.', cta: 'Start a conversation' },
+                { icon: MessageCircle, title: 'Contact support', desc: 'Reach the Bridge team for setup, billing, or anything urgent.', cta: 'Start a conversation' },
                 { icon: Keyboard, title: 'Keyboard shortcuts', desc: 'Move faster across the network, work, and approvals surfaces.', cta: 'View shortcuts' },
                 { icon: Zap, title: 'What’s new', desc: 'Recent releases — approvals inbox, execution ledger, two-tier profiles.', cta: 'See changelog' },
               ].map(card => (
@@ -288,6 +288,11 @@ export function SettingsPage() {
                       </td>
                     </tr>
                   ))}
+                  {members.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No team members yet. Invite someone to get started.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -340,34 +345,14 @@ export function SettingsPage() {
               <p className="text-sm text-[var(--color-navy-mid)]">Manage your subscription and payment details.</p>
             </div>
 
-            {/* Current Plan — no billing backend wired yet; honest "not configured" state */}
-            <div className="bg-white border border-[var(--color-border)] rounded-2xl p-6 shadow-sm">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-widest text-[var(--color-warm-gray)] mb-1">Current Plan</div>
-                  <div className="text-2xl font-semibold text-[var(--color-navy)]">No plan configured</div>
-                </div>
-              </div>
-              <p className="text-sm text-[var(--color-navy-mid)] mb-5">Connect billing to see plan usage and limits here.</p>
-              <div className="flex items-center gap-3">
-                <button className="px-4 py-2 bg-[var(--color-steel)] text-white text-xs font-bold rounded-lg hover:opacity-90 transition-opacity">
-                  Choose a Plan
-                </button>
-              </div>
-            </div>
-
-            {/* Billing Info */}
-            <div className="bg-white border border-[var(--color-border)] rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
-                <h3 className="font-semibold text-[var(--color-navy)] text-sm">Payment Method</h3>
-                <button className="text-xs font-semibold text-[var(--color-steel)] hover:underline">Add</button>
-              </div>
-              <div className="p-6 flex items-center gap-4">
-                <div className="w-14 h-10 rounded-lg bg-[var(--color-surface)] flex items-center justify-center">
-                  <CreditCard className="w-5 h-5 text-[var(--color-warm-gray)]" />
-                </div>
-                <div className="text-sm text-[var(--color-warm-gray)]">No payment method on file.</div>
-              </div>
+            {/* No billing provider connected yet — honest empty state, no fabricated plan/card/invoice */}
+            <div className="flex flex-col items-center gap-3 p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)' }}>
+              <CreditCard className="w-8 h-8" style={{ color: 'var(--color-warm-gray)' }} />
+              <div className="text-sm font-semibold text-[var(--color-navy)]">No plan connected</div>
+              <p className="text-xs max-w-sm" style={{ color: 'var(--color-warm-gray)' }}>Connect a billing provider to see your plan, payment method, and upcoming invoices here.</p>
+              <button className="px-4 py-2 text-white text-xs font-bold rounded-lg hover:opacity-90 transition-opacity" style={{ backgroundColor: 'var(--color-steel)' }}>
+                Connect billing
+              </button>
             </div>
           </div>
         );
@@ -421,9 +406,22 @@ export function SettingsPage() {
                 <h3 className="font-semibold text-[var(--color-navy)] text-sm">Active Sessions</h3>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {([] as { device: string; location: string; current: boolean; time: string }[]).length === 0 ? (
-                  <div className="px-6 py-8 text-center text-sm text-[var(--color-warm-gray)]">Session tracking is not wired to a real auth backend yet.</div>
-                ) : null}
+                {[
+                  { device: typeof navigator !== 'undefined' ? navigator.userAgent.split(' ').slice(-2).join(' ') : 'This device', location: '—', current: true, time: 'Active now' },
+                ].map((s, i) => (
+                  <div key={i} className="flex items-center justify-between px-6 py-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[var(--color-navy)] text-sm">{s.device}</span>
+                        {s.current && <span className="px-1.5 py-0.5 bg-[var(--success)]/10 text-[var(--success)] text-xs font-semibold rounded">Current</span>}
+                      </div>
+                      <div className="text-xs text-[var(--color-warm-gray)] mt-0.5">{s.location} · {s.time}</div>
+                    </div>
+                    {!s.current && (
+                      <button className="text-xs font-semibold text-[var(--danger)] hover:text-[var(--danger)] transition-colors">Revoke</button>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -472,7 +470,7 @@ export function SettingsPage() {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <code className="text-xs font-mono bg-[var(--color-surface)] px-2 py-1 rounded text-[var(--color-navy-mid)]">
-                            {showApiKey === key.id ? key.prefix : key.prefix}
+                            {key.prefix}
                           </code>
                           <button onClick={() => setShowApiKey(showApiKey === key.id ? null : key.id)} className="p-1 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] transition-colors">
                             {showApiKey === key.id ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -496,6 +494,11 @@ export function SettingsPage() {
                       </td>
                     </tr>
                   ))}
+                  {apiKeys.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No API keys yet. Generate one to get started.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -33,18 +33,19 @@ const agentDetails: Record<string, any> = {
     analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
   },
 };
-// No other agents ship as placeholders. Real agents appear here as the runtime adds them —
-// anything not in agentDetails falls through to defaultAgent's honest empty/zero state below.
 
+// No matching record → an honest "not configured yet" state rather than fabricated metrics.
+// helpdesk-ai is currently the only real, live agent; everything else routes here until the
+// agent runtime (P0 Kernel) ships real agents with real run history.
 const defaultAgent = {
-  name: 'Agent', specialization: 'General', model: '—', status: 'Not configured',
-  desc: 'A Bridge AI agent optimized for automated touchpoint execution across rituals. No telemetry yet.',
-  avatar: '?', color: '#4D7EA8',
-  accuracy: 0, runs: 0, rituals: 0, lastActive: '—',
-  skills: [] as { id: string; name: string; category: string; strength: number; locked: boolean }[],
-  connectedWorkflows: [] as string[],
-  activity: [] as { time: string; event: string; type: string }[],
-  analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['', '', '', '', '', '', ''] },
+  name: 'Agent', specialization: 'Not yet configured', model: '—', status: 'Inactive',
+  desc: 'This agent has not been created yet. Once the agent runtime is connected, its skills, activity, and run history will appear here.',
+  avatar: '?', color: '#B8B4A8',
+  accuracy: 0, runs: 0, rituals: 0, lastActive: 'Never',
+  skills: [],
+  connectedWorkflows: [],
+  activity: [],
+  analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
 };
 
 const navTabs = ['Overview', 'Skill Matrix', 'Activity', 'Connections', 'Settings'];
@@ -169,7 +170,7 @@ export function AgentDetail() {
 
   const maxBar = Math.max(1, ...raw.analytics.runs);
 
-  const avgStrength = Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length);
+  const avgStrength = skills.length ? Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length) : 0;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
@@ -337,13 +338,10 @@ export function AgentDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Activity</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <span className="text-xs text-[var(--color-warm-gray)]">{raw.runs} total events</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {raw.activity.length === 0 && (
-                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet.</div>
-                )}
                 {raw.activity.map((ev: any, i: number) => {
                   const typeColor: Record<string, string> = { run: 'bg-[var(--color-steel)]', data: 'bg-[var(--info)]', output: 'bg-[var(--success)]', system: 'bg-[var(--color-warm-gray)]' };
                   return (
@@ -355,6 +353,9 @@ export function AgentDetail() {
                     </div>
                   );
                 })}
+                {raw.activity.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this agent hasn't run.</div>
+                )}
               </div>
             </div>
 
@@ -390,9 +391,7 @@ export function AgentDetail() {
                   <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{raw.connectedWorkflows.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {raw.connectedWorkflows.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No rituals connected yet.</div>
-                  ) : raw.connectedWorkflows.map((wf: string) => (
+                  {raw.connectedWorkflows.map((wf: string) => (
                     <Link key={wf} to={`/ritual/${encodeURIComponent(wf.split(' — ')[0])}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
                       <div className="w-7 h-7 rounded-md bg-[var(--color-steel)]/10 flex items-center justify-center"><Zap className="w-3.5 h-3.5 text-[var(--color-steel)]" /></div>
@@ -400,6 +399,9 @@ export function AgentDetail() {
                       <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--color-steel)] transition-colors" />
                     </Link>
                   ))}
+                  {raw.connectedWorkflows.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No rituals connected yet.</div>
+                  )}
                 </div>
               </div>
               {/* Skills */}
@@ -421,6 +423,9 @@ export function AgentDetail() {
                       </div>
                     </Link>
                   ))}
+                  {skills.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No skills loaded yet.</div>
+                  )}
                 </div>
               </div>
             </div>

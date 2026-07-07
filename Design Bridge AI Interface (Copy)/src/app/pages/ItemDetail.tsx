@@ -116,15 +116,14 @@ function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }
   );
 }
 
-// was "Testimonials" → now "Opinions". No opinions ship as placeholder content — this section
-// only ever shows opinions a person actually recorded; otherwise an honest empty state.
+// was "Testimonials" → now "Opinions". No real opinions have been recorded for this person yet —
+// an honest empty state, no fabricated quotes.
 function Opinions() {
-  const data: { quote: string; author: string; role: string }[] = [];
+  const data: Array<{ quote: string; author: string; role: string }> = [];
   if (data.length === 0) {
     return (
-      <div className="p-6 rounded-xl border bg-white text-center flex flex-col items-center gap-2" style={{ borderColor: 'var(--color-border)' }}>
-        <Quote className="w-5 h-5" style={{ color: 'var(--color-steel-light)' }} />
-        <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>No opinions recorded yet.</p>
+      <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+        No opinions recorded yet.
       </div>
     );
   }
@@ -248,7 +247,7 @@ export function ItemDetail() {
   const bio = isCommunity
     ? `${community!.connections} people you know in this community${community!.sampleRoles?.[0] ? ` - common role: ${community!.sampleRoles[0]}` : ''}.`
     : person ? (person.bio || (person.position && person.company ? `${person.position} at ${person.company}.` : person.newsInsight || `${person.firstName}'s profile.`))
-      : 'No bio available yet.';
+      : 'No profile found.';
   const subtitle = isCommunity ? `${community!.connections} members` : (person?.company || '');
   const location = person?.location || '';
 
@@ -275,7 +274,7 @@ export function ItemDetail() {
   type Sec = { id: string; label: string; tier: Tier; person?: boolean; community?: boolean };
   const allSections: Sec[] = [
     { id: 'about', label: 'About', tier: 'public' },
-    { id: 'contact', label: 'Contact info', tier: 'public', person: true },
+    { id: 'contact', label: 'Contact', tier: 'public', person: true },
     { id: 'education', label: 'Education & Work History', tier: 'public', person: true },
     { id: 'relationship', label: 'Relationship', tier: 'private', person: true },
     { id: 'opinions', label: 'Opinions', tier: 'public' },

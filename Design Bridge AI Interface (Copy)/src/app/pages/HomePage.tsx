@@ -1,29 +1,40 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, MessageSquare, Send, Inbox } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, HandHeart, TrendingUp, Send, Check, ShieldCheck } from 'lucide-react';
+import { signals as allSignals, proposeFromSignal, type Signal, type SignalType } from '../data/signals';
+import { proposeAction } from '../data/actionQueue';
+import { proposeToLedger } from '../data/ledger';
 
-interface CanvasBlock {
-  id: string;
-  kind: 'signal' | 'reconnect' | 'initiative' | 'draft';
-  title: string;
-  body: string;
-  cta: string;
-  icon: any;
-  accent: string;
-}
-
-// No canvas blocks ship as placeholder content. Real blocks are generated from the user's own
-// Signals, calendar, and active Initiatives once those sources are connected/populated — until
-// then the canvas shows an honest empty state below.
-const defaultBlocks: CanvasBlock[] = [];
+const signalMeta: Record<SignalType, { icon: any; accent: string }> = {
+  Dormant: { icon: RefreshCw, accent: '#C4955A' },
+  Introduction: { icon: UserPlus, accent: '#4D7EA8' },
+  Help: { icon: HandHeart, accent: '#6B7C65' },
+  'Hiring/Fundraising': { icon: Briefcase, accent: '#2E4057' },
+  Community: { icon: TrendingUp, accent: '#7FA5C5' },
+};
 
 export function HomePage() {
+  const navigate = useNavigate();
   const [intent, setIntent] = useState('');
-  const [blocks] = useState<CanvasBlock[]>(defaultBlocks);
+  const [proposed, setProposed] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<string | null>(null);
+
+  // The four highest-priority real signals — same source as the Signals view, no fabricated blocks.
+  const blocks = useMemo(() => allSignals.slice(0, 4), []);
 
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
+  const act = async (s: Signal) => {
+    const entry = proposeFromSignal(s, 0);
+    const live = await proposeToLedger(entry);
+    if (!live) proposeAction(entry);
+    setProposed(prev => ({ ...prev, [s.id]: s.actions[0].label }));
+    setToast(live ? `"${s.actions[0].label}" drafted to Approvals — recorded in the live ledger` : `"${s.actions[0].label}" drafted — sent to Approvals for your review`);
+    window.setTimeout(() => setToast(null), 2800);
+  };
 
   return (
     <div className="@container flex-1 flex flex-col h-full overflow-auto"
@@ -45,8 +56,8 @@ export function HomePage() {
             {greeting}. Here's what matters in the next hour.
           </h1>
           <p style={{ color: 'var(--color-warm-gray)', maxWidth: 640 }}>
-            Four adaptive blocks generated from your signals, calendar, and active initiatives. Re-steer the canvas
-            below.
+            Adaptive blocks generated from your real signals — relationships, initiatives, and communities. Re-steer
+            the canvas below.
           </p>
         </div>
 
@@ -73,63 +84,76 @@ export function HomePage() {
           </button>
         </form>
 
-        {blocks.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center gap-3 border rounded-xl bg-white py-16 px-6 text-center"
-            style={{ borderColor: 'var(--color-border)' }}
-          >
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 12%, transparent)' }}>
-              <Inbox className="w-5 h-5" style={{ color: 'var(--color-steel)' }} />
-            </div>
-            <p className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>No adaptive blocks yet</p>
-            <p className="text-sm max-w-sm" style={{ color: 'var(--color-warm-gray)' }}>
-              Blocks appear here once Bridge has real Signals, calendar activity, or active Initiatives to draw from.
-              Connect a data source or create your first Initiative to get started.
-            </p>
+        {blocks.length > 0 ? (
+          <div className="grid grid-cols-1 @[700px]:grid-cols-2 gap-3">
+            {blocks.map((s, i) => {
+              const meta = signalMeta[s.type];
+              const Icon = meta.icon;
+              const wasProposed = proposed[s.id];
+              return (
+                <motion.article
+                  key={s.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="border rounded-xl bg-white p-5 hover:shadow-md transition-shadow flex flex-col gap-3"
+                  style={{ borderColor: 'var(--color-border)' }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: meta.accent + '15' }}>
+                      <Icon className="w-5 h-5" style={{ color: meta.accent }} />
+                    </div>
+                    <h3
+                      className="cursor-pointer hover:underline"
+                      onClick={() => s.whoId && navigate(`/item/${encodeURIComponent(s.whoId)}`)}
+                      style={{
+                        fontFamily: 'var(--font-editorial)',
+                        fontSize: '15px',
+                        fontWeight: 600,
+                        color: 'var(--color-navy)',
+                      }}>
+                      {s.who}
+                    </h3>
+                  </div>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--color-navy-mid)' }}>
+                    {s.insight}
+                  </p>
+                  {wasProposed ? (
+                    <span className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 14%, transparent)', color: 'var(--success)' }}>
+                      <Check className="w-3.5 h-3.5" /> Drafted: {wasProposed}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => act(s)}
+                      className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: 'var(--color-steel)' }}
+                    >
+                      {s.actions[0].label}
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </motion.article>
+              );
+            })}
           </div>
         ) : (
-        <div className="grid grid-cols-1 @[700px]:grid-cols-2 gap-3">
-          {blocks.map((b, i) => {
-            const Icon = b.icon;
-            return (
-              <motion.article
-                key={b.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="border rounded-xl bg-white p-5 hover:shadow-md transition-shadow flex flex-col gap-3"
-                style={{ borderColor: 'var(--color-border)' }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: b.accent + '15' }}>
-                    <Icon className="w-5 h-5" style={{ color: b.accent }} />
-                  </div>
-                  <h3 style={{
-                    fontFamily: 'var(--font-editorial)',
-                    fontSize: '15px',
-                    fontWeight: 600,
-                    color: 'var(--color-navy)',
-                  }}>
-                    {b.title}
-                  </h3>
-                </div>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-navy-mid)' }}>
-                  {b.body}
-                </p>
-                <button
-                  className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: 'var(--color-steel)' }}
-                >
-                  {b.cta}
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </motion.article>
-            );
-          })}
-        </div>
+          <div className="p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+            No signals yet — connect more of your network for Bridge to start surfacing what matters.
+          </div>
         )}
       </div>
+
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-lg shadow-lg text-sm font-semibold text-white flex items-center gap-2 z-50"
+          style={{ backgroundColor: 'var(--color-steel)' }}
+        >
+          <ShieldCheck className="w-4 h-4" /> {toast}
+          <button onClick={() => navigate('/approvals')} className="ml-1 underline underline-offset-2 inline-flex items-center gap-1">Review <ArrowRight className="w-3.5 h-3.5" /></button>
+        </motion.div>
+      )}
     </div>
   );
 }

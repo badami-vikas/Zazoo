@@ -69,8 +69,8 @@ function rowToCapture(r: any): ToolCapture {
   };
 }
 
-// No local demo captures: when Supabase is unreachable (e.g. signed-out), the pending-capture
-// surface shows an honest empty state rather than fake business-card scans.
+// When Supabase is unreachable (e.g. signed-out), there is no real capture data to show — an
+// honest empty list beats fabricated captures.
 function localDemo(): ToolCapture[] {
   return [];
 }

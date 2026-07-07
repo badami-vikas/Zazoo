@@ -83,13 +83,11 @@ export interface Application {
   unresolved?: string[]; createdAt: string;
 }
 
-// No placeholder job postings or candidate profile ship. The candidate profile starts blank
-// for the user to fill in; JOBS stays empty until a real job-sourcing connector is wired
-// (matches the honest-empty-state pattern used by data/dealpilot.ts's LISTINGS).
+// No seeded job postings or fabricated candidate profile — real postings arrive once a job-board
+// sourcing connector is wired (same shape as DealPilot's governed brokerage pipeline).
 const DEFAULT_CANDIDATE: CandidateProfile = {
   categories: [],
   skills: [],
-  minSalary: 0,
   locations: [],
 };
 

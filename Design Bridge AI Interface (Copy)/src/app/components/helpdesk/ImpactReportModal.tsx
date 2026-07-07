@@ -24,19 +24,15 @@ export function ImpactReportModal({ onClose }: { onClose: () => void }) {
               <div><span className="text-sm text-white/60">{s.label} </span><span className="text-base font-bold text-white">{s.value}</span></div>
             </div>
           ))}
-          {r.topContribution && (
-            <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10">
-              <div className="text-sm text-white/60">Your most common contribution:</div>
-              <div className="text-lg font-bold text-white">{r.topContribution}</div>
-            </div>
-          )}
+          <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10">
+            <div className="text-sm text-white/60">Your most common contribution:</div>
+            <div className="text-lg font-bold text-white">{r.topContribution}</div>
+          </div>
         </div>
 
         <div className="px-6 py-5">
-          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Moments you helped others.</div>
-          {r.moments.length === 0 ? (
-            <div className="text-sm text-white/60">No moments recorded yet — they'll show up here as you help people.</div>
-          ) : (
+          <div className="text-sm font-semibold text-white/80 mb-2 flex items-center gap-1.5"><Star className="w-4 h-4" style={{ color: 'var(--color-steel-light)' }} /> Top moments you helped others.</div>
+          {r.moments.length > 0 ? (
             <ol className="flex flex-col gap-1.5">
               {r.moments.map((m, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm text-white/80">
@@ -45,6 +41,8 @@ export function ImpactReportModal({ onClose }: { onClose: () => void }) {
                 </li>
               ))}
             </ol>
+          ) : (
+            <p className="text-sm text-white/60">No moments recorded yet — they'll show up here as you help people.</p>
           )}
         </div>
 

@@ -7,20 +7,20 @@ import { socialProviderFor } from '../data/integrations';
 import { IntegrationPermissions } from '../components/IntegrationPermissions';
 import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 
-// No integration ships with fabricated health/usage/cost metrics. Real integrations report their
-// own status via their own live panel (e.g. GoogleIntegrationPanel); anything without a live
-// telemetry source shows "Not connected" and empty logs/analytics rather than invented numbers.
+// Curated detail records for integrations with a real, known API shape. None are wired to a live
+// API yet in this prototype (that's `hasApi` below), so honest placeholders replace fabricated
+// activity/metrics until each provider is actually connected.
 const integrationDetails: Record<string, any> = {};
 
 const defaultIntegration = {
-  name: 'Integration', provider: 'Provider', category: 'General', status: 'Not connected', region: '—',
-  desc: 'A Bridge AI integration connecting external systems to the platform. Connect it to see live status.',
-  health: 0, lastSync: '—', recordsSynced: '—', latency: '—',
+  name: 'Integration', provider: 'Unknown', category: 'Not yet configured', status: 'Disconnected', region: '—',
+  desc: 'This integration has not been connected yet. Once connected, sync activity and metrics will appear here.',
+  health: 0, lastSync: 'Never', recordsSynced: '—', latency: '—',
   endpoint: '—',
   apiVersion: '—', rateLimit: '—', costToDate: '—',
-  logs: [] as { time: string; event: string; tokens: number; status: string }[],
-  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], success: [0, 0, 0, 0, 0, 0, 0], months: ['', '', '', '', '', '', ''] },
-  connectedAgents: [] as string[],
+  logs: [],
+  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], success: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
+  connectedAgents: [],
 };
 
 export function IntegrationDetail() {
@@ -206,13 +206,11 @@ export function IntegrationDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Activity</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <button className="text-xs text-[var(--color-steel)] hover:underline flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {intg.logs.length === 0 ? (
-                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet.</div>
-                ) : intg.logs.map((log: any, i: number) => (
+                {intg.logs.map((log: any, i: number) => (
                   <div key={i} className="flex items-center gap-4 px-5 py-3.5 hover:bg-[var(--color-surface)] transition-colors">
                     <div className={clsx('w-2 h-2 rounded-full shrink-0', log.status === 'ok' ? 'bg-[var(--success)]' : log.status === 'warn' ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]')} />
                     <span className="text-xs font-mono text-[var(--color-warm-gray)] w-20 shrink-0">{log.time}</span>
@@ -221,6 +219,9 @@ export function IntegrationDetail() {
                     <span className={clsx('text-xs font-bold uppercase ml-2', log.status === 'ok' ? 'text-[var(--success)]' : log.status === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--danger)]')}>{log.status}</span>
                   </div>
                 ))}
+                {intg.logs.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this integration hasn't synced.</div>
+                )}
               </div>
             </div>
           </section>
@@ -235,9 +236,7 @@ export function IntegrationDetail() {
                 <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{intg.connectedAgents.length}</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
-                {intg.connectedAgents.length === 0 ? (
-                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents connected yet.</div>
-                ) : intg.connectedAgents.map((ag: string) => (
+                {intg.connectedAgents.map((ag: string) => (
                   <Link key={ag} to={`/agent/${encodeURIComponent(ag.split(' — ')[0])}`}
                     className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
                     <div className="w-7 h-7 rounded-full bg-[var(--info)]/15 flex items-center justify-center text-xs font-bold text-[var(--info)]">
@@ -247,6 +246,9 @@ export function IntegrationDetail() {
                     <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--warning)] transition-colors" />
                   </Link>
                 ))}
+                {intg.connectedAgents.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents connected yet.</div>
+                )}
               </div>
             </div>
           </section>

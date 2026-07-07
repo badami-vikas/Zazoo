@@ -1,10 +1,7 @@
-// Governance local fallback — shapes mirror SCHEMA.sql v2 (ledger · decision_traces · delegations ·
-// policies). The live path is data/ledger.ts (loadLedger), which reads the real append-only `ledger`
-// table in Supabase. F2 (Approvals inbox) reads the PENDING slice (decision === null); F3 (Execution
-// Ledger) reads the full history. This module is only the LOCAL FALLBACK used when Supabase is
-// unreachable — it intentionally ships EMPTY (no placeholder ledger rows) so an offline/disconnected
-// session shows an honest empty state rather than fake approvals/history.
-// NOTE: no naked relationship scores anywhere — warmth is phrased qualitatively.
+// Governance mock data — shapes mirror SCHEMA.sql v2 (ledger · decision_traces · delegations · policies).
+// F2 (Approvals inbox) reads the PENDING slice (decision === null); F3 (Execution Ledger) reads the full
+// append-only history. One source so the live queue and the archive stay coupled, exactly like the real
+// `ledger` table would. NOTE: no naked relationship scores anywhere — warmth is phrased qualitatively.
 
 export type ActorKind = 'agent' | 'human';
 export type Decision = 'approved' | 'vetoed' | 'edited_approved' | 'auto_approved' | null;
@@ -48,22 +45,24 @@ export interface LedgerEntry {
 }
 
 // ── PENDING (F2 Approvals inbox) — ledger rows where decision IS NULL ─────────────
-// Empty: real pending approvals come from Supabase via data/ledger.ts (loadLedger).
+// Empty by design: real pending approvals come from loadLedger() (Supabase). This local fallback
+// only kicks in when Supabase is unreachable, and an honest empty state beats fabricated rows.
 export const pendingApprovals: LedgerEntry[] = [];
 
 // ── HISTORY (F3 Execution Ledger) — append-only, decisions already made ───────────
-// Empty: real history comes from Supabase via data/ledger.ts (loadLedger).
+// Same rule: empty local fallback, real history comes from loadLedger().
 export const ledgerHistory: LedgerEntry[] = [];
 
 export const allLedger: LedgerEntry[] = [...pendingApprovals, ...ledgerHistory];
 
-// delegations — resolves the "on whose behalf" question (delegations table). Empty local fallback;
-// real delegations resolve server-side once wired to the live delegations table.
+// delegations — resolves the "on whose behalf" question (delegations table). Populated once real
+// delegations are created; empty here since none are seeded.
 export const delegations: Record<string, { from: string; to: string; scope: string }> = {};
 
 export const pendingCount = pendingApprovals.length;
 
-// Veto reason chips → feed the Variance Adjuster (policy_params), never code.
+// Veto reason chips → feed the Variance Adjuster (policy_params), never code. Real, generic
+// reasons (not fabricated per-scenario copy) — usable regardless of which action is vetoed.
 export const vetoReasons = ['Too casual', 'Wrong recipient', 'Bad timing', 'Off-strategy', 'Tone'];
 
 export function decisionLabel(d: Decision): string {

@@ -1,5 +1,6 @@
 // DealPilot — local reactive store + the ThesisFit scoring proven in platform/tools/dealpilot.
-// Same standardization pass as JobPilot: card/kanban/list views over one listings dataset.
+// Listings come only from the real, governed sourcing pipeline (useLiveListings) below — no
+// seeded demo listings. Empty until the user sources or a brokerage connection is committed.
 import { useSyncExternalStore, useState } from 'react';
 
 export interface ThesisProfile { industries: string[]; geo: string[]; sdeMin?: number; sdeMax?: number; revenueMin?: number; revenueMax?: number }
@@ -59,9 +60,8 @@ export interface Deal { id: string; listingId: string; name: string; industry: s
 
 const DEFAULT_THESIS: ThesisProfile = { industries: ['HVAC', 'Landscaping', 'IT Services'], geo: ['Texas', 'Florida'], sdeMin: 300000, sdeMax: 900000 };
 
-// No placeholder listings ship. Real listings come from the governed sourcing pipeline
-// (useLiveListings/useDealPilotSourcing below, gated on API_ENABLED) or a brokerage connection
-// (data/brokerages.ts). This constant stays empty until the user sources or connects real listings.
+// No seeded listings — real listings come only from useLiveListings() (the governed
+// BizBuySell/BusinessBroker sourcing pipeline below) once the user sources or commits a capture.
 export const LISTINGS: DealListing[] = [];
 
 const K = { thesis: 'bridge.dealpilot.thesis.v1', deals: 'bridge.dealpilot.deals.v1' };
@@ -110,12 +110,13 @@ export function runDeepDive(dealId: string) {
 }
 
 // ── REAL-backend sourcing layer (additive, gated by API_ENABLED) ───────────────────────────────
-// DESIGN CHOICE: `LISTINGS` stays exactly as-is (a plain exported array, empty by default) — DealPilotPage.tsx
-// uses it in a `.filter().map()` chain and a plain `.find()`, both inside the component body but
-// as a bare identifier, not a hook call. Converting it to a hook (`useListings()`) would still
-// require touching DealPilotPage.tsx's call sites, which is out of scope here. Instead we add a
-// SEPARATE `useLiveListings()` reactive store for API-sourced candidates; a future UI pass can
-// merge `[...LISTINGS, ...useLiveListings()]` at the call site with a one-line change.
+// DESIGN CHOICE: `LISTINGS` stays exactly as-is (a plain exported, empty-by-default array) —
+// DealPilotPage.tsx uses it in a `.filter().map()` chain and a plain `.find()`, both inside the
+// component body but as a bare identifier, not a hook call. Converting it to a hook
+// (`useListings()`) would still require touching DealPilotPage.tsx's call sites, which is out of
+// scope here. Instead we add a SEPARATE `useLiveListings()` reactive store for API-sourced
+// candidates; a future UI pass can merge `[...LISTINGS, ...useLiveListings()]` at the call site
+// with a one-line change.
 import { API_ENABLED, apiDealPilotSource, apiDealPilotCommit, apiDealPilotList, type DealPilotCapturePreview, type DealPilotCandidateDTO } from './api';
 import { getBrokerages } from './brokerages';
 
@@ -140,7 +141,7 @@ function persistLive() {
 function subscribeLive(fn: () => void) { liveSubs.add(fn); return () => liveSubs.delete(fn); }
 
 /** API-sourced listings only (empty array when API disabled or nothing committed yet). Merge with
- * the `LISTINGS` constant at the call site, e.g. `[...LISTINGS, ...useLiveListings()]`. */
+ * the (empty by default) `LISTINGS` constant at the call site, e.g. `[...LISTINGS, ...useLiveListings()]`. */
 export function useLiveListings(): Listing[] { return useSyncExternalStore(subscribeLive, () => liveListings, () => []); }
 
 /** Quarantined-but-uncommitted captures awaiting a human "Add" decision. */

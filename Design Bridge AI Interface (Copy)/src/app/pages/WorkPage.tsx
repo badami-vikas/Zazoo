@@ -10,11 +10,11 @@ import { useInitiatives, createInitiative, deleteInitiative, type Initiative } f
 
 // Initiatives now come from the user-created store (data/initiatives.ts) — no dummy data.
 
-// Rituals and Tools tabs on this page navigate straight to their own dedicated pages
-// (see handleTabChange below) — these arrays are unused placeholders kept empty so the
-// in-page card/table renderers have an honest (never-reached) fallback shape.
-const ritualsData: { id: string; name: string; frequency: string; nextRun: string; status: string; list: string }[] = [];
-const toolsData: { id: string; name: string; category: string; lastUsed: string; usageCount: number; list: string }[] = [];
+// Rituals/Tools tabs redirect immediately to their dedicated pages (see handleTabChange below),
+// so activeTab never actually becomes 'Rituals' or 'Tools' — these branches are unreachable dead
+// code kept only so the (never-rendered) card/table renderers below don't reference undefined data.
+const ritualsData: Array<{ id: string; name: string; frequency: string; nextRun: string; status: string; list: string }> = [];
+const toolsData: Array<{ id: string; name: string; category: string; lastUsed: string; usageCount: number; list: string }> = [];
 
 export function WorkPage() {
   const [activeTab, setActiveTab] = useState('Initiatives');

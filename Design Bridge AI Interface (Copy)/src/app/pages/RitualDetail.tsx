@@ -5,28 +5,28 @@ import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { RitualCanvas } from '../components/RitualCanvas';
 
-// No placeholder rituals ship. Real rituals are user-created (see WorkPage's New Ritual flow /
-// RitualCreate) and their run history/analytics reflect actual executions — until a ritual has
-// run, its detail page shows honest zero/empty values rather than invented performance numbers.
 const playbookDetails: Record<string, any> = {};
 
+// No matching record → an honest "not configured yet" state. Rituals created via the New Ritual
+// flow are not yet persisted to a backing store this page reads from (see RitualCreate.tsx);
+// once wired, this fallback goes away.
 const defaultPlaybook = {
-  name: 'Untitled ritual',
-  type: 'Custom',
-  status: 'Active',
-  description: 'A ritual that runs a structured sequence of touchpoints. No runs recorded yet.',
-  owner: '',
-  created: '',
-  lastModified: '',
+  name: 'Ritual',
+  type: 'Not yet configured',
+  status: 'Paused',
+  description: 'This ritual has not been created yet. Once it is set up, its triggers, steps, and run history will appear here.',
+  owner: '—',
+  created: '—',
+  lastModified: '—',
   successRate: 0,
   totalRuns: 0,
   avgDuration: '—',
-  triggers: [] as { id: string; type: string; condition: string; icon: any; color: string }[],
-  steps: [] as { id: string; order: number; type: string; name: string; description: string; delay: string; icon: any; status: string }[],
+  triggers: [],
+  steps: [],
   analytics: {
     runs: [0, 0, 0, 0, 0, 0, 0],
     successRates: [0, 0, 0, 0, 0, 0, 0],
-    months: ['', '', '', '', '', '', ''],
+    months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'],
     topDropoff: '—',
     avgTimeToComplete: '—',
     emailOpenRate: '—',
@@ -190,6 +190,11 @@ export function RitualDetail() {
                 <div className="flex items-center gap-3 px-4 py-2 bg-[var(--color-surface)] rounded-lg border border-dashed border-[var(--color-border)] text-xs text-[var(--color-navy-mid)]">
                   <GitBranch className="w-4 h-4 text-[var(--color-warm-gray)]" />
                   All triggers use <span className="font-semibold text-[var(--color-navy-mid)] px-1">OR</span> logic — any single trigger will activate the ritual.
+                </div>
+              )}
+              {pb.triggers.length === 0 && (
+                <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+                  No triggers configured yet.
                 </div>
               )}
             </div>

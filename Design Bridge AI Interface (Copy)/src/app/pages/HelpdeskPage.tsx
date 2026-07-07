@@ -4,7 +4,7 @@ import {
   LifeBuoy, Plus, Table as TableIcon, LayoutGrid, Check, Gift, Info,
 } from 'lucide-react';
 import {
-  useRequests, useOffers, useAiMode, useAskPins, seedInboxIfEmpty,
+  useRequests, useOffers, useAiMode, useAskPins,
   myHelpdesks, publicHelpdesks, getStreak, getBadges, peopleHelpedCount, shouldShowImpactReport,
   isMine, isAskPinned, getAiFlags, setAiRecommendation, setAiScreening, AI_FLAG_TOOLTIPS,
   type HelpRequest, type Audience,
@@ -58,7 +58,6 @@ export function HelpdeskPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
 
-  useEffect(() => { seedInboxIfEmpty(); }, []);
   useEffect(() => { if (shouldShowImpactReport(new Date())) setImpactOpen(true); }, []);
 
   const myIds = useMemo(() => new Set(myHelpdesks().map(w => w.id)), [requests]);

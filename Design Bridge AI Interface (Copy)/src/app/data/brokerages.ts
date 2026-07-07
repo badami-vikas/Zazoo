@@ -13,9 +13,10 @@ export interface Brokerage {
 
 const K = 'bridge_brokerages_v1';
 
+// Real, named deal-sourcing platforms — not fake data, but not yet connected (status reflects that).
 const SEED: Brokerage[] = [
-  { id: 'brokerage_1', name: 'BizBuySell', portalUrl: 'https://www.bizbuysell.com', status: 'disconnected', addedAt: new Date().toISOString() },
-  { id: 'brokerage_2', name: 'BusinessBroker.net', portalUrl: 'https://www.businessbroker.net', status: 'disconnected', addedAt: new Date().toISOString() },
+  { id: 'brokerage_bizbuysell', name: 'BizBuySell', portalUrl: 'https://www.bizbuysell.com', status: 'disconnected', addedAt: new Date().toISOString() },
+  { id: 'brokerage_businessbroker', name: 'BusinessBroker.net', portalUrl: 'https://www.businessbroker.net', status: 'disconnected', addedAt: new Date().toISOString() },
 ];
 
 function load(): Brokerage[] {

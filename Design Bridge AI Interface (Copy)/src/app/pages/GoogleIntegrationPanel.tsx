@@ -138,7 +138,7 @@ export function GoogleIntegrationPanel() {
           {data && !data.oauthConfigured && (
             <Banner tone="warn">
               Demo gateway active ({data.gatewayKind}). Set <code className="font-mono">GOOGLE_CLIENT_ID</code> / <code className="font-mono">GOOGLE_CLIENT_SECRET</code> on
-              the API to connect a real Google account. Sync works end-to-end once configured.
+              the API to connect a real Google account. Until then, no real Gmail/Calendar data is synced.
             </Banner>
           )}
 
