@@ -44,10 +44,12 @@ what/why/eval-results/affected-Initiatives/rollback, support auto/staged/
 opt-out/pin/rollback.
 
 **Day-1 bar (user, explicit priority over next-wave items above)**: onboarding
-agent on Grok API + 5 agents inbuilt, so Module proposals get drafted in
-real time during onboarding and land in Approvals (shipped-for-approval, not
-shipped-live). **STATUS: not present** — no Grok provider behind
-ModelProvider yet, only single CoS classifyIntent/converse exists.
+agent on Groq API (corrected from "Grok" — user typo, see ADR-033 /
+[foundational-agents](foundational-agents.md)) + 5 agents inbuilt, so Module
+proposals get drafted in real time during onboarding and land in Approvals
+(shipped-for-approval, not shipped-live). **STATUS: GroqProvider already
+built** (predates this doc), only single CoS classifyIntent/converse exists
+— the 5-agent wiring is still open.
 
 **The 5 agents are already canon** (`docs/raw/roadmap-v2-universal-commons.md`
 — "only five permanent agents exist"; an earlier draft of this page invented
@@ -59,10 +61,10 @@ Component Registry/installed Modules for overlap) · **Communications Agent**
 **Governance Agent** (permissions/policy/compliance/risk scoring before
 anything reaches Approvals) · **Capability Builder** (drafts new capabilities
 AFTER approval only — never ships live). Team feeds ONE governed draft per
-turn, no independent write access. GrokProvider = new ModelProvider
-implementation, config-selectable for onboarding path, needs xAI key (code
-builds without one, fails closed).
+turn, no independent write access. GroqProvider already exists
+(`platform/packages/models/src/groq-provider.ts`), wired behind
+`GROQ_API_KEY` — still open: wiring the 5 agents into onboarding itself.
 
-**Sequencing ruling**: Day-1 slice (Grok provider + 5-agent onboarding team +
-live Module-proposal drafting) ships BEFORE Component Registry/eval-harness/
-versioning/community-signals wave.
+**Sequencing ruling**: Day-1 slice (5-agent onboarding team + live
+Module-proposal drafting, Groq provider already done) ships BEFORE Component
+Registry/eval-harness/versioning/community-signals wave.
