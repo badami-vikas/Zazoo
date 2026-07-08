@@ -20,6 +20,15 @@ Sensing layer = CONTEXT PROVIDER registry, providers = peers, swappable:
 - Per-surface subsets: desktop = all · browser = browser/documents · mobile = voice/photos.
 - Capture contract unchanged: every capture → inspectable Memory entry, blink = tell.
 
+## Desktop shell offline + companion window (R-001/R-002, ADR-028, 2026-07-07)
+- Shell spawn API itself: Node child on free localhost port, wait `/health`, kill on quit. Dev build never spawn (external 5173/4000 unchanged). `BRIDGE_API_URL` env override.
+- No `DATABASE_URL` → in-memory, data gone on quit. Honest. Set `DATABASE_URL` before launch → real persistence (env inherited by child).
+- API URL injected pre-load: `window.__BRIDGE_API_URL__` init script → trpc client read it first, then `VITE_API_URL`, then localhost:4000. Windows built in Rust code now, not tauri.conf (port only known at runtime).
+- Avatar = REAL OS window ("overlay": 96×96, transparent, no chrome, always-on-top, skip-taskbar, bottom-right). Own Vite entry `overlay.html` (asset protocol has no SPA fallback). Same Creature + avatar-store as in-page one.
+- State machine v1: collapsed → hover → expanded_idle → working (result_ready/dismissing typed, not driven yet). Expand grow the WINDOW via Rust `overlay_resize`, bottom-right pinned. Panel: status + pending approvals + "Open Bridge" (`focus_main_window`).
+- In Tauri, in-page AvatarOverlay suppressed (no double avatar). Browser deploys keep in-page one.
+- Gaps: shell crash leak Node child; blink-tell window-local; GUI runtime not verified headless (cargo check + builds only).
+
 ## Voice Command Center
 Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/page/selected object/active app/current doc/intent. Examples: "summarize this meeting", "build workflow from this", "turn this into agent". Consistent across all 3 clients; only available capabilities differ per platform permissions. NOTE: pulls part of P4 (Command Center) cross-surface — roadmap touch.
 

@@ -6,7 +6,18 @@
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import type { AppRouter } from "@bridge/api";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+/**
+ * API URL resolution order (R-001 offline desktop):
+ *  1. `window.__BRIDGE_API_URL__` — injected by the Tauri shell's window
+ *     initialization script, pointing at the managed API sidecar it spawned
+ *     on a free localhost port. Runs before this module evaluates.
+ *  2. `VITE_API_URL` — build-time env (browser deploys, dev).
+ *  3. localhost:4000 — the API's dev default.
+ */
+const API_URL =
+  (typeof window !== "undefined" && window.__BRIDGE_API_URL__) ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:4000";
 
 export const trpc = createTRPCClient<AppRouter>({
   links: [httpBatchLink({ url: `${API_URL}/trpc` })],

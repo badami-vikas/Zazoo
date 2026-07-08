@@ -246,8 +246,12 @@ export default function Layout() {
       {/* Persistent avatar overlay — every route, inside the authed shell
           (spec-consolidation-2026-07.md section 3). Renders once prefs are
           resolved (either from localStorage or the existing-user fallback)
-          so it never flashes a default animal before the real one loads. */}
-      {avatarPrefs && (
+          so it never flashes a default animal before the real one loads.
+          SUPPRESSED in the desktop shell (R-002): there the avatar is an
+          OS-level floating companion window (apps/desktop overlay.rs +
+          apps/web OverlayApp.tsx) and rendering both would duplicate it;
+          plain-browser deploys keep this in-page overlay. */}
+      {avatarPrefs && !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
           animal={avatarPrefs.animal}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
