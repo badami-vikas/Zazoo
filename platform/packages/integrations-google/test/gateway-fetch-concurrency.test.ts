@@ -63,10 +63,10 @@ function buildFakeGmailClient(opts: {
             await new Promise((resolve) => setTimeout(resolve, opts.getDelayMs));
 
             if (opts.alwaysFailIds?.has(id)) {
-              throw new Error(`dummy_ permanent failure fetching thread ${id}`);
+              throw new Error(`test_fixture_ permanent failure fetching thread ${id}`);
             }
             if (opts.failOnceIds?.has(id) && attempt === 1) {
-              throw new Error(`dummy_ transient failure fetching thread ${id} (attempt ${attempt})`);
+              throw new Error(`test_fixture_ transient failure fetching thread ${id} (attempt ${attempt})`);
             }
 
             opts.calls.push({ id, startedAt, endedAt: Date.now() });
@@ -77,15 +77,15 @@ function buildFakeGmailClient(opts: {
                   {
                     id: `${id}-msg-1`,
                     internalDate: "1751500000000",
-                    snippet: `dummy_ snippet for ${id}`,
+                    snippet: `test_fixture_ snippet for ${id}`,
                     payload: {
                       headers: [
-                        { name: "From", value: "dummy_sender@example.com" },
-                        { name: "Subject", value: `dummy_ subject ${id}` },
+                        { name: "From", value: "test_fixture_sender@example.com" },
+                        { name: "Subject", value: `test_fixture_ subject ${id}` },
                         { name: "Date", value: "2026-07-05T00:00:00.000Z" },
                       ],
                       mimeType: "text/plain",
-                      body: { data: b64(`dummy_ body ${id}`) },
+                      body: { data: b64(`test_fixture_ body ${id}`) },
                     },
                   },
                 ],
@@ -102,7 +102,7 @@ function buildFakeGmailClient(opts: {
 }
 
 test("fetchThreads runs per-thread fetches CONCURRENTLY (bounded), tolerating a transient per-thread failure via retry", async (t) => {
-  const threadIds = Array.from({ length: 12 }, (_, i) => `dummy_thread_${i}`);
+  const threadIds = Array.from({ length: 12 }, (_, i) => `test_fixture_thread_${i}`);
   const calls: FakeThreadsGetCall[] = [];
   const inFlight = { current: 0, max: 0 };
   const failOnceIds = new Set([threadIds[3]!]);
@@ -146,10 +146,10 @@ test("fetchThreads runs per-thread fetches CONCURRENTLY (bounded), tolerating a 
 });
 
 test("fetchThreads skips a thread that fails every retry attempt instead of aborting the whole sync", async (t) => {
-  const threadIds = ["dummy_thread_ok_1", "dummy_thread_bad", "dummy_thread_ok_2"];
+  const threadIds = ["test_fixture_thread_ok_1", "test_fixture_thread_bad", "test_fixture_thread_ok_2"];
   const calls: FakeThreadsGetCall[] = [];
   const inFlight = { current: 0, max: 0 };
-  const alwaysFailIds = new Set(["dummy_thread_bad"]);
+  const alwaysFailIds = new Set(["test_fixture_thread_bad"]);
   const fakeGmailClient = buildFakeGmailClient({ threadIds, getDelayMs: 5, alwaysFailIds, calls, inFlight });
 
   const googleapisMock = t.mock.module("googleapis", {
@@ -169,7 +169,7 @@ test("fetchThreads skips a thread that fails every retry attempt instead of abor
   assert.equal(result.threads.length, 2, "the permanently-failing thread is skipped; the other two still come back");
   assert.deepEqual(
     result.threads.map((th) => th.threadId).sort(),
-    ["dummy_thread_ok_1", "dummy_thread_ok_2"],
+    ["test_fixture_thread_ok_1", "test_fixture_thread_ok_2"],
   );
 
   googleapisMock.restore();

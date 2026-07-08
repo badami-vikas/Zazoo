@@ -1,8 +1,9 @@
 ---
 title: Bridge primitive specifications
 type: raw
-doc_kind: ontology
+doc_kind: reference
 status: draft
+related_wiki: ../wiki/ontology.md
 updated: 2026-07-07
 companions:
   - authority-model.md

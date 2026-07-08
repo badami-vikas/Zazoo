@@ -8,7 +8,7 @@ import { createGreenhouseConnector, createAshbyConnector, createLeverConnector }
 // JSON endpoints), report the fixed 0.95 confidence for every row, and pass query/rows through to
 // the injected fetcher untouched — i.e. identical to what the old per-connector copies produced.
 
-const dummyRows = [{ dummy_title: "Software Engineer" }, { dummy_title: "Product Manager" }];
+const dummyRows = [{ test_fixture_title: "Software Engineer" }, { test_fixture_title: "Product Manager" }];
 
 async function assertConnectorBehavior(
   createConnector: (fetcher: (query: any) => Promise<Array<Record<string, unknown>>>) => any,
@@ -26,7 +26,7 @@ async function assertConnectorBehavior(
   assert.equal(connector.tier, "free");
   assert.equal(connector.estimateCost({ kind: "company", hints: {} }), 0);
 
-  const query = { kind: "company", hints: { name: "dummy_acme" } };
+  const query = { kind: "company", hints: { name: "test_fixture_acme" } };
   const envelopes = await connector.fetch(query);
 
   assert.equal(calls.length, 1);

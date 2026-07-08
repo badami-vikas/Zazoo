@@ -4,6 +4,8 @@ full: [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-softwa
 
 Ordered by **irreversibility** (kernel hardest first) + **one hypothesis per phase**. Ambient sensing = day 1; ambient acting = Phase 4.
 
+**Primitive vocab** (2026-07-07, [ontology](ontology.md)): "workflow" = Automation · "tool" = implementation surface, user-facing primitive = Workspace · Chief of Staff = Agent archetype · Signal = derived Incident · Project = ElementType. Promotion ladder = trust ladder, never category mutation (a promoted Skill stays a Skill; new governed object consumes it).
+
 ## Practice hardening (2026-07-06 research sweep — folded into phases below)
 - **P0**: lethal-trifecta policy rule (private-read + untrusted-ingest + egress ⇒ auto-External band, overrides computed risk) · ≤20 active tools per agent turn, deferred registry lookup beyond · sensing = CONTEXT PROVIDER registry (9 kinds, raw/derived split at type level) not 3 sensor kinds · approval = durable resumable state (zero-compute wait, engine signal/wait primitives), never poll.
 - **P1**: onboarding = pop-up screen · blueprint = persisted draft + diff + approval card (NO competitor ships pre-apply approval — Notion/Fibery/Noloco all post-hoc undo — this is the moat).
@@ -31,6 +33,16 @@ Ordered by **irreversibility** (kernel hardest first) + **one hypothesis per pha
 - **P4 Interaction Expansion** — proves *"natural interaction."* Command Center (keyboard/voice/context) · **ambient ACTING** (suggestions, quick actions, insertion) · Communications skill gate.
 - **P5 Fork/Compose/Publish** — proves *"many softwares, one engine."* Egg-spawn/Fork · Compose · Publish Blueprint · versioned+pinned shared capabilities · deny-wins policy compose.
 - **P6 Domain + Ecosystem** — proves *"compiler generalizes."* JobPilot/ResearchPilot · community marketplace · Windows capture port · E2EE tier (old P6 lands here).
+
+## Consolidation sprint (2026-07-06 session 2, ADR-026 — full: [../raw/execution-plan-2026-07.md](../raw/execution-plan-2026-07.md))
+Tracks A–G, subagent-executable, 4-week sequence. Headline changes to phases:
+- **Avatar UN-DEFERRED → P1 NOW** (Track D): web in-page persona (meditate/awaken/blink on `sensor.capture`, click→inspectable Memory entry) + onboarding egg/spirit-animal/hatch; Tauri overlay follows same track. Personality = Pi 4th pillar, ships day 1.
+- **P0 additions**: Builder toolbelt (fs:read/fs:write/code:exec + SandboxProvider port — kernel has no Read/Write/Edit/Bash today) · PromptAssembler (layered prompt uplift) · ladder-audit invariant (threshold checks = pure fn/SQL, never model calls).
+- **P1 additions**: onboarding v2 (free-text profession-led, email→workspace-name rule, hypothesis+permission step, registry-search step, LinkedIn REJECTED) · prototype-skin migration onto ADR-023 IA (Track C) · control-panel icon on every broad table.
+- **P2 additions**: Pi package importer (manifest translator → governed Community capability; Activepieces pieces via same seam) · progressive disclosure of package contents (extends ≤20-tools rule) · Docling DocumentProvider · Nango ConnectorProvider.
+- **P3 additions**: E2B/Daytona sandbox adapter · Langfuse-vs-Mastra-evals bake-off · dream cycle = named nightly ritual · CoS weekly board-meeting reflection ritual.
+- **P5/P6 additions**: virtual office (Termi-like) optional package.
+- **Dummy purge NOW** (Track B) — supersedes "tracked debt, not purged this pass".
 
 ## Productivity-app research ingest (2026-07-06)
 User's scattered CSV/txt research (productivity/task/calendar apps + agentic platforms) + live Product Hunt scan, consolidated (no duplication) into: [../raw/productivity-app-research-2026.md](../raw/productivity-app-research-2026.md). Source CSVs stay in `My Data/New Data/` (not moved).

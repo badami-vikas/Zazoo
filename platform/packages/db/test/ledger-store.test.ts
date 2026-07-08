@@ -15,7 +15,7 @@ import test from "node:test";
 import { AlreadyResolvedError, type LedgerEntry } from "@bridge/core";
 import { createLocalDb, DrizzleLedgerStore, schema } from "../src/index.js";
 
-const NIL_ACTOR = "00000000-0000-0000-0000-00000000dead"; // dummy_ actor id, no FK on ledger.actor_id
+const NIL_ACTOR = "00000000-0000-0000-0000-00000000dead"; // test_fixture_ actor id, no FK on ledger.actor_id
 
 function decisionRow(overrides: Partial<LedgerEntry> & { id: string; refLedgerId: string }): LedgerEntry {
   return {
@@ -24,7 +24,7 @@ function decisionRow(overrides: Partial<LedgerEntry> & { id: string; refLedgerId
     actorId: NIL_ACTOR,
     action: "approve",
     resourceType: "person",
-    inputs: { note: "dummy_input" },
+    inputs: { note: "test_fixture_input" },
     userDecision: "approve",
     policyResults: [],
     createdAt: "2026-07-05T00:00:00.000Z",
@@ -37,7 +37,7 @@ test("ledger: partial unique index rejects a second resolving decision row for t
   try {
     const [ws] = await db
       .insert(schema.workspaces)
-      .values({ name: "dummy_ws_ledger_toctou" })
+      .values({ name: "test_fixture_ws_ledger_toctou" })
       .returning({ id: schema.workspaces.id });
     assert.ok(ws, "workspace seeded");
 
@@ -51,7 +51,7 @@ test("ledger: partial unique index rejects a second resolving decision row for t
       actorId: NIL_ACTOR,
       action: "write",
       resourceType: "person",
-      inputs: { full_name_override: "dummy_Ada" },
+      inputs: { full_name_override: "test_fixture_Ada" },
       userDecision: null,
       policyResults: [],
       createdAt: "2026-07-05T00:00:00.000Z",
@@ -105,7 +105,7 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
   try {
     const [ws] = await db
       .insert(schema.workspaces)
-      .values({ name: "dummy_ws_ledger_floor" })
+      .values({ name: "test_fixture_ws_ledger_floor" })
       .returning({ id: schema.workspaces.id });
     assert.ok(ws);
 
@@ -165,12 +165,12 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
   try {
     const [ws] = await db
       .insert(schema.workspaces)
-      .values({ name: "dummy_ws_ledger_audit" })
+      .values({ name: "test_fixture_ws_ledger_audit" })
       .returning({ id: schema.workspaces.id });
     assert.ok(ws);
 
     const store = new DrizzleLedgerStore(db);
-    const context = { type: "initiative" as const, id: "dummy_init-1", runId: "dummy_run-1" };
+    const context = { type: "initiative" as const, id: "test_fixture_init-1", runId: "test_fixture_run-1" };
     const written = await store.append({
       id: "40000000-0000-4000-8000-000000000001",
       workspaceId: ws.id,
@@ -181,7 +181,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       inputs: {},
       userDecision: null,
       policyResults: [],
-      seed: "dummy_seed-1",
+      seed: "test_fixture_seed-1",
       dataScope: "private",
       context,
       createdAt: "2026-07-05T00:00:00.000Z",
@@ -189,7 +189,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
 
     const read = await store.get(written.id);
     assert.ok(read);
-    assert.equal(read!.seed, "dummy_seed-1");
+    assert.equal(read!.seed, "test_fixture_seed-1");
     assert.equal(read!.dataScope, "private");
     assert.deepEqual(read!.context, context);
   } finally {

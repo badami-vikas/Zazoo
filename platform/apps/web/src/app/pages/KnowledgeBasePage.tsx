@@ -18,7 +18,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Target, BookOpen, Users, User } from "lucide-react";
+import { Header } from "../components/shared/Header";
 import { DataViews, type DataRow } from "../dataviews/index";
 import type { TableSpec, ViewConfig } from "@bridge/tables";
 import { defaultViewConfig } from "@bridge/tables";
@@ -27,12 +28,12 @@ import { ResourcesPage } from "./ResourcesPage";
 type KnowledgeBaseSection = "people" | "communities" | "resources" | "projects";
 
 /** Tab order = biggest-to-smallest complexity (user revision 2026-07-06):
- * Projects, Resources, Communities, People. */
-const SECTIONS: { id: KnowledgeBaseSection; label: string }[] = [
-  { id: "projects", label: "Projects" },
-  { id: "resources", label: "Resources" },
-  { id: "communities", label: "Communities" },
-  { id: "people", label: "People" },
+ * Initiatives (kernel `initiative` node type), Resources, Communities, People. */
+const SECTIONS: { id: KnowledgeBaseSection; label: string; icon: typeof Target }[] = [
+  { id: "projects", label: "Initiatives", icon: Target },
+  { id: "resources", label: "Resources", icon: BookOpen },
+  { id: "communities", label: "Communities", icon: Users },
+  { id: "people", label: "People", icon: User },
 ];
 
 const PROJECTS_SPEC: TableSpec = {
@@ -67,7 +68,7 @@ function ProjectsSection() {
   }, []);
 
   if (error) return <div className="p-4 text-sm text-red-600 break-words">{error}</div>;
-  if (rows === null) return <div className="p-4 text-sm text-muted-foreground">Loading projects…</div>;
+  if (rows === null) return <div className="p-4 text-sm text-muted-foreground">Loading initiatives…</div>;
 
   return <DataViews spec={PROJECTS_SPEC} view={view} data={rows} onViewChange={setView} />;
 }
@@ -90,24 +91,21 @@ export function KnowledgeBasePage() {
     isKnowledgeBaseSection(initialSection) ? initialSection : "projects",
   );
 
+  const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
-    <div className="p-4 sm:p-6 space-y-4 w-full max-w-full overflow-x-hidden">
-      <h1 className="text-lg font-medium">KnowledgeBase</h1>
-
-      <Tabs value={section} onValueChange={(v) => setSection(v as KnowledgeBaseSection)}>
-        <TabsList className="flex-wrap h-auto">
-          {SECTIONS.map((s) => (
-            <TabsTrigger key={s.id} value={s.id}>
-              {s.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      <div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden w-full max-w-full">
+      <Header
+        tabs={SECTIONS.map((s) => ({ id: s.label, icon: s.icon }))}
+        activeTab={active.label}
+        onTabChange={(label) => {
+          const next = SECTIONS.find((s) => s.label === label);
+          if (next) setSection(next.id);
+        }}
+      />
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         {section === "people" && <NotWiredYet label="People" />}
         {section === "communities" && <NotWiredYet label="Communities" />}
-        {section === "resources" && <ResourcesPage />}
+        {section === "resources" && <ResourcesPage embedded />}
         {section === "projects" && <ProjectsSection />}
       </div>
     </div>

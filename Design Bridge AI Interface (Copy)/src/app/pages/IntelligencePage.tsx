@@ -10,18 +10,14 @@ import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 import { pendingCount } from '../data/governance';
 import { useBrokerages, addBrokerage, setBrokerageStatus, type Brokerage } from '../data/brokerages';
 
-// Agents. Helpdesk AI is real (powers the Helpdesk Tool); the rest are placeholders until the runtime.
+// Agents. Helpdesk AI is real (powers the Helpdesk Tool); more agents appear here once the
+// agent runtime (P0 Kernel) ships and users create them via "New Agent".
 const agentsData = [
   { id: 'helpdesk-ai', name: 'Helpdesk AI', description: 'Support strategist — routes a need to people who can help (by capability), proposes actionable ways to contribute.', status: 'Active', lastRun: 'Live', accuracy: 0, list: 'Active' },
-  { id: 'AGT-9009', name: 'dummy_Agent One', description: 'dummy_ placeholder agent', status: 'Active', lastRun: '9009h ago', accuracy: 9009, list: 'Active' },
-  { id: 'AGT-9010', name: 'dummy_Agent Two', description: 'dummy_ placeholder agent', status: 'Training', lastRun: '9009h ago', accuracy: 9009, list: 'Training' },
 ];
 
-// Skills — placeholder (dummy_ labeled).
-const skillsData = [
-  { id: 'SKL-9009', name: 'dummy_Skill One', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Enabled', uses: 9009, list: 'Enabled' },
-  { id: 'SKL-9010', name: 'dummy_Skill Two', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Beta', uses: 9009, list: 'Beta' },
-];
+// Skills — none shipped yet; appears once the skill runtime is connected.
+const skillsData: Array<{ id: string; name: string; description: string; category: string; status: string; uses: number; list: string }> = [];
 
 // Integrations — LinkedIn, Gmail, Google Calendar featured (connected), plus others.
 const integrationsData = [
@@ -376,9 +372,15 @@ export function IntelligencePage() {
               exit={{ opacity: 0 }}
               className="p-6"
             >
-              <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
-                {currentData.map(item => renderCard(item))}
-              </div>
+              {currentData.length > 0 ? (
+                <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
+                  {currentData.map(item => renderCard(item))}
+                </div>
+              ) : (
+                <div className="p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+                  No {activeTab.toLowerCase()} yet.
+                </div>
+              )}
             </motion.div>
           )}
 

@@ -12,8 +12,8 @@ import type { DomainEvent, GrantRule } from "../src/types.js";
 
 function dummyEvent(i: number): DomainEvent {
   return {
-    id: `dummy_event_${i}`,
-    workspaceId: "dummy_ws_1",
+    id: `test_fixture_event_${i}`,
+    workspaceId: "test_fixture_ws_1",
     type: "dummy.test.event",
     entityType: "touchpoint",
     payload: { i },
@@ -31,9 +31,9 @@ test("InMemoryEventBus caps retained events at the ring-buffer bound, dropping o
   assert.equal(bus.events.length, cap, "events array must not exceed the ring-buffer cap");
   // Oldest events (0..overBy-1) should have been evicted; the buffer should
   // start at the first event that survived the trim.
-  assert.equal(bus.events[0]?.id, `dummy_event_${overBy}`);
+  assert.equal(bus.events[0]?.id, `test_fixture_event_${overBy}`);
   // Most recent event must still be present.
-  assert.equal(bus.events[bus.events.length - 1]?.id, `dummy_event_${cap + overBy - 1}`);
+  assert.equal(bus.events[bus.events.length - 1]?.id, `test_fixture_event_${cap + overBy - 1}`);
 });
 
 test("InMemoryEventBus does not trim below the cap for normal usage", async () => {
@@ -44,7 +44,7 @@ test("InMemoryEventBus does not trim below the cap for normal usage", async () =
   assert.equal(bus.events.length, 5);
 });
 
-const dummyActor = { type: "user" as const, id: "dummy_user_1" };
+const dummyActor = { type: "user" as const, id: "test_fixture_user_1" };
 const dummyGrant: GrantRule = {
   resourceType: "touchpoint",
   resourceId: null,
@@ -60,7 +60,7 @@ test("InMemoryEphemeralStore prunes expired grants on read: expired grant is abs
   assert.equal(store.grants.length, 1, "grant should be stored before it expires");
 
   const nowISO = new Date().toISOString();
-  const active = await store.activeGrants("dummy_ws_1", dummyActor, undefined, nowISO);
+  const active = await store.activeGrants("test_fixture_ws_1", dummyActor, undefined, nowISO);
 
   assert.deepEqual(active, [], "expired grant must not be returned as active");
   assert.equal(store.grants.length, 0, "expired grant must be pruned from internal storage, not just filtered");
@@ -72,7 +72,7 @@ test("InMemoryEphemeralStore keeps unexpired grants active and in storage", asyn
   store.mint(dummyActor, dummyGrant, future);
 
   const nowISO = new Date().toISOString();
-  const active = await store.activeGrants("dummy_ws_1", dummyActor, undefined, nowISO);
+  const active = await store.activeGrants("test_fixture_ws_1", dummyActor, undefined, nowISO);
 
   assert.equal(active.length, 1);
   assert.equal(store.grants.length, 1, "unexpired grant must remain in storage");

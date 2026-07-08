@@ -7,7 +7,7 @@
  * would double-commit Touchpoints/Memories.
  *
  * This exercises the REAL pipeline + gate (no mocked pipeline) with a fake gateway
- * returning the same dummy_ thread across two `syncGmail` calls.
+ * returning the same test_fixture_ thread across two `syncGmail` calls.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -52,40 +52,40 @@ const EGRESS_AGENT = "agent-egress";
 const INTAKE_AGENT = "agent-intake";
 const USER = "user-1";
 
-// A single dummy_ Gmail thread the fake gateway "fetches" on every call — simulates
+// A single test_fixture_ Gmail thread the fake gateway "fetches" on every call — simulates
 // re-syncing before the user has approved the first proposal.
-const dummy_thread: GmailThread = {
-  threadId: "dummy_thread_dedup_1",
-  subject: "dummy_ Re: partnership terms",
-  participants: [{ email: "dummy_founder@example.com", name: "dummy_ Founder" }],
+const test_fixture_thread: GmailThread = {
+  threadId: "test_fixture_thread_dedup_1",
+  subject: "test_fixture_ Re: partnership terms",
+  participants: [{ email: "test_fixture_founder@example.com", name: "test_fixture_ Founder" }],
   lastMessageAt: "2026-07-05T10:00:00.000Z",
-  snippet: "dummy_ snippet",
+  snippet: "test_fixture_ snippet",
   messages: [
     {
-      messageId: "dummy_msg_1",
-      from: { email: "dummy_founder@example.com", name: "dummy_ Founder" },
-      to: [{ email: "dummy_self@example.com" }],
+      messageId: "test_fixture_msg_1",
+      from: { email: "test_fixture_founder@example.com", name: "test_fixture_ Founder" },
+      to: [{ email: "test_fixture_self@example.com" }],
       date: "2026-07-05T10:00:00.000Z",
-      subject: "dummy_ Re: partnership terms",
-      bodyText: "dummy_ body",
+      subject: "test_fixture_ Re: partnership terms",
+      bodyText: "test_fixture_ body",
     },
   ],
 };
 
-class dummy_FakeGateway implements GoogleGateway {
+class test_fixture_FakeGateway implements GoogleGateway {
   fetchThreadsCalls = 0;
   async fetchThreads(): Promise<FetchThreadsResult> {
     this.fetchThreadsCalls += 1;
-    return { threads: [dummy_thread] };
+    return { threads: [test_fixture_thread] };
   }
   async fetchEvents(): Promise<FetchEventsResult> {
     return { events: [] };
   }
   async createDraft(): Promise<CreateDraftResult> {
-    return { providerDraftId: "dummy_draft" };
+    return { providerDraftId: "test_fixture_draft" };
   }
   async createEvent(): Promise<CreateEventResult> {
-    return { providerEventId: "dummy_evt" };
+    return { providerEventId: "test_fixture_evt" };
   }
   async updateEvent(eventId: string): Promise<CreateEventResult> {
     return { providerEventId: eventId };
@@ -95,7 +95,7 @@ class dummy_FakeGateway implements GoogleGateway {
   }
 }
 
-class dummy_FakeFactory implements GoogleGatewayFactory {
+class test_fixture_FakeFactory implements GoogleGatewayFactory {
   constructor(private readonly gw: GoogleGateway) {}
   async forIntegration(): Promise<GoogleGateway> {
     return this.gw;
@@ -107,7 +107,7 @@ const externalApprovalPolicy: PolicyFn = (i) =>
     ? { policyId: "pol-external-approval", phase: "pre", effect: "require_approval", reason: "external send/share requires approval" }
     : null;
 
-async function build(): Promise<{ google: GoogleService; gw: dummy_FakeGateway; localPlane: LocalPlane; pipeline: UniversalActionPipeline }> {
+async function build(): Promise<{ google: GoogleService; gw: test_fixture_FakeGateway; localPlane: LocalPlane; pipeline: UniversalActionPipeline }> {
   const roles = new InMemoryRoleStore();
   const agents = new InMemoryAgentStore();
   const ephemeral = new InMemoryEphemeralStore();
@@ -139,8 +139,8 @@ async function build(): Promise<{ google: GoogleService; gw: dummy_FakeGateway; 
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
 
-  const gw = new dummy_FakeGateway();
-  const gateways = new dummy_FakeFactory(gw);
+  const gw = new test_fixture_FakeGateway();
+  const gateways = new test_fixture_FakeFactory(gw);
   const localPlane = await createMemoryLocalPlane();
   const canonical = new InMemoryCanonicalIdentityStore();
 
@@ -164,7 +164,7 @@ async function build(): Promise<{ google: GoogleService; gw: dummy_FakeGateway; 
     egress: undefined as never, // unused by this test (no external:send exercised)
     secrets: localPlane.secrets,
     identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
-    selfEmails: ["dummy_self@example.com"],
+    selfEmails: ["test_fixture_self@example.com"],
   });
 
   return { google, gw, localPlane, pipeline };

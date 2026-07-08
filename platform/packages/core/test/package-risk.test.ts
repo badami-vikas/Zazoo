@@ -5,8 +5,8 @@ import { computePackageRisk, packageHasLethalTrifecta, type CapabilityManifest, 
 
 function cap(overrides: Partial<CapabilityManifest> = {}): CapabilityManifest {
   return {
-    id: "dummy_cap",
-    name: "dummy_capability",
+    id: "test_fixture_cap",
+    name: "test_fixture_capability",
     version: "1.0.0",
     capabilityType: "skill",
     origin: "user_code",

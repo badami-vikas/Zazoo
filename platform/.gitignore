@@ -7,3 +7,6 @@ dist/
 
 # LOCAL plane (pglite) — private OAuth tokens + Gmail/Calendar bodies. NEVER commit.
 .bridge-local/
+
+# Universal Commons local registry data (services/commons) — local-first store, never committed.
+.commons-data/

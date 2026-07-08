@@ -45,7 +45,7 @@ function captureReq(partial: Partial<ActionRequest> = {}): ActionRequest {
     resourceType: "touchpoint",
     dataScope: "private",
     skill: "stageCapture",
-    inputs: { local_media_id: "m1", kind: "photo", caption: "dummy_whiteboard", ocrText: "dummy_roadmap Q3" },
+    inputs: { local_media_id: "m1", kind: "photo", caption: "test_fixture_whiteboard", ocrText: "test_fixture_roadmap Q3" },
     ...partial,
   };
 }
@@ -101,7 +101,7 @@ test("uncertain person link is filed as a Signal, never an auto person-link", as
     captureReq({
       resourceType: "signal",
       skill: "stageCapture",
-      inputs: { local_media_id: "m1", kind: "photo", signal: "possible_link", candidate: "dummy_Asha Rao" },
+      inputs: { local_media_id: "m1", kind: "photo", signal: "possible_link", candidate: "test_fixture_Asha Rao" },
     }),
     c,
   );

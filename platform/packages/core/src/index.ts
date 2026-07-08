@@ -91,6 +91,55 @@ export {
   type CapabilityManifestRow,
   type CapabilityStateRow,
 } from "./capability/ports.js";
+export type {
+  ForeignCapabilitySource,
+  ForeignImportSandboxPolicy,
+  ForeignCapabilityImport,
+} from "./capability/foreign-import.js";
+export {
+  translateForeignCapability,
+  ForeignImportSandboxRequiredError,
+  ForeignImportValidationError,
+  type ForeignCapabilityDescriptorInput,
+  type ForeignImportResult,
+} from "./capability/importer.js";
+
+// Builder toolbelt (execution-plan-2026-07.md Track F2) -- governed
+// Read/Write/Edit/Bash-equivalent primitives + the SandboxProvider port
+// shell:execute must route through (ADR-027 sandbox doctrine).
+export {
+  classifyToolbeltRisk,
+  checkGrantScope,
+  checkCommandAllowed,
+  runShellExecute,
+  type ToolbeltResourceToken,
+  type ToolbeltRiskClassification,
+  type ToolbeltGrant,
+  type ToolbeltDenialReason,
+  type ToolbeltScopeCheckResult,
+  type ToolbeltRequest,
+  type ToolbeltResult,
+} from "./capability/toolbelt.js";
+export {
+  InProcessJsSandboxProvider,
+  NotImplementedContainerSandboxProvider,
+  UnsupportedSandboxRequestError,
+  type SandboxIsolationTier,
+  type SandboxRunRequest,
+  type SandboxRunResult,
+  type SandboxProvider,
+} from "./capability/sandbox-provider.js";
+
+// Context Provider contract (docs/wiki/clients.md, Sensor SPI) — desktop-only,
+// optional capability; screen capture is one provider among nine, never the
+// kernel's dependency.
+export type {
+  ContextProviderName,
+  ContextDataScope,
+  ContextRetention,
+  ContextItem,
+  ContextProvider,
+} from "./context-provider.js";
 
 // Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
 // shipping unit ABOVE one capability_manifests row. Builds on capability/*
@@ -106,6 +155,17 @@ export {
   type PromoteResult,
 } from "./package/lifecycle.js";
 export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+// Universal Commons — client port + wire types. Local service (services/
+// commons) today, Bridge Cloud later; same contract, swap is config-only.
+export {
+  CommonsPublishRejectedError,
+  type CommonsRegistry,
+  type CommonsPackageEntry,
+  type CommonsPackageSummary,
+  type CommonsPackageDetail,
+  type CommonsListQuery,
+  type CommonsListResult,
+} from "./package/commons.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
 // P1 "Workspace Generator") — pure, zero-deps, additive to the pipeline.
@@ -148,3 +208,21 @@ export {
   type RoutingDecision,
   type ClassifyIntentArgs,
 } from "./chief-of-staff.js";
+
+// RunContextAssembler (ADR-027, execution-plan-2026-07.md Track F5/Wave 3) --
+// supersedes the earlier "PromptAssembler" idea. Assembles everything a model
+// run needs; projectToPrompt is explicitly ONE projection of it, not the thing
+// itself.
+export {
+  assembleRunContext,
+  projectToPrompt,
+  type RunPersona,
+  type RunSurfaceReference,
+  type DisclosedCapability,
+  type RunGovernanceState,
+  type RetrievedMemorySnippet,
+  type RunOutputContract,
+  type RunTraceMetadata,
+  type ModelRunContext,
+  type AssembleRunContextInput,
+} from "./run-context.js";

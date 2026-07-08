@@ -1,166 +1,202 @@
-import { useEffect, useMemo, useState } from "react";
-import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
-import { DataViews, type DataRow } from "../dataviews/index";
+import { useMemo, useState } from 'react';
+import { Briefcase, LayoutGrid, Kanban as KanbanIcon, List as ListIcon } from 'lucide-react';
+import {
+  JOBS, useCandidateProfile, useApplications, applicationForJob, queueJob, approveReview,
+  resumeParked, runDispatch, confirmSubmitted, scoreJobFit, STAGE_LABEL,
+  type ApplicationStage, type Application, type ApplyOutcome, type FlagColor,
+} from '../data/jobpilot';
+import { CardGrid, NotionCard } from '../components/shared/NotionCard';
+import { FlagIcon } from '../components/shared/FlagIcon';
+import { KanbanBoard, type KanbanLane } from '../components/shared/KanbanBoard';
+import { ListView } from '../components/shared/ListView';
+import { Header } from '../components/shared/Header';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CreateListModal } from '../components/shared/ListDropdown';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
+import { useLists, createList, toggleMember } from '../data/lists';
+import { Check } from 'lucide-react';
 
-type JobPage = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
+type ViewId = 'card' | 'kanban' | 'list';
+const VIEWS = [
+  { id: 'card', label: 'Card', icon: LayoutGrid },
+  { id: 'kanban', label: 'Kanban', icon: KanbanIcon },
+  { id: 'list', label: 'List', icon: ListIcon },
+];
 
-const STAGES = [
-  "queued", "tailoring", "evaluating", "approved", "awaiting_review",
-  "applying", "parked", "submitted", "confirmed", "rejected_by_user", "failed", "expired",
-] as const;
+const LANES: { key: string; label: string; stages: ApplicationStage[] }[] = [
+  { key: 'queued', label: 'Queued', stages: ['queued'] },
+  { key: 'progress', label: 'Tailoring / Evaluating', stages: ['tailoring', 'evaluating'] },
+  { key: 'review', label: 'Awaiting review', stages: ['awaiting_review'] },
+  { key: 'applying', label: 'Applying', stages: ['approved', 'applying'] },
+  { key: 'done', label: 'Submitted / Confirmed', stages: ['submitted', 'confirmed'] },
+  { key: 'closed', label: 'Parked / Closed', stages: ['parked', 'rejected_by_user', 'failed', 'expired'] },
+];
 
-/** JobPilot's list, migrated to render through <DataViews> (P1 Workspace
- * Generator: proving the shell/registry against a real page instead of only
- * synthetic fixtures) — the data flow (fetch/create/transition via
- * trpc.jobpilot.*) is UNCHANGED, only the list's rendering moved from a plain
- * <ul> to the registered TableView/KanbanView via the DataViews shell. Maps to
- * router.ts's `jobpilot.*`. */
+const SCOPE = 'jobpilot';
+
 export function JobPilotPage() {
-  const [page, setPage] = useState<JobPage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [company, setCompany] = useState("");
-  const [location, setLocation] = useState("");
-  const [view, setView] = useState<ViewConfig>(() => defaultViewConfig("jobpilot.applications", "table"));
+  const candidate = useCandidateProfile();
+  const applications = useApplications();
+  const [view, setView] = useState<ViewId>('card');
+  const [search, setSearch] = useState('');
+  const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(true);
+  const [addListOpen, setAddListOpen] = useState(false);
+  const lists = useLists(SCOPE);
+  const activeList = lists.find((l) => l.id === selectedList) ?? null;
 
-  function refresh() {
-    trpc.jobpilot.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })
-      .then(setPage)
-      .catch((e) => setError(String(e)));
-  }
-  useEffect(refresh, []);
-
-  async function addJob() {
-    if (!title || !company) return;
-    setError(null);
-    try {
-      await trpc.jobpilot.create.mutate({
-        workspaceId: PILOT_WORKSPACE,
-        title,
-        company,
-        ...(location ? { location } : {}),
-        candidate: { categories: [], skills: [] },
-      });
-      setTitle("");
-      setCompany("");
-      setLocation("");
-      refresh();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  async function advanceStage(applicationId: string, from: string, to: string) {
-    setError(null);
-    try {
-      await trpc.jobpilot.transition.mutate({ workspaceId: PILOT_WORKSPACE, applicationId, from, to });
-      refresh();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  // TableSpec — the tracked-applications table's columns, schema-driven (not a
-  // hardcoded JSX column list) per @bridge/tables' "views as data" contract.
-  const spec: TableSpec = useMemo(
-    () => ({
-      id: "jobpilot.applications",
-      columns: [
-        { id: "title", label: "Title", kind: "text" },
-        { id: "company", label: "Company", kind: "text" },
-        { id: "location", label: "Location", kind: "text" },
-        { id: "stage", label: "Stage", kind: "select", options: [...STAGES] },
-        { id: "flag", label: "Flag", kind: "text" },
-      ],
-    }),
-    [],
+  // Card/Kanban show only this list's members — List view stays unfiltered since it doubles as
+  // the membership-management surface (checkboxes to add/remove jobs from the selected list).
+  const searched = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return JOBS
+      .filter((job) => !q || `${job.title} ${job.company}`.toLowerCase().includes(q))
+      .map((job) => ({ job, fit: scoreJobFit(job, candidate) }));
+  }, [candidate, search]);
+  const scored = useMemo(
+    () => (view === 'list' ? searched : searched.filter(({ job }) => !activeList || activeList.memberIds.includes(job.id))),
+    [searched, activeList, view],
   );
 
-  // Flatten each item (job + nested application) into one row per @bridge/tables'
-  // Record<string, unknown> row shape — same data trpc.jobpilot.list already
-  // returns, just reshaped for the engine's filter/sort/group functions.
-  const rows: DataRow[] = useMemo(
-    () =>
-      (page?.items ?? []).map((item) => ({
-        id: item.id,
-        title: item.title,
-        company: item.company,
-        location: item.location ?? "",
-        stage: item.application?.stage ?? "unknown",
-        flag: item.application?.flag ?? "",
-        _applicationId: item.application?.id ?? null,
-      })),
-    [page],
-  );
-
-  function nextStageFor(stage: string): string | null {
-    const idx = STAGES.indexOf(stage as (typeof STAGES)[number]);
-    return idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1]! : null;
+  // The flag IS the action — green queues auto, yellow queues for manual review before any
+  // status changes, red is a no-go (no application created). No separate buttons on the card.
+  function onFlagAction(jobId: string, color: FlagColor) {
+    if (color === 'red') return;
+    const job = JOBS.find((j) => j.id === jobId);
+    if (job) queueJob(job, color === 'yellow' ? 'review' : 'auto');
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-lg font-medium">JobPilot</h1>
-      {error && <div className="text-sm text-red-600">{error}</div>}
-
-      <section className="space-y-2 border rounded-md p-4 max-w-2xl">
-        <h2 className="text-sm font-medium">Track a job</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="title">Title</Label>
-            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="company">Company</Label>
-            <Input id="company" value={company} onChange={(e) => setCompany(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="location">Location</Label>
-            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} />
-          </div>
-          <Button onClick={addJob}>Add</Button>
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium">
-          {page?.total ?? "…"} tracked{page?.hasMore ? " (more available)" : ""}
-        </h2>
-        <DataViews
-          spec={spec}
-          view={{ ...view, groupBy: view.groupBy ?? "stage" }}
-          data={rows}
-          onViewChange={setView}
+    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#FAF9F5' }}>
+      <Header tabs={[{ id: 'JobPilot', icon: Briefcase }]} activeTab="JobPilot" onTabChange={() => {}} />
+      <StandardToolbar
+        lists={[{ id: '__all', label: 'All Jobs' }, ...lists.map((l) => ({ id: l.id, label: l.name }))]}
+        activeListId={selectedList ?? '__all'}
+        onListSelect={(id) => setSelectedList(id === '__all' ? null : id)}
+        onAddList={() => setAddListOpen(true)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
+        view={view}
+        views={VIEWS}
+        onViewChange={(id) => setView(id as ViewId)}
+        search={search}
+        onSearchChange={setSearch}
+        onFilterClick={() => {}}
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'jobs', label: 'Jobs shown', value: String(scored.length) },
+          { id: 'tracker', label: 'In tracker', value: String(applications.length) },
+          { id: 'review', label: 'Awaiting review', value: String(applications.filter((a) => a.stage === 'awaiting_review').length) },
+        ]}
+      />
+      {addListOpen && (
+        <CreateListModal
+          onClose={() => setAddListOpen(false)}
+          onCreate={(name, instruction) => setSelectedList(createList(SCOPE, name, instruction).id)}
         />
-        {/* Stage-advance actions stay separate from the generic view (DataViews
-            doesn't know about JobPilot's state machine) — a thin action list
-            keyed off the same rows already rendered above. */}
-        {rows.length > 0 && (
-          <div className="border rounded-md divide-y">
-            {rows.map((row) => {
-              const stage = String(row["stage"]);
-              const next = nextStageFor(stage);
-              const applicationId = row["_applicationId"] as string | null;
-              if (!applicationId || !next) return null;
-              return (
-                <div key={String(row["id"])} className="flex items-center justify-between gap-4 p-2 text-sm">
-                  <span>
-                    {String(row["title"])} · {String(row["company"])} — {stage}
-                  </span>
-                  <Button size="sm" variant="outline" onClick={() => advanceStage(applicationId, stage, next)}>
-                    → {next}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+      )}
+
+      <div className="flex-1 overflow-auto">
+        {view === 'card' && (
+          scored.length > 0 ? (
+            <CardGrid>
+              {scored.map(({ job, fit }) => {
+                const app = applicationForJob(job.id);
+                return (
+                  <NotionCard
+                    key={job.id}
+                    title={job.title}
+                    subtitle={`${job.company} · ${job.location}`}
+                    cornerBadge={<FlagIcon color={fit.flag} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={app ? undefined : (c) => onFlagAction(job.id, c)} disabled={!!app} />}
+                    bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
+                    metaChips={[job.ats, `to $${job.salaryMax.toLocaleString()}`]}
+                    footer={<span className="text-xs font-medium" style={{ color: app ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{app ? `${STAGE_LABEL[app.stage]} — in tracker` : 'Not queued — click the flag'}</span>}
+                  />
+                );
+              })}
+            </CardGrid>
+          ) : (
+            <div className="p-10 text-center border border-dashed rounded-xl m-4" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+              No job postings yet — connect a job board to start sourcing.
+            </div>
+          )
         )}
-      </section>
+
+        {view === 'kanban' && (
+          <KanbanBoard<Application>
+            keyFor={(a) => a.id}
+            lanes={LANES.map((lane): KanbanLane<Application> => ({ key: lane.key, label: lane.label, items: applications.filter((a) => lane.stages.includes(a.stage)) }))}
+            renderCard={(app) => <ApplicationCard app={app} />}
+          />
+        )}
+
+        {view === 'list' && (
+          <ListView
+            items={scored}
+            keyFor={({ job }) => job.id}
+            renderRow={({ job, fit }) => {
+              const app = applicationForJob(job.id);
+              return (
+                <>
+                  {lists.length > 0 && (
+                    <button
+                      title={!activeList ? 'Pick a list first to add jobs to it' : activeList.memberIds.includes(job.id) ? 'Remove from this list' : 'Add to this list'}
+                      disabled={!activeList}
+                      onClick={(e) => { e.stopPropagation(); if (activeList) toggleMember(SCOPE, activeList.id, job.id); }}
+                      className="w-4 h-4 shrink-0 rounded border flex items-center justify-center disabled:opacity-30"
+                      style={{ borderColor: 'var(--color-border)', backgroundColor: activeList?.memberIds.includes(job.id) ? 'var(--color-steel)' : 'white' }}
+                    >
+                      {activeList?.memberIds.includes(job.id) && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                  )}
+                  <FlagIcon color={fit.flag} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={app ? undefined : (c) => onFlagAction(job.id, c)} disabled={!!app} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{job.title}</div>
+                    <div className="text-xs truncate" style={{ color: 'var(--color-warm-gray)' }}>{job.company} · {job.location}</div>
+                  </div>
+                  {activeList?.origin?.[job.id] && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full border shrink-0" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>{activeList.origin[job.id]}</span>
+                  )}
+                  <span className="text-xs shrink-0" style={{ color: 'var(--color-navy-mid)' }}>to ${job.salaryMax.toLocaleString()}</span>
+                  <span className="text-xs font-medium w-40 shrink-0 text-right" style={{ color: app ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{app ? STAGE_LABEL[app.stage] : 'Not queued'}</span>
+                </>
+              );
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
+
+function ApplicationCard({ app }: { app: Application }) {
+  const [outcome, setOutcome] = useState<ApplyOutcome>('APPLIED');
+  return (
+    <div className="rounded-lg border bg-white p-2.5 text-xs" style={{ borderColor: 'var(--color-border)' }}>
+      <div className="font-semibold truncate" style={{ color: 'var(--color-navy)' }}>{app.title}</div>
+      <div className="truncate mb-1.5" style={{ color: 'var(--color-warm-gray)' }}>{app.company}</div>
+      {app.stage === 'awaiting_review' && (
+        <div className="flex gap-1">
+          <button onClick={() => approveReview(app.id, 'approve')} className="flex-1 rounded px-1.5 py-1 text-white font-semibold" style={{ backgroundColor: 'var(--success)' }}>Approve</button>
+          <button onClick={() => approveReview(app.id, 'reject')} className="flex-1 rounded px-1.5 py-1 font-semibold border" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}>Reject</button>
+        </div>
+      )}
+      {app.stage === 'applying' && (
+        <div className="flex gap-1">
+          <select value={outcome} onChange={(e) => setOutcome(e.target.value as ApplyOutcome)} className="flex-1 border rounded px-1 py-1" style={{ borderColor: 'var(--color-border)' }}>
+            {(['APPLIED', 'FAILED', 'CAPTCHA', 'LOGIN_ISSUE', 'EXPIRED'] as ApplyOutcome[]).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <button onClick={() => runDispatch(app.id, outcome)} className="rounded px-2 py-1 text-white font-semibold" style={{ backgroundColor: 'var(--color-steel)' }}>Run</button>
+        </div>
+      )}
+      {app.stage === 'parked' && <button onClick={() => resumeParked(app.id)} className="w-full rounded px-1.5 py-1 text-white font-semibold" style={{ backgroundColor: 'var(--color-steel)' }}>Resolve &amp; resume</button>}
+      {app.stage === 'submitted' && <button onClick={() => confirmSubmitted(app.id)} className="w-full rounded px-1.5 py-1 font-semibold border" style={{ color: 'var(--color-steel)', borderColor: 'var(--color-steel)' }}>Simulate reply → confirmed</button>}
+      {app.tier ? <div className="mt-1 text-[10px]" style={{ color: 'var(--color-warm-gray)' }}>Tier {app.tier}{app.unresolved?.length ? ` · unresolved: ${app.unresolved.join(', ')}` : ''}</div> : null}
+    </div>
+  );
+}
+
+export default JobPilotPage;

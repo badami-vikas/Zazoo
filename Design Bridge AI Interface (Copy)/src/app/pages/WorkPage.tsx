@@ -10,41 +10,11 @@ import { useInitiatives, createInitiative, deleteInitiative, type Initiative } f
 
 // Initiatives now come from the user-created store (data/initiatives.ts) — no dummy data.
 
-// Rituals mock data
-const ritualsData = Array.from({ length: 18 }).map((_, i) => ({
-  id: `RIT-${2000 + i}`,
-  name: [
-    'dummy_Weekly Team Standup',
-    'dummy_Monthly Review',
-    'dummy_Quarterly Planning',
-    'dummy_Daily Journaling',
-    'dummy_Friday Reflection',
-    'dummy_Morning Exercise'
-  ][i % 6],
-  frequency: ['dummy_Weekly', 'dummy_Monthly', 'dummy_Quarterly', 'dummy_Daily', 'dummy_Weekly', 'dummy_Daily'][i % 6],
-  nextRun: ['dummy_Tomorrow', 'dummy_Jun 9009', 'dummy_Aug 9009', 'dummy_Tomorrow', 'dummy_Friday', 'dummy_Tomorrow'][i % 6],
-  status: ['dummy_Active', 'dummy_Active', 'dummy_Planning', 'dummy_Active', 'dummy_Active', 'dummy_Paused'][i % 6],
-  list: ['Work', 'Work', 'Work', 'Personal', 'Personal', 'Personal'][i % 6],
-}));
-
-// Tools mock data
-const toolsData = Array.from({ length: 20 }).map((_, i) => ({
-  id: `TOOL-${3000 + i}`,
-  name: [
-    'dummy_Reconnect',
-    'dummy_Memory Search',
-    'dummy_Community Pulse',
-    'dummy_Milestones',
-    'dummy_Career Moves',
-    'dummy_Open Threads',
-    'dummy_Meeting Notes',
-    'dummy_Person Enrichment'
-  ][i % 8],
-  category: ['dummy_Relationships', 'dummy_Search', 'dummy_Analytics', 'dummy_Tracking', 'dummy_Intelligence', 'dummy_Communication', 'dummy_Productivity', 'dummy_Data'][i % 8],
-  lastUsed: ['dummy_9009 hours ago', 'dummy_Yesterday', 'dummy_9009 days ago', 'dummy_9009 week ago', 'dummy_Today', 'dummy_9009 days ago', 'dummy_Yesterday', 'dummy_9009 hours ago'][i % 8],
-  usageCount: [9009, 9009, 9009, 9009, 9009, 9009, 9009, 9009][i % 8],
-  list: ['Favorites', 'Favorites', 'All Tools', 'All Tools', 'Favorites', 'All Tools', 'Favorites', 'All Tools'][i % 8],
-}));
+// Rituals/Tools tabs redirect immediately to their dedicated pages (see handleTabChange below),
+// so activeTab never actually becomes 'Rituals' or 'Tools' — these branches are unreachable dead
+// code kept only so the (never-rendered) card/table renderers below don't reference undefined data.
+const ritualsData: Array<{ id: string; name: string; frequency: string; nextRun: string; status: string; list: string }> = [];
+const toolsData: Array<{ id: string; name: string; category: string; lastUsed: string; usageCount: number; list: string }> = [];
 
 export function WorkPage() {
   const [activeTab, setActiveTab] = useState('Initiatives');

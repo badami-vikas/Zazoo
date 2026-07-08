@@ -14,6 +14,7 @@
  * vocabulary) — no filler questions asked just to hit a minimum count.
  */
 import type { WorkspaceBlueprint } from "@bridge/core";
+import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
 
 export type QuestionKind = "single_select" | "multi_select" | "text";
 
@@ -47,7 +48,7 @@ const Q_DOMAIN: OnboardingQuestion = {
   id: "domain",
   kind: "single_select",
   prompt: "What's the main kind of work you want Bridge to organize?",
-  helpText: "This decides which entities your workspace starts with.",
+  helpText: "This decides which entities your Organization starts with.",
   options: [
     { value: "sales_deals", label: "Deals / sales pipeline" },
     { value: "job_search", label: "Job search" },
@@ -84,7 +85,7 @@ const Q_VOCAB: OnboardingQuestion = {
   id: "vocab_name",
   kind: "text",
   prompt: "What do you call the thing you're tracking? (e.g. \"Deal\", \"Candidate\", \"Case\")",
-  helpText: "Bridge calls this a Project by default — your own word for it is what you'll see everywhere.",
+  helpText: "Bridge calls this an Initiative by default — your own word for it is what you'll see everywhere.",
   placeholder: "e.g. Deal",
 };
 
@@ -101,8 +102,23 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
 const Q_NAME: OnboardingQuestion = {
   id: "workspace_name",
   kind: "text",
-  prompt: "Last thing — what should we call this workspace?",
+  prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
+};
+
+/** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
+ * build brief item 2): a curated set of six, matching avatar-store.ts's
+ * `SPIRIT_ANIMALS`. This answer has NO effect on the compiled blueprint
+ * (unlike every other question here) — it only selects which creature the
+ * avatar overlay renders as after hatching. Asked early (right after
+ * solo/team) so the egg has something to visually anticipate for the rest of
+ * the flow. */
+const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
+  id: "spirit_animal",
+  kind: "single_select",
+  prompt: "Pick your avatar's spirit animal.",
+  helpText: "Purely cosmetic — you can change this later in Settings.",
+  options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
 };
 
 /**
@@ -113,11 +129,13 @@ const Q_NAME: OnboardingQuestion = {
  * "relationships" domain (Bridge's own vocabulary already fits).
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
- * (solo + relationships) asks 5; the longest (team + a domain needing a vocab
- * override) asks 7 — both comfortably inside the 5-12 band without padding.
+ * (solo + relationships) asks 6 (incl. spirit animal); the longest (team + a
+ * domain needing a vocab override) asks 8 — both comfortably inside the 5-12
+ * band without padding.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.mode === undefined) return Q_MODE;
+  if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
   if (answers.domain === undefined) return Q_DOMAIN;
   if (answers.mode === "team" && answers.team_size === undefined) return Q_TEAM_SIZE;
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
@@ -127,18 +145,29 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   return null;
 }
 
+/** Total number of questions in the LONGEST real path (team + vocab-needing
+ * domain) — used only as the denominator for egg-growth progress, never for
+ * branching logic itself (that stays in `nextQuestion`). */
+export const MAX_QUESTIONS = 8;
+
+/** How many questions have been answered so far — the egg's "questions
+ * answered" progress input (spec section 4, Stage 1-2: egg grows with real
+ * step completion, not a fake timer). */
+export function answeredCount(answers: OnboardingAnswers): number {
+  return Object.values(answers).filter((v) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
+    .length;
+}
+
 /** Node type + starter fields per domain — the entities a fresh workspace
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
-// "label" is display-only text (ADR-023: Initiative -> Project rename is a
-// WORKSPACE-scope display label, kernel nodeType stays "initiative" — CLAUDE.md's
-// two-scope vocab rule). A user's own `vocab_name` answer still overrides this
-// default via `vocabulary` below; "Project" is simply the honest starting label
-// instead of the raw kernel identifier.
+// "label" is display-only text (R-020 vocab sweep: canonical default label is
+// "Initiative", matching the kernel nodeType — CLAUDE.md's two-scope vocab rule).
+// A user's own `vocab_name` answer still overrides this default via `vocabulary` below.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Project" },
-  job_search: { nodeType: "initiative", label: "Project" },
+  sales_deals: { nodeType: "initiative", label: "Initiative" },
+  job_search: { nodeType: "initiative", label: "Initiative" },
   support: { nodeType: "touchpoint", label: "Touchpoint" },
   relationships: { nodeType: "person", label: "Person" },
 };

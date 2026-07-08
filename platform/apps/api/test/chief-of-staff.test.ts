@@ -24,7 +24,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "dummy_chief_of_staff_user" },
+    identity: { type: "user", id: "test_fixture_chief_of_staff_user" },
   });
 }
 

@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { compileBlueprint, type CompiledWorkspace } from "@bridge/core";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
-import { nextQuestion, buildBlueprintFromAnswers, isComplete, type OnboardingAnswers } from "./questions";
+import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, type OnboardingAnswers } from "./questions";
+import { EggHatcher, type EggStage } from "../avatar/EggHatcher";
+import { updateAvatarPrefs, type AvatarPrefs, type SpiritAnimal } from "../avatar/avatar-store";
 
 /** Mirrors apps/api/src/router.ts's BLUEPRINT_NODE_TYPE_REGISTRY /
  * WorkspacePage.tsx's REGISTERED_NODE_TYPES — same hand-kept-in-sync caveat
@@ -47,6 +49,11 @@ export interface OnboardingDialogProps {
    * message never gets a render. The dialog now only closes via the explicit
    * "Done" button (`resetAndClose`) or the user dismissing it. */
   onProposed?: () => void;
+  /** Called once the egg's hatch animation resolves with real, saved avatar
+   * prefs — lets the caller (Layout) mount <AvatarOverlay> immediately
+   * without waiting for a remount/localStorage re-read (spec section 4 Stage
+   * 6: "hatch animation, set eggHatched: true, overlay appears"). */
+  onHatched?: (prefs: AvatarPrefs) => void;
 }
 
 type Step = "questions" | "preview" | "submitted";
@@ -73,16 +80,64 @@ type SubmitOutcome = "activated" | "pending_review" | null;
  * "has onboarding ever run" itself — App.tsx's mount-time
  * workspace.blueprint.get check owns that decision.
  */
-export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingDialogProps) {
+export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: OnboardingDialogProps) {
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
   const [step, setStep] = useState<Step>("questions");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [textDraft, setTextDraft] = useState("");
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
+  const [eggStage, setEggStage] = useState<EggStage>("incubating");
 
   const question = useMemo(() => nextQuestion(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
+  const spiritAnimal = (answers.spirit_animal as SpiritAnimal | undefined) ?? "owl";
+
+  // Egg progress maps to REAL setup state, never a fake timer (spec section 4):
+  //   questions answered -> 0..~0.7 of the way there
+  //   preview reached (blueprint compiled, about to be proposed) -> ~0.9
+  //   activated/hatching -> 1.0
+  const answered = answeredCount(answers);
+  const progress =
+    step === "questions"
+      ? Math.min(0.7, (answered / MAX_QUESTIONS) * 0.7)
+      : step === "preview"
+        ? 0.9
+        : 1;
+
+  const eggStatusText =
+    step === "questions"
+      ? answered === 0
+        ? "Your Organization is hatching…"
+        : `✓ ${answered} of ${Math.min(answered + 1, MAX_QUESTIONS)} questions answered`
+      : step === "preview"
+        ? "✓ Your proposed setup is ready"
+        : outcome === "activated"
+          ? "✓ Ready to proceed"
+          : "✓ Proposed — awaiting approval";
+
+  // Egg stage derives from step + outcome, not a separate tracked value, so
+  // it can never drift out of sync with what actually happened. Deliberately
+  // keyed on [step, outcome] only — spiritAnimal/answered/onHatched are read
+  // at fire time (via closure), not re-triggers: re-running this effect on
+  // every keystroke of unrelated answers would restart the hatch timer.
+  useEffect(() => {
+    if (step === "submitted" && outcome === "activated") {
+      setEggStage("hatching");
+      // Hatch animation capped well under 3s (spec: "<3s") and NEVER blocks
+      // the Done button — this only flips the visual to "hatched" and saves
+      // prefs; the user can already click Done at any point.
+      const t = setTimeout(() => {
+        setEggStage("hatched");
+        const saved = updateAvatarPrefs({ animal: spiritAnimal, eggHatched: true });
+        onHatched?.(saved);
+      }, 1400);
+      return () => clearTimeout(t);
+    }
+    if (step === "preview") setEggStage("ready");
+    else if (step === "questions") setEggStage(answered > 0 ? "growing" : "incubating");
+    return undefined;
+  }, [step, outcome]);
 
   const compiled: CompiledWorkspace | { error: string } | null = useMemo(() => {
     if (step !== "preview") return null;
@@ -99,6 +154,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
     setError(null);
     setTextDraft("");
     setOutcome(null);
+    setEggStage("incubating");
     onOpenChange(false);
   }
 
@@ -145,12 +201,14 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : resetAndClose())}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Set up your workspace</DialogTitle>
+          <DialogTitle>Set up Bridge</DialogTitle>
           <DialogDescription>
-            A few quick questions — Bridge generates a starting workspace from your answers. Nothing is created until
+            A few quick questions — Bridge generates a starting setup from your answers. Nothing is created until
             you approve it.
           </DialogDescription>
         </DialogHeader>
+
+        <EggHatcher progress={progress} stage={eggStage} animal={spiritAnimal} statusText={eggStatusText} />
 
         {step === "questions" && question && (
           <div className="space-y-4">
@@ -245,7 +303,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
                 Back
               </Button>
               <Button onClick={submit} disabled={submitting || (compiled !== null && "error" in compiled)}>
-                {submitting ? "Submitting…" : "Propose this workspace"}
+                {submitting ? "Submitting…" : "Propose this setup"}
               </Button>
             </DialogFooter>
           </div>
@@ -255,8 +313,9 @@ export function OnboardingDialog({ open, onOpenChange, onProposed }: OnboardingD
           <div className="space-y-3">
             {outcome === "activated" ? (
               <p className="text-sm">
-                Your workspace is live. Open the <strong>Workspace</strong> page to see it — every change from here on
-                goes through the same propose-and-approve flow you just used.
+                Your Organization is live, and your avatar has hatched — look for it in the corner from now on. Every
+                capture it notices becomes an inspectable Memory entry. Open the <strong>Organization</strong> page to see
+                it — every change from here on goes through the same propose-and-approve flow you just used.
               </p>
             ) : (
               <p className="text-sm">

@@ -5,11 +5,14 @@ doc_kind: plan
 status: Sequenced around platform capability layers, not features
 companions: [ARCHITECTURE.md, SCHEMA.sql]
 related_wiki: ../wiki/roadmap.md
-updated: 2026-06-22
+updated: 2026-07-07
 tags: [roadmap, phases, sequencing]
 ---
 
 # Bridge AI — Development Roadmap (v0)
+
+> **Primitive ontology note (2026-07-07, ADR-026):** canonical primitive taxonomy lives in [../wiki/ontology.md](../wiki/ontology.md) + [primitive-specifications.md](primitive-specifications.md). Terms in this doc map as: `ritual`/"Workflow" = Automation · `tool`/ToolManifest = implementation surface (user-facing primitive = Workspace) · Connection = Integration · Signal = derived Incident · Chief of Staff = Agent archetype · Project = ElementType. Code/table names here are unchanged; promotion never mutates primitive category.
+
 
 > Sequenced around **platform capability layers**, not features.
 > Principle: build the *enablement layers* (substrate → spine → registries) before the *surfaces*,

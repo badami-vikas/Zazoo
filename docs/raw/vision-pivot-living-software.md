@@ -5,11 +5,14 @@ doc_kind: design
 status: adopted (user-confirmed 2026-07-06; supersedes GP-fund wedge framing; NOTHING from the prior decision set is locked — every item re-audited below)
 companions: [helpdesk-plan.md, tool-standardization-plan.md, decisions-log.md, ROADMAP.md]
 related_wiki: ../wiki/vision.md
-updated: 2026-07-06
+updated: 2026-07-07
 tags: [vision, brand, capability-trust-model, kernel, roadmap, desktop-first, ambient]
 ---
 
 # Vision Pivot — Living Software
+
+> **Primitive ontology note (2026-07-07, ADR-026):** canonical primitive taxonomy lives in [../wiki/ontology.md](../wiki/ontology.md) + [primitive-specifications.md](primitive-specifications.md). Terms in this doc map as: `ritual`/"Workflow" = Automation · `tool`/ToolManifest = implementation surface (user-facing primitive = Workspace) · Connection = Integration · Signal = derived Incident · Chief of Staff = Agent archetype · Project = ElementType. Code/table names here are unchanged; promotion never mutates primitive category.
+
 
 ## 1. The new brand (verbatim intent, canonical)
 

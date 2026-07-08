@@ -162,7 +162,7 @@ export function ExecutionLedger() {
           <h2 className="text-lg font-bold mb-1" style={{ color: 'var(--color-navy)' }}>Execution Ledger</h2>
           <p className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>Every action an agent or teammate took — what, on whose behalf, and why.</p>
         </div>
-        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0" title={source === 'supabase' ? 'Loaded from the Supabase ledger (append-only)' : 'Supabase unreachable/empty — using local demo data'} style={{ backgroundColor: source === 'supabase' ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--color-surface)', color: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
+        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0" title={source === 'supabase' ? 'Loaded from the Supabase ledger (append-only)' : 'Supabase unreachable — showing local fallback (empty)'} style={{ backgroundColor: source === 'supabase' ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--color-surface)', color: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }} /> {source === 'supabase' ? 'Supabase ledger' : 'Local'}
         </span>
       </div>

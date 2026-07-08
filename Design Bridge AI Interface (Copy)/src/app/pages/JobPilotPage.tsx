@@ -80,22 +80,28 @@ export function JobPilotPage() {
 
       <div className="flex-1 overflow-auto">
         {view === 'card' && (
-          <CardGrid>
-            {scored.map(({ job, fit }) => {
-              const app = applicationForJob(job.id);
-              return (
-                <NotionCard
-                  key={job.id}
-                  title={job.title}
-                  subtitle={`${job.company} · ${job.location}`}
-                  cornerBadge={<FlagIcon color={fit.flag} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={app ? undefined : (c) => onFlagAction(job.id, c)} disabled={!!app} />}
-                  bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
-                  metaChips={[job.ats, `to $${job.salaryMax.toLocaleString()}`]}
-                  footer={<span className="text-xs font-medium" style={{ color: app ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{app ? `${STAGE_LABEL[app.stage]} — in tracker` : 'Not queued — click the flag'}</span>}
-                />
-              );
-            })}
-          </CardGrid>
+          scored.length > 0 ? (
+            <CardGrid>
+              {scored.map(({ job, fit }) => {
+                const app = applicationForJob(job.id);
+                return (
+                  <NotionCard
+                    key={job.id}
+                    title={job.title}
+                    subtitle={`${job.company} · ${job.location}`}
+                    cornerBadge={<FlagIcon color={fit.flag} kind="ai_inference" matched={fit.matched} unmatched={fit.unmatched} onClick={app ? undefined : (c) => onFlagAction(job.id, c)} disabled={!!app} />}
+                    bodyLines={[...fit.matched.map((text) => ({ text, matched: true })), ...fit.unmatched.map((text) => ({ text, matched: false }))]}
+                    metaChips={[job.ats, `to $${job.salaryMax.toLocaleString()}`]}
+                    footer={<span className="text-xs font-medium" style={{ color: app ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>{app ? `${STAGE_LABEL[app.stage]} — in tracker` : 'Not queued — click the flag'}</span>}
+                  />
+                );
+              })}
+            </CardGrid>
+          ) : (
+            <div className="p-10 text-center border border-dashed rounded-xl m-4" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+              No job postings yet — connect a job board to start sourcing.
+            </div>
+          )
         )}
 
         {view === 'kanban' && (

@@ -2,7 +2,7 @@
 
 full: [../raw/helpdesk-plan.md](../raw/helpdesk-plan.md) · requirement (verbatim): [../raw/helpdesk-requirement.md](../raw/helpdesk-requirement.md)
 
-**What:** AI-mediated assistance network — route a need to people who CAN help (capability, not topic), propose actionable ways they could contribute, kill feed noise. A native Bridge Tool.
+**What:** AI-mediated assistance network — route a need to people who CAN help (capability, not topic), propose actionable ways they could contribute, kill feed noise. A native Bridge Tool (ontologically a **Workspace** surface; Help Request = a domain-shaped **Request** work primitive — [ontology](ontology.md)).
 
 **Fits the thesis:** "who can help whom" + reciprocity. Routing = **capability-match over the relationship graph** → governed proposals (draft-then-approve). Invisible-by-default = no match = not shown (= Signals rule).
 

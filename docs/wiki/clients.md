@@ -20,6 +20,15 @@ Sensing layer = CONTEXT PROVIDER registry, providers = peers, swappable:
 - Per-surface subsets: desktop = all · browser = browser/documents · mobile = voice/photos.
 - Capture contract unchanged: every capture → inspectable Memory entry, blink = tell.
 
+## Desktop shell offline + companion window (R-001/R-002, ADR-031, 2026-07-07)
+- Shell spawn API itself: Node child on free localhost port, wait `/health`, kill on quit. Dev build never spawn (external 5173/4000 unchanged). `BRIDGE_API_URL` env override.
+- No `DATABASE_URL` → in-memory, data gone on quit. Honest. Set `DATABASE_URL` before launch → real persistence (env inherited by child).
+- API URL injected pre-load: `window.__BRIDGE_API_URL__` init script → trpc client read it first, then `VITE_API_URL`, then localhost:4000. Windows built in Rust code now, not tauri.conf (port only known at runtime).
+- Avatar = REAL OS window ("overlay": 96×96, transparent, no chrome, always-on-top, skip-taskbar, bottom-right). Own Vite entry `overlay.html` (asset protocol has no SPA fallback). Same Creature + avatar-store as in-page one.
+- State machine v1: collapsed → hover → expanded_idle → working (result_ready/dismissing typed, not driven yet). Expand grow the WINDOW via Rust `overlay_resize`, bottom-right pinned. Panel: status + pending approvals + "Open Bridge" (`focus_main_window`).
+- In Tauri, in-page AvatarOverlay suppressed (no double avatar). Browser deploys keep in-page one.
+- Gaps: shell crash leak Node child; blink-tell window-local; GUI runtime not verified headless (cargo check + builds only).
+
 ## Voice Command Center
 Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/page/selected object/active app/current doc/intent. Examples: "summarize this meeting", "build workflow from this", "turn this into agent". Consistent across all 3 clients; only available capabilities differ per platform permissions. NOTE: pulls part of P4 (Command Center) cross-surface — roadmap touch.
 
@@ -35,7 +44,7 @@ Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/p
 **KnowledgeBase** (was: no standalone "Network" page existed — this IS the concept target) = toggle tabs **People / Communities / Resources / Projects**.
 - Projects = display label for `initiative` node type (kernel id unchanged). Cross-disciplinary container (people+orgs+resources+chat) — today wired to `graph.listInitiatives` only, cross-linking is a real gap.
 - Resources = websites/media/platforms, reuses existing ResourcesPage (`resources.list`).
-- People/Communities = honest empty state, no `graph.listPeople`/`listCommunities` procedure yet (BUGS.md).
+- People/Communities = `graph.listPeople`/`graph.listCommunities` procedures now exist (2026-07-07, same paginated/workspace-scoped pattern as `listInitiatives`); apps/web wiring to KnowledgeBasePage is a separate follow-up track (still honest `NotWiredYet` in the UI as of this note).
 - New toggle section = governed proposal (minor, Governance Agent may auto-approve), never silent restructure.
 
 **Tools** = section tabs **Skills / Agents / Apps / Workflows** (Workflow = display label for `ritual`, kernel id unchanged).
@@ -48,7 +57,7 @@ Cross-platform, global shortcut (e.g. hold Fn). Understands: current workspace/p
 
 **View convertibility**: every table-backed view gets switcher. table/kanban/card (gallery) ALWAYS eligible. calendar ⇐ date-kind column exists. map ⇐ location-kind column exists (heuristic today — `ColumnKind` has no dedicated location kind yet, BUGS.md). graph/network ⇐ relation-kind column exists. Eligibility computed client-side from spec columns (`apps/web/src/app/dataviews/eligibility.ts`), DataViews.tsx switcher uses it as default when no explicit override. Map has no rendering lib in repo → honest "map view (list fallback)" grouped-by-location list (MapView.tsx), not a fake map.
 
-**Display-vocab renames** (workspace-scope only, kernel ids untouched): Initiative→Project, Ritual→Workflow, Network→KnowledgeBase. User's own naming always wins.
+**Display-vocab renames** (workspace-scope only, kernel ids untouched): Initiative→Project, Ritual→Workflow, Network→KnowledgeBase. User's own naming always wins. Ontological primitives behind the labels ([ontology](ontology.md)): "Workflow"/`ritual` = **Automation** · "Project"/`initiative` = **ElementType** · Apps/connections = **Integration** · user-facing tool surfaces = **Workspace**.
 
 **Peer-grouping heuristics** (blueprint-level, compiler-encoded): similar task → toggle sub-pages. different tasks → separate tools. same process+task, separate data → separate lists. Proposes structure, never silently imposes.
 

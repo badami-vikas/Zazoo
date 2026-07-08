@@ -1,6 +1,6 @@
 # Stack (wiki)
 
-full: [../raw/STACK.md](../raw/STACK.md)
+full: [../raw/STACK.md](../raw/STACK.md) · primitive names for stack terms → [ontology](ontology.md): ritual engine (Hatchet/`RitualExecutor`) runs the **Automation** primitive; `tool-kit`/ToolManifest = implementation surface for the **Workspace** primitive; integrations = **Integration** primitive.
 
 Scale: 30k canonical / <100 hot → virtualize 30k surfaces, WebGL graph, E2EE cheap.
 

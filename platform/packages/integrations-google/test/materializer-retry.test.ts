@@ -47,7 +47,7 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
   localPlane.graph.commitEntity = async (entry) => {
     commitCalls += 1;
     if (commitCalls === 1) {
-      throw new Error("dummy_ transient pglite hiccup");
+      throw new Error("test_fixture_ transient pglite hiccup");
     }
     return realCommitEntity(entry);
   };
@@ -58,9 +58,9 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
     person: {
       localPersonId: "local-person-1",
       canonicalIdIfNew: "canon-person-1",
-      fullName: "dummy_ Priya",
-      emails: ["dummy_priya@example.com"],
-      dedupKey: "dummy_priya@example.com",
+      fullName: "test_fixture_ Priya",
+      emails: ["test_fixture_priya@example.com"],
+      dedupKey: "test_fixture_priya@example.com",
     },
     entities: [
       {
@@ -96,7 +96,7 @@ test("applyApproved gives up after exhausting retries and surfaces the error", a
   const canonical = new InMemoryCanonicalIdentityStore();
 
   localPlane.graph.commitEntity = async () => {
-    throw new Error("dummy_ persistent failure");
+    throw new Error("test_fixture_ persistent failure");
   };
 
   const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
@@ -116,7 +116,7 @@ test("applyApproved gives up after exhausting retries and surfaces the error", a
 
   await assert.rejects(
     () => materializer.applyApproved(resolvedProposal(directive), ctx()),
-    /dummy_ persistent failure/,
+    /test_fixture_ persistent failure/,
   );
 
   await localPlane.close();
