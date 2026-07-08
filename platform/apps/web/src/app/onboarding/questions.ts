@@ -16,7 +16,13 @@
 import type { WorkspaceBlueprint } from "@bridge/core";
 import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
 
-export type QuestionKind = "single_select" | "multi_select" | "text";
+/**
+ * "phone_otp" and "linkedin_choice" (R-030) are rendered by dedicated UI in
+ * OnboardingDialog.tsx, not the generic single_select/multi_select/text
+ * renderer — they need custom controls (phone+code inputs, a LinkedIn
+ * connect button) that a plain option list can't express.
+ */
+export type QuestionKind = "single_select" | "multi_select" | "text" | "linkedin_choice" | "phone_otp";
 
 export interface QuestionOption {
   value: string;
@@ -33,6 +39,25 @@ export interface OnboardingQuestion {
 }
 
 export type OnboardingAnswers = Record<string, string | string[] | undefined>;
+
+/** Verification step (R-030, spec's "LinkedIn-or-OTP verification"). LinkedIn
+ * routes to the REAL social OAuth flow already registered in
+ * apps/api/src/social/registry.ts — no fabricated scrape/connect. Phone OTP
+ * is an explicit, user-authorized DUMMY flow (2026-07-08: "use dummy flow for
+ * now") — any 6-digit code passes, and the UI says so plainly. */
+const Q_VERIFY: OnboardingQuestion = {
+  id: "verification_method",
+  kind: "linkedin_choice",
+  prompt: "Verify it's you.",
+  helpText: "Connect LinkedIn, or verify by phone instead.",
+};
+
+const Q_PHONE_OTP: OnboardingQuestion = {
+  id: "phone_otp",
+  kind: "phone_otp",
+  prompt: "Enter your phone number.",
+  helpText: "Demo mode — no real SMS is sent, any 6-digit code works.",
+};
 
 const Q_MODE: OnboardingQuestion = {
   id: "mode",
@@ -134,6 +159,8 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
  * band without padding.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
+  if (answers.verification_method === undefined) return Q_VERIFY;
+  if (answers.verification_method === "phone" && answers.phone_otp === undefined) return Q_PHONE_OTP;
   if (answers.mode === undefined) return Q_MODE;
   if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
   if (answers.domain === undefined) return Q_DOMAIN;
@@ -148,7 +175,7 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
 /** Total number of questions in the LONGEST real path (team + vocab-needing
  * domain) — used only as the denominator for egg-growth progress, never for
  * branching logic itself (that stays in `nextQuestion`). */
-export const MAX_QUESTIONS = 8;
+export const MAX_QUESTIONS = 10;
 
 /** How many questions have been answered so far — the egg's "questions
  * answered" progress input (spec section 4, Stage 1-2: egg grows with real

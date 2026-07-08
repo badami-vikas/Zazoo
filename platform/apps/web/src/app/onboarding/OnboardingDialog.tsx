@@ -37,6 +37,70 @@ const REGISTERED_NODE_TYPES = [
   "edge",
 ] as const;
 
+/**
+ * Dummy phone verification (R-030, user 2026-07-08: "phone-otp (use dummy
+ * flow for now)"). No real SMS provider is wired — this is explicitly a demo
+ * flow, labeled as such in the UI copy so it's never mistaken for a working
+ * integration. `trpc.onboarding.verifyPhoneOtp` accepts any 6-digit code.
+ */
+function PhoneOtpVerify({ onVerified }: { onVerified: () => void }) {
+  const [phone, setPhone] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [status, setStatus] = useState<"idle" | "checking" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-2">
+      {!codeSent ? (
+        <div className="flex gap-2">
+          <Input
+            autoFocus
+            type="tel"
+            placeholder="+1 555 123 4567"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+          <Button disabled={phone.trim().length < 3} onClick={() => setCodeSent(true)}>
+            Send code
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Demo mode — no SMS was actually sent. Enter any 6 digits.</p>
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              inputMode="numeric"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <Button
+              disabled={status === "checking" || code.trim().length === 0}
+              onClick={async () => {
+                setStatus("checking");
+                try {
+                  const res = await trpc.onboarding.verifyPhoneOtp.mutate({ phone, code: code.trim() });
+                  setMessage(res.message);
+                  if (res.verified) onVerified();
+                  else setStatus("error");
+                } catch (e) {
+                  setMessage(String(e));
+                  setStatus("error");
+                }
+              }}
+            >
+              {status === "checking" ? "Verifying…" : "Verify"}
+            </Button>
+          </div>
+          {message && <p className={`text-xs ${status === "error" ? "text-red-600" : "text-muted-foreground"}`}>{message}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -190,6 +254,23 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
       setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
       onProposed?.();
+      // Server-side onboarding profile (R-030): saved best-effort — this is
+      // personalization data, not the governed workspace setup itself, so a
+      // failure here never blocks the "your Organization is live" outcome
+      // above (already committed via the propose/activate pipeline).
+      const verificationMethod = (answers.verification_method as string | undefined) ?? null;
+      trpc.onboarding.saveProfile
+        .mutate({
+          workspaceId: PILOT_WORKSPACE,
+          animal: spiritAnimal,
+          answers,
+          verificationMethod: verificationMethod === "linkedin" || verificationMethod === "phone" ? verificationMethod : null,
+          connectedSourceIds: [],
+        })
+        .catch(() => {
+          // Cosmetic/personalization only — swallow, same posture as avatar
+          // prefs' localStorage write failing silently.
+        });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -254,6 +335,30 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
                 </Button>
               </div>
             )}
+
+            {question.kind === "linkedin_choice" && (
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  className="justify-start"
+                  onClick={() => {
+                    // Real social OAuth registry (apps/api/src/social/registry.ts)
+                    // — no fabricated LinkedIn scrape/connect. The actual OAuth
+                    // handshake lives on the Integrations surface; onboarding just
+                    // records the choice and points there.
+                    window.open("/integrations", "_blank", "noopener,noreferrer");
+                    answer(question.id, "linkedin");
+                  }}
+                >
+                  Connect LinkedIn
+                </Button>
+                <Button variant="outline" className="justify-start" onClick={() => answer(question.id, "phone")}>
+                  Verify by phone instead
+                </Button>
+              </div>
+            )}
+
+            {question.kind === "phone_otp" && <PhoneOtpVerify onVerified={() => answer(question.id, "verified")} />}
 
             {question.kind === "text" && (
               <div className="flex gap-2">

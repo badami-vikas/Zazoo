@@ -1124,6 +1124,63 @@ export const appRouter = t.router({
    * teammate doesn't have an external effect requiring approval, so this bypasses
    * pipeline.propose() and calls the store directly.
    */
+  /**
+   * Onboarding (ADR-033/R-030) — the server-side home for onboarding
+   * personalization that used to live ONLY in browser localStorage
+   * (avatar-store.ts). `verifyPhoneOtp` is an explicit, user-authorized DUMMY
+   * flow (2026-07-08 ruling: "use dummy flow for now" — no real SMS provider
+   * is wired) — it accepts any 6-digit code and is labeled as demo/test mode
+   * in the client copy so it's never presented as a working integration.
+   */
+  onboarding: t.router({
+    getProfile: procedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        return { profile: await ctx.wiring.onboardingProfileStore.get(input.workspaceId) };
+      }),
+
+    saveProfile: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          animal: z.string().min(1),
+          answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
+          verificationMethod: z.enum(["phone", "linkedin"]).nullable().default(null),
+          connectedSourceIds: z.array(z.string()).default([]),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const existing = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+        const row = {
+          workspaceId: input.workspaceId,
+          animal: input.animal,
+          answers: input.answers,
+          phoneVerified: input.verificationMethod === "phone" ? true : (existing?.phoneVerified ?? false),
+          verificationMethod: input.verificationMethod ?? existing?.verificationMethod ?? null,
+          connectedSourceIds: input.connectedSourceIds,
+          updatedAtISO: new Date().toISOString(),
+        };
+        await ctx.wiring.onboardingProfileStore.save(row);
+        return { profile: row };
+      }),
+
+    /** DUMMY — see router-level doc comment above. Any 6-digit code passes. */
+    verifyPhoneOtp: procedure
+      .input(z.object({ phone: z.string().min(3), code: z.string() }))
+      .mutation(async ({ input }) => {
+        const verified = /^\d{6}$/.test(input.code.trim());
+        return {
+          verified,
+          dummy: true as const,
+          message: verified
+            ? "Demo verification passed — no SMS was actually sent."
+            : "Enter any 6-digit code (demo mode — no real SMS is sent).",
+        };
+      }),
+  }),
+
   workspace: t.router({
     create: procedure
       .input(z.object({ name: z.string().min(1) }))

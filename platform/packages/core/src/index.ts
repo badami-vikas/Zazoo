@@ -239,3 +239,12 @@ export {
   type ModelRunContext,
   type AssembleRunContextInput,
 } from "./run-context.js";
+
+// Onboarding profile store (ADR-033/R-029/R-030) — narrow, onboarding-scoped
+// personalization store. NOT the general Memory/Knowledge kernel primitive
+// (still absent); see onboarding-profile.ts's header comment.
+export {
+  InMemoryOnboardingProfileStore,
+  type OnboardingProfileRow,
+  type OnboardingProfileStore,
+} from "./onboarding-profile.js";

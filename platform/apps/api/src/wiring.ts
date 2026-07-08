@@ -58,6 +58,7 @@ import {
   InMemoryCredentialBroker,
   InMemoryWorkspaceDefinitionStore,
   InMemoryPackageStore,
+  InMemoryOnboardingProfileStore,
   EchoModelProvider,
   type ModelProvider,
   type AgentQuery,
@@ -77,6 +78,7 @@ import {
   type CredentialBroker,
   type WorkspaceDefinitionStore,
   type PackageStore,
+  type OnboardingProfileStore,
 } from "@bridge/core";
 import {
   createDb,
@@ -188,6 +190,10 @@ export interface Wiring {
   capabilityKillSwitch: KillSwitchPort;
   /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
   credentialBroker: CredentialBroker;
+  /** Onboarding personalization profile (ADR-033/R-030) — animal, answers, phone/LinkedIn
+   * verification method, connected sources. In-memory in both modes for now (see
+   * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
+  onboardingProfileStore: OnboardingProfileStore;
   /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -489,6 +495,11 @@ export async function buildWiring(): Promise<Wiring> {
   const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
   const capabilityKillSwitch = new InMemoryKillSwitch();
   const credentialBroker = new InMemoryCredentialBroker();
+  // Onboarding personalization profile (ADR-033/R-030) — in-memory in both
+  // modes for now, same honest-gap pattern as capabilityBudgets above: no
+  // persistent implementation exists yet, this is the onboarding-scoped slice
+  // of the still-absent general Memory/Knowledge kernel primitive.
+  const onboardingProfileStore = new InMemoryOnboardingProfileStore();
   // P2 capability packages — now backed by DrizzlePackageStore in persistent mode
   // (ADR-023); `packageStore` comes from modePorts (see above), same split every
   // other per-mode port already follows.
@@ -656,6 +667,7 @@ export async function buildWiring(): Promise<Wiring> {
     capabilityBudgets,
     capabilityKillSwitch,
     credentialBroker,
+    onboardingProfileStore,
     models,
     ...(memory ? { memory } : {}),
     close: async () => {

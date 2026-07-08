@@ -18,15 +18,46 @@ import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "bridge.avatar.v1";
 
-export type SpiritAnimal = "owl" | "fox" | "turtle" | "crane" | "wolf" | "cat";
+/**
+ * 14 options = the ADR-033 onboarding spec's verbatim spirit-animal set
+ * (Lion, Fox, Dog, Cat, Panda, Butterfly, Dolphin, Owl, Turtle, Peacock,
+ * Elephant, Eagle, Horse, Beaver). `crane`/`wolf` predate that spec and are
+ * kept as bonus extras (already wired, harmless, not worth ripping out) —
+ * the union is a superset of the spec, not a replacement.
+ */
+export type SpiritAnimal =
+  | "owl"
+  | "fox"
+  | "turtle"
+  | "crane"
+  | "wolf"
+  | "cat"
+  | "lion"
+  | "dog"
+  | "panda"
+  | "butterfly"
+  | "dolphin"
+  | "peacock"
+  | "elephant"
+  | "eagle"
+  | "horse"
+  | "beaver";
 
 export const SPIRIT_ANIMALS: { value: SpiritAnimal; label: string }[] = [
-  { value: "owl", label: "Owl" },
+  { value: "lion", label: "Lion" },
   { value: "fox", label: "Fox" },
-  { value: "turtle", label: "Turtle" },
-  { value: "crane", label: "Crane" },
-  { value: "wolf", label: "Wolf" },
+  { value: "dog", label: "Dog" },
   { value: "cat", label: "Cat" },
+  { value: "panda", label: "Panda" },
+  { value: "butterfly", label: "Butterfly" },
+  { value: "dolphin", label: "Dolphin" },
+  { value: "owl", label: "Owl" },
+  { value: "turtle", label: "Turtle" },
+  { value: "peacock", label: "Peacock" },
+  { value: "elephant", label: "Elephant" },
+  { value: "eagle", label: "Eagle" },
+  { value: "horse", label: "Horse" },
+  { value: "beaver", label: "Beaver" },
 ];
 
 export interface AvatarPrefs {

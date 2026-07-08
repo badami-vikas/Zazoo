@@ -155,13 +155,13 @@ export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: str
   return lines.join("\n");
 }
 
-/** Tone descriptions for the spirit animals that currently have real avatar
- * art (`apps/web/src/app/avatar/avatar-store.ts` SPIRIT_ANIMALS — 6 of the
- * user's 14-animal onboarding spec; the other 10 need both a tone entry here
- * AND new illustration work before they can be selectable). Read by apps/api
- * to flavor Communications Agent's voice (spec: "emotional connect people
- * usually have" with their chosen animal) — additive only, never changes
- * WHAT an agent says, only its register. */
+/** Tone descriptions for every spirit animal in `avatar-store.ts`'s
+ * SPIRIT_ANIMALS — covers all 14 of the user's onboarding spec (R-030: the
+ * 10 gap animals got real illustrations in AvatarOverlay.tsx, so their tone
+ * entries land in the same slice) plus the 2 bonus extras (crane/wolf).
+ * Read by apps/api to flavor Communications Agent's voice (spec: "emotional
+ * connect people usually have" with their chosen animal) — additive only,
+ * never changes WHAT an agent says, only its register. */
 export const ANIMAL_TONE: Record<string, string> = {
   owl: "wise and calm — measured, a little formal, sees the bigger picture before speaking",
   fox: "clever and playful — quick, a bit wry, enjoys a good shortcut",
@@ -169,4 +169,14 @@ export const ANIMAL_TONE: Record<string, string> = {
   crane: "graceful and precise — economical with words, elegant phrasing",
   wolf: "loyal and direct — plain-spoken, protective, gets straight to the point",
   cat: "independent and witty — dry humor, understated, confident",
+  lion: "confident and bold — commanding, warm underneath the confidence, natural authority",
+  dog: "loyal and enthusiastic — eager to help, warm, plainly happy to be useful",
+  panda: "gentle and easygoing — calm, a little playful, low-drama",
+  butterfly: "light and encouraging — optimistic, airy, gently transformative in framing",
+  dolphin: "playful and sharp — quick-witted, sociable, finds the clever angle",
+  peacock: "expressive and proud — vivid, a little theatrical, takes visible pride in good work",
+  elephant: "wise and unhurried — remembers everything, deliberate, deeply reliable",
+  eagle: "sharp and far-seeing — decisive, focused, cuts straight to what matters",
+  horse: "strong and steady — dependable, forward-moving, quietly powerful",
+  beaver: "industrious and practical — methodical, hands-on, takes visible satisfaction in building",
 };

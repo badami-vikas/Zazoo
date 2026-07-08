@@ -69,7 +69,13 @@ export function Creature({
 }) {
   const eyesClosed = status === "idle" || blinking;
   const eyeRy = eyesClosed ? 0.4 : status === "listening" ? 3.4 : 2.6;
-  const bodyFill = "var(--color-surface)";
+  // "3D" ask (R-030): no 3D-modeling toolchain is available in this
+  // environment (no asset pipeline / renderer), so this stays true to the
+  // existing "no image assets, geometric SVG only" architecture and adds a
+  // glossy/extruded LOOK via a radial-gradient head fill + drop-shadow filter
+  // — same shapes, genuinely more dimensional, not a fabricated 3D asset.
+  const gradientId = `bridge-avatar-body-${animal}`;
+  const bodyFill = `url(#${gradientId})`;
   const strokeColor = "var(--color-navy)";
   const accent = STATUS_COLOR[status];
 
@@ -105,6 +111,66 @@ export function Creature({
         <path d="M46 20 L42 6 L34 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
       </>
     ),
+    lion: (
+      <>
+        <circle cx="15" cy="18" r="7" fill="var(--color-amber-soft)" opacity="0.5" />
+        <circle cx="49" cy="18" r="7" fill="var(--color-amber-soft)" opacity="0.5" />
+        <circle cx="16" cy="30" r="7" fill="var(--color-amber-soft)" opacity="0.5" />
+        <circle cx="48" cy="30" r="7" fill="var(--color-amber-soft)" opacity="0.5" />
+      </>
+    ),
+    dog: (
+      <>
+        <ellipse cx="17" cy="24" rx="6" ry="12" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <ellipse cx="47" cy="24" rx="6" ry="12" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    panda: (
+      <>
+        <circle cx="18" cy="16" r="7" fill={strokeColor} />
+        <circle cx="46" cy="16" r="7" fill={strokeColor} />
+      </>
+    ),
+    butterfly: (
+      <>
+        <ellipse cx="14" cy="24" rx="10" ry="16" fill="var(--color-steel-light)" opacity="0.55" stroke={strokeColor} strokeWidth="1" />
+        <ellipse cx="50" cy="24" rx="10" ry="16" fill="var(--color-steel-light)" opacity="0.55" stroke={strokeColor} strokeWidth="1" />
+      </>
+    ),
+    dolphin: (
+      <path d="M32 4 L36 20 L28 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+    ),
+    peacock: (
+      <>
+        <path d="M32 2 L32 20" stroke="var(--color-sage)" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="24" cy="6" r="4" fill="var(--color-steel)" opacity="0.6" />
+        <circle cx="40" cy="6" r="4" fill="var(--color-amber-soft)" opacity="0.6" />
+      </>
+    ),
+    elephant: (
+      <>
+        <ellipse cx="14" cy="26" rx="7" ry="13" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <ellipse cx="50" cy="26" rx="7" ry="13" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    eagle: (
+      <>
+        <path d="M18 22 L26 6 L30 22 Z" fill="var(--color-amber-soft)" stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M46 22 L38 6 L34 22 Z" fill="var(--color-amber-soft)" stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    horse: (
+      <>
+        <path d="M22 20 L26 4 L31 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <path d="M42 20 L38 4 L33 20 Z" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
+    beaver: (
+      <>
+        <circle cx="17" cy="20" r="6" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        <circle cx="47" cy="20" r="6" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+      </>
+    ),
   };
 
   const snoutByAnimal: Record<SpiritAnimal, React.ReactNode> = {
@@ -114,16 +180,38 @@ export function Creature({
     crane: <path d="M32 34 L44 38 L32 40 Z" fill="var(--color-amber-soft)" opacity="0.8" />,
     wolf: <path d="M32 34 L27 40 L37 40 Z" fill="var(--color-warm-gray)" opacity="0.7" />,
     cat: <path d="M29 36 L32 39 L35 36 Z" fill="var(--color-amber-soft)" opacity="0.6" />,
+    lion: <path d="M28 36 L32 41 L36 36 Z" fill="var(--color-amber-soft)" opacity="0.8" />,
+    dog: <ellipse cx="32" cy="38" rx="6" ry="4" fill="var(--color-warm-gray)" opacity="0.6" />,
+    panda: <ellipse cx="32" cy="37" rx="5" ry="3.5" fill="var(--color-warm-gray)" opacity="0.5" />,
+    butterfly: null,
+    dolphin: <path d="M32 34 L24 38 L32 40 Z" fill="var(--color-steel-light)" opacity="0.7" />,
+    peacock: <path d="M32 34 L29 39 L35 39 Z" fill="var(--color-amber-soft)" opacity="0.6" />,
+    elephant: <path d="M32 34 L29 46 L35 46 Z" fill="var(--color-warm-gray)" opacity="0.6" />,
+    eagle: <path d="M32 34 L28 39 L36 39 Z" fill="var(--color-amber-soft)" opacity="0.9" />,
+    horse: <ellipse cx="32" cy="39" rx="6" ry="5" fill="var(--color-warm-gray)" opacity="0.5" />,
+    beaver: <ellipse cx="32" cy="38" rx="5" ry="3.5" fill="var(--color-amber-soft)" opacity="0.6" />,
   };
 
   return (
     <svg viewBox="0 0 64 64" width="100%" height="100%" role="presentation" aria-hidden="true">
+      <defs>
+        <radialGradient id={gradientId} cx="38%" cy="32%" r="75%">
+          <stop offset="0%" stopColor="var(--color-background)" />
+          <stop offset="55%" stopColor="var(--color-surface)" />
+          <stop offset="100%" stopColor="var(--color-steel-light)" stopOpacity="0.5" />
+        </radialGradient>
+        <filter id="bridge-avatar-shadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="1.4" floodColor={strokeColor} floodOpacity="0.25" />
+        </filter>
+      </defs>
       {/* soft status halo */}
       <circle cx="32" cy="32" r="30" fill={accent} opacity="0.12" />
-      {earsByAnimal[animal]}
-      {/* head */}
-      <circle cx="32" cy="30" r="18" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
-      {snoutByAnimal[animal]}
+      <g filter="url(#bridge-avatar-shadow)">
+        {earsByAnimal[animal]}
+        {/* head */}
+        <circle cx="32" cy="30" r="18" fill={bodyFill} stroke={strokeColor} strokeWidth="1.5" />
+        {snoutByAnimal[animal]}
+      </g>
       {/* eyes */}
       <g>
         <ellipse
