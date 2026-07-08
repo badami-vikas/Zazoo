@@ -15,7 +15,8 @@
     "test": "node --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
     "dev": "node --watch dist/src/server.js",
-    "start": "node dist/src/server.js"
+    "start": "node dist/src/server.js",
+    "publish-builtins": "node dist/src/scripts/publish-builtins.js"
   },
   "dependencies": {
     "@bridge/company-sourcing": "workspace:*",
