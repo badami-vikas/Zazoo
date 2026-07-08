@@ -8,6 +8,9 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-07 — API error strings use legacy vocab, leak into UI toasts (R-020 tail).**
+  ~15 user-surfaceable messages in `apps/api/src/router.ts` (:803–:2134) + `commons-client.ts:67` say "ritual", "workspace_definition", "capability manifest", "package installation" — they render verbatim in web error toasts. Needs a server copy pass mapping to Workflow/Organization/Module vocabulary (message text only, identifiers unchanged).
+
 - **OPEN 2026-07-07 — `apps/api/test/packages.test.ts` "packages.list: paginates" broken by built-in package seeding.**
   `buildWiring()` now seeds the 4 built-in workspace-definition packages on startup (apps/api/src/built-in-packages.ts),
   so the test's `total` assertion sees 6 rows where it expects 2 (its own registrations only). Pre-existing on the
@@ -834,5 +837,3 @@ The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. O
 
 ## OPEN 2026-07-07 — No per-Initiative resource scoping in the API (Control Panel shows Organization-wide rows only)
 `/initiative/:id/control-panel` (ControlPanelPage.tsx) can only enumerate workspace-scoped resources (`packages.list`, `integration.list`, `google.list`) — there is no API concept binding a Module/Integration/Automation/Assistant to one initiative, and no `ritual.list`/`agent.list` read procedures at all (pre-existing gaps). The panel honestly labels Scope "Organization-wide" and renders note rows; real per-Initiative configuration needs kernel + router support.
-
-| API error strings use legacy vocab (ritual / workspace_definition / capability manifest) in ~15 user-surfaceable messages (apps/api/src/router.ts:803-2134, commons-client.ts:67) — leak into UI error toasts. Server copy pass pending (R-020 tail). | OPEN | 2026-07-07 |
