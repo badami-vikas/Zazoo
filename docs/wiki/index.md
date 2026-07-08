@@ -16,6 +16,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [tools](tools.md) — tool model: internalize external repos · two run modes (standalone/shared-link + account-bound) · gated intake; reuses pipeline/contracts/versions.
 - [packages](packages.md) — capability package format: manifest bundles multiple capability_manifests · install = governed proposal + computed risk over dependency closure + lethal-trifecta escalation · Zapier single-live-version + fork-from-history rollback · DealPilot/Helpdesk/Recon sketches.
 - [commons](commons.md) — Universal Commons: local-first Module registry (services/commons, port 4780) · same contract as future Bridge Cloud · knowledge-only publish gate (422 + offending paths) · Marketplace = Commons website surface, web app consumes installed Modules only.
+- [module-evolution](module-evolution.md) — **2026-07-07/08, ADR-032**: AI-led Module creation/evolution (confidence-tiered, no user forms), Component Registry + eval harness design, minimal-egg definition restated for ADR-029 nav, Day-1 bar = Grok-backed onboarding agent + 5-agent team shipping real-time Module proposals — NOT YET BUILT, top priority.
 - [calendar](calendar.md) — Calendar Tool = time-axis projection over graph; adopt react-big-calendar (MIT) + ical.js; never embed a calendar product/server.
 - [helpdesk](helpdesk.md) — AI-mediated assistance: capability routing over the graph → governed proposals; in-Bridge MVP; new Help Request entity.
 - [schema](schema.md) — data model, two-tier, governance tables.
