@@ -76,7 +76,7 @@ export default function Layout() {
         if (mine?.name) setWorkspaceName(mine.name);
       })
       .catch(() => {
-        // Honest no-op — the avatar popover falls back to "Unnamed workspace".
+        // Honest no-op — the avatar popover falls back to "Unnamed organization".
       });
   }, []);
 

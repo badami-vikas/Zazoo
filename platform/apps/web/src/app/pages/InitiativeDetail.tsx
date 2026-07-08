@@ -228,7 +228,7 @@ export function InitiativeDetail() {
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Rituals are GLOBAL — this opens the single ritual factory (same screen as Tools→Rituals). */}
-                  <button onClick={() => navigate(`/rituals?initiative=${encodeURIComponent(iid)}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }} title="Attach or create a Ritual (automation) for this initiative"><Repeat className="w-4 h-4" /> Add Ritual</button>
+                  <button onClick={() => navigate(`/rituals?initiative=${encodeURIComponent(iid)}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }} title="Attach or create a Workflow (automation) for this initiative"><Repeat className="w-4 h-4" /> Add Workflow</button>
                   <button onClick={() => addTouchpoint(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-white shadow-sm active:scale-95 transition-transform" style={{ backgroundColor: 'var(--color-steel)' }}><Plus className="w-4 h-4" /> Add Touchpoint</button>
                 </div>
               </div>

@@ -26,7 +26,7 @@ const STORAGE_KEY_TOOLS = "bridge.pins.tools";
 /** No fabricated pins — these are the only real, currently-routable
  * destinations for each kind, used only when the user's own localStorage
  * list is empty (first run). The user can unpin them like any other pin. */
-const DEFAULT_PROJECT_PINS: PinnedItem[] = [{ id: "projects", label: "Projects", to: "/knowledge-base?section=projects" }];
+const DEFAULT_PROJECT_PINS: PinnedItem[] = [{ id: "projects", label: "Initiatives", to: "/knowledge-base?section=projects" }];
 const DEFAULT_TOOL_PINS: PinnedItem[] = [
   // Approvals + Signals = TWO separate pinned governance tools by default
   // (user revision 2026-07-06 splitting the earlier tabs-merge back apart).

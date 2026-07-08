@@ -247,8 +247,8 @@ export function AvatarOverlay({ animal, avatarName, workspaceName }: AvatarOverl
           </div>
           <div className="space-y-1.5 text-[var(--color-navy-mid)]">
             <p>
-              <span className="text-muted-foreground">Workspace: </span>
-              {workspaceName || "Unnamed workspace"}
+              <span className="text-muted-foreground">Organization: </span>
+              {workspaceName || "Unnamed organization"}
             </p>
             <p>
               <span className="text-muted-foreground">Route: </span>

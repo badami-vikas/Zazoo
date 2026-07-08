@@ -68,7 +68,7 @@ function ProjectsSection() {
   }, []);
 
   if (error) return <div className="p-4 text-sm text-red-600 break-words">{error}</div>;
-  if (rows === null) return <div className="p-4 text-sm text-muted-foreground">Loading projects…</div>;
+  if (rows === null) return <div className="p-4 text-sm text-muted-foreground">Loading initiatives…</div>;
 
   return <DataViews spec={PROJECTS_SPEC} view={view} data={rows} onViewChange={setView} />;
 }

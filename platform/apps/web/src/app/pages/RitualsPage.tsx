@@ -31,7 +31,7 @@ export function RitualsPage() {
 
   const headerTabs = [
     { id: 'Initiatives', icon: Target },
-    { id: 'Rituals', icon: Repeat },
+    { id: 'Rituals', icon: Repeat, label: 'Workflows' },
     { id: 'Tools', icon: PenTool },
   ];
   const onTab = (t: string) => { if (t === 'Rituals') return; navigate(t === 'Tools' ? '/tools' : '/work'); };
@@ -49,7 +49,7 @@ export function RitualsPage() {
 
       <StandardToolbar
         // Cadence categories act as this page's lists (system-defined, not user-creatable).
-        lists={lists.map(l => ({ id: l, label: l === 'All' ? 'All Rituals' : l }))}
+        lists={lists.map(l => ({ id: l, label: l === 'All' ? 'All Workflows' : l }))}
         activeListId={selected ?? 'All'}
         onListSelect={(id) => setSelected(id === 'All' ? null : id)}
         insightsExpanded={insightsOpen}
@@ -63,7 +63,7 @@ export function RitualsPage() {
           <button onClick={() => navigate('/ritual/create')}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
             style={{ backgroundColor: 'var(--color-steel)' }}>
-            <Plus className="w-3.5 h-3.5" /> New Ritual
+            <Plus className="w-3.5 h-3.5" /> New Workflow
           </button>
         }
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
@@ -71,7 +71,7 @@ export function RitualsPage() {
       <CollapsibleInsights
         expanded={insightsOpen}
         metrics={[
-          { id: 'shown', label: 'Rituals shown', value: String(filtered.length), hint: 'draft-then-approve' },
+          { id: 'shown', label: 'Workflows shown', value: String(filtered.length), hint: 'draft-then-approve' },
           { id: 'active', label: 'Active', value: String(rituals.filter(r => r.status === 'Active').length) },
           { id: 'paused', label: 'Paused', value: String(rituals.filter(r => r.status === 'Paused').length) },
         ]}

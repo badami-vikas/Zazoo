@@ -263,7 +263,7 @@ export function ItemDetail() {
   });
   const fv = (field: string, base: string) => (edits[field] !== undefined ? edits[field] : base);
   const initiatives = useInitiatives();
-  const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Project brief.pdf', type: 'PDF', size: '0.4 MB' }]);
+  const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Initiative brief.pdf', type: 'PDF', size: '0.4 MB' }]);
   const addFiles = (list: FileList | null) => {
     if (!list || !list.length) return;
     const next = Array.from(list).map(f => ({ name: f.name, type: (f.name.split('.').pop() || 'file').toUpperCase(), size: `${Math.max(1, Math.round(f.size / 1024))} KB` }));
@@ -280,7 +280,7 @@ export function ItemDetail() {
     { id: 'opinions', label: 'Opinions', tier: 'public' },
     { id: 'associations', label: 'Associations', tier: 'public' },
     { id: 'initiatives', label: 'Initiatives', tier: 'private' },
-    { id: 'rituals', label: 'Rituals', tier: 'private' },
+    { id: 'rituals', label: 'Workflows', tier: 'private' },
     { id: 'tools', label: 'Tools', tier: 'private' },
     { id: 'timeline', label: 'Timeline', tier: 'private' },
     { id: 'files', label: 'Files & Media', tier: 'private' },
@@ -479,7 +479,7 @@ export function ItemDetail() {
                       {([
                         ['private', Lock, 'Only you', 'No one else can see this relationship or its notes.'],
                         ['team', Users, 'Your team', 'Everyone on your team can see this relationship.'],
-                        ['workspace', Globe, 'Whole workspace', 'Everyone in the workspace can see this relationship.'],
+                        ['workspace', Globe, 'Whole organization', 'Everyone in the organization can see this relationship.'],
                       ] as [string, LucideIcon, string, string][]).map(([v, VIcon, vLabel]) => {
                         const active = fv('visibility', 'team') === v;
                         return (
@@ -496,10 +496,10 @@ export function ItemDetail() {
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-[11px]" style={{ color: 'var(--color-navy-mid)' }}>
-                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the workspace can see this relationship.' }[fv('visibility', 'team')]}
+                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the organization can see this relationship.' }[fv('visibility', 'team')]}
                       </span>
                       {fv('visibility', 'team') === 'team' && (
-                        <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>workspace default</span>
+                        <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>organization default</span>
                       )}
                     </div>
                   </div>
@@ -519,7 +519,7 @@ export function ItemDetail() {
               )}
               {s.id === 'rituals' && (
                 <MiniTable
-                  columns={['Ritual', 'Trigger', 'Last run', 'Status']}
+                  columns={['Workflow', 'Trigger', 'Last run', 'Status']}
                   rows={[
                     ['Monthly check-in', 'First Monday each month', '12 days ago', <StatusTag label="On" tone="var(--success)" />],
                     ['Dormant reconnect', 'Trust high · warmth cooling', 'On signal', <StatusTag label="Paused" tone="var(--warning)" />],

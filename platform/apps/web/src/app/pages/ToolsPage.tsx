@@ -19,7 +19,7 @@ export function ToolsPage() {
 
   const headerTabs = [
     { id: 'Initiatives', icon: Target },
-    { id: 'Rituals', icon: Repeat },
+    { id: 'Rituals', icon: Repeat, label: 'Workflows' },
     { id: 'Tools', icon: PenTool },
   ];
 

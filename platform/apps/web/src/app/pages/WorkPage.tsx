@@ -33,7 +33,7 @@ export function WorkPage() {
   const navigate = useNavigate();
   const headerTabs = [
     { id: 'Initiatives', icon: Target },
-    { id: 'Rituals', icon: Repeat },
+    { id: 'Rituals', icon: Repeat, label: 'Workflows' },
     { id: 'Tools', icon: PenTool },
   ];
   const views = [

@@ -11,10 +11,10 @@ const playbookDetails: Record<string, any> = {};
 // flow are not yet persisted to a backing store this page reads from (see RitualCreate.tsx);
 // once wired, this fallback goes away.
 const defaultPlaybook = {
-  name: 'Ritual',
+  name: 'Workflow',
   type: 'Not yet configured',
   status: 'Paused',
-  description: 'This ritual has not been created yet. Once it is set up, its triggers, steps, and run history will appear here.',
+  description: 'This workflow has not been created yet. Once it is set up, its triggers, steps, and run history will appear here.',
   owner: '—',
   created: '—',
   lastModified: '—',
@@ -69,7 +69,7 @@ export function RitualDetail() {
         {/* Row 1: Breadcrumb */}
         <div className="h-10 flex items-center px-6 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2 text-sm">
-            <Link to="/rituals" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Rituals</Link>
+            <Link to="/rituals" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Workflows</Link>
             <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
             <div className="bg-[var(--color-surface)] text-[var(--color-navy)] px-2.5 py-1 rounded text-xs font-semibold shadow-sm">{pb.name}</div>
           </div>
@@ -82,13 +82,13 @@ export function RitualDetail() {
               className={clsx('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95', isActive ? 'bg-[var(--warning)]/10 border-[var(--warning)]/30 text-[var(--warning)] hover:bg-[var(--warning)]/15' : 'bg-[var(--success)]/10 border-[var(--success)]/30 text-[var(--success)] hover:bg-[var(--success)]/15')}
             >
               {isActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              {isActive ? 'Pause Ritual' : 'Activate Ritual'}
+              {isActive ? 'Pause Workflow' : 'Activate Workflow'}
             </button>
           </div>
           <div className="flex items-center gap-2">
             <button className="p-1.5 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] rounded-lg transition-colors" title="Duplicate"><Copy className="w-4 h-4" /></button>
             <button className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95">
-              <Edit2 className="w-3.5 h-3.5" /> Edit Ritual
+              <Edit2 className="w-3.5 h-3.5" /> Edit Workflow
             </button>
           </div>
         </div>
@@ -189,7 +189,7 @@ export function RitualDetail() {
               {pb.triggers.length > 1 && (
                 <div className="flex items-center gap-3 px-4 py-2 bg-[var(--color-surface)] rounded-lg border border-dashed border-[var(--color-border)] text-xs text-[var(--color-navy-mid)]">
                   <GitBranch className="w-4 h-4 text-[var(--color-warm-gray)]" />
-                  All triggers use <span className="font-semibold text-[var(--color-navy-mid)] px-1">OR</span> logic — any single trigger will activate the ritual.
+                  All triggers use <span className="font-semibold text-[var(--color-navy-mid)] px-1">OR</span> logic — any single trigger will activate the workflow.
                 </div>
               )}
               {pb.triggers.length === 0 && (
@@ -283,9 +283,9 @@ export function RitualDetail() {
             <div className="flex flex-col gap-6">
               {/* Toggle settings */}
               {[
-                { label: 'Ritual Active', desc: 'Enable or disable this ritual from running automatically', value: isActive, onChange: () => setIsActive(!isActive) },
-                { label: 'Email Notifications', desc: 'Send Slack & email notifications when ritual completes', value: true, onChange: () => {} },
-                { label: 'Duplicate Prevention', desc: 'Prevent the same person from entering this ritual twice', value: true, onChange: () => {} },
+                { label: 'Workflow Active', desc: 'Enable or disable this workflow from running automatically', value: isActive, onChange: () => setIsActive(!isActive) },
+                { label: 'Email Notifications', desc: 'Send Slack & email notifications when the workflow completes', value: true, onChange: () => {} },
+                { label: 'Duplicate Prevention', desc: 'Prevent the same person from entering this workflow twice', value: true, onChange: () => {} },
                 { label: 'AI Optimization', desc: 'Allow Bridge AI to automatically tune send times and copy', value: false, onChange: () => {} },
               ].map(setting => (
                 <div key={setting.label} className="flex items-center justify-between p-4 bg-white border border-[var(--color-border)] rounded-xl shadow-sm hover:shadow-md transition-shadow">
@@ -308,8 +308,8 @@ export function RitualDetail() {
                 <h3 className="font-semibold text-[var(--danger)] text-sm mb-3">Danger Zone</h3>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium text-[var(--color-navy)] text-sm">Delete Ritual</div>
-                    <div className="text-xs text-[var(--color-navy-mid)]">Permanently delete this ritual and all its run history.</div>
+                    <div className="font-medium text-[var(--color-navy)] text-sm">Delete Workflow</div>
+                    <div className="text-xs text-[var(--color-navy-mid)]">Permanently delete this workflow and all its run history.</div>
                   </div>
                   <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[var(--danger)] border border-[var(--danger)]/30 rounded-lg hover:bg-[var(--danger)]/15 transition-colors">
                     <Trash2 className="w-3.5 h-3.5" /> Delete

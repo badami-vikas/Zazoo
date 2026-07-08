@@ -141,9 +141,9 @@ export function RitualCreate() {
       <div className="border-b border-[var(--color-border)] shrink-0 bg-white z-20">
         <div className="h-10 flex items-center px-6 border-b border-[var(--color-border)] gap-2 text-sm">
           <BookOpen className="w-3.5 h-3.5 text-[var(--color-steel)]" />
-          <Link to="/rituals" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Rituals</Link>
+          <Link to="/rituals" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Workflows</Link>
           <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
-          <span className="bg-[var(--color-steel)]/8 text-[var(--color-steel)] px-2.5 py-0.5 rounded text-xs font-semibold">New ritual</span>
+          <span className="bg-[var(--color-steel)]/8 text-[var(--color-steel)] px-2.5 py-0.5 rounded text-xs font-semibold">New workflow</span>
         </div>
         <div className="h-10 flex items-center justify-between px-6">
           <Link to="/rituals" className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] transition-colors">
@@ -155,7 +155,7 @@ export function RitualCreate() {
             className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             title={anyViolation ? 'Resolve out-of-scope steps before creating' : undefined}
           >
-            <Save className="w-3.5 h-3.5" /> {saving ? 'Creating…' : 'Create Ritual'}
+            <Save className="w-3.5 h-3.5" /> {saving ? 'Creating…' : 'Create Workflow'}
           </button>
         </div>
       </div>
@@ -169,9 +169,9 @@ export function RitualCreate() {
               <Zap className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[var(--color-navy)]">Create a ritual</h1>
+              <h1 className="text-2xl font-bold text-[var(--color-navy)]">Create a workflow</h1>
               <p className="text-sm text-[var(--color-navy-mid)] mt-1 max-w-xl">
-                A ritual runs under its agents' authority and can never exceed it. Each step's requested scope is
+                A workflow runs under its agents' authority and can never exceed it. Each step's requested scope is
                 clamped to the assigned agents — anything beyond is flagged before you can save.
               </p>
             </div>
@@ -204,7 +204,7 @@ export function RitualCreate() {
           <section className="flex flex-col gap-4">
             <div className="border-b border-[var(--color-border)] pb-3">
               <h2 className="font-bold text-[var(--color-navy)]">Assigned agents</h2>
-              <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">The ritual runs under these agents. Steps are clamped to their combined authority.</p>
+              <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">The workflow runs under these agents. Steps are clamped to their combined authority.</p>
             </div>
             <div className="flex flex-col gap-2">
               {ASSIGNABLE_AGENTS.map((a) => {
@@ -318,8 +318,8 @@ export function RitualCreate() {
           <section className="p-5 bg-[var(--color-steel)]/5 border border-[var(--color-steel)]/20 rounded-xl">
             <div className="flex items-center gap-2 mb-3">
               <ShieldCheck className="w-4 h-4 text-[var(--color-steel)]" />
-              <span className="font-bold text-[var(--color-navy)] text-sm">Effective ritual scope</span>
-              <span className="text-xs text-[var(--color-navy-mid)] ml-auto">ritual ∩ assigned agents</span>
+              <span className="font-bold text-[var(--color-navy)] text-sm">Effective workflow scope</span>
+              <span className="text-xs text-[var(--color-navy-mid)] ml-auto">workflow ∩ assigned agents</span>
             </div>
             {assigned.length === 0 ? (
               <p className="text-xs text-[var(--color-warm-gray)]">Assign an agent to compute the effective scope.</p>
@@ -344,14 +344,14 @@ export function RitualCreate() {
             )}
             {anyViolation && (
               <div className="mt-3 pt-3 border-t border-[var(--color-steel)]/15 text-xs text-[var(--warning)] flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> One or more steps exceed the assigned agents' scope. Resolve them to create the ritual.
+                <AlertTriangle className="w-3.5 h-3.5" /> One or more steps exceed the assigned agents' scope. Resolve them to create the workflow.
               </div>
             )}
           </section>
 
           {!API_ENABLED && (
             <p className="text-xs text-[var(--color-warm-gray)] text-center">
-              Backend not connected — this ritual is created in local state for the demo.
+              Backend not connected — this workflow is created in local state for the demo.
             </p>
           )}
         </div>

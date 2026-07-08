@@ -253,7 +253,7 @@ export function AgentDetail() {
               {[
                 { label: 'Total Runs', value: raw.runs.toLocaleString(), icon: Activity, color: 'text-[var(--color-steel)]', bg: 'bg-[var(--color-steel)]/5' },
                 { label: 'Accuracy', value: `${raw.accuracy}%`, icon: TrendingUp, color: 'text-[var(--color-steel-light)]', bg: 'bg-[var(--color-steel-light)]/5' },
-                { label: 'Rituals', value: raw.rituals, icon: Zap, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
+                { label: 'Workflows', value: raw.rituals, icon: Zap, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
                 { label: 'Avg Skill Strength', value: `${avgStrength}`, icon: Brain, color: 'text-[var(--color-steel)]', bg: 'bg-[var(--info)]/10' },
               ].map(m => (
                 <div key={m.label} className="bg-white border border-[var(--color-border)] rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
@@ -387,7 +387,7 @@ export function AgentDetail() {
               <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
                 <div className="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50 flex items-center gap-2">
                   <Zap className="w-4 h-4 text-[var(--color-steel)]" />
-                  <span className="font-semibold text-[var(--color-navy)] text-sm">Rituals</span>
+                  <span className="font-semibold text-[var(--color-navy)] text-sm">Workflows</span>
                   <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{raw.connectedWorkflows.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
@@ -400,7 +400,7 @@ export function AgentDetail() {
                     </Link>
                   ))}
                   {raw.connectedWorkflows.length === 0 && (
-                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No rituals connected yet.</div>
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No workflows connected yet.</div>
                   )}
                 </div>
               </div>

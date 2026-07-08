@@ -154,7 +154,7 @@ function ToolsSection() {
   if (available.length === 0) {
     return (
       <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-2xl">
-        No modules installed yet — Tools appear here once a workspace_definition module reaches <code>available</code> state.
+        No modules installed yet — Tools appear here once an installed module reaches <code>available</code> state.
       </div>
     );
   }

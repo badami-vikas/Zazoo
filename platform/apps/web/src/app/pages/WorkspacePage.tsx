@@ -117,16 +117,16 @@ export function WorkspacePage() {
 
   if (!blueprintResult) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading workspace…</div>
+      <div className="p-6 text-sm text-muted-foreground">Loading your setup…</div>
     );
   }
 
   if (!compiled) {
     return (
       <div className="p-6 space-y-3 max-w-xl">
-        <h1 className="text-lg font-medium">Workspace</h1>
+        <h1 className="text-lg font-medium">Organization</h1>
         <div className="border rounded-md p-4 text-sm text-muted-foreground">
-          No active workspace blueprint yet. This workspace hasn't been generated — propose one via
+          No active setup yet. This Organization hasn't been generated — propose one via
           <code className="mx-1 px-1 py-0.5 rounded bg-muted">workspace.blueprint.propose</code>
           and activate it (governed proposal, human approval required) before entities/views appear here.
         </div>
@@ -136,7 +136,7 @@ export function WorkspacePage() {
 
   return (
     <div className="p-6 space-y-8">
-      <h1 className="text-lg font-medium">Workspace</h1>
+      <h1 className="text-lg font-medium">Organization</h1>
 
       {compiled.navigation.map((entity) => {
         const spec: TableSpec | undefined = compiled.tableSpecs.find((t) => t.id === entity.nodeType);
@@ -195,13 +195,13 @@ export function WorkspacePage() {
 
       {compiled.navigation.length === 0 && (
         <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-xl">
-          The active blueprint declares no entities yet.
+          The active plan declares no entities yet.
         </div>
       )}
 
       <div className="pt-2">
         <Button variant="outline" size="sm" disabled>
-          Propose a new blueprint version (coming soon)
+          Propose a new plan version (coming soon)
         </Button>
       </div>
     </div>

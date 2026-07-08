@@ -108,10 +108,10 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
   const eggStatusText =
     step === "questions"
       ? answered === 0
-        ? "Workspace is hatching…"
+        ? "Your Organization is hatching…"
         : `✓ ${answered} of ${Math.min(answered + 1, MAX_QUESTIONS)} questions answered`
       : step === "preview"
-        ? "✓ Workspace blueprint ready"
+        ? "✓ Your proposed setup is ready"
         : outcome === "activated"
           ? "✓ Ready to proceed"
           : "✓ Proposed — awaiting approval";
@@ -201,9 +201,9 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : resetAndClose())}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Set up your workspace</DialogTitle>
+          <DialogTitle>Set up Bridge</DialogTitle>
           <DialogDescription>
-            A few quick questions — Bridge generates a starting workspace from your answers. Nothing is created until
+            A few quick questions — Bridge generates a starting setup from your answers. Nothing is created until
             you approve it.
           </DialogDescription>
         </DialogHeader>
@@ -303,7 +303,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
                 Back
               </Button>
               <Button onClick={submit} disabled={submitting || (compiled !== null && "error" in compiled)}>
-                {submitting ? "Submitting…" : "Propose this workspace"}
+                {submitting ? "Submitting…" : "Propose this setup"}
               </Button>
             </DialogFooter>
           </div>
@@ -313,8 +313,8 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
           <div className="space-y-3">
             {outcome === "activated" ? (
               <p className="text-sm">
-                Your workspace is live, and your avatar has hatched — look for it in the corner from now on. Every
-                capture it notices becomes an inspectable Memory entry. Open the <strong>Workspace</strong> page to see
+                Your Organization is live, and your avatar has hatched — look for it in the corner from now on. Every
+                capture it notices becomes an inspectable Memory entry. Open the <strong>Organization</strong> page to see
                 it — every change from here on goes through the same propose-and-approve flow you just used.
               </p>
             ) : (

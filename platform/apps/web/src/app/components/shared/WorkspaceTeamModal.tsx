@@ -28,7 +28,7 @@ export function WorkspaceTeamModal({ initialTab, onClose }: { initialTab: Tab; o
         setSelected((prev) => prev ?? rows[0]?.id ?? null);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load workspaces');
+      setError(e instanceof Error ? e.message : 'Failed to load organizations');
     } finally {
       setLoading(false);
     }
@@ -59,7 +59,7 @@ export function WorkspaceTeamModal({ initialTab, onClose }: { initialTab: Tab; o
       setNewWorkspaceName('');
       if (ws) { setWorkspaces((prev) => [...prev, ws]); setSelected(ws.id); }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create workspace');
+      setError(e instanceof Error ? e.message : 'Failed to create organization');
     } finally {
       setLoading(false);
     }
@@ -84,13 +84,13 @@ export function WorkspaceTeamModal({ initialTab, onClose }: { initialTab: Tab; o
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-5 py-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
-          <span className="text-sm font-bold flex-1" style={{ color: 'var(--color-navy)' }}>Workspace &amp; Team</span>
+          <span className="text-sm font-bold flex-1" style={{ color: 'var(--color-navy)' }}>Organization &amp; Team</span>
           <button onClick={onClose}><X className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} /></button>
         </div>
 
         <div className="flex border-b" style={{ borderColor: 'var(--color-border)' }}>
           <button onClick={() => setTab('workspace')} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium" style={{ color: tab === 'workspace' ? 'var(--color-steel)' : 'var(--color-warm-gray)', borderBottom: tab === 'workspace' ? '2px solid var(--color-steel)' : '2px solid transparent' }}>
-            <Building2 className="w-3.5 h-3.5" /> Workspace
+            <Building2 className="w-3.5 h-3.5" /> Organization
           </button>
           <button onClick={() => setTab('team')} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium" style={{ color: tab === 'team' ? 'var(--color-steel)' : 'var(--color-warm-gray)', borderBottom: tab === 'team' ? '2px solid var(--color-steel)' : '2px solid transparent' }}>
             <Users className="w-3.5 h-3.5" /> Team
@@ -101,12 +101,12 @@ export function WorkspaceTeamModal({ initialTab, onClose }: { initialTab: Tab; o
           {!API_ENABLED ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
               <span className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>Connect the platform API</span>
-              <span className="text-xs max-w-xs" style={{ color: 'var(--color-warm-gray)' }}>Workspace and team management is real, backend-persisted data — set <code>VITE_API_URL</code> to manage it here.</span>
+              <span className="text-xs max-w-xs" style={{ color: 'var(--color-warm-gray)' }}>Organization and team management is real, backend-persisted data — set <code>VITE_API_URL</code> to manage it here.</span>
             </div>
           ) : tab === 'workspace' ? (
             <>
               <div className="flex gap-1.5">
-                <input value={newWorkspaceName} onChange={(e) => setNewWorkspaceName(e.target.value)} placeholder="New workspace name" className="flex-1 px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} />
+                <input value={newWorkspaceName} onChange={(e) => setNewWorkspaceName(e.target.value)} placeholder="New organization name" className="flex-1 px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} onKeyDown={(e) => e.key === 'Enter' && createWorkspace()} />
                 <button onClick={createWorkspace} disabled={loading || !newWorkspaceName.trim()} className="px-3 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-40" style={{ backgroundColor: 'var(--color-steel)' }}>
                   <Plus className="w-4 h-4" />
                 </button>
@@ -118,13 +118,13 @@ export function WorkspaceTeamModal({ initialTab, onClose }: { initialTab: Tab; o
                     {selected === ws.id && <span className="text-[10px] font-semibold" style={{ color: 'var(--color-steel)' }}>Active</span>}
                   </button>
                 ))}
-                {workspaces.length === 0 && !loading && <span className="text-xs text-center py-4" style={{ color: 'var(--color-warm-gray)' }}>No workspaces yet — create one above.</span>}
+                {workspaces.length === 0 && !loading && <span className="text-xs text-center py-4" style={{ color: 'var(--color-warm-gray)' }}>No organizations yet — create one above.</span>}
               </div>
             </>
           ) : (
             <>
               {!selected ? (
-                <span className="text-xs text-center py-4" style={{ color: 'var(--color-warm-gray)' }}>Create or select a workspace first.</span>
+                <span className="text-xs text-center py-4" style={{ color: 'var(--color-warm-gray)' }}>Create or select an organization first.</span>
               ) : (
                 <>
                   <div className="flex gap-1.5">

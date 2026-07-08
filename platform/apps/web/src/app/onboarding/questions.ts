@@ -48,7 +48,7 @@ const Q_DOMAIN: OnboardingQuestion = {
   id: "domain",
   kind: "single_select",
   prompt: "What's the main kind of work you want Bridge to organize?",
-  helpText: "This decides which entities your workspace starts with.",
+  helpText: "This decides which entities your Organization starts with.",
   options: [
     { value: "sales_deals", label: "Deals / sales pipeline" },
     { value: "job_search", label: "Job search" },
@@ -85,7 +85,7 @@ const Q_VOCAB: OnboardingQuestion = {
   id: "vocab_name",
   kind: "text",
   prompt: "What do you call the thing you're tracking? (e.g. \"Deal\", \"Candidate\", \"Case\")",
-  helpText: "Bridge calls this a Project by default — your own word for it is what you'll see everywhere.",
+  helpText: "Bridge calls this an Initiative by default — your own word for it is what you'll see everywhere.",
   placeholder: "e.g. Deal",
 };
 
@@ -102,7 +102,7 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
 const Q_NAME: OnboardingQuestion = {
   id: "workspace_name",
   kind: "text",
-  prompt: "Last thing — what should we call this workspace?",
+  prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
 };
 
@@ -162,14 +162,12 @@ export function answeredCount(answers: OnboardingAnswers): number {
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
-// "label" is display-only text (ADR-023: Initiative -> Project rename is a
-// WORKSPACE-scope display label, kernel nodeType stays "initiative" — CLAUDE.md's
-// two-scope vocab rule). A user's own `vocab_name` answer still overrides this
-// default via `vocabulary` below; "Project" is simply the honest starting label
-// instead of the raw kernel identifier.
+// "label" is display-only text (R-020 vocab sweep: canonical default label is
+// "Initiative", matching the kernel nodeType — CLAUDE.md's two-scope vocab rule).
+// A user's own `vocab_name` answer still overrides this default via `vocabulary` below.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Project" },
-  job_search: { nodeType: "initiative", label: "Project" },
+  sales_deals: { nodeType: "initiative", label: "Initiative" },
+  job_search: { nodeType: "initiative", label: "Initiative" },
   support: { nodeType: "touchpoint", label: "Touchpoint" },
   relationships: { nodeType: "person", label: "Person" },
 };

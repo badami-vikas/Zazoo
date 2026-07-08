@@ -275,7 +275,7 @@ export function IntegrationDetail() {
               <div className="border border-[var(--danger)]/30 rounded-xl p-5 bg-[var(--danger)]/10 flex items-center justify-between">
                 <div>
                   <div className="font-medium text-[var(--color-navy)] text-sm">Disconnect Integration</div>
-                  <div className="text-xs text-[var(--color-navy-mid)] mt-0.5">Remove this integration from all agents and rituals.</div>
+                  <div className="text-xs text-[var(--color-navy-mid)] mt-0.5">Remove this integration from all agents and workflows.</div>
                 </div>
                 <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[var(--danger)] border border-[var(--danger)]/30 rounded-lg hover:bg-[var(--danger)]/15 transition-colors">
                   <Trash2 className="w-3.5 h-3.5" /> Disconnect

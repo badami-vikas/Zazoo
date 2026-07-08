@@ -4,6 +4,8 @@ import type { ComponentType } from "react";
 export interface HeaderTab {
   id: string;
   icon: ComponentType<any>;
+  /** Optional display copy; falls back to `id`. Lets UI vocabulary differ from logic ids. */
+  label?: string;
 }
 
 interface HeaderProps {
@@ -32,7 +34,7 @@ export function Header({ tabs, activeTab, onTabChange }: HeaderProps) {
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4" style={{ color: "var(--color-steel)" }} />
           <span className="text-base font-semibold" style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}>
-            {only.id}
+            {only.label ?? only.id}
           </span>
         </div>
       </header>
@@ -70,7 +72,7 @@ export function Header({ tabs, activeTab, onTabChange }: HeaderProps) {
               }
             >
               <Icon className="w-3.5 h-3.5" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-              <span style={{ color: active ? "var(--color-navy)" : "var(--color-warm-gray)" }}>{seg.id}</span>
+              <span style={{ color: active ? "var(--color-navy)" : "var(--color-warm-gray)" }}>{seg.label ?? seg.id}</span>
               {active && (
                 <div
                   className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-12 h-[2px] rounded-t-full transition-all"
