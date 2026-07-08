@@ -214,6 +214,7 @@ export {
 // modeled by chief-of-staff.ts (it IS the router, not a routable target).
 export {
   FOUNDATIONAL_AGENTS,
+  ANIMAL_TONE,
   parseMention,
   findFoundationalAgent,
   buildAgentSystemPrompt,

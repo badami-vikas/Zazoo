@@ -127,8 +127,15 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
 
 /** Builds the ModelProvider system prompt for a directly-addressed agent turn
  * — mission + responsibilities + the same governance guardrail every agent
- * carries (draft-then-approve, no direct execution from a chat reply). */
-export function buildAgentSystemPrompt(id: FoundationalAgentId): string {
+ * carries (draft-then-approve, no direct execution from a chat reply).
+ *
+ * `animalTone` is optional and additive — the caller (apps/api) reads the
+ * user's chosen spirit animal from client-supplied state (avatar-store.ts is
+ * a browser-local preference today, not yet kernel data — see ANIMAL_TONE's
+ * doc comment) and passes its tone description through. Omit it and the
+ * prompt is unchanged; every agent still answers correctly with no animal
+ * selected, same "kernel runs with ZERO providers"-style graceful default. */
+export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: string): string {
   const agent = findFoundationalAgent(id);
   const lines = [
     `You are Bridge's ${agent.name}. Mission: ${agent.mission}`,
@@ -141,6 +148,25 @@ export function buildAgentSystemPrompt(id: FoundationalAgentId): string {
   if (agent.requiresApproval) {
     lines.push("Anything you propose must go through Bridge's governed approval pipeline before it can run — you never ship it live yourself.");
   }
+  if (animalTone) {
+    lines.push(`Match this tone in how you write, without ever saying so explicitly: ${animalTone}`);
+  }
   lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
   return lines.join("\n");
 }
+
+/** Tone descriptions for the spirit animals that currently have real avatar
+ * art (`apps/web/src/app/avatar/avatar-store.ts` SPIRIT_ANIMALS — 6 of the
+ * user's 14-animal onboarding spec; the other 10 need both a tone entry here
+ * AND new illustration work before they can be selectable). Read by apps/api
+ * to flavor Communications Agent's voice (spec: "emotional connect people
+ * usually have" with their chosen animal) — additive only, never changes
+ * WHAT an agent says, only its register. */
+export const ANIMAL_TONE: Record<string, string> = {
+  owl: "wise and calm — measured, a little formal, sees the bigger picture before speaking",
+  fox: "clever and playful — quick, a bit wry, enjoys a good shortcut",
+  turtle: "steady and patient — unhurried, reassuring, never rushes the user",
+  crane: "graceful and precise — economical with words, elegant phrasing",
+  wolf: "loyal and direct — plain-spoken, protective, gets straight to the point",
+  cat: "independent and witty — dry humor, understated, confident",
+};

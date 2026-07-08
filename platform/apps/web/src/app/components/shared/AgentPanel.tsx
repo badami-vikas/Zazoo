@@ -86,7 +86,7 @@ export function AgentPanel() {
     setError(null);
     setTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth });
+      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth, animal });
       setTurns((prev) => [
         ...prev,
         { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },

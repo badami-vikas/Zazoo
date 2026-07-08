@@ -40,6 +40,7 @@ import {
   parseMention,
   buildAgentSystemPrompt,
   findFoundationalAgent,
+  ANIMAL_TONE,
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
@@ -490,6 +491,11 @@ const chiefOfStaffConverseInput = z.object({
    * server-side, not just trusted client-side. Defaults to 0 (a fresh
    * conversation's first turn). */
   chainDepth: z.number().int().min(0).default(0),
+  /** The user's chosen spirit animal (avatar-store.ts SPIRIT_ANIMALS id),
+   * client-supplied — client-local preference today, not yet kernel data
+   * (ADR-033's open item). Optional and additive: omitting it just means no
+   * tone flavoring, never an error. */
+  animal: z.string().optional(),
 });
 
 /** Build the core `CapabilityManifest` shape (risk-computation input) from a
@@ -2169,7 +2175,8 @@ export const appRouter = t.router({
         const agent = findFoundationalAgent(agentId);
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const system = buildAgentSystemPrompt(agentId);
+        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
+        const system = buildAgentSystemPrompt(agentId, animalTone);
         const text = model
           ? (await model.complete({ system, prompt: rest || input.message, maxTokens: 512 })).text
           : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
