@@ -49,7 +49,8 @@ creation flow, and the Day-1 onboarding-agent slice (see final section).
 - Surface primitives: Workspace / Element / ElementType / View compiler
   (`compileBlueprint`) + the DataViews shell
 - Context primitives: Memory / Knowledge storage + retrieval seam
-- The Chief of Staff archetype (routing + the 5-agent onboarding team, below)
+- The five permanent agent archetypes (Chief of Staff, Learning Agent,
+  Communications Agent, Governance Agent, Capability Builder — below)
 - `ModelProvider`, `PackageStore`, `CommonsRegistry` ports (seams, not content)
 - Capability Trust Model (risk bands, trust grants, approval gates)
 
@@ -181,29 +182,44 @@ onboarding team exists — only the single Chief of Staff `classifyIntent` +
 the Component Registry/evaluation/versioning system above (those remain
 designed-not-built, sequenced after Day-1 per the user's explicit ordering).
 
-**Proposed 5-agent onboarding team** (archetypes of the existing Agent
-execution-actor primitive, not a new primitive — see
-[wiki/ontology.md](../wiki/ontology.md)):
+**The 5 permanent agents are already canon** (`docs/raw/roadmap-v2-universal-commons.md`,
+"Only five permanent agents exist" — this doc's earlier draft invented a
+different 5-agent mapping; that was wrong and is corrected here to the
+existing design):
 
-1. **Intake Agent** — runs the existing adaptive onboarding questions,
-   extracts intent/domain/entities in real time (not just at the end).
-2. **Overlap Analyst** — checks the Component Registry / installed-Module
-   list for what already covers the stated intent (the similarity-detection
-   role from the section above, invoked live during onboarding).
-3. **Module Architect** — drafts the new/extend/merge Module proposal
-   structure (name, purpose, target Initiative type, Knowledge/Intelligence
-   components) when the Overlap Analyst finds no sufficient match.
-4. **Evaluator** — when a near-match exists, runs the lightweight comparison
-   against it and produces the retain/replace/coexist recommendation.
-5. **Chief of Staff (orchestrator)** — the existing archetype, now the
-   coordinator over the other four: presents the confidence-tiered
-   options/summary to the user and owns the final draft-then-approve
-   proposal into Approvals. No agent here executes without going through the
-   existing pipeline — this is a reasoning team feeding one governed
-   proposal, not five independent actors with write access.
+1. **Chief of Staff** — coordinates the platform: planning, delegation,
+   prioritization, explanations, capability recommendations. Default
+   interlocutor; presents the confidence-tiered options/summary during
+   onboarding and owns the final draft-then-approve proposal into Approvals.
+2. **Learning Agent** — learns from observation, research, user feedback,
+   connected systems; builds user/domain understanding and recommendations.
+   **Never executes actions.** During onboarding this is the agent that
+   researches the stated domain (Step 3 of Workspace Generation, below) and
+   checks the Component Registry / installed Modules for what already covers
+   the inferred intent — the similarity-detection role.
+3. **Communications Agent** — drafting, summarization, explanation, reports,
+   meeting prep, documentation. During onboarding this is the agent that
+   turns the Learning Agent's findings + Chief of Staff's decision into the
+   plain-language summary the user actually reads ("I found strong overlap
+   with X, recommending Y because Z").
+4. **Governance Agent** — evaluates permissions, policies, approvals,
+   compliance, risk. Computes the risk/trust inputs for whatever the
+   Capability Builder is about to draft, before it reaches Approvals — the
+   same Capability Trust Model already gates everything else through.
+5. **Capability Builder** — creates new capabilities **after approval** only
+   (workflows, skills, agents, tools, integrations, UI extensions). This is
+   the agent that drafts the new/extend/merge Module structure once the
+   Learning Agent finds no sufficient match and Governance has scored it —
+   but it drafts, it does not ship live; the draft still goes through
+   Approvals like every other proposal.
 
-This mapping is a proposal, not yet user-confirmed in detail — flagged here
-so the build agent has a concrete target rather than inventing its own.
+No agent here executes without going through the existing governed
+pipeline — this is a five-agent reasoning/build team feeding one proposal
+per turn, not five independent actors with write access. The **Evaluator**
+role from the earlier design section above (lightweight comparison when a
+near-match exists) is Learning Agent + Governance Agent working together,
+not a sixth agent — Learning Agent supplies the comparison data, Governance
+Agent scores the risk/compliance side of the retain/replace/coexist call.
 
 **Grok integration shape**: add `GrokProvider` implementing the existing
 `ModelProvider` interface (mirrors however `ClaudeProvider`/`OllamaProvider`
@@ -213,16 +229,17 @@ xAI API key supplied by the user/ops — the code path can be built and wired
 without one (fails closed with a clear "Grok not configured" error), but live
 use is blocked until a key exists.
 
-**Real-time module shipping during onboarding**: as the Intake Agent extracts
-intent, the Overlap Analyst checks it against installed Modules live; if no
-match, the Module Architect drafts a Module proposal that goes into Approvals
-the same turn (draft-then-approve, never silent-install) — "shipped for
-approval," matching the user's phrasing exactly, not shipped-and-live.
+**Real-time module shipping during onboarding**: as onboarding extracts
+intent, the Learning Agent checks it against installed Modules live; if no
+sufficient match, the Governance Agent scores it and the Capability Builder
+drafts a Module proposal that goes into Approvals the same turn
+(draft-then-approve, never silent-install) — "shipped for approval,"
+matching the user's phrasing exactly, not shipped-and-live.
 
 ## Sequencing (this ADR's ruling)
 
-1. **Day-1 (this wave)**: `GrokProvider` behind `ModelProvider`; the 5-agent
-   onboarding team wired into the existing onboarding flow; real-time
+1. **Day-1 (this wave)**: `GrokProvider` behind `ModelProvider`; the five
+   permanent agents wired into the existing onboarding flow; real-time
    Module-proposal drafting during onboarding, landing in Approvals.
 2. **Next wave**: Component Registry (schema + CRUD + structural similarity),
    lightweight evaluation harness, versioned Module updates + propagation

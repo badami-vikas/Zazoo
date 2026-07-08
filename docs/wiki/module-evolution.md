@@ -47,12 +47,19 @@ opt-out/pin/rollback.
 agent on Grok API + 5 agents inbuilt, so Module proposals get drafted in
 real time during onboarding and land in Approvals (shipped-for-approval, not
 shipped-live). **STATUS: not present** — no Grok provider behind
-ModelProvider yet, only single CoS classifyIntent/converse exists. 5-agent
-proposal: Intake Agent (live intent extraction) · Overlap Analyst (Component
-Registry / installed-Module check) · Module Architect (drafts new/extend/
-merge proposal) · Evaluator (compares against near-match) · Chief of Staff
-(orchestrates, owns the one governed proposal — team feeds one draft, never
-5 agents with independent write access). GrokProvider = new ModelProvider
+ModelProvider yet, only single CoS classifyIntent/converse exists.
+
+**The 5 agents are already canon** (`docs/raw/roadmap-v2-universal-commons.md`
+— "only five permanent agents exist"; an earlier draft of this page invented
+a different mapping, corrected here): **Chief of Staff** (coordinates,
+default interlocutor, owns the final proposal into Approvals) ·
+**Learning Agent** (research/observation/feedback, NEVER executes — checks
+Component Registry/installed Modules for overlap) · **Communications Agent**
+(turns findings into the plain-language summary the user reads) ·
+**Governance Agent** (permissions/policy/compliance/risk scoring before
+anything reaches Approvals) · **Capability Builder** (drafts new capabilities
+AFTER approval only — never ships live). Team feeds ONE governed draft per
+turn, no independent write access. GrokProvider = new ModelProvider
 implementation, config-selectable for onboarding path, needs xAI key (code
 builds without one, fails closed).
 
