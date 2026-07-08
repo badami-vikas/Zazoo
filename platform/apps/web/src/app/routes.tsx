@@ -29,6 +29,7 @@ import { ItemDetail } from "./pages/ItemDetail";
 import { InitiativeDetail } from "./pages/InitiativeDetail";
 import { SkillDetail } from "./pages/SkillDetail";
 import { ToolsPage } from "./pages/ToolsPage";
+import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { DataEngine } from "./components/DataEngine";
 
 export const router = createBrowserRouter([
@@ -54,6 +55,9 @@ export const router = createBrowserRouter([
       { path: "item/:id", Component: ItemDetail },
       { path: "work", Component: WorkPage },
       { path: "initiative/:id", Component: InitiativeDetail },
+      // Per-Initiative admin (ADR-029): platform admin = /settings, initiative
+      // admin = its Control Panel. Strictly scoped to the one :id.
+      { path: "initiative/:id/control-panel", Component: ControlPanelPage },
       { path: "ritual/create", Component: RitualCreate },
       { path: "ritual/:id", Component: RitualDetail },
       { path: "agent/create", Component: AgentCreate },
