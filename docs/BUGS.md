@@ -834,3 +834,5 @@ The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. O
 
 ## OPEN 2026-07-07 — No per-Initiative resource scoping in the API (Control Panel shows Organization-wide rows only)
 `/initiative/:id/control-panel` (ControlPanelPage.tsx) can only enumerate workspace-scoped resources (`packages.list`, `integration.list`, `google.list`) — there is no API concept binding a Module/Integration/Automation/Assistant to one initiative, and no `ritual.list`/`agent.list` read procedures at all (pre-existing gaps). The panel honestly labels Scope "Organization-wide" and renders note rows; real per-Initiative configuration needs kernel + router support.
+
+| API error strings use legacy vocab (ritual / workspace_definition / capability manifest) in ~15 user-surfaceable messages (apps/api/src/router.ts:803-2134, commons-client.ts:67) — leak into UI error toasts. Server copy pass pending (R-020 tail). | OPEN | 2026-07-07 |
