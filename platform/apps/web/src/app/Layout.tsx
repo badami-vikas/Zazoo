@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Target, Plus, Settings, SlidersHorizontal, Brain } from "lucide-react";
+import { Home, Target, Plus, Settings, SlidersHorizontal, Brain, BookOpen, CalendarDays, Lock } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -15,11 +15,13 @@ import { useInitiatives } from "./data/initiatives";
  *
  *   Home → each Initiative (first-class nav items) → "+ New" → ─── → Settings
  *
- * No intermediate "Initiatives" index page; no pinned Projects/Tools sections;
- * Intelligence/KnowledgeBase left primary nav (their routes stay live and are
- * reachable as progressive-disclosure links inside Settings → Intelligence /
- * Knowledge). Settings is PLATFORM-wide admin only; per-Initiative admin lives
- * at /initiative/:id/control-panel (the small slider icon on each nav item).
+ * No intermediate "Initiatives" index page; no pinned Projects/Tools sections.
+ * Knowledge/Intelligence/Calendar (ADR-033's onboarding-spec progressive
+ * capability model) ARE in primary nav, below the fold — Knowledge/Calendar
+ * render "inactive" (muted + lock icon) until enough is connected to be
+ * useful, but are always clickable, never a dead end. Settings is
+ * PLATFORM-wide admin only; per-Initiative admin lives at
+ * /initiative/:id/control-panel (the small slider icon on each nav item).
  *
  * Initiative nav items merge TWO real sources, deduped by id:
  *   - trpc `graph.listInitiatives` (DB-backed kernel rows)
@@ -35,7 +37,36 @@ export default function Layout() {
   const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [remoteInitiatives, setRemoteInitiatives] = useState<{ id: string; title: string }[] | null>(null);
+  const [connectedSourceCount, setConnectedSourceCount] = useState(0);
+  const [calendarConnected, setCalendarConnected] = useState(false);
   const localInitiatives = useInitiatives();
+
+  // Progressive-capability gating (ADR-033's onboarding spec: Knowledge/
+  // Calendar are visible in nav from day one, but read "inactive" until
+  // enough is connected to be useful — never a dead end, just an honest
+  // locked state). Knowledge's threshold ("connect any 2 sources") is real
+  // integration.list rows + Google being connected; Calendar's is Google
+  // specifically, since it's the only calendar source wired today.
+  useEffect(() => {
+    trpc.integration.list
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 200, offset: 0 })
+      .then((res) => setConnectedSourceCount((prev) => prev + res.total))
+      .catch(() => {
+        // Honest no-op: an unreachable API just keeps Knowledge/Calendar
+        // showing their locked state rather than guessing they're connected.
+      });
+    trpc.google.list
+      .query()
+      .then((info) => {
+        if (info.connection.connected) {
+          setConnectedSourceCount((prev) => prev + 1);
+          setCalendarConnected(true);
+        }
+      })
+      .catch(() => {
+        // Same honest no-op as above.
+      });
+  }, []);
 
   useEffect(() => {
     trpc.graph.listInitiatives
@@ -108,6 +139,10 @@ export default function Layout() {
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
   const intelligenceActive = isActive("/intelligence");
+  const knowledgeActive = isActive("/knowledge-base");
+  const calendarNavActive = isActive("/calendar");
+  const knowledgeUnlocked = connectedSourceCount >= 2;
+  const calendarUnlocked = calendarConnected;
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
@@ -188,13 +223,38 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Divider + Intelligence/Settings — retained below the fold (user call
-            2026-07-07: keep Intelligence in primary nav, directly above Settings). */}
+        {/* Divider + Knowledge/Intelligence/Calendar/Settings — retained below
+            the fold (user call 2026-07-07: keep Intelligence in primary nav,
+            directly above Settings). Knowledge/Calendar added 2026-07-08 per
+            ADR-033's onboarding spec: visible from day one, "inactive" (muted,
+            lock icon) until enough is connected to be useful — but NEVER a
+            dead end, still fully clickable; the destination page explains
+            what's missing rather than blocking navigation. */}
         <div className="border-t border-border p-3 shrink-0 flex flex-col gap-0.5">
+          <Link
+            to="/knowledge-base"
+            className={navItemClass(knowledgeActive)}
+            title={knowledgeUnlocked ? "Knowledge" : "Knowledge — connect 2+ sources to unlock"}
+          >
+            {knowledgeActive && <ActiveBar />}
+            <BookOpen className="w-4 h-4 shrink-0" style={{ color: knowledgeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={knowledgeUnlocked ? "" : "opacity-60"}>Knowledge</span>
+            {!knowledgeUnlocked && <Lock className="w-3 h-3 shrink-0 ml-auto" style={{ color: "var(--color-warm-gray)" }} />}
+          </Link>
           <Link to="/intelligence" className={navItemClass(intelligenceActive)}>
             {intelligenceActive && <ActiveBar />}
             <Brain className="w-4 h-4 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             Intelligence
+          </Link>
+          <Link
+            to="/calendar"
+            className={navItemClass(calendarNavActive)}
+            title={calendarUnlocked ? "Calendar" : "Calendar — connect a calendar to unlock"}
+          >
+            {calendarNavActive && <ActiveBar />}
+            <CalendarDays className="w-4 h-4 shrink-0" style={{ color: calendarNavActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={calendarUnlocked ? "" : "opacity-60"}>Calendar</span>
+            {!calendarUnlocked && <Lock className="w-3 h-3 shrink-0 ml-auto" style={{ color: "var(--color-warm-gray)" }} />}
           </Link>
           <Link to="/settings" className={navItemClass(settingsActive)}>
             {settingsActive && <ActiveBar />}

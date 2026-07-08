@@ -16,7 +16,7 @@
  *   state and the gap is filed in docs/BUGS.md.
  */
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams, Link } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Target, BookOpen, Users, User } from "lucide-react";
 import { Header } from "../components/shared/Header";
@@ -84,12 +84,35 @@ function isKnowledgeBaseSection(value: string | null): value is KnowledgeBaseSec
   return value === "people" || value === "communities" || value === "resources" || value === "projects";
 }
 
+/** ADR-033's onboarding spec, verbatim framing: "Insufficient information on
+ * your work for me to unlock magic" below 2 connected sources. Self-contained
+ * fetch (same pattern every other page here uses) rather than prop-drilling
+ * from Layout — this banner is Knowledge-page-local, Layout's nav lock icon
+ * is the separate, nav-level signal for the same underlying count. */
+function useConnectedSourceCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    trpc.integration.list
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 200, offset: 0 })
+      .then((res) => setCount((prev) => prev + res.total))
+      .catch(() => {});
+    trpc.google.list
+      .query()
+      .then((info) => {
+        if (info.connection.connected) setCount((prev) => prev + 1);
+      })
+      .catch(() => {});
+  }, []);
+  return count;
+}
+
 export function KnowledgeBasePage() {
   const [searchParams] = useSearchParams();
   const initialSection = searchParams.get("section");
   const [section, setSection] = useState<KnowledgeBaseSection>(
     isKnowledgeBaseSection(initialSection) ? initialSection : "projects",
   );
+  const connectedCount = useConnectedSourceCount();
 
   const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
@@ -102,6 +125,16 @@ export function KnowledgeBasePage() {
           if (next) setSection(next.id);
         }}
       />
+      {connectedCount < 2 && (
+        <div className="px-4 sm:px-6 pt-4 text-sm" style={{ color: "var(--color-warm-gray)" }}>
+          Insufficient information on your work for me to unlock magic — connect{" "}
+          {2 - connectedCount} more source{2 - connectedCount === 1 ? "" : "s"} in{" "}
+          <Link to="/intelligence" className="underline font-medium" style={{ color: "var(--color-steel)" }}>
+            Intelligence
+          </Link>{" "}
+          to build this out.
+        </div>
+      )}
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         {section === "people" && <NotWiredYet label="People" />}
         {section === "communities" && <NotWiredYet label="Communities" />}
