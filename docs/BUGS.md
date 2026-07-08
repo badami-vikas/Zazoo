@@ -819,3 +819,12 @@ FIX (ADR-024): added `"location"` to `ColumnKind` in `packages/tables/src/types.
 
 ## OPEN 2026-07-07 — Radix Dialog console warning in onboarding (pre-existing, not this session's code)
 `platform/apps/web/src/app/components/ui/dialog.tsx`'s `DialogOverlay` triggers "Function components cannot be given refs... Did you mean to use React.forwardRef()?" on every onboarding dialog render (confirmed live in browser preview 2026-07-07). Cosmetic dev-console noise, not a functional bug — the dialog renders and works correctly. Pre-existing shadcn/ui scaffold code, not touched by the avatar/onboarding work this session. Low priority.
+
+## OPEN 2026-07-07 — Pinned Projects/Tools no longer surface anywhere after shell IA v2 (ADR-029)
+Layout.tsx's primary nav dropped the pinned Projects/Tools sections (Home → Initiatives → + New → Settings). `lib/pins.ts` + `lib/usePinnedTools.ts` still persist pins, and ResourcesPage/CalendarPage/ToolsPage/ToolDetail still offer pin actions — but pinning now has no visible effect. Either surface pins somewhere (e.g. Home) or remove the pin affordances from those pages (owned by the concurrent prototype-parity workstream, not editable in the ADR-029 pass).
+
+## OPEN 2026-07-07 — No manual re-entry point for onboarding after nav refactor (ADR-029)
+The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. OnboardingDialog still auto-opens when no active blueprint exists, but a user with an active blueprint has no way to re-run onboarding/setup. Needs a home (likely Settings → Organization).
+
+## OPEN 2026-07-07 — No per-Initiative resource scoping in the API (Control Panel shows Organization-wide rows only)
+`/initiative/:id/control-panel` (ControlPanelPage.tsx) can only enumerate workspace-scoped resources (`packages.list`, `integration.list`, `google.list`) — there is no API concept binding a Module/Integration/Automation/Assistant to one initiative, and no `ritual.list`/`agent.list` read procedures at all (pre-existing gaps). The panel honestly labels Scope "Organization-wide" and renders note rows; real per-Initiative configuration needs kernel + router support.
