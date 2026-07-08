@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Target, Plus, Settings, SlidersHorizontal } from "lucide-react";
+import { Home, Target, Plus, Settings, SlidersHorizontal, Brain } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -80,9 +80,12 @@ export default function Layout() {
       });
   }, []);
 
-  // Merge kernel + local initiative lists, kernel first, deduped by id.
-  const localItems = localInitiatives.map((i) => ({ id: i.id, title: i.name }));
-  const remoteItems = remoteInitiatives ?? [];
+  // Merge kernel + local initiative lists, kernel first, deduped by id. Local
+  // items carry an optional moduleTo (set by NewModuleDialog) so an Initiative
+  // created from a Module links straight to its real surface, not a generic
+  // /initiative/:id detail page that has no data for it.
+  const localItems = localInitiatives.map((i) => ({ id: i.id, title: i.name, moduleTo: i.moduleTo }));
+  const remoteItems = (remoteInitiatives ?? []).map((i) => ({ ...i, moduleTo: undefined as string | undefined }));
   const seen = new Set(remoteItems.map((i) => i.id));
   const initiatives = [...remoteItems, ...localItems.filter((i) => !seen.has(i.id))];
 
@@ -104,11 +107,42 @@ export default function Layout() {
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
+  const intelligenceActive = isActive("/intelligence");
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
       {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar. */}
       <nav className="hidden sm:flex w-56 shrink-0 border-r border-border bg-background flex-col">
+        {/* Organization brand header — same sizing as the prototype's Sidebar
+            brand block (bridge-ai-1ay.pages.dev): text-sm font-bold name,
+            text-xs uppercase label underneath. Links to Settings → Organization,
+            the platform-wide home for this now that there's no workspace switcher. */}
+        <Link
+          to="/settings"
+          className="flex items-center gap-2.5 px-3 py-3 border-b border-border no-underline shrink-0 hover:bg-surface transition-colors"
+        >
+          <div
+            className="w-8 h-8 min-w-[32px] rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm shrink-0"
+            style={{ backgroundColor: "var(--color-steel)" }}
+          >
+            {(workspaceName || "B").charAt(0).toUpperCase()}
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span
+              className="font-bold text-sm tracking-tight truncate"
+              style={{ fontFamily: "var(--font-editorial)", color: "var(--color-navy)" }}
+            >
+              {workspaceName || "Bridge"}
+            </span>
+            <span
+              className="text-xs font-medium uppercase tracking-wider"
+              style={{ color: "var(--color-warm-gray)" }}
+            >
+              Organization
+            </span>
+          </div>
+        </Link>
+
         <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5">
           <Link to="/" className={navItemClass(homeActive)}>
             {homeActive && <ActiveBar />}
@@ -118,7 +152,8 @@ export default function Layout() {
 
           {/* Initiatives — first-class nav items, no index page in between. */}
           {initiatives.map((i) => {
-            const to = `/initiative/${encodeURIComponent(i.id)}`;
+            const controlPanelBase = `/initiative/${encodeURIComponent(i.id)}`;
+            const to = i.moduleTo ?? controlPanelBase;
             const active = isActive(to);
             return (
               <div key={i.id} className={`group ${navItemClass(active)}`}>
@@ -128,7 +163,7 @@ export default function Layout() {
                   {i.title}
                 </Link>
                 <Link
-                  to={`${to}/control-panel`}
+                  to={`${controlPanelBase}/control-panel`}
                   className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-[var(--color-steel)] transition-opacity"
                   aria-label={`${i.title} control panel`}
                   title="Control panel"
@@ -153,8 +188,14 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Divider + Settings — the only chrome below the fold. */}
-        <div className="border-t border-border p-3 shrink-0">
+        {/* Divider + Intelligence/Settings — retained below the fold (user call
+            2026-07-07: keep Intelligence in primary nav, directly above Settings). */}
+        <div className="border-t border-border p-3 shrink-0 flex flex-col gap-0.5">
+          <Link to="/intelligence" className={navItemClass(intelligenceActive)}>
+            {intelligenceActive && <ActiveBar />}
+            <Brain className="w-4 h-4 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            Intelligence
+          </Link>
           <Link to="/settings" className={navItemClass(settingsActive)}>
             {settingsActive && <ActiveBar />}
             <Settings className="w-4 h-4 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />

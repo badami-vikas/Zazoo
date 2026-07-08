@@ -14,6 +14,7 @@ import { useNavigate } from "react-router";
 import { ArrowLeft, ChevronRight, Package, Sparkles } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { MODULE_ROUTES } from "../lib/moduleRoutes";
+import { createInitiative, getInitiatives } from "../data/initiatives";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 interface ModuleOption {
@@ -80,6 +81,15 @@ export function NewModuleDialog({ open, onOpenChange }: { open: boolean; onOpenC
 
   function confirm() {
     if (!picked) return;
+    // Register this Module as a nav-visible Initiative so it actually shows up
+    // in the sidebar (requests.md follow-up — "+ New" previously only
+    // navigated without creating anything, so the list stayed empty). One
+    // Initiative per Module: reuse the existing entry on repeat launches
+    // instead of piling up duplicates.
+    const already = getInitiatives().some((i) => i.packageName === picked.packageName);
+    if (!already) {
+      createInitiative({ name: picked.label, goal: picked.desc, list: "Work", moduleTo: picked.to, packageName: picked.packageName });
+    }
     onOpenChange(false);
     navigate(picked.to);
   }

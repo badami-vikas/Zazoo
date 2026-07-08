@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, HandHeart, TrendingUp, Send, Check, ShieldCheck } from 'lucide-react';
+import { Sparkles, ArrowRight, RefreshCw, UserPlus, Briefcase, HandHeart, TrendingUp, Check, ShieldCheck } from 'lucide-react';
 import { signals as allSignals, proposeFromSignal, type Signal, type SignalType } from '../data/signals';
 import { proposeAction } from '../data/actionQueue';
 import { proposeToLedger } from '../data/ledger';
@@ -16,7 +16,6 @@ const signalMeta: Record<SignalType, { icon: any; accent: string }> = {
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [intent, setIntent] = useState('');
   const [proposed, setProposed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
 
@@ -56,33 +55,10 @@ export function HomePage() {
             {greeting}. Here's what matters in the next hour.
           </h1>
           <p style={{ color: 'var(--color-warm-gray)', maxWidth: 640 }}>
-            Adaptive blocks generated from your real signals — relationships, initiatives, and communities. Re-steer
-            the canvas below.
+            Adaptive blocks generated from your real signals — relationships, initiatives, and communities. Ask
+            Bridge AI on the right to re-steer what's shown here.
           </p>
         </div>
-
-        <form
-          onSubmit={(e) => { e.preventDefault(); }}
-          className="flex items-center gap-2 border rounded-xl px-3 py-2 shadow-sm bg-white"
-          style={{ borderColor: 'var(--color-border)' }}
-        >
-          <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-steel)' }} />
-          <input
-            value={intent}
-            onChange={(e) => setIntent(e.target.value)}
-            placeholder="What should I focus on next hour? (e.g. 'prep for Config dinner', 'fundraising follow-ups')"
-            className="flex-1 outline-none text-sm bg-transparent"
-            style={{ color: 'var(--color-navy)' }}
-          />
-          <button
-            type="submit"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white"
-            style={{ backgroundColor: 'var(--color-steel)' }}
-          >
-            <Send className="w-3.5 h-3.5" />
-            Re-shape
-          </button>
-        </form>
 
         {blocks.length > 0 ? (
           <div className="grid grid-cols-1 @[700px]:grid-cols-2 gap-3">

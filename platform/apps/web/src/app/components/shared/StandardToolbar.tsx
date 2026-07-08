@@ -1,5 +1,5 @@
 import { useState, type ComponentType, type ReactNode } from 'react';
-import { Search, Filter, ArrowUpDown, ChevronDown, ChevronUp, Check, MoreVertical, Settings2 } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, Check, MoreVertical, Settings2 } from 'lucide-react';
 import { Link } from 'react-router';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ListDropdown, type ListOption } from './ListDropdown';
@@ -12,7 +12,7 @@ export interface ToolbarView { id: string; label: string; icon: ComponentType<an
 // centered Header toggle. Never hand-roll a bespoke toolbar in a tool page again.
 export function StandardToolbar({
   view, views, onViewChange, search, onSearchChange, onFilterClick, filterCount = 0,
-  filterOpen, filterPanel, onSortClick, customActions, moreMenu,
+  filterOpen, filterPanel, customActions, moreMenu,
   lists, activeListId, onListSelect, onAddList, insightsExpanded, onToggleInsights, controlPanelTo,
 }: {
   view: string;
@@ -24,7 +24,6 @@ export function StandardToolbar({
   filterCount?: number;
   filterOpen?: boolean;
   filterPanel?: ReactNode; // rendered under the Filter button when filterOpen — for tools with richer filter UI than a plain toggle
-  onSortClick?: () => void;
   customActions?: ReactNode;
   moreMenu?: ReactNode;
   // List dropdown slot (first in the row) — omit on pages with no lists concept.
@@ -85,11 +84,6 @@ export function StandardToolbar({
             </button>
             {filterOpen && filterPanel}
           </div>
-        )}
-        {onSortClick && (
-          <button onClick={onSortClick} className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg shadow-sm bg-white" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-            <ArrowUpDown className="w-3.5 h-3.5" /> Sort
-          </button>
         )}
         {customActions}
         {controlPanelTo && (

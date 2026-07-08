@@ -82,7 +82,6 @@ export function JobPilotPage() {
         search={search}
         onSearchChange={setSearch}
         onFilterClick={() => {}}
-        onSortClick={() => {}}
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
       <CollapsibleInsights

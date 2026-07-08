@@ -13,6 +13,8 @@ export interface Initiative {
   owner: string;
   deadline: string;
   visibility: 'private' | 'team' | 'workspace';  // two-tier residency / RLS tier
+  moduleTo?: string;      // when this Initiative was created from a Module (NewModuleDialog), its real surface route
+  packageName?: string;   // the source Module's package name
 }
 
 const KEY = 'bridge.initiatives.v1';
@@ -40,6 +42,8 @@ export function createInitiative(p: Partial<Initiative>): Initiative {
     owner: p.owner || 'You',
     deadline: p.deadline || '—',
     visibility: p.visibility || 'workspace',
+    ...(p.moduleTo ? { moduleTo: p.moduleTo } : {}),
+    ...(p.packageName ? { packageName: p.packageName } : {}),
   };
   items = [it, ...items];
   persist(); emit();
