@@ -11,8 +11,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router';
 import {
   ChevronRight, ChevronLeft, Plus, Pin, PinOff, Calendar as CalendarIcon, Clock, MapPin,
-  Users, Trash2, Pencil, X, RefreshCw, Cable, ShieldCheck,
+  Users, Trash2, Pencil, X, RefreshCw, Cable, ShieldCheck, CalendarRange, CalendarDays, List as ListIcon,
 } from 'lucide-react';
+import { Header } from '../components/shared/Header';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, addMonths, addWeeks,
   addDays, format, isSameDay, isSameMonth, isToday, parseISO, startOfDay, differenceInMinutes,
@@ -68,6 +71,7 @@ export function CalendarPage() {
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   // The visible period — drives timeMin/timeMax so navigating to a past/future period
   // loads exactly its events instead of relying on the 250-result cap to cover them
@@ -187,48 +191,52 @@ export function CalendarPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden relative" style={{ backgroundColor: 'var(--color-background)' }}>
-      {/* Header — tool path + Pin (mirrors every tool) */}
-      <div className="h-11 flex items-center justify-between px-6 border-b shrink-0 bg-white z-20 gap-2" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-2 text-sm min-w-0">
-          <Link to="/tools" className="shrink-0 transition-colors" style={{ color: 'var(--color-navy-mid)' }}>Tools</Link>
-          <ChevronRight className="w-3 h-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />
-          <span className="px-2.5 py-0.5 rounded text-xs font-semibold truncate" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy)' }}>Calendar</span>
-        </div>
-        {tool && (
-          <button onClick={() => togglePin(tool.id)}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95 shrink-0"
-            style={pinned
-              ? { backgroundColor: 'color-mix(in srgb, var(--color-steel) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--color-steel) 25%, transparent)', color: STEEL }
-              : { backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-            {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-            {pinned ? 'Pinned' : 'Pin to sidebar'}
-          </button>
-        )}
-      </div>
+      <Header tabs={[{ id: 'Calendar', icon: CalendarIcon }]} activeTab="Calendar" onTabChange={() => {}} />
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-6 py-3 border-b shrink-0 bg-white gap-3 flex-wrap" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setCursor(new Date())} className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95"
-            style={{ backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>Today</button>
-          <div className="flex items-center">
-            <button onClick={() => go(-1)} className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors" aria-label="Previous"><ChevronLeft className="w-4 h-4" style={{ color: 'var(--color-navy-mid)' }} /></button>
-            <button onClick={() => go(1)} className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors" aria-label="Next"><ChevronRight className="w-4 h-4" style={{ color: 'var(--color-navy-mid)' }} /></button>
-          </div>
-          <h1 className="text-base font-semibold ml-1" style={{ color: 'var(--color-navy)' }}>{title}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <ModePill mode={mode} loading={loading} onRefresh={() => void reload(rangeStart.toISOString(), rangeEnd.toISOString())} />
-          <div className="flex items-center rounded-lg border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
-            {(['month', 'week', 'day', 'agenda'] as View[]).map(v => (
-              <button key={v} onClick={() => setView(v)} className="text-xs font-semibold px-3 py-1.5 capitalize transition-colors"
-                style={view === v ? { backgroundColor: STEEL, color: 'white' } : { backgroundColor: 'white', color: 'var(--color-navy-mid)' }}>{v}</button>
-            ))}
-          </div>
-          <button onClick={() => openCreate(view === 'day' ? cursor : undefined)} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
-            style={{ backgroundColor: STEEL, color: 'white' }}><Plus className="w-3.5 h-3.5" /> New event</button>
-        </div>
-      </div>
+      <StandardToolbar
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen(o => !o)}
+        view={view}
+        views={[
+          { id: 'month', label: 'Month', icon: CalendarIcon },
+          { id: 'week', label: 'Week', icon: CalendarRange },
+          { id: 'day', label: 'Day', icon: CalendarDays },
+          { id: 'agenda', label: 'Agenda', icon: ListIcon },
+        ]}
+        onViewChange={(id) => setView(id as View)}
+        customActions={
+          <>
+            <button onClick={() => setCursor(new Date())} className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95"
+              style={{ backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>Today</button>
+            <div className="flex items-center">
+              <button onClick={() => go(-1)} className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors" aria-label="Previous"><ChevronLeft className="w-4 h-4" style={{ color: 'var(--color-navy-mid)' }} /></button>
+              <button onClick={() => go(1)} className="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors" aria-label="Next"><ChevronRight className="w-4 h-4" style={{ color: 'var(--color-navy-mid)' }} /></button>
+            </div>
+            <span className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{title}</span>
+            <ModePill mode={mode} loading={loading} onRefresh={() => void reload(rangeStart.toISOString(), rangeEnd.toISOString())} />
+            {tool && (
+              <button onClick={() => togglePin(tool.id)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95 shrink-0"
+                style={pinned
+                  ? { backgroundColor: 'color-mix(in srgb, var(--color-steel) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--color-steel) 25%, transparent)', color: STEEL }
+                  : { backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
+                {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                {pinned ? 'Pinned' : 'Pin to sidebar'}
+              </button>
+            )}
+            <button onClick={() => openCreate(view === 'day' ? cursor : undefined)} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
+              style={{ backgroundColor: STEEL, color: 'white' }}><Plus className="w-3.5 h-3.5" /> New event</button>
+          </>
+        }
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'events', label: 'Events in view', value: String(events.length), hint: title },
+          { id: 'mode', label: 'Source', value: mode === 'live' ? 'Google · live' : 'Not connected', hint: mode === 'live' ? undefined : 'connect Google in Integrations' },
+        ]}
+      />
 
       {/* Governance note */}
       <div className="px-6 py-1.5 text-[11px] flex items-center gap-1.5 border-b shrink-0" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)', backgroundColor: 'var(--color-background)' }}>

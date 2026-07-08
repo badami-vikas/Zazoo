@@ -1,16 +1,19 @@
 import { useState, type ComponentType, type ReactNode } from 'react';
-import { Search, Filter, ArrowUpDown, ChevronDown, Check, MoreVertical } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, ChevronDown, ChevronUp, Check, MoreVertical, Settings2 } from 'lucide-react';
+import { Link } from 'react-router';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { ListDropdown, type ListOption } from './ListDropdown';
 
 export interface ToolbarView { id: string; label: string; icon: ComponentType<any> }
 
-// The ONE toolbar shape every tool page uses, standardized off IntelligencePage's original
-// inline JSX: view dropdown -> search -> filter/sort -> tool-specific custom actions -> 3-dot
-// menu. Sits directly under a ListPillRow (the "Lists" row) per the platform-wide tool-page
-// layout: title -> Lists -> this toolbar. Never hand-roll a bespoke toolbar in a tool page again.
+// The ONE toolbar shape every tool page uses (shell-v2, user spec 2026-07-07): List dropdown →
+// view dropdown → search → filter → tool-specific custom actions → 3-dot menu → collapse/expand
+// arrow for the insights section (filter chips + dashboard row). Sits directly under the
+// centered Header toggle. Never hand-roll a bespoke toolbar in a tool page again.
 export function StandardToolbar({
   view, views, onViewChange, search, onSearchChange, onFilterClick, filterCount = 0,
   filterOpen, filterPanel, onSortClick, customActions, moreMenu,
+  lists, activeListId, onListSelect, onAddList, insightsExpanded, onToggleInsights, controlPanelTo,
 }: {
   view: string;
   views: ToolbarView[];
@@ -24,6 +27,18 @@ export function StandardToolbar({
   onSortClick?: () => void;
   customActions?: ReactNode;
   moreMenu?: ReactNode;
+  // List dropdown slot (first in the row) — omit on pages with no lists concept.
+  lists?: ListOption[];
+  activeListId?: string | null;
+  onListSelect?: (id: string) => void;
+  onAddList?: () => void;
+  // Insights toggle arrow — renders immediately after the 3-dots menu; controls the page's
+  // CollapsibleInsights section (expanded by default at the page level).
+  insightsExpanded?: boolean;
+  onToggleInsights?: () => void;
+  // Control Panel icon — always sits between the Filter button and the 3-dot menu. Only
+  // Initiative-scoped pages pass a route (/initiative/:id/control-panel); omitted = no icon.
+  controlPanelTo?: string;
 }) {
   const [viewOpen, setViewOpen] = useState(false);
   const activeView = views.find((v) => v.id === view) ?? views[0];
@@ -31,6 +46,9 @@ export function StandardToolbar({
 
   return (
     <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-white shrink-0 shadow-sm z-20 flex-wrap" style={{ borderColor: 'var(--color-border)' }}>
+      {lists && onListSelect && (
+        <ListDropdown lists={lists} activeId={activeListId ?? null} onSelect={onListSelect} onAddList={onAddList} />
+      )}
       <div className="relative shrink-0">
         <button onClick={() => setViewOpen((o) => !o)} className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold shadow-inner" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
           <ActiveIcon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
@@ -74,6 +92,11 @@ export function StandardToolbar({
           </button>
         )}
         {customActions}
+        {controlPanelTo && (
+          <Link to={controlPanelTo} title="Control Panel" className="p-1.5 rounded-lg border border-transparent" style={{ color: 'var(--color-warm-gray)' }}>
+            <Settings2 className="w-5 h-5" />
+          </Link>
+        )}
         {moreMenu && (
           <>
             <div className="w-px h-6 mx-1" style={{ backgroundColor: 'var(--color-border)' }} />
@@ -90,6 +113,17 @@ export function StandardToolbar({
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           </>
+        )}
+        {onToggleInsights && (
+          <button
+            onClick={onToggleInsights}
+            title={insightsExpanded ? 'Collapse insights' : 'Expand insights'}
+            aria-expanded={insightsExpanded}
+            className="p-1.5 rounded-lg border border-transparent"
+            style={{ color: 'var(--color-warm-gray)' }}
+          >
+            {insightsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </button>
         )}
       </div>
     </div>

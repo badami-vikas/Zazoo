@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router';
-import { BookOpen, Search, ExternalLink, Pin, PinOff, Star, ChevronRight, Plus, Trash2, Download } from 'lucide-react';
+import { BookOpen, ExternalLink, Pin, PinOff, Star, Plus, Trash2, Download, Table as TableIcon } from 'lucide-react';
+import { Header } from '../components/shared/Header';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { exportRowsToCsv } from '../lib/exportTable';
 import { usePinnedTools } from '../lib/usePinnedTools';
 import { loadCanonicalResources, type PeopleSource } from '../data/db';
@@ -80,13 +82,17 @@ function EditableCell({ value, onSave, placeholder, multiline, className }: { va
   );
 }
 
-export function ResourcesPage() {
+// `embedded` = rendered inside another shell-v2 page (KnowledgeBase tab) — skip the page-level
+// centered Header so the host page's toggle stays the identity element.
+export function ResourcesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { isPinned, togglePin } = usePinnedTools();
   const pinned = isPinned('resources');
   const [rows, setRows] = useState<NetworkResource[]>(localResources);
   const [source, setSource] = useState<PeopleSource>('local');
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('All');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   // Private editing layer (localStorage).
   const [edits, setEdits] = useState<Record<string, Record<string, any>>>(() => loadJSON(EDITS_KEY, {}));
@@ -139,68 +145,82 @@ export function ResourcesPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
-      {/* Header — tool path + pin */}
-      <div className="border-b border-[var(--color-border)] shrink-0 bg-white z-20">
-        <div className="h-12 flex items-center justify-between px-6">
-          <div className="flex items-center gap-2 text-sm">
-            <Link to="/tools" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Tools</Link>
-            <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
-            <span className="bg-[var(--color-surface)] text-[var(--color-navy)] px-2.5 py-1 rounded text-xs font-semibold shadow-sm inline-flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} /> Resources
-            </span>
-          </div>
-          <button
-            onClick={() => togglePin('resources')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold border rounded-lg shadow-sm transition-colors hover:bg-[var(--color-surface)]"
-            style={{ borderColor: 'var(--color-border)', color: pinned ? 'var(--color-steel)' : 'var(--color-navy-mid)', backgroundColor: 'white' }}
-            title={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
-          >
-            {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-            {pinned ? 'Pinned' : 'Pin to sidebar'}
-          </button>
-        </div>
+      {!embedded && <Header tabs={[{ id: 'Resources', icon: BookOpen }]} activeTab="Resources" onTabChange={() => {}} />}
 
-        {/* Toolbar — add entry + search + type filter pills + count */}
-        <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
-          <button onClick={addEntry} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg text-white shadow-sm transition-transform active:scale-95" style={{ backgroundColor: 'var(--color-steel)' }}>
-            <Plus className="w-3.5 h-3.5" /> Add entry
-          </button>
-          <button
-            onClick={() => exportRowsToCsv(
-              filtered,
-              [
-                { id: 'type', label: 'Type' },
-                { id: 'author', label: 'Author / Host' },
-                { id: 'tags', label: 'Topics' },
-                { id: 'rating', label: 'Rating' },
-                { id: 'yearPublished', label: 'Year' },
-                { id: 'notes', label: 'Notes' },
-                { id: 'url', label: 'URL' },
-              ],
-              'resources-export.csv',
-            )}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border shadow-sm transition-colors hover:bg-[var(--color-surface)]"
-            style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
-            title="Export visible rows to CSV"
-          >
-            <Download className="w-3.5 h-3.5" /> Export
-          </button>
-          <div className="relative shrink flex-1 max-w-[320px] min-w-[160px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search resources…" className="pl-9 pr-3 py-1.5 w-full border rounded-lg text-sm outline-none shadow-inner" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }} />
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
+      <StandardToolbar
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen(o => !o)}
+        view="table"
+        views={[{ id: 'table', label: 'Table', icon: TableIcon }]}
+        onViewChange={() => {}}
+        search={query}
+        onSearchChange={setQuery}
+        onFilterClick={() => setFilterOpen(o => !o)}
+        filterCount={typeFilter === 'All' ? 0 : 1}
+        filterOpen={filterOpen}
+        filterPanel={
+          <div className="absolute top-full right-0 mt-1 w-44 border rounded-xl shadow-lg z-50 overflow-hidden py-1 bg-white" style={{ borderColor: 'var(--color-border)' }}>
             {TYPE_FILTERS.map(t => (
-              <button key={t} onClick={() => setTypeFilter(t)} className="text-sm px-3 py-1.5 rounded-full border transition-colors" style={{ borderColor: typeFilter === t ? 'var(--color-steel)' : 'var(--color-border)', backgroundColor: typeFilter === t ? 'var(--color-steel)' : 'white', color: typeFilter === t ? 'white' : 'var(--color-navy-mid)' }}>
-                {t} <span className="opacity-70">{counts[t]}</span>
+              <button key={t} onClick={() => { setTypeFilter(t); setFilterOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm"
+                style={{ color: typeFilter === t ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
+                {t} <span className="opacity-60">{counts[t]}</span>
               </button>
             ))}
           </div>
-          <span className="ml-auto text-xs" style={{ color: 'var(--color-warm-gray)' }}>
-            {filtered.length} of {merged.length} · {source === 'supabase' ? 'live store' : 'local seed'} · edits saved locally
-          </span>
-        </div>
-      </div>
+        }
+        customActions={
+          <>
+            <button onClick={addEntry} className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg text-white shadow-sm transition-transform active:scale-95" style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-3.5 h-3.5" /> Add entry
+            </button>
+            <button
+              onClick={() => exportRowsToCsv(
+                filtered,
+                [
+                  { id: 'type', label: 'Type' },
+                  { id: 'author', label: 'Author / Host' },
+                  { id: 'tags', label: 'Topics' },
+                  { id: 'rating', label: 'Rating' },
+                  { id: 'yearPublished', label: 'Year' },
+                  { id: 'notes', label: 'Notes' },
+                  { id: 'url', label: 'URL' },
+                ],
+                'resources-export.csv',
+              )}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border shadow-sm transition-colors hover:bg-[var(--color-surface)]"
+              style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}
+              title="Export visible rows to CSV"
+            >
+              <Download className="w-3.5 h-3.5" /> Export
+            </button>
+            {!embedded && (
+              <button
+                onClick={() => togglePin('resources')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold border rounded-lg shadow-sm transition-colors hover:bg-[var(--color-surface)]"
+                style={{ borderColor: 'var(--color-border)', color: pinned ? 'var(--color-steel)' : 'var(--color-navy-mid)', backgroundColor: 'white' }}
+                title={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+              >
+                {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                {pinned ? 'Pinned' : 'Pin to sidebar'}
+              </button>
+            )}
+          </>
+        }
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        filters={typeFilter === 'All' ? [] : [{ id: 'type', label: `Type: ${typeFilter}` }]}
+        onRemoveFilter={() => setTypeFilter('All')}
+        onClearFilters={() => setTypeFilter('All')}
+        metrics={[
+          { id: 'shown', label: 'Shown', value: `${filtered.length}`, hint: `of ${merged.length} · ${source === 'supabase' ? 'live store' : 'local seed'} · edits saved locally` },
+          { id: 'books', label: 'Books', value: String(counts.Books) },
+          { id: 'podcasts', label: 'Podcasts', value: String(counts.Podcasts) },
+          { id: 'vlogs', label: 'Vlogs', value: String(counts.Vlogs) },
+        ]}
+      />
 
       {/* Table — every cell click-to-edit; added rows can be deleted */}
       <div className="flex-1 overflow-auto bg-white">
