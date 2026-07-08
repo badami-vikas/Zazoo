@@ -8,6 +8,12 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-07 — `apps/api/test/packages.test.ts` "packages.list: paginates" broken by built-in package seeding.**
+  `buildWiring()` now seeds the 4 built-in workspace-definition packages on startup (apps/api/src/built-in-packages.ts),
+  so the test's `total` assertion sees 6 rows where it expects 2 (its own registrations only). Pre-existing on the
+  branch before the Commons work (R-004) — surfaced during its verification run. Fix: filter the assertion to the
+  test-registered names, or count relative to the seeded baseline.
+
 - **RESOLVED 2026-07-06 — `apps/api/src/social/fixtures.ts` fabricated fake social posts/DMs as runtime fallback data (ADR-026).**
   When no live platform (X/Instagram/Facebook/LinkedIn) credentials were configured, `makeFixtureProvider`'s
   `sourceItems()` synthesized two plausible-looking fake items per platform (fabricated handles, a fake

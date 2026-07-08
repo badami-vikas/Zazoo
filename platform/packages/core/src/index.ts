@@ -155,6 +155,17 @@ export {
   type PromoteResult,
 } from "./package/lifecycle.js";
 export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+// Universal Commons — client port + wire types. Local service (services/
+// commons) today, Bridge Cloud later; same contract, swap is config-only.
+export {
+  CommonsPublishRejectedError,
+  type CommonsRegistry,
+  type CommonsPackageEntry,
+  type CommonsPackageSummary,
+  type CommonsPackageDetail,
+  type CommonsListQuery,
+  type CommonsListResult,
+} from "./package/commons.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",
 // P1 "Workspace Generator") — pure, zero-deps, additive to the pipeline.

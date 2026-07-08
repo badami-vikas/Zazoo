@@ -1,5 +1,7 @@
 # Change Log
 
+- **2026-07-07** — **Universal Commons bootstrapped (R-004, ADR-030)**: new `platform/services/commons` — local-first Fastify 5 Module registry (port 4780, FS JSON store behind `CommonsStore` port, `COMMONS_DATA_DIR`), permanent v1 HTTP contract (list/get/get-version/publish), knowledge-only publish gate rejecting workspace/user data with exact offending paths (422); `CommonsRegistry` port + wire types in `@bridge/core`, `HttpCommonsClient` fetch adapter in apps/api (`COMMONS_URL`, config-only Bridge Cloud swap), `publish-builtins` script posts the 4 built-in manifests as first real content (registry starts empty, no dummy data). Marketplace = Commons website surface; apps/web untouched. 5 node:test tests + live smoke green; pre-existing `packages.list` pagination test failure filed in BUGS.md. New wiki page: [wiki/commons.md](wiki/commons.md).
+
 - **2026-07-06** — **Real-data-only enforcement pass: retired `dummy_` runtime data + convention
   (ADR-026).** `apps/api/src/social/fixtures.ts`'s `makeFixtureProvider` was fabricating two fake
   social posts/DMs per platform (fake handles, a fake name) whenever no live credentials were

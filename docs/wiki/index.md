@@ -15,6 +15,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [rituals](rituals.md) — engine call: planner/executor split (swarm plans, DAG runs); broker/levels/snapshots/versioning; 3 reconciles.
 - [tools](tools.md) — tool model: internalize external repos · two run modes (standalone/shared-link + account-bound) · gated intake; reuses pipeline/contracts/versions.
 - [packages](packages.md) — capability package format: manifest bundles multiple capability_manifests · install = governed proposal + computed risk over dependency closure + lethal-trifecta escalation · Zapier single-live-version + fork-from-history rollback · DealPilot/Helpdesk/Recon sketches.
+- [commons](commons.md) — Universal Commons: local-first Module registry (services/commons, port 4780) · same contract as future Bridge Cloud · knowledge-only publish gate (422 + offending paths) · Marketplace = Commons website surface, web app consumes installed Modules only.
 - [calendar](calendar.md) — Calendar Tool = time-axis projection over graph; adopt react-big-calendar (MIT) + ical.js; never embed a calendar product/server.
 - [helpdesk](helpdesk.md) — AI-mediated assistance: capability routing over the graph → governed proposals; in-Bridge MVP; new Help Request entity.
 - [schema](schema.md) — data model, two-tier, governance tables.
