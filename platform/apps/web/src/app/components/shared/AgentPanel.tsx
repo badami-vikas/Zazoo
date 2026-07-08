@@ -35,7 +35,19 @@ interface ChatTurn {
   text: string;
   decision?: ConverseResult["decision"];
   proposalId?: string;
+  agent?: ConverseResult["agent"];
 }
+
+/** Display names for the "agent" field ADR-033 added to converse's reply —
+ * `@mention` any of these in the chat box to address that agent directly,
+ * bypassing Chief of Staff's routing for that one turn. */
+const AGENT_LABELS: Record<string, string> = {
+  chief_of_staff: "Chief of Staff",
+  learning: "Learning Agent",
+  communications: "Communications Agent",
+  governance: "Governance Agent",
+  capability_builder: "Capability Builder",
+};
 
 const PANEL_WIDTH = 336;
 const COLLAPSE_KEY = "bridge.agentPanel.collapsed.v1";
@@ -77,7 +89,7 @@ export function AgentPanel() {
       const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth });
       setTurns((prev) => [
         ...prev,
-        { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id },
+        { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },
       ]);
       setChainDepth(result.decision.kind === "route" ? chainDepth + 1 : 0);
     } catch (e) {
@@ -127,6 +139,11 @@ export function AgentPanel() {
       <div className="flex-1 overflow-auto space-y-3 p-4">
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
+            {t.role === "assistant" && t.agent && t.agent !== "chief_of_staff" && (
+              <div className="text-xs font-medium mb-0.5" style={{ color: "var(--color-steel)" }}>
+                {AGENT_LABELS[t.agent] ?? t.agent}
+              </div>
+            )}
             <div
               className="inline-block max-w-[85%] rounded-md px-3 py-2 text-sm"
               style={{
@@ -149,7 +166,10 @@ export function AgentPanel() {
 
       {error && <div className="px-4 pb-2 text-xs text-red-600 break-words">{error}</div>}
 
-      <div className="p-3 border-t flex gap-2 shrink-0" style={{ borderColor: "var(--color-border)" }}>
+      <div className="px-4 pb-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+        @learning · @communications · @governance · @builder — address one directly
+      </div>
+      <div className="p-3 pt-1 border-t flex gap-2 shrink-0" style={{ borderColor: "var(--color-border)" }}>
         <Input
           placeholder="Ask Chief of Staff…"
           value={draft}

@@ -37,6 +37,9 @@ import {
   classifyIntent,
   assertChainDepth,
   MAX_CHAIN_DEPTH,
+  parseMention,
+  buildAgentSystemPrompt,
+  findFoundationalAgent,
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
@@ -2154,6 +2157,51 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
 
+      // A leading "@agent" mention (ADR-033) bypasses star-topology
+      // classification for THIS turn only — a human directly addressing one
+      // of the four foundational agents, not agent-to-agent handoff. Learning/
+      // Communications/Governance answer directly (no side effects); Capability
+      // Builder always drafts through the same governed pipeline every routed
+      // action uses, per its `requiresApproval` flag — it never ships live from
+      // a chat reply.
+      const { agentId, rest } = parseMention(input.message);
+      if (agentId) {
+        const agent = findFoundationalAgent(agentId);
+        const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
+        const model = registeredModels[0];
+        const system = buildAgentSystemPrompt(agentId);
+        const text = model
+          ? (await model.complete({ system, prompt: rest || input.message, maxTokens: 512 })).text
+          : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
+
+        if (!agent.requiresApproval) {
+          return {
+            reply: text,
+            decision: { kind: "direct_reply" as const, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
+            proposal: null,
+            agent: agentId,
+          };
+        }
+
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            action: "execute",
+            resourceType: "skill",
+            inputs: { agent: agentId, message: input.message, draft: text },
+            skill: "stageMutation",
+          },
+          ctx.run,
+        );
+        return {
+          reply: `${text}\n\nDrafted via ${agent.name} — proposed for review, not yet executed.`,
+          decision: { kind: "route" as const, route: agentId, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
+          proposal,
+          agent: agentId,
+        };
+      }
+
       let chainOk = true;
       try {
         assertChainDepth(input.chainDepth);
@@ -2189,6 +2237,7 @@ export const appRouter = t.router({
               : "Noted — I don't have a capability to route that to yet, but I've recorded the request.",
           decision,
           proposal: null,
+          agent: "chief_of_staff" as const,
         };
       }
 
@@ -2209,6 +2258,7 @@ export const appRouter = t.router({
         reply: `Routing this to "${decision.route}"${target ? ` (${target.description})` : ""} — proposed for review, not yet executed.`,
         decision,
         proposal,
+        agent: "chief_of_staff" as const,
       };
     }),
   }),

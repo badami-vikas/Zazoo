@@ -209,6 +209,18 @@ export {
   type ClassifyIntentArgs,
 } from "./chief-of-staff.js";
 
+// The four non-Chief-of-Staff foundational agents (ADR-033) — @mention
+// dispatch + system-prompt construction. Chief of Staff itself stays
+// modeled by chief-of-staff.ts (it IS the router, not a routable target).
+export {
+  FOUNDATIONAL_AGENTS,
+  parseMention,
+  findFoundationalAgent,
+  buildAgentSystemPrompt,
+  type FoundationalAgentId,
+  type FoundationalAgent,
+} from "./agents.js";
+
 // RunContextAssembler (ADR-027, execution-plan-2026-07.md Track F5/Wave 3) --
 // supersedes the earlier "PromptAssembler" idea. Assembles everything a model
 // run needs; projectToPrompt is explicitly ONE projection of it, not the thing

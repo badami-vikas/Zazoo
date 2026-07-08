@@ -79,6 +79,57 @@ test("chiefOfStaff.converse: chain depth at the hard cap falls back to a direct 
   }
 });
 
+test("chiefOfStaff.converse: an @mention addresses a foundational agent directly, bypassing classification, and never proposes for a non-approval agent", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const result = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "@learning what patterns have you noticed in my week?",
+      chainDepth: 0,
+    });
+    assert.equal(result.agent, "learning");
+    assert.equal(result.decision.kind, "direct_reply");
+    assert.equal(result.proposal, null, "Learning Agent never executes — a direct reply must not create a proposal");
+    assert.ok(typeof result.reply === "string" && result.reply.length > 0);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: @builder (Capability Builder) always drafts through the governed pipeline, never a bare reply", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const result = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "@builder create a weekly digest automation",
+      chainDepth: 0,
+    });
+    assert.equal(result.agent, "capability_builder");
+    assert.equal(result.decision.kind, "route");
+    assert.ok(result.proposal, "Capability Builder output must always be a governed proposal, never shipped live");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("chiefOfStaff.converse: an unrecognized @word is treated as ordinary text, not a mention", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const result = await caller.chiefOfStaff.converse({
+      workspaceId: PILOT_WORKSPACE,
+      message: "@nobody can you check my job applications",
+      chainDepth: 0,
+    });
+    assert.notEqual(result.agent, undefined);
+    assert.equal(result.agent, "chief_of_staff");
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("chiefOfStaff.converse: a non-pilot workspaceId is rejected with FORBIDDEN (single-tenant guard applies here too)", async () => {
   const wiring = await buildWiring();
   try {
