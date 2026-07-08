@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Handshake, LayoutGrid, List as ListIcon, Table as TableIcon, RefreshCw } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
-import { ListBar } from "../components/shared/ListBar";
+import { CreateListModal } from "../components/shared/ListDropdown";
 import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
-import { FilterChipsRow, type ActiveFilter } from "../components/shared/FilterChipsRow";
-import { DashboardRow, type DashboardMetric } from "../components/shared/DashboardRow";
+import { type ActiveFilter } from "../components/shared/FilterChipsRow";
+import { type DashboardMetric } from "../components/shared/DashboardRow";
+import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { CardGrid, NotionCard } from "../components/shared/NotionCard";
 import { ListView } from "../components/shared/ListView";
-import { useLists } from "../data/lists";
+import { useLists, createList } from "../data/lists";
 
 type DealPilotList = Awaited<ReturnType<typeof trpc.dealpilot.list.query>>;
 type DealItem = DealPilotList["items"][number];
@@ -37,8 +38,9 @@ export function DealPilotPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [industryFilter, setIndustryFilter] = useState<string | null>(null);
   const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(true);
+  const [addListOpen, setAddListOpen] = useState(false);
   const lists = useLists(SCOPE);
-  void lists;
 
   function load() {
     trpc.dealpilot.list
@@ -87,8 +89,13 @@ export function DealPilotPage() {
       {/* No separate title row — the centered toggle IS the page's identity element per the
           standard shell spec (2026-07-07): one tab per tool section, no tool-name row above it. */}
       <Header tabs={[{ id: "DealPilot", icon: Handshake }]} activeTab="DealPilot" onTabChange={() => {}} />
-      <ListBar scope={SCOPE} selected={selectedList} onSelect={setSelectedList} allLabel="All Deals" />
       <StandardToolbar
+        lists={[{ id: "__all", label: "All Deals" }, ...lists.map((l) => ({ id: l.id, label: l.name }))]}
+        activeListId={selectedList ?? "__all"}
+        onListSelect={(id) => setSelectedList(id === "__all" ? null : id)}
+        onAddList={() => setAddListOpen(true)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
         view={view}
         views={VIEWS}
         onViewChange={(id) => setView(id as ViewId)}
@@ -130,8 +137,19 @@ export function DealPilotPage() {
         }
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
-      <FilterChipsRow filters={activeFilters} onRemove={() => setIndustryFilter(null)} onClearAll={() => setIndustryFilter(null)} />
-      <DashboardRow metrics={metrics} />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        filters={activeFilters}
+        onRemoveFilter={() => setIndustryFilter(null)}
+        onClearFilters={() => setIndustryFilter(null)}
+        metrics={metrics}
+      />
+      {addListOpen && (
+        <CreateListModal
+          onClose={() => setAddListOpen(false)}
+          onCreate={(name, instruction) => setSelectedList(createList(SCOPE, name, instruction).id)}
+        />
+      )}
 
       <div className="flex-1 overflow-auto">
         {filtered.length === 0 ? (

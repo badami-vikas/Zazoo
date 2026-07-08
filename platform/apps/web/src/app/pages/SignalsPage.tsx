@@ -27,10 +27,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Radio, LayoutGrid, List as ListIcon, Table as TableIcon } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
-import { Pill } from "../components/shared/Pill";
 import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
-import { FilterChipsRow, type ActiveFilter } from "../components/shared/FilterChipsRow";
-import { DashboardRow, type DashboardMetric } from "../components/shared/DashboardRow";
+import { type ActiveFilter } from "../components/shared/FilterChipsRow";
+import { type DashboardMetric } from "../components/shared/DashboardRow";
+import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { CardGrid, NotionCard } from "../components/shared/NotionCard";
 import { ListView } from "../components/shared/ListView";
 import { Button } from "../components/ui/button";
@@ -60,6 +60,7 @@ export function SignalsPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   function refresh() {
     trpc.graph.listSignals
@@ -119,14 +120,13 @@ export function SignalsPage() {
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
       <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />
 
-      <div className="flex items-center gap-1.5 px-4 py-2.5 overflow-x-auto border-b bg-white" style={{ borderColor: "var(--color-border)" }}>
-        <Pill label="All" active={typeFilter === null} onClick={() => setTypeFilter(null)} />
-        {types.map((t) => (
-          <Pill key={t} label={t} active={typeFilter === t} onClick={() => setTypeFilter(t === typeFilter ? null : t)} />
-        ))}
-      </div>
-
       <StandardToolbar
+        // Signal types are system-detected categories, not user-created lists — no "Add list".
+        lists={[{ id: "__all", label: "All Signals" }, ...types.map((t) => ({ id: t, label: t }))]}
+        activeListId={typeFilter ?? "__all"}
+        onListSelect={(id) => setTypeFilter(id === "__all" ? null : id)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
         view={view}
         views={VIEWS}
         onViewChange={(id) => setView(id as ViewId)}
@@ -157,15 +157,16 @@ export function SignalsPage() {
         }
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
-      <FilterChipsRow
+      <CollapsibleInsights
+        expanded={insightsOpen}
         filters={activeFilters}
-        onRemove={(id) => (id === "type" ? setTypeFilter(null) : setStatusFilter(null))}
-        onClearAll={() => {
+        onRemoveFilter={(id) => (id === "type" ? setTypeFilter(null) : setStatusFilter(null))}
+        onClearFilters={() => {
           setTypeFilter(null);
           setStatusFilter(null);
         }}
+        metrics={metrics}
       />
-      <DashboardRow metrics={metrics} />
 
       <div className="flex-1 overflow-auto">
         {filtered.length === 0 ? (

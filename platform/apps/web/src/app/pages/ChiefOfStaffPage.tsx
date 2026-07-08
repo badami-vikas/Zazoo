@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Bot } from "lucide-react";
+import { Header } from "../components/shared/Header";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -59,13 +61,12 @@ export function ChiefOfStaffPage() {
   }
 
   return (
-    <div className="p-6 flex flex-col gap-4 h-full max-w-2xl">
-      <div>
-        <h1 className="text-lg font-medium">Chief of Staff</h1>
-        <p className="text-sm text-muted-foreground">
-          Routes your message to at most one capability per turn — never executes anything without a governed approval.
-        </p>
-      </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <Header tabs={[{ id: "Chief of Staff", icon: Bot }]} activeTab="Chief of Staff" onTabChange={() => {}} />
+      <div className="p-6 flex flex-col gap-4 flex-1 max-w-2xl w-full min-h-0">
+      <p className="text-sm text-muted-foreground">
+        Routes your message to at most one capability per turn — never executes anything without a governed approval.
+      </p>
 
       <div className="flex-1 overflow-auto space-y-3 border rounded-md p-4 min-h-[280px]">
         {turns.map((t, i) => (
@@ -104,6 +105,7 @@ export function ChiefOfStaffPage() {
         <Button onClick={send} disabled={sending || !draft.trim()}>
           {sending ? "Sending…" : "Send"}
         </Button>
+      </div>
       </div>
     </div>
   );

@@ -11,9 +11,9 @@ import {
 } from '../data/helpdesk';
 import { GlideTable } from '../components/GlideTable';
 import { CardGrid } from '../components/shared/NotionCard';
-import { ListPillRow } from '../components/ListPillRow';
-import { ToolPageHeader } from '../components/shared/ToolPageHeader';
+import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { StatsCard, BadgeRow, HelpdeskCard } from '../components/helpdesk/HelpdeskBits';
 import { AskModal, type AskScope } from '../components/helpdesk/AskModal';
 import { CreateHelpdeskModal } from '../components/helpdesk/CreateHelpdeskModal';
@@ -57,6 +57,7 @@ export function HelpdeskPage() {
   const [askOpen, setAskOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [impactOpen, setImpactOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   useEffect(() => { if (shouldShowImpactReport(new Date())) setImpactOpen(true); }, []);
 
@@ -98,18 +99,20 @@ export function HelpdeskPage() {
 
   return (
     <div className="@container flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#FAF9F5' }}>
-      <ToolPageHeader icon={LifeBuoy} title="Helpdesk" />
-
-      <ListPillRow
-        pills={[LIST_NETWORK, LIST_MINE, LIST_PUBLIC]}
-        selected={selectedList}
-        onSelect={setSelectedList}
-        allLabel="All Requests"
-        addLabel="Add List"
-        onAddList={() => setCreateOpen(true)}
-      />
+      <Header tabs={[{ id: 'Helpdesk', icon: LifeBuoy }]} activeTab="Helpdesk" onTabChange={() => {}} />
 
       <StandardToolbar
+        lists={[
+          { id: '__all', label: 'All Requests' },
+          { id: LIST_NETWORK, label: LIST_NETWORK },
+          { id: LIST_MINE, label: LIST_MINE },
+          { id: LIST_PUBLIC, label: LIST_PUBLIC },
+        ]}
+        activeListId={selectedList ?? '__all'}
+        onListSelect={(id) => setSelectedList(id === '__all' ? null : id)}
+        onAddList={() => setCreateOpen(true)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
         view={view}
         views={[{ id: 'card', label: 'Card', icon: LayoutGrid }, { id: 'table', label: 'Table', icon: TableIcon }]}
         onViewChange={(id) => setView(id as ViewId)}
@@ -175,6 +178,21 @@ export function HelpdeskPage() {
             ))}
           </>
         }
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        filters={[
+          ...(mineOnly ? [{ id: 'mine', label: 'My Asks' }] : []),
+          ...(statusFilter !== 'all' ? [{ id: 'status', label: `Status: ${statusFilter}` }] : []),
+        ]}
+        onRemoveFilter={(id) => (id === 'mine' ? setMineOnly(false) : setStatusFilter('all'))}
+        onClearFilters={() => { setMineOnly(false); setStatusFilter('all'); }}
+        metrics={[
+          { id: 'shown', label: 'Requests shown', value: String(visible.length) },
+          { id: 'open', label: 'Open', value: String(visible.filter(r => r.status === 'open').length) },
+          { id: 'resolved', label: 'Resolved', value: String(visible.filter(r => r.status === 'resolved').length) },
+          { id: 'helped', label: 'People helped', value: String(peopleHelped), hint: streak.count > 0 ? `${streak.count}-${streak.unit === 'weeks' ? 'week' : 'day'} streak` : undefined },
+        ]}
       />
 
       {/* Content */}

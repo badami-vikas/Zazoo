@@ -33,17 +33,20 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Package, PenTool, Cable, Bot, Repeat, Sparkles } from "lucide-react";
+import { Header } from "../components/shared/Header";
 
 type IntelligenceSection = "packages" | "tools" | "integrations" | "agents" | "workflows" | "skills";
 
-const SECTIONS: { id: IntelligenceSection; label: string }[] = [
-  { id: "packages", label: "Packages" },
-  { id: "tools", label: "Tools" },
-  { id: "integrations", label: "Integrations" },
-  { id: "agents", label: "Agents" },
-  { id: "workflows", label: "Workflows" },
-  { id: "skills", label: "Skills" },
+// UI copy uses the primitive name "Modules" for the capability registry rows; the backing
+// identifiers/procedures (`packages.list`, section id "packages") are unchanged.
+const SECTIONS: { id: IntelligenceSection; label: string; icon: typeof Package }[] = [
+  { id: "packages", label: "Modules", icon: Package },
+  { id: "tools", label: "Tools", icon: PenTool },
+  { id: "integrations", label: "Integrations", icon: Cable },
+  { id: "agents", label: "Agents", icon: Bot },
+  { id: "workflows", label: "Workflows", icon: Repeat },
+  { id: "skills", label: "Skills", icon: Sparkles },
 ];
 
 // Maps package name → route + display metadata. Only packages in packages.list
@@ -151,7 +154,7 @@ function ToolsSection() {
   if (available.length === 0) {
     return (
       <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-2xl">
-        No packages installed yet — Tools appear here once a workspace_definition package reaches <code>available</code> state.
+        No modules installed yet — Tools appear here once a workspace_definition module reaches <code>available</code> state.
       </div>
     );
   }
@@ -189,7 +192,7 @@ function PackagesSection() {
   if (result.items.length === 0) {
     return (
       <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-2xl">
-        No packages installed yet. Packages arrive through the Learning Agent's proposals or a manual
+        No modules installed yet. Modules arrive through the Learning Agent's proposals or a manual
         <code> packages.register</code> call — nothing installs itself.
       </div>
     );
@@ -217,21 +220,18 @@ function PackagesSection() {
 export function IntelligencePage() {
   const [section, setSection] = useState<IntelligenceSection>("packages");
 
+  const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
-    <div className="p-4 sm:p-6 space-y-4 w-full max-w-full overflow-x-hidden">
-      <h1 className="text-lg font-medium">Intelligence</h1>
-
-      <Tabs value={section} onValueChange={(v) => setSection(v as IntelligenceSection)}>
-        <TabsList className="flex-wrap h-auto">
-          {SECTIONS.map((s) => (
-            <TabsTrigger key={s.id} value={s.id}>
-              {s.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      <div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden w-full max-w-full">
+      <Header
+        tabs={SECTIONS.map((s) => ({ id: s.label, icon: s.icon }))}
+        activeTab={active.label}
+        onTabChange={(label) => {
+          const next = SECTIONS.find((s) => s.label === label);
+          if (next) setSection(next.id);
+        }}
+      />
+      <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-4">
         {section === "packages" && <PackagesSection />}
         {section === "tools" && <ToolsSection />}
         {section === "integrations" && <IntegrationsSection />}

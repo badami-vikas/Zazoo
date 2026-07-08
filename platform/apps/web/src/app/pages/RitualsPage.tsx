@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Target, Repeat, PenTool, Plus, Zap, Clock, GitBranch, Play, Pause, ArrowRight } from 'lucide-react';
+import { Target, Repeat, PenTool, Plus, Zap, Clock, GitBranch, Play, Pause, ArrowRight, LayoutGrid } from 'lucide-react';
 import { Header } from '../components/shared/Header';
-import { ListPillRow } from '../components/ListPillRow';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 
 // Clean Rituals index — replaces the retired RitualsEngine (the old Rituals/Agents/Skills/Integrations
 // toggle). Each ritual opens its non-linear canvas at /ritual/:id. Agents/Skills/Integrations now live
@@ -25,6 +26,8 @@ const lists = ['All', 'Scheduled', 'Triggered', 'Paused'];
 export function RitualsPage() {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   const headerTabs = [
     { id: 'Initiatives', icon: Target },
@@ -34,8 +37,9 @@ export function RitualsPage() {
   const onTab = (t: string) => { if (t === 'Rituals') return; navigate(t === 'Tools' ? '/tools' : '/work'); };
 
   const filtered = rituals.filter(r =>
-    !selected || selected === 'All' ||
-    (selected === 'Paused' ? r.status === 'Paused' : r.cadence === selected && r.status !== 'Paused')
+    (!selected || selected === 'All' ||
+      (selected === 'Paused' ? r.status === 'Paused' : r.cadence === selected && r.status !== 'Paused')) &&
+    (!search || r.name.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -43,20 +47,35 @@ export function RitualsPage() {
       style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
       <Header tabs={headerTabs} activeTab="Rituals" onTabChange={onTab} />
 
-      <ListPillRow pills={lists.filter(l => l !== 'All')} selected={selected === 'All' ? null : selected} onSelect={(v) => setSelected(v ?? 'All')} />
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 shadow-sm z-20 w-full"
-        style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
-        <div className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>
-          <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>{filtered.length}</span> rituals · every step runs through draft-then-approve
-        </div>
-        <button onClick={() => navigate('/ritual/create')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
-          style={{ backgroundColor: 'var(--color-steel)' }}>
-          <Plus className="w-3.5 h-3.5" /> New Ritual
-        </button>
-      </div>
+      <StandardToolbar
+        // Cadence categories act as this page's lists (system-defined, not user-creatable).
+        lists={lists.map(l => ({ id: l, label: l === 'All' ? 'All Rituals' : l }))}
+        activeListId={selected ?? 'All'}
+        onListSelect={(id) => setSelected(id === 'All' ? null : id)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen(o => !o)}
+        view="card"
+        views={[{ id: 'card', label: 'Card', icon: LayoutGrid }]}
+        onViewChange={() => {}}
+        search={search}
+        onSearchChange={setSearch}
+        customActions={
+          <button onClick={() => navigate('/ritual/create')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+            style={{ backgroundColor: 'var(--color-steel)' }}>
+            <Plus className="w-3.5 h-3.5" /> New Ritual
+          </button>
+        }
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'shown', label: 'Rituals shown', value: String(filtered.length), hint: 'draft-then-approve' },
+          { id: 'active', label: 'Active', value: String(rituals.filter(r => r.status === 'Active').length) },
+          { id: 'paused', label: 'Paused', value: String(rituals.filter(r => r.status === 'Paused').length) },
+        ]}
+      />
 
       {/* Grid */}
       <div className="flex-1 overflow-auto p-6" style={{ backgroundColor: 'var(--color-background)' }}>

@@ -1,8 +1,11 @@
 import { useMemo, useState, useEffect } from 'react';
 import {
-  ShieldCheck, Check, X, PencilLine, Bot, User, ArrowRight, Clock, Sparkles,
-  CornerDownRight, Inbox, FileText, GitCompareArrows, Info,
+  ShieldCheck, Check, X, PencilLine, Bot, User, ArrowRight, Sparkles,
+  CornerDownRight, Inbox, FileText, GitCompareArrows, Info, List as ListIcon,
 } from 'lucide-react';
+import { Header } from '../components/shared/Header';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { motion, AnimatePresence } from 'motion/react';
 import clsx from 'clsx';
 import {
@@ -89,8 +92,15 @@ export function ApprovalsPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [vetoOpen, setVetoOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [insightsOpen, setInsightsOpen] = useState(true);
   const [resolved, setResolved] = useState<{ id: string; decision: Decision; reason?: string } | null>(null);
 
+  const visibleQueue = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return queue;
+    return queue.filter(e => `${e.action} ${e.resource} ${e.actor} ${e.policy}`.toLowerCase().includes(q));
+  }, [queue, search]);
   const selected = useMemo(() => queue.find(e => e.id === selectedId) ?? null, [queue, selectedId]);
   const diff = useMemo(() => (selected ? lineDiff(selected.prior, editing ? draft : selected.proposed) : []), [selected, editing, draft]);
 
@@ -123,26 +133,24 @@ export function ApprovalsPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
-      {/* Header */}
-      <div className="h-14 flex items-center justify-between px-6 bg-white border-b shrink-0 z-10 shadow-sm" style={{ borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 12%, transparent)' }}>
-            <ShieldCheck className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-          </div>
-          <div>
-            <h1 className="font-bold text-sm leading-tight" style={{ color: 'var(--color-navy)' }}>Approvals</h1>
-            <p className="text-xs" style={{ color: 'var(--color-navy-mid)' }}>Every outbound or sensitive agent action pauses here for your review</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" title={source === 'supabase' ? 'Pending rows loaded from the Supabase ledger (append-only)' : 'Supabase unreachable — showing local fallback (empty)'} style={{ backgroundColor: source === 'supabase' ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--color-surface)', color: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: source === 'supabase' ? 'var(--success)' : 'var(--color-warm-gray)' }} /> {source === 'supabase' ? 'Supabase ledger' : 'Local'}
-          </span>
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)' }}>
-            <Clock className="w-3.5 h-3.5" /> {queue.length} awaiting review
-          </div>
-        </div>
-      </div>
+      <Header tabs={[{ id: 'Approvals', icon: ShieldCheck }]} activeTab="Approvals" onTabChange={() => {}} />
+      <StandardToolbar
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen(o => !o)}
+        view="list"
+        views={[{ id: 'list', label: 'List', icon: ListIcon }]}
+        onViewChange={() => {}}
+        search={search}
+        onSearchChange={setSearch}
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'awaiting', label: 'Awaiting review', value: String(queue.length), hint: 'every outbound or sensitive agent action pauses here' },
+          { id: 'source', label: 'Ledger source', value: source === 'supabase' ? 'Supabase' : 'Local', hint: 'append-only' },
+        ]}
+      />
 
       {queue.length === 0 ? (
         // Empty state — reinforces governed-by-default, not idle
@@ -159,7 +167,7 @@ export function ApprovalsPage() {
         <div className="flex-1 flex overflow-hidden">
           {/* List */}
           <div className="w-[380px] shrink-0 border-r overflow-y-auto" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-background)' }}>
-            {queue.map(e => {
+            {visibleQueue.map(e => {
               const active = e.id === selectedId;
               return (
                 <button

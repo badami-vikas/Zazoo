@@ -9,10 +9,11 @@ import { CardGrid, NotionCard } from '../components/shared/NotionCard';
 import { FlagIcon } from '../components/shared/FlagIcon';
 import { KanbanBoard, type KanbanLane } from '../components/shared/KanbanBoard';
 import { ListView } from '../components/shared/ListView';
-import { ToolPageHeader } from '../components/shared/ToolPageHeader';
+import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
-import { ListBar } from '../components/shared/ListBar';
-import { useLists, toggleMember } from '../data/lists';
+import { CreateListModal } from '../components/shared/ListDropdown';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
+import { useLists, createList, toggleMember } from '../data/lists';
 import { Check } from 'lucide-react';
 
 type ViewId = 'card' | 'kanban' | 'list';
@@ -39,6 +40,8 @@ export function JobPilotPage() {
   const [view, setView] = useState<ViewId>('card');
   const [search, setSearch] = useState('');
   const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(true);
+  const [addListOpen, setAddListOpen] = useState(false);
   const lists = useLists(SCOPE);
   const activeList = lists.find((l) => l.id === selectedList) ?? null;
 
@@ -65,9 +68,14 @@ export function JobPilotPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: '#FAF9F5' }}>
-      <ToolPageHeader icon={Briefcase} title="JobPilot" />
-      <ListBar scope={SCOPE} selected={selectedList} onSelect={setSelectedList} allLabel="All Jobs" />
+      <Header tabs={[{ id: 'JobPilot', icon: Briefcase }]} activeTab="JobPilot" onTabChange={() => {}} />
       <StandardToolbar
+        lists={[{ id: '__all', label: 'All Jobs' }, ...lists.map((l) => ({ id: l.id, label: l.name }))]}
+        activeListId={selectedList ?? '__all'}
+        onListSelect={(id) => setSelectedList(id === '__all' ? null : id)}
+        onAddList={() => setAddListOpen(true)}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
         view={view}
         views={VIEWS}
         onViewChange={(id) => setView(id as ViewId)}
@@ -77,6 +85,20 @@ export function JobPilotPage() {
         onSortClick={() => {}}
         moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'jobs', label: 'Jobs shown', value: String(scored.length) },
+          { id: 'tracker', label: 'In tracker', value: String(applications.length) },
+          { id: 'review', label: 'Awaiting review', value: String(applications.filter((a) => a.stage === 'awaiting_review').length) },
+        ]}
+      />
+      {addListOpen && (
+        <CreateListModal
+          onClose={() => setAddListOpen(false)}
+          onCreate={(name, instruction) => setSelectedList(createList(SCOPE, name, instruction).id)}
+        />
+      )}
 
       <div className="flex-1 overflow-auto">
         {view === 'card' && (

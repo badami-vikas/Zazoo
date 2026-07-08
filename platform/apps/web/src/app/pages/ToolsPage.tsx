@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Search, Filter, ArrowUpDown, MoreVertical, ChevronDown, LayoutGrid, Table as TableIcon, Target, Repeat, PenTool, Pin, PinOff, Plus, ArrowRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { LayoutGrid, Table as TableIcon, Target, Repeat, PenTool, Pin, PinOff, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { Header } from '../components/shared/Header';
-import { ListPillRow } from '../components/ListPillRow';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { usePinnedTools } from '../lib/usePinnedTools';
 import { tools, toolLists, type ToolList } from '../data/tools';
 
@@ -15,7 +15,7 @@ export function ToolsPage() {
   const [selectedList, setSelectedList] = useState<ToolList | null>('My Tools');
   const [search, setSearch] = useState('');
   const [activeView, setActiveView] = useState<'table' | 'card'>('table');
-  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(true);
 
   const headerTabs = [
     { id: 'Initiatives', icon: Target },
@@ -40,8 +40,6 @@ export function ToolsPage() {
     (!search || r.name.toLowerCase().includes(search.toLowerCase()) || r.description.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const ActiveViewIcon = views.find(v => v.id === activeView)?.icon || TableIcon;
-  const ActiveViewLabel = views.find(v => v.id === activeView)?.label || 'Table';
 
   return (
     <div
@@ -54,95 +52,26 @@ export function ToolsPage() {
         onTabChange={handleTabChange}
       />
 
-      <ListPillRow
-        pills={toolLists}
-        selected={selectedList}
-        onSelect={(v) => setSelectedList((v as ToolList | null) ?? 'My Tools')}
+      <StandardToolbar
+        lists={[{ id: '__all', label: 'All Tools' }, ...toolLists.map(l => ({ id: l, label: l }))]}
+        activeListId={selectedList ?? '__all'}
+        onListSelect={(id) => setSelectedList(id === '__all' ? null : (id as ToolList))}
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen(o => !o)}
+        view={activeView}
+        views={views}
+        onViewChange={(id) => setActiveView(id as 'table' | 'card')}
+        search={search}
+        onSearchChange={setSearch}
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
-
-      {/* Toolbar */}
-      <div
-        className="flex items-center justify-between px-4 py-3 border-b shrink-0 shadow-sm z-20 w-full"
-        style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}
-      >
-        <div className="flex items-center gap-2 flex-1 overflow-hidden">
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold transition-colors shadow-inner"
-              style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
-            >
-              <ActiveViewIcon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-              <span className="@[500px]:inline hidden">{ActiveViewLabel} View</span>
-              <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-            </button>
-
-            <AnimatePresence>
-              {viewDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setViewDropdownOpen(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 mt-1 w-40 border rounded-xl shadow-lg z-50 overflow-hidden py-1"
-                    style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}
-                  >
-                    {views.map(view => (
-                      <button
-                        key={view.id}
-                        onClick={() => { setActiveView(view.id); setViewDropdownOpen(false); }}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: activeView === view.id ? 'var(--color-surface)' : 'transparent',
-                          color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-navy-mid)',
-                        }}
-                      >
-                        <view.icon className="w-4 h-4" style={{ color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
-                        {view.label}
-                      </button>
-                    ))}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <div className="w-px h-6 shrink-0 hidden @[400px]:block mx-1" style={{ backgroundColor: 'var(--color-border)' }} />
-
-          <div className="relative group shrink flex-1 max-w-[400px] min-w-[32px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />
-            <input
-              type="text"
-              placeholder="Search tools..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9 pr-3 py-1.5 w-full border rounded-lg text-sm transition-all outline-none shadow-inner"
-              style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto shrink-0">
-            <button className="@[500px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-              <Filter className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Filter</span>
-            </button>
-            <button className="@[550px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-              <ArrowUpDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Sort</span>
-            </button>
-            <button className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
-              style={{ backgroundColor: 'var(--color-steel)' }}>
-              <Plus className="w-3.5 h-3.5" />
-              <span className="@[700px]:inline hidden">New</span>
-            </button>
-            <div className="w-px h-6 shrink-0 mx-1 @[400px]:block hidden" style={{ backgroundColor: 'var(--color-border)' }} />
-            <button className="p-1.5 rounded-lg shrink-0 z-20 shadow-sm border border-transparent" style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-warm-gray)' }}>
-              <MoreVertical className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'shown', label: 'Tools shown', value: String(filtered.length) },
+          { id: 'pinned', label: 'Pinned', value: String(tools.filter(t => isPinned(t.id)).length), hint: 'in sidebar' },
+        ]}
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--color-background)' }}>
