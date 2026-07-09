@@ -28,6 +28,16 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Bridge fixes (ritual executor = authoritative actor).
+- [security](security.md) — **2026-07-08 audit**: no CRITICAL; 4 HIGH (auth-by-default, dep CVEs, Tauri csp:null, no rate-limit) + prompt-injection verdict (MODERATE-HIGH social-eng, LOW exfil — root gap = no runtime taint) + defense plan. Bug rows in [BUGS](../BUGS.md).
+- [agent-eval](agent-eval.md) — **"what better means"** (2026-07-08): Agent Quality Vector (7 axes from existing ledger/snapshots) · two-gate promotion · eval-harness data model · thresholds as policy_params · build #1 = scoring reducer (ship first).
+- [undefined-elements](undefined-elements.md) — **2026-07-08**: ~21 gaps found, top-13 defined w/ competitor grounding (eval harness · Component Registry · Memory · Variance Adjuster · Blueprint · …).
+- [cross-platform](cross-platform.md) — **2026-07-08**: only macOS exercised; Tauri won't compile off-mac (Apple crates unconditional); mobile stranded on a side branch; CI is JS-only. P0-P3 plan to reach 5-platform coverage.
+- [config-alignment](config-alignment.md) — **2026-07-08**: harness elements fighting the vision (stale AGENTS.md [fixed] · Supabase write-MCP on prod PII · superpowers mandate · CRM/egress connectors · ambient telemetry · other-project skill noise).
+- **6-month roadmap (2026 H2)** → [../raw/roadmap-6month-2026-h2.md](../raw/roadmap-6month-2026-h2.md): month-by-month sequencing of security → measurement → prompt-injection+Memory → self-improve loop → cross-platform+5-agents → packages/Commons. Per-pointer adaptive execution prompts → [../raw/roadmap-execution-prompts-2026-h2.md](../raw/roadmap-execution-prompts-2026-h2.md).
+- [desktop-companion](desktop-companion.md) — **2026-07-08**: floating screen-annotating avatar; AX-first annotation via a 3rd click-through Tauri window; 5 model tiers (local-small→frontier); day-1 vs future capabilities; P0-P6 roadmap.
+- [day1-integrations](day1-integrations.md) — **2026-07-08**: $0-spend launch catalog (SEC EDGAR/GLEIF/Companies House trio, Google built) + a CC0-spec→OpenAPI-Generator→governed-connector FACTORY + licensing honesty flags (Nango EL2.0, OpenCorporates ODbL, avoid OpenSanctions/Firecrawl) + day-1 robustness recs.
+- [oss-commons](oss-commons.md) — **2026-07-08**: ingest OSS skills (15 repos, repo-license≠artifact-license) / agents (500-AI-Agents pattern, reject autonomous-exec) / commercial modules (reject GPL/AGPL) into Commons on ONE governed spine; supply-chain signing/provenance FIRST.
+- **Token-efficient dev** → [../raw/token-efficient-development-2026-07.md](../raw/token-efficient-development-2026-07.md): codemaps/diagrams/nav-index to add + token best practices + roadmap. Skills diluting the project (CSV) → [../skills-diluting-project.csv](../skills-diluting-project.csv).
 - [BUGS](../BUGS.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
 - [testing](testing.md) — real coverage numbers (no CI/vitest), priority test list tied to known P0 bugs.
 

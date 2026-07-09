@@ -5,7 +5,7 @@ doc_kind: design
 status: active
 updated: 2026-07-06
 companions: []
-related_wiki: ['vision', 'clients', 'roadmap']
+related_wiki: ../wiki/vision.md
 tags: [spec, avatar, onboarding, shell, control-panel, ux]
 ---
 

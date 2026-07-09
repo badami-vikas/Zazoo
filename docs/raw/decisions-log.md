@@ -1,3 +1,14 @@
+---
+title: Decisions Log (ADR)
+type: raw
+doc_kind: reference
+status: active
+companions: []
+related_wiki: ../wiki/decisions.md
+updated: 2026-07-08
+tags: [adr, decisions, governance, rationale]
+---
+
 # Decisions Log (ADR)
 
 Append-only record of non-trivial engineering decisions: what was decided, why, what

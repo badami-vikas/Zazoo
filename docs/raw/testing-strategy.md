@@ -4,7 +4,7 @@ type: raw
 doc_kind: plan
 status: DRAFT — coverage numbers measured 2026-07-04, priority list not yet executed
 companions: [decisions-log.md, ARCHITECTURE.md, SCHEMA.sql]
-related_wiki: ../BUGS.md
+related_wiki: ../wiki/testing.md
 updated: 2026-07-04
 tags: [testing, coverage, ci, governance, google-integration, dedupe]
 ---

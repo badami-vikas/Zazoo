@@ -8,6 +8,71 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-08 — SECURITY H1: no auth enforced by default; every tRPC procedure runs as the pilot user.**
+  `apps/api/src/identity.ts:84-91` — with no `SUPABASE_JWT_SECRET`/`SUPABASE_URL` set, or no `Authorization`
+  header, `resolve()` silently returns the pilot identity. No `protectedProcedure` in `router.ts`; the only
+  middleware checks workspace id, never that a token was presented. Compounded (H1a) by `corsOriginConfig()`
+  (`server.ts:22-31`) defaulting to `origin:true` when `NODE_ENV!=="production"`. Any reachable non-prod/misconfigured
+  deploy ⇒ unauthenticated caller acts as pilot with full write/propose. FIX: require a verified token for every
+  mutating procedure once `DATABASE_URL` is set (fail-fast like `assertProductionEnv()`); add `protectedProcedure`;
+  tie permissive-CORS fallback to "is a real verifier configured", not just NODE_ENV. Full: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).
+
+- **OPEN 2026-07-08 — SECURITY H2: vulnerable deps — `drizzle-orm` ^0.38.3 (SQL-identifier injection, GHSA-gpj5-g38j-94v9, patched ≥0.45.2) + multiple HIGH `react-router` advisories in apps/web (turbo-stream RCE, javascript: XSS, manifest DoS).**
+  `platform/packages/db/package.json:28` + apps/web. FIX: bump drizzle-orm ≥0.45.2, react-router ≥7.15.0; add
+  `pnpm audit --prod --audit-level=high` as a CI merge gate.
+
+- **OPEN 2026-07-08 — SECURITY H3: Tauri desktop shell ships with CSP disabled (`csp: null`).**
+  `apps/desktop/src-tauri/tauri.conf.json:15-17`. Shell hosts apps/web unmodified + exposes `sensor_bridge`
+  commands + injects `window.__BRIDGE_API_URL__`, so any web XSS gets an unrestricted webview into the IPC bridge —
+  far higher value than a browser tab, and worse once continuous capture lands. FIX: set an explicit CSP
+  (`default-src 'self'; connect-src 'self' http://127.0.0.1:*; script-src 'self'`), treat `csp:null` as a reviewed exception only.
+
+- **OPEN 2026-07-08 — SECURITY H4: no rate limiting anywhere on the API.**
+  No `@fastify/rate-limit`/`helmet`; `server.ts` registers only cors + tRPC. With H1, an unauthenticated caller can
+  flood `action.propose`, `onboarding.verifyPhoneOtp` (brute-forceable stub), `google.syncGmail`, ritual runs, and
+  cost-amplify against `external:fetch`/`dealpilot.source`. FIX: global `@fastify/rate-limit` + tighter per-route caps on outbound-network procedures.
+
+- **OPEN 2026-07-08 — SECURITY M1-M6 (see raw audit): RLS policies absent from tracked migrations (unverifiable enforcement, app-layer `assertPilotWorkspace` is the only guard); `workspace.inviteMember/listMembers/create` lack a membership check (horizontal-priv-esc the moment multi-tenancy ships); Recon tool SSRF surface (no RFC1918/metadata denylist, unauthenticated Next.js routes); dummy phone-OTP feeds an unqualified `phoneVerified` trust flag; no log redaction for phone/code/Authorization; `linkedin` verification method is client-asserted with no proof.**
+  Files: `packages/db/src/{client,schema,workspace-store}.ts`, `router.ts:1149-1207`, `Tools/recon/lib/*`. Details + remediation: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).
+
+- **OPEN 2026-07-08 — GAP (ADR-018 follow-on): capability/package manifest has no `license`/`provenance`/`content_hash`/`signature` fields.**
+  Blocks safe OSS ingestion into Commons (can't record SPDX license, source repo+commit SHA, or verify integrity) and is the same hole as the security audit's "no signature/publisher verification on imports". FIX: extend the manifest schema (`packages/core/src/package`) with a `provenance` block (source, commit, content_hash, SPDX license — no privacy-gate-denied key names) + a `signature` slot; make `versionPin` a content hash not a label; drop the MCP sandbox exemption (`importer.ts:96`). Full plan: [../raw/oss-commons-integration-plan-2026-07.md](../raw/oss-commons-integration-plan-2026-07.md).
+
+- **OPEN 2026-07-08 — SECURITY (prompt-injection root gap): no runtime provenance/taint on ingested content.**
+  Nothing tags an email body / captured screen / scraped page as untrusted (grep taint/untrusted = nothing); the
+  lethal-trifecta rule is a STATIC install-time manifest audit (`packages/core/src/package/risk.ts:48`), not a
+  runtime data-flow check. Injection defense collapses to "agents draft, human approves" — a crafted injection can
+  produce a plausible draft an approver rubber-stamps, poison Memory, or steer auto-activating advisory actions.
+  FIX (highest-leverage): end-to-end taint tag (`operator|user_content|untrusted_external`) from ingestion edge
+  through ledger; structurally deny `external:send`/egress on tainted context; activate the dead
+  `intake_policy.quarantine` flag; add approval-UI "influenced by untrusted content" banner; adopt Prompt Guard /
+  Llama Guard behind a `ContentGuard` port (NOT SaaS detectors — would violate no-external-egress). Full: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).
+
+- **OPEN 2026-07-08 — SECURITY: OAuth access + refresh tokens stored PLAINTEXT in local pglite.**
+  `packages/local/src/stores/pglite.ts:81` — despite "SecretStore" naming, no encryption. Local account-takeover
+  primitive. FIX: encrypt at rest (KMS/OS keychain seam already implied by the Phase-6 AES-256 vault plan — pull forward).
+
+- **OPEN 2026-07-08 — SECURITY: RLS is not actually enabled (every table `isRLSEnabled:false`).**
+  Directly contradicts `packages/db/src/client.ts` doc + resilience wiki. Isolation today = app-level filters +
+  `assertPilotWorkspace` only. Strengthens M1 (audit found not just "unverifiable" but genuinely absent). HIGH the
+  moment multi-tenancy ships. FIX: commit real `CREATE POLICY` SQL into migrations + boot assertion against superuser role.
+
+- **OPEN 2026-07-08 — SECURITY: plane tag is client-asserted.**
+  `router.ts:169` → `authority.ts:73` — the field the entire local-first egress guarantee rests on is supplied by
+  the client (mitigated only by the cloud→public scope clamp). FIX: derive plane server-side from the authenticated
+  actor/store, never trust a request-body plane field.
+
+- **OPEN 2026-07-08 — SECURITY (future): no signature/publisher verification on foreign imports; MCP imports exempt from sandbox "by protocol".**
+  `packages/core/src/.../importer.ts:96`. P2/Commons supply-chain hole. FIX: sign manifests (publisher key), TLS-by-default,
+  treat community/MCP-origin as untrusted as `user_code`, never auto-trust at a higher tier; no sandbox exemption.
+
+- **OPEN 2026-07-08 — CROSS-PLATFORM: Tauri desktop shell cannot compile on Linux/Windows.**
+  `apps/desktop/src-tauri/Cargo.toml` lists `objc2`/`objc2-app-kit`/`objc2-foundation` + `macos-private-api` as
+  UNCONDITIONAL deps (call sites cfg-gated, dep table not). Also `bundle.active=false` (no installer/signing/updater
+  for any OS), CI is ubuntu-JS-only (never compiles Rust/tauri, desktop build/test = `echo` no-ops), and the mobile
+  Expo client is stranded on branch `claude/heuristic-booth-f8f5da`, absent from mainline. FIX (P0): cfg-gate Apple
+  crates, empty provider list off-mac, add `cargo check` CI for mac/lin/win. Full: [../raw/cross-platform-compatibility-2026-07.md](../raw/cross-platform-compatibility-2026-07.md).
+
 - **OPEN 2026-07-07 — API error strings use legacy vocab, leak into UI toasts (R-020 tail).**
   ~15 user-surfaceable messages in `apps/api/src/router.ts` (:803–:2134) + `commons-client.ts:67` say "ritual", "workspace_definition", "capability manifest", "package installation" — they render verbatim in web error toasts. Needs a server copy pass mapping to Workflow/Organization/Module vocabulary (message text only, identifiers unchanged).
 
