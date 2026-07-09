@@ -1,0 +1,114 @@
+skill,cluster,why_it_dilutes,recommendation
+pg-browser-verify-game,PeopleGamez,Belongs to a different project (PeopleGamez game platform); irrelevant to Bridge,Disable for Bridge
+pg-bug-tracker,PeopleGamez,PeopleGamez-specific bug ledger; conflicts with Bridge's own docs/BUGS.md protocol,Disable for Bridge
+pg-game-design,PeopleGamez,Game-design workflow unrelated to an adaptive-workspace platform,Disable for Bridge
+pg-game-integration,PeopleGamez,Game-package integration for another repo,Disable for Bridge
+pg-game-release-test,PeopleGamez,Game release gate for another repo,Disable for Bridge
+brand-voice,Marketing/Brand,Sales/marketing brand-voice generation; pushes CRM/sales framing the vision rejects,De-scope
+brand-voice:brand-voice-enforcement,Marketing/Brand,Brand-content enforcement irrelevant to a privacy-first kernel,De-scope
+brand-voice:discover-brand,Marketing/Brand,Searches enterprise platforms for brand assets; outward-data-flow anti-pattern,De-scope
+brand-voice:generate-guidelines,Marketing/Brand,Brand guideline generation off-vision,De-scope
+marketing:campaign-plan,Marketing,Campaign planning; not a Bridge engineering concern,De-scope
+marketing:email-sequence,Marketing,Outbound email sequences; CRM/sales framing rejected by vision,De-scope
+marketing:content-creation,Marketing,Marketing copy; dilutes engineering focus,De-scope
+marketing:seo-audit,Marketing/SEO,SEO audit; no SEO surface in a local-first desktop app,De-scope
+marketing:performance-report,Marketing,Ad/marketing performance reporting; irrelevant,De-scope
+seo,SEO,Technical SEO; Bridge has no public web-SEO surface,De-scope
+sales:daily-briefing,Sales,Sales pipeline briefing; CRM framing the vision explicitly rejects,De-scope
+sales:pipeline-review,Sales,"Pipeline" is banned kernel vocab; actively reinforces anti-vision framing,Disable for Bridge
+sales:draft-outreach,Sales,Cold outreach; contradicts trust-first/consent posture,De-scope
+sales:forecast,Sales,Sales forecasting; not a Bridge concern,De-scope
+sales:account-research,Sales,CRM account research; overlaps but wrong framing (use Recon under governance),De-scope
+apollo:prospect,Sales/Enrichment,Lead-prospecting via Apollo; outward enrichment outside the governed gate,De-scope
+apollo:enrich-lead,Sales/Enrichment,"Lead" is banned kernel vocab; egress enrichment bypassing broker,Disable for Bridge
+apollo:sequence-load,Sales/Enrichment,Outbound sequence loading; CRM anti-pattern,De-scope
+finance:journal-entry,Finance,Accounting workflow unrelated to Bridge,Disable for Bridge
+finance:reconciliation,Finance,Financial reconciliation; not a Bridge concern,Disable for Bridge
+finance:sox-testing,Finance,SOX compliance testing; irrelevant,Disable for Bridge
+finance:financial-statements,Finance,Financial statement prep; irrelevant,Disable for Bridge
+finance:close-management,Finance,Month-end close; irrelevant,Disable for Bridge
+finance:variance-analysis,Finance,Finance variance analysis; namespace-collides conceptually with Bridge's Variance Adjuster,Disable for Bridge
+legal:review-contract,Legal,Contract review; not a Bridge engineering concern,De-scope
+legal:triage-nda,Legal,NDA triage; irrelevant to the kernel,De-scope
+legal:compliance-check,Legal,Generic legal compliance; Bridge governance is built in-repo,De-scope
+legal:vendor-check,Legal,Vendor due diligence; irrelevant,De-scope
+legal:signature-request,Legal,DocuSign signature flow; irrelevant egress tool,De-scope
+data:build-dashboard,Data/BI,BI dashboarding via external data connectors (Hex/Definite); off local-first,De-scope
+data:sql-queries,Data/BI,Generic BI SQL against external warehouses; Bridge uses Drizzle/Supabase in-repo,De-scope
+data:statistical-analysis,Data/BI,BI stats; not a kernel concern,De-scope
+ahrefs (MCP suite),SEO/Marketing,~100 Ahrefs SEO tools polluting tool-search; zero Bridge relevance,Disable MCP for Bridge
+cpp-coding-standards,Off-stack lang,C++ not in Bridge's TS/Rust stack,Disable for Bridge
+cpp-testing,Off-stack lang,C++ testing; off-stack,Disable for Bridge
+csharp-testing,Off-stack lang,C# not in stack,Disable for Bridge
+java-coding-standards,Off-stack lang,Java not in stack,Disable for Bridge
+jpa-patterns,Off-stack lang,Java/JPA not in stack,Disable for Bridge
+springboot-patterns,Off-stack lang,Spring Boot not in stack,Disable for Bridge
+springboot-security,Off-stack lang,Spring Boot not in stack,Disable for Bridge
+quarkus-patterns,Off-stack lang,Quarkus not in stack,Disable for Bridge
+kotlin-patterns,Off-stack lang,Kotlin not in stack (except if mobile later goes native),Disable for Bridge
+kotlin-coroutines-flows,Off-stack lang,Kotlin not in stack,Disable for Bridge
+swiftui-patterns,Off-stack lang,SwiftUI not in stack (Bridge mobile = Expo/RN),Disable for Bridge
+swift-concurrency-6-2,Off-stack lang,Swift not in stack,Disable for Bridge
+laravel-patterns,Off-stack lang,PHP/Laravel not in stack,Disable for Bridge
+laravel-security,Off-stack lang,PHP/Laravel not in stack,Disable for Bridge
+django-patterns,Off-stack lang,Django/Python-web not in stack,Disable for Bridge
+django-celery,Off-stack lang,Django not in stack,Disable for Bridge
+perl-patterns,Off-stack lang,Perl not in stack,Disable for Bridge
+perl-security,Off-stack lang,Perl not in stack,Disable for Bridge
+fsharp-testing,Off-stack lang,F# not in stack,Disable for Bridge
+golang-patterns,Off-stack lang,Go not in stack,Disable for Bridge
+tinystruct-patterns,Off-stack lang,Tinystruct (Java) not in stack,Disable for Bridge
+angular-developer,Off-stack framework,Angular not in stack (Bridge = React),Disable for Bridge
+nuxt4-patterns,Off-stack framework,Nuxt/Vue not in stack,Disable for Bridge
+ui-to-vue,Off-stack framework,Vue conversion; Bridge is React,Disable for Bridge
+nestjs-patterns,Off-stack framework,NestJS not in stack (Bridge = Fastify+tRPC),Disable for Bridge
+compose-multiplatform-patterns,Off-stack framework,Kotlin Compose not in stack,Disable for Bridge
+android-clean-architecture,Off-stack framework,Native Android not in stack (Expo/RN),Disable for Bridge
+dart-flutter-patterns,Off-stack framework,Flutter not in stack,Disable for Bridge
+harmonyos-app-resolver,Off-stack platform,HarmonyOS wholly irrelevant,Disable for Bridge
+healthcare-cdss-patterns,Off-domain,Healthcare CDSS; wrong domain,Disable for Bridge
+healthcare-emr-patterns,Off-domain,EMR/EHR; wrong domain,Disable for Bridge
+healthcare-phi-compliance,Off-domain,PHI/HIPAA; wrong domain,Disable for Bridge
+hipaa-compliance,Off-domain,HIPAA; wrong domain,Disable for Bridge
+defi-amm-security,Off-domain,DeFi/AMM blockchain; wrong domain,Disable for Bridge
+evm-token-decimals,Off-domain,EVM/blockchain; wrong domain,Disable for Bridge
+nodejs-keccak256,Off-domain,Blockchain hashing; wrong domain,Disable for Bridge
+agent-payment-x402,Off-domain,Crypto agent payments; not a Bridge day-1 concern,De-scope
+llm-trading-agent-security,Off-domain,Trading-agent security; adjacent but wrong domain,De-scope (mine for prompt-injection ideas only)
+prediction-market-oracle-research,Off-domain,Prediction markets; wrong domain,Disable for Bridge
+prediction-market-risk-review,Off-domain,Prediction markets; wrong domain,Disable for Bridge
+customs-trade-compliance,Off-domain,Customs/trade; wrong domain,Disable for Bridge
+carrier-relationship-management,Off-domain,Logistics carrier mgmt; wrong domain,Disable for Bridge
+logistics-exception-management,Off-domain,Logistics; wrong domain,Disable for Bridge
+inventory-demand-planning,Off-domain,Supply-chain; wrong domain,Disable for Bridge
+production-scheduling,Off-domain,Manufacturing; wrong domain,Disable for Bridge
+returns-reverse-logistics,Off-domain,Logistics; wrong domain,Disable for Bridge
+energy-procurement,Off-domain,Energy trading; wrong domain,Disable for Bridge
+quality-nonconformance,Off-domain,Manufacturing QA; wrong domain,Disable for Bridge
+customer-billing-ops,Off-domain,Billing ops; not day-1 Bridge,De-scope
+ito-basket-compare,Off-domain,ITO trading; wrong domain,Disable for Bridge
+ito-data-atlas-agent,Off-domain,ITO trading; wrong domain,Disable for Bridge
+ito-market-intelligence,Off-domain,ITO trading; wrong domain,Disable for Bridge
+ito-trade-planner,Off-domain,ITO trading; wrong domain,Disable for Bridge
+scientific-db-pubmed-database,Off-domain,PubMed; wrong domain,Disable for Bridge
+scientific-db-uspto-database,Off-domain,USPTO; wrong domain,Disable for Bridge
+scientific-pkg-gget,Off-domain,Genomics; wrong domain,Disable for Bridge
+network-bgp-diagnostics,Off-domain,Network ops; wrong domain,Disable for Bridge
+netmiko-ssh-automation,Off-domain,Network automation; wrong domain,Disable for Bridge
+cisco-ios-patterns,Off-domain,Cisco networking; wrong domain,Disable for Bridge
+homelab-network-setup,Off-domain,Homelab networking; wrong domain,Disable for Bridge
+homelab-vlan-segmentation,Off-domain,Homelab networking; wrong domain,Disable for Bridge
+homelab-wireguard-vpn,Off-domain,Homelab networking; wrong domain,Disable for Bridge
+homelab-pihole-dns,Off-domain,Homelab networking; wrong domain,Disable for Bridge
+network-config-validation,Off-domain,Network config; wrong domain,Disable for Bridge
+carrier-relationship-management,Off-domain,duplicate cluster; logistics,Disable for Bridge
+superpowers:using-superpowers,Meta/Process,SessionStart mandate forces skill ceremony before any reply; token burn + focus derail,De-scope (drop the always-on mandate; keep opt-in)
+superpowers:test-driven-development,Meta/Process,Forces TDD-first culture even where not requested; user instructions should win,De-scope (opt-in only)
+superpowers:brainstorming,Meta/Process,Forced brainstorming gate before creative work; slows targeted tasks,De-scope (opt-in only)
+crosspost,Marketing/Social,Cross-posting to social platforms; egress + marketing focus,Disable for Bridge
+social-publisher,Marketing/Social,Social publishing; egress + marketing focus,Disable for Bridge
+x-api,Marketing/Social,X/Twitter API; only relevant behind governed social integration, not as a skill,De-scope
+content-engine,Marketing,Content generation engine; marketing focus,De-scope
+marketing-campaign,Marketing,Campaign orchestration; off-vision,De-scope
+investor-materials,Fundraising,Investor deck materials; useful occasionally but not eng-vision,Keep (occasional, out of dev flow)
+investor-outreach,Fundraising,Investor outreach; occasional business use only,Keep (occasional, out of dev flow)

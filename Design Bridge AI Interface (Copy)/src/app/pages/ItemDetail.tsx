@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type ElementType } from 'react';
 import {
   ChevronRight, ChevronDown, Link as LinkIcon, Building2, MapPin, FileText, Image as ImageIcon,
   FileSpreadsheet, Users, Edit2, Download, RefreshCw, Share2, MoreHorizontal, Eye, Lock, Globe2,
   Mail, Phone, Globe, Github, Linkedin, Instagram, Twitter, Plus, X as XIcon, Quote,
-  Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash,
+  Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash, Info,
+  type LucideIcon,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { AssociationsMap } from '../components/AssociationsMap';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
 import { useInitiatives } from '../data/initiatives';
 import { people, companies, threads, type NetworkPerson } from '../data/network';
 
@@ -17,7 +19,9 @@ type Filter = 'all' | Tier;
 
 const heading = 'text-2xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4';
 
-const EditableText = ({ text, onSave, className, multiline = false, as: Component = 'div' }: any) => {
+function EditableText({ text, onSave, className, multiline = false, as: Component = 'div' }: {
+  text: string; onSave: (v: string) => void; className?: string; multiline?: boolean; as?: ElementType;
+}) {
   const [isEditing, setIsEditing] = useState(false);
   const [val, setVal] = useState(text);
   useEffect(() => { setVal(text); }, [text]);
@@ -55,7 +59,7 @@ function TagEditor({ seed }: { seed: string[] }) {
   );
 }
 
-function ContactCard({ person, fv, setField }: { person?: NetworkPerson; fv: (f: string, b: any) => any; setField: (f: string, v: string) => void }) {
+function ContactCard({ person, fv, setField }: { person?: NetworkPerson; fv: (f: string, b: string) => string; setField: (f: string, v: string) => void }) {
   const email = person?.email || '';
   const linkedin = person?.url || '';
   const liHandle = linkedin ? linkedin.replace(/^https?:\/\/(www\.)?linkedin\.com\//, '').replace(/\/$/, '') : '';
@@ -112,12 +116,17 @@ function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }
   );
 }
 
-// was "Testimonials" → now "Opinions" (dummy_ labeled)
+// was "Testimonials" → now "Opinions". No real opinions have been recorded for this person yet —
+// an honest empty state, no fabricated quotes.
 function Opinions() {
-  const data = [
-    { quote: 'dummy_ Sharp operator — turns ambiguous strategy into shipped outcomes fast.', author: 'dummy_Reviewer One', role: 'dummy_Managing Partner' },
-    { quote: 'dummy_ Generous with introductions and exact in follow-through.', author: 'dummy_Reviewer Two', role: 'dummy_Founder & CEO' },
-  ];
+  const data: Array<{ quote: string; author: string; role: string }> = [];
+  if (data.length === 0) {
+    return (
+      <div className="p-8 text-center border border-dashed rounded-xl text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+        No opinions recorded yet.
+      </div>
+    );
+  }
   return (
     <div className="grid md:grid-cols-2 gap-4">
       {data.map((t, i) => (
@@ -168,9 +177,11 @@ function ToolsActionable() {
 
 // Editable Boundaries + strong governance requirement (agents check boundaries first)
 function Boundaries({ entityName }: { entityName: string }) {
-  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (both-party consent)']);
+  const [allowed, setAllowed] = useState(['Reconnect outreach (with approval)', 'Read canonical / public facts', 'Suggest introductions (sender-approved draft)']);
   const [denied, setDenied] = useState(['Auto-send any message', 'Share private notes or warmth', 'Contact outside the trusted network']);
-  const Col = ({ title, items, setItems, tone, Icon }: any) => {
+  const Col = ({ title, items, setItems, tone, Icon }: {
+    title: string; items: string[]; setItems: (v: string[]) => void; tone: string; Icon: LucideIcon;
+  }) => {
     const [draft, setDraft] = useState('');
     return (
       <div className="rounded-xl border overflow-hidden" style={{ borderColor: `color-mix(in srgb, ${tone} 30%, var(--color-border))` }}>
@@ -195,12 +206,17 @@ function Boundaries({ entityName }: { entityName: string }) {
   };
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'color-mix(in srgb, var(--color-steel) 30%, var(--color-border))', backgroundColor: 'color-mix(in srgb, var(--color-steel) 5%, transparent)' }}>
-        <ShieldCheck className="w-5 h-5 mt-0.5 shrink-0" style={{ color: 'var(--color-steel)' }} />
-        <div className="text-sm" style={{ color: 'var(--color-navy-mid)' }}>
-          <span className="font-bold" style={{ color: 'var(--color-navy)' }}>Governance requirement. </span>
-          Every agent must pass a <span className="font-semibold">boundary check on {entityName}</span> before it may read or act on this profile. Any action that violates a rule below is <span className="font-semibold">blocked at the policy layer and written to the Execution Ledger</span> — no exceptions, no silent overrides.
-        </div>
+      <div className="flex items-center gap-1.5 px-1">
+        <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} />
+        <span className="text-xs font-semibold" style={{ color: 'var(--color-navy-mid)' }}>Enforced on every agent action</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="w-3 h-3 cursor-help" style={{ color: 'var(--color-warm-gray)' }} />
+          </TooltipTrigger>
+          <TooltipContent side="right" className="bg-[var(--color-navy)] text-white max-w-[220px]">
+            Agents must pass a boundary check on {entityName} before acting. Violations are blocked and logged — no exceptions.
+          </TooltipContent>
+        </Tooltip>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
         <Col title="Allowed" items={allowed} setItems={setAllowed} tone="var(--success)" Icon={Check} />
@@ -210,7 +226,7 @@ function Boundaries({ entityName }: { entityName: string }) {
   );
 }
 
-const visMeta: Record<Filter, { label: string; icon: any }> = {
+const visMeta: Record<Filter, { label: string; icon: LucideIcon }> = {
   all: { label: 'All', icon: Eye }, public: { label: 'Public', icon: Globe2 }, private: { label: 'Private', icon: Lock },
 };
 
@@ -231,7 +247,7 @@ export function ItemDetail() {
   const bio = isCommunity
     ? `${community!.connections} people you know in this community${community!.sampleRoles?.[0] ? ` - common role: ${community!.sampleRoles[0]}` : ''}.`
     : person ? (person.bio || (person.position && person.company ? `${person.position} at ${person.company}.` : person.newsInsight || `${person.firstName}'s profile.`))
-      : 'dummy_ profile bio.';
+      : 'No profile found.';
   const subtitle = isCommunity ? `${community!.connections} members` : (person?.company || '');
   const location = person?.location || '';
 
@@ -245,7 +261,7 @@ export function ItemDetail() {
     try { const all = JSON.parse(localStorage.getItem(EDITS_KEY) || '{}'); all[initialName] = next; localStorage.setItem(EDITS_KEY, JSON.stringify(all)); } catch {}
     return next;
   });
-  const fv = (field: string, base: any) => (edits[field] !== undefined ? edits[field] : base);
+  const fv = (field: string, base: string) => (edits[field] !== undefined ? edits[field] : base);
   const initiatives = useInitiatives();
   const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Project brief.pdf', type: 'PDF', size: '0.4 MB' }]);
   const addFiles = (list: FileList | null) => {
@@ -452,6 +468,40 @@ export function ItemDetail() {
                   <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
                     <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>Private note</div>
                     <EditableText multiline text={fv('privateNote', 'Add a private note — only you can see this.')} onSave={(val: string) => setField('privateNote', val)} className="text-sm text-[var(--color-navy-mid)]" />
+                  </div>
+                  {/* F4b — per-relationship visibility (schema: people.visibility; default from workspace_settings.default_visibility). Moved here from the orphaned PersonTiers.tsx when ItemDetail's inline two-tier view superseded it. */}
+                  <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Eye className="w-3.5 h-3.5" style={{ color: 'var(--color-navy-mid)' }} />
+                      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-navy-mid)' }}>Who can see this relationship</span>
+                    </div>
+                    <div className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--color-surface)' }}>
+                      {([
+                        ['private', Lock, 'Only you', 'No one else can see this relationship or its notes.'],
+                        ['team', Users, 'Your team', 'Everyone on your team can see this relationship.'],
+                        ['workspace', Globe, 'Whole workspace', 'Everyone in the workspace can see this relationship.'],
+                      ] as [string, LucideIcon, string, string][]).map(([v, VIcon, vLabel]) => {
+                        const active = fv('visibility', 'team') === v;
+                        return (
+                          <button
+                            key={v}
+                            onClick={() => setField('visibility', v)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                            style={{ backgroundColor: active ? 'white' : 'transparent', color: active ? 'var(--color-steel)' : 'var(--color-warm-gray)', boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+                          >
+                            <VIcon className="w-3.5 h-3.5" /> {vLabel}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[11px]" style={{ color: 'var(--color-navy-mid)' }}>
+                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the workspace can see this relationship.' }[fv('visibility', 'team')]}
+                      </span>
+                      {fv('visibility', 'team') === 'team' && (
+                        <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>workspace default</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

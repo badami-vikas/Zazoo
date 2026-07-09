@@ -1,0 +1,26 @@
+{
+  "name": "@bridge/recorder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal tool (headless capability, no nav/route): capture + transcribe. Engine extracted from Tools/recorder; the FastAPI+Whisper backend stays a Python sidecar behind this typed port, same pattern as Docling/Resume-Matcher (docs/raw/tool-standardization-plan.md, Phase 2, ADR-006). Composed by external tools — e.g. a future Conference tool mounts this without owning recording/transcription code.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/tool-kit": "workspace:*",
+    "@bridge/facts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

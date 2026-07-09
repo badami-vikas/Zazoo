@@ -1,0 +1,72 @@
+# DealPilot capability package manifest (docs/raw/capability-package-format.md, ADR-018/ADR-021).
+# NOTE: named bridge.package.yaml (not package.yaml as ADR-018 spells) because pnpm treats
+# package.yaml as a project-manifest format and it shadows package.json in a workspace dir.
+# REPACKAGES the existing tools/dealpilot compiled product — describes what already ships
+# (src/pipeline.ts processDealCandidate, src/scoring.ts scoreThesisFit, the wiring.ts
+# BizBuySell connector + commit-time dedupe path), it does not rebuild or move any of it.
+# Parsed by @bridge/core's parsePackageManifest via the packages.register tRPC endpoint.
+# Workspace scope: "Deal" is DealPilot's own compiled-product vocabulary (Deal ~ Initiative-
+# shaped); kernel code underneath stays Initiative/Touchpoint per the kernel-vocab rule.
+package:
+  name: dealpilot
+  version: 0.0.1
+  kind: workspace_definition
+  summary: >-
+    Sourced and evaluated small-business acquisition candidates, scored against a
+    configurable investment thesis.
+  description: >-
+    Install when a workspace runs small-business acquisition sourcing. Watches
+    listing-alert email intake (BizBuySell via the Google integration), quarantines every
+    capture behind the pipeline (capture is never commit), dedupes candidates against the
+    existing set at commit time (company-sourcing matchCompany), maintains a living profile
+    per candidate (facts store), and triages each against the workspace's thesis profile
+    (industries/geo/SDE/revenue) with a deterministic rule score. Competitors for this
+    package are researched live by the Learning Agent at blueprint time, never hardcoded.
+  lineage_manifest_id: null
+  dependencies: []          # composed packages (@bridge/company-sourcing etc.) are pnpm
+                            # workspace deps of the implementation, not yet installable
+                            # capability packages themselves — nothing to pin here yet.
+  capabilities:
+    # ThesisFit scoring — src/scoring.ts scoreThesisFit, surfaced via dealpilot.list's
+    # fit computation. Writes triage results into workspace data, no egress.
+    - id: dealpilot.thesis-fit-scoring
+      name: dealpilot.thesis-fit-scoring
+      version: 0.0.1
+      capability_type: skill
+      origin: built_in
+      audience: private
+      permissions:
+        - { resource_type: deal, action: write, data_scope: all, egress: false }
+        - { resource_type: company, action: read, data_scope: all, egress: false }
+      connectors: []
+    # Sourcing waterfall — src/pipeline.ts processDealCandidate + the wiring.ts
+    # createToolSourceSkill registration (BizBuySell alert connector over Gmail fetch).
+    # external_fetch read with egress:true -> external band by construction.
+    - id: dealpilot.sourcing-waterfall
+      name: dealpilot.sourcing-waterfall
+      version: 0.0.1
+      capability_type: workflow
+      origin: built_in
+      audience: private
+      permissions:
+        - { resource_type: company, action: read, data_scope: public, egress: false }
+        - { resource_type: external_fetch, action: read, data_scope: public, egress: true }
+      connectors:
+        - { id: bizbuysell-email-parser, external_send: false }
+    # Commit-time dedupe — the wiring.ts ToolIntakeMaterializer commit path
+    # (matchCompany strong-tier merge). Ordinary workspace-data write, no egress.
+    - id: dealpilot.commit-dedupe
+      name: dealpilot.commit-dedupe
+      version: 0.0.1
+      capability_type: workflow
+      origin: built_in
+      audience: private
+      permissions:
+        - { resource_type: company, action: write, data_scope: all, egress: false }
+      connectors: []
+  context_providers: []      # no Sensor SPI dependency — email intake goes through
+                             # @bridge/integrations-google, not a context provider.
+  workspace_vocab:
+    aligns_to_bridge_theme: true
+    domain_terms:
+      deal: "the Initiative-shaped entity this package introduces (acquisition candidate)"

@@ -1,0 +1,29 @@
+{
+  "name": "@bridge/company-sourcing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal tool (headless capability, no nav/route): company/deal discovery + enrichment. Absorbs recon's company paths, ETA investor extraction, DealPilot's S1-S2 connector designs (docs/raw/tool-standardization-plan.md, Phase 2, ADR-006).",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/tool-kit": "workspace:*",
+    "@bridge/sourcing": "workspace:*",
+    "@bridge/dedupe": "workspace:*",
+    "@bridge/facts": "workspace:*",
+    "@bridge/people-sourcing": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

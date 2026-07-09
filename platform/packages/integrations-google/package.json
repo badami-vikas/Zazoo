@@ -1,0 +1,27 @@
+{
+  "name": "@bridge/integrations-google",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Gmail + Google Calendar integration — the EGRESS adapter (googleapis), pipeline Skills (source/compose), the IntakeService (source→match→propose) and the EgressExecutor (approved send/write through the gate). Reads feed the graph by approval; writes are draft-then-approve.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": "./dist/src/index.js"
+  },
+  "dependencies": {
+    "@bridge/core": "workspace:*",
+    "@bridge/db": "workspace:*",
+    "@bridge/local": "workspace:*",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --experimental-test-module-mocks --test dist/test/*.test.js"
+  }
+}

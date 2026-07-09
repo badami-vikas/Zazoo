@@ -1,3 +1,13 @@
+---
+title: Helpdesk — Requirement (verbatim, as supplied by the user 2026-06-03)
+type: raw
+doc_kind: requirement
+status: active
+companions: [helpdesk-plan.md]
+related_wiki: ../wiki/helpdesk.md
+updated: 2026-06-22
+tags: [helpdesk, requirement, verbatim]
+---
 # Helpdesk — Requirement (verbatim, as supplied by the user 2026-06-03)
 
 > Saved as-is for future reference. Bridge's architectural interpretation + build plan

@@ -318,6 +318,76 @@ create table signal_actions (                     -- v2: append-only user reacti
 );
 
 -- =====================================================================
+-- LAYER 8 — CAPABILITY TRUST MODEL (vision pivot 2026-07-06; docs/wiki/vision.md
+-- "Capability Trust Model" + "Promotion defaults"). NOTE: schema.ts (Drizzle) is
+-- ahead of this file on jobpilot_*/helpdesk_*/resources (LAYER 7) — those are not
+-- yet mirrored here either; this pass only adds LAYER 8's new tables in the same
+-- terse style as the layers above.
+-- =====================================================================
+create table capability_manifests (              -- one row per registered capability (skill|workflow|agent|tool|integration|view|dashboard)
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
+  capability_type text not null, name text not null, version text not null default '1.0.0',
+  origin text not null default 'user_code',       -- built_in | template | community | ai_generated | user_code
+  audience text not null default 'private',       -- private | team | external_visible
+  manifest jsonb not null default '{}',            -- inputs/outputs/permissions/connectors/evidence/rollback/evaluation
+  computed_risk text not null default 'informational', -- COMPUTED, never self-declared: informational|advisory|transformational|operational|external
+  dependencies jsonb not null default '[]',        -- [{manifestId, versionRange}] — the closure computeRisk() walks (composite = max over closure)
+  lineage_manifest_id uuid,                        -- self-FK: a Fork/copy points back at its origin
+  owner_user_id uuid references users(id),
+  created_at timestamptz not null default now(), archived_at timestamptz,
+  unique (workspace_id, name, version)
+);
+create index on capability_manifests (workspace_id, capability_type);
+
+create table capability_states (                  -- ONE current-state row per manifest (unique manifest_id) — the ledger is the history
+  id uuid primary key default gen_random_uuid(), manifest_id uuid not null references capability_manifests(id),
+  workspace_id uuid not null references workspaces(id),
+  state text not null default 'draft',             -- draft|validated|approved|active|trusted|deprecated|archived
+  trusted_until timestamptz,                        -- set on entering trusted: now + 90d (PROMOTION_DEFAULTS.trusted.trustedTtlDays)
+  suspended boolean not null default false, suspend_reason text,  -- orthogonal to `state`: failure suspends immediately, no approval
+  evidence jsonb not null default '{}',             -- { activeRunCount, successRate, violationCount, ageDays } — trusted-promotion thresholds read this
+  updated_at timestamptz not null default now(),
+  unique (manifest_id)
+);
+
+create table trust_grants (                        -- workspace/user-scoped auto-activation trust for a capability CLASS (not one manifest instance)
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
+  capability_class text not null, scope jsonb not null default '{}',   -- { workspaceId?, userId? }
+  granted_by uuid references users(id),
+  risk_band text not null,                          -- informational|advisory|transformational|operational|external (external can never auto-activate — hard floor)
+  auto_activate boolean not null default false,
+  created_at timestamptz not null default now(), revoked_at timestamptz
+);
+create index on trust_grants (workspace_id, capability_class);
+
+create table workspace_definitions (                -- generated workspace blueprint (vocabulary/node types/views/capabilities); P1 onboarding writes these
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
+  blueprint jsonb not null default '{}', version int not null default 1,
+  status text not null default 'draft',              -- draft | active | archived
+  created_by uuid references users(id), created_at timestamptz not null default now()
+);
+create index on workspace_definitions (workspace_id, version);
+
+-- P2 package runtime (ADR-021/ADR-023): one row per (workspace, package name, version) install —
+-- the shipping unit ABOVE one capability_manifests row (a package bundles >=1 capability manifests).
+-- NOT unique on (workspace_id, package_name, package_version) via a DB constraint — re-registration
+-- idempotency (same name+version returns the existing row) is enforced at the store layer
+-- (package-store.ts's create()), not the database, since a package manifest can legitimately be
+-- re-registered unchanged during iterative local dev before its first real install.
+create table package_installations (
+  id uuid primary key default gen_random_uuid(), workspace_id uuid not null references workspaces(id),
+  package_name text not null, package_version text not null,
+  manifest jsonb not null default '{}',              -- full parsed PackageManifest (name/version/kind/capabilities[]/dependencies/etc)
+  computed_risk text not null default 'informational', -- COMPUTED at install time (computePackageRisk), same vocabulary as capability_manifests.computed_risk
+  state text not null default 'private',             -- private|promoted|available|legacy|deprecating|deprecated (package/lifecycle.ts)
+  status text not null default 'pending_review',     -- pending_review|installed|rejected — orthogonal to `state`
+  lineage_manifest_id uuid,                           -- self-FK: a rollback fork points back at the historical row it forked from
+  created_at timestamptz not null default now()
+);
+create index on package_installations (workspace_id, package_name);
+create index on package_installations (workspace_id, package_name, state);
+
+-- =====================================================================
 -- RLS — APPLIED (Supabase project Bridge AI; migration `rls_policies_v1`). Isolation PROVEN 2026-05-31 via JWT-impersonation test.
 -- Helpers (SECURITY DEFINER, search_path=public) break policy recursion; EXECUTE locked to `authenticated` (migration `harden_helper_grants`):
 --   my_workspace_ids() · my_team_ids() · shares_workspace_with(uuid) · shares_team_with(uuid)

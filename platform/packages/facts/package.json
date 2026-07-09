@@ -1,0 +1,22 @@
+{
+  "name": "@bridge/facts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Append-only fact store with provenance + confidence + supersession, and a latest-wins 'living profile' view. Generalizes DealPilot's deal_facts design for deals, jobs, and people alike (docs/raw/tool-standardization-plan.md, Phase 1).",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

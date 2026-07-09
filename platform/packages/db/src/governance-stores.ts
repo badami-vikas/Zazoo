@@ -8,6 +8,7 @@
  * in-tenant capability layer. They compose — neither replaces the other.
  */
 import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { z } from "zod";
 import type {
   AgentQuery,
   EphemeralQuery,
@@ -27,6 +28,65 @@ import {
 } from "./schema.js";
 
 type Effect = "allow" | "deny";
+
+/**
+ * `agents.capability_scope` jsonb shape: `{ resources: string[], dataScope?
+ * DataScope }`. `tokens` is accepted as a legacy alias for `resources` on READ
+ * (back-compat with rows written before the `resources` rename), but new
+ * writes always normalize to `resources` — see `parseAgentCapabilityScope`.
+ *
+ * Before adding this, searched for an existing zod schema for this shape
+ * (`grep -rn "z.object" packages/core`, `grep -rn "capabilityScope"`) — none
+ * exists; `@bridge/core` is a types-only package (no zod dependency; ports.ts
+ * only declares the TS interface), so this schema is colocated here in
+ * `@bridge/db`, the only place that validates the jsonb wire shape at
+ * read/write boundaries. `RitualStepDef`'s equivalent schema lives colocated
+ * in `ritual-stores.ts` for the same reason — the shapes are unrelated so
+ * there is nothing to share between the two files.
+ */
+const dataScopeSchema = z.enum(["all", "public", "private"]);
+
+export const agentCapabilityScopeSchema = z
+  .object({
+    resources: z.array(z.string().min(1)).optional(),
+    tokens: z.array(z.string().min(1)).optional(),
+    dataScope: dataScopeSchema.optional(),
+  })
+  .strict();
+export type AgentCapabilityScope = z.infer<typeof agentCapabilityScopeSchema>;
+
+/**
+ * Validate `agents.capability_scope` jsonb. Throws loudly on a malformed shape
+ * — at write time this stops bad data from ever reaching the row; at read
+ * time (a pre-existing bad row, another process, a raw insert) it surfaces
+ * the corruption instead of the previous behavior (silently falling back to
+ * an empty scope / 'all' data-scope, which is a governance hole: an agent
+ * with a corrupted capability_scope would silently run as if unrestricted).
+ */
+export function parseAgentCapabilityScope(raw: unknown): AgentCapabilityScope {
+  const result = agentCapabilityScopeSchema.safeParse(raw ?? {});
+  if (!result.success) {
+    throw new Error(`Invalid agents.capability_scope jsonb: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/** `agents.allowed_skills` shape: an array of non-empty skill name strings. */
+export const allowedSkillsSchema = z.array(z.string().min(1));
+
+/**
+ * Validate `agents.allowed_skills`. Throws loudly on a malformed entry rather
+ * than silently filtering non-string entries out of the allow-list (a
+ * partially-dropped allow-list silently narrows what an agent may run, which
+ * hides the corruption instead of surfacing it).
+ */
+export function parseAllowedSkills(raw: unknown): string[] {
+  const result = allowedSkillsSchema.safeParse(raw ?? []);
+  if (!result.success) {
+    throw new Error(`Invalid agents.allowed_skills jsonb: ${result.error.message}`);
+  }
+  return result.data;
+}
 
 function asGrant(row: {
   resourceType: string;
@@ -113,15 +173,16 @@ export class DrizzleAgentStore implements AgentQuery {
   async capabilityScope(agentId: string): Promise<string[]> {
     // Live SCHEMA.sql shape: agents.capability_scope jsonb = { "resources": ["person:read", "touchpoint:write", ...] }.
     // `tokens` is accepted as a legacy alias. An optional `dataScope` may also ride here.
+    // Read-time validation happens in #scope() — throw loudly on a malformed
+    // row instead of silently falling back to an empty (or worse, permissive)
+    // scope. See parseAgentCapabilityScope.
     const scope = await this.#scope(agentId);
-    const list = scope?.resources ?? scope?.tokens;
-    return Array.isArray(list) ? list.filter((t): t is string => typeof t === "string") : [];
+    return scope?.resources ?? scope?.tokens ?? [];
   }
 
   async dataScope(agentId: string): Promise<"all" | "public" | "private"> {
     const scope = await this.#scope(agentId);
-    const ds = scope?.dataScope;
-    return ds === "public" || ds === "private" ? ds : "all";
+    return scope?.dataScope ?? "all";
   }
 
   async allowedSkills(agentId: string): Promise<string[]> {
@@ -131,16 +192,34 @@ export class DrizzleAgentStore implements AgentQuery {
       .where(eq(agents.id, agentId))
       .limit(1);
     const allowed = rows[0]?.allowed;
-    return Array.isArray(allowed) ? allowed.filter((s): s is string => typeof s === "string") : [];
+    if (allowed === undefined || allowed === null) return [];
+    // Read-time validation: throw loudly on a malformed entry instead of
+    // silently filtering it out of the allow-list (see parseAllowedSkills).
+    return parseAllowedSkills(allowed);
   }
 
-  async #scope(agentId: string): Promise<{ resources?: unknown; tokens?: unknown; dataScope?: unknown } | undefined> {
+  /** Write-time gate: validates the capability_scope shape and throws before anything is persisted. */
+  async saveCapabilityScope(agentId: string, scope: unknown): Promise<void> {
+    const validated = parseAgentCapabilityScope(scope);
+    await this.#db.update(agents).set({ capabilityScope: validated }).where(eq(agents.id, agentId));
+  }
+
+  /** Write-time gate: validates the allowed-skills list and throws before anything is persisted. */
+  async saveAllowedSkills(agentId: string, allowedSkills: unknown): Promise<void> {
+    const validated = parseAllowedSkills(allowedSkills);
+    await this.#db.update(agents).set({ allowedSkills: validated }).where(eq(agents.id, agentId));
+  }
+
+  async #scope(agentId: string): Promise<AgentCapabilityScope | undefined> {
     const rows = await this.#db
       .select({ scope: agents.capabilityScope })
       .from(agents)
       .where(eq(agents.id, agentId))
       .limit(1);
-    return rows[0]?.scope as { resources?: unknown; tokens?: unknown; dataScope?: unknown } | undefined;
+    if (rows.length === 0) return undefined;
+    // Read-time validation: throw loudly rather than silently coercing a
+    // malformed capability_scope into an empty/permissive default.
+    return parseAgentCapabilityScope(rows[0]?.scope);
   }
 }
 

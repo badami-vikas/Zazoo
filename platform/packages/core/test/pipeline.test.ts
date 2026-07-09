@@ -19,6 +19,7 @@ import {
   InMemoryToolRegistry,
   RecordingVarianceAdjuster,
   intersectDataScope,
+  AlreadyResolvedError,
   type PolicyFn,
   type RunCtx,
   type ActionRequest,
@@ -224,7 +225,7 @@ test("approve a pending proposal: appends a decision row, commits, emits", async
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
   assert.equal(p.status, "pending_review");
 
-  const decided = await h.pipeline.decide(p.id, "approve", ctx);
+  const decided = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
   assert.equal(decided.status, "applied");
   // Append-only: original proposal row + new decision row = 2 entries.
   assert.equal(h.ledger.entries.length, 2);
@@ -244,7 +245,7 @@ test("veto: records decision, feeds Variance Adjuster, commits nothing", async (
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  const decided = await h.pipeline.decide(p.id, "veto", ctx);
+  const decided = await h.pipeline.decide(p.id, "veto", { type: "user", id: "u1" }, ctx);
   assert.equal(decided.status, "rejected");
   assert.equal(h.events.events.length, 0); // nothing committed
   assert.equal(h.variance.observed.length, 1); // adjuster saw the veto
@@ -260,7 +261,7 @@ test("edit decision commits the edited output with a from/to diff", async () => 
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  const decided = await h.pipeline.decide(p.id, "edit", ctx, { full_name_override: "Ada Lovelace" });
+  const decided = await h.pipeline.decide(p.id, "edit", { type: "user", id: "u1" }, ctx, { full_name_override: "Ada Lovelace" });
   assert.equal(decided.status, "applied");
   const row = h.ledger.entries[1]!;
   assert.equal(row.userDecision, "edit");
@@ -280,8 +281,126 @@ test("a resolved proposal cannot be decided twice (append-only integrity)", asyn
   ]);
   const ctx = freshCtx();
   const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
-  await h.pipeline.decide(p.id, "approve", ctx);
-  await assert.rejects(() => h.pipeline.decide(p.id, "veto", ctx), /already resolved/);
+  await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
+  await assert.rejects(() => h.pipeline.decide(p.id, "veto", { type: "user", id: "u1" }, ctx), /already resolved/);
+});
+
+test("double-approve TOCTOU: two concurrent decide() calls on the same proposal — exactly one succeeds, one gets a typed AlreadyResolvedError (in-memory ledger)", async () => {
+  const h = harness();
+  h.agents.assumed.set("agent-1", "role-writer");
+  h.agents.scope.set("agent-1", ["person:write"]);
+  h.roles.roleGrants.set("role-writer", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const ctx = freshCtx();
+  const p = await h.pipeline.propose(
+    req({ actor: { type: "agent", id: "agent-1" }, inputs: { full_name_override: "test_fixture_Ada" } }),
+    ctx,
+  );
+  assert.equal(p.status, "pending_review");
+
+  // "Concurrent": both calls race to decide() the SAME pending proposal. The
+  // in-memory ledger's append() performs an atomic (no-await-in-between)
+  // check-and-mark, so exactly one of these two promises resolves and the other
+  // rejects with AlreadyResolvedError — never both resolving (which would have
+  // meant onApproved-style side effects firing twice, e.g. a double-sent email).
+  const results = await Promise.allSettled([
+    h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx),
+    h.pipeline.decide(p.id, "approve", { type: "user", id: "u2" }, ctx),
+  ]);
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+  assert.equal(fulfilled.length, 1, "exactly one decide() call succeeds");
+  assert.equal(rejected.length, 1, "exactly one decide() call is rejected");
+  const rejection = rejected[0] as PromiseRejectedResult;
+  assert.ok(rejection.reason instanceof AlreadyResolvedError, "rejection is the typed AlreadyResolvedError");
+
+  // Only ONE commit happened: exactly one event emitted (not two — the whole
+  // point of closing the TOCTOU is that onApproved-style side effects fire once).
+  assert.equal(h.events.events.length, 1);
+  // Ledger: original proposal + exactly one resolving decision row.
+  const resolving = h.ledger.entries.filter((e) => e.refLedgerId === p.id && e.userDecision !== null);
+  assert.equal(resolving.length, 1);
+});
+
+test("agents may not approve: an agent decider is floor-denied at the review gate", async () => {
+  const h = harness();
+  h.agents.assumed.set("agent-1", "role-writer");
+  h.agents.scope.set("agent-1", ["person:write"]);
+  h.roles.roleGrants.set("role-writer", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const ctx = freshCtx();
+  const p = await h.pipeline.propose(req({ actor: { type: "agent", id: "agent-1" } }), ctx);
+  assert.equal(p.status, "pending_review");
+  // An in-platform agent — even a powerful one — can never be the approver.
+  await assert.rejects(
+    () => h.pipeline.decide(p.id, "approve", { type: "agent", id: "agent-1" }, ctx),
+    /agent-floor/,
+  );
+  // The proposal itself is untouched: still pending, no *resolving* decision row,
+  // nothing committed — but the blocked attempt IS audited (append-only spine), so a
+  // second ledger row now exists recording the denied attempt (userDecision stays null,
+  // so decisionFor() still correctly reports the proposal as unresolved).
+  assert.equal(h.ledger.entries.length, 2);
+  assert.equal(h.ledger.entries[0]!.userDecision, null);
+  const auditRow = h.ledger.entries[1]!;
+  assert.equal(auditRow.userDecision, null);
+  assert.equal(auditRow.actorId, "agent-1");
+  assert.equal(auditRow.refLedgerId, p.id);
+  assert.match(String((auditRow.diff as { rejected?: string })?.rejected), /agent-floor/);
+  assert.equal(h.events.events.length, 0);
+  // A human approver still resolves it.
+  const ok = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
+  assert.equal(ok.status, "applied");
+});
+
+test("decide() persists and replays the ORIGINAL dataScope + context, not '(replayed)'/dropped (audit completeness)", async () => {
+  const h = harness();
+  h.agents.assumed.set("agent-1", "role-writer");
+  h.agents.scope.set("agent-1", ["person:write"]);
+  h.agents.tiers.set("agent-1", "all");
+  h.roles.roleGrants.set("role-writer", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow", dataScope: "all" },
+  ]);
+  const ctx = freshCtx();
+  const originalContext = { type: "initiative" as const, id: "test_fixture_init-9", runId: "test_fixture_run-1" };
+  const p = await h.pipeline.propose(
+    req({
+      actor: { type: "agent", id: "agent-1" },
+      dataScope: "private",
+      context: originalContext,
+    }),
+    ctx,
+  );
+  assert.equal(p.status, "pending_review");
+
+  // The pending proposal's own ledger row already carries the original context/
+  // dataScope (propose()'s #appendLedger threads it through) — not undefined.
+  const proposalRow = h.ledger.entries[0]!;
+  assert.deepEqual(proposalRow.dataScope, "private");
+  assert.deepEqual(proposalRow.context, originalContext);
+
+  const decided = await h.pipeline.decide(p.id, "approve", { type: "user", id: "u1" }, ctx);
+  assert.equal(decided.status, "applied");
+
+  // The replayed ActionRequest decide() reconstructs (Proposal.request) carries the
+  // SAME original context/dataScope — previously these were silently dropped.
+  assert.deepEqual(decided.request.dataScope, "private");
+  assert.deepEqual(decided.request.context, originalContext);
+  // skill is still the literal "(replayed)" placeholder (decide() never re-invokes
+  // a skill — the ledger never stored a skill name to replay in the first place),
+  // but that placeholder no longer drags context/dataScope down with it.
+  assert.equal(decided.request.skill, "(replayed)");
+
+  // The decision ledger row itself also carries the original context/dataScope —
+  // this is what makes the audit trail answer "what data tier did this touch?"
+  // without reconstructing it from the request.
+  const decisionRow = h.ledger.entries[1]!;
+  assert.equal(decisionRow.userDecision, "approve");
+  assert.deepEqual(decisionRow.dataScope, "private");
+  assert.deepEqual(decisionRow.context, originalContext);
 });
 
 test("delegation: agent on-behalf-of a principal who lacks authority is denied", async () => {

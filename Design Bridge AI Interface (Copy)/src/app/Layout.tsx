@@ -21,13 +21,12 @@ export function usePinnedTools() {
 
 export default function Layout() {
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
-  // Layout is locked to the user's arrangement — collapse states (and the AI panel width) persist.
-  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(() => typeof window !== 'undefined' && localStorage.getItem('bridge.leftCollapsed') === '1');
+  // The left rail is always collapsed now (design standard, not a per-user toggle) — only the
+  // right AI panel keeps a persisted collapse state.
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => typeof window !== 'undefined' && localStorage.getItem('bridge.rightCollapsed') === '1');
-  useEffect(() => { try { localStorage.setItem('bridge.leftCollapsed', leftPanelCollapsed ? '1' : '0'); } catch {} }, [leftPanelCollapsed]);
   useEffect(() => { try { localStorage.setItem('bridge.rightCollapsed', rightPanelCollapsed ? '1' : '0'); } catch {} }, [rightPanelCollapsed]);
   // Approvals is pinned by default (it's the moat) — it lives as a pinned tool, not a default nav item.
-  const [pinnedTools, setPinnedTools] = useState<string[]>(['approvals', 'reconnect', 'open-threads', 'helpdesk']);
+  const [pinnedTools, setPinnedTools] = useState<string[]>(['approvals', 'calendar', 'reconnect', 'open-threads', 'helpdesk', 'jobpilot', 'dealpilot']);
 
   const togglePin = (toolId: string) => {
     setPinnedTools(prev =>
@@ -40,7 +39,7 @@ export default function Layout() {
   return (
     <PinnedToolsContext.Provider value={{ pinnedTools, togglePin, isPinned }}>
       <div className="flex h-screen w-full overflow-hidden font-sans selection:bg-[var(--color-steel-light)]/20 selection:text-[var(--color-steel)]" style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-navy)' }}>
-        <Sidebar isCollapsed={leftPanelCollapsed} setIsCollapsed={setLeftPanelCollapsed} />
+        <Sidebar />
         <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 relative z-0">
           <Outlet context={{ highlightedRowId, setHighlightedRowId }} />
         </div>

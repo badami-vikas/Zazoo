@@ -1,22 +1,61 @@
+---
+title: Open-Source Stack & Study List
+type: raw
+doc_kind: reference
+status: active
+companions: [STACK.md, ARCHITECTURE.md]
+related_wiki: ../wiki/oss.md
+updated: 2026-06-22
+tags: [oss, licenses, stack]
+---
+
 # Bridge AI — Open-Source Stack & Study List
 
 > From multi-agent research, licenses verified. **Permissive (embeddable):** MIT / Apache-2.0 / BSD / MPL-2.0 / ISC / PostgreSQL. **Do NOT embed:** AGPL / SSPL / BUSL / fair-code (study-only / wrap behind internal API).
-> Companion: [STACK.md](./STACK.md) · [ARCHITECTURE.md](./ARCHITECTURE.md)
+
+```yaml
+license_buckets:
+  embeddable: [MIT, Apache-2.0, BSD, MPL-2.0, ISC, PostgreSQL]
+  do_not_embed: [AGPL, SSPL, BUSL, fair-code]   # study-only / wrap behind internal API
+```
 
 ## Adopt now — by layer
-| Layer | Pick | Why |
-|---|---|---|
-| Substrate / graph | **pgvector + pg_trgm** (PostgreSQL Lic) | Already in Supabase; zero new infra. Keep the `edges` table as v1 graph. |
-| Graph traversal (later) | **Apache AGE** (Apache-2.0) | In-Postgres openCypher — the upgrade path without abandoning Postgres. |
-| Embedding sync | **pgai Vectorizer + supabase/vecs** (PG Lic / MIT) | Declarative embedding sync for Phase 3 ingestion; less worker code. |
-| Ritual engine | **Hatchet** (MIT, Postgres-native) | Closest OSS to the locked "thin orchestration on Postgres." Validate its schema vs RLS first. |
-| HITL reference | **Trigger.dev** (Apache-2.0) · **LangGraph** `interrupt()`/checkpoint on AsyncPostgresSaver (MIT) | Reference impls of the User-Review gate on Postgres. |
-| Tools / app-gen | **Refine** (MIT, headless) + **Dyad** (Apache-2.0, Supabase-native, auto-generates RLS) | Headless Tool surfaces + governance-respecting generation. |
-| Agents | **BUILD thin runtime**; model on **Agno** scope schema (Apache-2.0) + LangGraph patterns | The runtime that enforces `capability_scope` is the moat — don't adopt a heavyweight framework as infra. |
-| Skills | **MCP Python SDK** (MIT) + **FastMCP** (Apache-2.0) + **SKILL.md** spec | Adopt-direct: validate the contract maps onto `{name,version,input/output_schema,impl_ref}`. |
-| Governance / authz | **BUILD** the Universal Action Pipeline; enforce with **RLS**; evaluate **OPA+OPAL** vs **Cedar** for the policy plane | The pipeline is the moat; the policy *language* is a buy-decision. |
-| Ledger / observability | **BUILD** append-only ledger on Postgres (REVOKE UPDATE/DELETE), keyed to **OTel GenAI** conventions | System-of-record stays in-house; Langfuse/Opik only as sidecar viewers. |
-| Enrichment / identity | **Splink** (MIT) + **nomenklatura** (MIT) for canonical person resolution | De-risks the "duplicate sync → zero dupes" Phase 3 exit criterion. |
+```yaml
+adopt_now:
+  - layer: Substrate / graph
+    pick: pgvector + pg_trgm (PostgreSQL Lic)
+    why: Already in Supabase; zero new infra. Keep the `edges` table as v1 graph.
+  - layer: Graph traversal (later)
+    pick: Apache AGE (Apache-2.0)
+    why: In-Postgres openCypher — the upgrade path without abandoning Postgres.
+  - layer: Embedding sync
+    pick: pgai Vectorizer + supabase/vecs (PG Lic / MIT)
+    why: Declarative embedding sync for Phase 3 ingestion; less worker code.
+  - layer: Ritual engine
+    pick: Hatchet (MIT, Postgres-native)
+    why: Closest OSS to the locked "thin orchestration on Postgres." Validate its schema vs RLS first.
+  - layer: HITL reference
+    pick: Trigger.dev (Apache-2.0) · LangGraph interrupt()/checkpoint on AsyncPostgresSaver (MIT)
+    why: Reference impls of the User-Review gate on Postgres.
+  - layer: Tools / app-gen
+    pick: Refine (MIT, headless) + Dyad (Apache-2.0, Supabase-native, auto-generates RLS)
+    why: Headless Tool surfaces + governance-respecting generation.
+  - layer: Agents
+    pick: BUILD thin runtime; model on Agno scope schema (Apache-2.0) + LangGraph patterns
+    why: The runtime that enforces `capability_scope` is the moat — don't adopt a heavyweight framework as infra.
+  - layer: Skills
+    pick: MCP Python SDK (MIT) + FastMCP (Apache-2.0) + SKILL.md spec
+    why: "Adopt-direct: validate the contract maps onto {name,version,input/output_schema,impl_ref}."
+  - layer: Governance / authz
+    pick: BUILD the Universal Action Pipeline; enforce with RLS; evaluate OPA+OPAL vs Cedar for the policy plane
+    why: The pipeline is the moat; the policy *language* is a buy-decision.
+  - layer: Ledger / observability
+    pick: BUILD append-only ledger on Postgres (REVOKE UPDATE/DELETE), keyed to OTel GenAI conventions
+    why: System-of-record stays in-house; Langfuse/Opik only as sidecar viewers.
+  - layer: Enrichment / identity
+    pick: Splink (MIT) + nomenklatura (MIT) for canonical person resolution
+    why: De-risks the "duplicate sync → zero dupes" Phase 3 exit criterion.
+```
 
 ## Study now (de-risk load-bearing v1 decisions)
 - **Graphiti** (Apache-2.0) — bi-temporal fact model; closest analog to the Mirror + append-only Timeline. Study before finalizing `relationships`/`timeline_entries`.
@@ -49,7 +88,8 @@ Apache AGE · Temporal (event-sourced replay) · OpenFGA / SpiceDB (Zanzibar ReB
 - **fair-code:** n8n (Sustainable Use License) → study-only, never embed/fork.
 - **GPL:** OpenProject, Budibase core → schema study only.
 - **EPL-2.0:** Huly → usable with care (verify with counsel).
-- **Proprietary:** tldraw SDK 4.0 (~$6k/yr for any Orbit canvas) · Ditto.
+- **Proprietary:** tldraw SDK 4.0 (~$6k/yr for any Orbit canvas) · Ditto · FullCalendar / Schedule-X **premium** (resource-timeline lane views = paid key; standard bundles are MIT — premium rejected on cost + customization).
+- **Calendar systems/servers (never embed):** **Cal.com (AGPLv3)** · **Radicale / Baïkal (GPL-3.0)** · **Nextcloud (AGPLv3)** — copyleft AND a second source-of-truth that duplicates Bridge's graph + governance. Calendar = a projection Tool Bridge owns; adopt only render + RFC-5545 math (**react-big-calendar** MIT · **ical.js** MPL-2.0 · **ical-generator** MIT · **Luxon**). cal.diy (MIT fork) = study-only for deferred scheduling, verify license. Full plan: [calendar-plan.md](calendar-plan.md) / [../wiki/calendar.md](../wiki/calendar.md).
 - **Data licenses:** OpenSanctions *data* is CC BY-NC (code MIT); anthropic skills docs are source-available — write Bridge's own.
 
 ## Zero-knowledge tier building blocks (Phase 6 — study-later)

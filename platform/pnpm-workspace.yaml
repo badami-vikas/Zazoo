@@ -1,3 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  # Internal + external tool packages (tool-standardization-plan.md, ADR-006).
+  - 'tools/*'
+  # Standalone services — Universal Commons registry (local-first, lifts to Bridge Cloud).
+  - 'services/*'

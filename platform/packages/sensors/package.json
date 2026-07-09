@@ -1,0 +1,25 @@
+{
+  "name": "@bridge/sensors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sensor SPI — the kernel-side context-provider registry (docs/wiki/clients.md 'Context providers'). Providers (apps/accessibility/screen/voice/clipboard/filesystem/browser/documents/emails) are OPTIONAL capabilities implemented per-surface (the Tauri Rust capture core implements the desktop subset); the kernel runs with zero providers. Raw payloads are local-plane only and structurally separated from the derived ContextObservation consumers see.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bridge/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

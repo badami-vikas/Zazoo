@@ -8,6 +8,55 @@
       "when": 1780342914816,
       "tag": "0000_amazing_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780342914817,
+      "tag": "0001_governance_seed",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780342914818,
+      "tag": "0002_add_recon_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780342914819,
+      "tag": "0003_ledger_ref_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780342914820,
+      "tag": "0004_schema_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783316500666,
+      "tag": "0005_dashing_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783349830111,
+      "tag": "0006_lonely_human_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783377108289,
+      "tag": "0007_pink_lilandra",
+      "breakpoints": true
     }
   ]
 }

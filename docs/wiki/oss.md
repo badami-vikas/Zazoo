@@ -12,6 +12,8 @@ Embed only permissive: MIT/Apache/BSD/MPL/ISC/PostgreSQL.
 
 **Build-not-buy (moat)**: Universal Action Pipeline · Variance Adjuster · two-plane identity · canonical/relationship split · append-only ledger · capability_scope enforce · Signal contract · projection boundary · vocabulary.
 
-**AVOID embed (license)**: Plane/Leantime/ToolJet/ParadeDB/Lantern (AGPL) · Inngest server (SSPL; SDK ok) · immudb/Budibase-pro (BUSL) · n8n (fair-code) · OpenProject/Budibase-core (GPL) · tldraw SDK4 (proprietary ~$6k/yr) · OpenSanctions DATA (CC-BY-NC).
+**AVOID embed (license)**: Plane/Leantime/ToolJet/ParadeDB/Lantern (AGPL) · Inngest server (SSPL; SDK ok) · immudb/Budibase-pro (BUSL) · n8n (fair-code) · OpenProject/Budibase-core (GPL) · tldraw SDK4 (proprietary ~$6k/yr) · OpenSanctions DATA (CC-BY-NC) · **Cal.com (AGPLv3) · Radicale/Baïkal (GPL-3.0) · Nextcloud (AGPLv3)** — never embed a calendar product/server (copyleft + 2nd source-of-truth; see [calendar](calendar.md)).
+
+**Calendar picks** (full: [calendar](calendar.md)): render = **react-big-calendar** (MIT, all-free, forkable) behind `CalendarView` port · recurrence+ICS = **ical.js** (MPL-2.0) · feed = **ical-generator** (MIT) · tz = **Luxon**. Reject pay (FullCalendar/Schedule-X premium lane views). Build the projection + governance; adopt only render + RFC-5545 math.
 
 **E2EE Phase-6 blocks**: OpenMLS/libsodium/Tink/age (crypto) · Jazz (closest turnkey, not Postgres) · ElectricSQL/PowerSync (ciphertext transport, BYO keys) · transformers.js+PGlite-pgvector (client-side search). No turnkey → build key layer, crypto audit before GA.

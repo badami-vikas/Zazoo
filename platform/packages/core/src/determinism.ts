@@ -153,6 +153,40 @@ export class UuidGen implements IdGen {
   }
 }
 
+/**
+ * Real (non-deterministic, wall-clock) UUIDv7 generator — RFC 9562 layout:
+ * 48-bit big-endian unix-ms timestamp + version nibble (0111) + 12 random bits
+ * + variant bits (10) + 62 random bits. Distinct from `UuidGen` above: `UuidGen`
+ * is a seeded/replayable id generator for pipeline request contexts (stamped as
+ * version 4 for historical reasons and intentionally left alone here — changing
+ * its byte layout is out of scope and would ripple through every test that
+ * constructs one). This function is the plain, no-DI id generator wired as the
+ * Postgres column DEFAULT for the three append-only, high-write tables that
+ * benefit from time-ordered (not random) primary keys: `ledger`, `events`,
+ * `timeline_entries` (see platform/packages/db/src/schema.ts, migration
+ * 0004_schema_hardening.sql). No native `uuidv7()` exists in Postgres before v18
+ * and Supabase/pglite are both pre-v18, so generation happens in JS at insert
+ * time via Drizzle's `$defaultFn`, matching this repo's existing convention of
+ * NOT reaching for a new npm dependency for a ~20-line algorithm.
+ */
+export function uuidv7(): string {
+  const ms = Date.now();
+  const b = new Uint8Array(16);
+  // bytes 0..5: 48-bit big-endian time prefix (time-sortable primary keys).
+  let t = ms;
+  for (let i = 5; i >= 0; i--) {
+    b[i] = t & 0xff;
+    t = Math.floor(t / 256);
+  }
+  // bytes 6..15: cryptographically-random tail.
+  crypto.getRandomValues(b.subarray(6));
+  // Stamp version 7 (0111) and RFC-4122/9562 variant (10).
+  b[6] = (b[6]! & 0x0f) | 0x70;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 function encodeTime(ms: number, len: number): string {
   let out = "";
   let n = ms;

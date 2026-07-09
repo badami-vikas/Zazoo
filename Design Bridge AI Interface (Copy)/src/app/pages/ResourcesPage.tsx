@@ -5,6 +5,44 @@ import { exportRowsToCsv } from '../lib/exportTable';
 import { usePinnedTools } from '../Layout';
 import { loadCanonicalResources, type PeopleSource } from '../data/db';
 import { resources as localResources, type NetworkResource } from '../data/resources.generated';
+import { listCaptures, getBlobUrl, type MediaCaptureRecord } from '../data/localMedia';
+
+// Local captures strip — photos/videos from the Camera tool, stored on THIS device only
+// (never cloud). Browsable here; committed ones carry a Touchpoint + ledger id.
+function LocalCapturesStrip() {
+  const [items, setItems] = useState<MediaCaptureRecord[]>([]);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    (async () => {
+      const all = await listCaptures();
+      const visible = all.filter(r => r.status !== 'archived');
+      setItems(visible);
+      const next: Record<string, string> = {};
+      for (const r of visible) next[r.id] = r.thumbnailDataUrl || (await getBlobUrl(r.id)) || '';
+      setUrls(next);
+    })();
+  }, []);
+  if (items.length === 0) return null;
+  return (
+    <div className="mx-4 mt-4 rounded-xl border p-4" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>Captures</span>
+        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'color-mix(in srgb, var(--color-steel) 14%, transparent)', color: 'var(--color-steel)' }}>{items.length} · local-only</span>
+        <span className="ml-auto text-[11px]" style={{ color: 'var(--color-warm-gray)' }}>Photos &amp; videos stored on this device — never the cloud</span>
+      </div>
+      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+        {items.map(r => (
+          <div key={r.id} className="rounded-lg overflow-hidden border relative" style={{ borderColor: 'var(--color-border)' }} title={`${r.kind} · ${r.status}`}>
+            {urls[r.id] && (r.kind === 'photo'
+              ? <img src={urls[r.id]} alt="capture" className="w-full h-20 object-cover" />
+              : <video src={urls[r.id]} className="w-full h-20 object-cover bg-black" />)}
+            <span className="absolute top-1 left-1 text-[9px] px-1 py-0.5 rounded text-white" style={{ backgroundColor: r.status === 'committed' ? 'var(--success)' : 'rgba(0,0,0,0.6)' }}>{r.status}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Resources Tool — a curated, filterable, EDITABLE table of learning resources (books / podcasts /
 // vlogs) for acquisition entrepreneurs. Each row links out to its source. Lives at /resources,
@@ -166,6 +204,7 @@ export function ResourcesPage() {
 
       {/* Table — every cell click-to-edit; added rows can be deleted */}
       <div className="flex-1 overflow-auto bg-white">
+        <LocalCapturesStrip />
         <table className="w-full border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-[var(--color-surface)]" style={{ color: 'var(--color-warm-gray)' }}>
             <tr>

@@ -1,3 +1,13 @@
+---
+title: Design Prototype Audit (v0)
+type: raw
+doc_kind: audit
+status: active
+companions: []
+related_wiki: ../wiki/design.md
+updated: 2026-06-22
+tags: [design, audit, ui]
+---
 # Bridge AI — Design Prototype Audit (v0)
 
 > Subject: `/Design Bridge AI Interface (Copy)/` — a **coded** React + Vite + Tailwind + shadcn prototype (70 `.tsx`, 12 pages), not static mockups. Ships its own `DESIGN_CRITIQUE.md` (design-quality) + `AGENTS.md` + `guidelines/`. This audit = **architecture / vocabulary alignment** (complements, doesn't replace, the design-quality critique).

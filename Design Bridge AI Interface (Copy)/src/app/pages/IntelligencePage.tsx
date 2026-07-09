@@ -1,64 +1,68 @@
 import { useState } from 'react';
-import { Table, Kanban, Calendar, Search, Filter, ArrowUpDown, Plus, MoreVertical, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, ListIcon, Bot, Zap, Puzzle, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Table, Plus, MoreVertical, ChevronLeft, ChevronRight, LayoutGrid, Bot, Zap, Puzzle, ShieldCheck, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Header } from '../components/Header';
 import { ListPillRow } from '../components/ListPillRow';
+import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 import { pendingCount } from '../data/governance';
+import { useBrokerages, addBrokerage, setBrokerageStatus, type Brokerage } from '../data/brokerages';
 
-// Agents. Helpdesk AI is real (powers the Helpdesk Tool); the rest are placeholders until the runtime.
+// Agents. Helpdesk AI is real (powers the Helpdesk Tool); more agents appear here once the
+// agent runtime (P0 Kernel) ships and users create them via "New Agent".
 const agentsData = [
   { id: 'helpdesk-ai', name: 'Helpdesk AI', description: 'Support strategist — routes a need to people who can help (by capability), proposes actionable ways to contribute.', status: 'Active', lastRun: 'Live', accuracy: 0, list: 'Active' },
-  { id: 'AGT-9009', name: 'dummy_Agent One', description: 'dummy_ placeholder agent', status: 'Active', lastRun: '9009h ago', accuracy: 9009, list: 'Active' },
-  { id: 'AGT-9010', name: 'dummy_Agent Two', description: 'dummy_ placeholder agent', status: 'Training', lastRun: '9009h ago', accuracy: 9009, list: 'Training' },
 ];
 
-// Skills — placeholder (dummy_ labeled).
-const skillsData = [
-  { id: 'SKL-9009', name: 'dummy_Skill One', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Enabled', uses: 9009, list: 'Enabled' },
-  { id: 'SKL-9010', name: 'dummy_Skill Two', description: 'dummy_ placeholder skill', category: 'dummy_', status: 'Beta', uses: 9009, list: 'Beta' },
-];
+// Skills — none shipped yet; appears once the skill runtime is connected.
+const skillsData: Array<{ id: string; name: string; description: string; category: string; status: string; uses: number; list: string }> = [];
 
 // Integrations — LinkedIn, Gmail, Google Calendar featured (connected), plus others.
 const integrationsData = [
   { id: 'INT-3001', name: 'LinkedIn', description: 'Sync connections, profiles, and conversations from LinkedIn', status: 'Connected', lastSync: '1 hour ago', dataPoints: 21792, list: 'Connected' },
-  { id: 'INT-3002', name: 'Gmail', description: 'Parse email threads for relationship context and touchpoints', status: 'Connected', lastSync: '12 min ago', dataPoints: 8431, list: 'Connected' },
-  { id: 'INT-3003', name: 'Google Calendar', description: 'Import meetings and events; detect touchpoints with people', status: 'Connected', lastSync: '30 min ago', dataPoints: 1204, list: 'Connected' },
+  { id: 'INT-3002', name: 'Gmail', description: 'Source email threads into Touchpoints, Memories & Signals — by approval', status: 'Connected', lastSync: '12 min ago', dataPoints: 8431, list: 'Connected', route: 'google' },
+  { id: 'INT-3003', name: 'Google Calendar', description: 'Source meetings into Touchpoints — by approval; draft invites, send on approval', status: 'Connected', lastSync: '30 min ago', dataPoints: 1204, list: 'Connected', route: 'google' },
   { id: 'INT-3004', name: 'Slack', description: 'Track conversations and channels across your workspace', status: 'Disconnected', lastSync: '2 weeks ago', dataPoints: 0, list: 'Disconnected' },
   { id: 'INT-3005', name: 'GitHub', description: 'Track collaborative projects and contributors', status: 'Pending', lastSync: 'Never', dataPoints: 0, list: 'Pending' },
   { id: 'INT-3006', name: 'X / Twitter', description: 'Monitor social interactions and public mentions', status: 'Disconnected', lastSync: 'Never', dataPoints: 0, list: 'Disconnected' },
+  { id: 'INT-3007', name: 'Instagram', description: 'Source posts and DMs into governed touchpoints', status: 'Connected', lastSync: '45 min ago', dataPoints: 312, list: 'Connected' },
+  { id: 'INT-3008', name: 'Facebook', description: 'Track Page messages and engagement as touchpoints', status: 'Disconnected', lastSync: 'Never', dataPoints: 0, list: 'Disconnected' },
 ];
 
 export function IntelligencePage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('Agents');
   const [activeView, setActiveView] = useState('card');
-  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const [selectedList, setSelectedList] = useState('All');
-  const [listDropdownOpen, setListDropdownOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [addingBrokerage, setAddingBrokerage] = useState(false);
+  const [connectingBrokerage, setConnectingBrokerage] = useState<Brokerage | null>(null);
   const rowsPerPage = 20;
+  const brokerages = useBrokerages();
 
   const headerTabs = [
     { id: 'Agents', icon: Bot },
     { id: 'Skills', icon: Zap },
-    { id: 'Integrations', icon: Puzzle },
+    { id: 'Apps', icon: Puzzle },
   ];
   const views = [
-    { id: 'card', icon: LayoutGrid, label: 'Card' },
-    { id: 'table', icon: Table, label: 'Table' },
+    { id: 'card', label: 'Card', icon: LayoutGrid },
+    { id: 'table', label: 'Table', icon: Table },
   ];
 
   // Lists for each tab
   const agentsLists = ['All', 'Active', 'Training', 'Archived'];
   const skillsLists = ['All', 'Enabled', 'Disabled', 'Beta'];
-  const integrationsLists = ['All', 'Connected', 'Disconnected', 'Pending'];
+  const integrationsLists = ['All', 'Connected', 'Disconnected', 'Pending', 'Brokerages'];
 
   const getCurrentLists = () => {
     switch (activeTab) {
       case 'Agents': return agentsLists;
       case 'Skills': return skillsLists;
-      case 'Integrations': return integrationsLists;
+      case 'Apps': return integrationsLists;
       default: return ['All'];
     }
   };
@@ -68,13 +72,22 @@ export function IntelligencePage() {
     switch (activeTab) {
       case 'Agents': data = agentsData; break;
       case 'Skills': data = skillsData; break;
-      case 'Integrations': data = integrationsData; break;
+      case 'Apps': data = [...integrationsData, ...brokerages.map((b) => ({
+        id: b.id, name: b.name, description: `Deal-sourcing brokerage — ${b.portalUrl}`,
+        status: b.status === 'connected' ? 'Connected' : 'Disconnected', lastSync: '—', dataPoints: 0,
+        list: 'Brokerages', isBrokerage: true, brokerage: b,
+      }))]; break;
       default: data = [];
     }
 
     // Filter by list
     if (selectedList !== 'All') {
       data = data.filter((item: any) => item.list === selectedList);
+    }
+
+    const q = search.trim().toLowerCase();
+    if (q) {
+      data = data.filter((item: any) => `${item.name} ${item.description}`.toLowerCase().includes(q));
     }
 
     return data;
@@ -88,12 +101,12 @@ export function IntelligencePage() {
   const handleNextPage = () => setCurrentPage((p) => Math.min(totalPages, p + 1));
 
   const ActiveViewIcon = views.find(v => v.id === activeView)?.icon || LayoutGrid;
-  const ActiveViewLabel = views.find(v => v.id === activeView)?.label || 'Card';
 
   // Reset list when tab changes
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     setSelectedList('All');
+    setSearch('');
     setCurrentPage(1);
   };
 
@@ -216,21 +229,27 @@ export function IntelligencePage() {
         </Link>
       );
     } else {
-      // Integrations
+      // Integrations (and Brokerages — a real entity, not just a filter label; clicking one
+      // opens the same governed ConnectAppFlow wizard every other app connection uses, since a
+      // brokerage portal has no public API — it goes straight to the scrape/bot/browser waterfall).
+      const Wrapper = item.isBrokerage ? 'div' : Link;
+      const wrapperProps = item.isBrokerage
+        ? { onClick: () => setConnectingBrokerage(item.brokerage), role: 'button', tabIndex: 0 }
+        : { to: `/integration/${item.route ?? item.id}` };
       return (
-        <Link
-          to={`/integration/${item.id}`}
+        <Wrapper
+          {...(wrapperProps as any)}
           key={item.id}
-          className="block border rounded-xl p-5 transition-all shadow-sm"
+          className="block border rounded-xl p-5 transition-all shadow-sm cursor-pointer"
           style={{
             backgroundColor: 'var(--color-background)',
             borderColor: 'var(--color-border)'
           }}
-          onMouseEnter={(e) => {
+          onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
             e.currentTarget.style.borderColor = 'var(--color-steel-light)';
             e.currentTarget.style.boxShadow = '0 4px 12px rgb(from var(--color-steel) r g b / 0.1)';
           }}
-          onMouseLeave={(e) => {
+          onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
             e.currentTarget.style.borderColor = 'var(--color-border)';
             e.currentTarget.style.boxShadow = '';
           }}
@@ -268,7 +287,7 @@ export function IntelligencePage() {
             <span style={{ color: 'var(--color-warm-gray)' }}>Last sync: {item.lastSync}</span>
             <span style={{ color: 'var(--color-navy-mid)', fontWeight: 500 }}>{item.dataPoints} data points</span>
           </div>
-        </Link>
+        </Wrapper>
       );
     }
   };
@@ -290,117 +309,36 @@ export function IntelligencePage() {
         onSelect={(v) => { setSelectedList(v ?? 'All'); setCurrentPage(1); }}
       />
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 shadow-sm z-20 w-full"
-        style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}>
-        <div className="flex items-center gap-2 flex-1 overflow-hidden">
-
-          {/* View Dropdown */}
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-sm font-semibold transition-colors shadow-inner"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}
-            >
-              <ActiveViewIcon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} />
-              <span className="@[500px]:inline hidden">{ActiveViewLabel} View</span>
-              <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
+      <StandardToolbar
+        view={activeView}
+        views={views}
+        onViewChange={setActiveView}
+        search={search}
+        onSearchChange={(v) => { setSearch(v); setCurrentPage(1); }}
+        onFilterClick={() => {}}
+        onSortClick={() => {}}
+        customActions={
+          activeTab === 'Agents' ? (
+            <button onClick={() => navigate('/agent/create')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+              style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-3.5 h-3.5" />
+              New Agent
             </button>
-
-            <AnimatePresence>
-              {viewDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setViewDropdownOpen(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 mt-1 w-40 border rounded-xl shadow-lg z-50 overflow-hidden py-1"
-                    style={{ backgroundColor: 'var(--color-background)', borderColor: 'var(--color-border)' }}
-                  >
-                    {views.map(view => (
-                      <button
-                        key={view.id}
-                        onClick={() => {
-                          setActiveView(view.id);
-                          setViewDropdownOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: activeView === view.id ? 'var(--color-surface)' : 'transparent',
-                          color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-navy-mid)'
-                        }}
-                      >
-                        <view.icon className="w-4 h-4" style={{ color: activeView === view.id ? 'var(--color-steel)' : 'var(--color-warm-gray)' }} />
-                        {view.label}
-                      </button>
-                    ))}
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <div className="w-px h-6 shrink-0 hidden @[400px]:block mx-1" style={{ backgroundColor: 'var(--color-border)' }} />
-
-          {/* Search Bar */}
-          <div className="relative group shrink flex-1 max-w-[400px] min-w-[32px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 transition-colors"
-              style={{ color: 'var(--color-warm-gray)' }} />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="pl-9 pr-3 py-1.5 w-full border rounded-lg text-sm transition-all outline-none shadow-inner"
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}
-            />
-          </div>
-
-          {/* Action Icons */}
-          <div className="flex items-center gap-1.5 ml-auto shrink-0">
-            <button className="@[500px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{
-                backgroundColor: 'var(--color-background)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}>
-              <Filter className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Filter</span>
+          ) : activeTab === 'Apps' && selectedList === 'Brokerages' ? (
+            <button onClick={() => setAddingBrokerage(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90 shadow-sm whitespace-nowrap"
+              style={{ backgroundColor: 'var(--color-steel)' }}>
+              <Plus className="w-3.5 h-3.5" />
+              Add Brokerage
             </button>
-            <button className="@[550px]:flex hidden items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium border rounded-lg transition-colors shadow-sm whitespace-nowrap"
-              style={{
-                backgroundColor: 'var(--color-background)',
-                borderColor: 'var(--color-border)',
-                color: 'var(--color-navy-mid)'
-              }}>
-              <ArrowUpDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />
-              <span className="@[850px]:inline hidden">Sort</span>
-            </button>
+          ) : null
+        }
+        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+      />
 
-            <div className="w-px h-6 shrink-0 mx-1 @[400px]:block hidden" style={{ backgroundColor: 'var(--color-border)' }} />
-
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button className="p-1.5 rounded-lg transition-colors border border-transparent shrink-0 z-20 shadow-sm"
-                  style={{
-                    backgroundColor: 'var(--color-background)',
-                    color: 'var(--color-warm-gray)'
-                  }}>
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-              </DropdownMenu.Trigger>
-            </DropdownMenu.Root>
-          </div>
-        </div>
-      </div>
-
-      {/* Approvals widget — the governance queue, surfaced where agents live (F2) */}
-      {pendingCount > 0 && (
+      {/* Approvals widget — the governance queue, surfaced where agents live (F2). Agents-only. */}
+      {activeTab === 'Agents' && pendingCount > 0 && (
         <Link
           to="/approvals"
           className="mx-6 mt-4 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-sm transition-colors group"
@@ -434,9 +372,15 @@ export function IntelligencePage() {
               exit={{ opacity: 0 }}
               className="p-6"
             >
-              <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
-                {currentData.map(item => renderCard(item))}
-              </div>
+              {currentData.length > 0 ? (
+                <div className="grid grid-cols-1 @[600px]:grid-cols-2 @[900px]:grid-cols-3 @[1200px]:grid-cols-4 gap-4">
+                  {currentData.map(item => renderCard(item))}
+                </div>
+              ) : (
+                <div className="p-10 text-center border border-dashed rounded-xl" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+                  No {activeTab.toLowerCase()} yet.
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -521,6 +465,41 @@ export function IntelligencePage() {
           </div>
         </div>
       )}
+
+      {addingBrokerage && <AddBrokerageModal onClose={() => setAddingBrokerage(false)} />}
+      {connectingBrokerage && (
+        <ConnectAppFlow
+          appName={connectingBrokerage.name}
+          apiAvailable={false}
+          onClose={() => setConnectingBrokerage(null)}
+          onConnected={() => { setBrokerageStatus(connectingBrokerage.id, 'connected'); setConnectingBrokerage(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddBrokerageModal({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [portalUrl, setPortalUrl] = useState('');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }} onClick={onClose}>
+      <div className="w-full max-w-sm bg-white rounded-xl shadow-xl p-5 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--color-navy)' }}>Add brokerage</h3>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Brokerage name" className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} />
+        <input value={portalUrl} onChange={(e) => setPortalUrl(e.target.value)} placeholder="Portal URL" className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: 'var(--color-border)' }} />
+        <div className="flex justify-end gap-2 mt-1">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-sm font-medium" style={{ color: 'var(--color-warm-gray)' }}>Cancel</button>
+          <button
+            disabled={!name.trim()}
+            onClick={() => { addBrokerage(name.trim(), portalUrl.trim()); onClose(); }}
+            className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-40"
+            style={{ backgroundColor: 'var(--color-steel)' }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

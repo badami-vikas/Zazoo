@@ -4,12 +4,23 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Resizable } from 're-resizable';
 import { useLocation, useParams } from 'react-router';
 import clsx from 'clsx';
+import { tools } from '../data/tools';
+
+// Which pinned/native tool the user is currently inside, if any — so the panel can say
+// "JobPilot AI" instead of a generic "Bridge AI" while still being the SAME chat surface (no
+// per-tool duplicate panel). Falls back to "Bridge" everywhere else, including tool pages that
+// don't opt into their own name.
+function activeToolName(pathname: string): string | null {
+  const match = tools.find((t) => t.route && pathname === t.route);
+  return match ? match.name : null;
+}
 
 interface AgentPanelProps {
   highlightedRowId: string | null;
   setHighlightedRowId: (id: string | null) => void;
   isCollapsed: boolean;
   setIsCollapsed: (c: boolean) => void;
+  toolNameOverride?: string; // for standalone tool shells, where the route doesn't match the platform tools registry
 }
 
 // Left nav expanded width; the AI panel defaults to 1.4× this and remembers the user's last size.
@@ -17,7 +28,7 @@ const NAV_WIDTH = 240;
 const DEFAULT_PANEL_WIDTH = Math.round(NAV_WIDTH * 1.4); // 336
 const PANEL_WIDTH_KEY = 'bridge.agentPanelWidth';
 
-export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed, setIsCollapsed }: AgentPanelProps) {
+export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed, setIsCollapsed, toolNameOverride }: AgentPanelProps) {
   const [inputText, setInputText] = useState('');
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -30,6 +41,8 @@ export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed,
   const { id } = useParams();
   const decodedId = id ? decodeURIComponent(id) : null;
   const isItemPage = location.pathname.includes('/item/') && decodedId;
+  const toolName = toolNameOverride ?? activeToolName(location.pathname);
+  const brandName = toolName ?? 'Bridge';
 
   const activeTimelineIndex = 11;
 
@@ -148,9 +161,9 @@ export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed,
         
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-gradient-to-br from-[var(--color-steel)] to-[var(--color-navy-mid)] flex items-center justify-center shadow-md shadow-[var(--color-steel)]/20">
-            <span className="text-white text-xs font-semibold">B</span>
+            <span className="text-white text-xs font-semibold">{brandName.charAt(0)}</span>
           </div>
-          <span className="text-[var(--color-navy)]">Bridge</span>
+          <span className="text-[var(--color-navy)]">{brandName}</span>
           <span className="text-[var(--color-steel)]">AI</span>
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-steel-light)] shadow-[0_0_6px_rgba(127, 165, 197,0.8)] ml-1 animate-pulse"></div>
         </div>
@@ -262,7 +275,7 @@ export function AgentPanel({ highlightedRowId, setHighlightedRowId, isCollapsed,
           <textarea 
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder={`Ask Bridge AI about ${isItemPage ? decodedId : 'anything'}...`}
+            placeholder={`Ask ${brandName} AI about ${isItemPage ? decodedId : 'anything'}...`}
             className="flex-1 max-h-32 min-h-[60px] resize-none border-none focus:ring-0 px-3 py-3 text-sm bg-transparent placeholder:text-[var(--color-warm-gray)] outline-none leading-relaxed text-[var(--color-navy)]"
             rows={1}
           />

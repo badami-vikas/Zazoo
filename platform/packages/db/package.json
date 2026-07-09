@@ -16,14 +16,18 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "test": "node --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
+    "test": "node --test dist/test/*.test.js",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@bridge/core": "workspace:*",
+    "@electric-sql/pglite": "^0.2.17",
     "drizzle-orm": "^0.38.3",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

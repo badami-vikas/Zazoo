@@ -8,6 +8,7 @@ import {
 import { exportRowsToCsv } from '../lib/exportTable';
 import { csvToRecords } from '../lib/csvImport';
 import { COLUMN_TYPES, INLINE_TYPES, POPOVER_TYPES, type ColumnType } from '../lib/columnTypes';
+import { usePersistentState } from '../lib/persist';
 import { motion, AnimatePresence } from 'motion/react';
 import { useOutletContext, Link, useNavigate } from 'react-router';
 import clsx from 'clsx';
@@ -79,6 +80,18 @@ type MergeList = { name: string; kind: 'merge'; sources: string[] };
 type IdsList = { name: string; kind: 'ids'; ids: string[] };
 export type SavedList = FilterList | MergeList | IdsList;
 
+// ── View config as data (Notion-parity: each database/tab remembers its own view). ──
+// Persisted per tab so switching People ↔ Communities never loses sort/filter/group/view.
+type SortSpec = { id: string; dir: 'asc' | 'desc' };
+interface ViewState {
+  sorts: SortSpec[];
+  rowFilters: { field: string; op: FilterOp; value: string }[];
+  filterMatch: 'all' | 'any'; // AND vs OR across rowFilters
+  groupBy: string | null;
+  activeView: string;
+}
+const DEFAULT_VIEW_STATE: ViewState = { sorts: [], rowFilters: [], filterMatch: 'all', groupBy: null, activeView: 'table' };
+
 // Free-text search across a row's human-readable fields (people + community shapes).
 function matchesText(row: any, value: string): boolean {
   const v = value.trim().toLowerCase();
@@ -135,31 +148,60 @@ export function DataEngine() {
   const { highlightedRowId, setHighlightedRowId } = useOutletContext<DataEngineContext>();
   const [activeTab, setActiveTab] = useState('People');
   const [selectedList, setSelectedList] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState('table');
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 20;
   const navigate = useNavigate();
-  const [sort, setSort] = useState<{ id: string; dir: 'asc' | 'desc' } | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
-  const toggleSort = (id: string) => setSort(s => (s && s.id === id) ? (s.dir === 'asc' ? { id, dir: 'desc' } : null) : { id, dir: 'asc' });
 
-  // Community type inline editing — overrides keyed by community id, persisted in session.
-  const [communityTypeOverrides, setCommunityTypeOverrides] = useState<Record<string, string>>({});
-  const [customTypes, setCustomTypes] = useState<string[]>([]);
+  // ── Per-tab view config (sort/filter/group/view kind) — persisted, survives refresh
+  //    and tab switches (each tab = its own "database" view, Notion-style). ──────────
+  const [viewStates, setViewStates] = usePersistentState<Record<string, ViewState>>('bridge.table.viewState.v1', {});
+  const viewState = viewStates[activeTab] ?? DEFAULT_VIEW_STATE;
+  const updateViewState = (patch: Partial<ViewState>) =>
+    setViewStates(prev => ({ ...prev, [activeTab]: { ...(prev[activeTab] ?? DEFAULT_VIEW_STATE), ...patch } }));
+  const activeView = viewState.activeView;
+  const setActiveView = (id: string) => updateViewState({ activeView: id });
+  const sorts = viewState.sorts;
+  const rowFilters = viewState.rowFilters;
+  const filterMatch = viewState.filterMatch;
+  const groupBy = viewState.groupBy;
+  // Header click = make this column the sole/primary sort (cycle asc→desc→off).
+  // Full multi-sort (multiple criteria at once) is managed via the Sort popover below.
+  const toggleSort = (id: string) => {
+    const existing = sorts.find(s => s.id === id);
+    if (!existing) return updateViewState({ sorts: [{ id, dir: 'asc' }] });
+    if (existing.dir === 'asc') return updateViewState({ sorts: [{ id, dir: 'desc' }] });
+    return updateViewState({ sorts: [] });
+  };
+  const addSort = (id: string) => { if (!sorts.some(s => s.id === id)) updateViewState({ sorts: [...sorts, { id, dir: 'asc' }] }); };
+  const removeSort = (id: string) => updateViewState({ sorts: sorts.filter(s => s.id !== id) });
+  const setSortDir = (id: string, dir: 'asc' | 'desc') => updateViewState({ sorts: sorts.map(s => s.id === id ? { ...s, dir } : s) });
+
+  // Community type inline editing — overrides keyed by community id. Persisted (localStorage)
+  // so edits survive refresh — see [[table-persistence]] / known-issues 2026-07-03.
+  const [communityTypeOverrides, setCommunityTypeOverrides] = usePersistentState<Record<string, string>>('bridge.table.communityTypeOverrides.v1', {});
+  const [customTypes, setCustomTypes] = usePersistentState<string[]>('bridge.table.customTypes.v1', []);
   const [typePopover, setTypePopover] = useState<{ row: any; x: number; y: number } | null>(null);
   const [newTypeInput, setNewTypeInput] = useState('');
   const allCommunityTypes = useMemo(() => [...COMMUNITY_TYPES, ...customTypes], [customTypes]);
 
-  // Local table state (prototype, session-only): added rows, per-cell edits, custom columns, saved lists.
-  const [addedRows, setAddedRows] = useState<Record<string, any[]>>({});
-  const [cellOverrides, setCellOverrides] = useState<Record<string, Record<string, string | string[] | boolean>>>({});
-  const [customFields, setCustomFields] = useState<Record<string, FieldDef[]>>({});
-  const [savedLists, setSavedLists] = useState<Record<string, SavedList[]>>({});
+  // Local table state — added rows, per-cell edits, custom columns, saved lists, column
+  // renames, soft-deletes. All persisted to localStorage (prototype-tier; swap for a
+  // Supabase/API-backed port later behind the same usePersistentState call shape).
+  const [addedRows, setAddedRows] = usePersistentState<Record<string, any[]>>('bridge.table.addedRows.v1', {});
+  const [cellOverrides, setCellOverrides] = usePersistentState<Record<string, Record<string, string | string[] | boolean>>>('bridge.table.cellOverrides.v1', {});
+  const [customFields, setCustomFields] = usePersistentState<Record<string, FieldDef[]>>('bridge.table.customFields.v1', {});
+  const [savedLists, setSavedLists] = usePersistentState<Record<string, SavedList[]>>('bridge.table.savedLists.v1', {});
+  const [columnLabelOverrides, setColumnLabelOverrides] = usePersistentState<Record<string, string>>('bridge.table.columnLabels.v1', {});
+  const [renamingFieldId, setRenamingFieldId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const addedCounter = useRef(0);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [addColOpen, setAddColOpen] = useState(false);
@@ -178,7 +220,9 @@ export function DataEngine() {
   const [listBase, setListBase] = useState('current');
   const [pillMenu, setPillMenu] = useState<{ name: string; x: number; y: number } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ row: any; x: number; y: number } | null>(null);
-  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  // Soft-deletes persisted as an array (JSON can't hold a Set); Set derived for lookups.
+  const [deletedIdsArr, setDeletedIdsArr] = usePersistentState<string[]>('bridge.table.deletedIds.v1', []);
+  const deletedIds = useMemo(() => new Set(deletedIdsArr), [deletedIdsArr]);
   const [selectedRowIdx, setSelectedRowIdx] = useState<number[]>([]);
   const [density, setDensity] = useState<'compact' | 'standard' | 'tall'>('standard');
   const densityPx = density === 'compact' ? 28 : density === 'tall' ? 44 : 34;
@@ -214,7 +258,12 @@ export function DataEngine() {
   ];
 
   // Base fields + any user-added custom columns for this tab.
-  const fields = useMemo<FieldDef[]>(() => [...(activeTab === 'People' ? PEOPLE_FIELDS : COMMUNITY_FIELDS), ...(customFields[activeTab] || [])], [activeTab, customFields]);
+  const fields = useMemo<FieldDef[]>(() => {
+    const base = [...(activeTab === 'People' ? PEOPLE_FIELDS : COMMUNITY_FIELDS), ...(customFields[activeTab] || [])];
+    // Renamed columns (Notion-parity): single injection point so every consumer
+    // (columns menu, filter/sort/group pickers, GlideTable headers) sees the new label.
+    return base.map(f => columnLabelOverrides[f.id] ? { ...f, label: columnLabelOverrides[f.id] } : f);
+  }, [activeTab, customFields, columnLabelOverrides]);
   // Apply community type overrides so edited values show immediately in the grid.
   const communityDataWithOverrides = useMemo(
     () => companyRows.map(mapCommunity).map(c => ({ ...c, communityType: communityTypeOverrides[c.id] ?? c.communityType })),
@@ -225,7 +274,9 @@ export function DataEngine() {
     // Captured People (approved tool captures) ride on top of the canonical/CSV rows.
     const base = activeTab === 'People' ? [...capturedPeople, ...peopleRows] : communityDataWithOverrides;
     const cfs = customFields[activeTab] || [];
-    return [...base, ...(addedRows[activeTab] || [])].map(r => {
+    // Locally-added rows lead (not trail) so a fresh "Add row" is visible on page 1
+    // without a sort active — trailing them put new rows on the LAST page instead.
+    return [...(addedRows[activeTab] || []), ...base].map(r => {
       let row: any = r;
       const ov = cellOverrides[r.id];
       if (ov) row = { ...row, ...ov };
@@ -243,7 +294,11 @@ export function DataEngine() {
   const editableKinds = new Set(['text', 'insight', 'list', 'number']);
   const addRow = () => {
     const id = `new-${activeTab}-${++addedCounter.current}`;
-    setAddedRows(prev => ({ ...prev, [activeTab]: [...(prev[activeTab] || []), { id, name: `New ${activeTab === 'People' ? 'connection' : 'community'}` }] }));
+    // Prepend (not append) + jump to page 1 so the new row is immediately visible —
+    // appending put it on the LAST page under pagination, which looked like a no-op.
+    setAddedRows(prev => ({ ...prev, [activeTab]: [{ id, name: `New ${activeTab === 'People' ? 'connection' : 'community'}` }, ...(prev[activeTab] || [])] }));
+    setCurrentPage(1);
+    setHighlightedRowId(id);
   };
   const editCell = (row: any, fieldId: string, value: string | string[] | boolean) =>
     setCellOverrides(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {}), [fieldId]: value } }));
@@ -252,7 +307,7 @@ export function DataEngine() {
     if (!ids.length) return;
     const addedSet = new Set((addedRows[activeTab] || []).map(r => r.id));
     setAddedRows(prev => ({ ...prev, [activeTab]: (prev[activeTab] || []).filter(r => !ids.includes(r.id)) }));
-    setDeletedIds(prev => { const n = new Set(prev); ids.forEach(id => { if (!addedSet.has(id)) n.add(id); }); return n; });
+    setDeletedIdsArr(prev => { const n = new Set(prev); ids.forEach(id => { if (!addedSet.has(id)) n.add(id); }); return Array.from(n); });
     setSelecting(false); setSelectedCount(0); setSelectedRowIdx([]);
   };
   const addColumn = () => {
@@ -388,8 +443,8 @@ export function DataEngine() {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
 
-  // Column visibility per tab — all columns on by default; user can toggle off.
-  const [colVisible, setColVisible] = useState<Record<string, Record<string, boolean>>>({});
+  // Column visibility per tab — all columns on by default; user can toggle off. Persisted.
+  const [colVisible, setColVisible] = usePersistentState<Record<string, Record<string, boolean>>>('bridge.table.colVisible.v1', {});
   const visForTab = (tab: string, fs: FieldDef[]) =>
     colVisible[tab] ?? Object.fromEntries(fs.map(f => [f.id, true]));
   const vis = visForTab(activeTab, fields);
@@ -397,14 +452,18 @@ export function DataEngine() {
   const toggleCol = (id: string) =>
     setColVisible(prev => ({ ...prev, [activeTab]: { ...visForTab(activeTab, fields), [id]: !vis[id] } }));
 
-  // Row filters: list of {field, op, value} + the search query.
-  const [rowFilters, setRowFilters] = useState<{ field: string; op: FilterOp; value: string }[]>([]);
-  const addFilter = (field: string) => setRowFilters(f => [...f, { field, op: 'contains', value: '' }]);
-  const setFilterValue = (i: number, value: string) => setRowFilters(f => f.map((x, j) => j === i ? { ...x, value } : x));
-  const setFilterOp = (i: number, op: FilterOp) => setRowFilters(f => f.map((x, j) => j === i ? { ...x, op } : x));
-  const removeFilter = (i: number) => setRowFilters(f => f.filter((_, j) => j !== i));
+  // Row filters: list of {field, op, value} + the search query. Now part of the
+  // per-tab persisted ViewState (was session-only useState) — AND-ed or OR-ed per filterMatch.
+  const addFilter = (field: string) => updateViewState({ rowFilters: [...rowFilters, { field, op: 'contains' as FilterOp, value: '' }] });
+  const setFilterValue = (i: number, value: string) => updateViewState({ rowFilters: rowFilters.map((x, j) => j === i ? { ...x, value } : x) });
+  const setFilterOp = (i: number, op: FilterOp) => updateViewState({ rowFilters: rowFilters.map((x, j) => j === i ? { ...x, op } : x) });
+  const removeFilter = (i: number) => updateViewState({ rowFilters: rowFilters.filter((_, j) => j !== i) });
+  const setFilterMatch = (m: 'all' | 'any') => updateViewState({ filterMatch: m });
+  const setGroupBy = (field: string | null) => updateViewState({ groupBy: field });
 
-  useEffect(() => { setSelectedList(null); setCurrentPage(1); setRowFilters([]); setQuery(''); setSort(null); setSelecting(false); setSelectedCount(0); setPillMenu(null); }, [activeTab]);
+  // Tab switch resets ephemeral search state only — sort/filter/group/view now live in
+  // the per-tab ViewState and correctly persist across tab switches + refresh.
+  useEffect(() => { setSelectedList(null); setCurrentPage(1); setQuery(''); setSelecting(false); setSelectedCount(0); setPillMenu(null); }, [activeTab]);
   useEffect(() => { setCurrentPage(1); }, [query, rowFilters, selectedList]);
 
   const baseListPills = activeTab === 'People'
@@ -420,21 +479,30 @@ export function DataEngine() {
     const presets = activeTab === 'People' ? { ...PEOPLE_PRESETS, ...wsPresets } : COMMUNITY_PRESETS;
     const lists = savedLists[activeTab] || [];
 
-    const applyFilterDefs = (rows: any[], q: string, defs: { field: string; op?: FilterOp; value: string }[], wf?: WordFilter) =>
+    // matchMode 'all' = every filter must pass (AND, prior behavior); 'any' = at least
+    // one must pass (OR) — Notion-style "Where: All / Any of the following".
+    const passesOne = (row: any, f: { field: string; op?: FilterOp; value: string }): boolean => {
+      const op = f.op ?? 'contains';
+      const cell = Array.isArray(row[f.field]) ? row[f.field].join(' ') : String(row[f.field] ?? '');
+      const cellLow = cell.toLowerCase();
+      const valLow = f.value.toLowerCase();
+      if (op === 'is_empty') return cell.trim() === '';
+      if (op === 'is_not_empty') return cell.trim() !== '';
+      if (!f.value) return true; // no value typed yet — don't filter on it
+      if (op === 'is') return cellLow === valLow;
+      if (op === 'is_not') return cellLow !== valLow;
+      if (op === 'starts_with') return cellLow.startsWith(valLow);
+      return cellLow.includes(valLow); // 'contains' (default)
+    };
+    const applyFilterDefs = (
+      rows: any[], q: string, defs: { field: string; op?: FilterOp; value: string }[], wf?: WordFilter, matchMode: 'all' | 'any' = 'all',
+    ) =>
       rows.filter(row => {
         if (q && !matchesText(row, q)) return false;
-        for (const f of defs) {
-          const op = f.op ?? 'contains';
-          const cell = Array.isArray(row[f.field]) ? row[f.field].join(' ') : String(row[f.field] ?? '');
-          const cellLow = cell.toLowerCase();
-          const valLow = f.value.toLowerCase();
-          if (op === 'is_empty') { if (cell.trim() !== '') return false; continue; }
-          if (op === 'is_not_empty') { if (cell.trim() === '') return false; continue; }
-          if (!f.value) continue;
-          if (op === 'is') { if (cellLow !== valLow) return false; }
-          else if (op === 'is_not') { if (cellLow === valLow) return false; }
-          else if (op === 'starts_with') { if (!cellLow.startsWith(valLow)) return false; }
-          else { if (!cellLow.includes(valLow)) return false; } // 'contains' (default)
+        const active = defs.filter(f => f.op === 'is_empty' || f.op === 'is_not_empty' || !!f.value);
+        if (active.length) {
+          const ok = matchMode === 'any' ? active.some(f => passesOne(row, f)) : active.every(f => passesOne(row, f));
+          if (!ok) return false;
         }
         if (wf && wf.terms.length) {
           const ok = wf.mode === 'and' ? wf.terms.every(t => matchesText(row, t)) : wf.terms.some(t => matchesText(row, t));
@@ -468,23 +536,48 @@ export function DataEngine() {
     };
 
     // Live toolbar search + row filters always apply; the selected pill narrows further.
-    let rows = applyFilterDefs(rawData, query, rowFilters);
+    let rows = applyFilterDefs(rawData, query, rowFilters, undefined, filterMatch);
     if (selectedList) rows = resolveList(selectedList, rows, new Set());
     return rows;
-  }, [rawData, query, rowFilters, savedLists, selectedList, activeTab, workspaceLists]);
+  }, [rawData, query, rowFilters, filterMatch, savedLists, selectedList, activeTab, workspaceLists]);
 
+  // Multi-sort: sorts[0] is primary, later entries break ties — Notion-style "then by".
   const sorted = useMemo(() => {
-    if (!sort) return filtered;
-    const dir = sort.dir === 'asc' ? 1 : -1;
-    const isDateCol = sort.id === 'lastConnected' || sort.id === 'connectedOn';
-    return [...filtered].sort((a, b) => {
-      const av = a[sort.id], bv = b[sort.id];
+    if (!sorts.length) return filtered;
+    const compareOne = (a: any, b: any, s: SortSpec): number => {
+      const dir = s.dir === 'asc' ? 1 : -1;
+      const av = a[s.id], bv = b[s.id];
+      const isDateCol = s.id === 'lastConnected' || s.id === 'connectedOn';
       if (isDateCol) return (parseConnected(av) - parseConnected(bv)) * dir;
       const avn = Number(av), bvn = Number(bv);
       if (!isNaN(avn) && !isNaN(bvn) && av !== '' && bv !== '' && av != null && bv != null) return (avn - bvn) * dir;
       return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
+    };
+    return [...filtered].sort((a, b) => {
+      for (const s of sorts) {
+        const c = compareOne(a, b, s);
+        if (c !== 0) return c;
+      }
+      return 0;
     });
-  }, [filtered, sort]);
+  }, [filtered, sorts]);
+
+  // Dynamic grouping (table view): buckets the full sorted set by a field's value —
+  // Notion-style "Group by". Pagination is suspended while grouped (groups replace pages).
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const toggleGroupCollapsed = (key: string) => setCollapsedGroups(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const groupedRows = useMemo(() => {
+    if (!groupBy) return null;
+    const buckets = new Map<string, any[]>();
+    for (const row of sorted) {
+      const raw = row[groupBy];
+      const key = raw === null || raw === undefined || raw === '' || (Array.isArray(raw) && raw.length === 0)
+        ? 'No value' : Array.isArray(raw) ? raw.join(', ') : String(raw);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(row);
+    }
+    return [...buckets.entries()].sort(([a], [b]) => a === 'No value' ? 1 : b === 'No value' ? -1 : a.localeCompare(b));
+  }, [sorted, groupBy]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / rowsPerPage));
   const pageData = sorted.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
@@ -510,6 +603,42 @@ export function DataEngine() {
       return { id: f.id, label: f.label, kind: 'text' as const, filled, total };
     });
   }, [sorted, visibleFields]);
+  // GlideTable column defs — shared by the flat table and each grouped section.
+  const glideFields = useMemo(() => visibleFields.map(f => {
+    const hasColType = !!f.columnType;
+    // POPOVER_TYPES and checkbox are routed through onCellEdit — Glide must not inline-edit them.
+    const isPopoverOrToggle = hasColType && (POPOVER_TYPES.includes(f.columnType!) || f.columnType === 'checkbox');
+    const editable = hasColType
+      ? (!isPopoverOrToggle && INLINE_TYPES.includes(f.columnType!))
+      : (!f.toolId && !f.locked && editableKinds.has(f.kind));
+    return { id: f.id, label: f.label, width: (f as any).width, editable };
+  }), [visibleFields]);
+  // Shared GlideTable event handlers — one flat table (ungrouped) or one per group
+  // (grouped) all route through the same edit/open/select logic.
+  const handleGlideCellEdit = (row: any, fieldId: string, pos: { x: number; y: number }) => {
+    if (activeTab === 'Communities' && fieldId === 'communityType') {
+      setNewTypeInput('');
+      setTypePopover({ row, x: pos.x, y: pos.y });
+      return;
+    }
+    const cf = (customFields[activeTab] || []).find(f => f.id === fieldId);
+    if (cf?.columnType === 'select' || cf?.columnType === 'multiselect') {
+      setSelectNewOpt('');
+      setSelectPopover({ row, field: cf, x: pos.x, y: pos.y });
+      return;
+    }
+    if (cf?.columnType === 'date') {
+      setDatePopover({ row, field: cf, x: pos.x, y: pos.y });
+      return;
+    }
+    if (cf?.columnType === 'checkbox') {
+      const current = (cellOverrides[row.id]?.[fieldId] ?? row[fieldId]) as boolean | undefined;
+      editCell(row, fieldId, !current);
+      return;
+    }
+  };
+  const handleGlideOpen = (row: any) => navigate(`/item/${encodeURIComponent(row.name)}`);
+  const handleGlideRowMenu = (row: any, pos: { x: number; y: number }) => setRowMenu({ row, x: pos.x, y: pos.y });
   const handlePrevPage = () => setCurrentPage(p => Math.max(1, p - 1));
   const handleNextPage = () => setCurrentPage(p => Math.min(totalPages, p + 1));
 
@@ -574,6 +703,18 @@ export function DataEngine() {
 
         <div className="w-px h-6 shrink-0 hidden @[400px]:block" style={{ backgroundColor: 'var(--color-border)' }} />
 
+        {/* Data source badge — lets the user tell at a glance whether they're viewing live Supabase data or the local fallback. */}
+        <span
+          title={source === 'supabase' ? 'Loaded from Supabase' : 'Supabase unreachable — showing local fallback data'}
+          className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${source === 'supabase' ? 'var(--success)' : 'var(--warning)'} 14%, transparent)`,
+            color: source === 'supabase' ? 'var(--success)' : 'var(--warning)',
+          }}
+        >
+          {source === 'supabase' ? 'Live · Supabase' : 'Local fallback'}
+        </span>
+
         {/* Search (row filter) */}
         <div className="relative shrink flex-1 max-w-[360px] min-w-[32px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-warm-gray)' }} />
@@ -612,7 +753,16 @@ export function DataEngine() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setFilterMenuOpen(false)} />
                   <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute top-full right-0 mt-1 w-72 border rounded-xl shadow-lg z-50 p-3 flex flex-col gap-2" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
-                    <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>Filter rows where…</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>Filter rows where…</div>
+                      {rowFilters.length > 1 && (
+                        <div className="flex rounded-md border overflow-hidden text-xs font-semibold" style={{ borderColor: 'var(--color-border)' }}>
+                          {(['all', 'any'] as const).map(m => (
+                            <button key={m} onClick={() => setFilterMatch(m)} className="px-2 py-1 capitalize" style={{ backgroundColor: filterMatch === m ? 'var(--color-steel)' : 'white', color: filterMatch === m ? 'white' : 'var(--color-navy-mid)' }}>{m}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {rowFilters.length === 0 && <div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>No filters. Add one below.</div>}
                     {rowFilters.map((rf, i) => (
                       <div key={i} className="flex items-center gap-1.5 flex-wrap">
@@ -650,6 +800,71 @@ export function DataEngine() {
             </AnimatePresence>
           </div>
 
+          {/* Sort — multi-criteria (click a header still cycles the sole sort; this manages the list) */}
+          {activeView === 'table' && (
+          <div className="relative">
+            <button title="Sort rows" onClick={() => { setSortMenuOpen(o => !o); setGroupMenuOpen(false); }} className={clsx(toolbarBtn, (sortMenuOpen || sorts.length) && '!bg-[var(--color-surface)]')}>
+              <Rows3 className="w-3.5 h-3.5 text-[var(--color-warm-gray)] rotate-90" /> <span className="@[600px]:inline hidden">Sort</span>
+              {sorts.length > 0 && <span className="text-xs font-bold px-1.5 rounded-full" style={{ backgroundColor: 'var(--color-steel)', color: 'white' }}>{sorts.length}</span>}
+            </button>
+            <AnimatePresence>
+              {sortMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+                  <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute top-full right-0 mt-1 w-72 border rounded-xl shadow-lg z-50 p-3 flex flex-col gap-2" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
+                    <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-warm-gray)' }}>Sort by…</div>
+                    {sorts.length === 0 && <div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>No sort. Add a field below — later ones break ties.</div>}
+                    {sorts.map((s, i) => (
+                      <div key={s.id} className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium px-2 py-1.5 rounded-md whitespace-nowrap flex-1" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{i > 0 && 'then '}{fields.find(f => f.id === s.id)?.label.toLowerCase()}</span>
+                        <select value={s.dir} onChange={e => setSortDir(s.id, e.target.value as 'asc' | 'desc')} className="text-xs px-1.5 py-1.5 border rounded-md outline-none" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}>
+                          <option value="asc">ascending</option>
+                          <option value="desc">descending</option>
+                        </select>
+                        <button onClick={() => removeSort(s.id)} className="p-1 rounded text-[var(--color-warm-gray)] hover:text-[var(--danger)]"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                    <div className="border-t pt-2 mt-1" style={{ borderColor: 'var(--color-border)' }}>
+                      <div className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--color-warm-gray)' }}>Add sort on</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fields.filter(f => !sorts.some(s => s.id === f.id)).map(f => (
+                          <button key={f.id} onClick={() => addSort(f.id)} className="text-xs px-2 py-1 rounded-md border hover:border-[var(--color-steel)] hover:text-[var(--color-steel)] transition-colors" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>+ {f.label.toLowerCase()}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+          )}
+
+          {/* Group by — collapsible sections; suspends pagination while active */}
+          {activeView === 'table' && (
+          <div className="relative">
+            <button title="Group rows by a field" onClick={() => { setGroupMenuOpen(o => !o); setSortMenuOpen(false); }} className={clsx(toolbarBtn, (groupMenuOpen || groupBy) && '!bg-[var(--color-surface)]')}>
+              <Rows3 className="w-3.5 h-3.5 text-[var(--color-warm-gray)]" /> <span className="@[600px]:inline hidden">{groupBy ? `Group: ${fields.find(f => f.id === groupBy)?.label.toLowerCase()}` : 'Group'}</span>
+            </button>
+            <AnimatePresence>
+              {groupMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setGroupMenuOpen(false)} />
+                  <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="absolute top-full right-0 mt-1 w-56 border rounded-xl shadow-lg z-50 overflow-hidden py-1" style={{ backgroundColor: 'white', borderColor: 'var(--color-border)' }}>
+                    <button onClick={() => { setGroupBy(null); setGroupMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm" style={{ backgroundColor: !groupBy ? 'var(--color-surface)' : 'transparent', color: !groupBy ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
+                      None{!groupBy && <Check className="w-3.5 h-3.5 ml-auto" />}
+                    </button>
+                    {fields.map(f => (
+                      <button key={f.id} onClick={() => { setGroupBy(f.id); setGroupMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm capitalize truncate" style={{ backgroundColor: groupBy === f.id ? 'var(--color-surface)' : 'transparent', color: groupBy === f.id ? 'var(--color-steel)' : 'var(--color-navy-mid)' }}>
+                        {f.label.toLowerCase()}{groupBy === f.id && <Check className="w-3.5 h-3.5 ml-auto shrink-0" />}
+                      </button>
+                    ))}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+          )}
+
           {/* Overflow (3-dots) — Columns · Add column · Manage access */}
           <div className="relative">
             <button onClick={() => { setOverflowOpen(o => !o); setColMenuOpen(false); setFilterMenuOpen(false); }} className={clsx(toolbarBtn, overflowOpen && '!bg-[var(--color-surface)]')} title="Columns, add column, manage access">
@@ -671,13 +886,27 @@ export function DataEngine() {
                     </div>
                     <div className="max-h-52 overflow-y-auto py-1">
                       <div className="flex items-center gap-2 px-3 py-1.5 text-sm" style={{ color: 'var(--color-warm-gray)' }}><Check className="w-4 h-4" style={{ color: 'var(--color-steel)' }} /> Name <span className="ml-auto text-xs">always</span></div>
-                      {fields.map(f => (
-                        <button key={f.id} onClick={() => toggleCol(f.id)} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-[var(--color-surface)] transition-colors" style={{ color: 'var(--color-navy)' }}>
-                          {vis[f.id] ? <Eye className="w-4 h-4" style={{ color: 'var(--color-steel)' }} /> : <EyeOff className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} />}
-                          <span className="capitalize truncate">{f.label.toLowerCase()}</span>
-                          {(f as any).toolId && <Wrench className="w-3 h-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />}
-                          <span className="ml-auto w-9 h-5 rounded-full relative shrink-0" style={{ backgroundColor: vis[f.id] ? 'var(--color-steel)' : 'var(--color-border)' }}><span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform" style={{ transform: vis[f.id] ? 'translateX(16px)' : 'none' }} /></span>
-                        </button>
+                      {fields.map(f => renamingFieldId === f.id ? (
+                        <div key={f.id} className="w-full flex items-center gap-1.5 px-3 py-1.5">
+                          <input autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { const v = renameValue.trim(); setColumnLabelOverrides(prev => v ? { ...prev, [f.id]: v.toUpperCase() } : { ...prev, [f.id]: undefined as any }); setRenamingFieldId(null); }
+                              if (e.key === 'Escape') setRenamingFieldId(null);
+                            }}
+                            className="flex-1 min-w-0 px-2 py-1 border rounded-md text-sm outline-none" style={{ borderColor: 'var(--color-steel)' }} />
+                          <button onClick={() => { const v = renameValue.trim(); setColumnLabelOverrides(prev => v ? { ...prev, [f.id]: v.toUpperCase() } : { ...prev, [f.id]: undefined as any }); setRenamingFieldId(null); }} className="p-1 rounded text-[var(--color-steel)]"><Check className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setRenamingFieldId(null)} className="p-1 rounded text-[var(--color-warm-gray)]"><X className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ) : (
+                        <div key={f.id} className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-[var(--color-surface)] transition-colors group" style={{ color: 'var(--color-navy)' }}>
+                          <button onClick={() => toggleCol(f.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                            {vis[f.id] ? <Eye className="w-4 h-4" style={{ color: 'var(--color-steel)' }} /> : <EyeOff className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} />}
+                            <span className="capitalize truncate">{f.label.toLowerCase()}</span>
+                            {(f as any).toolId && <Wrench className="w-3 h-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />}
+                          </button>
+                          <button title="Rename column" onClick={() => { setRenamingFieldId(f.id); setRenameValue(f.label); }} className="p-1 rounded text-[var(--color-warm-gray)] hover:text-[var(--color-steel)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><Tag className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => toggleCol(f.id)} className="ml-1 w-9 h-5 rounded-full relative shrink-0" style={{ backgroundColor: vis[f.id] ? 'var(--color-steel)' : 'var(--color-border)' }}><span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform" style={{ transform: vis[f.id] ? 'translateX(16px)' : 'none' }} /></button>
+                        </div>
                       ))}
                     </div>
                     {/* Add column */}
@@ -787,53 +1016,58 @@ export function DataEngine() {
             </motion.div>
           ) : activeView === 'table' ? (
             <motion.div key="table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col flex-1 h-full overflow-hidden">
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0" style={groupedRows ? { overflowY: 'auto' } : undefined}>
                 {sorted.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm" style={{ color: 'var(--color-warm-gray)' }}>No {noun} match your filters.</div>
+                ) : groupedRows ? (
+                  // Grouped view: one collapsible section + bounded-height GlideTable per bucket.
+                  // Groups over the FULL filtered/sorted set (pagination is suspended while grouped).
+                  <div className="flex flex-col">
+                    {groupedRows.map(([key, rows]) => {
+                      const collapsed = collapsedGroups.has(key);
+                      const sectionHeight = Math.min(rows.length, 8) * densityPx + 40;
+                      return (
+                        <div key={key} className="border-b" style={{ borderColor: 'var(--color-border)' }}>
+                          <button onClick={() => toggleGroupCollapsed(key)} className="w-full flex items-center gap-2 px-4 py-2 text-sm font-semibold sticky top-0 z-10" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy)' }}>
+                            <ChevronDown className={clsx('w-3.5 h-3.5 transition-transform', collapsed && '-rotate-90')} style={{ color: 'var(--color-warm-gray)' }} />
+                            {key} <span className="text-xs font-normal" style={{ color: 'var(--color-warm-gray)' }}>{rows.length}</span>
+                          </button>
+                          {!collapsed && (
+                            <div style={{ height: sectionHeight }}>
+                              <GlideTable
+                                key={`${activeTab}-group-${key}`}
+                                rows={rows}
+                                fields={glideFields}
+                                rowHeight={densityPx}
+                                sorts={sorts}
+                                onSort={toggleSort}
+                                onOpen={handleGlideOpen}
+                                selectable={selecting}
+                                onSelectedRowsChange={(n, idx) => { setSelectedCount(n); setSelectedRowIdx(idx); }}
+                                onCellEdit={handleGlideCellEdit}
+                                onCellEdited={editCell}
+                                onRowMenu={handleGlideRowMenu}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <GlideTable
                     key={`${activeTab}-${currentPage}`}
                     rows={pageData}
-                    fields={visibleFields.map(f => {
-                      const hasColType = !!f.columnType;
-                      // POPOVER_TYPES and checkbox are routed through onCellEdit — Glide must not inline-edit them.
-                      const isPopoverOrToggle = hasColType && (POPOVER_TYPES.includes(f.columnType!) || f.columnType === 'checkbox');
-                      const editable = hasColType
-                        ? (!isPopoverOrToggle && INLINE_TYPES.includes(f.columnType!))
-                        : (!f.toolId && !f.locked && editableKinds.has(f.kind));
-                      return { id: f.id, label: f.label, width: (f as any).width, editable };
-                    })}
+                    fields={glideFields}
                     rowHeight={densityPx}
-                    sort={sort}
+                    sorts={sorts}
                     onSort={toggleSort}
-                    onOpen={(row) => navigate(`/item/${encodeURIComponent(row.name)}`)}
+                    onOpen={handleGlideOpen}
                     selectable={selecting}
                     onSelectedRowsChange={(n, idx) => { setSelectedCount(n); setSelectedRowIdx(idx); }}
-                    onCellEdit={(row, fieldId, pos) => {
-                      if (activeTab === 'Communities' && fieldId === 'communityType') {
-                        setNewTypeInput('');
-                        setTypePopover({ row, x: pos.x, y: pos.y });
-                        return;
-                      }
-                      // Custom column popover / toggle dispatch.
-                      const cf = (customFields[activeTab] || []).find(f => f.id === fieldId);
-                      if (cf?.columnType === 'select' || cf?.columnType === 'multiselect') {
-                        setSelectNewOpt('');
-                        setSelectPopover({ row, field: cf, x: pos.x, y: pos.y });
-                        return;
-                      }
-                      if (cf?.columnType === 'date') {
-                        setDatePopover({ row, field: cf, x: pos.x, y: pos.y });
-                        return;
-                      }
-                      if (cf?.columnType === 'checkbox') {
-                        const current = (cellOverrides[row.id]?.[fieldId] ?? row[fieldId]) as boolean | undefined;
-                        editCell(row, fieldId, !current);
-                        return;
-                      }
-                    }}
+                    onCellEdit={handleGlideCellEdit}
                     onCellEdited={editCell}
-                    onRowMenu={(row, pos) => setRowMenu({ row, x: pos.x, y: pos.y })}
+                    onRowMenu={handleGlideRowMenu}
                   />
                 )}
               </div>
@@ -1135,11 +1369,13 @@ export function DataEngine() {
       {/* Footer — hidden on Signals + Map (self-contained surfaces) */}
       {activeTab !== 'Signals' && activeView !== 'map' && (
       <div className="h-12 border-t border-[var(--color-border)] flex items-center justify-between px-4 bg-white shrink-0 z-10 w-full shadow-[0_-2px_10px_rgba(0,0,0,0.02)]">
-        {activeView === 'table' && (
-          <button title="Add a new row (locally editable)" onClick={addRow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm transition-all hover:bg-[var(--color-surface)] active:scale-95" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}>
+        {(activeView === 'table' || activeView === 'gallery' || activeView === 'kanban') && (
+          <button title="Add a new row (locally editable, persists on this device)" onClick={addRow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm transition-all hover:bg-[var(--color-surface)] active:scale-95" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)', backgroundColor: 'white' }}>
             <Plus className="w-3.5 h-3.5" style={{ color: 'var(--color-steel)' }} /> Add row
           </button>
         )}
+        {/* Pagination is suspended while grouped — groups already show every matching row. */}
+        {!groupedRows && (
         <div className="flex items-center gap-1 border border-[var(--color-border)] p-1 rounded-lg bg-[var(--color-surface)] shadow-inner ml-auto">
           <button onClick={handlePrevPage} disabled={currentPage === 1} className="p-1.5 rounded-md text-[var(--color-navy-mid)] hover:bg-white disabled:opacity-50 transition-all"><ChevronLeft className="w-4 h-4" /></button>
           <div className="flex items-center px-1 gap-0.5 text-sm font-medium">
@@ -1163,6 +1399,7 @@ export function DataEngine() {
           </div>
           <button onClick={handleNextPage} disabled={currentPage === totalPages} className="p-1.5 rounded-md text-[var(--color-navy-mid)] hover:bg-white disabled:opacity-50 transition-all"><ChevronRight className="w-4 h-4" /></button>
         </div>
+        )}
       </div>
       )}
 
@@ -1492,7 +1729,7 @@ export function DataEngine() {
                     if (id.startsWith('new-')) {
                       setAddedRows(prev => ({ ...prev, [activeTab]: (prev[activeTab] || []).filter(r => r.id !== id) }));
                     } else {
-                      setDeletedIds(prev => { const n = new Set(prev); n.add(id); return n; });
+                      setDeletedIdsArr(prev => prev.includes(id) ? prev : [...prev, id]);
                     }
                     setRowMenu(null);
                   }}

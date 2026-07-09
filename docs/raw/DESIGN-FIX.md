@@ -1,3 +1,13 @@
+---
+title: Design-Fix Spec (v0)
+type: raw
+doc_kind: plan
+status: active
+companions: []
+related_wiki: ../wiki/design.md
+updated: 2026-06-22
+tags: [design, ui, vocab]
+---
 # Bridge AI — Design-Fix Spec (v0)
 
 > Turns the [DESIGN-AUDIT.md](./DESIGN-AUDIT.md) gaps into concrete UI work against the coded prototype `/Design Bridge AI Interface (Copy)/` (React+Vite+Tailwind+shadcn, 70 `.tsx`, 12 pages).
@@ -117,7 +127,10 @@ Split the Person profile into two clearly-labelled zones:
 - Default comes from `workspace_settings.default_visibility` (workspace admin decides — locked decision). Show the inherited default and let the user override per-relationship.
 - Copy makes the blast radius concrete: "Team can see this relationship" vs "Only you."
 
-### F4c — Both-party-consent intro flow
+### F4c — Both-party-consent intro flow — **REVERSED 2026-07-06 (user call, ADR-026)**
+
+> Both-party consent NOT required. Data owner controls own data. Intro = normal governed proposal, approved by the SENDER alone — no `awaiting_both` state, no counterparty gate. "No silent enrichment / no auto-send" still stands (sender approval required). Section below retained for history only.
+
 - The **moat/whitespace** feature. An intro is an `edges` row of type `INTRODUCED` with a **consent state machine**, not a fire-and-forget action.
 - States: `requested → awaiting_both → (both_approved) active | declined`. Neither side is "connected" until **both** approve.
 - UI: an **intro request card** (in Approvals/Network) showing both parties' consent status; the requester sees "waiting on Sarah", each party sees a clear approve/decline with what will be shared.

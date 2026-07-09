@@ -2,56 +2,52 @@ import { useState } from 'react';
 import { ChevronRight, Edit2, Trash2, CheckCircle, AlertCircle, Clock, TrendingUp, Activity, Copy, RefreshCw, Globe, Link2, ArrowRight, BookOpen, WifiOff, Wifi, Settings, BarChart2, Database, Key } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
+import { GoogleIntegrationPanel } from './GoogleIntegrationPanel';
+import { socialProviderFor } from '../data/integrations';
+import { IntegrationPermissions } from '../components/IntegrationPermissions';
+import { ConnectAppFlow } from '../components/shared/ConnectAppFlow';
 
-const integrationDetails: Record<string, any> = {
-  'IN-001': {
-    name: 'OpenAI GPT-4o', provider: 'OpenAI', category: 'dummy_AI/LLM', status: 'Connected', region: 'dummy_US-West',
-    desc: 'dummy_Core AI inference provider powering all language model calls across Bridge AI agents, rituals, and co-pilot suggestions.',
-    health: 9009, lastSync: 'dummy_9009 min ago', recordsSynced: 'dummy_—', latency: 'dummy_9009ms',
-    endpoint: 'dummy_https://api.openai.com/v1',
-    apiVersion: 'dummy_v1', rateLimit: 'dummy_9009 TPM', costToDate: 'dummy_$9009',
-    logs: [
-      { time: 'dummy_10:41 AM', event: 'dummy_Chat completion — Aria (prospecting)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_10:43 AM', event: 'dummy_Chat completion — Nova (email draft)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_11:02 AM', event: 'dummy_Chat completion — Rex (qualification)', tokens: 9009, status: 'ok' },
-      { time: 'dummy_11:30 AM', event: 'dummy_Embedding batch — 9009 relationships', tokens: 9009, status: 'ok' },
-      { time: 'dummy_2:15 PM', event: 'dummy_Function call — CRM enrichment', tokens: 9009, status: 'ok' },
-      { time: 'dummy_3:00 PM', event: 'dummy_Rate limit warning — 9009% of quota', tokens: 0, status: 'warn' },
-    ],
-    analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], success: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-    connectedAgents: ['dummy_AG-001 — Aria', 'dummy_AG-002 — Rex', 'dummy_AG-003 — Sage', 'dummy_AG-004 — Nova', 'dummy_AG-006 — Orion'],
-  },
-};
+// Curated detail records for integrations with a real, known API shape. None are wired to a live
+// API yet in this prototype (that's `hasApi` below), so honest placeholders replace fabricated
+// activity/metrics until each provider is actually connected.
+const integrationDetails: Record<string, any> = {};
 
 const defaultIntegration = {
-  name: 'dummy_Integration', provider: 'dummy_Provider', category: 'dummy_General', status: 'Connected', region: 'dummy_US-East',
-  desc: 'dummy_A Bridge AI integration connecting external systems to the platform.',
-  health: 9009, lastSync: 'dummy_9009 min ago', recordsSynced: 'dummy_9009K', latency: 'dummy_9009ms',
-  endpoint: 'dummy_https://api.provider.com/v1',
-  apiVersion: 'dummy_v1', rateLimit: 'dummy_9009/min', costToDate: 'dummy_$9009',
-  logs: [
-    { time: 'dummy_10:00 AM', event: 'dummy_Sync completed', tokens: 0, status: 'ok' },
-    { time: 'dummy_10:30 AM', event: 'dummy_Record pull — 9009 people', tokens: 0, status: 'ok' },
-  ],
-  analytics: { calls: [9009, 9009, 9009, 9009, 9009, 9009, 9009], success: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-  connectedAgents: ['dummy_AG-001 — Aria'],
+  name: 'Integration', provider: 'Unknown', category: 'Not yet configured', status: 'Disconnected', region: '—',
+  desc: 'This integration has not been connected yet. Once connected, sync activity and metrics will appear here.',
+  health: 0, lastSync: 'Never', recordsSynced: '—', latency: '—',
+  endpoint: '—',
+  apiVersion: '—', rateLimit: '—', costToDate: '—',
+  logs: [],
+  analytics: { calls: [0, 0, 0, 0, 0, 0, 0], success: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
+  connectedAgents: [],
 };
-
-const navTabs = ['Overview', 'Activity', 'Connections', 'Settings'];
 
 export function IntegrationDetail() {
   const { id } = useParams();
   const decoded = id ? decodeURIComponent(id) : '';
+
+  // The real, wired Gmail + Google Calendar integration. Other ids keep the mock UI.
+  if (decoded === 'google') return <GoogleIntegrationPanel />;
+
   const intg = integrationDetails[decoded] || { ...defaultIntegration, name: decoded || defaultIntegration.name };
 
+  // Social integrations (X / Instagram / Facebook / LinkedIn) carry a governed Permissions panel.
+  const social = socialProviderFor(decoded);
+  const navTabs = ['Overview', ...(social ? ['Permissions'] : []), 'Activity', 'Connections', 'Settings'];
+
   const [activeTab, setActiveTab] = useState('Overview');
+  const [connecting, setConnecting] = useState(false);
+  // Known providers (curated detail records) ship with a real API; anything else falls into the
+  // AI-guided waterfall (scrape / bot / Claude-in-browser) when the user (re)configures it.
+  const hasApi = decoded in integrationDetails;
 
   const scrollTo = (tab: string) => {
     setActiveTab(tab);
     document.getElementById(`in-${tab.toLowerCase()}`)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const maxCalls = Math.max(...intg.analytics.calls);
+  const maxCalls = Math.max(1, ...intg.analytics.calls);
   const statusColor = intg.status === 'Connected' ? 'text-[var(--success)] bg-[var(--success)]/10 border-[var(--success)]/30' : intg.status === 'Degraded' ? 'text-[var(--warning)] bg-[var(--warning)]/10 border-[var(--warning)]/30' : 'text-[var(--danger)] bg-[var(--danger)]/10 border-[var(--danger)]/30';
   const StatusIcon = intg.status === 'Connected' ? CheckCircle : intg.status === 'Degraded' ? AlertCircle : WifiOff;
 
@@ -63,7 +59,7 @@ export function IntegrationDetail() {
           <BookOpen className="w-3.5 h-3.5 text-[var(--warning)]" />
           <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Intelligence</Link>
           <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
-          <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Integrations</Link>
+          <Link to="/intelligence" className="text-[var(--color-navy-mid)] hover:text-[var(--color-navy)] transition-colors">Apps</Link>
           <ChevronRight className="w-3 h-3 text-[var(--color-warm-gray)]" />
           <span className="bg-[var(--warning)]/10 text-[var(--warning)] px-2.5 py-0.5 rounded text-xs font-semibold">{intg.name}</span>
         </div>
@@ -78,7 +74,7 @@ export function IntegrationDetail() {
             <button className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-navy-mid)] border border-[var(--color-border)] px-3 py-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors">
               <RefreshCw className="w-3.5 h-3.5" /> Sync Now
             </button>
-            <button className="flex items-center gap-1.5 bg-[var(--warning)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--warning)] transition-colors">
+            <button onClick={() => setConnecting(true)} className="flex items-center gap-1.5 bg-[var(--warning)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--warning)] transition-colors">
               <Edit2 className="w-3.5 h-3.5" /> Configure
             </button>
           </div>
@@ -197,12 +193,20 @@ export function IntegrationDetail() {
             </div>
           </section>
 
+          {/* PERMISSIONS — governed scope editor, social integrations only */}
+          {social && (
+            <section id="in-permissions" className="scroll-mt-24">
+              <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Permissions</h2>
+              <IntegrationPermissions provider={social} integrationId={decoded} />
+            </section>
+          )}
+
           {/* ACTIVITY */}
           <section id="in-activity" className="scroll-mt-24">
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">dummy_Today · April 9009, 9009</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <button className="text-xs text-[var(--color-steel)] hover:underline flex items-center gap-1"><RefreshCw className="w-3 h-3" /> Refresh</button>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
@@ -215,6 +219,9 @@ export function IntegrationDetail() {
                     <span className={clsx('text-xs font-bold uppercase ml-2', log.status === 'ok' ? 'text-[var(--success)]' : log.status === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--danger)]')}>{log.status}</span>
                   </div>
                 ))}
+                {intg.logs.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this integration hasn't synced.</div>
+                )}
               </div>
             </div>
           </section>
@@ -239,6 +246,9 @@ export function IntegrationDetail() {
                     <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--warning)] transition-colors" />
                   </Link>
                 ))}
+                {intg.connectedAgents.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No agents connected yet.</div>
+                )}
               </div>
             </div>
           </section>
@@ -276,6 +286,8 @@ export function IntegrationDetail() {
 
         </div>
       </div>
+
+      {connecting && <ConnectAppFlow appName={intg.name} apiAvailable={hasApi} onClose={() => setConnecting(false)} onConnected={() => setConnecting(false)} />}
     </div>
   );
 }

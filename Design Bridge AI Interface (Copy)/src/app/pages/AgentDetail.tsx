@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
-import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Brain, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database } from 'lucide-react';
+import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Brain, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database, X, Save } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
+import { PermissionLayers, type PermissionState } from '../components/PermissionLayers';
+import { apiUpdateAgent } from '../data/api';
 
 // ─── Agent Data ──────────────────────────────────────────────────────────────
 
@@ -30,50 +32,20 @@ const agentDetails: Record<string, any> = {
     ],
     analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
   },
-  'AG-001': {
-    name: 'dummy_Aria', specialization: 'dummy_Prospecting', model: 'dummy_GPT-4o', status: 'Active',
-    desc: 'dummy_Aria is a specialized prospecting agent trained to identify, qualify, and engage new relationships across all data sources. She excels at cold outreach personalization and intent signal detection.',
-    avatar: 'dummy_A', color: '#4D7EA8',
-    accuracy: 9009, runs: 9009, rituals: 9009, lastActive: 'dummy_9009 min ago',
-    skills: [
-      { id: 'SK-001', name: 'dummy_NLP Inference', category: 'Language', strength: 9009, locked: false },
-      { id: 'SK-004', name: 'dummy_Web Research', category: 'Data', strength: 9009, locked: false },
-      { id: 'SK-010', name: 'dummy_Person Intelligence', category: 'Data', strength: 9009, locked: false },
-      { id: 'SK-002', name: 'dummy_Email Drafting', category: 'Communication', strength: 9009, locked: false },
-      { id: 'SK-006', name: 'dummy_Sentiment Analysis', category: 'Language', strength: 9009, locked: false },
-      { id: 'SK-003', name: 'dummy_Relationship Scoring', category: 'Analytics', strength: 9009, locked: false },
-    ],
-    connectedWorkflows: ['dummy_WF-001 — New Relationship Onboarding', 'dummy_WF-005 — Competitive Displacement', 'dummy_WF-010 — Inbound MQL Qualification', 'dummy_WF-011 — Executive Relationship Builder'],
-    activity: [
-      { time: 'dummy_10:41 AM', event: 'dummy_Prospecting run started for Aaron Estes', type: 'run' },
-      { time: 'dummy_10:43 AM', event: 'dummy_Person intelligence pulled from Apollo.io', type: 'data' },
-      { time: 'dummy_10:44 AM', event: 'dummy_Personalized outreach email drafted', type: 'output' },
-      { time: 'dummy_11:02 AM', event: 'dummy_Prospecting run started for Gloria Nguyen', type: 'run' },
-      { time: 'dummy_11:05 AM', event: 'dummy_Relationship score: 9009/9009 → flagged as High Priority', type: 'output' },
-      { time: 'dummy_2:30 PM', event: 'dummy_Weekly accuracy calibration completed', type: 'system' },
-    ],
-    analytics: { runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
-  },
 };
 
+// No matching record → an honest "not configured yet" state rather than fabricated metrics.
+// helpdesk-ai is currently the only real, live agent; everything else routes here until the
+// agent runtime (P0 Kernel) ships real agents with real run history.
 const defaultAgent = {
-  name: 'dummy_Agent', specialization: 'dummy_General', model: 'dummy_GPT-4o', status: 'Active',
-  desc: 'dummy_A Bridge AI agent optimized for automated touchpoint execution across rituals.',
-  avatar: 'dummy_?', color: '#4D7EA8',
-  accuracy: 9009, runs: 9009, rituals: 9009, lastActive: 'dummy_9009 hour ago',
-  skills: [
-    { id: 'SK-001', name: 'dummy_NLP Inference', category: 'Language', strength: 9009, locked: false },
-    { id: 'SK-002', name: 'dummy_Email Drafting', category: 'Communication', strength: 9009, locked: false },
-    { id: 'SK-003', name: 'dummy_Relationship Scoring', category: 'Analytics', strength: 9009, locked: false },
-    { id: 'SK-004', name: 'dummy_Web Research', category: 'Data', strength: 9009, locked: false },
-    { id: 'SK-010', name: 'dummy_Person Intelligence', category: 'Data', strength: 9009, locked: false },
-  ],
-  connectedWorkflows: ['dummy_WF-001 — New Relationship Onboarding', 'dummy_WF-003 — Enterprise Expansion'],
-  activity: [
-    { time: 'dummy_09:30 AM', event: 'dummy_Run started', type: 'run' },
-    { time: 'dummy_09:32 AM', event: 'dummy_Touchpoint completed', type: 'output' },
-  ],
-  analytics: { runs: [9009, 9009, 9009, 9009, 9009, 9009, 9009], months: ['dummy_Oct', 'dummy_Nov', 'dummy_Dec', 'dummy_Jan', 'dummy_Feb', 'dummy_Mar', 'dummy_Apr'] },
+  name: 'Agent', specialization: 'Not yet configured', model: '—', status: 'Inactive',
+  desc: 'This agent has not been created yet. Once the agent runtime is connected, its skills, activity, and run history will appear here.',
+  avatar: '?', color: '#B8B4A8',
+  accuracy: 0, runs: 0, rituals: 0, lastActive: 'Never',
+  skills: [],
+  connectedWorkflows: [],
+  activity: [],
+  analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
 };
 
 const navTabs = ['Overview', 'Skill Matrix', 'Activity', 'Connections', 'Settings'];
@@ -153,6 +125,40 @@ export function AgentDetail() {
   const [dataAccess, setDataAccess] = useState<'all' | 'public' | 'private'>('public');
   const [skills, setSkills] = useState(raw.skills);
 
+  // Edit Agent — scope editor reusing the shared layered controls. Seeded from the
+  // agent's current (read-only) authority; least-privilege defaults when unknown.
+  const [editingScope, setEditingScope] = useState(false);
+  const [savingScope, setSavingScope] = useState(false);
+  const [perms, setPerms] = useState<PermissionState>({
+    capabilityScope: [],
+    allowedSkills: [],
+    dataScope: dataAccess,
+    egressTier: 'draft-graph',
+  });
+
+  const openScopeEditor = () => {
+    setPerms((p) => ({ ...p, dataScope: dataAccess }));
+    setEditingScope(true);
+  };
+  const saveScope = async () => {
+    setSavingScope(true);
+    try {
+      await apiUpdateAgent(decoded, {
+        name: raw.name,
+        capabilityScope: perms.capabilityScope,
+        allowedSkills: perms.allowedSkills,
+        dataScope: perms.dataScope,
+        egressTier: perms.egressTier,
+      });
+    } catch {
+      // demo fallback — keep local state
+    } finally {
+      setDataAccess(perms.dataScope);
+      setSavingScope(false);
+      setEditingScope(false);
+    }
+  };
+
   const handleSkillChange = useCallback((skillId: string, val: number) => {
     setSkills((prev: any[]) => prev.map(s => s.id === skillId ? { ...s, strength: val } : s));
   }, []);
@@ -162,9 +168,9 @@ export function AgentDetail() {
     document.getElementById(`ag-${tab.toLowerCase().replace(' ', '-')}`)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const maxBar = Math.max(...raw.analytics.runs);
+  const maxBar = Math.max(1, ...raw.analytics.runs);
 
-  const avgStrength = Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length);
+  const avgStrength = skills.length ? Math.round(skills.reduce((a: number, s: any) => a + s.strength, 0) / skills.length) : 0;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
@@ -192,7 +198,7 @@ export function AgentDetail() {
           </button>
           <div className="flex items-center gap-2">
             <button className="p-1.5 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] rounded-lg transition-colors"><Copy className="w-4 h-4" /></button>
-            <button className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95">
+            <button onClick={openScopeEditor} className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95">
               <Edit2 className="w-3.5 h-3.5" /> Edit Agent
             </button>
           </div>
@@ -332,7 +338,7 @@ export function AgentDetail() {
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Activity Log</h2>
             <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50">
-                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">dummy_Today · April 9009, 9009</span>
+                <span className="text-xs font-semibold text-[var(--color-navy-mid)] uppercase tracking-wide">Today · {new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                 <span className="text-xs text-[var(--color-warm-gray)]">{raw.runs} total events</span>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
@@ -347,6 +353,9 @@ export function AgentDetail() {
                     </div>
                   );
                 })}
+                {raw.activity.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No activity yet — this agent hasn't run.</div>
+                )}
               </div>
             </div>
 
@@ -390,6 +399,9 @@ export function AgentDetail() {
                       <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--color-steel)] transition-colors" />
                     </Link>
                   ))}
+                  {raw.connectedWorkflows.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No rituals connected yet.</div>
+                  )}
                 </div>
               </div>
               {/* Skills */}
@@ -411,6 +423,9 @@ export function AgentDetail() {
                       </div>
                     </Link>
                   ))}
+                  {skills.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No skills loaded yet.</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -473,6 +488,44 @@ export function AgentDetail() {
 
         </div>
       </div>
+
+      {/* ── Edit Agent — layered scope editor (shared PermissionLayers) ─── */}
+      <AnimatePresence>
+        {editingScope && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
+            onClick={() => setEditingScope(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              className="bg-white rounded-2xl shadow-2xl border border-[var(--color-border)] w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] shrink-0">
+                <div>
+                  <h2 className="font-bold text-[var(--color-navy)]">Edit agent scope</h2>
+                  <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">Adjust {raw.name}'s layered authority. Least-privilege; agent-floor denials are non-removable.</p>
+                </div>
+                <button onClick={() => setEditingScope(false)} className="p-1.5 text-[var(--color-warm-gray)] hover:text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] rounded-lg transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto px-6 py-5">
+                <PermissionLayers value={perms} onChange={setPerms} />
+              </div>
+              <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-[var(--color-border)] shrink-0">
+                <button onClick={() => setEditingScope(false)} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)] transition-colors">
+                  Cancel
+                </button>
+                <button onClick={saveScope} disabled={savingScope} className="flex items-center gap-1.5 bg-[var(--color-steel)] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-navy-mid)] transition-colors active:scale-95 disabled:opacity-50">
+                  <Save className="w-3.5 h-3.5" /> {savingScope ? 'Saving…' : 'Save scope'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
