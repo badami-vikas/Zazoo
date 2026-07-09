@@ -1,6 +1,15 @@
 # Change Log
 
 - **2026-07-09** — ADR-035–ADR-041: OSS adoption decisions documented (ADR-035 DocumentProvider Docling+Tika; ADR-036 SandboxProvider isolated-vm+E2B doctrine split; ADR-037 ConnectorProvider Nango conditional+Activepieces Pi-import; ADR-038 ObservabilityProvider Langfuse+P3 bake-off; ADR-039 reference-only Graphiti/Letta/screenpipe/CrewAI/Baserow; ADR-040 WebResearch Firecrawl API-only+Stagehand P4; ADR-041 rejected/parked governance engines+UI framework+runtime). New `docs/raw/spec-adapter-ports.md` with `DocumentProvider` and `ConnectorProvider` port interface sketches.
+- **2026-07-09** — spec-control-panel-icon.md created: toolbar icon that opens a view-scoped popover listing associated tools/workflows/resources/people/agents/skills.
+- **2026-07-09** — spec-workspace-naming.md created: email-domain extraction rule for workspace name; fallback to FirstName's Workspace; always user-editable.
+- **2026-07-09** — spec-avatar.md created: full Day-1 avatar spec — growth stages (egg/creature/mature), operational states, personality states, surfaces (web+desktop), click behaviour, hatch ceremony, spirit-animal question.
+- **2026-07-09** — spec-dream-cycle.md created: nightly Hatchet ritual spec — dedupe/link-repair/enrich/merge-conflict/summary-refresh as governed proposals.
+- **2026-07-09** — spec-virtual-office.md created: brief Termi-like optional capability package spec, P5/P6 phase target.
+- **2026-07-09** — spec-fork-metaphor.md created: "request egg from spirit animal" fork metaphor, P5 phase target, compose model.
+- **2026-07-09** — spec-cos-board-meeting.md created: Chief of Staff weekly board meeting ritual spec — four review areas, governed summary proposal output.
+- **2026-07-09** — docs/wiki/vision.md updated: added AI-Executive-Office framing paragraph.
+- **2026-07-09** — docs/BUGS.md updated: annotated 6 entries that celebrate/accept the pre-2026-07-06 dummy_ convention with retirement notices.
 
 - **2026-07-07** — **Universal Commons bootstrapped (R-004, ADR-030)**: new `platform/services/commons` — local-first Fastify 5 Module registry (port 4780, FS JSON store behind `CommonsStore` port, `COMMONS_DATA_DIR`), permanent v1 HTTP contract (list/get/get-version/publish), knowledge-only publish gate rejecting workspace/user data with exact offending paths (422); `CommonsRegistry` port + wire types in `@bridge/core`, `HttpCommonsClient` fetch adapter in apps/api (`COMMONS_URL`, config-only Bridge Cloud swap), `publish-builtins` script posts the 4 built-in manifests as first real content (registry starts empty, no dummy data). Marketplace = Commons website surface; apps/web untouched. 5 node:test tests + live smoke green; pre-existing `packages.list` pagination test failure filed in BUGS.md. New wiki page: [wiki/commons.md](wiki/commons.md).
 

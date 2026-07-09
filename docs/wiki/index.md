@@ -40,6 +40,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - **Token-efficient dev** → [../raw/token-efficient-development-2026-07.md](../raw/token-efficient-development-2026-07.md): codemaps/diagrams/nav-index to add + token best practices + roadmap. Skills diluting the project (CSV) → [../skills-diluting-project.csv](../skills-diluting-project.csv).
 - [BUGS](../BUGS.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
 - [testing](testing.md) — real coverage numbers (no CI/vitest), priority test list tied to known P0 bugs.
+- **Specs (2026-07-09)** — [spec-control-panel-icon](../raw/spec-control-panel-icon.md) · [spec-workspace-naming](../raw/spec-workspace-naming.md) · [spec-avatar](../raw/spec-avatar.md) · [spec-dream-cycle](../raw/spec-dream-cycle.md) · [spec-virtual-office](../raw/spec-virtual-office.md) · [spec-fork-metaphor](../raw/spec-fork-metaphor.md) · [spec-cos-board-meeting](../raw/spec-cos-board-meeting.md).
 
 ## Decisions + rationale
 Locked one-liners → [decisions](decisions.md). Full why + alternatives rejected (ADR) → [../raw/decisions-log.md](../raw/decisions-log.md).
