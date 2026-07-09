@@ -222,6 +222,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   cross-file references — safe one-line renames. Verified: `turbo run test` for all 4
   affected packages, 73/73 green (23 dealpilot + 50 jobpilot, company-sourcing/
   people-sourcing tests included in the same filtered run).
+  *(Pre-2026-07-06 reversal — dummy_ convention retired; see ADR-026. Reassess if still relevant.)*
 
 ---
 
@@ -269,6 +270,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   target: `wiring.ts`'s `BRIDGE_PILOT_USER_EMAIL ?? "dummy_pilot@bridge.local"` (a correctly
   `dummy_`-prefixed, zero-infra dev identity default — exactly the "structural seed constants,
   retain not delete" carve-out the original ADR itself called out).
+  *(Pre-2026-07-06 reversal — dummy_ convention retired; see ADR-026. The "correctly-scoped unit-test doubles" and "correctly dummy_-prefixed" judgments reflect the pre-reversal convention. Both categories (test fixtures and the pilot email constant) were subsequently renamed per the 2026-07-06 sweep. Reassess if still relevant.)*
 - **OPEN — needs your decision: should the social-provider fixture seam (X/Instagram/Facebook
   in `apps/api/src/social/{registry,fixtures,read-pipeline}.ts`) get the same "hard purge, live
   creds required" treatment as Google did on 2026-06-22?** This is a DIFFERENT fallback than the
@@ -396,6 +398,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   a no-params call returns exactly the documented default of 50, not everything). Full
   `turbo run build --force` + `turbo run test --force`: 28/28 packages green. See `All fixes.md`
   section 3 and Phase 3 item 14c for the full writeup.
+  *(Pre-2026-07-06 reversal — the test fixtures used the dummy_ prefix per the convention in force at the time; ADR-026 renamed all test fixture literals to test_fixture_. Verify these were included in the 2026-07-06 rename sweep. Reassess if still relevant.)*
 
 - **RESOLVED 2026-07-05 — `decide()` dropped audit context on replay.** `core/src/pipeline.ts`'s
   `decide()` reconstructed the request with `skill: "(replayed)"` and silently dropped the
@@ -564,6 +567,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 - **RESOLVED (2026-07-04) — Standalone tool shells now require login.** `/standalone/jobpilot` previously bypassed `AuthGate` entirely (by design, per the original "standalone means no other platform tools" framing) — user clarified standalone should still require a real Bridge login, just no Network/other-tools chrome. Both `/standalone/jobpilot` and the new `/standalone/dealpilot` are now wrapped in `<AuthGate>`.
 
 - **RESOLVED (2026-07-04) — DealPilot's real connector/quarantine flow re-wired onto the UI-standardized page.** Follow-up to the divergent-implementations merge below: verified the real backend is genuinely live (`platform/apps/api/src/router.ts` `dealpilot.source/commit/list`, backed by `platform/tools/dealpilot`'s BizBuySell/BusinessBroker connectors + `@bridge/tool-kit`'s intake seam, 19+9 passing tests) and its DTO shape matches the prototype's `data/api.ts` exactly. Extended `data/dealpilot.ts` additively (`useLiveListings`/`usePendingCaptures`/`sourceListings`/`commitCapture`/`useDealPilotSourcing`, gated by `API_ENABLED`, all existing exports untouched) and wired `DealPilotPage.tsx`: a "Source new listings" toolbar action + a quarantine strip (sourced-but-uncommitted captures, each with an "Add" button — a real action button, not a fit-card, so it doesn't conflict with the flags-are-the-action rule) that merges committed listings into the same Card/Kanban/List views alongside the dummy_ demo set. Demo mode (API disabled) verified unchanged via a temporary test route (reverted). `tsc`/`vite build` clean, `turbo run build/test --force` 15/15 + 28/28 green.
+  *(Pre-2026-07-06 reversal — the dummy_ demo set referenced here was the pattern in force at the time; the no-dummy-data rule (ADR-026) retired this approach. Reassess if still relevant.)*
 
 - **OPEN — DealPilot has two divergent prototype implementations, reconciled by keeping the UI-standardized one.** A parallel session (merged same day, `feat(dealpilot): real P0 connectors + generic intake seam + live prototype wiring`) built a bespoke DealPilotPage wired to real `apiDealPilotSource/Commit/List` (BizBuySell Gmail-alert connector via the governed google gateway, quarantine→commit flow, `DealCandidate`/`TRIAGE_COLUMNS` shape) while this session independently built a UI-standardized DealPilotPage (Card/Kanban/List/Lists+merge, `Listing`/`Deal`/`scoreThesisFit` shape, local reactive store only — no live API). Merge conflict resolved 2026-07-04 by keeping this session's version (satisfies the locked platform UI-standardization requirements: ListBar, StandardToolbar, flags-as-actions, universal green/yellow/red). The real BizBuySell connector + quarantine/commit API surface has since been re-wired — see RESOLVED entry above.
 
@@ -670,6 +674,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   `[key: string]: any` index signatures + `dummy_`-prefixed sample rows) to unblock `tsc --noEmit`
   and `vite build` on THIS machine — confirmed both pass. Still NOT committed (file stays gitignored
   per design; needs your go-ahead per the earlier plan to commit it so every fresh checkout builds).
+  *(Pre-2026-07-06 reversal — the dummy_-prefixed stub was the accepted workaround at the time; ADR-026 retired the dummy_ convention. If committing a stub is still the chosen fix, the stub should use the test_fixture_ prefix or a different non-dummy_ scheme. Reassess if still relevant.)*
   Also: ~5 pre-existing implicit-`any` errors in `ItemDetail.tsx` — **RESOLVED 2026-07-05**: typed
   `EditableText`/`ContactCard`'s `fv`/`Boundaries`' `Col`/`visMeta`, and added explicit `bio`,
   `newsInsight`, `websiteUrl`, `githubHandle`, `instagramHandle`, `twitterHandle`, `skills`,
@@ -749,6 +754,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   non-dummy_ network.ts/Connections.csv/etc from ever being committed. Verified present and
   correctly using `--force`. Not yet verified green on a live run (no `gh` push performed this
   session) — flagging as resolved-pending-first-run, not fully closed.
+  *(Pre-2026-07-06 reversal — the CI PII-guard was written to permit dummy_-prefixed versions of sensitive files; ADR-026 retired the dummy_ convention. The guard logic should be reviewed to reflect the new test_fixture_ prefix standard. Reassess if still relevant.)*
 
 - **RESOLVED 2026-07-05 — Calendar fetch window: no `timeMax`, 250-event cap, refetch-per-nav.**
   `GoogleGateway.fetchEvents` listed from `timeMin` forward ordered by start (max 250), no upper
@@ -789,6 +795,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   dummy_ + fixtures; tests need live creds). Not yet executed. See decisions-log
   2026-06-22 (dummy). Until done, `dummy_` data still in `integrations-google` gateway +
   tests + wiring seeds.
+  *(Pre-2026-07-06 reversal — the 2026-07-06 real-data enforcement pass (ADR-026) executed the bulk of this purge: FakeGoogleGateway removed, social fixtures cleared, test literals renamed to test_fixture_. Verify whether this entry is now fully RESOLVED or still partially open. Reassess if still relevant.)*
 
 
 - **RESOLVED 2026-07-05 — Agent-floor invariant triplicated across three packages, and had
