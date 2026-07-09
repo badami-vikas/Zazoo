@@ -54,3 +54,7 @@ Design Bridge AI Interface (Copy)/data/seed_canonical.sql
 # Logs
 *.log
 npm-debug.log*
+
+# Build caches
+.turbo/
+.DS_Store

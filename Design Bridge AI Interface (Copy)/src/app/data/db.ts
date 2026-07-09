@@ -195,7 +195,21 @@ export interface WorkspaceList {
   memberIds: Set<string>;
 }
 
-// Load workspace communities of kind='list' and their member person IDs.
+// Resolve per-workspace people.id values → their canonical_person_id, chunked to stay
+// under URL length limits. The People grid is keyed by people_canonical.id, so list
+// membership (stored as people.id in community_members) must be mapped across this seam.
+async function resolveCanonicalIds(personIds: string[]): Promise<string[]> {
+  const out: string[] = [];
+  const CHUNK = 200;
+  for (let i = 0; i < personIds.length; i += CHUNK) {
+    const slice = personIds.slice(i, i + CHUNK);
+    const { data } = await supabase.from('people').select('canonical_person_id').in('id', slice);
+    for (const r of (data || [])) if (r.canonical_person_id) out.push(r.canonical_person_id as string);
+  }
+  return out;
+}
+
+// Load workspace communities of kind='list' and their member canonical-person IDs.
 export async function loadWorkspaceLists(): Promise<WorkspaceList[]> {
   try {
     const { data, error } = await supabase
@@ -204,12 +218,16 @@ export async function loadWorkspaceLists(): Promise<WorkspaceList[]> {
       .eq('kind', 'list');
     if (error || !data || data.length === 0) return [];
     const results = await Promise.all(data.map(async (c: any) => {
+      // .range lifts PostgREST's default 1000-row cap so large lists (e.g. ETA > 2.6k)
+      // return ALL members, not a truncated 1000.
       const { data: members } = await supabase
         .from('community_members')
         .select('person_id')
-        .eq('community_id', c.id);
-      const memberIds = new Set<string>((members || []).map((m: any) => m.person_id as string));
-      return { id: c.id as string, name: (c.name_override || c.id) as string, memberIds };
+        .eq('community_id', c.id)
+        .range(0, 99999);
+      const personIds = (members || []).map((m: any) => m.person_id as string).filter(Boolean);
+      const canonicalIds = await resolveCanonicalIds(personIds);
+      return { id: c.id as string, name: (c.name_override || c.id) as string, memberIds: new Set<string>(canonicalIds) };
     }));
     return results;
   } catch {

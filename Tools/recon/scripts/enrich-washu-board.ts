@@ -111,21 +111,34 @@ interface EnrichedRow {
   washu_unit: string;
   washu_role: string;
   washu_degree: string | null;
-  // recon output
+  // identity
   full_name: string;
   current_title: string | null;
   current_company_name: string | null;
   bio: string | null;
   location_city: string | null;
   location_country: string | null;
+  // socials
   linkedin_url: string | null;
   twitter_handle: string | null;
+  instagram_handle: string | null;
+  tiktok_handle: string | null;
   github_handle: string | null;
   bluesky_handle: string | null;
+  mastodon_url: string | null;
   website_url: string | null;
+  // contact
   emails: string[] | null;
+  // academic
+  orcid_id: string | null;
+  scholar_url: string | null;
   skills: string[] | null;
+  // career
+  education: Array<{ institution: string; degree?: string; field?: string; year?: string }> | null;
+  previous_companies: Array<{ name: string; title?: string; period?: string }> | null;
+  // signals
   recon_signals: Array<{ label: string; value: string; source: string; url?: string }> | null;
+  // meta
   enrichment_confidence: number;
   recon_run_at: string;
   dedup_key: string;
@@ -141,20 +154,66 @@ function mapReport(report: ReconReport, row: RosterRow): EnrichedRow {
   const rawLocation = pickField(pFields, 'location', 'city', 'hq', 'address');
   const [locationCity, locationCountry] = rawLocation ? rawLocation.split(',').map((s) => s.trim()) : [null, null];
 
+  // Emails — regex-harvest from all person fields
   const emails: string[] = [];
   for (const f of pFields) {
     const emailRe = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
     for (const m of (f.value.match(emailRe) ?? [])) emails.push(m.toLowerCase());
   }
 
+  // Social fields
   const twField = pFields.find((f) => f.url?.includes('twitter.com') || f.url?.includes('x.com'));
+  const igField = pFields.find((f) => f.url?.includes('instagram.com'));
+  const ttField = pFields.find((f) => f.url?.includes('tiktok.com'));
   const ghField = pFields.find((f) => f.url?.includes('github.com'));
   const bskyField = pFields.find((f) => f.url?.includes('bsky.app') || f.source?.toLowerCase().includes('bluesky'));
+  const mastoField = pFields.find((f) => f.source?.toLowerCase().includes('mastodon'));
   const liField = pFields.find((f) => f.url?.includes('linkedin.com'));
+
   const website = pickField([...pFields, ...cFields], 'website', 'homepage', 'domain');
   const bio = pickField(pFields, 'bio', 'about', 'description', 'summary', 'abstract');
   const skillsRaw = pickField(pFields, 'keyword', 'skill', 'expertise', 'area');
   const skills = skillsRaw ? skillsRaw.split(/[,;|·]+/).map((s) => s.trim()).filter(Boolean) : null;
+
+  // Academic
+  const orcidField = pFields.find((f) => f.url?.includes('orcid.org') || f.label.toLowerCase().includes('orcid'));
+  const orcid_id = orcidField?.url?.match(/orcid\.org\/(\d{4}-\d{4}-\d{4}-\d{3}[\dX])/)?.[1] ?? null;
+  const scholar_url = pFields.find((f) => f.url?.includes('scholar.google'))?.url ?? null;
+
+  // Education
+  const educationSection = report.person?.sections.find((sec) => /\beducation\b/i.test(sec.title));
+  const educationFields = educationSection?.fields ?? pFields.filter((f) =>
+    /\b(education|degree|university|college|school|alumni|graduated)\b/i.test(f.label)
+  );
+  const education: EnrichedRow['education'] = educationFields.length
+    ? educationFields.map((f) => {
+        const parts = f.value.split(/[|·,]/).map((p) => p.trim()).filter(Boolean);
+        return {
+          institution: parts[0] ?? f.value,
+          degree: parts[1] ?? undefined,
+          field: parts[2] ?? undefined,
+          year: parts[3] ?? undefined,
+        };
+      })
+    : null;
+
+  // Previous companies
+  const experienceSection = report.person?.sections.find((sec) =>
+    /\b(experience|work history|employment|career|previous)\b/i.test(sec.title)
+  );
+  const expFields = experienceSection?.fields ?? pFields.filter((f) =>
+    /\b(previous|former|past|employer|experience|worked at)\b/i.test(f.label)
+  );
+  const currentCompanyNorm = (companyName ?? '').toLowerCase().trim();
+  const previous_companies: EnrichedRow['previous_companies'] = expFields.length
+    ? expFields
+        .map((f) => {
+          const parts = f.value.split(/[|·]/).map((p) => p.trim()).filter(Boolean);
+          return { name: parts[0] ?? f.value, title: parts[1] ?? undefined, period: parts[2] ?? undefined };
+        })
+        .filter((c) => c.name.toLowerCase().trim() !== currentCompanyNorm)
+    : null;
+
   const signals = report.signals.map((s) => ({ label: s.label, value: s.value, source: s.source, url: s.url }));
 
   return {
@@ -170,11 +229,18 @@ function mapReport(report: ReconReport, row: RosterRow): EnrichedRow {
     location_country: locationCountry ?? (row.Location?.includes(',') ? row.Location.split(',').slice(-1)[0].trim() : null),
     linkedin_url: liField?.url ?? null,
     twitter_handle: twField ? (extractHandle(twField.url ?? twField.value, 'twitter.com') ?? extractHandle(twField.url ?? twField.value, 'x.com')) : null,
+    instagram_handle: igField ? extractHandle(igField.url ?? igField.value, 'instagram.com') : null,
+    tiktok_handle: ttField ? extractHandle(ttField.url ?? ttField.value, 'tiktok.com') : null,
     github_handle: ghField ? extractHandle(ghField.url ?? ghField.value, 'github.com') : null,
     bluesky_handle: bskyField ? (bskyField.value.replace(/^@/, '') || null) : null,
+    mastodon_url: mastoField?.url ?? null,
     website_url: website,
     emails: emails.length ? [...new Set(emails)] : null,
+    orcid_id,
+    scholar_url,
     skills,
+    education: education?.length ? education : null,
+    previous_companies: previous_companies?.length ? previous_companies : null,
     recon_signals: signals.length ? signals : null,
     enrichment_confidence: report.identity.confidence,
     recon_run_at: new Date().toISOString(),
@@ -313,12 +379,20 @@ async function main() {
             bio: enriched.bio,
             linkedin_url: enriched.linkedin_url ?? '',
             twitter_handle: enriched.twitter_handle,
+            instagram_handle: enriched.instagram_handle,
+            tiktok_handle: enriched.tiktok_handle,
             github_handle: enriched.github_handle,
             bluesky_handle: enriched.bluesky_handle,
+            mastodon_url: enriched.mastodon_url,
             website_url: enriched.website_url,
             emails: enriched.emails,
             location_city: enriched.location_city,
             location_country: enriched.location_country,
+            orcid_id: enriched.orcid_id,
+            scholar_url: enriched.scholar_url,
+            skills: enriched.skills,
+            education: enriched.education,
+            previous_companies: enriched.previous_companies,
             recon_signals: enriched.recon_signals,
             recon_run_at: enriched.recon_run_at,
             enrichment_source: 'recon-washu-board',

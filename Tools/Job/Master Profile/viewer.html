@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Career Master Profile — Viewer &amp; Editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#faf9f7; --card:#ffffff; --border:#e4e0d8; --ink:#2a2620; --ink-soft:#6b6459;
+    --accent:#8a5a3b; --accent-soft:#f0e6dc; --danger:#a14646; --good:#3d6b4f;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+    --serif: Georgia, 'Times New Roman', serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:var(--sans); background:var(--bg); color:var(--ink);
+    line-height:1.5;
+  }
+  header{
+    position:sticky; top:0; z-index:50; background:var(--ink); color:#fff;
+    padding:14px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    box-shadow:0 2px 8px rgba(0,0,0,.15);
+  }
+  header h1{font-size:16px; margin:0; font-weight:600; letter-spacing:.2px;}
+  header .sub{font-size:12px; color:#cfc7ba; margin-top:2px;}
+  .toolbar{margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+  button, .file-btn{
+    font-family:var(--sans); font-size:13px; padding:8px 14px; border-radius:7px;
+    border:1px solid transparent; cursor:pointer; font-weight:600; transition:.15s;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-primary:hover{background:#734a2f;}
+  .btn-secondary{background:#3a352c; color:#f2ede4; border:1px solid #55503f;}
+  .btn-secondary:hover{background:#4a4436;}
+  .btn-ghost{background:transparent; color:#cfc7ba; border:1px solid #55503f;}
+  .btn-ghost:hover{background:#3a352c;}
+  input[type=file]{display:none;}
+  #searchBox{
+    padding:7px 10px; border-radius:7px; border:1px solid #55503f; background:#2a2620;
+    color:#fff; font-size:13px; width:200px;
+  }
+  #searchBox::placeholder{color:#8a8272;}
+  main{max-width:980px; margin:0 auto; padding:24px 20px 120px;}
+  #emptyState{
+    text-align:center; padding:80px 20px; color:var(--ink-soft);
+  }
+  #emptyState h2{color:var(--ink); font-family:var(--serif);}
+  section.top-section{
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    margin-bottom:18px; overflow:hidden;
+  }
+  section.top-section > summary{
+    font-family:var(--serif); font-size:19px; padding:16px 20px; cursor:pointer;
+    list-style:none; display:flex; align-items:center; gap:10px;
+    background:linear-gradient(to bottom, #fff, #faf8f5);
+    border-bottom:1px solid var(--border);
+  }
+  section.top-section > summary::-webkit-details-marker{display:none;}
+  section.top-section > summary:before{
+    content:"▸"; display:inline-block; color:var(--accent); transition:.15s; font-size:14px;
+  }
+  section.top-section[open] > summary:before{transform:rotate(90deg);}
+  .section-body{padding:16px 20px 20px;}
+  details.node{
+    border:1px solid var(--border); border-radius:9px; margin-bottom:10px; background:#fffefc;
+  }
+  details.node > summary{
+    padding:9px 12px; cursor:pointer; list-style:none; font-weight:600; font-size:13.5px;
+    display:flex; align-items:center; gap:8px; color:var(--ink);
+  }
+  details.node > summary::-webkit-details-marker{display:none;}
+  details.node > summary:before{content:"▸"; color:var(--ink-soft); font-size:11px; transition:.15s;}
+  details.node[open] > summary:before{transform:rotate(90deg);}
+  .node-body{padding:4px 14px 12px 22px;}
+  .field-row{margin:8px 0;}
+  .field-label{
+    font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft);
+    font-weight:700; margin-bottom:3px; display:block;
+  }
+  input[type=text], textarea, input[type=number]{
+    width:100%; font-family:var(--sans); font-size:14px; padding:7px 9px;
+    border:1px solid var(--border); border-radius:6px; background:#fff; color:var(--ink);
+  }
+  textarea{resize:vertical; min-height:54px; line-height:1.45;}
+  input[type=text]:focus, textarea:focus{outline:2px solid var(--accent-soft); border-color:var(--accent);}
+  .array-item{
+    border-left:3px solid var(--accent-soft); padding-left:10px; margin-bottom:10px; position:relative;
+  }
+  .item-toolbar{display:flex; justify-content:flex-end; gap:6px; margin-bottom:4px;}
+  .mini-btn{
+    font-size:11px; padding:3px 8px; border-radius:5px; border:1px solid var(--border);
+    background:#fff; color:var(--ink-soft); cursor:pointer; font-weight:600;
+  }
+  .mini-btn:hover{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
+  .mini-btn.danger:hover{background:#f6e6e6; color:var(--danger); border-color:var(--danger);}
+  .add-row{margin-top:6px;}
+  .add-row button{
+    background:transparent; border:1px dashed var(--border); color:var(--ink-soft);
+    padding:6px 12px; font-size:12px; border-radius:6px; width:100%;
+  }
+  .add-row button:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+  .bool-row{display:flex; align-items:center; gap:8px;}
+  .primitive-array-tag{
+    display:inline-flex; align-items:center; gap:6px; background:var(--accent-soft);
+    border-radius:999px; padding:4px 6px 4px 12px; margin:3px 5px 3px 0; font-size:13px;
+  }
+  .primitive-array-tag input{border:none; background:transparent; padding:2px; width:auto; min-width:60px; flex:1;}
+  .primitive-tags-wrap{display:flex; flex-wrap:wrap; align-items:center;}
+  #toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:#fff; padding:10px 18px; border-radius:8px; font-size:13px;
+    opacity:0; transition:.25s; pointer-events:none; box-shadow:0 6px 18px rgba(0,0,0,.25);
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  mark{background:#ffe38a; padding:0 1px; border-radius:2px;}
+  .meta-line{font-size:12px; color:var(--ink-soft); margin-top:4px;}
+  footer.appfoot{text-align:center; color:var(--ink-soft); font-size:12px; padding:30px 0 10px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Career Master Profile</h1>
+    <div class="sub" id="fileSub">No file loaded</div>
+  </div>
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="Search…">
+    <button class="btn-secondary" id="loadBtn">📂 Load JSON</button>
+    <input type="file" id="fileInput" accept="application/json,.json" style="display:none">
+    <button class="btn-ghost" id="expandAllBtn">Expand all</button>
+    <button class="btn-ghost" id="collapseAllBtn">Collapse all</button>
+    <button class="btn-primary" id="saveBtn">💾 Save</button>
+  </div>
+</header>
+
+<main>
+  <div id="emptyState">
+    <h2>Load your master.json to begin</h2>
+    <p>Click <strong>📂 Load JSON</strong> above and select your <code>master.json</code> file.<br>
+       Edit any field directly, add or remove entries, then click <strong>💾 Save</strong> to write your changes back to that file.</p>
+  </div>
+  <div id="root"></div>
+</main>
+
+<div id="toast"></div>
+
+<footer class="appfoot">Everything runs locally in your browser — nothing is uploaded anywhere. Remember to Export after editing.</footer>
+
+<script type="application/json" id="embedded-data">
+{
+  "meta": {
+    "title": "Vikas Badami — Master Career Profile",
+    "description": "Hierarchical master record of personal, education, experience, project, extracurricular, award, and narrative data, merged and de-duplicated from all resume, cover letter, LoR, and application-essay drafts in the Job Application folder.",
+    "lastCompiledFrom": "45+ source documents (resumes, cover letters, LoRs, and application essays), July 2026",
+    "mergeRules": "Facts that were 90%+ overlapping across source documents were merged into a single canonical entry. Facts that differed meaningfully (dates, figures, titles) were retained as explicit variants with a note on which document they came from, rather than silently picked. All references to specific business-school target programs were removed except Washington University in St. Louis (Olin Business School), which is retained as a real, current program.",
+    "editableNote": "This file is meant to be opened, edited, and re-exported using the accompanying viewer.html.",
+    "version": 1
+  },
+  "personal": {
+    "name": {
+      "first": "Vikas",
+      "middle": "Shrishailappa",
+      "last": "Badami",
+      "preferred": "Vikas",
+      "fullLegal": "Vikas Shrishailappa Badami"
+    },
+    "biographical": {
+      "dateOfBirth": "1998-03-05",
+      "birthCountry": "India",
+      "hometown": "Ooty, Tamil Nadu, India",
+      "growingUpBackground": "Spent childhood between a Badaga tribal settlement in the Western Ghats forests and the outskirts of a small town near Dharwad, Karnataka; attended a $30-a-year school serving migrant-laborer and underserved-community families.",
+      "gender": "Male",
+      "nationality": "Indian",
+      "citizenshipStatus": "Foreign National (in US applications)",
+      "nativeLanguage": "Kannada",
+      "maritalStatus": "Single",
+      "children": false
+    },
+    "contact": {
+      "emails": [
+        {"type": "school", "value": "badami@wustl.edu"},
+        {"type": "personal/business", "value": "vikas@peoplegamez.com"}
+      ],
+      "phones": [
+        {"type": "US mobile", "value": "+1 314-240-3755"},
+        {"type": "India mobile", "value": "+91 94959 50729"},
+        {"type": "India evening/alt", "value": "+91 63623 25449"}
+      ],
+      "linkedin": "https://www.linkedin.com/in/vikasbadami",
+      "addresses": [
+        {"type": "current (school)", "line1": "#2S, 6300 Cates Avenue, University City", "city": "Saint Louis", "state": "Missouri", "zip": "63130", "country": "United States"},
+        {"type": "current (school, alt variant)", "line1": "5675 Waterman Blvd #31", "city": "St. Louis", "state": "Missouri", "country": "United States", "note": "Appears in one resume variant; likely a prior apartment before the Cates Avenue address."},
+        {"type": "permanent (India)", "line1": "27 Srinivas, 1st Main 2nd Cross, Rajatgiri", "city": "Dharwad", "state": "Karnataka", "zip": "580004", "country": "India"}
+      ]
+    },
+    "family": {
+      "father": {
+        "name": "Shrishailappa Badami",
+        "occupation": "Principal, SDM University (previously first-generation graduate who supported extended family)",
+        "education": ["B.Pharm, Government College of Pharmacy, Bangalore", "M.Pharm, Government College of Pharmacy, Bangalore", "PhD, Gulbarga University"],
+        "location": "Dharwad, Karnataka, India"
+      },
+      "mother": {
+        "name": "Sukumari H U",
+        "occupation": "Doctor, Chaitanya Vikas Yoga and Nature Cure Clinic",
+        "education": ["BNYS, JSS College of Naturopathy", "MS in Counselling and Psychotherapy, Kuvempu University"],
+        "location": "Dharwad, Karnataka, India"
+      },
+      "notes": "First-generation-graduate father supported both his immediate family and his late brother's family financially; Vikas started small ventures at age 14 to earn pocket money, an early root of his entrepreneurial drive. Mother transformed rented homes into kitchen gardens as a sustainability/frugality practice that shaped his outlook."
+    },
+    "languages": [
+      {"language": "English", "proficiency": "Fluent / Bilingual"},
+      {"language": "Kannada", "proficiency": "Native"},
+      {"language": "Tamil", "proficiency": "Fluent"},
+      {"language": "Telugu", "proficiency": "Fluent"},
+      {"language": "Hindi", "proficiency": "Fluent"},
+      {"language": "Sanskrit", "proficiency": "Intermediate"}
+    ],
+    "workAuthorization": {
+      "authorizedToWorkInUS": true,
+      "visaStatus": "F1 (student)",
+      "willRequireSponsorship": true
+    },
+    "preferences": {
+      "desiredCompensation": "$140,000 (annual, as stated on one job application form; context-dependent)",
+      "willingToRelocate": true,
+      "willingnessToTravel": "75%+",
+      "workEnvironmentPreference": "Onsite or hybrid, based on company culture"
+    },
+    "stories": [
+      {
+        "title": "Roots in the Western Ghats",
+        "text": "I spent my childhood in a remote village in the forests of the Western Ghats, a Badaga tribal settlement, and the outskirts of a small town, where diverse cultures shaped my outlook on life and leadership. My mother transformed our rented homes into a green oasis, cultivating plants that attracted birds and provided fresh produce, helping us save costs. The healthy meals cooked in earthen pots and the resourceful ways we met our needs ingrained sustainability into every aspect of my life. I studied at a $30-a-year school that attracted children of migrant laborers and underserved communities, creating a vibrant melting pot of cultures and languages. Kho-Kho, often called the poor man's sport, became an instrument of unity amidst this diversity — on the field, we learned to communicate across languages, respect each other's strengths, and build unwavering trust despite our different backgrounds. These experiences forged my first leadership lessons.",
+        "linkedTo": ["personal background", "Kho-Kho"]
+      },
+      {
+        "title": "Family financial background",
+        "text": "In my family, money was tight and responsibilities were many. My first-generation-graduate father supported our family and his late brother's family. To help, I began small ventures at age 14, earning pocket money and fostering an early entrepreneurial instinct."
+      }
+    ]
+  },
+  "education": [
+    {
+      "institution": "Washington University in St. Louis, Olin Business School",
+      "degree": "STEM MBA",
+      "location": "St. Louis, Missouri, USA",
+      "dates": {"start": "2025-08", "end": "2027-05", "status": "current"},
+      "concentration": {
+        "canonical": "Consulting Specialization",
+        "variantsSeen": ["Brand and Product Management Specialization", "Private Capital & Strategic Ownership Concentration"],
+        "note": "Different resume versions list different concentrations/specializations depending on the target role (general management/consulting vs. product vs. private equity/ETA). Likely reflects genuine cross-registration or exploration across tracks rather than a single fixed concentration — flagged rather than merged."
+      },
+      "honors": ["Dean's Scholar (100% merit scholarship)", "GMAT 98th percentile"],
+      "testScores": {
+        "exam": "GMAT Focus Edition",
+        "dateTaken": "2024-08-04",
+        "total": "695 (98th percentile)",
+        "verbalReasoning": "85 (96th percentile)",
+        "quantitativeReasoning": "84 (85th percentile)",
+        "dataInsights": "84 (98th percentile)"
+      },
+      "activities": [
+        "Fall Hackathon Winner (Product) / Entrepreneurship Hackathon Winner",
+        "SVC Semi-Finalist (135 teams)",
+        "VCIC Venture Competition — 1 of 12 candidates selected (also described as 'pick from 50+ applicants')",
+        "Teaching Assistant for VC/PE courses",
+        "Financial & Accounting Peer Tutor",
+        "Voting Board Member, Lessie Bates Davis Neighborhood House — driving financial and operational self-sufficiency through strategic resource allocation across 22 initiatives serving 9,000+ community members annually",
+        "Volunteered to revamp STL Stray Rescue's marketing strategy (outreach, fundraising, community engagement)"
+      ],
+      "projects": [
+        {
+          "name": "Redstick Ventures — Diligence Capstone",
+          "description": "Led due diligence for Redstick Ventures as MBA capstone; diligenced 15 (Food-Tech and general) startups, benchmarking forward-looking operational models against comparable exit returns and IRR sensitivity to key milestones; recommended one deal to the Investment Committee via CIM, leading to an expedited investment."
+        },
+        {
+          "name": "Sentinel Imports — Deal Origination & Valuation",
+          "description": "Engineered a proprietary data-mining tool using EPA/EIDL sources to identify 50 off-market M&A targets; built SDE-normalized LBO models with debt-capacity and IRR sensitivities."
+        },
+        {
+          "name": "Edward Jones — Operational Optimization",
+          "description": "Built data-driven models to uncover cost synergies and systemic bottlenecks; recommended reallocations prioritizing operational throughput and ROI across Edward Jones' strategic project portfolio."
+        }
+      ],
+      "stories": [
+        {
+          "title": "Why an ETA (Entrepreneurship Through Acquisition) Fellowship",
+          "text": "As a founder, I thrive in ambiguity, value creation, stakeholder management, and asymmetric risk-reward environments, but I find it hard to stay grounded in settings without constant evolution. I'm focused on three capabilities: evolving from a founder's mindset of creation to an operator's mindset of systems and lasting value; cultivating an eye for diligence and integration, especially around leveraging AI and automation to modernize traditional businesses without disrupting cash flows; and building the communication maturity required to guide sellers, employees, and investors through transitions. What excites me most is the 'Operate' phase — stepping into a business a founder has already built, rather than starting one, and combining the operational intuition I developed building MetaXP (PeopleGamez) from scratch with more structured underwriting and deal-structuring frameworks."
+        }
+      ]
+    },
+    {
+      "institution": "Plaksha University",
+      "degree": "PGDM (Post Graduate Diploma in Management), Tech Leaders Fellowship",
+      "location": "Gurgaon, India",
+      "dates": {"start": "2020-08", "end": "2021-07"},
+      "gpa": {"value": "3.49/4", "variantSeen": "3.68/4 (one older resume draft)"},
+      "honors": ["100% Merit Scholarship (~$15,000, Top 10 percentile)", "Highest Placement Offer in cohort despite being one of the youngest"],
+      "highlights": [
+        "Selected for UC Berkeley's Global Venture Catalyst (170 delegates from 30+ countries); pioneered an AI-based Scrum management tool for project managers, sponsored by Celonis, reducing project delays by ~40%",
+        "Delegate at the Harvard US-India Initiative (1 of 100 delegates selected for academic excellence, leadership potential, social commitment, and diversity of experience); led the 'AI in Innovation' delegate roundtable",
+        "1 of 8-12 organizers/hosts of Ecoversity's Re-imagining Education International Conference, engaging stakeholders from 47 countries (community of 'un-schoolers')",
+        "Blueprinted and helped launch Plaksha's flagship Innovation Labs & Grand Challenge (ILGC), an 8-semester, mandatory, cross-disciplinary entrepreneurship and leadership program for undergraduates",
+        "Spearheaded a 'Right to Privacy' campaign, building a team of 22 volunteers and gathering 1,000+ signatures petitioning the Government of India for a data privacy law",
+        "Authored 'Gamification for Teaching Sustainability to Engineering Students,' published in IEEE Xplore (30% acceptance rate)"
+      ],
+      "capstoneProject": {
+        "name": "Arcesium — Records Digitization Platform",
+        "description": "Coded/engineered a records digitization platform for sponsor Arcesium (also referenced as 'DeShaw' in one resume variant), combining Computer Vision (OCR, segmentation, signature mapping/verification) and NLP (chatbot, data mapping and classification) to automate trade data reconciliation and exception management — reducing processing time by ~30% and enabling faster P&L attribution and data-driven decision-making."
+      },
+      "academicNote": {
+        "text": "Received a failing grade in 'Persuasive Presence 3' (CL 008) due to an attendance shortfall — during this period a personal emergency involving co-founder Senthil required Vikas to manage a critical client project at Madiee, which he was building concurrently with coursework. He notes ranking as class topper (4.0/4.0 GPA) in the preceding 'Persuasive Presence 1' (CL 002) and 'Persuasive Presence 2' (CL 006) courses as evidence of academic readiness.",
+        "context": "Explanatory note prepared for admissions applications; retained here as factual/biographical context."
+      },
+      "stories": [
+        {
+          "title": "From instructing to inspiring self-discovery (ILGC origin)",
+          "text": "During the pandemic, I transformed OpenTech into an online format (Project Uplift), which was recognized by the UN for cultivating leadership among students. But I realized I was instructing rather than inspiring self-discovery. Seeking guidance from Plaksha faculty, I restructured my approach, integrating inquiry-based, scaffolded, peer-driven learning strategies. This led to ILGC, an eight-semester experiential program at Plaksha. While ILGC delivered impactful in-person learning, it made me curious about how to make such experiences accessible globally."
+        }
+      ]
+    },
+    {
+      "institution": "National Institute of Technology (NIT) Calicut",
+      "degree": "B.Tech, Production/Industrial Engineering",
+      "location": "Calicut, Kerala, India",
+      "dates": {"start": "2016-07", "end": "2020-05"},
+      "gpa": {"value": "8.2/10 (8.18/10 official)"},
+      "entranceExams": ["JEE Mains & Advanced: 99.5 percentile", "KCET (Karnataka CET): All-India Rank 393"],
+      "honors": [
+        "Top 10 percentile of class",
+        "Founding Captain, NITC Kho-Kho (2016–2020)",
+        "Head of Public Relations committee, Tecathon 2018 (2,000+ participants)",
+        "1 of 100 students selected for INSPIRE workshop, Government of Karnataka"
+      ],
+      "highlights": [
+        "Team Lead, Robotics Interest Group / Robotics Club — led 5 projects: Wall Climber, Soldier Assistance and Navigation Device (SAND), Micro-Aerial Vehicle, Quadrupod, and a deep-reinforcement-learning self-balancing robot",
+        "TEQUIP III research grant from the Ministry of Education for the Soft Robotics Gripper project (modular hyper-redundant rigid-continuum hybrid adaptable gripper)",
+        "Finalist, DRDO's DRUSE '18 — 1 of 14 teams selected from South India (only NIT Calicut team among 20+ participants) for 'Stealth Security and Surveillance Swarmbot Systems'; received special recognition/appreciation from the DRDO Director",
+        "Toycathon winner — Government of India's flagship competition, 129,000+ participants, for a game based on MIT-JWEL's Human Skills Matrix",
+        "Semi-finalist, Flipkart Grid ML Challenge (6,700 teams nationwide)",
+        "Finalist, VNIT Nagpur Startup Conclave (Top 10 of 1,000+ nationwide applicants) — pitched an ergonomic, portable Indianized health kit for physical/psychological well-being",
+        "Finalist, Kerala XR Challenge — industrial XR app prototype, top 10 statewide",
+        "Founder, NITC AI Club (grew out of OpenTech); event host at Tathva (35,000 footfall) and Ragam (65,000 footfall) tech/cultural festivals"
+      ],
+      "stories": [
+        {
+          "title": "The water-pump collapse that started OpenTech",
+          "text": "In 2016, my 68-year-old grandmother collapsed from exhaustion while returning from the only water pump 8 miles away. Being the only 'techie' in our remote village, I felt responsible and implemented an IoT-enabled irrigation system. My grandfather then pointed out how many villagers faced similar problems and suggested I teach village children to use technology — shifting my perspective from problem-solving to empowering others. Watching those children gain confidence as they built IoT projects inspired me to launch OpenTech: workshops empowering tribal and slum students to tackle local challenges with technology. Colleagues hesitated to volunteer, citing academic pressure; students skipped sessions to support their families on weekends; even my parents questioned my persistence. My 22-member team and I spent every weekend traveling to some of India's remotest regions, convincing hesitant parents to support their children's ambitions beyond generational jobs. Over three years we helped 10,000+ students build projects like waterbody-cleaning robots and cattle trackers. One student went on to represent India at NASA; many became entrepreneurs. During the pandemic, a former participant and I adapted OpenTech online as Project Uplift, which earned United Nations recognition."
+        },
+        {
+          "title": "Building NIT Calicut's first Kho-Kho team",
+          "text": "Kho-Kho has shaped my leadership and personal growth since school. Realizing NIT Calicut lacked a Kho-Kho team, I navigated the college's regulatory requirements, persuaded the administration to fund the effort, and manually helped construct the ground before eventually building and captaining the team through National-level tournaments."
+        }
+      ]
+    },
+    {
+      "institution": "Pi School of AI",
+      "degree": "Global AI Scholar Fellowship (non-degree)",
+      "location": "Italy",
+      "dates": {"start": "2019-12", "end": "2020", "note": "Selection Dec 2019; program undertaken while an undergraduate at NIT Calicut"},
+      "honors": ["Youngest Global AI Scholar — earned a special 21st spot out of 20 available positions (from 6,000+ applicants), an exception made for exceptional potential, overriding the usual 2-years'-experience/Master's-in-AI eligibility criteria"],
+      "sponsorProject": {
+        "sponsor": "OctoTelematics",
+        "description": "Traveled to Italy to work with a 5–7 country team developing car fuel-level and resale-value prediction ML models. Variants across drafts describe the value delivered as '$270M' or '€150M', and the fuel-estimation error improvement as reduced from 6% to 1.5% (or 20% to 3% in an older draft) — figures retained as variants pending reconciliation. The system accounted for harsh braking, terrain, driver behavior, and weather conditions alongside telematics data."
+      }
+    }
+  ],
+  "experience": [
+    {
+      "organization": "PeopleGamez.com",
+      "alsoKnownAs": "MetaXP Pvt Ltd (later legal/rebranded name; MetaXP described in some resumes as 'Corporate Training → GTM Consulting Firm')",
+      "type": "Own startup / consulting firm (bootstrapped, profitable)",
+      "roles": [
+        {"title": "CEO, Co-Founder", "note": "Most common framing"},
+        {"title": "Founder / Principal Consultant", "note": "Used in resumes emphasizing consulting/strategy positioning"},
+        {"title": "GTM Consultant & Founder", "note": "Used in M&A/consulting-track resume variants"}
+      ],
+      "location": "Bangalore, India (also Dharwad, India in some variants)",
+      "dates": {
+        "canonical": "August 2021 – July 2025",
+        "variantsSeen": ["Feb 2021 – Present (V2 resume)", "April 2022 – Present (Vikas_MBA_Resume, CBS application employment form)"],
+        "note": "The April 2022 date in the official CBS employment form likely marks the point of formal full-time/CEO transition after Madiee Games wound down (March 2022); earlier dates reflect earlier-stage or overlapping involvement."
+      },
+      "description": "Startup / GTM consulting firm specializing in tech-driven go-to-market (GTM) and product-market-fit (PMF) strategy through product gamification, executive development simulations, and process consulting. As CEO/Principal Consultant, led a cross-functional team of 8 (supported by 8–15 freelancers as needed) and drove B2B/B2C product lifecycles from discovery to delivery, aligning business goals with KPI impact. Revenue figures cited across drafts range from $30K to $45K ARR (e.g., '$42K ARR' and '$45K ARR' in different applications).",
+      "compensationNote": "As founder/CEO, Vikas reinvested profits into building assets and only drew director remuneration during emergencies (e.g., a family health emergency), so several official applications list near-zero or fluctuating personal salary ($0–$10,000/year) despite the business itself being profitable and bootstrapped.",
+      "keyAchievements": [
+        "Scaled PeopleGamez simulations on Business Acumen, Agile, Team Development, and Design Thinking to 40,000+ learners across 7 countries via strategic trainer partnerships, delivering executive development programs at Amazon, SHRM, Genpact, Dr. Reddy's, NTUC, SportsSG, and Plivo",
+        "Won $21K in innovation grants from multiple Central Government departments/ministries (e.g., Startup India Seed Fund) — only startup funded among 36 incubator applicants (top 1 percentile); a related draft separately cites a TIDE 2.0 grant worth $8.5K",
+        "Successfully lobbied MLAs and government stakeholders through 1:1 meetings and industry roundtables, contributing to the AVGC–XR gaming policy and a related $2.5M gaming fund",
+        "Delivered high-impact sessions on data-driven simulations at international conferences: ILYF Global Business Conclave (10,000+ attendees), Gamicon48v (UK), SeriousPlayConf (Canada), and AEE Conference (Singapore/APAC)",
+        "Revived the firm from a period of bankruptcy by shadowing executives and volunteering with corporate trainers pro bono, operating out of a board-game cafe, and rebuilding as a business-consultancy model",
+        "Established cross-functional workflows and data-driven performance tracking, reducing operational costs by ~50% and enabling asynchronous collaboration across a distributed freelancer team"
+      ],
+      "clientProjects": [
+        {
+          "client": "GrowthPal",
+          "description": "Singapore-headquartered M&A marketplace. Repositioned GrowthPal as an extended CFO/M&A team, replacing a volatile success-fee model with a scalable subscription platform of pre-vetted deals — saving client CFOs 500+ hours annually, growing deal size 6x to $30K, reducing the sales cycle ~40%, and enabling European expansion and a pivot toward family-run ventures."
+        },
+        {
+          "client": "Singapore-HQ Analytics Venture (HNI marketplace)",
+          "alsoKnownAs": "Ethan.ai (name used in an earlier/independent-consulting draft)",
+          "description": "Blueprinted the roadmap/API infrastructure for a High-Net-Worth-Individual (HNI) asset-management marketplace, informed by research with 7 fund houses, 50+ wealth managers, and 100+ HNIs (1,000+ survey responses). Addressed client-poaching concerns with fair-competition mechanics, resulting in 3 bank MOUs and catalyzing $10M in funding. One variant describes the underlying platform as blockchain-based, focused on transparency, accountability, and scalability."
+        },
+        {
+          "client": "Juice Inc.",
+          "description": "Canadian consultancy firm. Reversed revenue decline by innovating a first-of-its-kind gamified diagnostic tool to assess organizational needs and team energy, fueling targeted consulting upselling — lifting revenue 35%, with an 80% attach rate, 30% referral rate, and 90%+ NPS (contributing ~35% of the client's total revenue and 4x average deal size)."
+        },
+        {
+          "client": "Bluechip Digital Forensics Company",
+          "description": "Reclaimed 6 of 8 churned enterprise clients lost to AI-first competitors by architecting a chatbot (object search, anomaly-trap search, audio-visual search and summarization) that simplified forensic workflows for non-technical users, increasing client LTV by 18%."
+        },
+        {
+          "client": "Jugad",
+          "description": "USA-headquartered fintech venture. Persuaded a serial entrepreneur to pivot away from an existing VC-backed roadmap by demonstrating stronger product-market fit through competitive benchmarking, user research (7 direct + 50+ indirect competitors, 100+ interviews, 1,000+ outreach survey), A/B testing, and profitability modeling — halving time to market."
+        },
+        {
+          "client": "CAJobPortal",
+          "description": "Redesigned UX and led a platform/marketing overhaul for CAJobPortal.com, growing monthly retention 29% and DAU/MAU 23% (from a base of ~9,000 MAUs), while resolving 30+ legacy bugs and shipping new features."
+        },
+        {
+          "client": "Simurise",
+          "description": "Singapore-based corporate training organization. Crafted an in-house simulation ('King Solomon's Mines') that grew to drive ~80% ($200K) of Simurise's total revenue, replacing vendor reliance, and supported international expansion into the Middle East, Japan, and the USA."
+        },
+        {
+          "client": "Internshala",
+          "description": "World's largest internship portal. Built a scalable institutional-partnership model that tripled the partner-college network to 3,000+ via 10+ strategic alliances with national workforce and higher-education agencies (e.g., UGC, AICTE, NIELIT, NSDC)."
+        },
+        {
+          "client": "Yog.org",
+          "description": "Led an international team of 5 designers/developers to custom-build a Learning Management System (LMS) for yoga course and instructor management, integrating an institutional dashboard with in-depth analytics — commissioned by a founder connected to Asian Paints."
+        },
+        {
+          "client": "MarTech Startup (unnamed)",
+          "description": "Developed GAN-based image-generation and GPT-based conversational-AI tools (product & sales engagement)."
+        },
+        {
+          "client": "AI-powered cybersecurity LLM agent (unnamed enterprise client)",
+          "description": "Scoped timeline, brainstormed UX, and architected a gamified cybersecurity LLM agent with reflective goal decomposition and retrieval memory — part of the AI-strategy work behind the Bluechip Digital Forensics engagement above."
+        }
+      ],
+      "advisoryWork": "Also researched industry trends, crafted market maps, and presented executive memos across Treeforest Capital, ACT Grants, and Jagriti Enterprise Center on portfolio investment readiness; one portfolio startup secured funding on Shark Tank India.",
+      "stories": [
+        {
+          "title": "The board-game-cafe turnaround",
+          "text": "Despite initial success, our simulations lacked the depth executives expected, leading to bankruptcy. I had to lay off my team and shut down our office. Operating out of a board-game cafe, I took on consulting projects to close knowledge gaps and volunteered pro bono with thought leaders to gain practical insight into leadership and business-alignment challenges. Over time, I evolved our simulations from basic training kits into full business-consultancy tools — the same toolkit we then used to help five ventures across three countries survive."
+        },
+        {
+          "title": "The hygiene campaign that moved 25,000 women",
+          "text": "I guided a retail company to uncover cultural stigmas affecting its women-focused product line. By empowering their leadership team, we developed a campaign that engaged teachers, priests, and community leaders to address these barriers. The initiative improved hygiene standards for over 25,000 women while also driving significant product growth — showing how purpose-driven strategy can create both social and business impact."
+        }
+      ]
+    },
+    {
+      "organization": "Madiee Games",
+      "type": "Co-founded corporate-training/organizational-transformation consulting firm",
+      "roles": [{"title": "Co-Founder, COO"}],
+      "location": "Erode, India",
+      "dates": {
+        "canonical": "August 2021 – March 2022",
+        "note": "Joined pro bono in January 2021 (per LoR from co-founder Senthil), formalized as Co-Founder with 40% equity after leading the team's Toycathon win, transitioned to full-time after graduating from Plaksha in Sept 2021."
+      },
+      "description": "Organizational-transformation consulting firm specializing in upskilling first-time managers and fostering leadership development through tailored behavioral simulations (change management, team leadership). Scaled the team from 2 (or 5, per one variant) to 118 members (mostly interns), designing 24 simulations and establishing operational workflows.",
+      "keyAchievements": [
+        "Nurtured a second line of leadership and spearheaded strategic partnerships with government and private entities, scaling revenue 12x",
+        "Demonstrated business cases and executed end-to-end executive development programs for Amazon, SHRM, Genpact, Dr. Reddy's, and NTUC — upskilling 800 executives on Business Acumen, Team Dynamics, and Change Management",
+        "Persuaded MLAs and government stakeholders toward a gaming-industry incentive policy (AVGC–XR Policy) via roundtables and one-on-one meetings",
+        "Won the Government of India's flagship Toycathon (129,000+ participants) with a game built on MIT-JWEL's Human Skills Matrix"
+      ],
+      "stories": [
+        {
+          "title": "Declining Novartis, and earning 40% equity",
+          "text": "As recounted by mentor Rishi (TreeForest Capital): when Vikas was introduced to the Madiee team, he had already declined multiple offers from organizations like Novartis to join Madiee — an EBITDA-negative venture with existing liabilities — as a co-founder. His passion was contagious enough that he persuaded exceptional talent from top IITs and IIMs to join as interns and freelancers despite limited incentives, eventually helping the venture support a 100+ member team and turn profitable. Per co-founder Senthil: Vikas joined Madiee pro bono in January 2021, adapted the business to pandemic conditions by finding online board games to facilitate for revenue, and led the team through a strong Toycathon performance — after which Senthil offered him a 40% equity co-founder stake despite initial reservations from advisors. When Vikas eventually resigned, his entire team followed him in solidarity, and he worked to help place the rest of his former team in new roles."
+        }
+      ]
+    },
+    {
+      "organization": "Chaitanya Vikas Naturals (CV Naturals)",
+      "type": "Family business — healthy herbal lifestyle products",
+      "roles": [{"title": "Strategic Consultant"}],
+      "location": "Dharwad, India",
+      "dates": {
+        "canonical": "Multiple non-contiguous stints",
+        "stints": ["August 2015 – November 2017", "March 2020 – February 2021", "September 2023 – April 2024"],
+        "variantsSeen": ["August 2012 – August 2016 (one resume draft; likely reflects an earlier/broader informal-involvement window than the stints above)", "August 2015 – December 2020 (another draft, collapsing the stints into one continuous range)"],
+        "note": "Dates differ meaningfully across resumes and were not forced into a single range; treat the three discrete stints as the most granular version available."
+      },
+      "description": "CV Naturals manufactures healthy herbal lifestyle products. Vikas undertook strategic initiatives across multiple stints to expand and grow the business.",
+      "keyAchievements": [
+        "Championed a franchise model for the company's eyedrops line, overcoming resistance to change, and partnering with clinics across 10 districts — serving 8,000+ people monthly, a 15x revenue surge, and $11K in incremental annual recurring revenue",
+        "Oversaw expansion into Singapore and Nepal, forging reseller/distributor relationships worth $6K in additional annual recurring revenue",
+        "Spearheaded digital transformation, cutting operational expenses 22%, growing Average Order Value 40% (one variant: 180%), and lifting customer retention from 46% to 72% (one variant: 48%) via upselling/cross-selling",
+        "Rebranded 13 SKUs and grew revenue substantially through partnerships (one flat-resume variant cites a 250x revenue figure — likely a career-long, not per-stint, cumulative claim; retained as a variant given the outsized magnitude)",
+        "Digitized inventory tracking, bookkeeping, and grievance management"
+      ]
+    },
+    {
+      "organization": "OpenTech",
+      "type": "Not-for-profit initiative (part-time, volunteer-founded)",
+      "roles": [{"title": "Founder, Chief Facilitator"}],
+      "location": "Multiple locations, India (originated at NIT Calicut)",
+      "dates": {"start": "2016-10", "end": "2025-01"},
+      "description": "AI and Robotics workshops empowering slum and tribal students to solve community issues with hands-on technology projects (waterbody-cleaning bots, coconut-tree climbers, cattle trackers). Mobilized a 22-member volunteer team and led NGO partnerships to upskill 10,000+ students from 30+ institutes.",
+      "keyAchievements": [
+        "Built talent ecosystems that helped one student represent India at NASA, catalyzed 30+ student ventures, and shaped volunteer trajectories toward roles at the UN, World Economic Forum, and national education-policy bodies",
+        "Earned a top-3 Asia ranking from the UN's United People Global (UPG) for 'Project Uplift,' OpenTech's pandemic-era digital pivot",
+        "Awarded Youth Icon by India's Ministry of Youth Affairs; chosen among 40 founders to mentor 3,000 student entrepreneurs (from 3M+ applicants)",
+        "Fundraised approximately $12K–$50K (figures vary by draft) through paid workshops in private schools to subsidize free workshops for underprivileged students",
+        "Founding effort was later formally recognized as the NIT Calicut AI Club, with its mentorship model adopted by the NITC Alumni Association"
+      ]
+    },
+    {
+      "organization": "Arcesium",
+      "type": "Academic capstone / sponsor project (via Plaksha University PGDM)",
+      "roles": [{"title": "Data Scientist (capstone)"}],
+      "dates": {"note": "During Plaksha PGDM, 2020–2021"},
+      "description": "See Plaksha University capstone project entry under Education for full detail. Combined Computer Vision (OCR, segmentation, signature mapping/verification) and NLP (chatbot, data mapping/classification) to build a web app digitizing physical records and generating insights, automating trade-data reconciliation."
+    },
+    {
+      "organization": "OctoTelematics",
+      "type": "Sponsor project (via Pi School of AI Fellowship)",
+      "roles": [{"title": "Data Scientist (fellowship project)"}],
+      "location": "Italy",
+      "dates": {"note": "Pi School of AI Fellowship, late 2019 – 2020"},
+      "description": "See Pi School of AI entry under Education for full detail. Built car fuel-level and resale-value prediction ML models with a multi-country team."
+    }
+  ],
+  "extracurricular": [
+    {
+      "name": "Jagriti Yatra",
+      "role": "Selected Yatri / Mentor",
+      "dates": "December 2020",
+      "description": "Selected from 15,000+ applicants as one of ~500 (\"Top 1%\") social changemakers for this 8,000km, 15-day train journey mentoring rural entrepreneurs and exploring social/business ventures. Received a merit-based ~90% scholarship. Mentored 'New Roshani Sanitary Pads,' a startup incubated at the Jagriti Enterprise Center, driving sanitary-pad adoption among 5,000+ rural women.",
+      "stories": [
+        {
+          "title": "Mentoring on the Yatra",
+          "text": "During the Jagriti Yatra, I consulted for ventures like a sustainable textile business empowering rural women. Despite their potential, these businesses faced strategic inefficiencies in market positioning and customer value proposition. Mentoring these ventures and seeing their impact showed me how businesses can uplift communities and create lasting change — a belief that later became central to my work at PeopleGamez."
+        }
+      ]
+    },
+    {
+      "name": "Kerala Floods Relief",
+      "role": "Volunteer",
+      "dates": "2018, 2019",
+      "description": "In 2018, narrowly escaped being carried away by floodwaters, then worked with local villagers to rebuild homes and clear debris. When floods hit again in 2019, mobilized peers to assemble aid supplies, support relief workers, and help affected communities rebuild."
+    },
+    {
+      "name": "TreeForest Capital",
+      "role": "Startup Evaluator / Mentor",
+      "dates": "January 2022 – Present",
+      "description": "Helping TreeForest Capital, a family fund, evaluate startups and mentor founders on growth and strategy. Of the ventures recommended for investment, one went on to win funding on Shark Tank India. Comparable prior roles held with ACT Grants and at the Jagriti Enterprise Center."
+    },
+    {
+      "name": "Learning Wheels",
+      "role": "Mentor",
+      "dates": "August 2021 – Present",
+      "description": "Pro bono mentoring of 18 founders (many college dropouts) on strategic dilemmas and entrepreneurial struggles; ~5 hours/week, 30 weeks/year."
+    },
+    {
+      "name": "Board Game Communities (ViPo, SDMC, etc.)",
+      "role": "Volunteer Facilitator",
+      "dates": "December 2022 – Present",
+      "description": "Twice a month, facilitates board games that spread happiness and help strangers bond, taking away a learning after every game; ~8 hours/week, 30 weeks/year."
+    },
+    {
+      "name": "Spiritual / Outbound Trail Facilitation",
+      "role": "Designer & Guide",
+      "description": "Designs and runs inner- and outward-discovery-focused outbound trails, adventures, and indoor experiences for small communities willing to be vulnerable with strangers and embrace new experiences, using board games, trekking, and hitchhiking as tools."
+    },
+    {
+      "name": "Synthesis",
+      "role": "Leadership Trainer",
+      "description": "Trained teenagers on 21st-century leadership skills at Synthesis, the Elon-Musk-backed digital school, as one of its first hires from Asia."
+    },
+    {
+      "name": "Kho-Kho",
+      "role": "Player / Captain",
+      "description": "National-level Kho-Kho player (2011, 2013); founding captain of NITC Kho-Kho (2016–2020), leading the team to 3 Nationals; still plays most mornings, describing it as grounding and central to his leadership development for the last 16+ years."
+    },
+    {
+      "name": "Chess",
+      "role": "Player",
+      "description": "State-level chess player (2015)."
+    },
+    {
+      "name": "Entrepreneur's Mahabharat (novel)",
+      "role": "Author (in progress)",
+      "description": "Authoring a first novel re-narrating the Indian epic Mahabharat through an organizational-development lens."
+    },
+    {
+      "name": "Other volunteer/mentoring work",
+      "description": "Mentored 4 social ventures with ACT Grants; guided teacher-led social initiatives as a Barefoot Edu jury member; led digital campaigns for NGOs (including Sab Ka Mangal Ho) uplifting 650 orphans; mentored 6 high-school/college-dropout entrepreneurs individually (e.g., helping one pivot to a skill-based teen social platform, another grow a podcast to 40,000+ subscribers); regular blood donor and registered stem-cell donor."
+    }
+  ],
+  "awards": [
+    {"name": "Youth Icon", "grantor": "Ministry of Youth Affairs, Government of India", "description": "For leading NGOs, schools, and government partners to upskill underprivileged youth; chosen among 40 national trainers to mentor 3,000 student entrepreneurs from 3M+ applicants."},
+    {"name": "UN United People Global (UPG) — Top 3 Asia", "grantor": "United Nations wing (UPG)", "description": "For 'Project Uplift,' OpenTech's pandemic-era digital pivot for leadership development among underprivileged students."},
+    {"name": "Startup India Seed Fund", "grantor": "Government of India", "amount": "$21K (one variant: $12K)", "description": "Innovation grant; only startup funded among 36 incubator applicants (top 1 percentile)."},
+    {"name": "TIDE 2.0 Grant", "grantor": "Ministry of Electronics and Information Technology, Government of India", "amount": "$8.5K", "description": "Awarded to startups working on emerging technologies addressing societal/business challenges."},
+    {"name": "Toycathon", "grantor": "Government of India", "description": "Winner among 129,000+ participants (3-stage competition: idea submission, prototype development, live finals)."},
+    {"name": "DRDO DRUSE '18 — Special Mention", "grantor": "DRDO (Defence Research and Development Organisation)", "description": "For 'Stealth Security and Surveillance Swarmbot Systems'; 1 of 14 teams from South India, only NIT Calicut team selected."},
+    {"name": "TEQUIP III Research Grant", "grantor": "Ministry of Education, Government of India", "description": "For the Soft Robotics Gripper project's technical innovation and industrial relevance."},
+    {"name": "Pi School of AI — Youngest Global Scholar", "grantor": "Pi School of AI, Italy", "description": "Selected from 6,000+ applicants for the 21st (of 20 official) spots, an exception granted for exceptional potential."},
+    {"name": "IEEE Xplore Publication", "description": "'Gamification for Teaching Sustainability to Engineering Students,' accepted at a 30% acceptance rate."},
+    {"name": "Jagriti Yatra Scholarship", "description": "Selected from 15,000+ applicants (Top 1%) with a ~90% scholarship for community contribution and societal impact."}
+  ],
+  "skills": {
+    "tools": ["SQL", "Python", "Excel / Advanced Excel", "API design", "ML workflows", "Computer Vision", "NLP", "Mixpanel", "Amplitude", "Figma", "G-Suite", "Salesforce", "HubSpot", "Jira", "Notion", "Power BI", "Tableau", "QuickBooks", "SEMRush", "PitchBook", "Bloomberg", "DealCloud", "n8n", "Grata", "MS Office"],
+    "competitions": [
+      "Toycathon winner (129K teams)",
+      "Flipkart ML Challenge semi-finalist (6.7K teams)",
+      "VNIT Startup Conclave finalist (1K teams)",
+      "Kerala XR Challenge finalist",
+      "DRDO DRUSE '18 special mention"
+    ],
+    "certifications": [
+      "Coursera: Successful Negotiation",
+      "Coursera: Leading Teams",
+      "Coursera: Influencing People",
+      "Coursera: Inspiring and Motivating Individuals",
+      "Coursera: AI for Medical Diagnosis and Prognosis"
+    ]
+  },
+  "recommenders": [
+    {
+      "name": "Rishi",
+      "relationship": "Mentor / Advisor (TreeForest Capital)",
+      "context": "Met Vikas in July 2021 during Plaksha's Tech Leadership Program; mentored him through Madiee and PeopleGamez; involved him in evaluating startup investments at TreeForest Capital.",
+      "keyPoints": ["Vikas declined offers (e.g., Novartis) to join Madiee, an EBITDA-negative venture, as co-founder", "Persuaded top IIT/IIM talent to join as interns/freelancers despite limited incentives", "Entire team followed him in solidarity when he resigned from Madiee"]
+    },
+    {
+      "name": "Solomon Salvis",
+      "title": "CEO, Simurise Learning Private Limited",
+      "relationship": "Client (since 2022)",
+      "context": "Co-created SimuRise's first in-house simulation, 'King Solomon's Mines' (KSM), through PeopleGamez, initially offering to work without pay to earn the engagement.",
+      "keyPoints": ["Delivered four high-impact projects for Simurise", "Compensated for limited corporate exposure with relentless preparation and research", "Simulation became core to reshaping Simurise's corporate-training offering"]
+    },
+    {
+      "name": "Senthil",
+      "title": "Founder, Madiee Games",
+      "relationship": "Co-founder / business partner",
+      "context": "Offered Vikas 40% equity as co-founder and COO of Madiee after Vikas joined pro bono in January 2021 and led the team through a strong Toycathon performance.",
+      "keyPoints": ["Vikas adapted the business to pandemic conditions by pivoting to online board-game facilitation for revenue", "Scaled the team from 2 to 118 members under Vikas's tech/operations leadership"]
+    }
+  ],
+  "careerNarrative": {
+    "longTermVision": "Build (or return to scale) a leadership/strategy consulting firm — referenced by the working name 'Yuthi' in one draft — that helps purpose-driven organizations align growth with societal impact, drawing on the PeopleGamez model of gamified, data-driven organizational transformation.",
+    "pathsBeingExplored": [
+      {
+        "path": "Strategy consulting",
+        "targets": ["McKinsey", "BCG", "Kearney", "Oliver Wyman", "Strategy&", "EY-Parthenon"],
+        "rationale": "Gain global, large-scale project exposure, cross-cultural team management, and structured frameworks for corporate diversification and regulatory navigation — gaps identified while scaling PeopleGamez internationally."
+      },
+      {
+        "path": "Corporate / enterprise-tech strategy",
+        "targets": ["Meta", "Adobe", "Google", "Disney", "Grab", "DoorDash"],
+        "rationale": "Progress from Strategy Associate/Manager toward Director of Strategy, leading market-entry strategy, cross-functional alignment, and eventually acquisitions/partnerships at enterprise scale."
+      },
+      {
+        "path": "Entrepreneurship Through Acquisition (ETA) / Search Fund",
+        "rationale": "Acquire and operate an existing (often family-owned/traditional) business, applying AI/automation to modernize operations without disrupting cash flow — pairing an operator mindset with the deal-structuring and underwriting rigor gained through MBA electives and fellowships.",
+        "relatedProjects": ["Redstick Ventures diligence", "Sentinel Imports deal-sourcing tool", "Guiding a friend's ETA search through deal structuring and capital-stack modeling"]
+      }
+    ],
+    "note": "These three paths coexist across different resume/cover-letter versions targeted at different roles; retained as parallel options rather than collapsed into one, since the source documents indicate active exploration rather than a single fixed target."
+  }
+}
+
+</script>
+
+<script>
+let DATA = null;
+let SOURCE_FILENAME = "master.json";
+let FILE_HANDLE = null; // File System Access API handle, when available — lets Save write in place
+const SUPPORTS_FS_ACCESS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+
+const rootEl = document.getElementById('root');
+const emptyState = document.getElementById('emptyState');
+const fileInput = document.getElementById('fileInput');
+const fileSub = document.getElementById('fileSub');
+const loadBtn = document.getElementById('loadBtn');
+const saveBtn = document.getElementById('saveBtn');
+
+function updateFileSub(text){ fileSub.textContent = text; }
+
+function applyLoadedJson(json, name, handle){
+  DATA = json;
+  SOURCE_FILENAME = name || SOURCE_FILENAME;
+  FILE_HANDLE = handle || null;
+  emptyState.style.display = 'none';
+  render();
+}
+
+// --- Loading ---
+loadBtn.addEventListener('click', async () => {
+  if (SUPPORTS_FS_ACCESS) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+        multiple: false
+      });
+      const file = await handle.getFile();
+      const text = await file.text();
+      const json = JSON.parse(text);
+      applyLoadedJson(json, file.name, handle);
+      updateFileSub("Linked to: " + file.name + " — Save will update this file directly");
+      toast("Loaded " + file.name);
+    } catch(err) {
+      if (err && err.name !== 'AbortError') alert("Could not open that file:\n" + err.message);
+    }
+  } else {
+    fileInput.click();
+  }
+});
+
+// Fallback file input, used only in browsers without the File System Access API
+// (e.g. Safari, Firefox). These browsers cannot write back to disk, so Save will
+// download a new copy instead of updating the original file.
+fileInput.addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const json = JSON.parse(evt.target.result);
+      applyLoadedJson(json, f.name, null);
+      updateFileSub("Loaded: " + f.name + " — your browser can't save back to disk directly, so Save will download an updated copy");
+      toast("Loaded " + f.name);
+    } catch(err) {
+      alert("Could not parse this file as JSON:\n" + err.message);
+    }
+  };
+  reader.readAsText(f);
+});
+
+// --- Auto-load on page open. Two sources are tried, in order: ---
+// 1) fetch('./master.json') — picks up the file on disk if this page is served over http(s).
+// 2) A bundled snapshot embedded directly in this HTML file (see <script id="embedded-data"> below),
+//    which always works when the file is simply double-clicked/opened from Finder, since browsers
+//    normally block fetch() of local files for security reasons.
+// Either way, no file handle exists yet after auto-load, so the first Save will ask where to write
+// (and remembers that location for every Save after that).
+function loadEmbeddedFallback(){
+  if (DATA) return;
+  const tag = document.getElementById('embedded-data');
+  if (!tag) return;
+  try {
+    const json = JSON.parse(tag.textContent);
+    applyLoadedJson(json, "master.json", null);
+    updateFileSub("Auto-loaded: bundled snapshot — click Save to choose where future saves should go");
+  } catch(e) { /* no embedded data available */ }
+}
+
+fetch('./master.json').then(r => {
+  if (!r.ok) throw new Error('not found');
+  return r.json();
+}).then(json => {
+  if (DATA) return; // don't override a manually loaded file
+  applyLoadedJson(json, "master.json", null);
+  updateFileSub("Auto-loaded: master.json (from disk) — click Save to choose where future saves should go");
+}).catch(loadEmbeddedFallback);
+
+// Safety net: if fetch neither resolves nor rejects promptly (some browsers hang instead of
+// rejecting on file:// URLs), fall back to the bundled snapshot after a short delay anyway.
+setTimeout(loadEmbeddedFallback, 350);
+
+// --- Saving ---
+async function writeToHandle(handle){
+  const writable = await handle.createWritable();
+  await writable.write(JSON.stringify(DATA, null, 2));
+  await writable.close();
+}
+
+function downloadCopy(){
+  const blob = new Blob([JSON.stringify(DATA, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = SOURCE_FILENAME.replace(/\.json$/i,'') + '_' + stamp + '.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast("Downloaded " + a.download + " (couldn't save in place)");
+}
+
+saveBtn.addEventListener('click', async () => {
+  if (!DATA) { alert('Load a JSON file first.'); return; }
+
+  if (!SUPPORTS_FS_ACCESS) {
+    downloadCopy();
+    return;
+  }
+
+  try {
+    if (!FILE_HANDLE) {
+      // No file linked yet (bundled snapshot or first save) — ask once where to save,
+      // then reuse that location for every Save after.
+      FILE_HANDLE = await window.showSaveFilePicker({
+        suggestedName: SOURCE_FILENAME || 'master.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+      });
+      SOURCE_FILENAME = FILE_HANDLE.name;
+    }
+
+    // Make sure we still have write permission (browsers can revoke it between sessions)
+    if ((await FILE_HANDLE.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+      const perm = await FILE_HANDLE.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') throw new Error('Write permission was not granted.');
+    }
+
+    await writeToHandle(FILE_HANDLE);
+    updateFileSub("Linked to: " + FILE_HANDLE.name + " — Save will update this file directly");
+    toast("Saved " + FILE_HANDLE.name);
+  } catch(err) {
+    if (err && err.name === 'AbortError') return; // user cancelled the save-location prompt
+    console.error(err);
+    // Fall back to a plain download so the edits are never lost
+    downloadCopy();
+  }
+});
+
+document.getElementById('expandAllBtn').addEventListener('click', () => {
+  document.querySelectorAll('details').forEach(d => d.open = true);
+});
+document.getElementById('collapseAllBtn').addEventListener('click', () => {
+  document.querySelectorAll('details.node').forEach(d => d.open = false);
+});
+
+document.getElementById('searchBox').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('[data-searchable]').forEach(el => {
+    el.classList.remove('search-hide');
+  });
+  document.querySelectorAll('mark.hl').forEach(m => {
+    m.replaceWith(document.createTextNode(m.textContent));
+  });
+  if (!q) return;
+  let anyOpened = false;
+  document.querySelectorAll('[data-searchable]').forEach(el => {
+    const text = el.getAttribute('data-searchable').toLowerCase();
+    if (text.includes(q)) {
+      let p = el.closest('details');
+      while (p) { p.open = true; p = p.parentElement ? p.parentElement.closest('details') : null; }
+      anyOpened = true;
+    }
+  });
+});
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(()=> t.classList.remove('show'), 2200);
+}
+
+// ---- data helpers ----
+function getAt(path){
+  let cur = DATA;
+  for (const k of path) cur = cur[k];
+  return cur;
+}
+function setAt(path, value){
+  let cur = DATA;
+  for (let i=0; i<path.length-1; i++) cur = cur[path[i]];
+  cur[path[path.length-1]] = value;
+}
+function deleteAtIndex(path, idx){
+  const arr = getAt(path);
+  arr.splice(idx, 1);
+}
+function labelize(key){
+  return key
+    .replace(/([a-z0-9])([A-Z])/g,'$1 $2')
+    .replace(/_/g,' ')
+    .replace(/^./, c => c.toUpperCase());
+}
+
+function render(){
+  rootEl.innerHTML = '';
+  Object.keys(DATA).forEach(key => {
+    rootEl.appendChild(renderTopSection(key, DATA[key], [key]));
+  });
+}
+
+function renderTopSection(key, value, path){
+  const section = document.createElement('details');
+  section.className = 'top-section';
+  section.open = (key === 'meta') ? false : true;
+  const summary = document.createElement('summary');
+  summary.textContent = labelize(key);
+  section.appendChild(summary);
+  const body = document.createElement('div');
+  body.className = 'section-body';
+  body.appendChild(renderAny(value, path, key));
+  section.appendChild(body);
+  return section;
+}
+
+function renderAny(value, path, keyLabel){
+  if (Array.isArray(value)) return renderArray(value, path);
+  if (value !== null && typeof value === 'object') return renderObject(value, path);
+  return renderPrimitiveField(value, path, keyLabel);
+}
+
+function renderObject(obj, path){
+  const wrap = document.createElement('div');
+  Object.keys(obj).forEach(k => {
+    const v = obj[k];
+    if (Array.isArray(v) || (v !== null && typeof v === 'object')) {
+      const det = document.createElement('details');
+      det.className = 'node';
+      det.open = false;
+      const sum = document.createElement('summary');
+      sum.textContent = labelize(k) + (Array.isArray(v) ? ' (' + v.length + ')' : '');
+      det.appendChild(sum);
+      const nb = document.createElement('div');
+      nb.className = 'node-body';
+      nb.appendChild(renderAny(v, path.concat(k), k));
+      det.appendChild(nb);
+      wrap.appendChild(det);
+    } else {
+      wrap.appendChild(renderFieldRow(k, v, path.concat(k)));
+    }
+  });
+  // add-field button
+  const addRow = document.createElement('div');
+  addRow.className = 'add-row';
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add field';
+  addBtn.onclick = () => {
+    const name = prompt('New field name:');
+    if (!name) return;
+    obj[name] = "";
+    render();
+  };
+  addRow.appendChild(addBtn);
+  wrap.appendChild(addRow);
+  return wrap;
+}
+
+function renderFieldRow(key, value, path){
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  const label = document.createElement('label');
+  label.className = 'field-label';
+  label.textContent = labelize(key);
+  row.appendChild(label);
+  row.appendChild(renderPrimitiveInput(value, path));
+  return row;
+}
+
+function renderPrimitiveField(value, path, keyLabel){
+  // used at top level when a top-level key is itself a primitive (rare)
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  row.appendChild(renderPrimitiveInput(value, path));
+  return row;
+}
+
+function renderPrimitiveInput(value, path){
+  const searchable = document.createElement('div');
+  searchable.setAttribute('data-searchable', String(value));
+
+  if (typeof value === 'boolean') {
+    const wrap = document.createElement('div');
+    wrap.className = 'bool-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = value;
+    cb.onchange = () => setAt(path, cb.checked);
+    wrap.appendChild(cb);
+    return wrap;
+  }
+  if (typeof value === 'number') {
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.value = value;
+    inp.oninput = () => setAt(path, inp.value === '' ? '' : Number(inp.value));
+    return inp;
+  }
+  const str = value === null || value === undefined ? '' : String(value);
+  if (str.length > 90 || str.includes('\n')) {
+    const ta = document.createElement('textarea');
+    ta.value = str;
+    ta.setAttribute('data-searchable', str);
+    ta.rows = Math.min(10, Math.max(2, Math.ceil(str.length / 70)));
+    ta.oninput = () => setAt(path, ta.value);
+    return ta;
+  }
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = str;
+  inp.setAttribute('data-searchable', str);
+  inp.oninput = () => setAt(path, inp.value);
+  return inp;
+}
+
+function renderArray(arr, path){
+  const wrap = document.createElement('div');
+
+  const isPrimitiveArray = arr.every(v => v === null || typeof v !== 'object');
+
+  if (isPrimitiveArray) {
+    const tagWrap = document.createElement('div');
+    tagWrap.className = 'primitive-tags-wrap';
+    arr.forEach((item, idx) => {
+      const tag = document.createElement('span');
+      tag.className = 'primitive-array-tag';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = item;
+      inp.setAttribute('data-searchable', String(item));
+      inp.oninput = () => setAt(path.concat(idx), inp.value);
+      tag.appendChild(inp);
+      const rm = document.createElement('span');
+      rm.textContent = '✕';
+      rm.style.cursor = 'pointer';
+      rm.style.color = 'var(--ink-soft)';
+      rm.title = 'Remove';
+      rm.onclick = () => { deleteAtIndex(path, idx); render(); };
+      tag.appendChild(rm);
+      tagWrap.appendChild(tag);
+    });
+    wrap.appendChild(tagWrap);
+    const addRow = document.createElement('div');
+    addRow.className = 'add-row';
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ Add item';
+    addBtn.onclick = () => { arr.push(''); render(); };
+    addRow.appendChild(addBtn);
+    wrap.appendChild(addRow);
+    return wrap;
+  }
+
+  arr.forEach((item, idx) => {
+    const itemWrap = document.createElement('div');
+    itemWrap.className = 'array-item';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'item-toolbar';
+    const upBtn = document.createElement('button');
+    upBtn.className = 'mini-btn'; upBtn.textContent = '↑';
+    upBtn.disabled = idx === 0;
+    upBtn.onclick = () => { [arr[idx-1],arr[idx]] = [arr[idx],arr[idx-1]]; render(); };
+    const downBtn = document.createElement('button');
+    downBtn.className = 'mini-btn'; downBtn.textContent = '↓';
+    downBtn.disabled = idx === arr.length - 1;
+    downBtn.onclick = () => { [arr[idx+1],arr[idx]] = [arr[idx],arr[idx+1]]; render(); };
+    const dupBtn = document.createElement('button');
+    dupBtn.className = 'mini-btn'; dupBtn.textContent = 'Duplicate';
+    dupBtn.onclick = () => { arr.splice(idx+1, 0, JSON.parse(JSON.stringify(item))); render(); };
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'mini-btn danger'; rmBtn.textContent = 'Remove';
+    rmBtn.onclick = () => {
+      if (confirm('Remove this entry?')) { deleteAtIndex(path, idx); render(); }
+    };
+    toolbar.append(upBtn, downBtn, dupBtn, rmBtn);
+    itemWrap.appendChild(toolbar);
+
+    itemWrap.appendChild(renderAny(item, path.concat(idx), String(idx)));
+    wrap.appendChild(itemWrap);
+  });
+
+  const addRow = document.createElement('div');
+  addRow.className = 'add-row';
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add item';
+  addBtn.onclick = () => {
+    if (arr.length > 0) {
+      const clone = JSON.parse(JSON.stringify(arr[arr.length-1]));
+      // blank out primitive leaf values in the clone so it's an empty template
+      blankLeaves(clone);
+      arr.push(clone);
+    } else {
+      arr.push({});
+    }
+    render();
+  };
+  addRow.appendChild(addBtn);
+  wrap.appendChild(addRow);
+
+  return wrap;
+}
+
+function blankLeaves(node){
+  if (Array.isArray(node)) {
+    node.length = 0;
+  } else if (node !== null && typeof node === 'object') {
+    Object.keys(node).forEach(k => {
+      if (typeof node[k] === 'string') node[k] = '';
+      else if (typeof node[k] === 'number') node[k] = 0;
+      else if (typeof node[k] === 'boolean') node[k] = false;
+      else blankLeaves(node[k]);
+    });
+  }
+}
+</script>
+</body>
+</html>
