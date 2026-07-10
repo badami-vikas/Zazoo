@@ -191,6 +191,33 @@ export function useAvatarStatus(): AvatarStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Growth stage — driven by Memory entry count + installed capability count,
+// NOT streaks or login history (spec "Growth stages").
+// ---------------------------------------------------------------------------
+
+export type GrowthStage = "egg" | "creature" | "mature";
+
+/**
+ * Pure function — callers (Layout, tests) pass the live counts; the overlay
+ * never fetches them itself. Thresholds align with the spec's `policy_params`
+ * concept — move to a server-side param when that table lands.
+ *
+ * score = memoryCount + capabilityCount × 2
+ *   < 10  → egg      (brand-new, onboarding in progress)
+ *   < 50  → creature (engaged, some capabilities installed)
+ *   ≥ 50  → mature   (power user)
+ */
+export function computeGrowthStage(
+  memoryCount: number,
+  capabilityCount: number,
+): GrowthStage {
+  const score = memoryCount + capabilityCount * 2;
+  if (score < 10) return "egg";
+  if (score < 50) return "creature";
+  return "mature";
+}
+
+// ---------------------------------------------------------------------------
 // Capture tell — window CustomEvent contract (spec section 3, "The Blink Tell").
 // ---------------------------------------------------------------------------
 

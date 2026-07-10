@@ -4,7 +4,7 @@ import { Home, Target, Plus, Settings, SlidersHorizontal, Brain, BookOpen, Calen
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
-import { hasStoredPrefs, loadAvatarPrefs, type AvatarPrefs } from "./avatar/avatar-store";
+import { hasStoredPrefs, loadAvatarPrefs, computeGrowthStage, type AvatarPrefs, type GrowthStage } from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
 import { useInitiatives } from "./data/initiatives";
@@ -39,6 +39,11 @@ export default function Layout() {
   const [remoteInitiatives, setRemoteInitiatives] = useState<{ id: string; title: string }[] | null>(null);
   const [connectedSourceCount, setConnectedSourceCount] = useState(0);
   const [calendarConnected, setCalendarConnected] = useState(false);
+  // Growth stage: memory count not yet fetchable via tRPC (no /memory endpoint
+  // today) — defaults to 0 until that surface ships. Capability count ≈
+  // connected integration count, which Layout already fetches below. This gives
+  // a live stage the moment integrations connect; memory count wires in later.
+  const [growthStage, setGrowthStage] = useState<GrowthStage>("egg");
   const localInitiatives = useInitiatives();
 
   // Progressive-capability gating (ADR-033's onboarding spec: Knowledge/
@@ -50,7 +55,15 @@ export default function Layout() {
   useEffect(() => {
     trpc.integration.list
       .query({ workspaceId: PILOT_WORKSPACE, limit: 200, offset: 0 })
-      .then((res) => setConnectedSourceCount((prev) => prev + res.total))
+      .then((res) => {
+        setConnectedSourceCount((prev) => {
+          const next = prev + res.total;
+          // Recompute growth stage: memoryCount=0 until /memory tRPC ships;
+          // capabilityCount ≈ integration count (best proxy available today).
+          setGrowthStage(computeGrowthStage(0, next));
+          return next;
+        });
+      })
       .catch(() => {
         // Honest no-op: an unreachable API just keeps Knowledge/Calendar
         // showing their locked state rather than guessing they're connected.
@@ -59,7 +72,11 @@ export default function Layout() {
       .query()
       .then((info) => {
         if (info.connection.connected) {
-          setConnectedSourceCount((prev) => prev + 1);
+          setConnectedSourceCount((prev) => {
+            const next = prev + 1;
+            setGrowthStage(computeGrowthStage(0, next));
+            return next;
+          });
           setCalendarConnected(true);
         }
       })
@@ -330,6 +347,7 @@ export default function Layout() {
       {avatarPrefs && !(typeof window !== "undefined" && window.__TAURI_INTERNALS__) && (
         <AvatarOverlay
           animal={avatarPrefs.animal}
+          growthStage={growthStage}
           {...(avatarPrefs.avatarName ? { avatarName: avatarPrefs.avatarName } : {})}
           {...(workspaceName ? { workspaceName } : {})}
         />
