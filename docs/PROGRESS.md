@@ -47,16 +47,20 @@
 - [ ] SEC-6 — membership checks on `workspace.*` procedures
 - [ ] SEC-7 — Recon SSRF fix + log redaction + LinkedIn verification proof
 
+## Resolved decisions (2026-07-09)
+- **Consolidation trio → RECONCILED (ADR-037, AP-003).** Governing model: `BRIDGE_PLATFORM_RESET_HANDOFF.md` = stable brief; `docs/raw/execution-plan-2026-07.md` Tracks A–G supply the stronger lanes but execute **only behind discovery + safety gates**; `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution. Discovery gate re-run 2026-07-09 now **PASSES** (apps/web, capability/lifecycle.ts, PromptAssembler, workspace_definitions, package_installations, code:exec all exist — the critique's 07-07 "these don't exist" objection is stale). Remaining live gate = **safety** (sandboxing, package-import security, test strategy) before any Track executes. Tracks still not scheduled into batches until a Track is picked + its safety gate cleared via `docs/APPROVALS.md`.
+- **Dummy data → SETTLED (AP-002).** No dummies unless unavoidable; unavoidable ones tracked in `docs/dummy.md`. Covers test fixtures too.
+
 ## Blocked / decisions needed (user)
 - **Ordering conflict**: `docs/requests.md` R-028 (Groq-backed 5-agent Day-1 onboarding) is marked *top priority* by you, but the H2 roadmap puts Security M1 first. Batches above follow the roadmap; say the word and R-028 becomes Batch 1.
-- `docs/raw/execution-plan-2026-07.md` (Tracks A–G) is **draft-awaiting-user-approval**, and overlaps with `BRIDGE_PLATFORM_RESET_HANDOFF.md` + `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` (the critique recommends executing neither as-is). Needs your call on which version governs; until then its tracks are NOT scheduled here.
 - Skill-noise residue: claude.ai connector plugins can only be disabled in your claude.ai settings (see NOW batch note).
 
 ## Plan Registry — where every plan lives (nothing lost)
 **Sequencer (authoritative order):** `docs/raw/roadmap-6month-2026-h2.md` (M1–M6) + mirror prompts `docs/raw/roadmap-execution-prompts-2026-h2.md`.
 **Phase model:** `docs/wiki/roadmap.md` (P0–P6) · narrative `docs/raw/vision-pivot-living-software.md` §10 · `docs/raw/roadmap-v2-universal-commons.md` (5 agents/RAG/Commons). Pre-pivot `docs/raw/ROADMAP.md` = superseded (still holds open decisions §).
 **Punch-lists:** schema v2 → `docs/wiki/decisions.md` · bugs → `docs/BUGS.md` (38 OPEN + 3 IN PROGRESS) ⟷ checkbox view `All fixes.md` · testing → `docs/raw/testing-strategy.md` · user requests → `docs/requests.md` (open: R-008, R-019, R-026, R-028, R-029, R-030).
-**Consolidation trio (awaiting approval, overlapping):** `docs/raw/execution-plan-2026-07.md` · `BRIDGE_PLATFORM_RESET_HANDOFF.md` · `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md`.
+**Consolidation trio (RECONCILED 2026-07-09, ADR-037):** `BRIDGE_PLATFORM_RESET_HANDOFF.md` = stable brief · `docs/raw/execution-plan-2026-07.md` = gated lanes (safety gate required) · `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution.
+**Canon governance:** `docs/APPROVALS.md` (propose→approve ledger for locked-doc/plan-status/DONE changes) · `docs/dummy.md` (unavoidable-dummy ledger).
 **Domain plans (raw/):** token-efficient-development (M2: symbol index, `pnpm docs:codemaps`, per-doc token estimates; M3: manifest cheat-sheet, log rotation, wiki-size CI) · oss-commons-integration (supply-chain trust FIRST) · day1-integrations-free-apis · desktop-companion-agent-roadmap · cross-platform-compatibility · tool-standardization (Phases 0–5) · DESIGN-FIX (F1–F5) · helpdesk-plan (§6 P1–P4) · calendar-plan (P3–P6 future).
 **Tools:** `Tools/recon/EXPANSION.md` (Phase 2–4 + estimators) · `Tools/Job/*` (DealPilot/JobPilot specs, feed P2/P6).
 **Older checkbox plans:** `docs/superpowers/plans/2026-06-18-searcherinsights-profile-scraper.md` (open) · `2026-06-20-camera-tool.md` (⚠ predates no-dummy-data pivot — re-spec before executing).

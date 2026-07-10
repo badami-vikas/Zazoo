@@ -3,6 +3,12 @@
 **Default: do not create dummy data.** Real-data-only policy stands (CLAUDE.md, ADR-026/027) — runtime
 product surfaces render real connected data or an honest empty state, never a placeholder.
 
+> **User ratification 2026-07-09 (AP-002):** "don't use dummies unless unavoidable and when
+> unavoidable, it should be tracked… log there." This is now the settled rule — the previously-open
+> "do unit-test fixtures count?" question is **resolved: yes, the policy covers them.** Any unavoidable
+> dummy (runtime OR test) gets a row here. Test-only fixtures may live under test dirs but still get
+> logged if they're new. This ledger is the required tracking surface.
+
 **If dummy data is genuinely unavoidable** (e.g. a UI needs *something* on screen to be reviewable before
 its real data source exists, and an empty state would hide the thing being reviewed), the protocol is:
 
