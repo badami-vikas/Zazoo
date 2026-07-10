@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Target, Plus, Settings, SlidersHorizontal, Brain, BookOpen, CalendarDays, Lock } from "lucide-react";
+import { Home, Target, Plus, Settings, Brain, BookOpen, CalendarDays, Lock } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -28,6 +28,12 @@ import { useInitiatives } from "./data/initiatives";
  *   - the local useInitiatives store (user-created from the Work surface,
  *     localStorage — real user data, not seeded)
  * Honest empty state when both are empty.
+ *
+ * Visual language (Track C2, 2026-07-09): prototype icon-rail skin applied to
+ * ADR-029 IA. Always-collapsed 76px rail, icon + label stacked + centered,
+ * active left-stripe indicator, workspace avatar at top, bottom section pinned.
+ * SlidersHorizontal removed from rail — control panels reachable from detail
+ * pages; icon kept imported here would be dead code, so import removed too.
  */
 export default function Layout() {
   const location = useLocation();
@@ -124,16 +130,19 @@ export default function Layout() {
     return location.pathname === to || location.pathname.startsWith(`${to}/`);
   }
 
+  // Rail nav item: icon + short label stacked and centered in the 76px rail.
+  // Active state = steel-tinted background; the left stripe is <ActiveBar />.
   function navItemClass(active: boolean): string {
-    return `relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm no-underline transition-colors ${
+    return `relative flex flex-col items-center gap-0.5 py-2 rounded-lg w-full no-underline transition-colors cursor-pointer ${
       active
-        ? "bg-[color-mix(in_srgb,var(--color-steel-light)_20%,transparent)] font-medium text-[var(--color-steel)]"
-        : "text-[var(--color-navy-mid)] hover:bg-surface"
+        ? "bg-[color-mix(in_srgb,var(--color-steel-light)_20%,transparent)] text-[var(--color-steel)]"
+        : "text-[var(--color-navy-mid)] hover:bg-[var(--color-surface)]"
     }`;
   }
 
+  // Left-side active indicator stripe — same height/style as prototype rail.
   function ActiveBar() {
-    return <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full bg-[var(--color-steel)]" />;
+    return <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-[var(--color-steel)]" />;
   }
 
   const homeActive = location.pathname === "/" || isActive("/home");
@@ -146,105 +155,116 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
-      {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar. */}
-      <nav className="hidden sm:flex w-56 shrink-0 border-r border-border bg-background flex-col">
-        {/* Organization brand header — same sizing as the prototype's Sidebar
-            brand block (bridge-ai-1ay.pages.dev): text-sm font-bold name,
-            text-xs uppercase label underneath. Links to Settings → Organization,
-            the platform-wide home for this now that there's no workspace switcher. */}
+      {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar.
+          Rail visual language (Track C2): always-collapsed 76px icon rail, icon +
+          short label stacked + centered, active left-stripe, workspace avatar at
+          top, bottom-section pinned. ADR-029 IA (routing/items) preserved exactly. */}
+      <nav
+        className="hidden sm:flex shrink-0 border-r flex-col"
+        style={{
+          width: 76,
+          backgroundColor: "var(--color-background)",
+          borderColor: "var(--color-border)",
+        }}
+      >
+        {/* Workspace avatar — very top of rail. Steel square with workspace initial.
+            Links to Settings → Organization (platform-wide org home). */}
         <Link
           to="/settings"
-          className="flex items-center gap-2.5 px-3 py-3 border-b border-border no-underline shrink-0 hover:bg-surface transition-colors"
+          className="h-16 flex flex-col items-center justify-center gap-0.5 border-b shrink-0 hover:bg-[var(--color-surface)] transition-colors no-underline"
+          style={{ borderColor: "var(--color-border)" }}
+          title={workspaceName || "Bridge"}
         >
           <div
-            className="w-8 h-8 min-w-[32px] rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm shrink-0"
+            className="w-8 h-8 rounded-lg text-white flex items-center justify-center text-sm font-bold shadow-sm"
             style={{ backgroundColor: "var(--color-steel)" }}
           >
             {(workspaceName || "B").charAt(0).toUpperCase()}
           </div>
-          <div className="flex flex-col min-w-0">
-            <span
-              className="font-bold text-sm tracking-tight truncate"
-              style={{ fontFamily: "var(--font-editorial)", color: "var(--color-navy)" }}
-            >
-              {workspaceName || "Bridge"}
-            </span>
-            <span
-              className="text-xs font-medium uppercase tracking-wider"
-              style={{ color: "var(--color-warm-gray)" }}
-            >
-              Organization
-            </span>
-          </div>
+          <span className="text-[9px] font-medium" style={{ color: "var(--color-navy-mid)" }}>
+            Profile
+          </span>
         </Link>
 
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-0.5">
-          <Link to="/" className={navItemClass(homeActive)}>
+        {/* Top nav — Home + dynamic Initiatives + New, icon+label stacked. */}
+        <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+          <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
-            <Home className="w-4 h-4 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            Home
+            <Home className="w-5 h-5" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className="text-[9px] font-medium leading-none">Home</span>
           </Link>
 
-          {/* Initiatives — first-class nav items, no index page in between. */}
+          {/* Initiatives — first-class nav items (ADR-029). Each shows a Target icon +
+              truncated title label; the control-panel slider is reachable from the
+              initiative detail page, not exposed in the narrow rail. */}
           {initiatives.map((i) => {
             const controlPanelBase = `/initiative/${encodeURIComponent(i.id)}`;
             const to = i.moduleTo ?? controlPanelBase;
             const active = isActive(to);
             return (
-              <div key={i.id} className={`group ${navItemClass(active)}`}>
+              <Link
+                key={i.id}
+                to={to}
+                className={navItemClass(active)}
+                title={i.title}
+              >
                 {active && <ActiveBar />}
-                <Target className="w-4 h-4 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-                <Link to={to} className="flex-1 truncate no-underline text-inherit">
-                  {i.title}
-                </Link>
-                <Link
-                  to={`${controlPanelBase}/control-panel`}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-[var(--color-steel)] transition-opacity"
-                  aria-label={`${i.title} control panel`}
-                  title="Control panel"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                </Link>
-              </div>
+                <Target className="w-5 h-5" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                <span className="text-[9px] font-medium leading-none truncate max-w-[60px]">{i.title}</span>
+              </Link>
             );
           })}
           {remoteInitiatives !== null && initiatives.length === 0 && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">No Initiatives yet.</div>
+            <div className="py-1.5 text-[9px] text-center" style={{ color: "var(--color-warm-gray)" }}>
+              No Initiatives
+            </div>
           )}
 
           {/* "+ New" — ALWAYS below all initiatives. */}
           <button
             type="button"
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left text-muted-foreground hover:bg-surface hover:text-[var(--color-steel)] transition-colors"
+            className={navItemClass(false)}
             onClick={() => setNewOpen(true)}
+            title="New Initiative"
           >
-            <Plus className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-            New
+            <Plus className="w-5 h-5" style={{ color: "var(--color-warm-gray)" }} />
+            <span className="text-[9px] font-medium leading-none">New</span>
           </button>
         </div>
 
-        {/* Divider + Knowledge/Intelligence/Calendar/Settings — retained below
-            the fold (user call 2026-07-07: keep Intelligence in primary nav,
-            directly above Settings). Knowledge/Calendar added 2026-07-08 per
-            ADR-033's onboarding spec: visible from day one, "inactive" (muted,
-            lock icon) until enough is connected to be useful — but NEVER a
-            dead end, still fully clickable; the destination page explains
-            what's missing rather than blocking navigation. */}
-        <div className="border-t border-border p-3 shrink-0 flex flex-col gap-0.5">
+        {/* Bottom section — Knowledge/Intelligence/Calendar/Settings, separated by
+            a border. Knowledge/Calendar show overlaid lock icon when not yet
+            unlocked (ADR-033 progressive capability model). */}
+        <div
+          className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           <Link
             to="/knowledge-base"
             className={navItemClass(knowledgeActive)}
             title={knowledgeUnlocked ? "Knowledge" : "Knowledge — connect 2+ sources to unlock"}
           >
             {knowledgeActive && <ActiveBar />}
-            <BookOpen className="w-4 h-4 shrink-0" style={{ color: knowledgeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={knowledgeUnlocked ? "" : "opacity-60"}>Knowledge</span>
-            {!knowledgeUnlocked && <Lock className="w-3 h-3 shrink-0 ml-auto" style={{ color: "var(--color-warm-gray)" }} />}
+            <div className="relative">
+              <BookOpen
+                className="w-5 h-5"
+                style={{ color: knowledgeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }}
+              />
+              {!knowledgeUnlocked && (
+                <Lock
+                  className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5"
+                  style={{ color: "var(--color-warm-gray)" }}
+                />
+              )}
+            </div>
+            <span className={`text-[9px] font-medium leading-none${knowledgeUnlocked ? "" : " opacity-60"}`}>
+              Knowledge
+            </span>
           </Link>
-          <Link to="/intelligence" className={navItemClass(intelligenceActive)}>
+          <Link to="/intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
             {intelligenceActive && <ActiveBar />}
-            <Brain className="w-4 h-4 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            Intelligence
+            <Brain className="w-5 h-5" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className="text-[9px] font-medium leading-none">Intelligence</span>
           </Link>
           <Link
             to="/calendar"
@@ -252,14 +272,26 @@ export default function Layout() {
             title={calendarUnlocked ? "Calendar" : "Calendar — connect a calendar to unlock"}
           >
             {calendarNavActive && <ActiveBar />}
-            <CalendarDays className="w-4 h-4 shrink-0" style={{ color: calendarNavActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={calendarUnlocked ? "" : "opacity-60"}>Calendar</span>
-            {!calendarUnlocked && <Lock className="w-3 h-3 shrink-0 ml-auto" style={{ color: "var(--color-warm-gray)" }} />}
+            <div className="relative">
+              <CalendarDays
+                className="w-5 h-5"
+                style={{ color: calendarNavActive ? "var(--color-steel)" : "var(--color-warm-gray)" }}
+              />
+              {!calendarUnlocked && (
+                <Lock
+                  className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5"
+                  style={{ color: "var(--color-warm-gray)" }}
+                />
+              )}
+            </div>
+            <span className={`text-[9px] font-medium leading-none${calendarUnlocked ? "" : " opacity-60"}`}>
+              Calendar
+            </span>
           </Link>
-          <Link to="/settings" className={navItemClass(settingsActive)}>
+          <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}
-            <Settings className="w-4 h-4 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            Settings
+            <Settings className="w-5 h-5" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className="text-[9px] font-medium leading-none">Settings</span>
           </Link>
         </div>
       </nav>
