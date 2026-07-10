@@ -1,7 +1,8 @@
 # Change Log
 
+- **2026-07-09** — **Shell nav rail restyled to match prototype visual language (Track C2)**: `Layout.tsx` nav shrunk from 224px expanded sidebar to 76px always-collapsed icon rail; `Header.tsx` bg fixed; `badge.tsx` extended with Bridge semantic variants success/warning/danger/neutral.
 - **2026-07-09** — E1: onboarding rewrite — profession-led first question, LinkedIn/phone removed, workspace-name-from-email utility added
-- **2026-07-09** — ADR-035–ADR-041: OSS adoption decisions documented (ADR-035 DocumentProvider Docling+Tika; ADR-036 SandboxProvider isolated-vm+E2B doctrine split; ADR-037 ConnectorProvider Nango conditional+Activepieces Pi-import; ADR-038 ObservabilityProvider Langfuse+P3 bake-off; ADR-039 reference-only Graphiti/Letta/screenpipe/CrewAI/Baserow; ADR-040 WebResearch Firecrawl API-only+Stagehand P4; ADR-041 rejected/parked governance engines+UI framework+runtime). New `docs/raw/spec-adapter-ports.md` with `DocumentProvider` and `ConnectorProvider` port interface sketches.
+- **2026-07-09** — ADR-035–ADR-041: OSS adoption decisions documented. New `docs/raw/spec-adapter-ports.md` with `DocumentProvider` and `ConnectorProvider` port interface sketches.
 - **2026-07-09** — spec-control-panel-icon.md created: toolbar icon that opens a view-scoped popover listing associated tools/workflows/resources/people/agents/skills.
 - **2026-07-09** — spec-workspace-naming.md created: email-domain extraction rule for workspace name; fallback to FirstName's Workspace; always user-editable.
 - **2026-07-09** — spec-avatar.md created: full Day-1 avatar spec — growth stages (egg/creature/mature), operational states, personality states, surfaces (web+desktop), click behaviour, hatch ceremony, spirit-animal question.

@@ -29,10 +29,10 @@ export function Header({ tabs, activeTab, onTabChange }: HeaderProps) {
     return (
       <header
         className="h-14 flex items-center justify-center px-6 border-b shrink-0 z-10 w-full shadow-sm"
-        style={{ backgroundColor: "white", borderColor: "var(--color-border)" }}
+        style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-border)" }}
       >
         <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4" style={{ color: "var(--color-steel)" }} />
+          <Icon className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
           <span className="text-base font-semibold" style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}>
             {only.label ?? only.id}
           </span>
