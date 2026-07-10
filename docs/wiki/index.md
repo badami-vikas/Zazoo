@@ -38,6 +38,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [day1-integrations](day1-integrations.md) — **2026-07-08**: $0-spend launch catalog (SEC EDGAR/GLEIF/Companies House trio, Google built) + a CC0-spec→OpenAPI-Generator→governed-connector FACTORY + licensing honesty flags (Nango EL2.0, OpenCorporates ODbL, avoid OpenSanctions/Firecrawl) + day-1 robustness recs.
 - [oss-commons](oss-commons.md) — **2026-07-08**: ingest OSS skills (15 repos, repo-license≠artifact-license) / agents (500-AI-Agents pattern, reject autonomous-exec) / commercial modules (reject GPL/AGPL) into Commons on ONE governed spine; supply-chain signing/provenance FIRST.
 - **Token-efficient dev** → [../raw/token-efficient-development-2026-07.md](../raw/token-efficient-development-2026-07.md): codemaps/diagrams/nav-index to add + token best practices + roadmap. Skills diluting the project (CSV) → [../skills-diluting-project.csv](../skills-diluting-project.csv).
+- [brain](brain.md) — **2026-07-09, ADR-035**: Brain/Engine = 6 engines over existing seams (Compression Cascade · Sync Scheduler+Comms-Graph · Routing Policy · MCP host+discovery · memory consolidator+PromptAssembler+Domain Profiler/Buddy · Automation Miner); fills gaps #6/#7; 5-phase plan onto P0–P3.
 - [BUGS](../BUGS.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
 - [testing](testing.md) — real coverage numbers (no CI/vitest), priority test list tied to known P0 bugs.
 
