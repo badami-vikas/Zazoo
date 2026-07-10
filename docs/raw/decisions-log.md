@@ -5,7 +5,7 @@ doc_kind: reference
 status: active
 companions: []
 related_wiki: ../wiki/decisions.md
-updated: 2026-07-08
+updated: 2026-07-09
 tags: [adr, decisions, governance, rationale]
 ---
 
@@ -24,6 +24,127 @@ Format per entry:
 - **Rationale:** why this over the alternatives.
 - **Alternatives rejected:** and why.
 - **Consequences / follow-ups:** what this commits us to, what remains open.
+
+## ADR-041 — Rejected / Parked OSS: governance engines, UI framework, runtime, agent frameworks (2026-07-09)
+
+**Context:** The OSS map assembled during the 2026-07 research sweep included several candidates that were explicitly ruled out or parked — governance-engine alternatives (OpenFGA/OPA/Cedar/SpiceDB), an alternative UI framework (Refine), a desktop-shell alternative (Electron), an agent framework in maintenance mode (AutoGen), a workflow engine with license risk (Windmill), and a deferred orchestration engine (Temporal). These verdicts existed in the execution plan but had no ADR entry, creating risk that a future session would re-evaluate them without the original rationale.
+
+**Decision:**
+- **OpenFGA / OPA / Cedar / SpiceDB → PARK** (softened from initial Reject per v3 review): Bridge's CBAC + policy engine + append-only Ledger + Capability Trust Model is implemented, tested, and is the core governance moat. Swapping any of these in is a full rewrite for zero user-visible gain at current scale. **Re-evaluate ONLY on a concrete enterprise ReBAC scale trigger (P6+) with hard evidence**. Status = PARK, not permanent Reject — reassess with evidence, not preemptively.
+- **Refine (as UI dependency) → Reject**: `<DataViews>` registry + view grammar IS the workspace-surface enforcement moat. Adding a second UI framework duplicates render logic and dilutes the moat. Refine UX patterns may be referenced; the library must not be embedded.
+- **Electron → Reject**: Tauri decided (existing ADR). Smaller binary, Rust capture core, better sandboxing per platform goals. Re-evaluation would require overturning the Tauri ADR first.
+- **AutoGen → Reject**: In maintenance mode as of 2026; no active development trajectory. The relevant multi-agent patterns were extracted in the 2026 research sweep and are referenced in ADR-013/ADR-020.
+- **Temporal → Defer** (unchanged): stays deferred behind the `RitualExecutor` port. Re-evaluate when ritual complexity demonstrably outgrows Hatchet/BullMQ.
+- **Windmill → Reject as dependency**: AGPL + commercial-terms overlap risk; the Hatchet/BullMQ decision (existing ADR) already covers the same runtime need. Windmill workflow patterns may be referenced; the library/server must not be embedded.
+
+**Rationale:** Each rejection or park protects one of: (a) the governance moat (OpenFGA/OPA/Cedar — Bridge already built what these would provide); (b) the workspace-surface moat (Refine — `<DataViews>` is the enforcer); (c) a decided architectural call (Electron vs Tauri); (d) active-development health (AutoGen); (e) license safety (Windmill). The PARK status for policy-engine alternatives acknowledges that enterprise RBAC at scale (P6+) could eventually force reconsideration — parking preserves that option without premature action.
+
+**Alternatives rejected:** Acting on any of these now — each would either rewrite a built moat component, violate an existing architecture decision, or add license risk without compensating benefit.
+
+**Consequences / follow-ups:** No code changes. Trigger to re-open OpenFGA/OPA: concrete enterprise customer with ReBAC requirements at P6+. Trigger to re-open Refine: `<DataViews>` registry shown to be inadequate for a class of workspace surface needs. Windmill / AutoGen: no planned re-evaluation.
+
+---
+
+## ADR-040 — WebResearch provider: Firecrawl API-only (AGPL constraint) + Stagehand P4 + Playwright fallback (2026-07-09)
+
+**Context:** The Learning Agent needs web research capabilities for competitor analysis, capability enrichment, and external sourcing. Three candidates were identified: Firecrawl (structured web extraction), Stagehand/Browserbase (higher-level browser automation), and Playwright (already in stack as a lower-level fallback). Firecrawl's AGPL-3.0 server license creates embedding risk in a commercial product.
+
+**Decision:**
+- Firecrawl: use via **hosted API only** — never embed the server (AGPL-3.0 core). All calls routed through `ExternalFetchCapability` and the lethal-trifecta check (privacy-risk / external-band governance / rate-limiting). No new dependency on the Firecrawl npm package for server-side use.
+- Stagehand (Browserbase): `BrowserActionProvider` port, targeted for P4 ambient-acting. Provides higher-level browser automation primitives than raw Playwright for governed ambient-acting use cases.
+- Playwright: already in stack; stays as fallback for headed-browser needs that don't require structured extraction.
+
+**Rationale:** Firecrawl's AGPL-3.0 server code cannot be embedded in a commercial product without triggering AGPL's copyleft requirements; using the hosted API avoids that exposure while still getting Firecrawl's structured extraction quality. Stagehand is the right primitive for P4 ambient acting — it abstracts over browser-control details that Playwright exposes. Playwright covers the gap until P4.
+
+**Alternatives rejected:** Embedding Firecrawl server (AGPL exposure); raw Playwright for all web research (too low-level, no structured extraction built in); SaaS-only search APIs such as SerpAPI (privacy risk for sensitive research queries; data egress).
+
+**Consequences / follow-ups:** Firecrawl calls go through `ExternalFetchCapability` (the existing External-band path); no Firecrawl server dependency in `package.json`. `BrowserActionProvider` port to be designed in P4 scope. Document AGPL risk in any future ticket that proposes self-hosting Firecrawl.
+
+---
+
+## ADR-039 — Reference-only OSS: Graphiti, Letta, screenpipe, CrewAI/Agno/Haystack, Baserow/NocoDB/Appsmith (2026-07-09)
+
+**Context:** The 2026-07 research sweep surfaced several OSS projects that were evaluated but not adopted as dependencies. These need an explicit record so future sessions understand each is a deliberate, revisitable non-adoption — not neglect.
+
+**Decision:** Reference-only status for all items below. None may be added as a package dependency without a new ADR that overturns this entry.
+
+- **Graphiti**: temporal-graph memory patterns. Reference for a future Mem0 adapter if temporal query requirements outgrow Mem0. Do not swap Mem0 now; the port exists and works. Trigger to revisit: Mem0 failing repeated temporal-query accuracy benchmarks.
+- **Letta**: agent-memory architecture patterns. Reference only; Mem0-behind-port is the adopted decision.
+- **screenpipe**: desktop capture architecture patterns. Bridge owns the Rust capture core (Tauri/SPI, ADR-016). screenpipe = pattern reference for future maintainability questions. Trigger to revisit: Rust capture core maintenance burden becomes demonstrably unsustainable.
+- **CrewAI / Agno / Haystack**: multi-agent framework patterns. Already mined in the 2026-07 research sweep; patterns embedded in ADR-013 / ADR-020. No new evaluation needed at current phase.
+- **Baserow / NocoDB / Appsmith**: table/page UX patterns. Reference only; licenses (BUSL/AGPL/Apache) and product-fit (these are complete products, not composable libraries) prevent embedding. `<DataViews>` registry covers the table-surface need.
+
+**Rationale:** In each case the relevant pattern is either already implemented (Mem0 port, Rust capture core, `<DataViews>`), the license is incompatible with embedding, or Bridge's existing architectural decision is the correct answer and re-evaluating it requires a new trigger-based ADR rather than passive drift. Reference-only status is explicit and reversible — the triggers above define what would reopen each.
+
+**Alternatives rejected:** Adopting any of these now without a trigger — premature adoption of an alternative to a working solution adds maintenance surface and muddies the port contract.
+
+**Consequences / follow-ups:** No code changes. Triggers documented above define re-evaluation conditions. Mem0 temporal-query accuracy should be benchmarked at P3 before Graphiti is reconsidered.
+
+---
+
+## ADR-038 — ObservabilityProvider: Langfuse (traces + prompt versions) with DeepEval vs Mastra evals bake-off at P3 (2026-07-09)
+
+**Context:** Bridge needs LLM observability — traces, prompt versioning, eval scores — to support the capability promotion gate and agent heartbeat monitoring. Two tools were in play: Langfuse (self-hostable trace + prompt-version store) and Mastra's built-in eval subsystem. Running both long-term creates overlapping instrumentation and maintenance burden.
+
+**Decision:** Langfuse as the `ObservabilityProvider` implementation, targeted for P2–P3. A **bake-off between DeepEval and Mastra evals** runs in P3 — the winner is retained; the other is retired.
+
+Bake-off criteria (P3): (1) eval latency added per agent turn; (2) trace granularity for multi-step capability pipelines; (3) ease of writing custom eval assertions against Bridge's governed-output contracts; (4) integration depth with the Mastra workflow engine already in the stack.
+
+**Rationale:** Langfuse is MIT-licensed, self-hostable, best-in-class for prompt version tracking and trace inspection — qualities directly needed by the capability promotion gate (which compares eval scores across versions). Running both Langfuse + Mastra evals creates duplicated instrumentation that confuses signal; the bake-off forces a single winner.
+
+**Alternatives rejected:** SaaS-only observability vendors (data egress risk for sensitive capability traces); no observability (needed for promotion gate and heartbeat signals); retaining both Langfuse + Mastra evals indefinitely (maintenance overhead, confusing signal).
+
+**Consequences / follow-ups:** `ObservabilityProvider` port in `@bridge/core`; Langfuse adapter targeted for P2. Bake-off task filed as a P3 milestone. DeepEval and Mastra eval adapters built behind the same port to make the bake-off a drop-in swap. Winner decision appended to this ADR at P3 resolution.
+
+---
+
+## ADR-037 — ConnectorProvider: Nango (conditional, pending license review) + Activepieces via Pi-import path (2026-07-09)
+
+**Context:** Bridge needs OAuth token management and integration connectors without writing per-integration OAuth code. Two candidates: Nango (OAuth/token management, Elastic License 2.0) and Activepieces (pre-built integration pieces, MIT + AGPL mix). A minimal OAuth seam already exists in `@bridge/core` as a structural fallback.
+
+**Decision:**
+- **Nango**: evaluate for `ConnectorProvider` behind a port. **Conditional on license review** — Elastic License 2.0 imposes commercial-use restrictions that require legal/commercial-terms sign-off before taking a production dependency. The minimal OAuth seam in `@bridge/core` stays as the non-conditional fallback until Nango's license is cleared.
+- **Activepieces pieces**: import via the Pi-import path (manifest translator → Bridge capability package with `origin:Community`). Not embedded as a runtime dependency; treated as foreign capabilities entering the governed install flow. The Activepieces server is NOT embedded (AGPL risk + governance overlap).
+
+**Rationale:** Nango eliminates per-integration OAuth boilerplate that does not scale at the connector count Bridge needs; the port keeps the implementation swappable. Activepieces' pre-built connector catalogue composes naturally with the Pi-import system without adding a runtime dependency or AGPL surface. License-gating Nango prevents accidental commercial-license exposure before the legal question is resolved.
+
+**Alternatives rejected:** Building per-integration OAuth from scratch (reinvention, does not scale); embedding the Activepieces server (AGPL risk + overlaps Bridge's own capability governance); adopting Nango without license review (commercial exposure risk).
+
+**Consequences / follow-ups:** License review required before any Nango npm dependency lands in `package.json`. Minimal OAuth seam in `@bridge/core` is the unconditional fallback. Pi-import path (Track F3) must be operational before Activepieces pieces can flow in. `ConnectorProvider` port design in `docs/raw/spec-adapter-ports.md`.
+
+---
+
+## ADR-036 — SandboxProvider doctrine: isolated-vm (narrow JS only) + E2B for shell/code:exec; Daytona retired (2026-07-09)
+
+**Context:** Track F2 needs `fs:read`/`fs:write`/`code:exec` governed capability primitives (Builder toolbelt, ADR-026 §Pi-primitives). The original execution plan said "isolated-vm now → E2B/Daytona later." A v3 doctrine review corrected the plan: mixing isolated-vm with shell execution creates a false sense of security.
+
+**Decision:** Two-layer sandbox doctrine behind a single `SandboxProvider` port:
+
+1. **isolated-vm**: narrow no-network pure-JS transforms ONLY — config evaluation, pure function calls, template rendering. No shell, no filesystem access, no network. Any attempt to do shell or filesystem work inside isolated-vm must be rejected at the port layer.
+2. **`SandboxProvider` port → E2B adapter** for `shell:execute` / `code:exec` (container or microVM isolation). E2B is the first choice. Never raw host process.
+3. **Daytona**: reference-only. The Daytona repo has been unmaintained since June 2026; taking it as a dependency is a liability. Removed from the adoption list.
+
+**Rationale:** isolated-vm cannot safely contain shell execution — it is designed for JS sandboxing, and using it for shell commands provides an illusory security boundary. E2B provides real container/microVM isolation for arbitrary code execution. Mixing concerns (JS-only + shell) in a single sandbox tier creates confusion about what is actually isolated. Daytona's maintenance lapse makes it a poor bet for a core infrastructure piece.
+
+**Alternatives rejected:** Daytona (unmaintained since June 2026, liability); raw host process (no isolation at all); single-tier sandbox using isolated-vm for everything (inadequate for shell/code workloads, false security guarantee).
+
+**Consequences / follow-ups:** `SandboxProvider` port in `@bridge/core` registers two kinds: `js-transform` (isolated-vm) and `code-exec` (E2B). isolated-vm adapter for pure-JS-only workloads, targeted P2. E2B adapter for `code:exec`, targeted P2–P3. Any PR that routes shell commands through the isolated-vm adapter must be rejected as a policy violation. Daytona removed from all future evaluation lists.
+
+---
+
+## ADR-035 — DocumentProvider: Docling (primary) + Tika (fallback) for P1 RAG layer (2026-07-09)
+
+**Context:** The P1 RAG layer requires document parsing — converting PDF, DOCX, HTML, and other formats into clean text and structured sections for embedding and retrieval. Bridge has no `DocumentProvider` implementation. The choice of parser affects extraction quality, license constraints, and whether sensitive documents leave the local plane.
+
+**Decision:** Docling as the primary `DocumentProvider` implementation; Apache Tika as the fallback for ETL/legacy formats; Unstructured.io available as a third option if ETL workloads arise that neither Docling nor Tika cover. All three operate behind the `DocumentProvider` port so the implementation is swappable without caller changes.
+
+**Rationale:** Docling is best-in-class open-source for structured document extraction (table detection, section hierarchy, multi-column PDF layouts); it is Apache-2.0-licensed, embeddable, and runs fully local with no SaaS egress — consistent with Bridge's local-first / no-external-egress principle for sensitive documents. Tika covers the long tail of legacy formats (Office, OpenDocument, email containers) that Docling does not prioritize. The port makes the primary/fallback split transparent to callers.
+
+**Alternatives rejected:** Custom parser from scratch (reinvention, no quality gain, ongoing maintenance); SaaS document-parsing APIs (violates no-external-egress principle for sensitive documents; data leaves the local plane).
+
+**Consequences / follow-ups:** Implement `DocumentProvider` port in `@bridge/core` (interface in `docs/raw/spec-adapter-ports.md`). Wire `DoclingAdapter` at P1. `TikaAdapter` as fallback, wired behind a feature flag or capability manifest option. Any document parsing that would route through a SaaS API must first pass an External-band governance gate.
+
+---
 
 ## ADR-026 — Real-data-only enforcement pass: retired `dummy_` convention, killed a fake-data runtime path, added `check:no-dummy-runtime` (2026-07-06)
 

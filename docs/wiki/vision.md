@@ -11,6 +11,9 @@ full: [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-softwa
 
 **Bridge = software that builds itself around your work.** Learns how user works → generates workspace → continuously evolves workflows/skills/agents/tools. Adaptive workspace for professionals + teams. NOT static app of any category. Old GP-fund framing = SUPERSEDED; funds → heritage of first compiled product (DealPilot).
 
+## AI-Executive-Office framing (2026-07-09)
+Bridge = the capability OS that gives every professional an AI executive office — a space that knows your work, builds its own tools, and continuously improves itself. Kernel = the executive's memory and governance. Compiled workspace = the tailored desk. Spirit animal / avatar = the personality layer that makes it personal.
+
 ## Ontology (2026-07-07, ADR-028 — see [ontology](ontology.md))
 Canonical primitive names for everything below: actors = Human/Agent/**Automation** (code `ritual`, UI "Workflow") · capabilities = Skill/**Integration** (Connection) · work = Request/Action/Incident/Artifact (Signal = derived Incident) · surface = **Workspace** (code `tool`/ToolManifest = implementation surface only)/Element/ElementType/View · context = Memory/Knowledge. Older "workflow/skill/agent/tool" phrasing below = same peers, old names. Chief of Staff = Agent archetype, not a primitive. **Promotion NEVER mutates category** — promotion mints a NEW governed object consuming the old.
 

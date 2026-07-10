@@ -41,6 +41,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - **WORK TRACKER** → [../PROGRESS.md](../PROGRESS.md): current batch + next 3 batches + done-protocol + registry of every plan doc. One place. Check first.
 - [BUGS](../BUGS.md) — live bug/gap/abnormality ledger across sessions. Agents log here unprompted.
 - [testing](testing.md) — real coverage numbers (no CI/vitest), priority test list tied to known P0 bugs.
+- **Specs (2026-07-09)** — [spec-control-panel-icon](../raw/spec-control-panel-icon.md) · [spec-workspace-naming](../raw/spec-workspace-naming.md) · [spec-avatar](../raw/spec-avatar.md) · [spec-dream-cycle](../raw/spec-dream-cycle.md) · [spec-virtual-office](../raw/spec-virtual-office.md) · [spec-fork-metaphor](../raw/spec-fork-metaphor.md) · [spec-cos-board-meeting](../raw/spec-cos-board-meeting.md).
 
 ## Decisions + rationale
 Locked one-liners → [decisions](decisions.md). Full why + alternatives rejected (ADR) → [../raw/decisions-log.md](../raw/decisions-log.md).

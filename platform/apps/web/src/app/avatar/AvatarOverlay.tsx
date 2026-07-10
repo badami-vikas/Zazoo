@@ -10,12 +10,15 @@
  * every animal is a small geometric SVG built from Bridge palette tokens.
  */
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
+  setAvatarStatus,
   useAvatarStatus,
   type AvatarStatus,
+  type GrowthStage,
   type SpiritAnimal,
 } from "./avatar-store";
 
@@ -23,6 +26,11 @@ export interface AvatarOverlayProps {
   animal: SpiritAnimal;
   avatarName?: string;
   workspaceName?: string;
+  /** Growth stage computed from memory entry count + installed capability count.
+   *  Defaults to 'creature' when not provided (safe mid-state for existing users
+   *  whose counts haven't been fetched yet). Layout should pass this once tRPC
+   *  counts resolve; the overlay never fetches counts itself. */
+  growthStage?: GrowthStage;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -46,7 +54,7 @@ const STATUS_COLOR: Record<AvatarStatus, string> = {
   drafting: "var(--color-amber-soft)",
   awaiting_approval: "var(--color-amber-soft)",
   blocked_by_policy: "var(--color-navy-mid)",
-  error: "#C0573E",
+  error: "var(--color-danger)",
 };
 
 /**
@@ -260,14 +268,16 @@ export function AvatarIcon({ animal, size = 24 }: { animal: SpiritAnimal; size?:
   );
 }
 
-export function AvatarOverlay({ animal, avatarName, workspaceName }: AvatarOverlayProps) {
+export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage = "creature" }: AvatarOverlayProps) {
   const status = useAvatarStatus();
   const reducedMotion = usePrefersReducedMotion();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const [lastCapture, setLastCapture] = useState<{ at: string; detail?: Record<string, unknown> } | null>(null);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The blink tell (spec section 3): every `bridge:capture` window event
   // triggers a brief eye-close, proving the capture happened without being
@@ -285,26 +295,47 @@ export function AvatarOverlay({ animal, avatarName, workspaceName }: AvatarOverl
     return () => {
       window.removeEventListener(CAPTURE_EVENT, onCapture);
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
+      if (wakeTimeout.current) clearTimeout(wakeTimeout.current);
     };
   }, [reducedMotion]);
 
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [pendingError, setPendingError] = useState(false);
 
+  /**
+   * Click → awaken contract (spec "Click behaviour"):
+   *  1. Set reading_context briefly (300ms) — the "eyes scan" cue.
+   *  2. Navigate to /signals (the inspectable Memory/capture ledger).
+   *     /signals is the closest existing route to "Memory entries"; a dedicated
+   *     /memory route is a follow-up once the memory tRPC surface ships.
+   *
+   * If the overlay is already in a non-idle state (agent working), clicking
+   * opens the context popover instead so the user can check pending approvals
+   * without interrupting the active operation.
+   */
   function wake() {
     if (status !== "idle") {
       setOpen((v) => !v);
+      // Still fetch pending count for the popover when opening.
+      if (!open) {
+        setPendingError(false);
+        trpc.action.listPending
+          .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+          .then((res) => setPendingCount(res.total))
+          .catch(() => {
+            setPendingCount(null);
+            setPendingError(true);
+          });
+      }
       return;
     }
-    setOpen(true);
-    setPendingError(false);
-    trpc.action.listPending
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
-      .then((res) => setPendingCount(res.total))
-      .catch(() => {
-        setPendingCount(null);
-        setPendingError(true);
-      });
+    // Brief reading_context flash (the "eyes scan" animation), then navigate.
+    setAvatarStatus("reading_context");
+    if (wakeTimeout.current) clearTimeout(wakeTimeout.current);
+    wakeTimeout.current = setTimeout(() => {
+      setAvatarStatus("idle");
+      void navigate("/signals");
+    }, 300);
   }
 
   const label = STATUS_LABEL[status];
@@ -382,9 +413,27 @@ export function AvatarOverlay({ animal, avatarName, workspaceName }: AvatarOverl
           animation: reducedMotion || status !== "idle" ? undefined : "bridge-avatar-breathe 3.2s ease-in-out infinite",
         }}
       >
-        <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
-          <Creature animal={animal} status={status} blinking={blinking} reducedMotion={reducedMotion} />
-        </div>
+        {/* Growth stage visual:
+            egg     → dormant egg SVG (creature hasn't hatched yet in the overlay sense)
+            creature → normal Creature SVG (default)
+            mature  → Creature at 10% larger scale (richer presence) */}
+        {growthStage === "egg" ? (
+          <div className="w-11 h-11" role="img" aria-label="Avatar: egg stage">
+            <svg viewBox="0 0 64 64" width="100%" height="100%" role="presentation" aria-hidden="true">
+              <ellipse cx="32" cy="38" rx="18" ry="24" fill="var(--color-background)" stroke="var(--color-amber-soft)" strokeWidth="2" />
+              <ellipse cx="32" cy="38" rx="22" ry="28" fill="var(--color-amber-soft)" opacity="0.12" />
+            </svg>
+          </div>
+        ) : (
+          <div
+            className="flex items-center justify-center"
+            style={growthStage === "mature" ? { width: "2.875rem", height: "2.875rem", transform: "scale(1.1)" } : { width: "2.75rem", height: "2.75rem" }}
+            role="img"
+            aria-label={`Avatar state: ${label}`}
+          >
+            <Creature animal={animal} status={status} blinking={blinking} reducedMotion={reducedMotion} />
+          </div>
+        )}
       </button>
 
       {/* ARIA live region — announces state changes without visual noise. */}
