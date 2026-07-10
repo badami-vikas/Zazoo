@@ -211,7 +211,9 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
         .mutate({
           workspaceId: PILOT_WORKSPACE,
           animal: spiritAnimal,
-          answers,
+          answers: Object.fromEntries(
+            Object.entries(answers).filter((e): e is [string, string | string[]] => e[1] !== undefined)
+          ),
           verificationMethod: null,
           connectedSourceIds: [],
         })
