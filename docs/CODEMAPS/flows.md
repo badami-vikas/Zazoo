@@ -1,0 +1,106 @@
+<!-- Generated: 2026-07-09 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor}.ts, capability/{types,approvals}.ts, packages/local/src/ports.ts, packages/db/src/schema.ts, docs/raw/SCHEMA.sql | Token estimate: ~1400 -->
+
+# Load-Bearing Flows + Schema ER
+
+Read this instead of re-reading `pipeline.ts` + `authority.ts` each session. Line refs valid as of 2026-07-09.
+
+## 1. Action pipeline — propose → decide (pipeline.ts, authority.ts)
+
+```mermaid
+sequenceDiagram
+  participant C as Client (tRPC action.propose)
+  participant P as UniversalActionPipeline
+  participant A as resolveAuthority
+  participant Pol as PolicyEvaluator
+  participant S as Skill
+  participant L as Ledger (append-only)
+  C->>P: propose(req) [pipeline.ts:130]
+  P->>A: Layer 0 agentFloorDeny → 0.5 planeGate → grants∩scope∪ephemeral−deny (∩principal if onBehalfOf) [authority.ts:380-420]
+  A-->>P: allowed? (deny-by-default)
+  P->>Pol: evaluate(phase:pre) — block ⇒ reject [152-162]
+  P->>S: skill lookup + agent allowedSkills check, then skill.run() → proposedOutput (NOT committed) [165-177]
+  P->>Pol: evaluate(phase:runtime, proposedOutput) — block ⇒ reject [180-192]
+  Note over P: requiresApproval [79-82]: any require_approval policy OR actor is agent ⇒ agents ALWAYS draft
+  alt needs approval
+    P->>L: append userDecision=null → status pending_review [196-204]
+  else human + all-allow
+    P->>L: append userDecision="auto" → #commit → applied [207-217]
+  end
+  C->>P: decide(proposalId, approve|edit|veto, decider) [246]
+  Note over P: agentFloorDeny(decider,"approve") ⇒ audited-reject row + 403 [262-278]. Idempotency: already-resolved ⇒ 409 (partial unique idx ledger_ref_ledger_id_resolved_uq) [282-297]
+  P->>L: append NEW decision row (never mutate) [303-332]
+  alt approve/edit
+    P->>P: #commit: Policy(post, advisory) → variance.observe → events.emit("res.action") [370-393]
+  else veto
+    P->>P: no commit; variance.observe; rejected [334-345]
+  end
+```
+
+Capability Trust bands (capability/approvals.ts): informational/advisory→auto · transformational→user_pref · operational→governance · **external→explicit_human hard floor** [65]; audience only raises [46-50]; kill switch ⇒ explicit_human [172]; auto budgets 20/10 per day, exhausted ⇒ escalate [82-193].
+
+## 2. Plane gate crossing (authority.ts:57-78, 391-397; @bridge/local)
+
+```mermaid
+sequenceDiagram
+  participant LA as Local-plane actor (default plane="local")
+  participant G as planeGate (Layer 0.5, before any grant)
+  participant CA as Cloud agent
+  participant CDB as Cloud canonical (Supabase)
+  LA->>G: external:send / external:fetch (EGRESS_RESOURCES)
+  G-->>LA: DENY — "local plane may not reach the internet; route a sourcing request to a cloud agent" [72-78]
+  LA->>CA: sourcing request (governed)
+  CA->>G: any read
+  Note over G: cloud plane clamped: requested ∩ "public" — can NEVER read private/local tier [395-397]
+  CA->>CDB: writes public/identity-grade facts only (CanonicalIdentityStore)
+```
+
+Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Touchpoints/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
+
+## 3. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
+
+```mermaid
+sequenceDiagram
+  participant T as Trigger (ritual.run / runById / tool.run)
+  participant E as InProcessRitualExecutor
+  participant R as Registry (ritual or tool)
+  participant P as Pipeline (§1)
+  participant Rec as RitualRunRecorder (ritual_runs)
+  T->>E: runById(ritualId, params) [95]
+  E->>R: load definition; params shallow-merge over step inputs; mint runId [110-126]
+  E->>Rec: start(runId,...) [138]
+  loop each step, sequentially [141]
+    E->>P: propose(step, context:{type:"ritual",id,runId}) — every step = governed mutation [143-158]
+    alt step rejected
+      E->>Rec: finish(halted, haltedAtStep:i) — NO rollback of prior committed steps
+    else pending_review
+      Note over E: counts as produced (awaits human), not a halt [72-76]
+    end
+  end
+  E->>Rec: finish(completed, steps) [168]
+```
+
+## 4. Schema ER sketch (docs/raw/SCHEMA.sql · db/src/schema.ts, 56 tables — top slice)
+
+```mermaid
+erDiagram
+  workspaces ||--o{ people : "workspace_id (RLS boundary on ~every operational table)"
+  users ||--o{ people : user_id
+  people_canonical ||--o{ people : "canonical_person_id (nullable)"
+  communities_canonical ||--o{ communities : canonical_community_id
+  communities ||--o{ people : current_community_id
+  workspaces ||--o{ edges : "unified graph fabric"
+  initiatives ||--o{ touchpoints : "initiative_id (nullable)"
+  initiatives ||--o{ rituals : supports_initiative
+  rituals ||--o{ ritual_runs : ritual_id
+  users ||--o{ agents : owner_user_id
+  ledger ||--o{ ledger : "ref_ledger_id (decision→proposal, append-only spine)"
+  ledger ||--o{ decision_traces : ledger_id
+  delegations ||--o{ ledger : delegation_id
+  signals ||--o{ signal_actions : signal_id
+  roles ||--o{ role_permissions : role_id
+  policies ||--o{ policy_params : policy_id
+  capability_manifests ||--o{ capability_states : manifest_id
+  integrations ||--o{ integration_sync_state : integration_id
+```
+
+Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` (shared SELECT, no tenant FK, client writes revoked) · **local/private** = `people`, `communities` per-(workspace,user) + everything physically in `@bridge/local` (tokens, bodies, derived T/M/S) · **operational** = the rest, RLS by `workspace_id` (⚠ RLS not actually enabled yet — BUGS.md). Governance cluster: roles/permissions/ephemeral_grants/delegations/policies + capability_manifests/states/trust_grants.
