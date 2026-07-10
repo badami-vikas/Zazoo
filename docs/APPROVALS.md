@@ -17,7 +17,7 @@ Bridge governs its product with draft-then-approve. This repo governs **its own 
 3. On APPROVED: agent applies the change, sets status **APPLIED**, fills the commit SHA. Never treat a proposal as canon before it is APPROVED.
 4. Append-only. Superseded rows stay for history.
 
-`Never mark a plan/track DONE unless the repo actually contains the edits AND this ledger shows it APPROVED.` (Critique conflict #1 resolution, ADR-037.)
+`Never mark a plan/track DONE unless the repo actually contains the edits AND this ledger shows it APPROVED.` (Critique conflict #1 resolution, ADR-044.)
 
 ## Ledger
 
@@ -25,4 +25,4 @@ Bridge governs its product with draft-then-approve. This repo governs **its own 
 |----|------|----------|------------------------------|----------------|--------|-------------------|----------------|
 | AP-001 | 2026-07-09 | session (opus) | mechanism bootstrap | Create this approval mechanism itself | APPLIED | user · 2026-07-09 | (this commit) |
 | AP-002 | 2026-07-09 | session (opus) | dummy-data policy (CLAUDE.md + dummy.md) | Ratify: no dummies unless unavoidable; when unavoidable → track in `docs/dummy.md`. Resolves the previously-open "test fixture" question. | APPLIED | user · 2026-07-09 | (this commit) |
-| AP-003 | 2026-07-09 | session (opus) | consolidation trio reconciliation (ADR-037) | Handoff = stable brief; Execution Plan tracks execute only behind discovery+safety gates; discovery gate now PASSES (paths exist as of 2026-07-09). | APPLIED | user · 2026-07-09 | (this commit) |
+| AP-003 | 2026-07-09 | session (opus) | consolidation trio reconciliation (ADR-044) | Handoff = stable brief; Execution Plan tracks execute only behind discovery+safety gates; discovery gate now PASSES (paths exist as of 2026-07-09). | APPLIED | user · 2026-07-09 | (this commit) |

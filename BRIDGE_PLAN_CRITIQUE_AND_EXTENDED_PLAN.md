@@ -1,9 +1,9 @@
 # Bridge Plan Critique and Extended Plan
 
-> **STATUS 2026-07-09 (ADR-037, AP-003): ACCEPTED as the trio's resolution.** Its process recommendations stand (Handoff = stable brief; gate the Execution Plan; approve before marking DONE). ⚠ Its central 07-07 "source-of-truth problem" (apps/web, capability/lifecycle.ts, PromptAssembler, workspace_definitions, package_installations, code:exec "not discoverable") is now **STALE** — a 07-09 discovery scan found all of them present. The live remaining gate is **safety** (sandboxing, package-import security, test strategy), not path-existence. Tracker: `docs/PROGRESS.md`.
+> **STATUS 2026-07-09 (ADR-044, AP-003): ACCEPTED as the trio's resolution.** Its process recommendations stand (Handoff = stable brief; gate the Execution Plan; approve before marking DONE). ⚠ Its central 07-07 "source-of-truth problem" (apps/web, capability/lifecycle.ts, PromptAssembler, workspace_definitions, package_installations, code:exec "not discoverable") is now **STALE** — a 07-09 discovery scan found all of them present. The live remaining gate is **safety** (sandboxing, package-import security, test strategy), not path-existence. Tracker: `docs/PROGRESS.md`.
 
 Date: 2026-07-07
-Status: standalone review doc — accepted 2026-07-09 (ADR-037)
+Status: standalone review doc — accepted 2026-07-09 (ADR-044)
 Inputs reviewed:
 - `BRIDGE_PLATFORM_RESET_HANDOFF.md`
 - Attached draft: `Execution Plan - 2026-07 consolidation sprint`

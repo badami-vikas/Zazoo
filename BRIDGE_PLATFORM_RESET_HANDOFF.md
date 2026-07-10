@@ -1,6 +1,6 @@
 # Bridge Platform Reset Handoff
 
-> **STATUS 2026-07-09 (ADR-037, AP-003): STABLE BRIEF of the reconciled consolidation trio.** Stronger product lanes come from `docs/raw/execution-plan-2026-07.md` but execute only behind discovery + safety gates. Critique `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution. Tracker + registry: `docs/PROGRESS.md`.
+> **STATUS 2026-07-09 (ADR-044, AP-003): STABLE BRIEF of the reconciled consolidation trio.** Stronger product lanes come from `docs/raw/execution-plan-2026-07.md` but execute only behind discovery + safety gates. Critique `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution. Tracker + registry: `docs/PROGRESS.md`.
 
 This document consolidates the requested changes into one handoff artifact for another agent. It intentionally does not require modifying existing docs before execution. Treat this as the source brief for the next implementation pass.
 

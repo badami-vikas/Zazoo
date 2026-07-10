@@ -8,6 +8,13 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-09 — DOCS: duplicate ADR numbers in `docs/raw/decisions-log.md` (ADR-012 and ADR-026 each appear twice).**
+  Pre-existing collision from parallel-worktree branches each minting the same ADR number (same class as the
+  ADR-035–037 collision resolved this session by renumbering the newer set to ADR-042–044). Not introduced by
+  the 2026-07-09 docs work. FIX: renumber the later of each duplicated pair to the next free number (≥ADR-045)
+  and update in-repo references; consider a CI check flagging duplicate `^## ADR-\d+` headers. Low risk,
+  doc-integrity only. Detect: `grep -oE '^## ADR-[0-9]+' docs/raw/decisions-log.md | sort | uniq -d`.
+
 - **OPEN 2026-07-08 — SECURITY H1: no auth enforced by default; every tRPC procedure runs as the pilot user.**
   `apps/api/src/identity.ts:84-91` — with no `SUPABASE_JWT_SECRET`/`SUPABASE_URL` set, or no `Authorization`
   header, `resolve()` silently returns the pilot identity. No `protectedProcedure` in `router.ts`; the only
