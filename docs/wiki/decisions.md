@@ -2,6 +2,15 @@
 
 Canonical. Mirror of memory `bridge-strategy-decisions`.
 
+## 2026-07-09 — OSS adoption decisions: providers + reference-only + rejects (ADR-035–ADR-041)
+- Docling = `DocumentProvider` primary (ADR-035); Tika = fallback for legacy formats.
+- `SandboxProvider` doctrine split (ADR-036): isolated-vm for narrow no-network JS only; E2B for `shell:execute`/`code:exec`; Daytona retired (unmaintained).
+- Nango = `ConnectorProvider` conditional on Elastic License 2.0 review (ADR-037); MinimalOAuthAdapter is the unconditional fallback; Activepieces pieces enter via Pi-import path only.
+- Langfuse = `ObservabilityProvider` P2 (ADR-038); DeepEval vs Mastra evals bake-off at P3 — keep one, retire the other.
+- Firecrawl = API-only (AGPL server not embedded); Stagehand = `BrowserActionProvider` P4; Playwright = fallback (ADR-040).
+- Reference-only (ADR-039): Graphiti (trigger: Mem0 temporal failures), Letta, screenpipe (trigger: Rust capture burden), CrewAI/Agno/Haystack, Baserow/NocoDB/Appsmith.
+- PARK (ADR-041): OpenFGA/OPA/Cedar/SpiceDB — re-evaluate only on P6+ enterprise ReBAC trigger with hard evidence. REJECT: Refine-as-dep, Electron, AutoGen, Windmill-embed. DEFER: Temporal (behind RitualExecutor port, unchanged).
+
 ## 2026-07-07 — Primitive ontology adopted (ADR-028, [ontology](ontology.md))
 Canonical taxonomy: actors Human/Agent/Automation · capabilities Skill/Integration · work Request/Action/Incident/Artifact · surface Workspace/Element/ElementType/View · context Memory/Knowledge. Mappings (code names unchanged): `ritual`/"Workflow"=Automation · `tool`/ToolManifest=implementation surface, user-facing primitive=Workspace · Connection=Integration · Intent=raw Human Request · Chief of Staff=Agent archetype · Signal=derived Incident · Project=ElementType. **Promotion never mutates primitive category** — mints a new governed object consuming the old. Docs-only alignment; older entries below keep historical vocab.
 

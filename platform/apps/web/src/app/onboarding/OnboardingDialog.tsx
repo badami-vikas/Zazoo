@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
-import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, type OnboardingAnswers } from "./questions";
+import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, workspaceNameFromEmail, type OnboardingAnswers } from "./questions";
 import { EggHatcher, type EggStage } from "../avatar/EggHatcher";
 import { updateAvatarPrefs, type AvatarPrefs, type SpiritAnimal } from "../avatar/avatar-store";
 
@@ -37,70 +37,6 @@ const REGISTERED_NODE_TYPES = [
   "edge",
 ] as const;
 
-/**
- * Dummy phone verification (R-030, user 2026-07-08: "phone-otp (use dummy
- * flow for now)"). No real SMS provider is wired — this is explicitly a demo
- * flow, labeled as such in the UI copy so it's never mistaken for a working
- * integration. `trpc.onboarding.verifyPhoneOtp` accepts any 6-digit code.
- */
-function PhoneOtpVerify({ onVerified }: { onVerified: () => void }) {
-  const [phone, setPhone] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState("");
-  const [status, setStatus] = useState<"idle" | "checking" | "error">("idle");
-  const [message, setMessage] = useState<string | null>(null);
-
-  return (
-    <div className="space-y-2">
-      {!codeSent ? (
-        <div className="flex gap-2">
-          <Input
-            autoFocus
-            type="tel"
-            placeholder="+1 555 123 4567"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-          <Button disabled={phone.trim().length < 3} onClick={() => setCodeSent(true)}>
-            Send code
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Demo mode — no SMS was actually sent. Enter any 6 digits.</p>
-          <div className="flex gap-2">
-            <Input
-              autoFocus
-              inputMode="numeric"
-              placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-            <Button
-              disabled={status === "checking" || code.trim().length === 0}
-              onClick={async () => {
-                setStatus("checking");
-                try {
-                  const res = await trpc.onboarding.verifyPhoneOtp.mutate({ phone, code: code.trim() });
-                  setMessage(res.message);
-                  if (res.verified) onVerified();
-                  else setStatus("error");
-                } catch (e) {
-                  setMessage(String(e));
-                  setStatus("error");
-                }
-              }}
-            >
-              {status === "checking" ? "Verifying…" : "Verify"}
-            </Button>
-          </div>
-          {message && <p className={`text-xs ${status === "error" ? "text-red-600" : "text-muted-foreground"}`}>{message}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -118,6 +54,10 @@ export interface OnboardingDialogProps {
    * without waiting for a remount/localStorage re-read (spec section 4 Stage
    * 6: "hatch animation, set eggHatched: true, overlay appears"). */
   onHatched?: (prefs: AvatarPrefs) => void;
+  /** User's email address — used to pre-populate the workspace_name question
+   * via workspaceNameFromEmail() per spec-workspace-naming.md. Optional: if
+   * absent, the workspace_name field starts empty for the user to fill in. */
+  userEmail?: string;
 }
 
 type Step = "questions" | "preview" | "submitted";
@@ -144,7 +84,7 @@ type SubmitOutcome = "activated" | "pending_review" | null;
  * "has onboarding ever run" itself — App.tsx's mount-time
  * workspace.blueprint.get check owns that decision.
  */
-export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: OnboardingDialogProps) {
+export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, userEmail }: OnboardingDialogProps) {
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
   const [step, setStep] = useState<Step>("questions");
   const [error, setError] = useState<string | null>(null);
@@ -203,6 +143,15 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
     return undefined;
   }, [step, outcome]);
 
+  // Pre-populate the workspace_name text field with the email-derived name
+  // (spec-workspace-naming.md) when that question becomes active. Only seeds
+  // the draft once — the user can freely edit it before pressing Next.
+  useEffect(() => {
+    if (question?.id === "workspace_name" && textDraft === "" && userEmail) {
+      setTextDraft(workspaceNameFromEmail(userEmail));
+    }
+  }, [question?.id]);
+
   const compiled: CompiledWorkspace | { error: string } | null = useMemo(() => {
     if (step !== "preview") return null;
     try {
@@ -254,17 +203,18 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
       setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
       onProposed?.();
-      // Server-side onboarding profile (R-030): saved best-effort — this is
+      // Server-side onboarding profile: saved best-effort — this is
       // personalization data, not the governed workspace setup itself, so a
       // failure here never blocks the "your Organization is live" outcome
       // above (already committed via the propose/activate pipeline).
-      const verificationMethod = (answers.verification_method as string | undefined) ?? null;
       trpc.onboarding.saveProfile
         .mutate({
           workspaceId: PILOT_WORKSPACE,
           animal: spiritAnimal,
-          answers,
-          verificationMethod: verificationMethod === "linkedin" || verificationMethod === "phone" ? verificationMethod : null,
+          answers: Object.fromEntries(
+            Object.entries(answers).filter((e): e is [string, string | string[]] => e[1] !== undefined)
+          ),
+          verificationMethod: null,
           connectedSourceIds: [],
         })
         .catch(() => {
@@ -335,30 +285,6 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched }: 
                 </Button>
               </div>
             )}
-
-            {question.kind === "linkedin_choice" && (
-              <div className="flex flex-col gap-2">
-                <Button
-                  variant="outline"
-                  className="justify-start"
-                  onClick={() => {
-                    // Real social OAuth registry (apps/api/src/social/registry.ts)
-                    // — no fabricated LinkedIn scrape/connect. The actual OAuth
-                    // handshake lives on the Integrations surface; onboarding just
-                    // records the choice and points there.
-                    window.open("/integrations", "_blank", "noopener,noreferrer");
-                    answer(question.id, "linkedin");
-                  }}
-                >
-                  Connect LinkedIn
-                </Button>
-                <Button variant="outline" className="justify-start" onClick={() => answer(question.id, "phone")}>
-                  Verify by phone instead
-                </Button>
-              </div>
-            )}
-
-            {question.kind === "phone_otp" && <PhoneOtpVerify onVerified={() => answer(question.id, "verified")} />}
 
             {question.kind === "text" && (
               <div className="flex gap-2">
