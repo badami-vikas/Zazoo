@@ -12,17 +12,15 @@
  * later without a big if/else scattered through the component. Every question
  * has a real effect on the compiled WorkspaceBlueprint (entities/views/
  * vocabulary) — no filler questions asked just to hit a minimum count.
+ *
+ * E1 (2026-07-09): LinkedIn login and phone OTP verification REJECTED — removed
+ * from this module. Flow is now profession-led: the first question captures the
+ * user's role so that downstream questions (domain, vocab) can be contextualised.
  */
 import type { WorkspaceBlueprint } from "@bridge/core";
 import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
 
-/**
- * "phone_otp" and "linkedin_choice" (R-030) are rendered by dedicated UI in
- * OnboardingDialog.tsx, not the generic single_select/multi_select/text
- * renderer — they need custom controls (phone+code inputs, a LinkedIn
- * connect button) that a plain option list can't express.
- */
-export type QuestionKind = "single_select" | "multi_select" | "text" | "linkedin_choice" | "phone_otp";
+export type QuestionKind = "single_select" | "multi_select" | "text";
 
 export interface QuestionOption {
   value: string;
@@ -40,23 +38,16 @@ export interface OnboardingQuestion {
 
 export type OnboardingAnswers = Record<string, string | string[] | undefined>;
 
-/** Verification step (R-030, spec's "LinkedIn-or-OTP verification"). LinkedIn
- * routes to the REAL social OAuth flow already registered in
- * apps/api/src/social/registry.ts — no fabricated scrape/connect. Phone OTP
- * is an explicit, user-authorized DUMMY flow (2026-07-08: "use dummy flow for
- * now") — any 6-digit code passes, and the UI says so plainly. */
-const Q_VERIFY: OnboardingQuestion = {
-  id: "verification_method",
-  kind: "linkedin_choice",
-  prompt: "Verify it's you.",
-  helpText: "Connect LinkedIn, or verify by phone instead.",
-};
-
-const Q_PHONE_OTP: OnboardingQuestion = {
-  id: "phone_otp",
-  kind: "phone_otp",
-  prompt: "Enter your phone number.",
-  helpText: "Demo mode — no real SMS is sent, any 6-digit code works.",
+/** NEW first question (E1 2026-07-09): captures profession / role so that the
+ * domain question's default selection can be made smarter and blueprint
+ * vocabulary hints can be seeded without asking a separate "what do you call
+ * your deals?" question if the profession already makes it obvious. */
+const Q_PROFESSION: OnboardingQuestion = {
+  id: "profession",
+  kind: "text",
+  prompt: "What's your role or profession?",
+  helpText: "E.g. 'Sales lead at a SaaS startup', 'Independent investor', 'Customer support manager'",
+  placeholder: "e.g. Sales lead at a SaaS startup",
 };
 
 const Q_MODE: OnboardingQuestion = {
@@ -153,14 +144,24 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
  * only appears when `mode === "team"`, and `vocab_name` is skipped for the
  * "relationships" domain (Bridge's own vocabulary already fits).
  *
+ * Question order (E1 2026-07-09):
+ *   1. profession (text, always first — context for everything downstream)
+ *   2. mode (solo/team)
+ *   3. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
+ *   4. domain (select; profession answer can inform default pre-selection in UI)
+ *   5. team_size (only if mode=team)
+ *   6. watch_first (multi-select)
+ *   7. vocab_name (only if domain ≠ relationships)
+ *   8. view_style
+ *   9. workspace_name (auto-populated from email in dialog, still shown for confirmation)
+ *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
- * (solo + relationships) asks 6 (incl. spirit animal); the longest (team + a
- * domain needing a vocab override) asks 8 — both comfortably inside the 5-12
- * band without padding.
+ * (solo + relationships) asks 7 (incl. spirit animal + profession); the longest
+ * (team + a domain needing a vocab override) asks 9 — both comfortably inside
+ * the 5-12 band without padding.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
-  if (answers.verification_method === undefined) return Q_VERIFY;
-  if (answers.verification_method === "phone" && answers.phone_otp === undefined) return Q_PHONE_OTP;
+  if (answers.profession === undefined) return Q_PROFESSION;
   if (answers.mode === undefined) return Q_MODE;
   if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
   if (answers.domain === undefined) return Q_DOMAIN;
@@ -173,9 +174,11 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
 }
 
 /** Total number of questions in the LONGEST real path (team + vocab-needing
- * domain) — used only as the denominator for egg-growth progress, never for
- * branching logic itself (that stays in `nextQuestion`). */
-export const MAX_QUESTIONS = 10;
+ * domain): profession + mode + spirit_animal + domain + team_size + watch_first
+ * + vocab_name + view_style + workspace_name = 9. Used only as the denominator
+ * for egg-growth progress, never for branching logic itself (that stays in
+ * `nextQuestion`). */
+export const MAX_QUESTIONS = 9;
 
 /** How many questions have been answered so far — the egg's "questions
  * answered" progress input (spec section 4, Stage 1-2: egg grows with real
@@ -183,6 +186,34 @@ export const MAX_QUESTIONS = 10;
 export function answeredCount(answers: OnboardingAnswers): number {
   return Object.values(answers).filter((v) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
     .length;
+}
+
+/**
+ * Derives a default workspace name from an email address per spec-workspace-naming.md:
+ * - Extract domain after @
+ * - Strip common TLDs and generic free-mail providers (gmail, yahoo, hotmail,
+ *   outlook, icloud, me, mac, proton, protonmail)
+ * - Titlecase the remainder → workspace name
+ * - Fallback: "<FirstName>'s Workspace" using the local part before @
+ *
+ * Examples:
+ *   alice@acmecorp.com  → "Acmecorp"
+ *   bob@stripe.com      → "Stripe"
+ *   carol@gmail.com     → "Carol's Workspace"
+ */
+export function workspaceNameFromEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return `${toTitleCase(local ?? 'My')}'s Workspace`;
+  const genericDomains = ['gmail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'me', 'mac', 'proton', 'protonmail'];
+  const domainBase = domain.split('.')[0] ?? '';
+  if (genericDomains.includes(domainBase.toLowerCase())) {
+    return `${toTitleCase(local ?? 'My')}'s Workspace`;
+  }
+  return toTitleCase(domainBase);
+}
+
+function toTitleCase(s: string): string {
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Node type + starter fields per domain — the entities a fresh workspace
@@ -212,6 +243,10 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   const watchFirst = (answers.watch_first as string[] | undefined) ?? [];
   const viewStyle = (answers.view_style as string | undefined) === "kanban" ? "kanban" : "table";
   const vocabName = (answers.vocab_name as string | undefined)?.trim();
+  // profession is a secondary hint for vocabulary: if the user named their work explicitly
+  // via vocab_name, that wins. If not, profession is available for future smart-mapping
+  // (e.g. "Sales lead" → suggest "Deal") — captured here for future use.
+  const profession = (answers.profession as string | undefined)?.trim();
 
   const wantsCalendar = watchFirst.includes("calendar");
 
@@ -229,7 +264,13 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   ];
 
   const vocabulary: Record<string, string> = {};
-  if (vocabName) vocabulary[entityDef.label] = vocabName;
+  if (vocabName) {
+    vocabulary[entityDef.label] = vocabName;
+  } else if (profession) {
+    // profession captured as secondary hint; no auto-mapping applied yet
+    // future: map keywords ("sales" → "Deal", "recruiter" → "Candidate", etc.)
+    void profession;
+  }
 
   return {
     vocabulary,
