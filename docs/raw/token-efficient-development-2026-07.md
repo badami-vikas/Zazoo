@@ -2,10 +2,10 @@
 title: Token-Efficient Development — codemaps, diagrams, and best-practice roadmap
 type: raw
 doc_kind: plan
-status: draft
+status: in-execution — Month-1 (§4 "Now") DONE 2026-07-09 (INDEX.md, CODEMAPS/flows.md, CLAUDE.md token rules, skillOverrides scoping); M2/M3 tracked in docs/PROGRESS.md registry
 companions: [ARCHITECTURE.md]
 related_wiki: index.md
-updated: 2026-07-08
+updated: 2026-07-09
 tags: [tokens, codemaps, docs, efficiency, dx]
 ---
 

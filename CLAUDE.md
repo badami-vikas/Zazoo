@@ -3,13 +3,23 @@
 Bridge = **Living Software** — software that builds itself around your work. Adaptive workspace platform (Kernel → Compiler → Runtime → Generated Workspace) for professionals + teams; learns how the user works, generates the workspace, continuously evolves workflows/skills/agents/tools. NOT a CRM, sales tool, task manager, or static app of any category. Core principle: **everything is proposed, governed, and continuously evolved** (Capability Lifecycle Platform). **Multi-surface (Notion model)**: one surface-agnostic kernel, three thin clients — web + desktop (Tauri) + mobile; desktop built first (sequencing only, not an architecture constraint). First compiled workspaces ship as **mix-and-match add-on capability packages** (DealPilot, Helpdesk, Recon — Pi-extensions model, NOT separate products; ADR-018/020). **Universal Commons** = cloud registry of generalized capability knowledge only (never user data); v1 = curated package registry; control-plane sync lives in a separate "Bridge Cloud" service. **Integration over custom development**: Learning Agent checks installed software/browser apps (explicit permission, stated intent) and proposes integration before building; from-scratch = open-source-based fallback option. Competitors: ambient desktop agents (Vida, Invoko, AirJelly) · generated/flexible workspaces (Notion AI, Fibery, Noloco) · agent-ops platforms (Retrace, AgentOS) — never framed against OS vendors. Per-product competitors (e.g. DealPilot's) are researched live by the Learning Agent at blueprint time, never hardcoded. Vision + full re-audit of prior decisions: [docs/wiki/vision.md](docs/wiki/vision.md). Full context: [docs/wiki/index.md](docs/wiki/index.md).
 
 ## Docs protocol (IMPORTANT)
+- **Work tracker = [docs/PROGRESS.md](docs/PROGRESS.md)** — current batch + next 3, done-criteria, and the registry of ALL plan docs. Check it at session start; update it when a task lands. Plans live in their source docs; PROGRESS is the cursor.
 - `docs/wiki/` = key takeaways, caveman-terse. `docs/raw/` = full depth.
+- Navigation: "where does X live" → [docs/INDEX.md](docs/INDEX.md). Load-bearing flow diagrams + schema ER → [docs/CODEMAPS/flows.md](docs/CODEMAPS/flows.md) — read these before re-reading pipeline/authority/schema source.
 - **Read `docs/wiki/` BY DEFAULT.** Reference `docs/raw/` ONLY on strong need / when wiki is insufficient.
 - Start at [docs/wiki/index.md](docs/wiki/index.md). Decision set + re-audit verdicts: [docs/wiki/decisions.md](docs/wiki/decisions.md) (nothing "locked" — pivot 2026-07-06).
 - **Draft/update wiki in CAVEMAN style** (invoke the `caveman` skill).
 - **Every `docs/raw/` doc carries YAML frontmatter**: `title · type: raw · doc_kind (design|research|requirement|plan|audit|reference) · status · companions[] · related_wiki · updated · tags[]`. Bodies stay prose for narrative/research docs; **data-shaped docs (stack/tokens/roadmap/registries) express their data in fenced ```yaml blocks**, not Markdown tables. `requirement` docs (verbatim user text) get frontmatter ONLY — never edit the body.
 - Wiki page exceeds 1000 lines → compact + summarize it.
 - New/changed raw → update the matching wiki page + append [docs/log.md](docs/log.md).
+
+## Token rules (standing — from token-efficient-development plan)
+- Read order: wiki → raw → code. Escalate only on strong need. Orienting for a typical task should cost < ~4k tokens of docs.
+- Delegate fan-out searches to subagents (Explore); keep the main thread lean.
+- Never default-load append-only ledgers (`docs/log.md`, `docs/BUGS.md` — 800–1300 lines): link, don't load; read targeted sections only.
+- Batch independent tool calls in one turn; don't re-read files just edited; request specific line ranges.
+- Regenerate CODEMAPS on structural change only (provenance header shows staleness), via the `update-codemaps` skill.
+- One instruction source of truth = this file. Any new always-loaded context (instruction file, always-on skill) is a per-turn tax — treat as a reviewed cost. Off-project skills are scoped off in `.claude/settings.json` `skillOverrides`.
 
 ## Working rules
 - **Search for relevant skills BEFORE heavy actions.**
