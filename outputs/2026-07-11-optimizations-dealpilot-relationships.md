@@ -145,4 +145,9 @@ Artifacts:
 
 The session created detailed planning/design documents, updated wiki navigation and plan registry,
 recorded decisions/proposals, and added the standing output-record convention. Runtime product code
-was not changed in this session.
+was unchanged by the module-planning work. During required post-rebase verification, two incoming-main
+gate defects were fixed: a kernel-vocabulary lint violation in the Capability Builder constraint
+checker and a package-pagination test whose expected total ignored the newly seeded package baseline.
+Final verification passed: all 37 test tasks, lint (with two pre-existing warnings), the full build,
+the no-dummy-runtime check, and whitespace validation. The documentation baseline is commit `dc3ff97`;
+the verification fixes and this final record are committed separately on `main`.

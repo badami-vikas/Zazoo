@@ -207,13 +207,13 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
       .split(/[^a-zA-Z]+/)
       .map((t) => t.toLowerCase())
       .filter(Boolean);
-    const hasBareDeal = tokens.some((t, i) => {
+    const hasBannedKernelVocab = tokens.some((t, i) => {
       if (t !== "deal" && t !== "deals") return false;
       const prev = tokens[i - 1];
       return prev !== "dealpilot"; // "dealpilot deal" phrasing would still false-positive rarely; acceptable for a textual heuristic
     });
     const mentionsDealPilot = /dealpilot/i.test(draftText);
-    if (hasBareDeal && !mentionsDealPilot) {
+    if (hasBannedKernelVocab && !mentionsDealPilot) {
       violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Initiative/Ritual/Touchpoint/Signal only (see tools/eslint-rules/src/no-crm-vocab.js).");
     }
   }

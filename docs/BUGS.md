@@ -8,6 +8,14 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **RESOLVED 2026-07-11 — incoming-main verification: Capability Builder identifier violated kernel vocabulary lint; package pagination test assumed an empty seeded registry.**
+  `packages/core/src/agents.ts` used `hasBareDeal`; camel-case tokenization by `bridge/no-crm-vocab`
+  correctly flagged the kernel-scoped identifier. Renamed to vocabulary-neutral `hasBannedKernelVocab`
+  without behavior change. `apps/api/test/packages.test.ts` expected exactly two installations even
+  though `buildWiring()` now seeds four real package definitions; changed the assertion to baseline+2,
+  preserving the pagination contract. Reproduced both failures on rebased `origin/main`; focused lint
+  and package-list test pass after fixes. Full-suite verification recorded in the session output.
+
 - **OPEN 2026-07-09 — DOCS: duplicate ADR numbers in `docs/raw/decisions-log.md` (ADR-012 and ADR-026 each appear twice).**
   Pre-existing collision from parallel-worktree branches each minting the same ADR number (same class as the
   ADR-035–037 collision resolved this session by renumbering the newer set to ADR-042–044). Not introduced by
