@@ -83,3 +83,16 @@ as DRAFT capability_manifests rows. First two packages: `tools/dealpilot/bridge.
 package.yaml as a project manifest, shadows package.json, breaks install. Amend raw spec §1.
 Gaps (BUGS.md): package rows in-memory both modes (no Drizzle table yet) · cap re-registration
 non-idempotent across versions · interim resourceType "skill" · route topics caller-supplied.
+
+## DealPilot detailed plan (2026-07-11)
+
+full: [../raw/dealpilot-module-plan-2026-07.md](../raw/dealpilot-module-plan-2026-07.md)
+designer brief: [../raw/dealpilot-design-requirements-2026-07.md](../raw/dealpilot-design-requirements-2026-07.md)
+
+- Nav = ONE global DealPilot item → module rail (Overview/Deals/Sourcing/Theses/Work/Reports/Relationships/Playbooks) → Deal/Thesis tabs. No global-sidebar explosion.
+- Deal = core Element. CIM/Documents, Hypothesis Tree, Evidence, Diligence/MRL, Financials/QoE, Valuation/Returns, Risks, IC, Relationships, Execution, Activity live inside Deal workspace.
+- Global lists still expose cross-deal sourcing, work, reports, relationships, and playbooks; every row links home to source Deal/Thesis.
+- Tech catalog explicit: 9 package Agent archetypes, 28 Skills, 20 Automations, integrations/tools. CoS routes; no peer handoffs/autonomous IC decisions.
+- Business plan explicit: thesis→origination→triage→diligence→underwriting→IC→closing→100-day→learning. Explicit exclusions: professional opinions, fund admin, custody/payments, autonomous sends/decisions, ToS bypass, portfolio ERP.
+- Reuse-first mandatory. Import/wrap/adapt existing assets before Bridge-native gap build. SmallPE inspected: real 1+7 agent team + MRL/evidence/thesis/impact/output assets; current FSL blocks competing commercial vendoring. Need permission/license/partnership; never silently copy.
+- License-limited source → clean-room research protocol: exhaustive functional inventory + black-box benchmark + independently authored spec + provenance/separation. Protected expression/assets stay out. Full: [clean-room protocol](../raw/clean-room-capability-research-protocol-2026-07.md).
