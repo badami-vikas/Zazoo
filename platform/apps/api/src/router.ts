@@ -38,7 +38,11 @@ import {
   assertChainDepth,
   MAX_CHAIN_DEPTH,
   parseMention,
+  parseSkillMention,
   buildAgentSystemPrompt,
+  buildCommunicationsSystemPrompt,
+  COMMUNICATIONS_SKILL,
+  checkDesignConstraintViolations,
   findFoundationalAgent,
   ANIMAL_TONE,
   parsePackageManifest,
@@ -2220,10 +2224,37 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
 
-      // A leading "@agent" mention (ADR-033) bypasses star-topology
+      // A leading "@communications"/"@comms" mention resolves to the
+      // Communications SKILL (ADR-047), not an agent — no identity, no
+      // capability_scope, just a direct model-backed drafting reply. Checked
+      // before the agent-mention branch since the two mention sets are
+      // disjoint (COMMUNICATIONS_SKILL.mentions was removed from
+      // FOUNDATIONAL_AGENTS' registry).
+      const skillMention = parseSkillMention(input.message);
+      if (skillMention.skill === "communications") {
+        const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
+        const model = registeredModels[0];
+        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
+        const system = buildCommunicationsSystemPrompt(animalTone);
+        const text = model
+          ? (await model.complete({ system, prompt: skillMention.rest || input.message, maxTokens: 512 })).text
+          : `${COMMUNICATIONS_SKILL.mission} (offline mode — no model configured, so I can't draft this yet, but I've recorded the request.)`;
+        return {
+          reply: text,
+          decision: { kind: "direct_reply" as const, confidence: 1, reason: "directly addressed via @communications skill", source: "model" as const },
+          proposal: null,
+          // Display-only label, not a FoundationalAgentId — Communications
+          // has no identity/capability-scope row (ADR-047), this string
+          // exists purely so AgentPanel.tsx can badge the reply the same
+          // way it badges an actual agent's.
+          agent: "communications" as const,
+        };
+      }
+
+      // A leading "@agent" mention (ADR-033/047) bypasses star-topology
       // classification for THIS turn only — a human directly addressing one
-      // of the four foundational agents, not agent-to-agent handoff. Learning/
-      // Communications/Governance answer directly (no side effects); Capability
+      // of the three foundational agents, not agent-to-agent handoff.
+      // Learning/Governance answer directly (no side effects); Capability
       // Builder always drafts through the same governed pipeline every routed
       // action uses, per its `requiresApproval` flag — it never ships live from
       // a chat reply.
@@ -2247,19 +2278,30 @@ export const appRouter = t.router({
           };
         }
 
+        // Capability Builder only — best-effort textual check against the
+        // standing design constraints (agents.ts's
+        // CAPABILITY_BUILDER_DESIGN_CONSTRAINTS/checkDesignConstraintViolations).
+        // Never blocks the draft: violations are surfaced to the human
+        // approver in Approvals, same draft-then-approve pattern as every
+        // other governance signal — this is a flag, not a gate.
+        const constraintViolations = agentId === "capability_builder" ? checkDesignConstraintViolations(text) : [];
+        const replyText = constraintViolations.length
+          ? `${text}\n\n⚠ Design-constraint check flagged ${constraintViolations.length} item(s) for the approver:\n${constraintViolations.map((v) => `- ${v}`).join("\n")}`
+          : text;
+
         const proposal = await ctx.wiring.pipeline.propose(
           {
             workspaceId: input.workspaceId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "execute",
             resourceType: "skill",
-            inputs: { agent: agentId, message: input.message, draft: text },
+            inputs: { agent: agentId, message: input.message, draft: text, designConstraintViolations: constraintViolations },
             skill: "stageMutation",
           },
           ctx.run,
         );
         return {
-          reply: `${text}\n\nDrafted via ${agent.name} — proposed for review, not yet executed.`,
+          reply: `${replyText}\n\nDrafted via ${agent.name} — proposed for review, not yet executed.`,
           decision: { kind: "route" as const, route: agentId, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
           proposal,
           agent: agentId,

@@ -5,6 +5,12 @@
 //! macOS-only (`#[cfg(target_os = "macos")]`); this file itself has no OS
 //! dependency so it compiles + tests on any host.
 
+// Not cfg-gated at the module level (unlike apps/clipboard below) — its
+// `ax_permission_status` command has both a macOS and a cross-platform
+// fallback arm internally, same pattern as sensor_bridge.rs's commands, so
+// it must exist as a symbol on every target for `tauri::generate_handler!`
+// to register unconditionally (XP-1 cross-platform-compile goal).
+pub mod accessibility;
 #[cfg(target_os = "macos")]
 pub mod apps;
 #[cfg(target_os = "macos")]

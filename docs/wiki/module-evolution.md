@@ -45,26 +45,32 @@ opt-out/pin/rollback.
 
 **Day-1 bar (user, explicit priority over next-wave items above)**: onboarding
 agent on Groq API (corrected from "Grok" — user typo, see ADR-033 /
-[foundational-agents](foundational-agents.md)) + 5 agents inbuilt, so Module
-proposals get drafted in real time during onboarding and land in Approvals
-(shipped-for-approval, not shipped-live). **STATUS: GroqProvider already
-built** (predates this doc), only single CoS classifyIntent/converse exists
-— the 5-agent wiring is still open.
+[foundational-agents](foundational-agents.md)) + the 4-agent+1-skill team
+inbuilt, so Module proposals get drafted in real time during onboarding and
+land in Approvals (shipped-for-approval, not shipped-live). **STATUS:
+GroqProvider already built** (predates this doc); `@mention` dispatch for
+all 3 non-CoS agents + the Communications skill is now real (2026-07-10,
+router.ts `chiefOfStaff.converse`) — full onboarding-flow wiring still open.
 
-**The 5 agents are already canon** (`docs/raw/roadmap-v2-universal-commons.md`
-— "only five permanent agents exist"; an earlier draft of this page invented
-a different mapping, corrected here): **Chief of Staff** (coordinates,
-default interlocutor, owns the final proposal into Approvals) ·
-**Learning Agent** (research/observation/feedback, NEVER executes — checks
-Component Registry/installed Modules for overlap) · **Communications Agent**
-(turns findings into the plain-language summary the user reads) ·
+**The roster is canon, corrected 2026-07-10 (ADR-047)**: was "five permanent
+agents" per `docs/raw/roadmap-v2-universal-commons.md`; Communications had no
+independent decision authority or capability-scope (a stateless
+context+tone→text transform), so it's now a skill, not an agent — see
+[foundational-agents](foundational-agents.md) for the full reasoning.
+**Chief of Staff** (coordinates, default interlocutor, owns the final
+proposal into Approvals) · **Learning Agent** (research/observation/feedback,
+NEVER executes — checks Component Registry/installed Modules for overlap) ·
 **Governance Agent** (permissions/policy/compliance/risk scoring before
-anything reaches Approvals) · **Capability Builder** (drafts new capabilities
-AFTER approval only — never ships live). Team feeds ONE governed draft per
-turn, no independent write access. GroqProvider already exists
+anything reaches Approvals; sole holder of the auto-approve-MINOR exception
+to agent-floor) · **Capability Builder** (drafts new capabilities AFTER
+approval only — never ships live), invoking the **Communications skill**
+(`draftCommunication`) to turn findings into the plain-language summary the
+user reads. Team feeds ONE governed draft per turn, no independent write
+access. GroqProvider already exists
 (`platform/packages/models/src/groq-provider.ts`), wired behind
-`GROQ_API_KEY` — still open: wiring the 5 agents into onboarding itself.
+`GROQ_API_KEY` — still open: wiring the 4-agent+skill team into onboarding
+itself.
 
-**Sequencing ruling**: Day-1 slice (5-agent onboarding team + live
+**Sequencing ruling**: Day-1 slice (4-agent+skill onboarding team + live
 Module-proposal drafting, Groq provider already done) ships BEFORE Component
 Registry/eval-harness/versioning/community-signals wave.

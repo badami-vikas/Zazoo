@@ -4,21 +4,33 @@ full: [../raw/desktop-companion-agent-roadmap-2026-07.md](../raw/desktop-compani
 
 Floating always-on-top avatar that annotates the screen + helps in-context.
 
-**Current state vs gap**: a real 2nd Tauri window EXISTS (`overlay.rs` — 96×96 transparent
-always-on-top bottom-right, `overlay_resize`/`focus_main_window`), driven by `avatar-store.ts` 7-state
-machine + Rust-originated `sensor.capture`→`bridge:capture` blink tell. 2 providers live (`apps`,
-`clipboard`); `screen` = honest stub, `accessibility` unbuilt. So today = faithful **status mascot
-with a tell** — can't see screen, can't draw, runs no model. Needs 3 new layers: screen-understanding
-input · display-spanning annotation output · a model tier connecting them.
+**Current state (2026-07-10)**: `overlay.rs` now creates ONE overlay window PER CONNECTED MONITOR
+(labels `overlay`, `overlay-1`, …), each 96×96 transparent always-on-top anchored bottom-right of its
+own screen; `overlay_resize`/`overlay_hide` take the CALLING window as a Tauri-injected param (works
+correctly per-instance without knowing which monitor). Frontend (`OverlayApp.tsx`) gained a hover chat
+bubble → compact inline chat (real `chiefOfStaff.converse` round-trip, verified live against a running
+API) and a right-click menu (Hide / Meditate / Observe — Observe triggers
+`capture_screenshot_on_demand`). CSP fixed (SEC-4 — was `csp: null`, now a real policy scoped to
+`'self'` + the sidecar's dynamic local port). **OUTPUT half of annotation now exists**: a 3rd Tauri
+window per monitor (`annotate.rs`), display-sized, transparent, **click-through**
+(`set_ignore_cursor_events(true)` from creation), rendering a constrained typed mark vocab
+(highlight/arrow/callout/spotlight) via SVG in `AnnotateApp.tsx`. Marks are a Rust enum
+(`AnnotationMark`/`MarkKind`), validated in Rust (finite geometry, positive size, ≤12 marks, ≤120-char
+labels) BEFORE `annotate_show` emits them — the frontend only ever receives this typed shape over a
+Tauri event, never HTML/model-text (extends the un-spoofable rule; this is why CSP had to land first).
+Build-verified (cargo check/clippy/test all green) + visually verified in a browser preview with
+synthetic marks (real Tauri GUI/multi-monitor behavior still build-verified-not-GUI-verified, same
+honesty caveat as the pre-existing overlay window).
 
-**Annotation approach**: INPUT = build `accessibility` provider FIRST (AX-tree rects = deterministic
-"point at the Send button", no vision model needed); promote `screen` to real on-demand single-frame
-only where AX insufficient. OUTPUT = a NEW 3rd Tauri window (`annotate`), display-sized, transparent,
-**click-through** (`set_ignore_cursor_events`), rendering a constrained typed mark vocab
-(highlight/arrow/callout/spotlight). Marks = **Rust-produced, Rust-validated command list, NEVER
-HTML/model-text in the webview** (extends the un-spoofable rule; **requires the `csp:null` finding
-fixed first**). Rides existing Sensor SPI (raw = local-plane only, blink still fires, deny-perms
-degrades to AX-only/panel text).
+**INPUT half still a gap, by design**: `providers/accessibility.rs` ships ONLY
+`ax_permission_status` (`AXIsProcessTrusted()` — a single safe no-argument FFI call, genuinely
+verified via a real unit test). Full AX-tree walking (AXUIElementRef creation, CFArray attribute
+reads, coordinate conversion) needs real CoreFoundation retain/release bookkeeping that wasn't hand-
+rolled without a live macOS session + granted permission to exercise it against — the same judgment
+call this codebase already made for the `screen` sensor (honest stub over a faked capture path).
+`annotate_show` takes already-resolved rects, so whatever builds AX tree-walking next (or a manual
+walkthrough source) can drive the existing output half unchanged. 2 sensor providers live (`apps`,
+`clipboard`); `screen` = honest stub.
 
 **Small-model-first ramp (5 tiers via ModelProvider seam)**: T0 no-model deterministic (geometry/rules
 — WHERE IT STARTS) · T1 small local text SLM (Ollama ~1-3B) · T2 on-device VLM (Moondream2 ~1.9B /
@@ -31,7 +43,10 @@ at" one-liner · quick-action launcher · AX-only element-pointer annotation. **
 coaching · walkthroughs · form-fill · visual QA · ambient suggestions · cross-app workflow synthesis ·
 voice. (Each carries a one-line actualization brief + required tier + trust band in the raw doc.)
 
-**Roadmap P0-P6**: P0 event-driven status + fix CSP · P1 accessibility provider + AX-only annotation
-window · P2 Tier-1 local help · P3 real `screen` + on-device VLM · P4 voice/walkthroughs · P5
-proactive/ambient · P6 workflow synthesis + form-fill. Risks: multi-monitor/DPI coord accuracy ·
-`csp:null` hard blocker · click-through correctness (build-verified not GUI-verified) · VLM footprint.
+**Roadmap P0-P6**: **P0 DONE (2026-07-10)** — event-driven status + CSP fixed. **P1 PARTIAL
+(2026-07-10)** — annotation WINDOW done (multi-monitor overlay + click-through annotate window + typed
+mark rendering); AX-tree lookup (the piece that resolves "the Send button" → a rect) still open, only
+the permission check shipped. P2 Tier-1 local help · P3 real `screen` + on-device VLM · P4
+voice/walkthroughs · P5 proactive/ambient · P6 workflow synthesis + form-fill. Risks: multi-monitor/DPI
+coord accuracy (build-verified, not GUI-verified against real hardware) · click-through correctness
+(same caveat) · VLM footprint · AXUIElement retain/release safety (why tree-walking waited).

@@ -11,12 +11,14 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Two entries: the main app + the desktop companion window (R-002).
-      // overlay.html is a real file (not an SPA route) because the Tauri
-      // asset protocol has no history-API fallback.
+      // Three entries: the main app + the desktop companion window (R-002)
+      // + the click-through annotation window (desktop-companion.md P1).
+      // overlay.html/annotate.html are real files (not SPA routes) because
+      // the Tauri asset protocol has no history-API fallback.
       input: {
         main: path.resolve(__dirname, "index.html"),
         overlay: path.resolve(__dirname, "overlay.html"),
+        annotate: path.resolve(__dirname, "annotate.html"),
       },
     },
   },

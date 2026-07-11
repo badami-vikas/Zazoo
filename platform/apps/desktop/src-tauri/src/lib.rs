@@ -25,6 +25,7 @@
 //! window needs an initialization script carrying the sidecar API's resolved
 //! port (`window.__BRIDGE_API_URL__`), which is only known at runtime.
 
+mod annotate;
 mod api_sidecar;
 mod overlay;
 mod providers;
@@ -57,9 +58,13 @@ fn create_windows(app: &tauri::AppHandle, init_script: &str) {
         eprintln!("[bridge-desktop] failed to create main window: {err}");
         return;
     }
-    if let Err(err) = overlay::create_overlay_window(app, init_script) {
+    if let Err(err) = overlay::create_overlay_windows(app, init_script) {
         // The companion is additive: never block the main app on it.
-        eprintln!("[bridge-desktop] failed to create overlay window: {err}");
+        eprintln!("[bridge-desktop] failed to create overlay window(s): {err}");
+    }
+    if let Err(err) = annotate::create_annotate_windows(app, init_script) {
+        // Also additive — annotation is a help feature, never load-bearing.
+        eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
 }
 
@@ -76,7 +81,11 @@ pub fn run() {
             sensor_bridge::sensor_read_raw,
             sensor_bridge::capture_screenshot_on_demand,
             overlay::overlay_resize,
-            overlay::focus_main_window
+            overlay::overlay_hide,
+            overlay::focus_main_window,
+            annotate::annotate_show,
+            annotate::annotate_clear,
+            providers::accessibility::ax_permission_status
         ])
         .setup(|app| {
             let handle = app.handle().clone();

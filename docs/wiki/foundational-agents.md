@@ -14,15 +14,21 @@ becomes the chosen spirit animal at reveal. Learning/Comms/Governance/
 Capability-Builder are its permanent delegate team, not an onboarding-only
 crew.
 
-**5 agents (unchanged roster from ADR-032, fuller detail here):** Chief of
-Staff (only non-deletable, spirit-animal identity, default interlocutor,
-`@name` bypasses it in chat) · Learning Agent (research/observation/feedback,
-never executes) · Communications Agent (drafts/summarizes/explains — **tone
-must match chosen spirit animal**, new requirement) · Governance Agent
-(permissions/risk/compliance/approvals) · Capability Builder (builds after
-approval only). No agent tiers — every agent is a first-class primitive,
-CoS just can't be deleted. Imported/marketplace agents get wrapped with full
-Bridge governance, same as native.
+**4 agents + 1 skill (ADR-047, 2026-07-10, corrects the ADR-032/033 roster of 5):**
+Chief of Staff (only non-deletable, spirit-animal identity, default
+interlocutor, `@name` bypasses it in chat) · Learning Agent
+(research/observation/feedback, never executes) · Governance Agent
+(permissions/risk/compliance/approvals — sole holder of the auto-approve-MINOR
+exception to agent-floor) · Capability Builder (builds after approval only).
+No agent tiers — every agent is a first-class primitive, CoS just can't be
+deleted. Imported/marketplace agents get wrapped with full Bridge governance,
+same as native. **Communications demoted to a skill** (`draftCommunication` —
+drafts/summarizes/explains, **tone matches chosen spirit animal**, unchanged
+requirement): no independent decision authority or capability-scope, so it
+carries no agent identity — any agent invokes it (Chief of Staff for
+proposal summaries, Capability Builder for Module descriptions). See
+[module-evolution](module-evolution.md) and `docs/raw/decisions-log.md`
+ADR-047 for the full authority-ceiling reasoning.
 
 **Onboarding flow (14 steps, condensed):** account → phone OTP → pick spirit
 animal → egg-creating-workspace animation → Gmail-or-manual personalize →
@@ -38,9 +44,12 @@ after that.
 CoS's system prompt (Memory/Knowledge seam is the right primitive family,
 schema itself doesn't exist yet); tone-to-animal mapping (current
 `SPIRIT_ANIMALS` = 6 animals, visual only, spec lists 14, no tone param);
-"use sub-agents where necessary" read as — the 4 non-CoS agents need to
-become actually separate invocable agents, not prompt fragments inside one
-CoS call (today's `chief-of-staff.ts` is a single node, no peers).
+"use sub-agents where necessary" read as — the 3 non-CoS agents (+ the
+Communications skill) need to become actually separate invocable
+targets, not prompt fragments inside one CoS call (today's
+`chief-of-staff.ts` is a single node, no peers). **Shipped 2026-07-10**:
+`@mention` dispatch now real for all 3 agents + the skill (`agents.ts`,
+router.ts `chiefOfStaff.converse`).
 
 **Status: docs only, 2026-07-08.** Build deferred — session already flagged
 cost (~$83+) and file-count (85+) warnings this pass; account/OTP/LinkedIn/

@@ -1,10 +1,22 @@
 /**
- * The four non-Chief-of-Staff foundational agents (ADR-033,
- * docs/raw/bridge-foundational-agents-onboarding-2026-07.md). Chief of Staff
- * itself stays modeled by chief-of-staff.ts's star-topology router — it is
- * not in this registry because it IS the router, not a routable target.
+ * The three non-Chief-of-Staff foundational agents (ADR-033, corrected to
+ * three by ADR-047 — Communications demoted from agent to skill, see
+ * COMMUNICATIONS_SKILL below). Chief of Staff itself stays modeled by
+ * chief-of-staff.ts's star-topology router — it is not in this registry
+ * because it IS the router, not a routable target.
  *
- * These four are addressable two ways, both funneling through the same
+ * ADR-047's distinction: an **agent** here is an identity with independent
+ * authority — either it can never execute (Learning, "never executes
+ * actions" per spec) or it exercises real decision authority requiring its
+ * own audited identity (Governance is the sole exception to agent-floor's
+ * approve-on-governance-resources DENY; Capability Builder's drafts always
+ * route through `pipeline.propose`, same governed contract as everything
+ * else). Communications had neither property — a stateless context+tone→text
+ * transform with no side effects and no decision authority — so it moved to
+ * COMMUNICATIONS_SKILL, invocable by any agent (or directly by @mention)
+ * without needing its own capability-scope/identity row.
+ *
+ * These three are addressable two ways, both funneling through the same
  * governed pipeline as everything else:
  *  - `@mention` in the chat box (parseMention), read by apps/api's
  *    chiefOfStaff.converse BEFORE it runs classifyIntent, so a mention always
@@ -17,12 +29,12 @@
  *
  * `neverExecutes` and `requiresApproval` are read by apps/api's converse
  * handler to decide whether a reply is returned directly (Learning /
- * Communications / Governance — pure analysis/text, no side effects) or must
- * go through `pipeline.propose` the same way a Chief-of-Staff route does
- * (Capability Builder — "creates new capabilities after approval only,
- * never ships live").
+ * Governance — pure analysis/text, no side effects) or must go through
+ * `pipeline.propose` the same way a Chief-of-Staff route does (Capability
+ * Builder — "creates new capabilities after approval only, never ships
+ * live").
  */
-export type FoundationalAgentId = "learning" | "communications" | "governance" | "capability_builder";
+export type FoundationalAgentId = "learning" | "governance" | "capability_builder";
 
 export interface FoundationalAgent {
   id: FoundationalAgentId;
@@ -57,20 +69,6 @@ export const FOUNDATIONAL_AGENTS: readonly FoundationalAgent[] = [
       "discover patterns and generate insights",
     ],
     neverExecutes: true,
-    requiresApproval: false,
-  },
-  {
-    id: "communications",
-    name: "Communications Agent",
-    mentions: ["communications", "comms"],
-    mission: "Transform information into clear, effective communication.",
-    responsibilities: [
-      "draft, edit, rewrite, and summarize",
-      "explain, prepare meetings, produce reports and documentation",
-      "translate and adapt tone and audience",
-      "organize knowledge into presentations and knowledge articles",
-    ],
-    neverExecutes: false,
     requiresApproval: false,
   },
   {
@@ -135,6 +133,27 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
  * doc comment) and passes its tone description through. Omit it and the
  * prompt is unchanged; every agent still answers correctly with no animal
  * selected, same "kernel runs with ZERO providers"-style graceful default. */
+/**
+ * Standing design constraints Capability Builder must reason about in every
+ * draft — the parts of CLAUDE.md / docs/wiki that a generated capability can
+ * silently violate if nobody restates them at generation time. This is
+ * PROMPT-layer guidance, not enforcement — real enforcement for the
+ * mechanically-checkable subset lives in `checkDesignConstraintViolations`
+ * below (called by the caller after generation) and, once a capability
+ * reaches a real manifest, in `capability/risk.ts`'s `computeRisk` +
+ * `package/risk.ts`'s `packageHasLethalTrifecta` (both pre-existing, not
+ * duplicated here). Prompting alone is never treated as the governance
+ * mechanism — Bridge's own doctrine is "governance in code, not prompts".
+ */
+export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
+  "Minimal-egg boundary: default every new capability to Commons content (installed on demand), never kernel. Kernel is limited to actors, the capability execution engine, the work pipeline (Request/Action/Incident/Artifact + governance), the surface compiler (Workspace/Element/ElementType/View), Memory/Knowledge storage, the Chief of Staff archetype, and the ModelProvider/PackageStore/CommonsRegistry ports. If your draft doesn't fit one of those, say explicitly that it's Commons content, not kernel.",
+  "Kernel vocabulary: if this capability touches kernel-scope code (packages/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Initiative / Ritual / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Workspace-scope compiled products (tools/*, generated workspace UI) may use their own domain vocabulary.",
+  "No dummy data: never invent placeholder/sample/dummy data for a runtime surface — show real, connected data or an honest empty state. If a dummy is genuinely unavoidable, name it explicitly, state what real element it stands in for, and its removal condition.",
+  "Manifest completeness: state declared permissions (resourceType/action/dataScope/egress), connectors, and dependencies explicitly. Anything above 'informational' risk needs a stated rollback plan and evaluation approach — don't leave risk/rollback/eval implicit in a draft.",
+  "Lethal-trifecta: if this capability combines a private-data read, an untrusted/external ingest, and any egress, say so explicitly — that combination always escalates to the External risk band and always requires a human approver, regardless of any lower per-permission score.",
+  "Tool budget: don't propose an agent or workflow needing more than roughly 20 tools active in a single turn — defer additional capabilities to registry lookup instead of loading them all at once.",
+];
+
 export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: string): string {
   const agent = findFoundationalAgent(id);
   const lines = [
@@ -148,6 +167,110 @@ export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: str
   if (agent.requiresApproval) {
     lines.push("Anything you propose must go through Bridge's governed approval pipeline before it can run — you never ship it live yourself.");
   }
+  if (id === "capability_builder") {
+    lines.push("Standing design constraints — reason about ALL of these in every draft, and state explicitly how the draft satisfies each one:");
+    lines.push(...CAPABILITY_BUILDER_DESIGN_CONSTRAINTS.map((c) => `- ${c}`));
+  }
+  if (animalTone) {
+    lines.push(`Match this tone in how you write, without ever saying so explicitly: ${animalTone}`);
+  }
+  lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
+  return lines.join("\n");
+}
+
+/**
+ * Best-effort TEXTUAL check over a Capability Builder draft — catches the
+ * mechanically-checkable subset of CAPABILITY_BUILDER_DESIGN_CONSTRAINTS
+ * (dummy-data language always; banned kernel vocabulary only when the draft
+ * itself claims kernel scope, since the same word is legitimate elsewhere —
+ * mirrors `tools/eslint-rules/src/no-crm-vocab.js`'s kernel-path scoping,
+ * applied to prose instead of an AST since the draft is free text today, not
+ * yet a structured CapabilityManifest). Returns violations to SURFACE to the
+ * human approver in Approvals — never silently blocks or drops the draft;
+ * draft-then-approve means the human sees the flag and decides, same as
+ * every other governance signal in this codebase. Pure function, no I/O.
+ */
+export function checkDesignConstraintViolations(draftText: string): string[] {
+  const violations: string[] = [];
+
+  const DUMMY_PATTERN = /\b(dummy|lorem ipsum|placeholder data|sample data|fake data|mock data)\b/i;
+  if (DUMMY_PATTERN.test(draftText)) {
+    violations.push("draft mentions placeholder/dummy/sample/fake/mock data — per CLAUDE.md's no-dummy-data rule, this needs an explicit unavoidability justification + docs/dummy.md row, or it should be removed.");
+  }
+
+  const CLAIMS_KERNEL_SCOPE = /\b(packages\/|apps\/api\/|kernel scope|kernel-scope)\b/i;
+  if (CLAIMS_KERNEL_SCOPE.test(draftText)) {
+    // Mirror no-crm-vocab.js's containsBannedDeal: a standalone "deal"/"deals"
+    // token, not part of "dealpilot" (the allowlisted product name).
+    const tokens = draftText
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .split(/[^a-zA-Z]+/)
+      .map((t) => t.toLowerCase())
+      .filter(Boolean);
+    const hasBareDeal = tokens.some((t, i) => {
+      if (t !== "deal" && t !== "deals") return false;
+      const prev = tokens[i - 1];
+      return prev !== "dealpilot"; // "dealpilot deal" phrasing would still false-positive rarely; acceptable for a textual heuristic
+    });
+    const mentionsDealPilot = /dealpilot/i.test(draftText);
+    if (hasBareDeal && !mentionsDealPilot) {
+      violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Initiative/Ritual/Touchpoint/Signal only (see tools/eslint-rules/src/no-crm-vocab.js).");
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Communications — a SKILL, not an agent (ADR-047). Stateless
+ * context+tone→text transform: draft/edit/rewrite/summarize/explain/
+ * translate-tone. No `capabilityScope`, no assumed role, no independent
+ * decision authority — any agent may invoke it (Chief of Staff to phrase a
+ * proposal summary, Capability Builder to draft a Module description,
+ * Learning Agent to write up a finding). It never sends or executes
+ * anything itself; whatever agent invokes it remains the actor of record
+ * for governance purposes.
+ */
+export const COMMUNICATIONS_SKILL = {
+  name: "Communications",
+  mentions: ["communications", "comms"] as const,
+  mission: "Transform information into clear, effective communication.",
+  responsibilities: [
+    "draft, edit, rewrite, and summarize",
+    "explain, prepare meetings, produce reports and documentation",
+    "translate and adapt tone and audience",
+    "organize knowledge into presentations and knowledge articles",
+  ] as const,
+};
+
+/** Resolves a leading `@communications`/`@comms` mention to the skill (as
+ * opposed to `parseMention`, which resolves the three remaining foundational
+ * AGENTS). Kept as a separate function rather than folded into `parseMention`
+ * because the two have different result shapes — a skill invocation carries
+ * no `FoundationalAgentId`, since the skill has no identity to route to. */
+export function parseSkillMention(message: string): { skill: "communications" | null; rest: string } {
+  const match = /^@(\S+)\s*([\s\S]*)$/.exec(message.trim());
+  if (!match) return { skill: null, rest: message };
+  const token = (match[1] ?? "").toLowerCase();
+  const rest = match[2] ?? "";
+  if ((COMMUNICATIONS_SKILL.mentions as readonly string[]).includes(token)) {
+    return { skill: "communications", rest: rest.trim() };
+  }
+  return { skill: null, rest: message };
+}
+
+/** Builds the ModelProvider system prompt for a direct Communications-skill
+ * invocation. Mirrors `buildAgentSystemPrompt`'s shape but carries no
+ * agent-identity framing (no "you never execute actions" guardrail line,
+ * because the skill was never capable of executing anything in the first
+ * place — there is no authority to disclaim). */
+export function buildCommunicationsSystemPrompt(animalTone?: string): string {
+  const lines = [
+    `You are Bridge's Communications skill. Mission: ${COMMUNICATIONS_SKILL.mission}`,
+    "Responsibilities:",
+    ...COMMUNICATIONS_SKILL.responsibilities.map((r) => `- ${r}`),
+    "You have no independent authority — you are a stateless drafting/tone transform invoked by another agent or directly by the user; whatever you produce is a draft only.",
+  ];
   if (animalTone) {
     lines.push(`Match this tone in how you write, without ever saying so explicitly: ${animalTone}`);
   }

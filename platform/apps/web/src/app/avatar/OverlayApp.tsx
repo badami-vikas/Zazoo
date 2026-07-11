@@ -26,8 +26,14 @@ import {
   CAPTURE_EVENT,
   STATUS_LABEL,
   loadAvatarPrefs,
+  setAvatarStatus,
   useAvatarStatus,
 } from "./avatar-store";
+
+interface ChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -40,11 +46,18 @@ export type CompanionState =
   | "dismissing";
 
 /** Window sizes per companion state (logical px) — must match what the Rust
- * side created the window with (COLLAPSED_SIZE in overlay.rs). */
-const WINDOW_SIZE: Record<"collapsed" | "hover" | "expanded", { w: number; h: number }> = {
+ * side created the window with (COLLAPSED_SIZE in overlay.rs). The window
+ * always grows/shrinks BEFORE its content changes (overlay_resize keeps the
+ * bottom-right corner pinned) — an undecorated Tauri window clips its
+ * webview to its own bounds, so anything rendered past the current size
+ * (the status panel, the chat panel, the right-click menu) would be
+ * invisible if the resize didn't happen first. */
+const WINDOW_SIZE: Record<"collapsed" | "hover" | "expanded" | "chat" | "menu", { w: number; h: number }> = {
   collapsed: { w: 96, h: 96 },
   hover: { w: 260, h: 96 },
   expanded: { w: 320, h: 400 },
+  chat: { w: 320, h: 420 },
+  menu: { w: 200, h: 150 },
 };
 
 function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -63,13 +76,28 @@ export function OverlayApp() {
   // the desktop shell exists, this install is an existing user.
   const [prefs] = useState(() => loadAvatarPrefs(true));
   const status = useAvatarStatus();
-  const [expanded, setExpanded] = useState(false);
+  // "status" = the existing pending-approvals panel (click the avatar).
+  // "chat" = the hover chat bubble's compact inline chat.
+  const [panel, setPanel] = useState<"none" | "status" | "chat">("none");
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [pendingError, setPendingError] = useState(false);
+
+  // Right-click menu (Hide / Meditate / Observe).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [observing, setObserving] = useState(false);
+
+  // Compact inline chat — same trpc.chiefOfStaff.converse contract
+  // AgentPanel.tsx uses in the main window, condensed for the overlay.
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [chatChainDepth, setChatChainDepth] = useState(0);
+
+  const expanded = panel !== "none";
 
   // Derived companion state (the machine's read model).
   const working =
@@ -100,31 +128,87 @@ export function OverlayApp() {
     };
   }, []);
 
-  // Window chrome follows the state machine.
+  // Window chrome follows the state machine. The right-click menu takes
+  // priority over everything else — it's a modal-ish overlay on top of
+  // whatever panel state was active, and always gets its own (smallest)
+  // window size.
   useEffect(() => {
-    const size = expanded
-      ? WINDOW_SIZE.expanded
-      : hovering
-        ? WINDOW_SIZE.hover
-        : WINDOW_SIZE.collapsed;
+    const size = menuOpen
+      ? WINDOW_SIZE.menu
+      : panel === "chat"
+        ? WINDOW_SIZE.chat
+        : panel === "status"
+          ? WINDOW_SIZE.expanded
+          : hovering
+            ? WINDOW_SIZE.hover
+            : WINDOW_SIZE.collapsed;
     void tauriInvoke("overlay_resize", { width: size.w, height: size.h });
-  }, [expanded, hovering]);
+  }, [panel, hovering, menuOpen]);
 
-  function toggleExpanded() {
-    const next = !expanded;
-    setExpanded(next);
-    if (next) {
-      // Same call the in-page overlay's wake() makes — one source of truth
-      // for "how many actions await approval".
-      setPendingError(false);
-      trpc.action.listPending
-        .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
-        .then((res) => setPendingCount(res.total))
-        .catch(() => {
-          setPendingCount(null);
-          setPendingError(true);
-        });
+  function openStatusPanel() {
+    if (panel === "status") {
+      setPanel("none");
+      return;
     }
+    setPanel("status");
+    // Same call the in-page overlay's wake() makes — one source of truth
+    // for "how many actions await approval".
+    setPendingError(false);
+    trpc.action.listPending
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+      .then((res) => setPendingCount(res.total))
+      .catch(() => {
+        setPendingCount(null);
+        setPendingError(true);
+      });
+  }
+
+  function openChatPanel() {
+    setPanel((prev) => (prev === "chat" ? "none" : "chat"));
+  }
+
+  async function sendChat() {
+    const message = chatDraft.trim();
+    if (!message) return;
+    setChatDraft("");
+    setChatSending(true);
+    setChatTurns((prev) => [...prev, { role: "user", text: message }]);
+    try {
+      const result = await trpc.chiefOfStaff.converse.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        message,
+        chainDepth: chatChainDepth,
+        animal: prefs.animal,
+      });
+      setChatTurns((prev) => [...prev, { role: "assistant", text: result.reply }]);
+      setChatChainDepth(result.decision.kind === "route" ? chatChainDepth + 1 : 0);
+    } catch (e) {
+      setChatTurns((prev) => [...prev, { role: "assistant", text: `Couldn't reach Bridge: ${String(e)}` }]);
+    } finally {
+      setChatSending(false);
+    }
+  }
+
+  // Right-click menu actions.
+  function handleHide() {
+    setMenuOpen(false);
+    void tauriInvoke("overlay_hide");
+  }
+
+  function handleMeditate() {
+    setMenuOpen(false);
+    setPanel("none");
+    setAvatarStatus("idle");
+  }
+
+  function handleObserve() {
+    setMenuOpen(false);
+    setObserving(true);
+    setAvatarStatus("reading_context");
+    void tauriInvoke("capture_screenshot_on_demand").finally(() => {
+      setObserving(false);
+      setAvatarStatus("idle");
+    });
   }
 
   const name = prefs.avatarName || prefs.animal[0]!.toUpperCase() + prefs.animal.slice(1);
@@ -141,11 +225,61 @@ export function OverlayApp() {
         alignItems: "flex-end",
         background: "transparent",
         overflow: "hidden",
+        position: "relative",
       }}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
     >
-      {expanded && (
+      {menuOpen && (
+        <>
+          {/* Click-outside catcher — a right-click menu with no native OS
+           * chrome needs its own dismiss surface. */}
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 10 }}
+            onClick={() => setMenuOpen(false)}
+          />
+          <div
+            role="menu"
+            aria-label={`${name} — companion menu`}
+            className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg py-1 text-sm"
+            style={{ flex: "1 1 auto", minHeight: 0, position: "relative", zIndex: 11 }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
+              style={{ color: "var(--color-navy)" }}
+              onClick={handleHide}
+            >
+              Hide
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
+              style={{ color: "var(--color-navy)" }}
+              onClick={handleMeditate}
+            >
+              Meditate
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full text-left px-3 py-2 hover:bg-[var(--color-surface)]"
+              style={{ color: "var(--color-navy)" }}
+              onClick={handleObserve}
+            >
+              Observe — what am I looking at?
+            </button>
+          </div>
+        </>
+      )}
+
+      {!menuOpen && panel === "status" && (
         <div
           role="dialog"
           aria-label={`${name} — companion panel`}
@@ -158,7 +292,7 @@ export function OverlayApp() {
               type="button"
               aria-label="Close"
               className="text-muted-foreground hover:text-[var(--color-steel)]"
-              onClick={() => setExpanded(false)}
+              onClick={() => setPanel("none")}
             >
               ×
             </button>
@@ -166,7 +300,7 @@ export function OverlayApp() {
           <div className="space-y-1.5 text-[var(--color-navy-mid)]">
             <p>
               <span className="text-muted-foreground">Status: </span>
-              {label}
+              {observing ? "Observing your screen…" : label}
             </p>
             <p>
               <span className="text-muted-foreground">Pending approvals: </span>
@@ -187,28 +321,109 @@ export function OverlayApp() {
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2" style={{ flex: "0 0 auto" }}>
-        {state === "hover" && (
-          <div className="whitespace-nowrap rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2 py-1">
-            {label}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={toggleExpanded}
-          aria-label={`${name}, ${label}`}
-          title={label}
-          className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
-          style={{
-            animation:
-              status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
-          }}
+      {!menuOpen && panel === "chat" && (
+        <div
+          role="dialog"
+          aria-label={`Chat with ${name}`}
+          className="w-full mb-2 rounded-[var(--radius-card)] border border-border bg-background shadow-lg text-sm flex flex-col"
+          style={{ flex: "1 1 auto", minHeight: 0 }}
         >
-          <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
-            <Creature animal={prefs.animal} status={status} blinking={blinking} reducedMotion={false} />
+          <div className="flex items-center justify-between px-3 py-2 border-b" style={{ borderColor: "var(--color-border)" }}>
+            <p className="font-medium text-[var(--color-navy)]">{name}</p>
+            <button
+              type="button"
+              aria-label="Close chat"
+              className="text-muted-foreground hover:text-[var(--color-steel)]"
+              onClick={() => setPanel("none")}
+            >
+              ×
+            </button>
           </div>
-        </button>
-      </div>
+          <div className="flex-1 overflow-auto px-3 py-2 space-y-2" style={{ minHeight: 0 }}>
+            {chatTurns.length === 0 && (
+              <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                Ask {name} anything — I'll route it or draft a reply.
+              </p>
+            )}
+            {chatTurns.map((t, i) => (
+              <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
+                <div
+                  className="inline-block max-w-[85%] rounded-md px-2.5 py-1.5 text-xs"
+                  style={{
+                    backgroundColor: t.role === "user" ? "var(--color-steel)" : "var(--color-surface)",
+                    color: t.role === "user" ? "white" : "var(--color-navy)",
+                  }}
+                >
+                  {t.text}
+                </div>
+              </div>
+            ))}
+          </div>
+          <form
+            className="flex gap-1.5 p-2 border-t"
+            style={{ borderColor: "var(--color-border)" }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void sendChat();
+            }}
+          >
+            <input
+              type="text"
+              value={chatDraft}
+              onChange={(e) => setChatDraft(e.target.value)}
+              disabled={chatSending}
+              placeholder={`Ask ${name}…`}
+              aria-label="Chat message"
+              className="flex-1 min-w-0 rounded-[var(--radius-button)] border border-border px-2 py-1.5 text-xs"
+            />
+            <button
+              type="submit"
+              disabled={chatSending || !chatDraft.trim()}
+              className="rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2.5 py-1.5 hover:opacity-90 disabled:opacity-50"
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+
+      {!menuOpen && (
+        <div className="flex items-center justify-end gap-2" style={{ flex: "0 0 auto" }}>
+          {state === "hover" && (
+            <>
+              <button
+                type="button"
+                onClick={openChatPanel}
+                aria-label={`Chat with ${name}`}
+                title="Chat"
+                className="rounded-full bg-background border border-border shadow-md w-8 h-8 flex items-center justify-center hover:opacity-90"
+              >
+                <span aria-hidden="true" style={{ fontSize: "14px" }}>
+                  💬
+                </span>
+              </button>
+              <div className="whitespace-nowrap rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2 py-1">
+                {label}
+              </div>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={openStatusPanel}
+            aria-label={`${name}, ${label}`}
+            title={label}
+            className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
+            style={{
+              animation:
+                status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
+            }}
+          >
+            <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
+              <Creature animal={prefs.animal} status={status} blinking={blinking} reducedMotion={false} />
+            </div>
+          </button>
+        </div>
+      )}
 
       <div className="sr-only" aria-live="polite">
         {name} is {label.toLowerCase()}.

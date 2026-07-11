@@ -36,7 +36,7 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [ ] SEC-1 — auth enforced by default (kill pilot-user fallback, `apps/api/src/identity.ts:84-91`)
 - [ ] SEC-2 — CORS allowlist + rate limiting on the API
 - [ ] SEC-3 — dependency bumps (drizzle-orm, react-router HIGH advisories) + `pnpm audit` CI gate
-- [ ] SEC-4 — Tauri shell CSP (currently `csp: null`)
+- [x] 2026-07-10 — SEC-4 — Tauri shell CSP (was `csp: null`, now a real policy — see BUGS.md)
 - [ ] XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build) → `docs/raw/cross-platform-compatibility-2026-07.md` §2b
 
 ## Batch 2 — Testing P0 (pre-pilot gate) → `docs/raw/testing-strategy.md` §P0 · `docs/BUGS.md` P0 batch

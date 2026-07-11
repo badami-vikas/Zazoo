@@ -38,13 +38,15 @@ interface ChatTurn {
   agent?: ConverseResult["agent"];
 }
 
-/** Display names for the "agent" field ADR-033 added to converse's reply —
- * `@mention` any of these in the chat box to address that agent directly,
- * bypassing Chief of Staff's routing for that one turn. */
+/** Display names for the "agent" field ADR-033/047 added to converse's reply
+ * — `@mention` any of these in the chat box to address them directly,
+ * bypassing Chief of Staff's routing for that one turn. "communications" is
+ * a display-only label (ADR-047: Communications is a skill, not an agent —
+ * no identity/capability-scope row), kept here purely for badge continuity. */
 const AGENT_LABELS: Record<string, string> = {
   chief_of_staff: "Chief of Staff",
   learning: "Learning Agent",
-  communications: "Communications Agent",
+  communications: "Communications",
   governance: "Governance Agent",
   capability_builder: "Capability Builder",
 };

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bridge Annotate</title>
+    <!-- Display-sized, transparent, click-through window (Tauri "annotate")
+         — never paints a background, same rule as overlay.html. -->
+    <style>
+      html,
+      body {
+        background: transparent !important;
+        margin: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="annotate-root"></div>
+    <script type="module" src="/src/annotate-main.tsx"></script>
+  </body>
+</html>

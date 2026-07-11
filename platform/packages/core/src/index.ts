@@ -209,15 +209,22 @@ export {
   type ClassifyIntentArgs,
 } from "./chief-of-staff.js";
 
-// The four non-Chief-of-Staff foundational agents (ADR-033) — @mention
-// dispatch + system-prompt construction. Chief of Staff itself stays
-// modeled by chief-of-staff.ts (it IS the router, not a routable target).
+// The three non-Chief-of-Staff foundational agents (ADR-033, corrected to
+// three by ADR-047) — @mention dispatch + system-prompt construction. Chief
+// of Staff itself stays modeled by chief-of-staff.ts (it IS the router, not
+// a routable target). Communications is no longer an agent — it's a skill
+// (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsSystemPrompt).
 export {
   FOUNDATIONAL_AGENTS,
   ANIMAL_TONE,
   parseMention,
   findFoundationalAgent,
   buildAgentSystemPrompt,
+  COMMUNICATIONS_SKILL,
+  parseSkillMention,
+  buildCommunicationsSystemPrompt,
+  CAPABILITY_BUILDER_DESIGN_CONSTRAINTS,
+  checkDesignConstraintViolations,
   type FoundationalAgentId,
   type FoundationalAgent,
 } from "./agents.js";

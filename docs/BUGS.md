@@ -28,11 +28,19 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   `platform/packages/db/package.json:28` + apps/web. FIX: bump drizzle-orm ≥0.45.2, react-router ≥7.15.0; add
   `pnpm audit --prod --audit-level=high` as a CI merge gate.
 
-- **OPEN 2026-07-08 — SECURITY H3: Tauri desktop shell ships with CSP disabled (`csp: null`).**
-  `apps/desktop/src-tauri/tauri.conf.json:15-17`. Shell hosts apps/web unmodified + exposes `sensor_bridge`
+- **RESOLVED 2026-07-10 — SECURITY H3: Tauri desktop shell ships with CSP disabled (`csp: null`).**
+  `apps/desktop/src-tauri/tauri.conf.json`. Shell hosts apps/web unmodified + exposes `sensor_bridge`
   commands + injects `window.__BRIDGE_API_URL__`, so any web XSS gets an unrestricted webview into the IPC bridge —
-  far higher value than a browser tab, and worse once continuous capture lands. FIX: set an explicit CSP
-  (`default-src 'self'; connect-src 'self' http://127.0.0.1:*; script-src 'self'`), treat `csp:null` as a reviewed exception only.
+  far higher value than a browser tab, and worse once continuous capture lands. FIXED: real CSP set
+  (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;
+  font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:5173 ipc:
+  http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'`) —
+  `connect-src` uses a wildcard local port because the API sidecar binds a dynamically-assigned port
+  (`apps/desktop/src-tauri/src/api_sidecar.rs`), confirmed via `window.__BRIDGE_API_URL__` injection in
+  `lib.rs`. `ws://localhost:5173` is a dev-mode-only allowance for Vite HMR — a stricter prod-only CSP
+  variant (dropping the HMR websocket) is a reasonable follow-up but not required for the security fix
+  itself. Verified: `cargo check` + `cargo clippy --no-deps` + `cargo build` all clean with the new CSP
+  (full ~90s cold build succeeded, not just a config-parse check).
 
 - **OPEN 2026-07-08 — SECURITY H4: no rate limiting anywhere on the API.**
   No `@fastify/rate-limit`/`helmet`; `server.ts` registers only cors + tRPC. With H1, an unauthenticated caller can
