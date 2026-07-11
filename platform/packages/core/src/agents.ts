@@ -1,11 +1,11 @@
 /**
  * The three non-Chief-of-Staff foundational agents (ADR-033, corrected to
- * three by ADR-047 — Communications demoted from agent to skill, see
+ * three by ADR-046 — Communications demoted from agent to skill, see
  * COMMUNICATIONS_SKILL below). Chief of Staff itself stays modeled by
  * chief-of-staff.ts's star-topology router — it is not in this registry
  * because it IS the router, not a routable target.
  *
- * ADR-047's distinction: an **agent** here is an identity with independent
+ * ADR-046's distinction: an **agent** here is an identity with independent
  * authority — either it can never execute (Learning, "never executes
  * actions" per spec) or it exercises real decision authority requiring its
  * own audited identity (Governance is the sole exception to agent-floor's
@@ -222,7 +222,7 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
 }
 
 /**
- * Communications — a SKILL, not an agent (ADR-047). Stateless
+ * Communications — a SKILL, not an agent (ADR-046). Stateless
  * context+tone→text transform: draft/edit/rewrite/summarize/explain/
  * translate-tone. No `capabilityScope`, no assumed role, no independent
  * decision authority — any agent may invoke it (Chief of Staff to phrase a

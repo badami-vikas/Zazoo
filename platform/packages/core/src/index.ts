@@ -210,7 +210,7 @@ export {
 } from "./chief-of-staff.js";
 
 // The three non-Chief-of-Staff foundational agents (ADR-033, corrected to
-// three by ADR-047) — @mention dispatch + system-prompt construction. Chief
+// three by ADR-046) — @mention dispatch + system-prompt construction. Chief
 // of Staff itself stays modeled by chief-of-staff.ts (it IS the router, not
 // a routable target). Communications is no longer an agent — it's a skill
 // (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsSystemPrompt).

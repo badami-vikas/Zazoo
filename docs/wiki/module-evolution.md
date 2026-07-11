@@ -52,7 +52,7 @@ GroqProvider already built** (predates this doc); `@mention` dispatch for
 all 3 non-CoS agents + the Communications skill is now real (2026-07-10,
 router.ts `chiefOfStaff.converse`) — full onboarding-flow wiring still open.
 
-**The roster is canon, corrected 2026-07-10 (ADR-047)**: was "five permanent
+**The roster is canon, corrected 2026-07-10 (ADR-046)**: was "five permanent
 agents" per `docs/raw/roadmap-v2-universal-commons.md`; Communications had no
 independent decision authority or capability-scope (a stateless
 context+tone→text transform), so it's now a skill, not an agent — see

@@ -14,7 +14,7 @@ tags: [brain, execution-plan, roadmap, ingestion, routing, mcp, memory, automati
 
 # Brain/Engine Execution Plan
 
-Turns the ADR-046 design ([brain-engine-architecture-2026-07.md](brain-engine-architecture-2026-07.md)) into an ordered, buildable step list. Every step names real repo paths, its test, and a binary done-when. Sizing: **S** ≤ half-day session · **M** = one focused session · **L** = multi-session slice.
+Turns the ADR-035 design ([brain-engine-architecture-2026-07.md](brain-engine-architecture-2026-07.md)) into an ordered, buildable step list. Every step names real repo paths, its test, and a binary done-when. Sizing: **S** ≤ half-day session · **M** = one focused session · **L** = multi-session slice.
 
 **Ground truth checked against the repo (2026-07-09)**: these seams already exist and are extended, not created — `platform/packages/core/src/capability/{credential-broker,sandbox-provider,importer,foreign-import,risk}.ts` · `core/src/memory/stores.ts` · `core/src/{ports,pipeline,ritual-executor,agents,chief-of-staff,onboarding-profile,context-provider}.ts` · `packages/models/src/router.ts` (createModelRouter) · `packages/sensors/src/{hub,capture-ledger}.ts` · `packages/dedupe` (entity resolution) · `packages/sourcing/src/{connectors,waterfall}.ts` · `packages/integrations-google` · `packages/local` (pglite).
 

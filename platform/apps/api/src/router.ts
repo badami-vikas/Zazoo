@@ -2225,7 +2225,7 @@ export const appRouter = t.router({
       assertPilotWorkspace(input.workspaceId);
 
       // A leading "@communications"/"@comms" mention resolves to the
-      // Communications SKILL (ADR-047), not an agent — no identity, no
+      // Communications SKILL (ADR-046), not an agent — no identity, no
       // capability_scope, just a direct model-backed drafting reply. Checked
       // before the agent-mention branch since the two mention sets are
       // disjoint (COMMUNICATIONS_SKILL.mentions was removed from
@@ -2244,14 +2244,14 @@ export const appRouter = t.router({
           decision: { kind: "direct_reply" as const, confidence: 1, reason: "directly addressed via @communications skill", source: "model" as const },
           proposal: null,
           // Display-only label, not a FoundationalAgentId — Communications
-          // has no identity/capability-scope row (ADR-047), this string
+          // has no identity/capability-scope row (ADR-046), this string
           // exists purely so AgentPanel.tsx can badge the reply the same
           // way it badges an actual agent's.
           agent: "communications" as const,
         };
       }
 
-      // A leading "@agent" mention (ADR-033/047) bypasses star-topology
+      // A leading "@agent" mention (ADR-033/046) bypasses star-topology
       // classification for THIS turn only — a human directly addressing one
       // of the three foundational agents, not agent-to-agent handoff.
       // Learning/Governance answer directly (no side effects); Capability

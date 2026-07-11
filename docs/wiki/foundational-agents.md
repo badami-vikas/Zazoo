@@ -14,7 +14,7 @@ becomes the chosen spirit animal at reveal. Learning/Comms/Governance/
 Capability-Builder are its permanent delegate team, not an onboarding-only
 crew.
 
-**4 agents + 1 skill (ADR-047, 2026-07-10, corrects the ADR-032/033 roster of 5):**
+**4 agents + 1 skill (ADR-046, 2026-07-10, corrects the ADR-032/033 roster of 5):**
 Chief of Staff (only non-deletable, spirit-animal identity, default
 interlocutor, `@name` bypasses it in chat) · Learning Agent
 (research/observation/feedback, never executes) · Governance Agent
@@ -28,7 +28,7 @@ requirement): no independent decision authority or capability-scope, so it
 carries no agent identity — any agent invokes it (Chief of Staff for
 proposal summaries, Capability Builder for Module descriptions). See
 [module-evolution](module-evolution.md) and `docs/raw/decisions-log.md`
-ADR-047 for the full authority-ceiling reasoning.
+ADR-046 for the full authority-ceiling reasoning.
 
 **Onboarding flow (14 steps, condensed):** account → phone OTP → pick spirit
 animal → egg-creating-workspace animation → Gmail-or-manual personalize →

@@ -10,7 +10,7 @@ import {
   checkDesignConstraintViolations,
 } from "../src/index.js";
 
-test("ADR-047: Communications is not in the foundational-agent roster", () => {
+test("ADR-046: Communications is not in the foundational-agent roster", () => {
   // The type system already proves "communications" can't appear here —
   // FoundationalAgentId no longer includes it, so `a.id === "communications"`
   // wouldn't even compile. This just pins the roster's actual shape.
