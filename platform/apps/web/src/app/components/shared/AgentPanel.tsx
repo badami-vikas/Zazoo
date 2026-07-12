@@ -51,7 +51,15 @@ const AGENT_LABELS: Record<string, string> = {
   capability_builder: "Capability Builder",
 };
 
-const PANEL_WIDTH = 336;
+// Default width = 1.3× the rail's default EXPANDED width (Layout.tsx's
+// RAIL_EXPANDED=220) — user ask 2026-07-10, matching the reference
+// deployment's proportions. Kept as a literal (220*1.3=286) rather than an
+// import to avoid coupling this component to Layout.tsx's internals for one
+// derived number; both are commented so they don't drift silently.
+const PANEL_DEFAULT_WIDTH = 286;
+const PANEL_MIN_WIDTH = 260;
+const PANEL_MAX_WIDTH = 520;
+const WIDTH_KEY = "bridge.agentPanel.width.v1";
 const COLLAPSE_KEY = "bridge.agentPanel.collapsed.v1";
 
 export function AgentPanel() {
@@ -59,6 +67,41 @@ export function AgentPanel() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(COLLAPSE_KEY) === "1";
   });
+  // Resizable, same drag pattern as Layout.tsx's rail (user ask: "the right
+  // chatbot section also behaves the same way") — but this one persists the
+  // actual dragged width (continuous, clamped) rather than snapping to two
+  // fixed states, since a chat panel's useful width is a range, not a binary.
+  const [panelWidth, setPanelWidth] = useState(() => {
+    if (typeof window === "undefined") return PANEL_DEFAULT_WIDTH;
+    const stored = Number(window.localStorage.getItem(WIDTH_KEY));
+    return stored >= PANEL_MIN_WIDTH && stored <= PANEL_MAX_WIDTH ? stored : PANEL_DEFAULT_WIDTH;
+  });
+  const [panelDragWidth, setPanelDragWidth] = useState<number | null>(null);
+
+  function startPanelDrag(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    function onMove(ev: MouseEvent) {
+      // Panel is docked right — dragging LEFT (negative dx) grows it.
+      const next = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, startWidth - (ev.clientX - startX)));
+      setPanelDragWidth(next);
+    }
+    function onUp(ev: MouseEvent) {
+      const finalWidth = Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, startWidth - (ev.clientX - startX)));
+      setPanelDragWidth(null);
+      setPanelWidth(finalWidth);
+      try {
+        window.localStorage.setItem(WIDTH_KEY, String(finalWidth));
+      } catch {
+        // Cosmetic preference only — safe no-op if storage is unavailable.
+      }
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
   const [turns, setTurns] = useState<ChatTurn[]>([
     {
       role: "assistant",
@@ -69,7 +112,13 @@ export function AgentPanel() {
   const [chainDepth, setChainDepth] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const animal = loadAvatarPrefs(true).animal;
+  const avatarPrefs = loadAvatarPrefs(true);
+  const animal = avatarPrefs.animal;
+  // The panel's header shows the Chief of Staff's actual given name (same
+  // fallback pattern OverlayApp.tsx uses: the name chosen at onboarding, or
+  // the capitalized animal if none was set) — user correction 2026-07-10:
+  // this was a static "Bridge AI" brand lockup, not the agent's identity.
+  const agentName = avatarPrefs.avatarName || animal.charAt(0).toUpperCase() + animal.slice(1);
 
   function setCollapsedPersisted(next: boolean) {
     setCollapsed(next);
@@ -118,9 +167,18 @@ export function AgentPanel() {
 
   return (
     <aside
-      style={{ width: PANEL_WIDTH, borderColor: "var(--color-border)" }}
-      className="shrink-0 border-l flex flex-col h-full overflow-hidden bg-white"
+      style={{ width: panelDragWidth ?? panelWidth, borderColor: "var(--color-border)" }}
+      className={`shrink-0 border-l flex flex-col h-full overflow-hidden bg-white relative ${panelDragWidth === null ? "transition-[width] duration-75" : ""}`}
     >
+      {/* Resize handle — left edge (panel is docked right), same
+          hover-cursor + drag pattern as Layout.tsx's rail handle. */}
+      <div
+        onMouseDown={startPanelDrag}
+        className="absolute top-0 left-0 h-full w-1.5 cursor-col-resize z-10 group -ml-0.5"
+        title="Drag to resize"
+      >
+        <div className="w-px h-full mx-auto bg-transparent group-hover:bg-[var(--color-steel-light)] transition-colors" />
+      </div>
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
         <button
           onClick={() => setCollapsedPersisted(true)}
@@ -132,8 +190,7 @@ export function AgentPanel() {
         </button>
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
           <AvatarIcon animal={animal} size={24} />
-          <span style={{ color: "var(--color-navy)" }}>Bridge</span>
-          <span style={{ color: "var(--color-steel)" }}>AI</span>
+          <span style={{ color: "var(--color-navy)" }}>{agentName}</span>
         </div>
         <div className="w-9" />
       </div>
