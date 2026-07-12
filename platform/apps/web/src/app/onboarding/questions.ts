@@ -8,14 +8,21 @@
  *
  * ADAPTIVE means later questions branch on earlier answers — this module models
  * that as a small explicit decision graph (`next(answers)`), not a fixed list,
- * so "solo vs team" and "domain of work" can steer which questions appear
- * later without a big if/else scattered through the component. Every question
- * has a real effect on the compiled WorkspaceBlueprint (entities/views/
- * vocabulary) — no filler questions asked just to hit a minimum count.
+ * so "domain of work" can steer which questions appear later without a big
+ * if/else scattered through the component. Every question has a real effect
+ * on the compiled WorkspaceBlueprint (entities/views/vocabulary) — no filler
+ * questions asked just to hit a minimum count.
  *
  * E1 (2026-07-09): LinkedIn login and phone OTP verification REJECTED — removed
  * from this module. Flow is now profession-led: the first question captures the
  * user's role so that downstream questions (domain, vocab) can be contextualised.
+ *
+ * E2 (2026-07-10, user correction): the "solo or team?" question REJECTED —
+ * every workspace is a team workspace (solo = a team of one), so asking never
+ * added information; `mode`/`team_size` never fed the compiled blueprint
+ * anyway (confirmed: pure UI gating, no downstream consumer). Removed both
+ * questions rather than defaulting them silently, since a removed question
+ * leaves no dead branch to maintain.
  */
 import type { WorkspaceBlueprint } from "@bridge/core";
 import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
@@ -50,16 +57,6 @@ const Q_PROFESSION: OnboardingQuestion = {
   placeholder: "e.g. Sales lead at a SaaS startup",
 };
 
-const Q_MODE: OnboardingQuestion = {
-  id: "mode",
-  kind: "single_select",
-  prompt: "Are you working solo, or with a team?",
-  options: [
-    { value: "solo", label: "Just me" },
-    { value: "team", label: "Me and a team" },
-  ],
-};
-
 const Q_DOMAIN: OnboardingQuestion = {
   id: "domain",
   kind: "single_select",
@@ -83,17 +80,6 @@ const Q_WATCH_FIRST: OnboardingQuestion = {
     { value: "surface_signals", label: "Surface signals that need a response" },
     { value: "log_touchpoints", label: "Log meetings/calls/emails as touchpoints" },
     { value: "calendar", label: "Keep an eye on my calendar" },
-  ],
-};
-
-const Q_TEAM_SIZE: OnboardingQuestion = {
-  id: "team_size",
-  kind: "single_select",
-  prompt: "Roughly how many people are on the team?",
-  options: [
-    { value: "2-5", label: "2-5" },
-    { value: "6-20", label: "6-20" },
-    { value: "20+", label: "20+" },
   ],
 };
 
@@ -127,8 +113,8 @@ const Q_NAME: OnboardingQuestion = {
  * `SPIRIT_ANIMALS`. This answer has NO effect on the compiled blueprint
  * (unlike every other question here) — it only selects which creature the
  * avatar overlay renders as after hatching. Asked early (right after
- * solo/team) so the egg has something to visually anticipate for the rest of
- * the flow. */
+ * profession) so the egg has something to visually anticipate for the rest
+ * of the flow. */
 const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
   id: "spirit_animal",
   kind: "single_select",
@@ -140,32 +126,27 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
 /**
  * The adaptive step function: given the answers collected SO FAR, returns the
  * next question to ask, or null when onboarding is complete. This is the
- * "later questions branch on earlier answers" contract — e.g. `team_size`
- * only appears when `mode === "team"`, and `vocab_name` is skipped for the
- * "relationships" domain (Bridge's own vocabulary already fits).
+ * "later questions branch on earlier answers" contract — e.g. `vocab_name`
+ * is skipped for the "relationships" domain (Bridge's own vocabulary
+ * already fits).
  *
- * Question order (E1 2026-07-09):
+ * Question order (E2 2026-07-10 — dropped "solo or team?"):
  *   1. profession (text, always first — context for everything downstream)
- *   2. mode (solo/team)
- *   3. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
- *   4. domain (select; profession answer can inform default pre-selection in UI)
- *   5. team_size (only if mode=team)
- *   6. watch_first (multi-select)
- *   7. vocab_name (only if domain ≠ relationships)
- *   8. view_style
- *   9. workspace_name (auto-populated from email in dialog, still shown for confirmation)
+ *   2. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
+ *   3. domain (select; profession answer can inform default pre-selection in UI)
+ *   4. watch_first (multi-select)
+ *   5. vocab_name (only if domain ≠ relationships)
+ *   6. view_style
+ *   7. workspace_name (auto-populated from email in dialog, still shown for confirmation)
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
- * (solo + relationships) asks 7 (incl. spirit animal + profession); the longest
- * (team + a domain needing a vocab override) asks 9 — both comfortably inside
- * the 5-12 band without padding.
+ * (relationships domain) asks 5; the longest (a domain needing a vocab
+ * override) asks 7 — both comfortably inside the 5-12 band without padding.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.profession === undefined) return Q_PROFESSION;
-  if (answers.mode === undefined) return Q_MODE;
   if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
   if (answers.domain === undefined) return Q_DOMAIN;
-  if (answers.mode === "team" && answers.team_size === undefined) return Q_TEAM_SIZE;
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
   if (answers.domain !== "relationships" && answers.vocab_name === undefined) return Q_VOCAB;
   if (answers.view_style === undefined) return Q_VIEW_STYLE;
@@ -173,12 +154,12 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   return null;
 }
 
-/** Total number of questions in the LONGEST real path (team + vocab-needing
- * domain): profession + mode + spirit_animal + domain + team_size + watch_first
- * + vocab_name + view_style + workspace_name = 9. Used only as the denominator
- * for egg-growth progress, never for branching logic itself (that stays in
+/** Total number of questions in the LONGEST real path (a vocab-needing
+ * domain): profession + spirit_animal + domain + watch_first + vocab_name +
+ * view_style + workspace_name = 7. Used only as the denominator for
+ * egg-growth progress, never for branching logic itself (that stays in
  * `nextQuestion`). */
-export const MAX_QUESTIONS = 9;
+export const MAX_QUESTIONS = 7;
 
 /** How many questions have been answered so far — the egg's "questions
  * answered" progress input (spec section 4, Stage 1-2: egg grows with real

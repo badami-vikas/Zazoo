@@ -53,11 +53,14 @@ const SECTIONS: { id: IntelligenceSection; label: string; icon: typeof Package }
 // with state="available" are rendered in the Tools tab. Add a row here when a
 // new workspace_definition package ships — the package must also be seeded in
 // apps/api/src/built-in-packages.ts or registered through Learning Agent.
+// Chief of Staff deliberately excluded (2026-07-10, user correction): it's
+// the router agent, not an installable Module — see built-in-packages.ts's
+// header comment. Its own /chief-of-staff page stays reachable elsewhere.
 const PACKAGE_ROUTES: Record<string, { to: string; label: string; desc: string }> = {
   "deal-pilot": { to: "/dealpilot", label: "DealPilot", desc: "Sourcing waterfall + thesis-fit scoring" },
   "job-pilot": { to: "/jobpilot", label: "JobPilot", desc: "Job search tracker + application pipeline" },
   helpdesk: { to: "/helpdesk", label: "Helpdesk", desc: "Support ticket inbox + routing" },
-  "chief-of-staff": { to: "/chief-of-staff", label: "Chief of Staff", desc: "Conversational router — one governed route per turn" },
+  calendar: { to: "/calendar", label: "Calendar", desc: "Time-axis projection over your graph — pre-installed" },
 };
 
 function NotWiredYet({ label, note }: { label: string; note: string }) {

@@ -1,8 +1,15 @@
 /**
  * Built-in workspace-definition packages — DealPilot, JobPilot, Helpdesk,
- * Chief of Staff. These ship with the kernel (origin: "built_in") and are
- * seeded as `available` + `installed` on API startup so they appear in
+ * Calendar. These ship with the kernel (origin: "built_in") and are seeded
+ * as `available` + `installed` on API startup so they appear in
  * Intelligence → Packages and gate Intelligence → Tools visibility.
+ *
+ * Chief of Staff is deliberately NOT in this list (removed 2026-07-10, user
+ * correction): it's the non-deletable router agent (ADR-033), not an
+ * installable capability package — nothing to "install," it's always
+ * present. Its `/chief-of-staff` page/route stays real and reachable
+ * (routes.tsx, pins.ts) independent of the package system; it just no
+ * longer appears in Intelligence → Modules or the "+ New" Module picker.
  *
  * Each is a `workspace_definition` package: it defines a compiled workspace
  * surface (ADR-018/020 "packages, not products"). The route path lives as
@@ -13,7 +20,11 @@
  * Risk classification rationale:
  *   deal-pilot / job-pilot = advisory (reads+writes local graph, no egress)
  *   helpdesk = operational (manages support tickets; future: sends replies)
- *   chief-of-staff = advisory (proposes actions, never executes autonomously)
+ *   calendar = external (writes round-trip to Google Calendar through the
+ *     governed propose→approve→egress pipeline — CalendarPage.tsx's own
+ *     header comment; ANY egress permission maps to "external" per
+ *     capability/risk.ts's riskForPermission, matching how the trifecta rule
+ *     treats external sends regardless of read-side sensitivity)
  */
 import type { PackageManifest } from "@bridge/core";
 
@@ -127,30 +138,30 @@ export const BUILT_IN_PACKAGES: readonly {
     },
   },
   {
-    route: "/chief-of-staff",
-    computedRisk: "advisory",
+    route: "/calendar",
+    computedRisk: "external",
     manifest: {
-      name: "chief-of-staff",
+      name: "calendar",
       version: "0.1.0",
       kind: "workspace_definition",
-      summary: "Conversational router — one governed route per turn.",
+      summary: "Time-axis projection over your graph — Google Calendar today.",
       description:
-        "The kernel's conversational entry point: classifies intent, proposes actions, and routes to the appropriate governed workflow. Never executes autonomously; always draft-then-approve.",
+        "A native calendar surface: month/week/day/agenda views over CalendarEvent, projected from the graph — not a calendar product or server (docs/wiki/calendar.md). v0.1's single source is Google Calendar; creating, editing, or deleting an event always goes through the governed propose→approve pipeline before it reaches Google, same as every other egress action. Pre-installed by default — this is a kernel Tool packaged as a Module, not a third-party add-on.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: [
         {
-          id: "chief-of-staff.surface",
-          name: "Chief of Staff surface",
+          id: "calendar.surface",
+          name: "Calendar surface",
           version: "0.1.0",
-          capabilityType: "skill",
+          capabilityType: "view",
           origin: "built_in",
           audience: "team",
           permissions: [
-            { resourceType: "person", action: "read", dataScope: "all", egress: false },
-            { resourceType: "signal", action: "read", dataScope: "all", egress: false },
+            { resourceType: "touchpoint", action: "read", dataScope: "all", egress: false },
+            { resourceType: "touchpoint", action: "write", dataScope: "all", egress: true },
           ],
-          connectors: [],
+          connectors: [{ id: "google-calendar", externalSend: true }],
           dependencies: [],
         },
       ],
