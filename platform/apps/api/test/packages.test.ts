@@ -273,10 +273,11 @@ test("packages.list: paginates a workspace's installations", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
+    const baseline = await caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 });
     await caller.packages.register({ workspaceId: PILOT_WORKSPACE, manifest: dummyManifest({ name: "dummy-a" }) });
     await caller.packages.register({ workspaceId: PILOT_WORKSPACE, manifest: dummyManifest({ name: "dummy-b" }) });
     const { items, total } = await caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 });
-    assert.equal(total, 2);
+    assert.equal(total, baseline.total + 2);
     assert.equal(items.length, 1);
   } finally {
     await wiring.close();

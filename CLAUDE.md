@@ -10,6 +10,7 @@ Bridge = **Living Software** — software that builds itself around your work. A
 - Start at [docs/wiki/index.md](docs/wiki/index.md). Decision set + re-audit verdicts: [docs/wiki/decisions.md](docs/wiki/decisions.md) (nothing "locked" — pivot 2026-07-06).
 - **Draft/update wiki in CAVEMAN style** (invoke the `caveman` skill).
 - **Every `docs/raw/` doc carries YAML frontmatter**: `title · type: raw · doc_kind (design|research|requirement|plan|audit|reference) · status · companions[] · related_wiki · updated · tags[]`. Bodies stay prose for narrative/research docs; **data-shaped docs (stack/tokens/roadmap/registries) express their data in fenced ```yaml blocks**, not Markdown tables. `requirement` docs (verbatim user text) get frontmatter ONLY — never edit the body.
+- **Record substantive chat outputs in `outputs/`.** Each session that delivers plans, audits, decisions, recommendations, or implementation handoffs writes/updates a dated output file containing the user-facing outcome and artifact links. Do not store secrets, private source payloads, hidden reasoning, raw tool output, or transient progress commentary. `docs/log.md` remains the change ledger; `outputs/` is the durable user-facing result.
 - Wiki page exceeds 1000 lines → compact + summarize it.
 - New/changed raw → update the matching wiki page + append [docs/log.md](docs/log.md).
 

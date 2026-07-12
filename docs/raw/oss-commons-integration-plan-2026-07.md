@@ -452,3 +452,21 @@ contract and trust model:
 Nothing bypasses the gate, the risk model, or human review. The moat Bridge is building — computed
 risk, agent-floor, draft-then-approve, provenance/taint — becomes the very thing that makes ingesting
 5000+ community skills *safe*, which is the competitive edge over ungoverned skill marketplaces.
+
+## 2026-07-11 candidate intake additions
+
+Research/inspiration candidates (not approved dependencies): `tinyhumansai/openhuman` (TokenJuice,
+Memory Trees, integrations, model routing) · `chandra447/pi-hermes-memory` (policy-only retrieval,
+correction/failure learning, consolidation, secret scan) · `Mintplex-Labs/anything-llm/open-computer`
+(visible isolated agent computer) · `noahnan-max/private-equity-investment-dd-skill` ·
+`yuping322/financial-services-plugins-new` · `sradgowski/deal-evaluator` ·
+`xrishiraj/Private-Equity-Fund-Selection-through-ML` · `parolkar/SmallPE` (DealPilot patterns).
+Each remains inert until pinned-commit license/artifact/transitive-dependency, security, provenance,
+and conformance gates pass. Full evaluation: `optimizations-memory-vm-dealpilot-plan-2026-07.md`.
+
+**SmallPE gate resolved 2026-07-11:** direct repository inspection found substantive agents,
+workflows, templates, and tools. Its current license is FSL-1.1-Apache-2.0 Future License and defines
+substantially similar commercial functionality as a prohibited competing use. Therefore SmallPE is
+NOT a commercial-vendoring candidate today. Allowed next paths: obtain permission/commercial terms,
+wait for applicable future-license conversion, interoperate without copying, or use independently
+specified functional requirements. Details: `dealpilot-module-plan-2026-07.md` §4.
