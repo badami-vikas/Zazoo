@@ -28,6 +28,85 @@ jobs:
       # (see known-issues.md 2026-07-03, "turbo cache replays across worktrees").
       - run: pnpm turbo run typecheck test build --force
 
+  security-audit:
+    name: security audit (no HIGH+ vulnerable deps)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: platform/.nvmrc
+          cache: pnpm
+          cache-dependency-path: platform/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # SEC-3 gate: fail the build on any HIGH/CRITICAL advisory in production deps.
+      # --prod ignores devDependencies (build-only tooling); raise the bar to `moderate`
+      # once the current moderate advisories are triaged. Runs as its own job so a
+      # vulnerable dependency is an unambiguous, standalone red check.
+      - run: pnpm audit --prod --audit-level=high
+
+  desktop:
+    name: desktop shell (cargo check ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report every OS independently — a Windows-only regression must not be
+      # masked by (or cancel) the macOS/Linux legs. XP-1's whole point is
+      # "compiles on all three desktop OSes", so we need all three signals.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: platform/apps/desktop/src-tauri
+      # Tauri v2's Linux backend (webkit2gtk-4.1 + soup3) is probed by the
+      # crates' build scripts via pkg-config, so even `cargo check` needs the
+      # -dev headers present. macOS/Windows use system frameworks / WebView2
+      # (fetched by the build script), so they need no extra system packages.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev
+      # `generate_context!` embeds the frontendDist assets at compile time, so
+      # the dir (../../web/dist) must exist for `cargo check` to succeed. XP-1
+      # only unblocks COMPILATION, so a one-line stub is enough here — we don't
+      # build the real web app on three OSes just to type-check Rust.
+      - name: Provide stub frontend dist for generate_context!
+        shell: bash
+        run: |
+          mkdir -p platform/apps/web/dist
+          echo '<!doctype html><meta charset="utf-8"><title>Bridge (cargo-check stub)</title>' \
+            > platform/apps/web/dist/index.html
+      # DONE-WHEN: this is green on macOS + Linux + Windows. Apple-only crates
+      # (objc2*) and the macos-private-api feature are gated to macOS in
+      # Cargo.toml, so off-macOS the capture providers compile to empty/
+      # unsupported arms (sensor_list returns []) instead of failing to build.
+      - name: cargo check (compile the shell for this OS)
+        run: cargo check --locked --manifest-path platform/apps/desktop/src-tauri/Cargo.toml
+      # The capture-core ring buffer / observation queue are pure logic with no
+      # OS deps, so their unit tests run anywhere — exercise them on Linux (the
+      # cheapest leg, no Apple crates to compile) so they actually run in CI
+      # instead of the old `echo` no-op.
+      - name: cargo test (pure-logic capture-core tests)
+        if: runner.os == 'Linux'
+        run: cargo test --locked --manifest-path platform/apps/desktop/src-tauri/Cargo.toml
+
   prototype:
     name: prototype (typecheck + build)
     runs-on: ubuntu-latest

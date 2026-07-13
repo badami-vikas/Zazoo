@@ -39,6 +39,8 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [x] 2026-07-10 — SEC-4 — Tauri shell CSP (was `csp: null`, now a real policy — see BUGS.md)
 - [ ] XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build) → `docs/raw/cross-platform-compatibility-2026-07.md` §2b
 
+> 2026-07-13: SEC-1/2/3 + XP-1 all implemented + verified this session (api 53→58 tests green, @bridge/db 49 green, full `turbo run build test` green, macOS `cargo check --locked` clean; BUGS.md H1/H1a/H2/H4 → RESOLVED; ADR-054/055/056). Ticking these four boxes DONE is **proposed in `docs/APPROVALS.md` AP-010** — they stay unchecked until the user approves (governance: marking a Phase DONE needs an approved row; do not self-approve). XP-1's CI-green DONE-WHEN awaits the first run of the new `desktop` 3-OS matrix job.
+
 ## Batch 2 — Testing P0 (pre-pilot gate) → `docs/raw/testing-strategy.md` §P0 · `docs/BUGS.md` P0 batch
 
 - [ ] `decide()` double-approve concurrency test (proves the partial unique index holds)

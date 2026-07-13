@@ -176,7 +176,15 @@ pub fn sensor_list() -> Result<Vec<SensorDescriptor>, SensorBridgeError> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(unsupported_platform("sensor_list"))
+        // Graceful degradation (XP-1): off-macOS the shell still compiles and
+        // runs, it just offers ZERO capture providers. An empty list (not an
+        // error) is the honest "no sensors on this platform" signal — the JS
+        // side renders it as "capture unavailable here" rather than surfacing a
+        // fault, and the rest of Bridge stays fully usable (sensors are an
+        // optional capability, per the lib.rs contract). The other sensor
+        // commands still return `unsupported_platform` since you can't
+        // start/stop/drain a provider that doesn't exist.
+        Ok(Vec::new())
     }
 }
 

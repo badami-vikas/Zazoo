@@ -91,7 +91,42 @@ const withPilotWorkspaceGuard = t.middleware(async ({ next }) => {
   return result;
 });
 
-const procedure = t.procedure.use(withPilotWorkspaceGuard);
+/**
+ * SEC-1 — every MUTATION must carry a verified identity, closing the silent
+ * pilot-user fallback (identity.ts) on any persistent/prod deploy. Queries are left
+ * open (read paths are already workspace-scoped and non-mutating); only `type ===
+ * "mutation"` is gated, so a single middleware protects all current AND future
+ * mutations with zero per-procedure wiring — no mutation can forget to opt in.
+ *
+ * A request is allowed to mutate iff it is genuinely authenticated, OR the process is
+ * pure in-memory dev with no verifier configured (so local/no-auth work keeps flowing):
+ *   - verifier + valid token .......... ALLOW  (authenticated)
+ *   - verifier + no/again-invalid token REJECT (the anonymous-under-verifier hole)
+ *   - no verifier + persistent/prod ... REJECT (the H1 "acts as pilot" hole)
+ *   - no verifier + in-memory dev ..... ALLOW  (unchanged local DX)
+ * `persistent` folds in NODE_ENV==='production' so a prod boot without DATABASE_URL
+ * (already refused by assertProductionEnv) can't widen this either.
+ *
+ * Chained BEFORE `withPilotWorkspaceGuard` so authentication is checked before
+ * workspace authorization — a 401 (who are you?) precedes a 403 (not your workspace).
+ */
+const requireAuthOnMutation = t.middleware(async ({ ctx, type, next }) => {
+  if (type === "mutation") {
+    const persistent = ctx.wiring.persistent || process.env.NODE_ENV === "production";
+    const allowed = ctx.authenticated || (!ctx.verifying && !persistent);
+    if (!allowed) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message:
+          "authentication required: this deployment verifies identities (or persists data), " +
+          "but the request presented no verified credentials",
+      });
+    }
+  }
+  return next();
+});
+
+const procedure = t.procedure.use(requireAuthOnMutation).use(withPilotWorkspaceGuard);
 
 /** Strip `undefined` so exactOptionalPropertyTypes is satisfied at the seam. */
 function cleanOnBehalfOf(

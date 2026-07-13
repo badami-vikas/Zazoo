@@ -37,11 +37,21 @@ const UNIQUE_VIOLATION = "23505";
 const REF_LEDGER_UNIQUE_INDEX = "ledger_ref_ledger_id_resolved_uq";
 
 function isRefLedgerUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { code?: unknown; message?: unknown; constraint?: unknown };
-  if (e.code !== UNIQUE_VIOLATION) return false;
-  const text = `${String(e.constraint ?? "")} ${String(e.message ?? "")}`;
-  return text.includes(REF_LEDGER_UNIQUE_INDEX);
+  // drizzle-orm ≥0.45 no longer throws the driver error directly — it wraps it in a
+  // `DrizzleQueryError` and hangs the real Postgres error (which carries `.code` /
+  // `.constraint`) on `.cause`. Older versions threw the driver error at the top level.
+  // Walk the cause chain so the 23505 → AlreadyResolvedError translation keeps working on
+  // both; without this, concurrent decides would surface as a raw DB error instead of the
+  // domain error, breaking the ledger's optimistic-concurrency contract.
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 6; depth++) {
+    const pg = e as { code?: unknown; message?: unknown; constraint?: unknown; cause?: unknown };
+    if (pg.code === UNIQUE_VIOLATION) {
+      const text = `${String(pg.constraint ?? "")} ${String(pg.message ?? "")}`;
+      if (text.includes(REF_LEDGER_UNIQUE_INDEX)) return true;
+    }
+    e = pg.cause;
+  }
+  return false;
 }
 
 function unpack(row: typeof ledger.$inferSelect): LedgerEntry {

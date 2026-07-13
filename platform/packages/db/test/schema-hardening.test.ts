@@ -22,6 +22,22 @@ import test from "node:test";
 import { sql } from "drizzle-orm";
 import { createLocalDb, schema } from "../src/index.js";
 
+/** drizzle-orm ≥0.45 wraps DB errors as a `DrizzleQueryError` ("Failed query: …") and hangs
+ * the real Postgres error — which carries the constraint/CHECK text — on `.cause`. These
+ * tests insert directly (no store translation in between), so match against the whole cause
+ * chain rather than the top-level `.message` (which is now just the SQL). */
+function dbErrorMatches(re: RegExp) {
+  return (err: unknown): true => {
+    const chain: string[] = [];
+    for (let e: unknown = err, depth = 0; e != null && depth < 6; depth++) {
+      chain.push(e instanceof Error ? e.message : String(e));
+      e = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
+    }
+    assert.match(chain.join("\n"), re);
+    return true;
+  };
+}
+
 test("schema hardening: hnsw index exists on embeddings.embedding and is used by a similarity query", async () => {
   const { db, close } = await createLocalDb();
   try {
@@ -151,7 +167,7 @@ test("schema hardening: people_canonical.dedup_key partial-unique allows many NU
     await db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Keyed_One", dedupKey: "test_fixture_dedupe_key_1" });
     await assert.rejects(
       () => db.insert(schema.peopleCanonical).values({ fullName: "test_fixture_Keyed_Two", dedupKey: "test_fixture_dedupe_key_1" }),
-      /duplicate key|unique/i,
+      dbErrorMatches(/duplicate key|unique/i),
       "a second row with the same non-null dedup_key must be rejected",
     );
   } finally {
@@ -168,7 +184,7 @@ test("schema hardening: communities_canonical.dedup_key partial-unique allows ma
     await db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Keyed", dedupKey: "test_fixture_community_key_1" });
     await assert.rejects(
       () => db.insert(schema.communitiesCanonical).values({ name: "test_fixture_Community_Keyed_2", dedupKey: "test_fixture_community_key_1" }),
-      /duplicate key|unique/i,
+      dbErrorMatches(/duplicate key|unique/i),
     );
   } finally {
     await close();
@@ -196,7 +212,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           userId: checkUser!.id,
           visibility: "test_fixture_bogus_visibility",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // effect (permissions)
@@ -210,7 +226,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           action: "read",
           effect: "test_fixture_bogus_effect",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // effect (policies) — allow | block | require_approval only
@@ -223,7 +239,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           rule: {},
           effect: "test_fixture_bogus_effect",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // user_decision (ledger) — approve | veto | edit | null only
@@ -237,7 +253,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           resourceType: "person",
           userDecision: "test_fixture_bogus_decision",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // actor_type (ledger) — user | team | agent only
@@ -250,7 +266,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           action: "write",
           resourceType: "person",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // actor_type (permissions) — user | team | agent | integration; still
@@ -264,7 +280,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
           resourceType: "person",
           action: "read",
         }),
-      /violates check constraint/i,
+      dbErrorMatches(/violates check constraint/i),
     );
 
     // Sanity: the legitimate 'integration' actor_type on permissions is NOT
@@ -328,7 +344,7 @@ test("schema hardening: role_permissions has exactly one uniqueness constraint (
           action: "read",
           effect: "allow",
         }),
-      /duplicate key|unique/i,
+      dbErrorMatches(/duplicate key|unique/i),
       "a second type-wide (NULL resource_id) grant for the same role/type/action must collide",
     );
 

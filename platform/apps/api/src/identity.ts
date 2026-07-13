@@ -50,10 +50,24 @@ export interface IdentityResolver {
   resolve(authHeader: string | undefined): Promise<Actor>;
 }
 
-function bearer(authHeader: string | undefined): string | null {
+/** Extract the bearer token from an Authorization header, or null if absent/malformed.
+ * Exported so the context factory derives "was a token even presented?" from the exact
+ * same parsing the resolver uses — no drift between the two. */
+export function bearerToken(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
   const m = authHeader.match(/^Bearer\s+(.+)$/i);
   return m ? m[1]!.trim() : null;
+}
+
+/**
+ * Whether a cryptographic verifier is configured from the environment, WITHOUT
+ * building a resolver. `createIdentityResolver().verifying` is the authoritative
+ * runtime signal, but callers that only have env (CORS config, boot logging, the
+ * production-env assertion) need the same answer as a pure predicate. Kept in lockstep
+ * with the resolver's own `verifying` computation (same two env vars).
+ */
+export function isVerifierConfigured(): boolean {
+  return Boolean(process.env.SUPABASE_JWT_SECRET || process.env.SUPABASE_URL);
 }
 
 /**
@@ -84,7 +98,7 @@ export function createIdentityResolver(pilotUserId: string): IdentityResolver {
   return {
     verifying,
     async resolve(authHeader) {
-      const token = bearer(authHeader);
+      const token = bearerToken(authHeader);
       if (!verifying || !token) {
         // Dev / no-auth: server-pinned pilot identity (never client-asserted).
         return { type: "user", id: pilotUserId };
