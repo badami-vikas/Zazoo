@@ -33,13 +33,13 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 ## Batch 1 — Security P0 (Month-1 of H2 roadmap) → `docs/raw/roadmap-6month-2026-h2.md` §M1 · runnable prompts: `docs/raw/roadmap-execution-prompts-2026-h2.md` · bug rows: `docs/BUGS.md` SEC H1–H4
 
-- [ ] SEC-1 — auth enforced by default (kill pilot-user fallback, `apps/api/src/identity.ts:84-91`)
-- [ ] SEC-2 — CORS allowlist + rate limiting on the API
-- [ ] SEC-3 — dependency bumps (drizzle-orm, react-router HIGH advisories) + `pnpm audit` CI gate
+- [x] 2026-07-14 — SEC-1 — auth enforced by default (kill pilot-user fallback, `apps/api/src/identity.ts:84-91`)
+- [x] 2026-07-14 — SEC-2 — CORS allowlist + rate limiting on the API
+- [x] 2026-07-14 — SEC-3 — dependency bumps (drizzle-orm, react-router HIGH advisories) + `pnpm audit` CI gate
 - [x] 2026-07-10 — SEC-4 — Tauri shell CSP (was `csp: null`, now a real policy — see BUGS.md)
-- [ ] XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build) → `docs/raw/cross-platform-compatibility-2026-07.md` §2b
+- [x] 2026-07-14 — XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build) → `docs/raw/cross-platform-compatibility-2026-07.md` §2b
 
-> 2026-07-13: SEC-1/2/3 + XP-1 all implemented + verified this session (api 53→58 tests green, @bridge/db 49 green, full `turbo run build test` green, macOS `cargo check --locked` clean; BUGS.md H1/H1a/H2/H4 → RESOLVED; ADR-054/055/056). Ticking these four boxes DONE is **proposed in `docs/APPROVALS.md` AP-010** — they stay unchecked until the user approves (governance: marking a Phase DONE needs an approved row; do not self-approve). XP-1's CI-green DONE-WHEN awaits the first run of the new `desktop` 3-OS matrix job.
+> 2026-07-13: SEC-1/2/3 + XP-1 all implemented + verified this session (api 53→58 tests green, @bridge/db 49 green, full `turbo run build test` green, macOS `cargo check --locked` clean; BUGS.md H1/H1a/H2/H4 → RESOLVED; ADR-054/055/056). **2026-07-14: AP-010 APPROVED by user → the four boxes above are ticked DONE.** XP-1's CI-green DONE-WHEN (all 3 OSes) still awaits the first run of the new `desktop` 3-OS matrix job.
 
 ## Batch 2 — Testing P0 (pre-pilot gate) → `docs/raw/testing-strategy.md` §P0 · `docs/BUGS.md` P0 batch
 
