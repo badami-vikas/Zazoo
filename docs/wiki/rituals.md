@@ -1,6 +1,12 @@
-# Rituals (wiki)
+# Automations (wiki) — formerly "Rituals"
 
-full: [../raw/rituals-engine-research.md](../raw/rituals-engine-research.md) · code `ritual` / UI "Workflow" = **Automation** primitive ([ontology](ontology.md)); this page keeps the code term.
+> **TERM CHANGE (2026-07-12):** "Ritual" term retired at all levels (code + UX).
+> Term = **Automation** everywhere. Automations can be scheduled. No "ritual
+> template" concept — Modules fill that role. Dream Cycle, CoS Board Meeting =
+> examples of scheduled Automations, not primitives. DB table `ritual_runs` →
+> `automation_runs` (migration pending). See [ontology](ontology.md).
+
+full: [../raw/rituals-engine-research.md](../raw/rituals-engine-research.md) · **Automation** primitive ([ontology](ontology.md)).
 
 **Call:** most of user's ritual/governance dump = Bridge ALREADY has it. Value = net-new bits + 3 conflicts to reshape. Took as opinion, researched, decided.
 
