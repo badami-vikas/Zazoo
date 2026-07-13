@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [module-evolution-system-2026-07.md, capability-package-format.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, oss-commons-integration-plan-2026-07.md, brain-engine-execution-plan-2026-07.md]
 related_wiki: ../wiki/builder-agent.md
-updated: 2026-07-12
+updated: 2026-07-13
 tags: [builder-agent, capability-builder, generation, compiler, workspaces, packages, evolution, reuse]
 ---
 
@@ -234,20 +234,20 @@ Source decisions (researched 2026-07-11):
 ```yaml
 sources:
   stackblitz-labs/bolt.diy:
-    use: streamed action-artifact generation contract; asymmetric diffing (full-write generate, diff feedback); human/agent file locking; per-model prompt-pack rationale; plan-before-code
-    mode: MIT code — pattern adoption + selective reference; DO NOT adopt WebContainers (commercial StackBlitz license for production use); Bridge runtime is Tauri/sandbox, not browser
+    use: streamed action-artifact generation contract (StreamingMessageParser, message-parser.ts — code-verified 2026-07-13 WebContainer-FREE, portable, ships tests+golden snapshots); asymmetric diffing (diff.ts — feedback picks smaller of unified-diff vs full content, confirmed); per-chat file locking (lockedFiles.ts — client-side localStorage only, Bridge re-backs with definition DB); prompt VARIANT registry (prompt-library.ts — corrected: promptId-selected variants, NOT model-conditioned; per-model packs are Bridge's extension of the registry pattern); plan-before-code
+    mode: MIT code — adapt parser/diff/locks; action-runner.ts is REFERENCE-ONLY (WebContainer-bound executor — the dependency is concentrated there, re-author against Tauri/sandbox); DO NOT adopt WebContainers
     link: https://github.com/stackblitz-labs/bolt.diy
   dyad-sh/dyad:
-    use: chat-turn≡commit ledger + additive restore; Smart Context / Turbo Edits two-tier model economy; managed preview runtime; auto-approve-safe-tool-calls precedent; local-first secrets in OS keychain
-    mode: core Apache-2.0 candidate for pattern + selective code reference; src/pro is FSL-1.1 — patterns only via clean-room, no vendoring
+    use: chat-turn≡commit ledger (response_processor.ts processFullResponseActions — one commit/turn, commitHash on messages row) + additive restore (git_utils.ts gitStageToRevert — revert = new commit on top, history never rewritten; both code-verified 2026-07-13); OS-keychain secrets (settings.ts Electron safeStorage); Smart Context / Turbo Edits two-tier model economy; auto-approve-safe-tool-calls precedent
+    mode: core Apache-2.0 adapt/reference; src/pro is FSL-1.1 — clean-room only (Smart-Context/Turbo-Edits prompts, search-replace DSL, entire local_agent tool engine, MCP auto-consent enforcement ALL live there). TWO TRAPS (verified): root package.json says "MIT" — wrong, LICENSE file governs; Apache response_processor.ts:49 imports FSL applySearchReplace — sever that seam on port (full-write path Apache, diff-edit apply clean-room)
     link: https://github.com/dyad-sh/dyad
   budibase/budibase:
     use: JSON component-tree DSL interpreted by generic client; prop-schema manifests validating generated UI; per-workspace isolated definition DB; agents-never-exceed-invoking-RBAC invariant; agent-in-automation with typed output schemas
     mode: tri-license (GPLv3 core / MPL client / BSL pro) — pattern adoption; MPL component-schema ideas referenceable; no GPL/BSL vendoring into kernel
     link: https://github.com/budibase/budibase
   appsmithorg/appsmith:
-    use: DB-as-truth Git-as-projection serialization (per-page diffable JSON/JS, secrets never serialize); whole-app-as-one-JSON portability; code-defined workflows with first-class HITL approval steps; RBAC granular to query/datasource
-    mode: Apache-2.0 — strongest direct-reference candidate; serialization pattern adapt with attribution
+    use: DB-as-truth Git-as-projection serialization (code-verified 2026-07-13 — appsmith-git module: DB → GitResourceMap intermediate → diffed file tree; per-entity ExportableService plugins; deterministic Gson converters for stable diffs; secrets exclusion = ENTIRE datasourceConfiguration nulled on git-sync, DatasourceExportableServiceCEImpl.sanitizeEntities); code-defined workflows with first-class HITL approval steps; RBAC granular to query/datasource
+    mode: Apache-2.0 — strongest direct-reference candidate, CONFIRMED (CE/EE boundary is code-structural, all load-bearing serialization = CE/Apache in-repo); adapt with attribution; DROP their SHARE+exportWithConfiguration branch (the one path that serializes decrypted secrets); flatten Spring @Primary CE/EE ceremony on port
     link: https://github.com/appsmithorg/appsmith
   ToolJet/ToolJet:
     use: single versioned JSON definition serving export+git-sync+promotion; edit-by-reference with stable node IDs and persistent conversational context; permissions attached to the definition; agents=workflows+LLM nodes under one governance plane; credentials-never-in-artifact

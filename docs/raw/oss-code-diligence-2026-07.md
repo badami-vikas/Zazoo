@@ -147,7 +147,64 @@ cross_cutting: NEITHER ical.js NOR ical-generator ships tz data — one shared I
 
 # 4. Builder stack (BA0/BA4/BA5) — appsmith / dyad / bolt.diy
 
-First pass died on a session limit after confirming bolt.diy asymmetric diffing + per-chat file locking exist; re-run in progress. Findings land here when complete; until then the §4 verdicts in `builder-agent-roadmap-2026-07.md` stand at pattern-level (2026-07-11 research).
+Completed 2026-07-13 (retry after first pass died on session limit). Pins: appsmith `315b36c`, dyad `0ad4a23`, bolt.diy `2e254ac`.
+
+## 4.1 appsmithorg/appsmith — ADAPT with attribution (BA4 git-projection)
+
+```yaml
+license: Apache-2.0 root, no per-file SPDX. CE/EE boundary is CODE-structural not directory-structural — every serialization class = *CEImpl (Apache, in-repo) + near-empty @Primary *Impl subclass; proprietary EE bodies NOT in this repo. Everything load-bearing for serialization = safely Apache-2.0
+serializer:
+  module: app/server/appsmith-git/ (self-contained Maven module)
+  core: com/appsmith/git/files/FileUtilsCEImpl.java — saveArtifactToGitRepo(); DB → GitResourceMap intermediate (GitResourceType + relative path) → diffed vs on-disk tree → file-by-file write
+  layout: root application.json/metadata.json/themes; pages/ (canvas.json widget DSL per page), queries/, jsobjects/, datasources/, jslibs/ (GitDirectoriesCE.java); DSL split/reassemble = DSLTransformerHelper.java
+  determinism: GsonUnorderedToOrderedConverter + GsonDoubleToLongConverter — stable diffs
+  orchestration: per-entity ExportableService plugins (applications/newpages/newactions/datasources exportable/)
+secrets_exclusion:
+  file: appsmith-server/.../datasources/exportable/DatasourceExportableServiceCEImpl.java sanitizeEntities() :150-182
+  git_path: isGitSync=true → ENTIRE datasourceConfiguration nulled (:171-172) — credentials structurally absent from the tree
+  escape_hatch_TRAP: exportWithConfiguration==true AND serialiseFor==SHARE serializes DECRYPTED secrets (:158-166, their internal sample-apps path) — Bridge port must DROP this branch entirely
+verdict: GitResourceMap + ExportableService + null-config-on-git-sync maps ~1:1 onto Bridge "DB as truth, git as projection; secrets never serialize"; flatten the Spring CE/EE @Primary ceremony on port
+```
+
+## 4.2 dyad-sh/dyad — Apache core ADAPT / FSL src-pro CLEAN-ROOM
+
+```yaml
+license_boundary:
+  root_LICENSE: everything outside src/pro = Apache-2.0; src/pro/LICENSE = FSL-1.1-ALv2 (builder SaaS = Competing Use; converts to Apache 2yrs/version)
+  TRAP: root package.json says "MIT" — CONTRADICTS root LICENSE; LICENSE/NOTICE files govern, package.json field is wrong. Never cite it
+fsl_walled_clean_room_only:
+  - Smart-Context/Turbo-Edits: src/pro/main/prompts/turbo_edits_v2_prompt.ts + search_replace_{parser,markers,processor} DSL
+  - entire agent engine: src/pro/main/ipc/handlers/local_agent/ (~60 tools, MCP auto-consent, plan/todo persistence)
+  - visual editor Annotator
+apache_core_reusable:
+  chat_turn_commit: src/ipc/processors/response_processor.ts processFullResponseActions() — parses <dyad-write> tags (src/ipc/utils/dyad_tag_parser.ts, Apache), writes files, ONE commit per turn (:714-760), commitHash persisted onto messages row (db/schema.ts messages.commitHash :154; versions table unique(appId,commitHash) :182/:197); outside-edits folded via amend = the chat-turn≡ledger invariant, verified
+  additive_restore: src/ipc/utils/git_utils.ts gitStageToRevert() :507-560 — reset --hard target THEN reset --soft current → revert lands as NEW commit on top, history never rewritten; refuses dirty worktree = "restore is additive; rollback forks", verified
+  approvals: settings-driven auto-approve switches (AutoApproveSwitch/Sql/Mcp .tsx); Proposal type carries commitHash; ENFORCEMENT of safe-MCP auto-consent lives in FSL → pattern only
+  keychain_secrets: src/main/settings.ts — Electron safeStorage encrypt on provider apiKeys (:442), OS-keychain-backed, keychain-locked-at-launch recovery logic; secrets never in the app git repo
+BOUNDARY_TRAP: Apache response_processor.ts:49 IMPORTS applySearchReplace from FSL src/pro — a naive "copy the response processor" vendors FSL code. Sever at that seam: full-write path Apache-reusable, diff-edit apply clean-room
+```
+
+## 4.3 stackblitz-labs/bolt.diy — MIT, parser/diff/locks ADAPT; runner reference-only
+
+```yaml
+license: MIT clean throughout (root LICENSE + package.json consistent)
+parser_ADAPT: app/lib/runtime/message-parser.ts — StreamingMessageParser incremental char-scan state machine over <boltArtifact>/<boltAction>, callbacks onArtifactOpen/Close onActionOpen/Stream/Close, partial-tag buffering, #extractAttribute :359-375; VERIFIED WebContainer-free → runtime-agnostic, portable; tests + golden snapshots ship (message-parser.spec.ts)
+runner_DO_NOT_ADOPT: app/lib/runtime/action-runner.ts — constructor takes Promise<WebContainer>; fs/spawn via webcontainer (:316-466). The WebContainers dependency is CONCENTRATED HERE, not in the parser — reuse the contract, re-author the executor for Tauri/sandbox
+asymmetric_diffing_ADAPT: app/utils/diff.ts — generation always full-file; feedback picks per-file whichever is SMALLER: unified diff (createTwoFilesPatch) vs full content (:36-45, type:'diff'|'file' union); serialized into <MODIFICATIONS_TAG_NAME> block (:101). Roadmap claim confirmed at code level
+file_locking_ADAPT: app/lib/persistence/lockedFiles.ts — LockedItem scoped per chatId, localStorage key bolt.lockedFiles + in-memory Map cache; API app/utils/fileLocks.ts; enforced in files/workbench stores + editor guard. TRAP: client-side localStorage only, no server guarantee — Bridge re-backs with definition DB + stable node IDs
+prompt_library_CORRECTED: app/lib/common/prompt-library.ts is a user-selectable VARIANT registry (default/optimized/original — promptId-driven), NOT model-conditioned routing. Roadmap's "per-model prompt packs" framing = Bridge's own extension of the registry pattern; the pluggable get(options)=>string registry is the reusable idea
+```
+
+## 4.4 Builder deltas applied
+
+```yaml
+applied:
+  - dyad package.json "MIT" mislabel recorded (LICENSE governs)
+  - response_processor→src/pro FSL import seam recorded (sever on port)
+  - appsmith SHARE+exportWithConfiguration secret-serializing branch = drop on port
+  - bolt.diy prompt handling reframed: variant registry (adopt pattern), per-model packs are Bridge's extension
+  - action-runner = reference-only (WebContainer-bound); parser/diff/locks = adapt
+```
 
 # 5. Roadmap deltas applied from this diligence
 
