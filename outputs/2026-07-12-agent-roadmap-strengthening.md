@@ -20,6 +20,6 @@
 - New: `docs/raw/governance-agent-roadmap-2026-07.md`, `docs/raw/learning-agent-roadmap-2026-07.md`, `docs/wiki/governance-agent.md`, `docs/wiki/learning-agent.md`
 - Strengthened: `docs/raw/jobpilot-module-plan-2026-07.md`, `docs/raw/calendar-module-plan-2026-07.md`, `docs/raw/builder-agent-roadmap-2026-07.md` (§6/§6.1/§6.2)
 - Updated: `docs/wiki/index.md`, `docs/wiki/foundational-agents.md`, `docs/wiki/builder-agent.md`, `docs/wiki/calendar.md`, `docs/PROGRESS.md` Plan Registry
-- Decision record: ADR-052 in `docs/raw/decisions-log.md`; ledger row in `docs/log.md`
+- Decision record: ADR-054 in `docs/raw/decisions-log.md` (renumbered on merge; ADR-052 = terminology canon on main); ledger row in `docs/log.md`
 
 All plans remain `status: proposed`; no H2 sequencer reorder; pull-forwards go through `docs/APPROVALS.md`. Docs only — no code changed.

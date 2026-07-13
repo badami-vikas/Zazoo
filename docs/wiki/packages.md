@@ -1,13 +1,19 @@
-# Capability packages (wiki)
+# Modules (wiki) — formerly "Capability Packages"
+
+> **TERM CHANGE (2026-07-12):** "Package" retired. User-facing term = **Module**.
+> Module = installable bundle of ≥1 Capabilities. `ModuleManifest` replaces
+> `PackageManifest`. Code migration in progress; existing `package.*` symbols
+> are legacy. See [ontology](ontology.md) for full mapping.
 
 full: [../raw/capability-package-format.md](../raw/capability-package-format.md)
 
 **What:** shipping unit ABOVE one `capability_manifests` row (ADR-012 trust model = kernel this
-builds on, unchanged). Package = `package.yaml` + dir, bundles MULTIPLE capability manifests +
-impl. Distribution/bundling concern only — no new risk model, no new approval mechanism.
-Manifest `kind` values map to primitives ([ontology](../wiki/ontology.md)): workflow=**Automation** ·
-tool=implementation surface (user-facing primitive=**Workspace**) · integration_bundle=**Integration** ·
-view=**View** · workspace_definition=**Workspace** definition. Code enum unchanged.
+builds on, unchanged). Module = `bridge.module.yaml` + dir (was `bridge.package.yaml`), bundles
+MULTIPLE capability manifests + impl. Distribution/bundling concern only — no new risk model,
+no new approval mechanism. Manifest `kind` values map to primitives ([ontology](ontology.md)):
+workflow=**Automation** · tool=implementation surface (user-facing primitive=**Workspace**) ·
+integration_bundle=**Integration** · view=**View**. `workspace_definition` kind maps to
+**WorkspaceBlueprint** (replaces compiled-workspace concept). Code enum migration pending.
 
 ## Manifest shape
 `name·version(semver, exact, no ranges)·kind(skill|workflow|agent|tool|view|integration_bundle|

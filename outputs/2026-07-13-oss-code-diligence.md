@@ -2,7 +2,7 @@
 
 **Trigger**: user — "run a deeper codebase analysis of open source repos." Closes the gap flagged in ADR-050/051 (earlier diligence subagents died on session limits, leaving several reuse-map verdicts at README/pattern level).
 
-**Method**: 4 parallel subagents, shallow clones read at source level — file-verified licenses (per-directory sweeps for mixed licensing), does-the-claimed-thing-exist checks, exact file paths for every pattern Bridge adopts. Full findings: [oss-code-diligence-2026-07.md](../docs/raw/oss-code-diligence-2026-07.md); ADR-053.
+**Method**: 4 parallel subagents, shallow clones read at source level — file-verified licenses (per-directory sweeps for mixed licensing), does-the-claimed-thing-exist checks, exact file paths for every pattern Bridge adopts. Full findings: [oss-code-diligence-2026-07.md](../docs/raw/oss-code-diligence-2026-07.md); ADR-055 (renumbered on merge; ADR-053 = ontology simplification on main).
 
 ## Headlines
 
@@ -17,6 +17,6 @@
 
 - New: `docs/raw/oss-code-diligence-2026-07.md` (status: active — Builder-stack section pending; first pass died on a session limit after confirming bolt.diy asymmetric diffing + file locking, re-run in flight)
 - Corrected in place: §4 reuse maps of `learning-agent-roadmap-2026-07.md`, `jobpilot-module-plan-2026-07.md`, `calendar-module-plan-2026-07.md`
-- ADR-053 in `docs/raw/decisions-log.md`; ledger row in `docs/log.md`; wiki index line
+- ADR-055 (renumbered on merge; ADR-053 = ontology simplification on main) in `docs/raw/decisions-log.md`; ledger row in `docs/log.md`; wiki index line
 
 Docs only — no code changed. All license verdicts re-verify at vendor-pin time per the standing reuse gates.
