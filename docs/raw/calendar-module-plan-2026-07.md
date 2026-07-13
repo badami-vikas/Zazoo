@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [calendar-plan.md, dealpilot-module-plan-2026-07.md, jobpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, day1-integrations-free-apis.md]
 related_wiki: ../wiki/calendar.md
-updated: 2026-07-12
+updated: 2026-07-13
 tags: [calendar, module, design, business-process, projection, agents, skills, automations, reuse, scheduling]
 ---
 
@@ -202,26 +202,26 @@ sources:
     use: month/week/day/agenda grid (v1 SHIPPED, date-fns + Bridge tokens)
     mode: own code behind CalendarView port; no new dependency
   react-big-calendar:
-    use: rendering engine drop-in if the in-house ceiling is hit
-    mode: MIT adopt-behind-port (swap-in, not currently a dependency)
+    use: rendering engine drop-in if the in-house ceiling is hit; resource-lane view for CAL4 (code-verified 2026-07-13 — lanes REAL via resources prop, luxonLocalizer exists, React 19 OK, v1.20.0)
+    mode: MIT adopt-behind-port. CAL4 constraint (code-verified): lanes are NOT piecemeal-importable (TimeGrid/DayColumn internal, unexported) — adoption = a FULL <Calendar> instance behind the CalendarView port for the lane surface, in-house grid elsewhere
     link: https://github.com/jquense/react-big-calendar
   ical.js:
-    use: RRULE recurrence expansion + ICS/vCard parse (ONE lib covers both)
-    mode: MPL-2.0 dependency behind RecurrenceEngine/IcsCodec; DEFERRED for GCal-only (Google expands server-side singleEvents:true); re-add for ICS-import/multi-source
+    use: RRULE recurrence expansion + ICS/vCard parse (ONE lib covers both). Code-verified 2026-07-13: EXDATE format-mismatch edge + RECURRENCE-ID/RANGE=THISANDFUTURE handled in-lib (recur_expansion.js/event.js); HIGH confidence for the CAL5 eval suite
+    mode: MPL-2.0 dependency behind RecurrenceEngine/IcsCodec; DEFERRED for GCal-only (Google expands server-side singleEvents:true); re-add for ICS-import/multi-source. Two wrapper duties CONFIRMED — no tzdb ships (manual TimezoneService registry; register inbound VTIMEZONE, delegate render math to Luxon) and the parser is STRICT (throws ParserError — IcsCodec try/catch per feed for the hostile-ICS gate)
     link: https://github.com/kewisch/ical.js
   ical-generator:
-    use: emit a subscribable Bridge .ics feed
-    mode: MIT dependency (future)
+    use: emit a subscribable Bridge .ics feed (code-verified 2026-07-13: repeating()/exclude/recurrenceId API clean, zero runtime deps)
+    mode: MIT dependency (future). Pin a STABLE 11.x (repo HEAD tracks develop); does NOT generate VTIMEZONE — wire the vtimezoneGenerator hook (shared tz-data seam with ical.js: one IcsCodec concern, budget in the CAL5 DST eval work)
     link: https://github.com/sebbo2002/ical-generator
   luxon:
     use: timezone-correct rendering; bind the view localizer
     mode: MIT dependency (future/multi-tz)
   evaluate_only:
     - name: rrule.js (BSD) — de-facto but stale (2022); prefer ical.js; consider rrule-es only for NL-RRULE
-    - name: Schedule-X / FullCalendar standard (MIT) — alternatives behind the same port; premium plugins off-limits (cost)
+    - name: Schedule-X (verified 2026-07-13 — ALL published packages MIT v4.6.1, premium lane plugins off-tree; @schedule-x/ical already wraps ical.js) / FullCalendar standard (MIT) — alternatives behind the same port; premium plugins off-limits (cost); lanes hit the same paid wall as FullCalendar
     - name: CalendarCN / CalendarKit (shadcn-native, free) — headless-future spike candidates, maturity unproven
   rejected_systems:
-    - Cal.com (AGPLv3): banned embed + second source-of-truth; revisit cal.diy (MIT) ONLY for P6+ scheduling, verify license first
+    - Cal.com (AGPLv3): banned embed + second source-of-truth; cal.diy fork VERIFIED MIT 2026-07-13 (root LICENSE = MIT © Cal.com Inc, /ee subtree removed not relicensed) — license-drift suspicion RESOLVED at root; before any P6+ code contact still do a full-tree license sweep at the pinned commit + transitive-dep gate (young fast-moving fork)
     - Radicale / Baikal (GPL-3.0): CalDAV servers — copyleft + makes Bridge a calendar host with its own ACL/storage
     - Nextcloud (AGPLv3): copyleft, heavyweight, second source-of-truth
     - FullCalendar / Schedule-X premium: commercial key — cost + gating fights deep customization
@@ -261,24 +261,100 @@ Invariants:
 
 # 6. Delivery sequence
 
+Universal exit gate (applies to every slice, in addition to its own criteria): source/license record, manifest risk, tests, held-out eval (esp. recurrence/DST against EXDATE/RECURRENCE-ID), browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, and no dummy runtime data.
+
 ```yaml
 slices:
   CAL0:
-    scope: DONE (P0) — CalendarEvent contract + read-time projection (gcal external_records + touchpoint times); CalendarView/RecurrenceEngine/IcsCodec ports
+    status: DONE (P0)
+    scope: CalendarEvent contract + read-time projection (gcal external_records + touchpoint times); CalendarView/RecurrenceEngine/IcsCodec ports
   CAL1:
-    scope: DONE (P1) — in-house read-only surface at /calendar (month/week/day/agenda), source-colored, pinnable Tool
+    status: DONE (P1)
+    scope: in-house read-only surface at /calendar (month/week/day/agenda), source-colored, pinnable Tool
   CAL2:
-    scope: DONE (P2) — governed write-back (create/update/delete -> proposeSend -> approve -> EgressExecutor -> Google), idempotent + audited
+    status: DONE (P2)
+    scope: governed write-back (create/update/delete -> proposeSend -> approve -> EgressExecutor -> Google), idempotent + audited (5/5 integration tests)
   CAL3:
-    scope: rituals/initiatives overlay — ritual_runs next-fire + initiative timelines as native read-only sources; toggleable layers; conflict/double-book detection as Signals
+    goal: one surface shows everything time-bearing — the projection thesis proven
+    depends_on: [CAL2, ritual engine (shipped), Initiatives P1]
+    deliverables:
+      - ritual_runs next-fire projection adapter + initiative timeline-span adapter (both read-only sources)
+      - toggleable source layers, per-user persisted show/hide + color prefs
+      - conflict/double-book detector emitting Signals (never auto-resolves)
+    exit_criteria:
+      - gcal + touchpoints + ritual next-fires + initiative spans all render on ONE surface from real data (or honest empty state per layer)
+      - seeded overlap produces a conflict Signal with both events linked; no automatic mutation occurs (negative test)
+      - layer preferences persist across sessions; each adapter passes source-adapter-conformance (emits valid CalendarEvent, nothing else changed)
   CAL4:
-    scope: team/shared calendars — RLS visibility-scoped projections; resource-lane view (decide free columns vs custom); prep packs from the graph
+    goal: team time without a new ACL system — RLS filters prove out as "shared calendars"
+    depends_on: [CAL3, SEC-5 RLS-as-code + SEC-6 membership checks (Batch 3 — hard prerequisite)]
+    deliverables:
+      - visibility-scoped saved filters as shared calendars (visibility >= team AND team_id)
+      - resource-lane view — timeboxed spike: react-big-calendar free columns vs custom lanes; decision recorded as ADR
+      - meeting prep packs assembled from relationship + linked Initiative/Deal/Application graph (draft artifacts)
+    exit_criteria:
+      - two-user RLS test at the DB level: team member sees team events, non-member sees none, private events never leak (tested as policy, not just UI filtering)
+      - a shared calendar is provably just a filter — zero new permission tables in the migration diff
+      - prep pack renders from real graph data for a real upcoming meeting
   CAL5:
-    scope: conference/ICS adapters — Luma/Eventbrite/ICS-subscribe emitting CalendarEvent; ical.js re-added for import; ical-generator .ics feed; Luxon multi-tz; Microsoft Graph + CalDAV provider adapters
+    goal: source count grows without touching the surface — the adapter contract proven on hostile inputs
+    depends_on: [CAL3]
+    deliverables:
+      - ical.js (MPL-2.0) re-added behind RecurrenceEngine/IcsCodec; recurrence expanded in projection, renderer stays dumb
+      - ICS-subscribe + Luma/Eventbrite adapters emitting CalendarEvent; ical-generator (MIT) outbound .ics feed
+      - Microsoft Graph calendar + Apple/iCloud CalDAV provider adapters (read + governed write-back, same egress path as GCal)
+      - Luxon (MIT) bound for multi-tz rendering
+    exit_criteria:
+      - recurrence/DST eval suite green: RRULE + EXDATE + RECURRENCE-ID + DST-boundary + all-day-across-tz cases (the #1 calendar bug factory, gated not hoped)
+      - a real external ICS feed imports read-only end-to-end; malformed/hostile ICS degrades gracefully (fuzz set)
+      - MS Graph create/edit/delete round-trips through propose -> approve -> egress exactly like GCal (no second write path)
+      - adding each adapter changes zero renderer code (diff audit)
   CAL6:
-    scope: scheduling/availability (deferred) — free/busy + slot-finding on the projection; draft-gated scheduling links; evaluate cal.diy (MIT) internalized after license verification
+    goal: scheduling ON the projection, governed — not a Calendly clone bolted on
+    depends_on: [CAL5 (multi-source free/busy needs all sources projected)]
+    deliverables:
+      - availability-computation skill: free/busy + slot-finding over the full projection (all sources, user tz-correct)
+      - slot proposals as drafts (Scheduling_Coordinator archetype if added — package-provided, governed)
+      - scheduling links draft-gated; public availability page deferred behind its own approval; cal.diy (MIT fork) license re-verified BEFORE any code contact
+    exit_criteria:
+      - slot-finder correctness eval vs known busy/free fixtures incl. cross-tz + recurrence-generated busy blocks
+      - no public-facing page or link ships without an explicit approval record; every booked slot becomes a governed event write (>= L2)
+      - free/busy never leaks event details to counterparties (title/participants stripped — contract test)
 ```
 
-Exit gate per slice: source/license record, manifest risk, tests, held-out eval (esp. recurrence/DST against EXDATE/RECURRENCE-ID), browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, and no dummy runtime data.
+## 6.1 Success measures
 
-Sequencing note: CAL0–CAL2 are shipped (Google Calendar). CAL3–CAL6 are the P3–P6 future work from `calendar-plan.md`; per that plan Calendar sequences after the local-gate slice and Initiatives P1. This module plan expresses the build in the module template but does not reorder the H2 sequencer; any scheduling pull-forward or a `status` flip on the existing calendar-plan goes through `docs/APPROVALS.md`.
+```yaml
+metrics:
+  projection: p95 projection build latency; sync lag (source change -> surface); per-adapter conformance pass rate
+  correctness: recurrence/DST eval suite pass (must stay 100%); escaped calendar-math bugs (target 0 — each one becomes a permanent eval case)
+  governance: write-back approval turnaround; unapproved external writes == 0 (hard invariant, monitored)
+  adoption: overlay layers actively enabled; prep packs opened before meetings; conflicts surfaced -> acted on
+  team: shared-view usage without any RLS incident (leak count must be 0)
+```
+
+## 6.2 Risk register
+
+```yaml
+risks:
+  recurrence_dst_math:
+    risk: hand-rolled or half-adopted RRULE/DST logic ships subtle wrong-time bugs (the classic calendar failure)
+    mitigation: ical.js only, expansion in projection layer only, permanent eval suite gating every CAL5+ change
+  rls_leak:
+    risk: team calendar shows a private event — trust-destroying, silent
+    mitigation: CAL4 hard-blocked on SEC-5/SEC-6; policy-level tests (not UI tests); leak count is a monitored invariant
+  second_source_of_truth_creep:
+    risk: convenience features (offline edits, Bridge-only events with no source) quietly turn the projection into a store
+    mitigation: every event has a source; Bridge-native time-bearing objects are touchpoints/rituals/initiatives, never a raw "calendar event" row; review at each slice exit
+  provider_quota_and_drift:
+    risk: GCal/MS-Graph quota exhaustion or API changes break sync silently
+    mitigation: integration_sync_state health surfaced; contract tests per provider; sync failures emit Signals
+  render_ceiling:
+    risk: in-house grid hits a wall at resource lanes / drag-drop density
+    mitigation: CalendarView port keeps react-big-calendar (MIT) a documented swap; CAL4 spike decides early, recorded as ADR
+  scheduling_scope_creep:
+    risk: CAL6 drifts toward rebuilding Cal.com (booking pages, routing forms, workflows)
+    mitigation: scheduling stays a projection query + draft proposals; anything public-facing needs its own approval; cal.diy evaluated but never embedded before license verification
+```
+
+Sequencing note: CAL0–CAL2 are shipped (Google Calendar). CAL3–CAL6 are the P3–P6 future work from `calendar-plan.md`; per that plan Calendar sequences after the local-gate slice and Initiatives P1. This module plan expresses the build in the module template but does not reorder the H2 sequencer; any scheduling pull-forward or a `status` flip on the existing calendar-plan goes through `docs/APPROVALS.md`. Cross-roadmap: CAL4 is hard-blocked on Batch-3 SEC-5/SEC-6; JobPilot JP6 and DealPilot meeting flows consume CAL3+; prep/follow-up drafting reuses the Communications skill (ADR-046), not a new agent.

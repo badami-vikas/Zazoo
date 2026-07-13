@@ -55,3 +55,13 @@ router.ts `chiefOfStaff.converse`).
 cost (~$83+) and file-count (85+) warnings this pass; account/OTP/LinkedIn/
 browser-extension/4-new-agents is a large multi-surface slice, needs an
 explicit user go-ahead on scope/order before spawning build agents.
+
+**Dedicated agent roadmaps (2026-07-12)**: each non-CoS agent now has full
+three-lens roadmap w/ per-slice exit criteria + metrics + risks —
+[builder-agent](builder-agent.md) (BA0–BA6) ·
+[governance-agent](governance-agent.md) (GA0–GA6: wrap built kernel in
+decider identity; kernel decides, agent explains) ·
+[learning-agent](learning-agent.md) (LA0–LA6: greenfield Memory/Mem0/
+PromptAssembler/research; taint-first injection defense). Cross-deps:
+PromptAssembler = one shared build (LA1+BA0); Builder BA4 needs GA1 risk
+blocks + LA3/LA4 research; GA5 provenance before Commons ingestion.
