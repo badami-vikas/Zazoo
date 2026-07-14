@@ -2,10 +2,10 @@
 title: 6-Month Technical Roadmap — 2026 H2 (Jul–Dec)
 type: raw
 doc_kind: plan
-status: draft
+status: executed — Months 1–6 landed on PR #11 (Batches 1–7 + 9, AP-010–017, 2026-07-14); XP-2/XP-3 infra-gated, see `../PROGRESS.md` §Batch 8
 companions: [vision-pivot-living-software.md, execution-plan-2026-07.md, security-audit-2026-07.md, agent-quality-eval-model-2026-07.md, cross-platform-compatibility-2026-07.md, undefined-elements-definitions-2026-07.md]
 related_wiki: roadmap.md
-updated: 2026-07-08
+updated: 2026-07-14
 tags: [roadmap, planning, security, cross-platform, eval, kernel]
 ---
 
