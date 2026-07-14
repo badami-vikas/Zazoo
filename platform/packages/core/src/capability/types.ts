@@ -16,6 +16,30 @@ export type Audience = "private" | "team" | "external_visible";
 
 export type CapabilityType = "skill" | "workflow" | "agent" | "tool" | "integration" | "view" | "dashboard";
 
+/**
+ * Component Registry discriminator (REG-1, undefined-elements §2). The
+ * Component Registry REUSES `capability_manifests` rather than forking a second
+ * source of truth (the doc's recommended "same table, `kind` discriminator")
+ * — `kind` is the finer, registry-oriented classification the overlap detector
+ * (capability/registry.ts) keys on, broader than `CapabilityType` because it
+ * also covers reusable sub-components that are not standalone capabilities
+ * (a `prompt`, an `eval_set`, a `routing_rule`, a `policy`). Optional/nullable:
+ * pre-REG-1 rows have no `kind`, and the detector falls back to
+ * `capabilityType` when it is absent.
+ */
+export type ComponentKind =
+  | "agent"
+  | "skill"
+  | "automation"
+  | "workflow"
+  | "tool"
+  | "prompt"
+  | "eval_set"
+  | "routing_rule"
+  | "policy"
+  | "integration"
+  | "template";
+
 export type CapabilityState =
   | "draft"
   | "validated"

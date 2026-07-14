@@ -13,7 +13,7 @@
  */
 import { and, eq, count } from "drizzle-orm";
 import { z } from "zod";
-import type { CapabilityManifestRow, CapabilityStateRow, CapabilityStore } from "@bridge/core";
+import type { CapabilityManifestRow, CapabilityStateRow, CapabilityStore, ComponentKind } from "@bridge/core";
 import type { Database } from "./client.js";
 import { capabilityManifests, capabilityStates } from "./schema.js";
 
@@ -59,6 +59,7 @@ function unpackManifest(row: typeof capabilityManifests.$inferSelect): Capabilit
     id: row.id,
     workspaceId: row.workspaceId,
     capabilityType: row.capabilityType as CapabilityManifestRow["capabilityType"],
+    kind: row.kind as ComponentKind | null,
     name: row.name,
     version: row.version,
     origin: row.origin as CapabilityManifestRow["origin"],
@@ -101,6 +102,7 @@ export class DrizzleCapabilityStore implements CapabilityStore {
         id: row.id,
         workspaceId: row.workspaceId,
         capabilityType: row.capabilityType,
+        ...(row.kind ? { kind: row.kind } : {}),
         name: row.name,
         version: row.version,
         origin: row.origin,

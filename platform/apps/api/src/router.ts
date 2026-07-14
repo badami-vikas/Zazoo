@@ -30,6 +30,12 @@ import {
   demoteOnDependencyChange,
   suspendOnFailure,
   resolveActivationApproval,
+  compareRuns,
+  buildWhyBetterCard,
+  resolveGates,
+  classifyApprovalBand,
+  canGovernanceAutoApprove,
+  rollupOrgHealth,
   InvalidTransitionError as CapabilityInvalidTransitionError,
   EvidenceThresholdError,
   compileBlueprint,
@@ -54,6 +60,9 @@ import {
   InvalidPackageTransitionError,
   type CapabilityManifest,
   type CapabilityManifestRow,
+  type WhyBetterCard,
+  type CapabilityHealthRecord,
+  type PendingProposalRecord,
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
@@ -1901,6 +1910,43 @@ export const appRouter = t.router({
         return { proposal, state };
       }
 
+      // EVAL-3 (§4.2): the baseline-vs-candidate "is it better than what we
+      // already run?" gate, fired only on the promotion OUT of `validated`.
+      // Gates come from policy_params (never hard-coded); the baseline is the
+      // active predecessor of the same lineage. Absent a lineage baseline or
+      // eval runs on both sides, the gate is not applicable and approve proceeds
+      // unchanged (first-of-lineage has nothing to beat).
+      let whyBetter: WhyBetterCard | undefined;
+      if (state.state === "validated") {
+        const manifestRow = await ctx.wiring.capabilityStore.getManifest(input.manifestId);
+        const baselineId = manifestRow?.lineageManifestId ?? null;
+        if (baselineId) {
+          const [candRuns, baseRuns] = await Promise.all([
+            ctx.wiring.evalStore.listRuns(input.manifestId, { limit: 1000, offset: 0 }),
+            ctx.wiring.evalStore.listRuns(baselineId, { limit: 1000, offset: 0 }),
+          ]);
+          const candidate = candRuns.items.at(-1);
+          const baseline = baseRuns.items.at(-1);
+          if (candidate && baseline) {
+            const gates = resolveGates(await ctx.wiring.policyParams.get(state.workspaceId));
+            const comparison = compareRuns(baseline, candidate, gates);
+            whyBetter = buildWhyBetterCard(comparison, gates);
+            if (comparison.verdict === "reject") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `capability.approve: candidate does not beat baseline — ${whyBetter.headline}`,
+                cause: whyBetter,
+              });
+            }
+            if (comparison.verdict !== "promote") {
+              // coexist / needs-human: the automated gate declines to auto-advance;
+              // the candidate stays validated pending an explicit human decision.
+              return { proposal, state, comparison: whyBetter, advanced: false };
+            }
+          }
+        }
+      }
+
       let result;
       try {
         result = advance(state.state, toEvidence(state.evidence), ctx.run.clock.nowISO(), {
@@ -1921,7 +1967,7 @@ export const appRouter = t.router({
         ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
         evidence: state.evidence,
       });
-      return { proposal, state: nextState };
+      return { proposal, state: nextState, ...(whyBetter ? { comparison: whyBetter } : {}) };
     }),
 
     /**
@@ -2011,6 +2057,91 @@ export const appRouter = t.router({
       if (!manifest) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
       const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
       return { manifest, state };
+    }),
+
+    /**
+     * GOV-1 — the Governance Agent's AUTOMATED approval, gated to the `minor`
+     * band ONLY (classifyApprovalBand: the two lowest risk bands AND a built-in/
+     * template origin). Moderate/major always route to a human — the Governance
+     * Agent never auto-approves them. This encodes the system policy for which
+     * capabilities may advance without a human; it does NOT make an agent the
+     * ledger decider (the agent-floor forbids that unconditionally — see
+     * pipeline.ts). A minor capability advances validated -> approved through the
+     * SAME advance()+upsertState the human `approve` path uses.
+     */
+    governanceAutoApprove: procedure.input(capabilityIdInput).mutation(async ({ input, ctx }) => {
+      const manifestRow = await ctx.wiring.capabilityStore.getManifest(input.manifestId);
+      if (!manifestRow) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
+      const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
+      if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest state" });
+
+      const band = classifyApprovalBand({ risk: manifestRow.computedRisk, origin: manifestRow.origin });
+      if (!canGovernanceAutoApprove(band)) {
+        // moderate / major → the Governance Agent refuses; a human must decide.
+        return { autoApproved: false as const, band, state };
+      }
+
+      let result;
+      try {
+        result = advance(state.state, toEvidence(state.evidence), ctx.run.clock.nowISO(), {
+          creationRequiredApproval: false,
+        });
+      } catch (err) {
+        if (err instanceof CapabilityInvalidTransitionError || err instanceof EvidenceThresholdError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
+      }
+      const nextState = await ctx.wiring.capabilityStore.upsertState({
+        manifestId: input.manifestId,
+        workspaceId: state.workspaceId,
+        state: result.nextState,
+        ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
+        suspended: state.suspended,
+        ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
+        evidence: state.evidence,
+      });
+      return { autoApproved: true as const, band, state: nextState };
+    }),
+
+    /**
+     * GOV-1 — Governance Agent org-health rollup (agent-quality doc §7):
+     * autonomy-pressure / trust-debt / approval-load / violation-trend as a pure
+     * view over the workspace's REAL capability manifests + states. Pending
+     * proposals are the capabilities awaiting a governed approve/activate
+     * decision (state validated|approved), risk = computedRisk. `violationSeries`
+     * is an honest empty until a violation-history view lands (no fabricated
+     * data — see CLAUDE.md's no-dummy-data rule). Renders for a workspace.
+     */
+    orgHealth: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
+      assertPilotWorkspace(input.workspaceId);
+      const nowMs = Date.parse(ctx.run.clock.nowISO());
+      const { items } = await ctx.wiring.capabilityStore.listManifests(input.workspaceId, {
+        limit: input.limit,
+        offset: input.offset,
+      });
+      const capabilities: CapabilityHealthRecord[] = [];
+      const pendingProposals: PendingProposalRecord[] = [];
+      for (const manifest of items) {
+        const state = await ctx.wiring.capabilityStore.getState(manifest.id);
+        if (!state) continue;
+        capabilities.push({
+          manifestId: manifest.id,
+          state: state.state,
+          successRate: state.evidence.successRate ?? 1,
+          ...(state.trustedUntil
+            ? { trustExpiresInDays: Math.ceil((Date.parse(state.trustedUntil) - nowMs) / 86_400_000) }
+            : {}),
+        });
+        if (state.state === "validated" || state.state === "approved") {
+          pendingProposals.push({
+            proposalId: manifest.id,
+            risk: manifest.computedRisk,
+            ageHours: Math.max(0, (nowMs - Date.parse(state.updatedAt)) / 3_600_000),
+          });
+        }
+      }
+      return rollupOrgHealth({ capabilities, pendingProposals, violationSeries: [] });
     }),
   }),
 

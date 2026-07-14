@@ -304,3 +304,86 @@ export {
   type OnboardingProfileRow,
   type OnboardingProfileStore,
 } from "./onboarding-profile.js";
+
+// ---------------------------------------------------------------------------
+// Month 4 / Batch 6 — "the self-improvement loop closes" (P3 core).
+// EVAL-3 comparison + EVAL-4 judge (eval/), policy_params + VAR-1 adjuster
+// (policy/), REG-1 registry (capability/), GOV-1 org-health (governance/).
+// ---------------------------------------------------------------------------
+
+// EVAL-3 — baseline-vs-candidate comparison + the governed "why better" card
+// the capability.approve Validated->Active gate surfaces (Comparison type is
+// exported above with the other eval/types).
+export {
+  compareRuns,
+  buildWhyBetterCard,
+  type WhyBetterCard,
+  type WhyBetterGateLine,
+} from "./eval/comparison.js";
+
+// EVAL-4 — LLM-judge quality scorer (pinned model), held-out selection,
+// approve/veto calibration, and the red-team pack that gates the External band.
+export {
+  JudgeScorer,
+  selectHeldOut,
+  calibrateJudge,
+  evaluateRedTeamPack,
+  requireRedTeamForExternal,
+  type JudgeCalibration,
+  type RedTeamAssertion,
+  type RedTeamResult,
+} from "./eval/judge.js";
+
+// policy_params — the typed tunable space EVAL-3 gates and VAR-1 nudges read
+// (hard ceilings deliberately not representable here).
+export {
+  DEFAULT_POLICY_PARAMS,
+  cloneDefaultPolicyParams,
+  mergePolicyParams,
+  resolveGates,
+  getTunable,
+  clampToBounds,
+  InMemoryPolicyParamStore,
+  type TunableParam,
+  type AqvGates,
+  type PolicyParams,
+  type PolicyParamsOverride,
+  type PolicyParamStore,
+} from "./policy/params.js";
+
+// VAR-1 — Variance Adjuster: a veto reason-chip -> a bounded, governed
+// single-parameter nudge proposal (never silent, never crosses a ceiling).
+export {
+  CHIP_PARAM_MAP,
+  proposeVarianceAdjustment,
+  type ChipTarget,
+  type VettedVeto,
+  type VarianceProposal,
+  type ProposeOpts,
+} from "./policy/variance-adjuster.js";
+
+// REG-1 — Component Registry overlap detection (structural Tier 1 -> semantic
+// Tier 2), the "does this already exist?" check the Learning Agent runs first.
+export {
+  structuralSimilarity,
+  findOverlaps,
+  cosineSimilarity,
+  type OverlapCandidate,
+  type OverlapMatch,
+  type FindOverlapsOpts,
+} from "./capability/registry.js";
+
+// GOV-1 — Governance Agent org-health rollup + the minor/moderate/major
+// approval-band classifier (Governance auto-approves only `minor`).
+export {
+  classifyApprovalBand,
+  canGovernanceAutoApprove,
+  rollupOrgHealth,
+  type ApprovalBand,
+  type CapabilityHealthRecord,
+  type PendingProposalRecord,
+  type ViolationPoint,
+  type OrgHealthInput,
+  type ApprovalLoad,
+  type OrgHealthRollup,
+} from "./governance/org-health.js";

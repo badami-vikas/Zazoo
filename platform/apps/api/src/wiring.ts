@@ -59,6 +59,8 @@ import {
   InMemoryWorkspaceDefinitionStore,
   InMemoryPackageStore,
   InMemoryOnboardingProfileStore,
+  InMemoryEvalStore,
+  InMemoryPolicyParamStore,
   EchoModelProvider,
   type ModelProvider,
   type AgentQuery,
@@ -79,6 +81,8 @@ import {
   type WorkspaceDefinitionStore,
   type PackageStore,
   type OnboardingProfileStore,
+  type EvalStore,
+  type PolicyParamStore,
 } from "@bridge/core";
 import {
   assertRlsPosture,
@@ -191,6 +195,15 @@ export interface Wiring {
   capabilityKillSwitch: KillSwitchPort;
   /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
   credentialBroker: CredentialBroker;
+  /** EVAL-1/2/3 eval runs + comparisons (agent-quality-eval-model). In-memory in
+   * both modes for now — no Drizzle EvalStore binding exists yet (mirrors the
+   * capabilityBudgets residency-gap pattern). capability.approve's Validated->Active
+   * gate reads the candidate's + baseline-lineage's latest run from here. */
+  evalStore: EvalStore;
+  /** policy_params tunable space (EVAL-3 promotion gates + VAR-1 nudges). In-memory in
+   * both modes for now — defaults-only until a governed nudge is approved and a Drizzle
+   * binding lands. */
+  policyParams: PolicyParamStore;
   /** Onboarding personalization profile (ADR-033/R-030) — animal, answers, phone/LinkedIn
    * verification method, connected sources. In-memory in both modes for now (see
    * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
@@ -630,6 +643,10 @@ export async function buildWiring(): Promise<Wiring> {
     selfEmails,
   });
 
+  // EVAL-3 + VAR-1 substrate — in-memory both modes (no Drizzle binding yet).
+  const evalStore = new InMemoryEvalStore();
+  const policyParams = new InMemoryPolicyParamStore();
+
   return {
     pipeline,
     localMedia,
@@ -677,6 +694,8 @@ export async function buildWiring(): Promise<Wiring> {
     capabilityKillSwitch,
     credentialBroker,
     onboardingProfileStore,
+    evalStore,
+    policyParams,
     models,
     ...(memory ? { memory } : {}),
     close: async () => {
