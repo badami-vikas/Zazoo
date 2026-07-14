@@ -268,7 +268,9 @@ export {
   ANIMAL_TONE,
   parseMention,
   findFoundationalAgent,
+  buildAgentPersona,
   buildAgentSystemPrompt,
+  invokeAgent,
   COMMUNICATIONS_SKILL,
   parseSkillMention,
   buildCommunicationsSystemPrompt,
@@ -276,6 +278,8 @@ export {
   checkDesignConstraintViolations,
   type FoundationalAgentId,
   type FoundationalAgent,
+  type AgentInvocationResult,
+  type InvokeAgentArgs,
 } from "./agents.js";
 
 // RunContextAssembler (ADR-027, execution-plan-2026-07.md Track F5/Wave 3) --
@@ -285,6 +289,9 @@ export {
 export {
   assembleRunContext,
   projectToPrompt,
+  projectToSystemPrompt,
+  renderPersonaSystemPreamble,
+  KERNEL_INVARIANTS,
   type RunPersona,
   type RunSurfaceReference,
   type DisclosedCapability,
@@ -301,8 +308,12 @@ export {
 // (still absent); see onboarding-profile.ts's header comment.
 export {
   InMemoryOnboardingProfileStore,
+  profileFromRow,
+  resolveAnimalTone,
+  buildChiefOfStaffPersona,
   type OnboardingProfileRow,
   type OnboardingProfileStore,
+  type OnboardingProfile,
 } from "./onboarding-profile.js";
 
 // ---------------------------------------------------------------------------

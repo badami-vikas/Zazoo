@@ -45,12 +45,13 @@ import {
   MAX_CHAIN_DEPTH,
   parseMention,
   parseSkillMention,
-  buildAgentSystemPrompt,
+  invokeAgent,
   buildCommunicationsSystemPrompt,
   COMMUNICATIONS_SKILL,
-  checkDesignConstraintViolations,
   findFoundationalAgent,
-  ANIMAL_TONE,
+  buildChiefOfStaffPersona,
+  profileFromRow,
+  resolveAnimalTone,
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
@@ -2421,6 +2422,23 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
 
+      // AGENTS-2: resolve the spirit-animal tone + Chief-of-Staff persona
+      // SERVER-SIDE from the stored onboarding profile rather than trusting the
+      // client-supplied `input.animal`. The persisted profile's animal wins; the
+      // client field is only a fallback for a workspace that hasn't saved a
+      // profile yet (progressive onboarding). `profileFromRow` maps only what the
+      // row actually carries — a missing profile just yields a generic persona,
+      // same ZERO-input graceful default the kernel uses everywhere.
+      const profileRow = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+      const profile = profileRow ? profileFromRow(profileRow) : undefined;
+      const resolvedAnimalId = profile?.chosenAnimalId ?? input.animal;
+      const tone = resolveAnimalTone(resolvedAnimalId);
+      const cosPersona = buildChiefOfStaffPersona(profile ?? { workspaceId: input.workspaceId, source: "onboarding" });
+      // Additive, display-only projection of the resolved CoS identity so the
+      // client/avatar can reflect it — two different profiles yield two different
+      // persona cards, observable at the API boundary. Never carries authority.
+      const personaCard = { id: cosPersona.id, name: cosPersona.name, ...(cosPersona.tone ? { tone: cosPersona.tone } : {}) };
+
       // A leading "@communications"/"@comms" mention resolves to the
       // Communications SKILL (ADR-046), not an agent — no identity, no
       // capability_scope, just a direct model-backed drafting reply. Checked
@@ -2431,8 +2449,7 @@ export const appRouter = t.router({
       if (skillMention.skill === "communications") {
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
-        const system = buildCommunicationsSystemPrompt(animalTone);
+        const system = buildCommunicationsSystemPrompt(tone);
         const text = model
           ? (await model.complete({ system, prompt: skillMention.rest || input.message, maxTokens: 512 })).text
           : `${COMMUNICATIONS_SKILL.mission} (offline mode — no model configured, so I can't draft this yet, but I've recorded the request.)`;
@@ -2445,6 +2462,7 @@ export const appRouter = t.router({
           // exists purely so AgentPanel.tsx can badge the reply the same
           // way it badges an actual agent's.
           agent: "communications" as const,
+          persona: personaCard,
         };
       }
 
@@ -2460,31 +2478,34 @@ export const appRouter = t.router({
         const agent = findFoundationalAgent(agentId);
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
-        const system = buildAgentSystemPrompt(agentId, animalTone);
-        const text = model
-          ? (await model.complete({ system, prompt: rest || input.message, maxTokens: 512 })).text
-          : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
 
-        if (!agent.requiresApproval) {
+        // AGENTS-1: invoke the addressed agent as a first-class peer through the
+        // @bridge/core `invokeAgent` seam (system-prompt assembly + model call +
+        // offline fallback + the design-constraint check all live in core). The
+        // result is a DISCRIMINATED UNION with no "executed" variant, so the
+        // strongest thing a chat reply can carry is a draft this procedure must
+        // still propose — the "no independent write" guarantee is structural,
+        // not a convention re-checked here.
+        const result = await invokeAgent({ agentId, message: rest || input.message, ...(model ? { model } : {}), ...(tone ? { tone } : {}) });
+
+        if (result.kind === "information") {
           return {
-            reply: text,
+            reply: result.text,
             decision: { kind: "direct_reply" as const, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
             proposal: null,
             agent: agentId,
+            persona: personaCard,
           };
         }
 
-        // Capability Builder only — best-effort textual check against the
-        // standing design constraints (agents.ts's
-        // CAPABILITY_BUILDER_DESIGN_CONSTRAINTS/checkDesignConstraintViolations).
-        // Never blocks the draft: violations are surfaced to the human
-        // approver in Approvals, same draft-then-approve pattern as every
-        // other governance signal — this is a flag, not a gate.
-        const constraintViolations = agentId === "capability_builder" ? checkDesignConstraintViolations(text) : [];
+        // result.kind === "draft" (Capability Builder, `requiresApproval`). The
+        // core-computed design-constraint violations are surfaced to the human
+        // approver — never a gate, same draft-then-approve pattern as every
+        // other governance signal.
+        const constraintViolations = result.constraintViolations;
         const replyText = constraintViolations.length
-          ? `${text}\n\n⚠ Design-constraint check flagged ${constraintViolations.length} item(s) for the approver:\n${constraintViolations.map((v) => `- ${v}`).join("\n")}`
-          : text;
+          ? `${result.text}\n\n⚠ Design-constraint check flagged ${constraintViolations.length} item(s) for the approver:\n${constraintViolations.map((v) => `- ${v}`).join("\n")}`
+          : result.text;
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
@@ -2492,7 +2513,7 @@ export const appRouter = t.router({
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "execute",
             resourceType: "skill",
-            inputs: { agent: agentId, message: input.message, draft: text, designConstraintViolations: constraintViolations },
+            inputs: { agent: agentId, message: input.message, draft: result.text, designConstraintViolations: constraintViolations },
             skill: "stageMutation",
           },
           ctx.run,
@@ -2502,6 +2523,7 @@ export const appRouter = t.router({
           decision: { kind: "route" as const, route: agentId, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
           proposal,
           agent: agentId,
+          persona: personaCard,
         };
       }
 
@@ -2541,6 +2563,7 @@ export const appRouter = t.router({
           decision,
           proposal: null,
           agent: "chief_of_staff" as const,
+          persona: personaCard,
         };
       }
 
@@ -2562,6 +2585,7 @@ export const appRouter = t.router({
         decision,
         proposal,
         agent: "chief_of_staff" as const,
+        persona: personaCard,
       };
     }),
   }),
