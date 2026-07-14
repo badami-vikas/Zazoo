@@ -8,7 +8,7 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
-- **OPEN 2026-07-13 — BUILD: `@bridge/web` typecheck fails on an un-narrowed agent-routing discriminated union (`.route` accessed without a `kind` guard).**
+- **RESOLVED 2026-07-14 — BUILD: `@bridge/web` typecheck fails on an un-narrowed agent-routing discriminated union (`.route` accessed without a `kind` guard).**
   `apps/web/src/app/components/shared/AgentPanel.tsx:218` and `apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` read
   `.route` on the classifier decision union `{kind:"route"; route} | {kind:"direct_reply"} | …`; only the
   `kind:"route"` arm carries `route`, so `tsc` errors TS2339. Pre-existing (reproduces on a clean tree with zero
@@ -16,6 +16,9 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   does NOT run this project's typecheck, so it was green). Not caught by CI build. FIX: narrow on
   `decision.kind === "route"` before reading `.route` (or discriminate via a switch) in both files. Scope: web only,
   no runtime impact on the API. Detect: `pnpm --filter @bridge/web typecheck`.
+  **RESOLVED 2026-07-14**: replaced `t.decision.route && …` with `t.decision.kind === "route" && …` in both
+  files (behavior-identical — `.route` was only ever truthy on the route arm — now type-safe). `@bridge/web`
+  typecheck green; full `turbo run typecheck test build --force` 59/59 green.
 
 
 - **RESOLVED 2026-07-11 — incoming-main verification: Capability Builder identifier violated kernel vocabulary lint; package pagination test assumed an empty seeded registry.**
