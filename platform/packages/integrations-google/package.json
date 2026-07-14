@@ -22,6 +22,6 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit false",
-    "test": "node --experimental-test-module-mocks --test dist/test/*.test.js"
+    "test": "node --experimental-test-module-mocks --experimental-test-coverage --test-coverage-exclude='**/test/**' --test-coverage-lines=50 --test dist/test/*.test.js"
   }
 }

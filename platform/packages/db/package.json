@@ -16,9 +16,8 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --test dist/test/*.test.js",
+    "test": "node --experimental-test-coverage --test-coverage-exclude='**/test/**' --test-coverage-lines=55 --test dist/test/*.test.js",
     "typecheck": "tsc -b --noEmit false",
-    "test": "node --test dist/test/*.test.js",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate"
   },

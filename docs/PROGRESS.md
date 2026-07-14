@@ -50,6 +50,8 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [ ] `hasExternal` double-propose idempotency test
 - [ ] Wire vitest + coverage into CI (turbo cache poisoning noted in BUGS.md)
 
+> 2026-07-14 (status — boxes NOT ticked pending **AP-011**): all 6 items now satisfied. Items 1/2/5 (decide() TOCTOU, matchOne tie-break, hasExternal double-propose) **already had passing tests** pre-batch (verified: core 219, dedupe 9, integrations-google intake-dedup green). Item 3 (OAuth token-refresh persist) + item 4 (`router-decide.test.ts` — propose→decide veto happy-path + agent-floor-denied→FORBIDDEN; `dealpilot.list` already in `single-tenant-guard.test.ts`) written this batch via 2 parallel subagents. Item 6 wired node's built-in `--experimental-test-coverage` + per-package line floors into all 19 test-bearing packages — **house runner stays `node --test`, NOT vitest** (that plan wording is superseded); CI's existing `turbo run … test` enforces it. Verified: `turbo run test --force` 36/36, 19 tasks `fail 0`, all floors pass (set at/below measured current so CI is green day one). Unrelated pre-existing CI reds remain: `@bridge/web` typecheck (BUGS.md OPEN) + `prototype` tsc (dangling PII-artifact imports).
+
 ## Batch 3 — Measurement + security M2 → `docs/raw/roadmap-6month-2026-h2.md` §M2
 
 - [ ] EVAL-1 — Agent Quality scoring reducer (ship first) → `docs/wiki/agent-eval.md`
