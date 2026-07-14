@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [jobpilot-vision-requirement.md, jobpilot-architecture-requirement.md, tool-standardization-plan.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, day1-integrations-free-apis.md]
 related_wiki: ../wiki/tools.md
-updated: 2026-07-12
+updated: 2026-07-13
 tags: [jobpilot, module, design, business-process, agents, skills, automations, reuse, sourcing]
 ---
 
@@ -254,7 +254,7 @@ Every Automation carries trigger, idempotency key, budget, retry/backoff, owner,
 
 # 4. Reuse-first source map
 
-The user's requirement doc already contains a repo-by-repo leverage plan with license verdicts (`jobpilot-vision-requirement.md` §5); this section carries it forward under Bridge's reuse policy and clean-room protocol. License hygiene rule (from the requirement, retained): **nothing AGPL / Commons-Clause / CC-NC is vendored** — those are design references only; everything shipped is built on MIT/Apache sources.
+The user's requirement doc already contains a repo-by-repo leverage plan with license verdicts (`jobpilot-vision-requirement.md` §5); this section carries it forward under Bridge's reuse policy and clean-room protocol. **Code-level diligence completed 2026-07-13** (`oss-code-diligence-2026-07.md` §2) — all load-bearing claims verified in source; corrections applied inline below. License hygiene rule (from the requirement, retained): **nothing AGPL / Commons-Clause / CC-NC is vendored** — those are design references only; everything shipped is built on MIT/Apache sources.
 
 ```yaml
 reuse_policy:
@@ -288,18 +288,19 @@ sources:
     mode: MIT dependency; model as Zod/TS in Bridge
     link: https://github.com/jsonresume/resume-schema
   Resume-Matcher:
-    use: THE crown jewel — tailoring prompts, truthfulness gate (verify_skill_target_plan), 5-dimension eval scorers + LLM-judge rubric (~70% of writer/evaluator loop)
+    use: THE crown jewel — tailoring prompts, truthfulness gate (verify_skill_target_plan improver.py:754 + diff gate _BLOCKED_FIELD_NAMES/verify_diff_result), 5 deterministic scorers + LLM-judge (all CODE-VERIFIED 2026-07-13, decoupled from FastAPI/Next)
     mode: Apache-2.0 fork-components; adapt into Bridge Materials_Writer/Evaluator with attribution
+    port_notes: their ResumeData schema ≠ JSON Resume — rewrite allow/block path regexes on remap; upstream ACCEPTS jd_added skills (diff-preview review) — Bridge tightens to PROTECTED_FIELDS-never-jd_added on port
     link: https://github.com/srbhr/Resume-Matcher
   career-ops:
-    use: ~40 zero-auth public ATS JSON provider clients = Tier-1 sourcing catalog; A–G offer-eval rubric; batch worker pattern
+    use: 54 zero-auth public ATS JSON provider clients (code-verified 2026-07-13; uniform {id,detect,fetch} contract, _registry loader, trust-validator) = Tier-1 sourcing catalog. A–G rubric + batch worker DOWNGRADED to design-reference — they are markdown prompts + a bash Claude-CLI harness, not portable code
     mode: MIT fork-components; port providers to Bridge sourcing port; RIDE via pinned-submodule vendor-sync (weekly diff, agent-reviewed re-port), never a live dependency
-    link: https://github.com/(career-ops repo per Platforms CSV)
+    link: https://github.com/santifer/career-ops
   ats-screener:
     use: per-ATS scoring profiles + keyword strategies + skills taxonomy for the evaluator
     mode: MIT fork-components
   JobFunnel:
-    use: filters.py — exact key_id dedupe + TF-IDF near-dup + persistent duplicate registry
+    use: filters.py — two-stage dedupe pattern (exact key_id + TF-IDF cosine 0.75 on descriptions + persistent duplicate registry). CORRECTED 2026-07-13 — key_id is the SOURCE's job identifier (provider-prefixed), NOT a company|title|location composite; the composite key in §5 stays Bridge's own design
     mode: MIT fork-components (scrapers dead, take only filters)
     link: https://github.com/PaulMcInnis/JobFunnel
   lib_resume_builder_AIHawk:
@@ -382,24 +383,125 @@ Semantics + invariants:
 
 Builds on what already shipped: `platform/tools/jobpilot/` (14 files, 50 tests — scoring, evaluator, state machine, answer bank, apply-tier router, gmail-router, pacing, connectors, table specs), the `job-pilot` built-in package manifest, `packages/db` store, and `JobPilotPage.tsx` (empty-state, flag-is-the-action UI). Those form JP0.
 
+Universal exit gate (applies to every slice, in addition to its own criteria): source/license record, manifest risk, tests, held-out eval, browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, ToS-tier classification on every enabled source, and no dummy runtime data.
+
 ```yaml
 slices:
   JP0:
-    scope: DONE — jobpilot anchor package (deterministic scoring/evaluator/state-machine/answer-bank/pacing/connectors/table specs), built-in manifest, db store, prototype UI with honest empty state
+    status: DONE
+    scope: jobpilot anchor package (deterministic scoring/evaluator/state-machine/answer-bank/pacing/connectors/table specs), built-in manifest, db store, prototype UI with honest empty state
+    evidence: platform/tools/jobpilot (14 files, 50 tests), job-pilot manifest, JobPilotPage.tsx flag-is-the-action UI
   JP1:
-    scope: onboarding + master profile — real resume/CL parsing (open-resume heuristics + Ollama) -> JSON Resume master; category generation; profile-backed Cards
+    goal: a real master profile compiled from the user's real documents, powering profile-backed Cards
+    depends_on: [JP0]
+    deliverables:
+      - resume/CL ingestion skill — open-resume heuristics reimplemented clean-room (AGPL patterns-only) + Ollama refiner
+      - JSON Resume contract as Zod/TS in @bridge/jobpilot (json-resume-schema, MIT)
+      - master-profile compile + dedupe across multiple source documents; human review/edit surface before it becomes authoritative
+      - job-category generation (editable anytime); Cards read from profile, not fixtures
+    exit_criteria:
+      - ingest >= 2 real resumes -> ONE master.json; zero fields absent from the source corpus (spot-audit)
+      - parsing field-accuracy eval on a labeled set of the user's real documents; failures degrade to NeedsHuman, never silent
+      - master profile is human-approved before any downstream skill consumes it (poisoned-profile guard)
   JP2:
-    scope: Tier-1 legitimate sourcing live — career-ops/jobhive provider catalog behind the sourcing port; normalize/dedupe (JobFunnel filters); yield/quota/ToS-tier health
+    goal: 100+ real postings/day flowing from legitimate sources into deduped, scored Cards
+    depends_on: [JP1]
+    deliverables:
+      - sourcing port + first provider wave ported from career-ops (Greenhouse, Lever, Ashby, Remotive, Arbeitnow, USAJobs) with ToS tier stamped on every connector
+      - JobFunnel-pattern dedupe registry (exact key + TF-IDF near-dup) + already-applied guard
+      - per-source yield/freshness/quota health in the Sources surface; pacing state visible
+      - career-ops pinned-submodule vendor-sync automation (weekly diff report)
+    exit_criteria:
+      - end-to-end: real postings -> normalize -> dedupe -> score -> Cards, with measured dedupe rate and per-source yield rendered
+      - zero Tier-2 sources enabled by default; enabling one requires explicit user action + governance record
+      - provider contract tests pinned so an upstream ATS API change fails loud, not silent
   JP3:
-    scope: writer + evaluator loop — Resume-Matcher prompts + truthfulness gate + 5-dimension scorers; ATS-safe PDF render; materials approval
+    goal: tailored materials the user can trust — every changed line evidenced, embellishment impossible
+    depends_on: [JP1]
+    deliverables:
+      - Materials_Writer + Materials_Evaluator on Resume-Matcher-derived prompts (Apache-2.0, attributed)
+      - truthfulness gate wired to PROTECTED_FIELDS; per-line change_log with evidence pointers into the master profile
+      - 5-dimension scorers + LLM-judge; bounded iteration cap then human
+      - ATS-safe PDF via @react-pdf/renderer (selectable text); materials approval state machine
+    exit_criteria:
+      - red-team eval — a seeded suite of embellishment/fabrication attempts (jd_added claims, PROTECTED_FIELD edits) is 100% blocked; suite reruns on every prompt-pack change
+      - evaluator-vs-human agreement measured on the user's real approve/reject decisions; disagreement feeds prompt tuning
+      - PDF renders with selectable text and parses back cleanly through an ATS-style extractor
   JP4:
-    scope: governed application prep + submit — answer bank fill, ATS form-schema mapping (Greenhouse/Lever/Ashby), prefilled handoff sheet, draft-then-approve submission, failure taxonomy, pacing gate
+    goal: one real application submitted end-to-end under draft-then-approve
+    depends_on: [JP2, JP3]
+    deliverables:
+      - answer-bank live (deterministic -> fuzzy -> LLM fallback -> persist); sensitive-question detector routing SSN/payment/EEO to NeedsHuman unconditionally
+      - ATS form-schema mapping (Greenhouse/Lever/Ashby); prefilled handoff sheet + deep link for human submission
+      - submit-approval as pipeline egress proposal; SubmissionRecord immutable; failure taxonomy (CAPTCHA/LOGIN/FAILED) router
+      - pacing gate enforced per-day + per-ATS-domain (defer, never drop)
+    exit_criteria:
+      - >= 1 real application submitted via approve flow with complete immutable record (channel, form map, approval, confirmation)
+      - sensitive-field eval: 0 auto-fills across a seeded SSN/payment/EEO question set
+      - pacing verified: overflow defers with visible queue state; nothing silently dropped; no submission path exists that skips approval (negative test)
   JP5:
-    scope: response + follow-up — Gmail Smart Router (confidence-routed, draft-gated), follow-up drafts, relationship-graph recruiters, analytics
+    goal: responses close the loop — detected, matched, and answered without unattended sends
+    depends_on: [JP4, google-integration (shipped)]
+    deliverables:
+      - Gmail Smart Router reimplemented in Bridge + Ollama (job-ops AGPL patterns-only): confidence-tiered match of inbound mail to Applications
+      - confidence-routed stage advance, draft-gated; low confidence -> NeedsHuman
+      - follow-up reminders + draft outreach; recruiters/hiring managers materialized in the Person graph
+      - response analytics (rate by category/variant/channel)
+    exit_criteria:
+      - inbox replay eval on real historical mail: match precision measured; every misroute lands in NeedsHuman, none silently advance stage
+      - stage advances only through approved transition() calls (append-only StageEvent audit holds)
+      - follow-up drafts are draft-only egress — no auto-send path (negative test)
   JP6:
-    scope: interviews + learning — interview-prep packs, Calendar-module scheduling, flag-feedback + outcome learning, career-ops vendor-sync, multi-profile, optional Tier-2 gray-zone sourcing under governance
+    goal: interviews handled + the system measurably learning from outcomes
+    depends_on: [JP5, CAL3+ (calendar overlays)]
+    deliverables:
+      - interview-prep packs from real signals (relationship graph + public company facts) on stage -> Interview
+      - scheduling handed to the Calendar module (one contract, no private scheduler)
+      - flag-feedback + outcome learning: user green/dismiss decisions and response outcomes tune scoring prompts (versioned, eval-gated)
+      - multi-profile support; OPTIONAL Tier-2 gray-zone sourcing behind explicit enable + rate caps + governance record
+    exit_criteria:
+      - an interview event round-trips through the Calendar module projection
+      - learning eval: scoring drift toward user decisions demonstrated on a held-out decision set; every prompt change ships with a before/after eval delta
+      - Tier-2 remains off by default; enabling produces an audit record; volumes stay human-plausible (cap test)
 ```
 
-Exit gate per slice: source/license record, manifest risk, tests, held-out eval, browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, ToS-tier classification on every enabled source, and no dummy runtime data.
+## 6.1 Success measures
 
-Sequencing note: JobPilot is roadmap **P6 (Domain + Ecosystem)** per `docs/wiki/roadmap.md` / `roadmap-6month-2026-h2.md` (post-H2); its JP0 anchor already landed early during P2/Phase-4 tool-standardization to prove the compose-not-copy pattern. This plan sequences the JP1–JP6 feature build but does not reorder the H2 sequencer; any pull-forward goes through `docs/APPROVALS.md`.
+```yaml
+metrics:
+  activation: time from package install -> first green-flagged card (target: same session)
+  sourcing: postings/day from Tier-1, dedupe rate, median listing freshness, source failure MTTR
+  materials_quality: truthfulness-gate pass rate, evaluator-human agreement %, red-team block rate (must stay 100%)
+  outcomes: response rate by category/resume-variant/channel (the analytics loop, JP5)
+  cost: tokens per application (local-vs-frontier split; LLM never used to FIND jobs — invariant)
+  trust: unapproved external submissions == 0, sensitive auto-fills == 0 (hard invariants, monitored not assumed)
+```
+
+## 6.2 Risk register
+
+```yaml
+risks:
+  source_fragility:
+    risk: ATS/aggregator APIs change or die silently (jobhive is ~2 months old; career-ops providers unversioned)
+    mitigation: pinned vendoring + provider contract tests (JP2) + weekly vendor-sync diff + per-source health monitor
+  tos_drift:
+    risk: a Tier-1 source tightens terms and becomes gray-zone
+    mitigation: ToS tier re-verified on vendor-sync; tier changes demote the connector to off pending user re-enable
+  truthfulness_false_negative:
+    risk: an embellishment slips the gate -> user submits a falsified resume (worst-case product failure)
+    mitigation: red-team suite reruns on every prompt/model change; PROTECTED_FIELDS structural (not prompt-only) enforcement; per-line evidence rendered so the human can audit
+  profile_poisoning:
+    risk: bad resume parse silently corrupts everything downstream
+    mitigation: JP1 human-approval gate on the master profile; parse failures -> NeedsHuman
+  response_misrouting:
+    risk: Gmail router matches mail to the wrong Application and advances stage
+    mitigation: confidence tiers with NeedsHuman floor; stage change draft-gated; inbox-replay eval before enable
+  reputation_pacing:
+    risk: even governed volume reads as AI spam to recruiters (Greenhouse 2025 filtering arms race)
+    mitigation: pacing caps are product-load-bearing, not just compliance; per-ATS-domain caps; quality-over-volume defaults
+  cross_module:
+    risk: JP6 blocked if Calendar CAL3+ slips
+    mitigation: interview scheduling degrades to read-only calendar links; prep packs don't depend on CAL
+```
+
+Sequencing note: JobPilot is roadmap **P6 (Domain + Ecosystem)** per `docs/wiki/roadmap.md` / `roadmap-6month-2026-h2.md` (post-H2); its JP0 anchor already landed early during P2/Phase-4 tool-standardization to prove the compose-not-copy pattern. This plan sequences the JP1–JP6 feature build but does not reorder the H2 sequencer; any pull-forward goes through `docs/APPROVALS.md`. Cross-roadmap: JP3/JP5 egress + approvals ride the shipped pipeline; JP6 consumes Calendar CAL3+; materials/scoring evals plug into the Agent Quality eval model (EVAL-1/2, Batch 3).

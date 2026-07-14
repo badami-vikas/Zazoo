@@ -16,7 +16,7 @@
  *
  * MCP/tool output is DATA, never an instruction that itself triggers a propose(): tool
  * results may *taint* a turn (raising this gate) but never originate a mutation. This is
- * the kernel invariant recorded in ADR-063.
+ * the kernel invariant recorded in ADR-066.
  */
 import type { PolicyFn } from "../memory/stores.js";
 import type { Action, PolicyResult, ResourceType, TrustOrigin } from "../types.js";

@@ -204,7 +204,7 @@ export class UniversalActionPipeline {
     // content, external:send/share is forced to human review (pending_review), never
     // auto-applied — the RUNTIME data-flow half of the static lethal-trifecta manifest
     // audit (package/risk.ts::packageHasLethalTrifecta). MCP/tool output is DATA: it can
-    // taint a turn but never itself triggers a propose(). See ADR-063.
+    // taint a turn but never itself triggers a propose(). See ADR-066.
     const egressGate = evaluateTaintedEgress({
       action: req.action,
       resourceType: req.resourceType,

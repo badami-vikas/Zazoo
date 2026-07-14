@@ -37,3 +37,6 @@ P0 contract+projection (no UI) → P1 read-only surface (react-big-calendar) →
 
 ## Risks
 render lib ceiling → headless via port · recurrence/DST → ical.js never hand-roll · cal.diy license drift → defer+verify · mixed tz → normalize to timestamptz, render user-tz.
+
+## Strengthened delivery (2026-07-12)
+Module plan [calendar-module-plan](../raw/calendar-module-plan-2026-07.md) §6 now carries per-slice goals/deliverables/exit-criteria/dependencies + §6.1 metrics + §6.2 risk register. Key hard facts: **CAL4 (team/shared) HARD-BLOCKED on SEC-5 RLS-as-code + SEC-6 membership checks** — RLS leak = trust-killer, tested at policy level not UI. CAL5 gated on recurrence/DST eval suite (EXDATE/RECURRENCE-ID/DST boundaries, must stay 100%). CAL6 free/busy must strip event details (contract test). Monitored invariants: unapproved external writes == 0, RLS leaks == 0, escaped calendar-math bugs → permanent eval cases. Second-source-of-truth creep reviewed at every slice exit. JP6 + DealPilot meetings consume CAL3+.

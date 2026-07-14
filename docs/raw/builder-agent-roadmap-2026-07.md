@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [module-evolution-system-2026-07.md, capability-package-format.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, oss-commons-integration-plan-2026-07.md, brain-engine-execution-plan-2026-07.md]
 related_wiki: ../wiki/builder-agent.md
-updated: 2026-07-11
+updated: 2026-07-13
 tags: [builder-agent, capability-builder, generation, compiler, workspaces, packages, evolution, reuse]
 ---
 
@@ -234,20 +234,20 @@ Source decisions (researched 2026-07-11):
 ```yaml
 sources:
   stackblitz-labs/bolt.diy:
-    use: streamed action-artifact generation contract; asymmetric diffing (full-write generate, diff feedback); human/agent file locking; per-model prompt-pack rationale; plan-before-code
-    mode: MIT code — pattern adoption + selective reference; DO NOT adopt WebContainers (commercial StackBlitz license for production use); Bridge runtime is Tauri/sandbox, not browser
+    use: streamed action-artifact generation contract (StreamingMessageParser, message-parser.ts — code-verified 2026-07-13 WebContainer-FREE, portable, ships tests+golden snapshots); asymmetric diffing (diff.ts — feedback picks smaller of unified-diff vs full content, confirmed); per-chat file locking (lockedFiles.ts — client-side localStorage only, Bridge re-backs with definition DB); prompt VARIANT registry (prompt-library.ts — corrected: promptId-selected variants, NOT model-conditioned; per-model packs are Bridge's extension of the registry pattern); plan-before-code
+    mode: MIT code — adapt parser/diff/locks; action-runner.ts is REFERENCE-ONLY (WebContainer-bound executor — the dependency is concentrated there, re-author against Tauri/sandbox); DO NOT adopt WebContainers
     link: https://github.com/stackblitz-labs/bolt.diy
   dyad-sh/dyad:
-    use: chat-turn≡commit ledger + additive restore; Smart Context / Turbo Edits two-tier model economy; managed preview runtime; auto-approve-safe-tool-calls precedent; local-first secrets in OS keychain
-    mode: core Apache-2.0 candidate for pattern + selective code reference; src/pro is FSL-1.1 — patterns only via clean-room, no vendoring
+    use: chat-turn≡commit ledger (response_processor.ts processFullResponseActions — one commit/turn, commitHash on messages row) + additive restore (git_utils.ts gitStageToRevert — revert = new commit on top, history never rewritten; both code-verified 2026-07-13); OS-keychain secrets (settings.ts Electron safeStorage); Smart Context / Turbo Edits two-tier model economy; auto-approve-safe-tool-calls precedent
+    mode: core Apache-2.0 adapt/reference; src/pro is FSL-1.1 — clean-room only (Smart-Context/Turbo-Edits prompts, search-replace DSL, entire local_agent tool engine, MCP auto-consent enforcement ALL live there). TWO TRAPS (verified): root package.json says "MIT" — wrong, LICENSE file governs; Apache response_processor.ts:49 imports FSL applySearchReplace — sever that seam on port (full-write path Apache, diff-edit apply clean-room)
     link: https://github.com/dyad-sh/dyad
   budibase/budibase:
     use: JSON component-tree DSL interpreted by generic client; prop-schema manifests validating generated UI; per-workspace isolated definition DB; agents-never-exceed-invoking-RBAC invariant; agent-in-automation with typed output schemas
     mode: tri-license (GPLv3 core / MPL client / BSL pro) — pattern adoption; MPL component-schema ideas referenceable; no GPL/BSL vendoring into kernel
     link: https://github.com/budibase/budibase
   appsmithorg/appsmith:
-    use: DB-as-truth Git-as-projection serialization (per-page diffable JSON/JS, secrets never serialize); whole-app-as-one-JSON portability; code-defined workflows with first-class HITL approval steps; RBAC granular to query/datasource
-    mode: Apache-2.0 — strongest direct-reference candidate; serialization pattern adapt with attribution
+    use: DB-as-truth Git-as-projection serialization (code-verified 2026-07-13 — appsmith-git module: DB → GitResourceMap intermediate → diffed file tree; per-entity ExportableService plugins; deterministic Gson converters for stable diffs; secrets exclusion = ENTIRE datasourceConfiguration nulled on git-sync, DatasourceExportableServiceCEImpl.sanitizeEntities); code-defined workflows with first-class HITL approval steps; RBAC granular to query/datasource
+    mode: Apache-2.0 — strongest direct-reference candidate, CONFIRMED (CE/EE boundary is code-structural, all load-bearing serialization = CE/Apache in-repo); adapt with attribution; DROP their SHARE+exportWithConfiguration branch (the one path that serializes decrypted secrets); flatten Spring @Primary CE/EE ceremony on port
     link: https://github.com/appsmithorg/appsmith
   ToolJet/ToolJet:
     use: single versioned JSON definition serving export+git-sync+promotion; edit-by-reference with stable node IDs and persistent conversational context; permissions attached to the definition; agents=workflows+LLM nodes under one governance plane; credentials-never-in-artifact
@@ -297,24 +297,128 @@ Invariants:
 
 # 6. Delivery sequence
 
+Universal exit gate (applies to every slice, in addition to its own criteria): source/license record, manifest risk computed, tests, held-out eval, browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, and no dummy runtime data.
+
 ```yaml
 slices:
   BA0:
-    scope: toolbelt + sandbox lane — fs:read/write + code:exec primitives, SandboxProvider (isolated-vm + E2B), PromptAssembler v1, build actions in ledger
+    goal: a safe place to build — governed toolbelt + sandbox, provably contained
+    depends_on: [pipeline propose/decide (shipped), ADR-026 toolbelt, ADR-036 sandbox]
+    deliverables:
+      - fs:read / fs:write / code:exec as governed capability primitives, always through the pipeline
+      - SandboxProvider live: isolated-vm (narrow JS transforms) + E2B (shell/code:exec), Pi-style minimal tool surface, managed runtime bundled
+      - PromptAssembler v1 (layered system-prompt uplift); every build action lands in the immutable ledger with cost receipt
+    exit_criteria:
+      - containment suite green: sandbox has no network/fs/credential reach beyond explicit grants; escape attempts (seeded) all blocked and logged
+      - no code path executes generated code outside SandboxProvider (negative test, kept as a permanent CI gate)
+      - every sandbox_exec appears in the ledger with model/prompt versions + tokens/cost attached
   BA1:
-    scope: workspace generation v2 — spec synthesis, blueprint emission with stable node IDs, edit-by-reference patches, real-data draft preview; extends compileBlueprint + onboarding write path
+    goal: conversation -> workspace draft -> targeted edit, on real data, without regeneration
+    depends_on: [BA0, compileBlueprint + workspace_definitions (shipped)]
+    deliverables:
+      - intent -> typed-spec synthesis with confidence-tiered clarification (never forms)
+      - blueprint emission with stable node IDs on every element; edit-by-reference node patches
+      - real-data read-only draft preview via client-side compileBlueprint (or honest empty state)
+      - Ask vs Build session modes; human edits fed back as diffs (asymmetric diffing)
+    exit_criteria:
+      - generate -> "make the second column a date" -> re-preview loop works; the change lands as a node patch (diff-size audit proves patch, not rewrite)
+      - node IDs survive regeneration of unrelated parts (stability test — the precondition for evolution)
+      - preview shows the user's real data or an honest empty state; zero dummy rows (AP-002)
   BA2:
-    scope: capability generation — skill/automation/agent-archetype/connector scaffolds, manifest authoring, package assembly, migration + eval-case generation
+    goal: the Builder emits capabilities, not just surfaces — each born with its manifest and its own evals
+    depends_on: [BA0, capability-package-format]
+    deliverables:
+      - skill / automation / agent-archetype / connector scaffolds (automation scaffolds trigger/idempotency/budget/retry/stop-condition COMPLETE, never partial)
+      - manifest authoring + risk annotation; bridge.package.yaml assembly; migration authoring
+      - eval-case generation: every build ships a held-out eval set as part of the artifact
+    exit_criteria:
+      - one generated skill + one generated automation pass the (BA3) validation lane and install as a normal package
+      - every generated artifact records origin=AI-generated + model/prompt versions + evidence (risk is computed from these, never declared)
+      - the generated eval set actually executes and gates the artifact (not decorative)
   BA3:
-    scope: validation lane — Component Registry conformance, eval harness, security/prompt-injection scan, license/provenance gate, bounded self-repair
+    goal: nothing unvalidated reaches a human approver — the lane filters, the human decides
+    depends_on: [BA1, BA2, Component Registry]
+    deliverables:
+      - validation lane automation on draft-created: manifest parse -> registry conformance -> sandbox run -> held-out evals -> security/prompt-injection scan -> license/provenance gate
+      - bounded self-repair: read failure logs in-sandbox, draft fix, retry <= N, then escalate with the failure report attached
+    exit_criteria:
+      - seeded bad-draft suite fully blocked: grammar violations, injection payloads (incl. instructions hidden in researched web content), license-restricted code, contract breaks, embedded secrets
+      - repair loop provably bounded: N failures -> escalation with human-readable failure report; budget spent on repair capped and receipted
+      - validation verdicts attach to the proposal record (approver sees evidence, not assertions)
   BA4:
-    scope: approval surface — definition→git projection, pre-apply diff cards with explanation/risk/evidence/rollback, similarity-detection "install instead?" prompt
+    goal: the approval card becomes the Builder's real UI — diff, why, risk, evidence, rollback, or "install instead"
+    depends_on: [BA3, Governance Agent GA-risk scoring (see governance-agent-roadmap-2026-07.md)]
+    deliverables:
+      - deterministic definition -> git-projection serializer (DB as truth, git as projection; secrets never serialize)
+      - pre-apply diff cards: structural diff + draftCommunication summary + originating intent + research trail + risk band + eval/sandbox evidence + rollback semantics
+      - similarity detection: overlap with existing/Commons capabilities surfaces "install/extend instead?" before generation completes
+    exit_criteria:
+      - a real build renders a complete card (all six elements) and round-trips propose -> human decide -> activate through the existing pipeline
+      - serialized tree scanned: zero credentials/secrets in any projection (permanent gate)
+      - a duplicate build request triggers the install-instead prompt with the matched capability linked (integration-over-build enforced at the surface, not just policy)
   BA5:
-    scope: evolution loop — signals, drift detection, artifact introspection, repair-on-SUSPEND, versioned updates + staged propagation governance
+    goal: the Living-Software loop closes — the Builder improves its own artifacts without trampling the user's customizations
+    depends_on: [BA4, runtime signals (usage/failure/drift), Trust Model SUSPEND]
+    deliverables:
+      - evolution signal intake (usage, failures, friction, Commons updates) -> improvement candidates
+      - artifact introspection: prior config + usage + feedback -> concrete diff proposal, never fresh regeneration
+      - repair-on-SUSPEND: failed run -> auto-SUSPEND -> repair draft as a governed proposal
+      - versioned updates + staged propagation across Initiatives; single-live-version promote/demote; rollback forks from history
+    exit_criteria:
+      - forced capability failure -> SUSPEND -> repair proposal appears with logs attached; safety never queues, repair always does (timing test)
+      - improvement card cites the real signals that produced it (no vibes-based proposals)
+      - three-way-merge test: user's local customization survives an upstream/template update; nothing silently overwritten
   BA6:
-    scope: economy + Commons — two-tier model routing (context-selector + apply model), cost receipts + budget guard, prompt packs as versioned artifacts, generalize-and-publish to Commons
+    goal: builds get cheap and knowledge compounds — model economy + Commons publication
+    depends_on: [BA5, ModelProvider seam (shipped)]
+    deliverables:
+      - two-tier routing: small model selects context + materializes routine edits; frontier model does spec synthesis/generation reasoning
+      - cost receipts + budget guard per build session (runaway builds halt, receipted)
+      - per-model prompt packs as versioned capability artifacts, eval-gated on model change
+      - generalize-and-publish: strip user data, generalize, publish capability knowledge to Universal Commons
+    exit_criteria:
+      - measured cost drop vs single-frontier-model baseline on a fixed build suite, with no eval regression (the two-tier bet verified, not assumed)
+      - budget guard halts a seeded runaway build mid-session with a clean partial-state ledger
+      - Commons scrubber eval: published package contains zero user data / tenant-identifying content (hard gate — Commons is knowledge only)
 ```
 
-Exit gate per slice: source/license record, manifest risk computed, tests, held-out eval, browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, and no dummy runtime data.
+## 6.1 Success measures
 
-Sequencing note: BA0/BA1 overlap existing P0–P1 commitments (ADR-017/019/026/036) and the module-evolution Day-1 ruling (4-agent onboarding team ships before Component Registry/eval wave) — BA slices refine those tracks, they do not reorder the H2 sequencer. Any pull-forward goes through `docs/APPROVALS.md`.
+```yaml
+metrics:
+  throughput: intent -> proposal card median time; drafts passing validation lane first try (build success rate)
+  quality: post-activation failure rate of Builder-generated capabilities; repair-loop convergence rate (fixed within N)
+  restraint: percent of build intents resolved by install/extend/integrate instead of generate (integration-over-build ratio — should RISE as Commons grows)
+  economy: cost per build; two-tier savings vs baseline; budget-guard trips (each one inspected)
+  trust: unapproved activations == 0; secrets in projections == 0; sandbox escapes == 0 (hard invariants, monitored)
+  evolution: improvement proposals accepted rate; customizations clobbered == 0
+```
+
+## 6.2 Risk register
+
+```yaml
+risks:
+  sandbox_escape:
+    risk: generated code reaches network/credentials/fs beyond grants — the platform's worst failure
+    mitigation: BA0 containment suite as permanent CI gate; E2B isolation + minimal tool surface; code:exec only via pipeline; escapes are a monitored zero-invariant
+  prompt_injection_via_research:
+    risk: Learning Agent research trail or user documents carry instructions that steer generation (lethal trifecta)
+    mitigation: BA3 injection scan over ALL inputs incl. research content; researched content treated as data never instructions; trifecta verdict on every proposal
+  license_contamination:
+    risk: AGPL/BSL/FSL patterns leak into shipped artifacts as copied expression
+    mitigation: license/provenance gate in the lane; clean-room protocol for restricted sources; provenance record on every reused element
+  grammar_creep:
+    risk: pressure to emit novel UI components/view kinds erodes the closed grammar (and with it validation + preview guarantees)
+    mitigation: registry conformance is a hard lane stage; grammar extensions are kernel work through APPROVALS, never Builder output
+  repair_burn:
+    risk: self-repair loops consume budget chasing unfixable drafts
+    mitigation: bounded N + budget cap + escalation with failure report; convergence rate monitored
+  node_id_instability:
+    risk: regeneration reshuffles IDs, silently breaking edit-by-reference and evolution diffs
+    mitigation: BA1 stability test is an exit gate and stays as a regression test forever
+  governance_fatigue:
+    risk: every build interrupting the human trains reflexive-approve
+    mitigation: auto-approve-MINOR stays Governance-Agent-scoped; card quality (evidence, diffs) makes review cheap; restraint metric keeps volume honest
+```
+
+Sequencing note: BA0/BA1 overlap existing P0–P1 commitments (ADR-017/019/026/036) and the module-evolution Day-1 ruling (4-agent onboarding team ships before Component Registry/eval wave) — BA slices refine those tracks, they do not reorder the H2 sequencer. Any pull-forward goes through `docs/APPROVALS.md`. Cross-roadmap: BA4 consumes the Governance Agent's risk scoring (`governance-agent-roadmap-2026-07.md`); research-before-build at BA1+ consumes the Learning Agent (`learning-agent-roadmap-2026-07.md`); the eval harness in BA3 is the Agent Quality eval model (EVAL-1/2).

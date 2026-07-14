@@ -4,6 +4,13 @@
 > first, then dive into the linked ADRs / outputs / log entries only as needed. Everything below is
 > already committed + pushed to PR #11.
 
+> **⚠ Governance IDs were renumbered when this branch merged to `main` (PR #12, 2026-07-14).**
+> This is a point-in-time record and keeps its ORIGINAL numbers. On merge, the branch's
+> Batch-2→9 approvals shifted **+2** (AP-011→AP-013 … AP-017→AP-019) and its ADRs shifted
+> **+3** (ADR-057…082 → ADR-060…085) so `main`'s AP-010/011/012 + ADR-054–059 stay canonical.
+> Full old→new map: the `docs/log.md` entry "Merged PR #11 → PR #12 … governance IDs reconciled".
+> Canonical ledgers: `docs/APPROVALS.md` · `docs/raw/decisions-log.md`.
+
 ## Context
 - **Repo / branch / PR**: `badami-vikas/relationship-os`, branch
   `manishsbhoopalam8498-month-4-self-improve`, **PR #11** (OPEN), stacked on base

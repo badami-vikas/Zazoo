@@ -4,6 +4,13 @@ Consolidated handoff for a **future fresh session**. This session executed the H
 batch-by-batch in autopilot and finished **Month-3**. Month-4 was delegated to a separate session
 (see below). Everything a fresh session needs to resume is linked here.
 
+> **⚠ Governance IDs were renumbered when this branch merged to `main` (PR #12, 2026-07-14).**
+> This is a point-in-time record and keeps its ORIGINAL numbers. On merge, the branch's
+> Batch-2→9 approvals shifted **+2** (AP-011→AP-013 … AP-017→AP-019) and its ADRs shifted
+> **+3** (ADR-057…082 → ADR-060…085) so `main`'s AP-010/011/012 + ADR-054–059 stay canonical.
+> Full old→new map: the `docs/log.md` entry "Merged PR #11 → PR #12 … governance IDs reconciled".
+> Canonical ledgers: `docs/APPROVALS.md` · `docs/raw/decisions-log.md`.
+
 - **Branch:** `manishsbhoopalam8498-security-p0-hardening`
 - **PR:** #10 (OPEN) — all batches below land on this PR.
 - **Roadmap sequencer:** `docs/raw/roadmap-6month-2026-h2.md`

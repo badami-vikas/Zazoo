@@ -52,5 +52,20 @@ manifests, packages, evals) · BA3 validation lane · BA4 approval surface
 BA6 economy + Commons (two-tier routing, cost receipts, prompt packs,
 generalize→publish). Same universal exit gate as DealPilot slices.
 
+**Strengthened 2026-07-12**: §6 now per-slice
+goals/deliverables/exit-criteria/dependencies + §6.1 metrics + §6.2 risk
+register. Load-bearing gates: BA0 containment suite = permanent CI (zero
+sandbox escapes, monitored invariant) · BA1 node-ID stability test
+(precondition for evolution, kept forever) · BA3 seeded bad-draft suite
+(injection/license/grammar/secrets all blocked) · BA4 zero secrets in git
+projections + install-instead fires on duplicates · BA5 three-way-merge
+test (customizations never clobbered) · BA6 two-tier cost drop MEASURED vs
+baseline + Commons scrubber (zero user data). Key metric: %
+integrate-instead-of-build should RISE as Commons grows. Top risks:
+sandbox escape, injection-via-research (lethal trifecta), license
+contamination, grammar creep, repair burn, governance fatigue. BA4
+consumes Governance GA1 risk blocks; BA1+ consumes Learning LA3/LA4
+research; PromptAssembler = shared build with LA1.
+
 BA0/BA1 refine existing P0–P1 tracks (ADR-017/019/026/036), do NOT reorder
 H2 sequencer. Pull-forward → APPROVALS.

@@ -185,7 +185,7 @@ export {
 } from "./package/signing.js";
 
 // PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
-// prompt-injection defenses; ADR-063/064). The pipeline enforces the egress gate
+// prompt-injection defenses; ADR-066/067). The pipeline enforces the egress gate
 // STRUCTURALLY (always-on); these exports make the primitives reusable + testable, and
 // @bridge/models binds a local-plane ContentGuard adapter to the port.
 export {

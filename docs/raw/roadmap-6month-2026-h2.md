@@ -2,8 +2,8 @@
 title: 6-Month Technical Roadmap — 2026 H2 (Jul–Dec)
 type: raw
 doc_kind: plan
-status: executed — Months 1–6 landed on PR #11 (Batches 1–7 + 9, AP-010–017, 2026-07-14); XP-2/XP-3 infra-gated, see `../PROGRESS.md` §Batch 8
-companions: [vision-pivot-living-software.md, execution-plan-2026-07.md, security-audit-2026-07.md, agent-quality-eval-model-2026-07.md, cross-platform-compatibility-2026-07.md, undefined-elements-definitions-2026-07.md]
+status: executed — Months 1–6 landed via PR #11→#12 into main (Batches 1–7 + 9 = AP-012–019, 2026-07-14); XP-2/XP-3 infra-gated, see `../PROGRESS.md` §Batch 8. Go-forward sequencing realigned to Egg+Commons-prototype-first per AP-010 (see `../PROGRESS.md` NOW).
+companions: [vision-pivot-living-software.md, execution-plan-2026-07.md, security-audit-2026-07.md, agent-quality-eval-model-2026-07.md, cross-platform-compatibility-2026-07.md, undefined-elements-definitions-2026-07.md, platform-learning-architecture-2026-07.md]
 related_wiki: roadmap.md
 updated: 2026-07-14
 tags: [roadmap, planning, security, cross-platform, eval, kernel]
@@ -158,6 +158,16 @@ you work" a home.** (Detailed defense design: security-audit-2026-07.md prompt-i
 Full ambient *acting* (P4), Fork/Compose/Publish (P5), JobPilot/ResearchPilot domains (P6), E2EE-at-
 rest (P6), and Bridge Cloud control-plane sync (undefined-element long-tail) all stay post-H2. H2 is
 "safe, measurable, multi-platform kernel + first packages" — not breadth.
+
+**Learning architecture (LRN-1…5) also stays post-H2.** The platform learning plan
+([platform-learning-architecture-2026-07.md](platform-learning-architecture-2026-07.md), v2 after
+the 2026-07-14 critique) deliberately adds **no new H2 work items** — its spine already rides
+EVAL-1/2 (Aug), MEM-1/LA0 (Sep), and EVAL-3/4 + VAR-1 (Oct). It contributes only in-slice steering
+notes (§7a: typed Context candidates in LA0, utility+validity memory scoring in LA2, outcome
+contracts + retention/reversal signals in EVAL-1/2, separate personalization vs experimentation
+stacks in EVAL-3/4); the new items — LRN-1 Learning Event contract, LRN-2 Learning→Compiler
+bridge, LRN-3 certified lesson board, LRN-4 challenger-generation track, LRN-5 Commons mining —
+are sequenced for H1 2027 in that doc's §7b.
 
 ## Dependencies / critical path
 `SEC-1 (auth)` → everything exposed. `EVAL-1 (scoring)` → all of Month 4 (P3). `MEM-1 (Memory)` →
