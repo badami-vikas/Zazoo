@@ -23,7 +23,7 @@
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
-import { createIdentityResolver, IdentityVerificationError } from "./identity.js";
+import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
 
 export interface ApiContext {
   wiring: Wiring;
@@ -31,6 +31,15 @@ export interface ApiContext {
   /** The authenticated actor (server-resolved, never client-asserted). Approvals and
    * human-origin proposals authorize against this. */
   identity: Actor;
+  /** True when this request carried a VERIFIED identity — i.e. a verifier is configured
+   * AND the request presented a bearer token that resolved without error. False for a
+   * tokenless request (which falls back to the pilot identity) or when no verifier is
+   * configured. The mutation auth gate (router.ts) keys off this. */
+  authenticated: boolean;
+  /** True when a cryptographic verifier is configured for this process (mirrors
+   * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
+   * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
+  verifying: boolean;
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -61,11 +70,20 @@ export function makeContextFactory(wiring: Wiring) {
       }
       throw err;
     }
+    // "Authenticated" = a verifier is active AND a bearer token was actually presented
+    // (and, since resolve() didn't throw above, it verified). A tokenless request under
+    // a verifier resolves to the pilot fallback but is NOT authenticated — the mutation
+    // gate must still reject it. Derived from the SAME parser resolve() uses, so the two
+    // never drift.
+    const verifying = identityResolver.verifying;
+    const authenticated = verifying && bearerToken(authHeader) !== null;
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
     return {
       wiring,
       run: { clock, rng, ids: new UuidGen(clock, rng) },
       identity,
+      authenticated,
+      verifying,
     };
   };
 }

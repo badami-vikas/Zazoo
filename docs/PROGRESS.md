@@ -42,9 +42,13 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 ## Batch 3 — Bug fixes → `docs/BUGS.md` (38 OPEN + 3 IN PROGRESS)
 
-- [ ] Reconcile + merge `origin/manishsbhoopalam8498-security-p0-hardening` (claims SEC-1/2/3 + XP-1 done; verify, then flip BUGS rows)
+- [x] 2026-07-13 — Reconcile + merge `origin/manishsbhoopalam8498-security-p0-hardening` (AP-012) — SEC-1/2/3 + XP-1 verified on that branch and merged
+- [x] 2026-07-13 — SEC-1 — auth enforced by default (kill pilot-user fallback, `apps/api/src/identity.ts:84-91`) → mutation-gated `requireAuthOnMutation` middleware, ADR-057
+- [x] 2026-07-13 — SEC-2 — CORS allowlist + rate limiting on the API → verifier-tied fail-closed CORS + `@fastify/rate-limit`, ADR-057
+- [x] 2026-07-13 — SEC-3 — dependency bumps (drizzle-orm, react-router HIGH advisories) + `pnpm audit` CI gate, ADR-058
 - [x] 2026-07-10 — SEC-4 — Tauri shell CSP (was `csp: null`, now a real policy — see BUGS.md)
-- [ ] Work `docs/BUGS.md` OPEN P0s in severity order (SEC-5 RLS-as-code · SEC-6 workspace membership checks · SEC-7 Recon SSRF among them)
+- [x] 2026-07-13 — XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build), ADR-059 — ⚠ CI-green DONE-WHEN (all 3 OSes) still unverified; the new `desktop` 3-OS matrix job hasn't run yet, first CI run on this reconciled main is the remaining evidence
+- [ ] Work remaining `docs/BUGS.md` OPEN P0s in severity order (SEC-5 RLS-as-code · SEC-6 workspace membership checks · SEC-7 Recon SSRF among them)
 
 ## Batch 4 — Rest of implementation (previous plan resumes) → old Batch 2/3 content
 

@@ -5,11 +5,11 @@
   "type": "module",
   "description": "Bridge desktop shell (Tauri v2) — the first-built of the three thin clients (Notion model). HOSTS apps/web (devUrl in dev, apps/web/dist in prod) and adds what only a native shell can: the Rust capture core implementing the @bridge/sensors context-provider SPI (desktop subset) + the overlay avatar. No kernel logic lives here.",
   "scripts": {
-    "build": "echo 'desktop shell: JS build is a no-op — build the shell via `pnpm tauri build` (requires Rust; frontend comes from apps/web/dist)'",
-    "test": "echo 'desktop shell: no JS tests — Rust tests run via `cargo test` in src-tauri'",
-    "typecheck": "echo 'desktop shell: no TS sources'",
     "tauri": "tauri",
-    "dev": "tauri dev"
+    "dev": "tauri dev",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "build:tauri": "tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0"

@@ -13,11 +13,24 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# macos-private-api: required for the transparent overlay companion window
-# (R-002) — transparent webview backgrounds on macOS are gated behind it.
+# `macos-private-api` is required by tauri.conf.json's `macOSPrivateApi: true`
+# (transparent overlay webview backgrounds, R-002) and tauri-build asserts at
+# compile time that the two match. It stays declared UNCONDITIONALLY because
+# the feature is inert on Linux/Windows — Tauri guards every private-API call
+# with `#[cfg(target_os = "macos")]`, so it pulls no Apple-only native crate
+# and raises no error off-macOS. (Splitting it into a macОS-only target dep
+# instead makes tauri-build fail on macOS: the feature isn't seen as enabled.)
 tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Apple-only capture crates, gated to macOS so the shell still `cargo check`s on
+# Linux + Windows (XP-1). These are the actual cross-OS-compile blocker: the
+# only code that touches them is itself `#[cfg(target_os = "macos")]`
+# (providers/apps.rs NSWorkspace frontmost-app polling, providers/clipboard.rs
+# NSPasteboard polling), so off macOS nothing references them and the non-macOS
+# command arms return empty / unsupported instead (see sensor_bridge.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",

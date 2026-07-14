@@ -8,6 +8,16 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+- **OPEN 2026-07-13 — BUILD: `@bridge/web` typecheck fails on an un-narrowed agent-routing discriminated union (`.route` accessed without a `kind` guard).**
+  `apps/web/src/app/components/shared/AgentPanel.tsx:218` and `apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` read
+  `.route` on the classifier decision union `{kind:"route"; route} | {kind:"direct_reply"} | …`; only the
+  `kind:"route"` arm carries `route`, so `tsc` errors TS2339. Pre-existing (reproduces on a clean tree with zero
+  local changes; surfaced while running `turbo run typecheck` as the SEC-1 blast-radius check — `turbo run build`
+  does NOT run this project's typecheck, so it was green). Not caught by CI build. FIX: narrow on
+  `decision.kind === "route"` before reading `.route` (or discriminate via a switch) in both files. Scope: web only,
+  no runtime impact on the API. Detect: `pnpm --filter @bridge/web typecheck`.
+
+
 - **RESOLVED 2026-07-11 — incoming-main verification: Capability Builder identifier violated kernel vocabulary lint; package pagination test assumed an empty seeded registry.**
   `packages/core/src/agents.ts` used `hasBareDeal`; camel-case tokenization by `bridge/no-crm-vocab`
   correctly flagged the kernel-scoped identifier. Renamed to vocabulary-neutral `hasBannedKernelVocab`
@@ -23,18 +33,27 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   and update in-repo references; consider a CI check flagging duplicate `^## ADR-\d+` headers. Low risk,
   doc-integrity only. Detect: `grep -oE '^## ADR-[0-9]+' docs/raw/decisions-log.md | sort | uniq -d`.
 
-- **OPEN 2026-07-08 — SECURITY H1: no auth enforced by default; every tRPC procedure runs as the pilot user.**
-  `apps/api/src/identity.ts:84-91` — with no `SUPABASE_JWT_SECRET`/`SUPABASE_URL` set, or no `Authorization`
-  header, `resolve()` silently returns the pilot identity. No `protectedProcedure` in `router.ts`; the only
-  middleware checks workspace id, never that a token was presented. Compounded (H1a) by `corsOriginConfig()`
-  (`server.ts:22-31`) defaulting to `origin:true` when `NODE_ENV!=="production"`. Any reachable non-prod/misconfigured
-  deploy ⇒ unauthenticated caller acts as pilot with full write/propose. FIX: require a verified token for every
-  mutating procedure once `DATABASE_URL` is set (fail-fast like `assertProductionEnv()`); add `protectedProcedure`;
-  tie permissive-CORS fallback to "is a real verifier configured", not just NODE_ENV. Full: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).
+- **RESOLVED 2026-07-13 — SECURITY H1 (+H1a): no auth enforced by default; every tRPC procedure ran as the pilot user; permissive CORS tied only to NODE_ENV.**
+  FIXED (SEC-1/SEC-2). `identity.ts` exports `isVerifierConfigured()`; `context.ts` computes `authenticated`/`verifying`
+  per request; `router.ts` adds a `requireAuthOnMutation` middleware (chained before the workspace guard) that rejects
+  any *mutation* unless `authenticated || (!verifying && !persistent)` (persistent = `wiring.persistent ||
+  NODE_ENV==="production"`). Net: verifier + no/invalid token ⇒ 401; no-verifier persistent/prod deploy ⇒ fail-closed
+  (no more silent pilot writes); no-verifier in-memory dev box ⇒ still open (local DX preserved). H1a: `corsOriginConfig()`
+  permissive `origin:true` is now gated on `!isVerifierConfigured()` AND non-production, not NODE_ENV alone. `server.ts`
+  boot-logs verifier state + warns loudly when persistent/prod without a verifier. Tests: unauthenticated mutation → 401
+  under a configured verifier; queries not gated; verifier ⇒ restrictive CORS. `assertProductionEnv()` deliberately left
+  unchanged (spec wants a loud log, not a hard boot-fail; avoids breaking the existing prod-contract test). Verified:
+  api 58 tests green, full `turbo run build test` green.
 
-- **OPEN 2026-07-08 — SECURITY H2: vulnerable deps — `drizzle-orm` ^0.38.3 (SQL-identifier injection, GHSA-gpj5-g38j-94v9, patched ≥0.45.2) + multiple HIGH `react-router` advisories in apps/web (turbo-stream RCE, javascript: XSS, manifest DoS).**
-  `platform/packages/db/package.json:28` + apps/web. FIX: bump drizzle-orm ≥0.45.2, react-router ≥7.15.0; add
-  `pnpm audit --prod --audit-level=high` as a CI merge gate.
+- **RESOLVED 2026-07-13 — SECURITY H2: vulnerable deps — `drizzle-orm` ^0.38.3 (SQL-identifier injection, GHSA-gpj5-g38j-94v9, patched ≥0.45.2) + multiple HIGH `react-router` advisories in apps/web (turbo-stream RCE, javascript: XSS, manifest DoS).**
+  FIXED (SEC-3). Bumped `packages/db` drizzle-orm ^0.38.3→^0.45.2 (+ drizzle-kit ^0.30.1→^0.31.10) and `apps/web`
+  react-router 7.13.0→^7.15.0 (resolved 7.18.1); `pnpm audit --prod --audit-level=high` is now clean (exit 0) and wired
+  as a standalone CI merge gate (`.github/workflows/ci.yml` `security-audit` job). drizzle 0.45's breaking change — driver
+  errors are now wrapped in `DrizzleQueryError` with the real Postgres error on `.cause` — forced a real runtime fix in
+  `packages/db/src/ledger-store.ts` (`isRefLedgerUniqueViolation()` now walks the `.cause` chain for code 23505,
+  preserving the ledger's 23505→AlreadyResolvedError concurrency translation) plus a test-only `dbErrorMatches()`
+  cause-walking helper in `schema-hardening.test.ts`. Verified: @bridge/db 49 tests green; `pnpm install --frozen-lockfile`
+  succeeds with the committed lockfile. One sub-`high` moderate advisory remains (acceptable under the current gate).
 
 - **RESOLVED 2026-07-10 — SECURITY H3: Tauri desktop shell ships with CSP disabled (`csp: null`).**
   `apps/desktop/src-tauri/tauri.conf.json`. Shell hosts apps/web unmodified + exposes `sensor_bridge`
@@ -50,10 +69,14 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   itself. Verified: `cargo check` + `cargo clippy --no-deps` + `cargo build` all clean with the new CSP
   (full ~90s cold build succeeded, not just a config-parse check).
 
-- **OPEN 2026-07-08 — SECURITY H4: no rate limiting anywhere on the API.**
-  No `@fastify/rate-limit`/`helmet`; `server.ts` registers only cors + tRPC. With H1, an unauthenticated caller can
-  flood `action.propose`, `onboarding.verifyPhoneOtp` (brute-forceable stub), `google.syncGmail`, ritual runs, and
-  cost-amplify against `external:fetch`/`dealpilot.source`. FIX: global `@fastify/rate-limit` + tighter per-route caps on outbound-network procedures.
+- **RESOLVED 2026-07-13 — SECURITY H4: no rate limiting anywhere on the API.**
+  FIXED (SEC-2). Registered `@fastify/rate-limit` (^10.3.0, Fastify-5 compatible) globally in `server.ts` with an
+  env-overridable config (`rateLimitConfig()`: default 300 req/min global; a tighter 10 req/min "sensitive" bucket for
+  `action.propose`, `onboarding.verifyPhoneOtp`, `google.syncGmail`, `dealpilot.source`, `external:fetch`; keyed by
+  IP+bucket via `rateLimitBucket()`). The `onRequest` hook fires before tRPC context creation, so a 429 precedes the 401;
+  tRPC batching comma-joins procedure names in the URL, so the sensitive-path match stays fail-tight across batched calls.
+  Tests: a burst past the cap returns 429; `rateLimitConfig` env overrides covered. Default store is in-memory per-process
+  — a shared Redis store is the multi-instance follow-up (noted in code). Verified: api 58 tests green.
 
 - **OPEN 2026-07-08 — SECURITY M1-M6 (see raw audit): RLS policies absent from tracked migrations (unverifiable enforcement, app-layer `assertPilotWorkspace` is the only guard); `workspace.inviteMember/listMembers/create` lack a membership check (horizontal-priv-esc the moment multi-tenancy ships); Recon tool SSRF surface (no RFC1918/metadata denylist, unauthenticated Next.js routes); dummy phone-OTP feeds an unqualified `phoneVerified` trust flag; no log redaction for phone/code/Authorization; `linkedin` verification method is client-asserted with no proof.**
   Files: `packages/db/src/{client,schema,workspace-store}.ts`, `router.ts:1149-1207`, `Tools/recon/lib/*`. Details + remediation: [../raw/security-audit-2026-07.md](../raw/security-audit-2026-07.md).

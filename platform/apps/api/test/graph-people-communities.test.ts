@@ -34,6 +34,8 @@ async function makeCaller(wiring: Wiring) {
     wiring,
     run: makeRun(),
     identity: { type: "user", id: PILOT_USER },
+    authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
+    verifying: false,
   });
 }
 
