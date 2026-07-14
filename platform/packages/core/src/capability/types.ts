@@ -16,6 +16,30 @@ export type Audience = "private" | "team" | "external_visible";
 
 export type CapabilityType = "skill" | "workflow" | "agent" | "tool" | "integration" | "view" | "dashboard";
 
+/**
+ * Component Registry discriminator (REG-1, undefined-elements §2). The
+ * Component Registry REUSES `capability_manifests` rather than forking a second
+ * source of truth (the doc's recommended "same table, `kind` discriminator")
+ * — `kind` is the finer, registry-oriented classification the overlap detector
+ * (capability/registry.ts) keys on, broader than `CapabilityType` because it
+ * also covers reusable sub-components that are not standalone capabilities
+ * (a `prompt`, an `eval_set`, a `routing_rule`, a `policy`). Optional/nullable:
+ * pre-REG-1 rows have no `kind`, and the detector falls back to
+ * `capabilityType` when it is absent.
+ */
+export type ComponentKind =
+  | "agent"
+  | "skill"
+  | "automation"
+  | "workflow"
+  | "tool"
+  | "prompt"
+  | "eval_set"
+  | "routing_rule"
+  | "policy"
+  | "integration"
+  | "template";
+
 export type CapabilityState =
   | "draft"
   | "validated"
@@ -43,6 +67,40 @@ export interface CapabilityConnector {
   externalSend?: boolean;
 }
 
+/** How isolated an executable capability runs — the general-manifest analogue
+ * of foreign-import.ts's `ForeignImportSandboxPolicy.isolation` (kept as the
+ * same literal set so the two paths agree). "none" is NOT a valid isolation for
+ * an executable capability (PKG-1: "require sandboxing for any executable
+ * capability") — the sandbox gate (sandbox-policy.ts) rejects it. */
+export type SandboxIsolationLevel = "none" | "process" | "container" | "vm";
+
+/** The network/filesystem/env surface an executable capability's sandbox is
+ * asked to GRANT it (PKG-1: the caps the lethal-trifecta union check gates
+ * before Active). Empty/false everywhere = a fully-isolated executable (no
+ * network, no filesystem, no env passthrough) — the safest shape. */
+export interface SandboxCapabilityRequest {
+  /** Network egress/ingress the sandbox permits — an egress AND an untrusted-
+   * ingest leg of the lethal trifecta (sandbox-policy.ts's sandboxTrifectaLegs). */
+  network: boolean;
+  /** Filesystem path globs the sandbox exposes — a private-data read leg. Empty = none. */
+  filesystem: string[];
+  /** Env var names passed through into the sandbox — a private-data (secret)
+   * read leg. Empty = none. */
+  env: string[];
+}
+
+/** Declares that a capability RUNS CODE (an executable capability, PKG-1) and
+ * the isolation + sandbox caps it needs. A capability WITHOUT this field is
+ * DECLARATIVE (a view/prompt/routing_rule/dashboard) and is never subject to
+ * the sandbox floor. `isolation` reuses SandboxIsolationLevel; the sandbox
+ * gate requires it to be `!== "none"` (and container|vm when the caps include
+ * network/filesystem) before an executable capability can reach Active. */
+export interface CapabilityExecutionSpec {
+  executable: true;
+  isolation: SandboxIsolationLevel;
+  sandbox: SandboxCapabilityRequest;
+}
+
 /** The generalized Capability Manifest — inputs/outputs/permissions/connectors/
  * evidence/rollback/evaluation, per vision.md. */
 export interface CapabilityManifest {
@@ -57,6 +115,10 @@ export interface CapabilityManifest {
   /** Other manifests this one depends on/composes — the dependency closure
    * computeRisk() walks (composite risk = max over the closure). */
   dependencies: Array<{ manifestId: string; versionRange: string }>;
+  /** Present ONLY when this capability runs code (PKG-1). Its presence makes
+   * the capability "executable" — subject to the sandbox floor + sandbox-cap
+   * trifecta gate (sandbox-policy.ts). Absent = a declarative capability. */
+  execution?: CapabilityExecutionSpec;
   rollback?: unknown;
   evaluation?: unknown;
 }
@@ -68,6 +130,21 @@ export interface CapabilityEvidence {
   successRate: number; // 0..1
   violationCount: number;
   ageDays: number;
+  evalRuns?: Array<{
+    runId: string;
+    datasetId: string;
+    aggregate: {
+      success?: number;
+      correction?: number;
+      quality?: number;
+      route_p?: number;
+      route_r?: number;
+      reliability?: number;
+      safety?: number;
+      efficiency?: number;
+    };
+    recordedAt: string;
+  }>;
 }
 
 /** Resolves a dependency's manifest by id — the seam risk.ts and lifecycle.ts

@@ -12,6 +12,7 @@
  * services/commons — both bind against these shapes.
  */
 import type { PackageKind, PackageManifest } from "./types.js";
+import type { ManifestSignature } from "./signing.js";
 
 /** One published (name, version) entry as the registry stores/serves it.
  * `tags` are publisher-supplied generalized keywords (discovery only) — they
@@ -25,6 +26,11 @@ export interface CommonsPackageEntry {
   tags: string[];
   manifest: PackageManifest;
   publishedAt: string;
+  /** Detached publisher signature over the manifest (PKG-2). Optional on the
+   * type for backward compatibility with pre-signing entries, but the server
+   * signs every publish and the install path REJECTS an entry without a valid
+   * signature — so in practice a served entry always carries one. */
+  signature?: ManifestSignature;
 }
 
 /** List-item projection — everything a registry browser needs without

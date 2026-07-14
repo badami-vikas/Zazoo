@@ -2,7 +2,7 @@
 title: Clean-Room Capability Research Protocol for License-Limited Sources
 type: raw
 doc_kind: plan
-status: proposed
+status: adopted — folded into CLAUDE.md Working rules as a standing rule 2026-07-14 (AP-008)
 companions: [oss-commons-integration-plan-2026-07.md, dealpilot-module-plan-2026-07.md]
 related_wiki: ../wiki/oss-commons.md
 updated: 2026-07-11

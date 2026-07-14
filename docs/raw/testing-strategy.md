@@ -2,7 +2,7 @@
 title: Platform Testing Strategy
 type: raw
 doc_kind: plan
-status: DRAFT — coverage numbers measured 2026-07-04, priority list not yet executed
+status: executed — Testing-P0 landed 2026-07-14 (roadmap Batch 2, AP-013); coverage floors enforced via `node --test` + turbo (NOT vitest)
 companions: [decisions-log.md, ARCHITECTURE.md, SCHEMA.sql]
 related_wiki: ../wiki/testing.md
 updated: 2026-07-04

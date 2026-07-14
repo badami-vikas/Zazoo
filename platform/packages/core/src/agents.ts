@@ -36,6 +36,9 @@
  */
 export type FoundationalAgentId = "learning" | "governance" | "capability_builder";
 
+import type { ModelProvider } from "./ports.js";
+import { renderPersonaSystemPreamble, type RunPersona } from "./run-context.js";
+
 export interface FoundationalAgent {
   id: FoundationalAgentId;
   /** Display name shown in the chat UI when this agent answers. */
@@ -154,28 +157,115 @@ export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
   "Tool budget: don't propose an agent or workflow needing more than roughly 20 tools active in a single turn — defer additional capabilities to registry lookup instead of loading them all at once.",
 ];
 
-export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: string): string {
+/**
+ * Build the `RunPersona` (run-context.ts, the ADR-027 assembler seam) for a
+ * directly-addressed foundational agent — the agent_identity LAYER (undefined-
+ * elements #6 layer 2) expressed as data, so both `buildAgentSystemPrompt` here
+ * and `projectToSystemPrompt` (run-context.ts) render it through the SAME
+ * `renderPersonaSystemPreamble` path rather than two hand-written strings. The
+ * agent's `neverExecutes`/`requiresApproval` flags + (for Capability Builder)
+ * the standing design constraints become the persona's identity-scoped
+ * `guardrails`; the never-omitted `KERNEL_INVARIANTS` (layer 1) are prepended by
+ * the renderer regardless.
+ *
+ * `tone` is optional/additive — apps/api resolves the user's spirit-animal tone
+ * (server-side from the onboarding profile, or client-supplied) and threads it
+ * through; omit it and the persona carries no tone line, unchanged.
+ */
+export function buildAgentPersona(id: FoundationalAgentId, tone?: string): RunPersona {
   const agent = findFoundationalAgent(id);
-  const lines = [
-    `You are Bridge's ${agent.name}. Mission: ${agent.mission}`,
-    "Responsibilities:",
-    ...agent.responsibilities.map((r) => `- ${r}`),
-  ];
+  const guardrails: string[] = [];
   if (agent.neverExecutes) {
-    lines.push("You never execute actions directly — you only produce information, analysis, or a draft for review.");
+    guardrails.push("You never execute actions directly — you only produce information, analysis, or a draft for review.");
   }
   if (agent.requiresApproval) {
-    lines.push("Anything you propose must go through Bridge's governed approval pipeline before it can run — you never ship it live yourself.");
+    guardrails.push("Anything you propose must go through Bridge's governed approval pipeline before it can run — you never ship it live yourself.");
   }
   if (id === "capability_builder") {
-    lines.push("Standing design constraints — reason about ALL of these in every draft, and state explicitly how the draft satisfies each one:");
-    lines.push(...CAPABILITY_BUILDER_DESIGN_CONSTRAINTS.map((c) => `- ${c}`));
+    guardrails.push("Standing design constraints — reason about ALL of these in every draft, and state explicitly how the draft satisfies each one:");
+    for (const c of CAPABILITY_BUILDER_DESIGN_CONSTRAINTS) guardrails.push(`- ${c}`);
   }
-  if (animalTone) {
-    lines.push(`Match this tone in how you write, without ever saying so explicitly: ${animalTone}`);
-  }
+  return {
+    id,
+    name: `Bridge's ${agent.name}`,
+    role: `Mission: ${agent.mission}`,
+    actorType: "agent",
+    actorId: id,
+    responsibilities: agent.responsibilities,
+    guardrails,
+    ...(tone ? { tone } : {}),
+  };
+}
+
+/** Builds the ModelProvider system prompt for a directly-addressed agent turn,
+ * via the ADR-027 layering seam: `renderPersonaSystemPreamble` (kernel
+ * invariants + agent identity/responsibilities/guardrails/tone) plus a closing
+ * "answer plainly" line. Reimplemented on the shared renderer (2026-07-14,
+ * AGENTS-1) so there is ONE identity-assembly path — this replaces the earlier
+ * hand-written string. `animalTone` stays optional/additive (same graceful
+ * default as before). */
+export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: string): string {
+  const lines = renderPersonaSystemPreamble(buildAgentPersona(id, animalTone));
   lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
   return lines.join("\n");
+}
+
+/**
+ * The result of invoking a foundational agent — a DISCRIMINATED UNION with
+ * exactly two variants and, deliberately, NO "executed" variant. This is
+ * AGENTS-1's "no independent write" made STRUCTURAL rather than conventional
+ * (mirroring how `RoutingDecision` has no `peers` field to make "no peer
+ * handoffs" structural): an agent invocation can only ever yield information
+ * (Learning/Governance — pure analysis, `neverExecutes`) or a draft that the
+ * CALLER must still route through the governed pipeline (Capability Builder —
+ * `requiresApproval`). There is no code path by which `invokeAgent` reports
+ * having executed or written anything, because the type cannot express it, and
+ * `invokeAgent` holds no store/pipeline handle to write with even if it tried.
+ */
+export type AgentInvocationResult =
+  | { kind: "information"; agentId: FoundationalAgentId; text: string; source: "model" | "offline" }
+  | { kind: "draft"; agentId: FoundationalAgentId; text: string; source: "model" | "offline"; constraintViolations: string[] };
+
+export interface InvokeAgentArgs {
+  agentId: FoundationalAgentId;
+  /** The user's message to the agent (already stripped of the leading @mention
+   * by the caller). */
+  message: string;
+  /** Optional ModelProvider (ports.ts seam). Omit for offline/in-memory mode —
+   * the agent still returns a well-formed result (an honest "recorded, can't
+   * reason yet offline" note), same ZERO-providers graceful default as the rest
+   * of the kernel. */
+  model?: ModelProvider;
+  /** Optional spirit-animal tone, threaded into the agent_identity layer. */
+  tone?: string;
+  maxTokens?: number;
+}
+
+/**
+ * Invoke one foundational agent as a real, separately-addressable peer
+ * (AGENTS-1): assemble its system prompt through the ADR-027 layering seam,
+ * call the model (or fall back offline), and return a governed-shape result.
+ * The kind is decided structurally by the agent's own `requiresApproval` flag —
+ * `neverExecutes` agents (Learning, Governance) return `information`; Capability
+ * Builder returns a `draft` (with a best-effort design-constraint check surfaced
+ * to the human approver, never a gate). This function performs NO write and
+ * holds NO pipeline handle: turning a `draft` into a governed proposal is the
+ * caller's job (apps/api's `pipeline.propose`), keeping @bridge/core zero-
+ * runtime-deps and the "no independent write" guarantee intact.
+ */
+export async function invokeAgent(args: InvokeAgentArgs): Promise<AgentInvocationResult> {
+  const agent = findFoundationalAgent(args.agentId);
+  const system = buildAgentSystemPrompt(args.agentId, args.tone);
+  const source: "model" | "offline" = args.model ? "model" : "offline";
+  const text = args.model
+    ? (await args.model.complete({ system, prompt: args.message || agent.mission, maxTokens: args.maxTokens ?? 512 })).text
+    : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
+
+  if (agent.requiresApproval) {
+    const constraintViolations = args.agentId === "capability_builder" ? checkDesignConstraintViolations(text) : [];
+    return { kind: "draft", agentId: args.agentId, text, source, constraintViolations };
+  }
+  return { kind: "information", agentId: args.agentId, text, source };
 }
 
 /**

@@ -25,6 +25,7 @@ import { resolveMx } from 'dns/promises';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fetchRendered, solverConfigured } from './browser';
+import { assertOutboundAllowed } from './ssrf';
 import { canonicalSocialUrl } from './url-canon';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +178,7 @@ async function fetchJSON<T = unknown>(
   const { timeoutMs = 15000, headers, ...rest } = init;
   const t = Date.now();
   try {
+    await assertOutboundAllowed(url);
     const r = await fetch(url, {
       ...rest,
       headers: { 'User-Agent': SEC_UA, Accept: 'application/json', ...(headers ?? {}) },
@@ -202,6 +204,7 @@ async function fetchText(
   const { timeoutMs = 15000, headers, ...rest } = init;
   const t = Date.now();
   try {
+    await assertOutboundAllowed(url);
     const r = await fetch(url, {
       ...rest,
       headers: { 'User-Agent': SEC_UA, ...(headers ?? {}) },

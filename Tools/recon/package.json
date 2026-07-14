@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "enrich:linkedin": "tsx scripts/enrich-linkedin.ts",
     "enrich:washu-board": "tsx scripts/enrich-washu-board.ts",

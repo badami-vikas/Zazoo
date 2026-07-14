@@ -12,6 +12,7 @@
  * append-only — a decision is a NEW row referencing the proposal, never an update.
  */
 import { agentFloorDeny, resolveAuthority, type AuthorityDeps } from "./authority.js";
+import { evaluateTaintedEgress } from "./policy/taint-egress.js";
 import type {
   EventBus,
   LedgerStore,
@@ -130,6 +131,11 @@ export class UniversalActionPipeline {
   async propose(req: ActionRequest, ctx: RunCtx): Promise<Proposal> {
     const { authority, policies, skills, ledger } = this.#deps;
 
+    // The turn's effective provenance (PI-2). req.trustOrigin (tagged at the ingest
+    // edge) wins; otherwise fall back to ambient ctx.taint. Undefined = kernel/user
+    // authored, no untrusted content in play.
+    const turnTaint = req.trustOrigin ?? ctx.taint;
+
     // 1) Authority (deny-default). nowISO injected for ephemeral expiry checks.
     const auth = await resolveAuthority(
       {
@@ -157,6 +163,7 @@ export class UniversalActionPipeline {
       resourceId: req.resourceId,
       phase: "pre",
       inputs: req.inputs,
+      ...(turnTaint ? { taint: turnTaint } : {}),
     });
     const preBlock = blocked(pre);
     if (preBlock) return this.#reject(req, auth, pre, `policy(pre): ${preBlock.reason}`, ctx);
@@ -186,10 +193,24 @@ export class UniversalActionPipeline {
       phase: "runtime",
       inputs: req.inputs,
       proposedOutput: output.proposedOutput,
+      ...(turnTaint ? { taint: turnTaint } : {}),
     });
     const all = [...pre, ...runtime];
     const rtBlock = blocked(runtime);
     if (rtBlock) return this.#reject(req, auth, all, `policy(runtime): ${rtBlock.reason}`, ctx);
+
+    // PI-2 — structural tainted-context egress gate. An always-on kernel guarantee (NOT
+    // a deployment-configurable policy): when this turn carries untrusted_external
+    // content, external:send/share is forced to human review (pending_review), never
+    // auto-applied — the RUNTIME data-flow half of the static lethal-trifecta manifest
+    // audit (package/risk.ts::packageHasLethalTrifecta). MCP/tool output is DATA: it can
+    // taint a turn but never itself triggers a propose(). See ADR-066.
+    const egressGate = evaluateTaintedEgress({
+      action: req.action,
+      resourceType: req.resourceType,
+      taint: turnTaint,
+    });
+    if (egressGate) all.push(egressGate);
 
     // 5) Review gate — append ledger row, status by approval requirement.
     if (requiresApproval(req.actor.type, all)) {
@@ -320,6 +341,7 @@ export class UniversalActionPipeline {
       ...(original.seed ? { seed: original.seed } : {}),
       ...(original.dataScope ? { dataScope: original.dataScope } : {}),
       ...(original.context ? { context: original.context } : {}),
+      ...(original.trustOrigin ? { trustOrigin: original.trustOrigin } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     // If a second concurrent decide() raced past the pre-check above, the store
@@ -417,6 +439,7 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
+      ...(req.trustOrigin ? { trustOrigin: req.trustOrigin } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     return this.#deps.ledger.append(entry);
@@ -485,6 +508,7 @@ export class UniversalActionPipeline {
       ...(entry.seed ? { seed: entry.seed } : {}),
       ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
       ...(entry.context ? { context: entry.context } : {}),
+      ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
     };
   }
 }

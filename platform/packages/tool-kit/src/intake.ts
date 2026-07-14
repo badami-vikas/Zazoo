@@ -55,7 +55,15 @@ export function createToolSourceSkill(deps: {
       const captureIds: string[] = [];
       for (const envelope of envelopes) {
         const captureId = ctx.ids.next();
-        await deps.captures.put({ ...envelope, captureId, toolId: deps.toolId });
+        // PI-1: the ONE intake seam is where "untrusted by default" is enforced —
+        // an envelope with no explicit provenance is quarantined as untrusted_external,
+        // never silently trusted. A connector that DID tag its source keeps its value.
+        await deps.captures.put({
+          ...envelope,
+          captureId,
+          toolId: deps.toolId,
+          trustOrigin: envelope.trustOrigin ?? "untrusted_external",
+        });
         captureIds.push(captureId);
       }
       return {

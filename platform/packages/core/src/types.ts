@@ -81,6 +81,18 @@ export interface RunContext {
   runId?: string;
 }
 
+/**
+ * Provenance / trust origin of an ingested artifact (PI-1). Tagged at the
+ * ingestion edge and threaded through Memory entries, ledger rows, and RunCtx so
+ * any agent run knows whether its context is tainted. This is the primitive every
+ * other injection defense reads (PI-2 egress gating, PI-3 quarantine).
+ *  - `operator`      — authored by the kernel/platform itself (fully trusted).
+ *  - `user_content`  — authored by the workspace's own user (trusted).
+ *  - `untrusted_external` — anything from outside (email bodies, scraped pages,
+ *    screen/AX/clipboard captures). Untrusted by default; this is the safe floor.
+ * PI-1 only TAGS and PERSISTS — it does not gate behavior (that is PI-2). */
+export type TrustOrigin = "operator" | "user_content" | "untrusted_external";
+
 /** A mutation request entering the pipeline. */
 export interface ActionRequest {
   workspaceId: string;
@@ -98,6 +110,10 @@ export interface ActionRequest {
   context?: RunContext;
   /** Trace seed: ties a request to its originating event/signal. */
   seed?: string;
+  /** Provenance of the input driving this request (PI-1). Threaded onto the
+   * ledger row so a proposal ingested from untrusted content is auditable as
+   * such. Absent = not ingested from a tagged source (kernel-authored). */
+  trustOrigin?: TrustOrigin;
 }
 
 export type PolicyPhase = "pre" | "runtime" | "post";
@@ -149,6 +165,25 @@ export interface SkillOutput {
   diff?: unknown;
 }
 
+/** Minimal execution snapshot fields the eval reducers read. */
+export interface ExecutionSnapshot {
+  terminalState?: "completed" | "error" | "timeout" | "fallback" | "chain_depth_exceeded";
+  error?: boolean;
+  timedOut?: boolean;
+  fallbackUsed?: boolean;
+  chainDepthExceeded?: boolean;
+  violationCount?: number;
+  planeGateRejected?: boolean;
+  approvalBypassAttempted?: boolean;
+  modelVersion?: string;
+  tokenCount?: number;
+  toolInputCount?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  cost?: number;
+  baselineCost?: number;
+}
+
 export type ProposalStatus = "pending_review" | "applied" | "rejected";
 
 /** What the pipeline returns from `propose`. The id IS the ledger entry id. */
@@ -185,6 +220,7 @@ export interface LedgerEntry {
   policyResults: PolicyResult[];
   /** Links a decision row back to the proposal it resolves. */
   refLedgerId?: string;
+  executionSnapshot?: ExecutionSnapshot;
   seed?: string;
   /** Data tier this action touched (the access dropdown) — audit completeness;
    * threaded through unchanged when decide() replays this entry as a Proposal's
@@ -193,6 +229,10 @@ export interface LedgerEntry {
   /** Original run context (initiative/community/ritual + runId) this action ran
    * under — audit completeness; threaded through unchanged on replay. */
   context?: RunContext;
+  /** Provenance of the input that drove this action (PI-1) — threaded through
+   * unchanged on replay so the audit spine records whether a committed row
+   * originated from untrusted external content. */
+  trustOrigin?: TrustOrigin;
   createdAt: string;
 }
 

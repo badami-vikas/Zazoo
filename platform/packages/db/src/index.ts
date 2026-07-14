@@ -5,6 +5,7 @@
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
 export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
+export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
   DrizzleRoleStore,
@@ -45,6 +46,7 @@ export {
   workspaceBlueprintSchema,
 } from "./workspace-definition-store.js";
 export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
+export { DrizzleMemoryStore } from "./memory-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

@@ -9,7 +9,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { PILOT_WORKSPACE } from "./wiring.js";
+import { PILOT_WORKSPACE, type Wiring } from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -30,6 +30,12 @@ import {
   demoteOnDependencyChange,
   suspendOnFailure,
   resolveActivationApproval,
+  compareRuns,
+  buildWhyBetterCard,
+  resolveGates,
+  classifyApprovalBand,
+  canGovernanceAutoApprove,
+  rollupOrgHealth,
   InvalidTransitionError as CapabilityInvalidTransitionError,
   EvidenceThresholdError,
   compileBlueprint,
@@ -39,21 +45,30 @@ import {
   MAX_CHAIN_DEPTH,
   parseMention,
   parseSkillMention,
-  buildAgentSystemPrompt,
+  invokeAgent,
   buildCommunicationsSystemPrompt,
   COMMUNICATIONS_SKILL,
-  checkDesignConstraintViolations,
   findFoundationalAgent,
-  ANIMAL_TONE,
+  buildChiefOfStaffPersona,
+  profileFromRow,
+  resolveAnimalTone,
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
+  evaluateSandboxRequirement,
+  isUntrustedOrigin,
+  trustGrantsForOrigin,
   advancePackageState,
   promoteToAvailable,
   rollbackFromHistory,
   InvalidPackageTransitionError,
   type CapabilityManifest,
   type CapabilityManifestRow,
+  type CapabilityOrigin,
+  type TrustGrantView,
+  type WhyBetterCard,
+  type CapabilityHealthRecord,
+  type PendingProposalRecord,
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
@@ -165,6 +180,28 @@ class NonPilotWorkspaceError extends Error {
 
 function assertPilotWorkspace(workspaceId: string): void {
   if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
+}
+
+/**
+ * SEC-6: a workspace-scoped procedure must confirm the caller is actually a MEMBER
+ * of the workspace, not merely that the id is the pilot workspace. `assertPilotWorkspace`
+ * stays as the first (single-tenancy) layer; this membership check is the second, so
+ * the guarantee survives multi-tenancy. `ctx.identity` is server-resolved, never
+ * client-asserted. Applied to the membership surface (invite / listMembers / help route)
+ * now; extend to every workspace-scoped procedure as the test harness seeds member
+ * identities for its fixtures (see docs/raw/decisions-log.md, SEC-6).
+ */
+async function assertMembership(
+  workspaceStore: Wiring["workspaceStore"],
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  if (!(await workspaceStore.isMember(workspaceId, userId))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `actor "${userId}" is not a member of workspace "${workspaceId}"`,
+    });
+  }
 }
 
 const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
@@ -1185,7 +1222,12 @@ export const appRouter = t.router({
           workspaceId: z.string().min(1),
           animal: z.string().min(1),
           answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
-          verificationMethod: z.enum(["phone", "linkedin"]).nullable().default(null),
+          // SEC-7: `linkedin` was removed from this trust-bearing enum. There is no
+          // real LinkedIn OAuth proof wired, so accepting a client-asserted
+          // `verificationMethod:"linkedin"` would let the browser fabricate a
+          // verification/trust signal. Only `phone` (the explicitly-dummy OTP flow
+          // below) is accepted until a real OAuth proof exists.
+          verificationMethod: z.enum(["phone"]).nullable().default(null),
           connectedSourceIds: z.array(z.string()).default([]),
         }),
       )
@@ -1213,6 +1255,7 @@ export const appRouter = t.router({
         return {
           verified,
           dummy: true as const,
+          verificationSource: "dummy" as const,
           message: verified
             ? "Demo verification passed — no SMS was actually sent."
             : "Enter any 6-digit code (demo mode — no real SMS is sent).",
@@ -1235,6 +1278,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         return ctx.wiring.workspaceStore.inviteMember(input.workspaceId, input.email);
       }),
 
@@ -1242,6 +1286,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         return ctx.wiring.workspaceStore.listMembers(input.workspaceId);
       }),
 
@@ -1672,6 +1717,7 @@ export const appRouter = t.router({
       )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const members = await ctx.wiring.workspaceStore.listMembers(input.workspaceId);
         const candidates: HelpResponderCandidate[] = members.map((m) => ({
           personId: m.userId,
@@ -1870,6 +1916,43 @@ export const appRouter = t.router({
         return { proposal, state };
       }
 
+      // EVAL-3 (§4.2): the baseline-vs-candidate "is it better than what we
+      // already run?" gate, fired only on the promotion OUT of `validated`.
+      // Gates come from policy_params (never hard-coded); the baseline is the
+      // active predecessor of the same lineage. Absent a lineage baseline or
+      // eval runs on both sides, the gate is not applicable and approve proceeds
+      // unchanged (first-of-lineage has nothing to beat).
+      let whyBetter: WhyBetterCard | undefined;
+      if (state.state === "validated") {
+        const manifestRow = await ctx.wiring.capabilityStore.getManifest(input.manifestId);
+        const baselineId = manifestRow?.lineageManifestId ?? null;
+        if (baselineId) {
+          const [candRuns, baseRuns] = await Promise.all([
+            ctx.wiring.evalStore.listRuns(input.manifestId, { limit: 1000, offset: 0 }),
+            ctx.wiring.evalStore.listRuns(baselineId, { limit: 1000, offset: 0 }),
+          ]);
+          const candidate = candRuns.items.at(-1);
+          const baseline = baseRuns.items.at(-1);
+          if (candidate && baseline) {
+            const gates = resolveGates(await ctx.wiring.policyParams.get(state.workspaceId));
+            const comparison = compareRuns(baseline, candidate, gates);
+            whyBetter = buildWhyBetterCard(comparison, gates);
+            if (comparison.verdict === "reject") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `capability.approve: candidate does not beat baseline — ${whyBetter.headline}`,
+                cause: whyBetter,
+              });
+            }
+            if (comparison.verdict !== "promote") {
+              // coexist / needs-human: the automated gate declines to auto-advance;
+              // the candidate stays validated pending an explicit human decision.
+              return { proposal, state, comparison: whyBetter, advanced: false };
+            }
+          }
+        }
+      }
+
       let result;
       try {
         result = advance(state.state, toEvidence(state.evidence), ctx.run.clock.nowISO(), {
@@ -1890,7 +1973,7 @@ export const appRouter = t.router({
         ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
         evidence: state.evidence,
       });
-      return { proposal, state: nextState };
+      return { proposal, state: nextState, ...(whyBetter ? { comparison: whyBetter } : {}) };
     }),
 
     /**
@@ -1981,6 +2064,91 @@ export const appRouter = t.router({
       const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
       return { manifest, state };
     }),
+
+    /**
+     * GOV-1 — the Governance Agent's AUTOMATED approval, gated to the `minor`
+     * band ONLY (classifyApprovalBand: the two lowest risk bands AND a built-in/
+     * template origin). Moderate/major always route to a human — the Governance
+     * Agent never auto-approves them. This encodes the system policy for which
+     * capabilities may advance without a human; it does NOT make an agent the
+     * ledger decider (the agent-floor forbids that unconditionally — see
+     * pipeline.ts). A minor capability advances validated -> approved through the
+     * SAME advance()+upsertState the human `approve` path uses.
+     */
+    governanceAutoApprove: procedure.input(capabilityIdInput).mutation(async ({ input, ctx }) => {
+      const manifestRow = await ctx.wiring.capabilityStore.getManifest(input.manifestId);
+      if (!manifestRow) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
+      const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
+      if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest state" });
+
+      const band = classifyApprovalBand({ risk: manifestRow.computedRisk, origin: manifestRow.origin });
+      if (!canGovernanceAutoApprove(band)) {
+        // moderate / major → the Governance Agent refuses; a human must decide.
+        return { autoApproved: false as const, band, state };
+      }
+
+      let result;
+      try {
+        result = advance(state.state, toEvidence(state.evidence), ctx.run.clock.nowISO(), {
+          creationRequiredApproval: false,
+        });
+      } catch (err) {
+        if (err instanceof CapabilityInvalidTransitionError || err instanceof EvidenceThresholdError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
+      }
+      const nextState = await ctx.wiring.capabilityStore.upsertState({
+        manifestId: input.manifestId,
+        workspaceId: state.workspaceId,
+        state: result.nextState,
+        ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
+        suspended: state.suspended,
+        ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
+        evidence: state.evidence,
+      });
+      return { autoApproved: true as const, band, state: nextState };
+    }),
+
+    /**
+     * GOV-1 — Governance Agent org-health rollup (agent-quality doc §7):
+     * autonomy-pressure / trust-debt / approval-load / violation-trend as a pure
+     * view over the workspace's REAL capability manifests + states. Pending
+     * proposals are the capabilities awaiting a governed approve/activate
+     * decision (state validated|approved), risk = computedRisk. `violationSeries`
+     * is an honest empty until a violation-history view lands (no fabricated
+     * data — see CLAUDE.md's no-dummy-data rule). Renders for a workspace.
+     */
+    orgHealth: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
+      assertPilotWorkspace(input.workspaceId);
+      const nowMs = Date.parse(ctx.run.clock.nowISO());
+      const { items } = await ctx.wiring.capabilityStore.listManifests(input.workspaceId, {
+        limit: input.limit,
+        offset: input.offset,
+      });
+      const capabilities: CapabilityHealthRecord[] = [];
+      const pendingProposals: PendingProposalRecord[] = [];
+      for (const manifest of items) {
+        const state = await ctx.wiring.capabilityStore.getState(manifest.id);
+        if (!state) continue;
+        capabilities.push({
+          manifestId: manifest.id,
+          state: state.state,
+          successRate: state.evidence.successRate ?? 1,
+          ...(state.trustedUntil
+            ? { trustExpiresInDays: Math.ceil((Date.parse(state.trustedUntil) - nowMs) / 86_400_000) }
+            : {}),
+        });
+        if (state.state === "validated" || state.state === "approved") {
+          pendingProposals.push({
+            proposalId: manifest.id,
+            risk: manifest.computedRisk,
+            ageHours: Math.max(0, (nowMs - Date.parse(state.updatedAt)) / 3_600_000),
+          });
+        }
+      }
+      return rollupOrgHealth({ capabilities, pendingProposals, violationSeries: [] });
+    }),
   }),
 
   /**
@@ -2042,6 +2210,22 @@ export const appRouter = t.router({
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
 
+      // PKG-1 sandbox floor (Month-6): an executable capability may only install
+      // when its declared isolation satisfies the sandbox gate — no
+      // `isolation: "none"`, and any capability whose sandbox grants network/
+      // filesystem needs a real container/VM boundary (process isolation is not
+      // a boundary). A half-declared executable is rejected here rather than
+      // reaching Active unsandboxed. Declarative capabilities pass trivially.
+      for (const cap of installation.manifest.capabilities) {
+        const sandbox = evaluateSandboxRequirement(cap);
+        if (!sandbox.satisfied) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `capability "${cap.name}" cannot be installed: ${sandbox.reason} (declared isolation "${sandbox.isolation}")`,
+          });
+        }
+      }
+
       // Resolve capability dependencies (by manifestId, ignoring versionRange —
       // capability-level dependency resolution is unversioned in the existing
       // capability.register path too) via the workspace's registered capability
@@ -2085,11 +2269,22 @@ export const appRouter = t.router({
           ? "team"
           : "private";
 
+      // PKG-2 community-origin floor input: a package is treated at its
+      // LEAST-trusted capability origin — if any bundled capability is
+      // community/user_code (untrusted), the whole install is floored there.
+      const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
+      const floorOrigin: CapabilityOrigin = installation.manifest.capabilities.some((c) => isUntrustedOrigin(c.origin))
+        ? "community"
+        : "built_in";
+
       const decision = await resolveActivationApproval({
         workspaceId: input.workspaceId,
         riskBand: risk.effectiveRisk,
         audience,
-        trustGrants: [], // trust_grants lookup is a store-layer follow-up — same gap capability.activate has
+        // PKG-2 community-origin floor: an untrusted origin (community/user_code)
+        // never receives trust-grant auto-activation — community is pinned to the
+        // same tier as unreviewed local code, so it can never auto-trust above it.
+        trustGrants: trustGrantsForOrigin(floorOrigin, resolvedTrustGrants),
         killSwitch: ctx.wiring.capabilityKillSwitch,
         budgets: ctx.wiring.capabilityBudgets,
         todayKey: input.todayKey,
@@ -2259,6 +2454,23 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
 
+      // AGENTS-2: resolve the spirit-animal tone + Chief-of-Staff persona
+      // SERVER-SIDE from the stored onboarding profile rather than trusting the
+      // client-supplied `input.animal`. The persisted profile's animal wins; the
+      // client field is only a fallback for a workspace that hasn't saved a
+      // profile yet (progressive onboarding). `profileFromRow` maps only what the
+      // row actually carries — a missing profile just yields a generic persona,
+      // same ZERO-input graceful default the kernel uses everywhere.
+      const profileRow = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+      const profile = profileRow ? profileFromRow(profileRow) : undefined;
+      const resolvedAnimalId = profile?.chosenAnimalId ?? input.animal;
+      const tone = resolveAnimalTone(resolvedAnimalId);
+      const cosPersona = buildChiefOfStaffPersona(profile ?? { workspaceId: input.workspaceId, source: "onboarding" });
+      // Additive, display-only projection of the resolved CoS identity so the
+      // client/avatar can reflect it — two different profiles yield two different
+      // persona cards, observable at the API boundary. Never carries authority.
+      const personaCard = { id: cosPersona.id, name: cosPersona.name, ...(cosPersona.tone ? { tone: cosPersona.tone } : {}) };
+
       // A leading "@communications"/"@comms" mention resolves to the
       // Communications SKILL (ADR-046), not an agent — no identity, no
       // capability_scope, just a direct model-backed drafting reply. Checked
@@ -2269,8 +2481,7 @@ export const appRouter = t.router({
       if (skillMention.skill === "communications") {
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
-        const system = buildCommunicationsSystemPrompt(animalTone);
+        const system = buildCommunicationsSystemPrompt(tone);
         const text = model
           ? (await model.complete({ system, prompt: skillMention.rest || input.message, maxTokens: 512 })).text
           : `${COMMUNICATIONS_SKILL.mission} (offline mode — no model configured, so I can't draft this yet, but I've recorded the request.)`;
@@ -2283,6 +2494,7 @@ export const appRouter = t.router({
           // exists purely so AgentPanel.tsx can badge the reply the same
           // way it badges an actual agent's.
           agent: "communications" as const,
+          persona: personaCard,
         };
       }
 
@@ -2298,31 +2510,34 @@ export const appRouter = t.router({
         const agent = findFoundationalAgent(agentId);
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const animalTone = input.animal ? ANIMAL_TONE[input.animal] : undefined;
-        const system = buildAgentSystemPrompt(agentId, animalTone);
-        const text = model
-          ? (await model.complete({ system, prompt: rest || input.message, maxTokens: 512 })).text
-          : `${agent.mission} (offline mode — no model configured, so I can't reason about this yet, but I've recorded the request.)`;
 
-        if (!agent.requiresApproval) {
+        // AGENTS-1: invoke the addressed agent as a first-class peer through the
+        // @bridge/core `invokeAgent` seam (system-prompt assembly + model call +
+        // offline fallback + the design-constraint check all live in core). The
+        // result is a DISCRIMINATED UNION with no "executed" variant, so the
+        // strongest thing a chat reply can carry is a draft this procedure must
+        // still propose — the "no independent write" guarantee is structural,
+        // not a convention re-checked here.
+        const result = await invokeAgent({ agentId, message: rest || input.message, ...(model ? { model } : {}), ...(tone ? { tone } : {}) });
+
+        if (result.kind === "information") {
           return {
-            reply: text,
+            reply: result.text,
             decision: { kind: "direct_reply" as const, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
             proposal: null,
             agent: agentId,
+            persona: personaCard,
           };
         }
 
-        // Capability Builder only — best-effort textual check against the
-        // standing design constraints (agents.ts's
-        // CAPABILITY_BUILDER_DESIGN_CONSTRAINTS/checkDesignConstraintViolations).
-        // Never blocks the draft: violations are surfaced to the human
-        // approver in Approvals, same draft-then-approve pattern as every
-        // other governance signal — this is a flag, not a gate.
-        const constraintViolations = agentId === "capability_builder" ? checkDesignConstraintViolations(text) : [];
+        // result.kind === "draft" (Capability Builder, `requiresApproval`). The
+        // core-computed design-constraint violations are surfaced to the human
+        // approver — never a gate, same draft-then-approve pattern as every
+        // other governance signal.
+        const constraintViolations = result.constraintViolations;
         const replyText = constraintViolations.length
-          ? `${text}\n\n⚠ Design-constraint check flagged ${constraintViolations.length} item(s) for the approver:\n${constraintViolations.map((v) => `- ${v}`).join("\n")}`
-          : text;
+          ? `${result.text}\n\n⚠ Design-constraint check flagged ${constraintViolations.length} item(s) for the approver:\n${constraintViolations.map((v) => `- ${v}`).join("\n")}`
+          : result.text;
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
@@ -2330,7 +2545,7 @@ export const appRouter = t.router({
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "execute",
             resourceType: "skill",
-            inputs: { agent: agentId, message: input.message, draft: text, designConstraintViolations: constraintViolations },
+            inputs: { agent: agentId, message: input.message, draft: result.text, designConstraintViolations: constraintViolations },
             skill: "stageMutation",
           },
           ctx.run,
@@ -2340,6 +2555,7 @@ export const appRouter = t.router({
           decision: { kind: "route" as const, route: agentId, confidence: 1, reason: `directly addressed via @${agentId}`, source: "model" as const },
           proposal,
           agent: agentId,
+          persona: personaCard,
         };
       }
 
@@ -2379,6 +2595,7 @@ export const appRouter = t.router({
           decision,
           proposal: null,
           agent: "chief_of_staff" as const,
+          persona: personaCard,
         };
       }
 
@@ -2400,6 +2617,7 @@ export const appRouter = t.router({
         decision,
         proposal,
         agent: "chief_of_staff" as const,
+        persona: personaCard,
       };
     }),
   }),

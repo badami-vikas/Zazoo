@@ -11,6 +11,7 @@
  * ON TOP of CapabilityManifest/RiskBand/etc., never redefines them.
  */
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
+import type { WorkspaceBlueprint } from "../blueprint.js";
 
 /** package.yaml's `kind` — one level broader than CapabilityType (a package
  * can itself be shaped like a whole workspace_definition, not just one
@@ -65,6 +66,13 @@ export interface PackageManifest {
   capabilities: CapabilityManifest[];
   contextProviders: PackageContextProvider[];
   workspaceVocab: PackageWorkspaceVocab;
+  /** Present ONLY for a `workspace_definition` package (BLUEPRINT-1, Month-6):
+   * the versioned, declarative WorkspaceBlueprint this package publishes. A
+   * workspace_definition COMPOSES capabilities by reference (blueprint.
+   * capabilities) rather than bundling them, so such a package's top-level
+   * `capabilities[]` is empty and this field carries the real payload. Signed
+   * as part of the manifest (PKG-2) — canonicalizeManifest includes it. */
+  blueprint?: WorkspaceBlueprint;
 }
 
 /** Single-live-version states (format doc §3, Zapier model). */

@@ -8,7 +8,21 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
-- **OPEN 2026-07-13 — BUILD: `@bridge/web` typecheck fails on an un-narrowed agent-routing discriminated union (`.route` accessed without a `kind` guard).**
+---
+
+## OPEN 2026-07-14 — mobile (Expo) app absent from ALL accessible refs — XP-3 blocker (not a code defect)
+XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobile/Expo app exists anywhere reachable: `platform/apps` = `api`/`desktop`/`web` only; a scan of all ~20 remote branches found no `app.json`, `eas.json`, react-native, or expo, and zero mobile commits across all refs; the previously-referenced `claude/heuristic-booth-f8f5da` branch is not on the remote (nothing to fetch). Expo/RN also can't be added here (no `pnpm install`). Recorded so a future session does not re-hunt for a non-existent app. This is an infra/sequencing gap, not a bug in shipped code. RESOLVE when the Expo app is present on the working branch + devices/simulators are available. See ADR-085; tracked in PROGRESS §Batch 8.
+
+## OPEN 2026-07-14 — `blueprintFieldSchema` enum in the workspace-definition store omits `"location"` (10 kinds vs 11)
+`packages/db/src/workspace-definition-store.ts`'s `blueprintFieldSchema` field-`kind` enum lists 10 kinds but `@bridge/core`'s `BLUEPRINT_FIELD_KINDS` (blueprint.ts) and the router accept 11 — it is missing `"location"`. So a blueprint carrying a `location` field parses fine in core (`parseWorkspaceBlueprint`) and at the router, but would be REJECTED if validated through the db store's schema — an inconsistency that will surface once a `location`-using blueprint is persisted via that store. Spotted during BLUEPRINT-1 (Batch 9); pre-existing, NOT introduced here, and out of Batch-9 scope (Batch 9 touches core + apps/api + services/commons, not the db workspace-definition store). FIX (~1 line): add `"location"` to the `blueprintFieldSchema` enum so it matches `BLUEPRINT_FIELD_KINDS`. Detect: persist a blueprint with a `location` field through `workspace-definition-store` → schema rejection.
+
+## OPEN 2026-07-14 — `DrizzleCanonicalIdentityStore.upsertPersonIdentity` ON CONFLICT can't match the partial `dedup_key` unique index (42P10)
+`packages/db/src/canonical-store.ts:65` inserts with `.onConflictDoNothing({ target: peopleCanonical.dedupKey })`, emitting a bare `ON CONFLICT ("dedup_key") DO NOTHING`. But migration `0004_schema_hardening.sql` DROPS the full `people_canonical_dedup_key_unique` constraint (from 0000) and replaces it with a **partial** unique index `people_canonical_dedup_key_uq … WHERE dedup_key IS NOT NULL`. Postgres cannot use a partial index as an ON CONFLICT arbiter unless the conflict clause repeats the predicate, so *every* `upsertPersonIdentity` call with a non-null `dedupKey` throws `42P10` ("no unique or exclusion constraint matching the ON CONFLICT specification"). Reproduces on real Postgres/Supabase, not just pglite (0004 runs identically there). Latent because existing tests (`integrations-google/*`, `apps/api/test/wiring.test.ts`) exercise only the `InMemoryCanonicalIdentityStore` fake (the zero-infra default until a Supabase URL is configured), so the Drizzle path never ran against a migrated DB until a Batch-6 db-coverage probe added a real round-trip test. Pre-existing, unrelated to Batch 6 (cloud dual-write surface). FIX (deferred, ~1 line): `.onConflictDoNothing({ target: peopleCanonical.dedupKey, targetWhere: isNotNull(peopleCanonical.dedupKey) })` (import `isNotNull` from drizzle-orm) so the arbiter matches the partial index; then add a real pglite round-trip test (create → dedup) to lock it. Scope: `@bridge/db` canonical-store only; no Batch-6 impact. Detect: a pglite-backed test calling `upsertPersonIdentity` with a non-null `dedupKey`.
+
+## OPEN 2026-07-14 — Drizzle meta snapshot chain is incomplete; `generate` re-emits prior hand-written DDL
+`packages/db/migrations/meta/` only holds snapshots for 0000/0005/0006/0007/0010 — several migrations (incl. 0008 RLS and 0009 memory/taint) were authored without refreshing the drizzle snapshot, so the diff baseline lags the real schema. Consequence: `drizzle-kit generate` for Batch-6's `capability_manifests.kind` column emitted a polluted `0010_steep_tusk.sql` that ALSO re-created the `memories` table + `ledger.trust_origin` (both already live from 0009) — which would fail the sequential pglite migrator with "relation already exists". Worked around this batch by hand-trimming `0010_steep_tusk.sql` to only the `kind` ALTER; the freshly-generated `0010_snapshot.json` IS a correct full-schema baseline, so future generates diff cleanly against it. Proper fix (deferred, out of Batch-6 scope): backfill the missing intermediate snapshots or re-baseline the meta chain so `generate` stops re-emitting historical DDL. Low priority (runtime migrations are correct; only the generate-time diff is affected).
+
+- **RESOLVED 2026-07-14 — BUILD: `@bridge/web` typecheck fails on an un-narrowed agent-routing discriminated union (`.route` accessed without a `kind` guard).**
   `apps/web/src/app/components/shared/AgentPanel.tsx:218` and `apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` read
   `.route` on the classifier decision union `{kind:"route"; route} | {kind:"direct_reply"} | …`; only the
   `kind:"route"` arm carries `route`, so `tsc` errors TS2339. Pre-existing (reproduces on a clean tree with zero
@@ -16,6 +30,9 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
   does NOT run this project's typecheck, so it was green). Not caught by CI build. FIX: narrow on
   `decision.kind === "route"` before reading `.route` (or discriminate via a switch) in both files. Scope: web only,
   no runtime impact on the API. Detect: `pnpm --filter @bridge/web typecheck`.
+  **RESOLVED 2026-07-14**: replaced `t.decision.route && …` with `t.decision.kind === "route" && …` in both
+  files (behavior-identical — `.route` was only ever truthy on the route arm — now type-safe). `@bridge/web`
+  typecheck green; full `turbo run typecheck test build --force` 59/59 green.
 
 
 - **RESOLVED 2026-07-11 — incoming-main verification: Capability Builder identifier violated kernel vocabulary lint; package pagination test assumed an empty seeded registry.**
@@ -955,3 +972,6 @@ The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. O
 
 ## OPEN 2026-07-07 — No per-Initiative resource scoping in the API (Control Panel shows Organization-wide rows only)
 `/initiative/:id/control-panel` (ControlPanelPage.tsx) can only enumerate workspace-scoped resources (`packages.list`, `integration.list`, `google.list`) — there is no API concept binding a Module/Integration/Automation/Assistant to one initiative, and no `ritual.list`/`agent.list` read procedures at all (pre-existing gaps). The panel honestly labels Scope "Organization-wide" and renders note rows; real per-Initiative configuration needs kernel + router support.
+
+## OPEN 2026-07-14 — @bridge/db test suite heavier after RLS migration 0008 (flakes under concurrent full-build load)
+`packages/db/migrations/0008_rls_as_code.sql` makes every `createLocalDb()`→`migrate()` apply RLS policies across 37 tables, so db test setup is materially heavier. During a full `turbo run typecheck test build --force` run CONCURRENTLY with 3 other subagent builds (machine thrash), the db test process once hit `'Promise resolution is still pending but the event loop has already resolved'` (~16.5s) and failed. Re-run alone under normal load: 53/53 green, and the batch-close full build (run alone) was also green → resource-starvation flakiness, not a logic defect. CI runners are dedicated (resemble the clean run). Watch: if it recurs on CI, cap db test concurrency (`--test-concurrency=1`) or split the migration cost. Low priority.

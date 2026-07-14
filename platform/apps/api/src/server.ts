@@ -101,12 +101,34 @@ export function assertProductionEnv(): void {
 /** A syntactically-valid probe id — the stores below are queried by shape, not existence. */
 const HEALTH_PROBE_ID = "00000000-0000-0000-0000-000000000000";
 
+/**
+ * SEC-7 — pino log redaction. If a request body or Authorization header is ever
+ * serialized into a log line (a custom serializer, an error log, or a debug dump),
+ * these paths are censored instead of written in the clear. The onboarding phone
+ * flow carries a phone number + OTP `code`, and bearer credentials ride the
+ * Authorization header — none of which should ever land in logs.
+ */
+export const LOG_REDACT_PATHS: string[] = [
+  "req.body.phone",
+  "req.body.code",
+  "req.headers.authorization",
+  'req.headers["authorization"]',
+  "body.phone",
+  "body.code",
+  "headers.authorization",
+  'headers["authorization"]',
+];
+
+export const loggerOptions = {
+  redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
+};
+
 export async function buildServer() {
   assertProductionEnv();
   const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
-  const app = Fastify({ logger: true, maxParamLength: 5000 });
+  const app = Fastify({ logger: loggerOptions, maxParamLength: 5000 });
   const origin = corsOriginConfig();
   if (origin === true) {
     app.log.warn("CORS: no API_ALLOWED_ORIGINS set — allowing all origins (dev default). Set API_ALLOWED_ORIGINS in any shared/production environment.");

@@ -68,11 +68,27 @@ test("translateForeignCapability: pi-package theme -> view", () => {
   assert.equal(result.import.translatedManifest.capabilityType, "view");
 });
 
-test("translateForeignCapability: mcp-server -> tool, tools become connectors, no sandbox required", () => {
+test("translateForeignCapability: mcp-server without a sandboxPolicy is refused (PKG-1: carve-out removed)", () => {
+  // The old "MCP is exempt from sandbox by protocol" carve-out is gone — an
+  // mcp-server import is treated as executable/untrusted and must carry a real
+  // sandboxPolicy (isolation !== "none"), like any other executable import.
   const result = translateForeignCapability(
     test_fixture_input({
       source: "mcp-server",
       descriptor: { tools: [{ name: "search" }, { name: "fetch" }], resources: [] },
+    }),
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(result.error instanceof ForeignImportSandboxRequiredError);
+});
+
+test("translateForeignCapability: mcp-server WITH a sandboxPolicy -> tool, tools become connectors", () => {
+  const result = translateForeignCapability(
+    test_fixture_input({
+      source: "mcp-server",
+      descriptor: { tools: [{ name: "search" }, { name: "fetch" }], resources: [] },
+      sandboxPolicy: { isolation: "container", networkEgress: true, filesystemAccess: [] },
     }),
   );
   assert.equal(result.ok, true);

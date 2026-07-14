@@ -23,6 +23,7 @@ import {
   type LedgerEntry,
   type LedgerStore,
   type RunContext,
+  type TrustOrigin,
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { ledger } from "./schema.js";
@@ -75,6 +76,7 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
     ...(row.seed ? { seed: row.seed } : {}),
     ...(row.dataScope ? { dataScope: row.dataScope as DataScope } : {}),
     ...(row.context != null ? { context: row.context as RunContext } : {}),
+    ...(row.trustOrigin ? { trustOrigin: row.trustOrigin as TrustOrigin } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -107,6 +109,7 @@ export class DrizzleLedgerStore implements LedgerStore {
         ...(entry.seed ? { seed: entry.seed } : {}),
         ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
         ...(entry.context ? { context: entry.context } : {}),
+        ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
         createdAt: new Date(entry.createdAt),
       });
       return entry;

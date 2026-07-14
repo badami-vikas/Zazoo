@@ -24,7 +24,7 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 ---
 
 ## ⚠ REALIGNED 2026-07-13 (AP-010 + AP-011) — Egg+Commons prototype FIRST, then repo cleanup, then bugs, rest after
-**Standing pre-flight for every run: `git fetch && git pull` (or merge origin/main) BEFORE planned implementation — the developer pushes work in parallel.** Known now: `origin/manishsbhoopalam8498-security-p0-hardening` (2 commits, unmerged) implements old Batch-1 Security P0 (SEC-1/2/3 + XP-1) — reconcile/merge that branch instead of redoing those items.
+**Standing pre-flight for every run: `git fetch && git pull` (or merge origin/main) BEFORE planned implementation — the developer pushes work in parallel.** The security-first H2 roadmap (Months 1–6) has since been fully built and **merged into main via PR #11→#12** (2026-07-14): Batch 1 Security P0 = AP-012 (ADR-057/058/059); Batches 2–9 = AP-013–019 (ADR-060–085). See "DONE — security-first H2 roadmap" below. Only Batch 8 (XP-2 unsigned-partial / XP-3 blocked) stays infra-gated. Go-forward priority is unchanged: Egg+Commons first.
 
 ## NOW — Batch 1: Egg + Commons PROTOTYPE → `docs/raw/egg-commons-feature-roadmap-2026-07.md` (EG0–EG1, CM0–CM1) · UI rules: `docs/raw/ui-architecture-rules-2026-07.md`
 
@@ -48,13 +48,26 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [x] 2026-07-13 — SEC-3 — dependency bumps (drizzle-orm, react-router HIGH advisories) + `pnpm audit` CI gate, ADR-058
 - [x] 2026-07-10 — SEC-4 — Tauri shell CSP (was `csp: null`, now a real policy — see BUGS.md)
 - [x] 2026-07-13 — XP-1 — cross-OS compile (cfg-gate Apple crates so Linux/Windows build), ADR-059 — ⚠ CI-green DONE-WHEN (all 3 OSes) still unverified; the new `desktop` 3-OS matrix job hasn't run yet, first CI run on this reconciled main is the remaining evidence
-- [ ] Work remaining `docs/BUGS.md` OPEN P0s in severity order (SEC-5 RLS-as-code · SEC-6 workspace membership checks · SEC-7 Recon SSRF among them)
+- [ ] Work remaining `docs/BUGS.md` OPEN P0s in severity order — SEC-5 (RLS-as-code) · SEC-6 (workspace membership) · SEC-7 (Recon SSRF) now DONE via the security-roadmap merge (AP-014; ADR-061/062/063); other OPEN P0s remain
 
-## Batch 4 — Rest of implementation (previous plan resumes) → old Batch 2/3 content
+## Batch 4 — Rest of implementation — DONE via the security-roadmap merge (PR #11→#12, 2026-07-14)
 
-- [ ] Testing P0 (pre-pilot gate) → `docs/raw/testing-strategy.md` §P0: `decide()` double-approve concurrency · `matchOne` tie-break · OAuth token-refresh persistence · `router.ts` coverage · `hasExternal` idempotency · vitest+coverage in CI
-- [ ] Measurement M2 → `docs/raw/roadmap-6month-2026-h2.md` §M2: EVAL-1 Agent Quality scoring reducer → EVAL-2 EvalStore
-- [ ] Remaining sequencer months M3–M6 follow
+- [x] Testing P0 (pre-pilot gate) → `docs/raw/testing-strategy.md` §P0 — done as security-roadmap Batch 2 (AP-013): decide()/matchOne/hasExternal already-green + OAuth-refresh + router-decide tests + per-package `node --test` coverage floors (NOT vitest)
+- [x] Measurement M2 → `docs/raw/roadmap-6month-2026-h2.md` §M2 — done as Batch 3 (AP-014): EVAL-1 Agent Quality scoring reducer + EVAL-2 EvalStore
+- [x] Remaining sequencer months M3–M6 — done as Batches 4–9 (AP-015–019); see "DONE — security-first H2 roadmap" below
+
+## DONE — security-first H2 roadmap Months 1–6 (built on the security branch; merged to main via PR #11→#12, 2026-07-14)
+Full per-batch detail lives in the `AP-0xx` rows of `docs/APPROVALS.md`, the dated entries in `docs/log.md`, and the ADRs in `docs/raw/decisions-log.md`. IDs below are the canonical (post-merge) AP/ADR numbers.
+
+- **Batch 1 — Security P0 (Month-1)** — AP-012; ADR-057/058/059. SEC-1 auth-on-mutation · SEC-2 fail-closed CORS + rate-limit · SEC-3 dep bumps + `pnpm audit` gate · XP-1 cross-OS compile. (XP-1's 3-OS CI-green DONE-WHEN awaits the first `desktop` matrix run.)
+- **Batch 2 — Testing P0** — AP-013. decide() TOCTOU / matchOne tie-break / hasExternal (already-green pre-batch) + OAuth token-refresh persist + router propose/decide tests + per-package `node --test` coverage floors (NOT vitest).
+- **Batch 3 — Measurement + security M2** — AP-014; ADR-060/061/062/063. EVAL-1 AQV reducer · EVAL-2 EvalStore · SEC-5 RLS-as-code (migration 0008 + prod boot guard) · SEC-6 workspace membership · SEC-7 Recon SSRF + pino redaction + dropped linkedin trust path.
+- **Batch 4 — Month-3 PI-1 + MEM-1** — AP-015; ADR-064/065. Provenance/taint tagging (trustOrigin → Memory + ledger, migration 0009) · MemoryStore port + `memories` table + authority-scoped reads + capture→inspectable Memory.
+- **Batch 5 — Month-3 PI-2 + PI-3** — AP-016; ADR-066/067. Structural tainted-context egress gate (`core/src/policy/taint-egress.ts`) · tool-less ContentGuard + spotlighting (local-plane adapter). Not wired into apps/api (no ingest consumer/MCP yet — by design).
+- **Batch 6 — Month-4 self-improvement loop** — AP-017; ADR-068–074. EVAL-3 baseline-vs-candidate comparison · EVAL-4 LLM-judge scorer · REG-1 component registry + overlap detection · VAR-1 variance adjuster · GOV-1 governance org-health rollup.
+- **Batch 7 — Month-5 AGENTS-1 + AGENTS-2** — AP-018; ADR-075–078. Foundational agents as invocable peers (governed information|draft union, no executed variant) · onboarding-profile → Chief-of-Staff persona resolved server-side (stored spirit-animal tone wins).
+- **Batch 8 — Month-5 XP-2 + XP-3 — INFRA-GATED (NOT done)** — ADR-084 (XP-2 honest partial: unsigned 3-OS bundle CI + a real local macOS `.dmg`; only signing/notarization is cert-gated) · ADR-085 (XP-3 confirmed blocked: no mobile/Expo app on any accessible ref). Also applied this session (Codex proposals): AP-007 (roadmap phase-mapping, ADR-083) + AP-008 (CLAUDE.md license-research rule).
+- **Batch 9 — Month-6 packages / Commons / blueprint / consolidate** — AP-019; ADR-079–082. PKG-1 sandbox floor before executable logic · PKG-2 Commons supply-chain trust (ed25519 signing + verify-on-install + TLS-by-default + community-origin floor) · BLUEPRINT-1 versioned Commons-publishable manifest · CONSOLIDATE testing debt (`node --test` + coverage floors).
 
 ## Done batches (pre-realignment)
 - DOCS-1 / token-efficient Month-1 (all 5 items ✔ 2026-07-09: INDEX.md, CODEMAPS/flows.md, CLAUDE.md token rules, skill scoping, this tracker) → `docs/raw/token-efficient-development-2026-07.md` §4. ⚠ open note: claude.ai-connector plugins can only be disabled in claude.ai settings.

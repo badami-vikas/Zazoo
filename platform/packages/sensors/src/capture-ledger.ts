@@ -22,6 +22,7 @@
  * timeline_entry_refs lands in @bridge/db when the desktop shell wires up
  * persistence.
  */
+import type { TrustOrigin } from "@bridge/core";
 import type { ContextObservation } from "./types.js";
 
 export interface MemoryEntryRecord {
@@ -34,6 +35,8 @@ export interface MemoryEntryRecord {
   occurredAt: string;
   /** timeline_entries.created_by — the provider id (provenance). */
   createdBy: string;
+  /** PI-1 provenance of the captured content. */
+  trustOrigin: TrustOrigin;
   /** timeline_entry_refs rows — links to the entities the capture concerns. */
   refs: Array<{ entityType: string; entityId: string }>;
   /** Derived payload + redactions, kept for inspection (derived ONLY). */

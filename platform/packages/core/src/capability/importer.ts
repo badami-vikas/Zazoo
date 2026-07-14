@@ -93,9 +93,18 @@ function requiresSandbox(input: ForeignCapabilityDescriptorInput): boolean {
     // assets and do not require sandboxing.
     return descriptor.primitive === "extension";
   }
-  // mcp-server tool calls run inside the (already-sandboxed-by-protocol) MCP
-  // transport, and oss-integration is a manual-permission passthrough with
-  // no code execution implied by this layer alone.
+  if (input.source === "mcp-server") {
+    // PKG-1: the MCP "exempt from sandbox by protocol" carve-out is REMOVED.
+    // A local (stdio-transport) MCP server IS arbitrary local code execution,
+    // and even a remote one is community/untrusted origin whose tool calls we
+    // must not auto-trust at a higher tier than user_code — the transport
+    // boundary is NOT a security boundary. Treat every mcp-server import as
+    // executable so it must carry a real sandboxPolicy (isolation !== "none")
+    // exactly like an activepieces piece or an executable pi extension.
+    return true;
+  }
+  // oss-integration is a manual-permission passthrough with no code execution
+  // implied by this layer alone.
   return false;
 }
 

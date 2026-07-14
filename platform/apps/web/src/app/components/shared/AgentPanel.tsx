@@ -215,7 +215,7 @@ export function AgentPanel() {
             {t.decision && (
               <div className="mt-1 flex flex-wrap gap-1 justify-start">
                 <Badge variant="outline">{t.decision.kind}</Badge>
-                {t.decision.route && <Badge variant="secondary">{t.decision.route}</Badge>}
+                {t.decision.kind === "route" && <Badge variant="secondary">{t.decision.route}</Badge>}
                 {t.proposalId && <Badge variant="outline">proposal pending in Approvals</Badge>}
               </div>
             )}

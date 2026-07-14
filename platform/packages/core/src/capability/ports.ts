@@ -5,12 +5,16 @@
  * The in-memory implementation here lets @bridge/core run + be tested with no
  * database, same as every other port in this package.
  */
-import type { Audience, CapabilityOrigin, CapabilityState, CapabilityType, RiskBand } from "./types.js";
+import type { Audience, CapabilityEvidence, CapabilityOrigin, CapabilityState, CapabilityType, ComponentKind, RiskBand } from "./types.js";
 
 export interface CapabilityManifestRow {
   id: string;
   workspaceId: string;
   capabilityType: CapabilityType;
+  /** REG-1 Component Registry discriminator (undefined-elements §2) — the
+   * finer registry classification overlap detection keys on. Null/absent on
+   * pre-REG-1 rows; the detector falls back to `capabilityType`. */
+  kind?: ComponentKind | null;
   name: string;
   version: string;
   origin: CapabilityOrigin;
@@ -32,12 +36,7 @@ export interface CapabilityStateRow {
   trustedUntil?: string | null;
   suspended: boolean;
   suspendReason?: string | null;
-  evidence: {
-    activeRunCount?: number | undefined;
-    successRate?: number | undefined;
-    violationCount?: number | undefined;
-    ageDays?: number | undefined;
-  };
+  evidence: Partial<CapabilityEvidence>;
   updatedAt: string;
 }
 

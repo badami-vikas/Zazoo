@@ -14,7 +14,7 @@
  *      entries to the LOCAL graph and dual-writes ONLY the public identity to cloud
  *      canonical. Every step is append-only audited in the (local) ledger.
  */
-import type { Proposal, ProposalStatus, ResourceType, RunCtx, UniversalActionPipeline } from "@bridge/core";
+import type { Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
 import type { BodyStore, LocalGraphStore } from "@bridge/local";
 import type { CanonicalIdentityStore } from "@bridge/db";
 import {
@@ -24,6 +24,7 @@ import {
   type EmailAddress,
   type GmailThread,
 } from "./contracts.js";
+import { GOOGLE_MANIFEST } from "./manifest.js";
 import { SKILL_SOURCE_CALENDAR, SKILL_SOURCE_GMAIL, SKILL_STAGE } from "./skills.js";
 
 // ── Materialization directive (carried in the proposal, applied on approval) ────
@@ -42,6 +43,8 @@ export interface EntityDirective {
   kind: "touchpoint" | "memory" | "signal";
   personId?: string;
   payload: unknown;
+  /** PI-1 provenance of the ingested content. */
+  trustOrigin?: TrustOrigin;
   source: string;
   sourceRecordId: string;
 }
@@ -292,6 +295,7 @@ export class IntakeService {
     const touchpointId = ctx.ids.next();
     const memoryId = ctx.ids.next();
     const lastMsg = thread.messages[thread.messages.length - 1];
+    const gmailTrustOrigin: TrustOrigin = GOOGLE_MANIFEST.intake_policy.quarantine ? "untrusted_external" : "user_content";
 
     const directive: IntakeDirective = {
       ...(newPerson ? { person: newPerson } : {}),
@@ -320,6 +324,7 @@ export class IntakeService {
             body: lastMsg?.bodyText ?? "",
             occurredAt: thread.lastMessageAt,
           },
+          trustOrigin: gmailTrustOrigin,
           source: GMAIL_SOURCE,
           sourceRecordId: thread.threadId,
         },
@@ -464,6 +469,7 @@ export class IntakeService {
     ctx: RunCtx,
   ): Promise<IntakeProposalSummary> {
     const seed = `${args.directive.external[0]?.source}:${args.sourceRecordId}`;
+    const trustOrigin = args.directive.entities.find((e) => e.trustOrigin)?.trustOrigin;
 
     // Propose-time dedup: a proposal for this exact external item is already sitting
     // PENDING in the Approvals inbox (staged by an earlier sync in this process). Don't
@@ -490,6 +496,7 @@ export class IntakeService {
         skill: SKILL_STAGE,
         dataScope: "all",
         seed,
+        ...(trustOrigin ? { trustOrigin } : {}),
         inputs: {
           directive: args.directive,
           display: {
