@@ -29,6 +29,9 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 ## NOW — Batch 1: Egg + Commons PROTOTYPE → `docs/raw/egg-commons-feature-roadmap-2026-07.md` (EG0–EG1, CM0–CM1) · UI rules: `docs/raw/ui-architecture-rules-2026-07.md`
 
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, artifacts section + `~/Documents/Bridge Workspace/` tree
+  - [x] 2026-07-14 — inventory + toggle/list/sub-module target map → `docs/raw/ui-architecture-alignment-audit-2026-07.md`
+  - [x] 2026-07-14 — retire dead Control Panel toolbar slot; put Initiative Control Panel in page 3-dots; deep-link Initiative page/view query state
+  - [ ] Remaining — route-backed seed toggles · Form registry/write parity · sub-module nav · three-page section alignment · artifact tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
 - [ ] EG0 — Egg shell foundation: crates + hotkey + keychain/CSP posture → egg-commons roadmap §EG0
 - [ ] EG1 — onboarding v2 (OnboardingProfile → CoS prompt, permission theater, governed live-demo beat) → §EG1
 - [ ] CM0 — wire the Commons registry (commons.* tRPC exists, nothing consumes it — biggest gap) → §CM0

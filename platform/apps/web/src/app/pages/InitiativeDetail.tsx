@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Calendar, Target, Flag, Ban, FileText, FileSpreadsheet, Plus, Trash2, Check, Upload, LayoutList, BarChart3, Repeat, Table as TableIcon, Edit2 } from 'lucide-react';
-import { Link, useParams, useNavigate } from 'react-router';
+import { ChevronLeft, ChevronRight, ChevronDown, Calendar, Target, Flag, Ban, FileText, FileSpreadsheet, Plus, Trash2, Check, Upload, LayoutList, BarChart3, Repeat, Table as TableIcon, Edit2, MoreVertical, SlidersHorizontal } from 'lucide-react';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import clsx from 'clsx';
 import { useInitiatives, updateInitiative } from '../data/initiatives';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 
 // Small inline-editable text (click to edit, Enter/blur to save).
 function Editable({ text, onSave, multiline = false, className, placeholder }: { text: string; onSave: (v: string) => void; multiline?: boolean; className?: string; placeholder?: string }) {
@@ -48,12 +49,11 @@ const DEFAULT_OVERVIEW: Overview = {
 export function InitiativeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const iid = id ? decodeURIComponent(id) : 'new';
   const initiatives = useInitiatives();
   const stored = initiatives.find(x => x.id === iid);
 
-  const [activeTab, setActiveTab] = useState('Overview');
-  const [touchpointsView, setTouchpointsView] = useState('list');
   const counter = useRef(0);
 
   const name = stored?.name || iid;
@@ -67,6 +67,24 @@ export function InitiativeDetail() {
   const persistDocs = (d: Doc[]) => { setDocs(d); save(`bridge.initiative.${iid}.docs`, d); };
 
   const tabs = ['Overview', 'Touchpoints', 'Knowledge Base'];
+  const pageBySlug = { overview: 'Overview', touchpoints: 'Touchpoints', knowledge: 'Knowledge Base' } as const;
+  const slugByPage = { Overview: 'overview', Touchpoints: 'touchpoints', 'Knowledge Base': 'knowledge' } as const;
+  const activeTab = pageBySlug[searchParams.get('page') as keyof typeof pageBySlug] ?? 'Overview';
+  const touchpointsView = ['list', 'table', 'gantt', 'calendar'].includes(searchParams.get('view') ?? '')
+    ? searchParams.get('view')!
+    : 'list';
+  function selectPage(page: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set('page', slugByPage[page as keyof typeof slugByPage] ?? 'overview');
+    if (page !== 'Touchpoints') next.delete('view');
+    setSearchParams(next);
+  }
+  function selectTouchpointsView(view: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set('page', 'touchpoints');
+    next.set('view', view);
+    setSearchParams(next);
+  }
   const touchpointViews = [
     { id: 'list', icon: LayoutList, label: 'List' },
     { id: 'table', icon: TableIcon, label: 'Table' },
@@ -132,11 +150,26 @@ export function InitiativeDetail() {
               <span>{progress}% complete · {touchpoints.filter(t => t.done).length}/{touchpoints.length} touchpoints</span>
             </div>
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-2 rounded-lg hover:bg-[var(--color-surface)] transition-colors" title="Page actions" aria-label="Page actions">
+                <MoreVertical className="w-5 h-5" style={{ color: 'var(--color-warm-gray)' }} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to={`/initiative/${encodeURIComponent(iid)}/control-panel`}>
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Control Panel
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         {/* Tabs */}
         <div className="flex gap-1 border-b -mb-4" style={{ borderColor: 'var(--color-border)' }}>
           {tabs.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className="pb-3 px-4 text-sm font-medium transition-colors relative" style={{ color: activeTab === tab ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>
+            <button key={tab} onClick={() => selectPage(tab)} className="pb-3 px-4 text-sm font-medium transition-colors relative" style={{ color: activeTab === tab ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>
               {tab}
               {activeTab === tab && <motion.div layoutId="initiativeTabIndicator" className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ backgroundColor: 'var(--color-steel)', boxShadow: '0 0 8px rgb(from var(--color-steel) r g b / 0.3)' }} />}
             </button>
@@ -221,7 +254,7 @@ export function InitiativeDetail() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
                   {touchpointViews.map(view => (
-                    <button key={view.id} onClick={() => setTouchpointsView(view.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: touchpointsView === view.id ? 'var(--color-steel)' : 'var(--color-surface)', color: touchpointsView === view.id ? 'white' : 'var(--color-navy-mid)' }}>
+                    <button key={view.id} onClick={() => selectTouchpointsView(view.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: touchpointsView === view.id ? 'var(--color-steel)' : 'var(--color-surface)', color: touchpointsView === view.id ? 'white' : 'var(--color-navy-mid)' }}>
                       <view.icon className="w-4 h-4" /> {view.label}
                     </button>
                   ))}
