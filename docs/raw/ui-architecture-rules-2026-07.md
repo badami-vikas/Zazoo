@@ -5,7 +5,7 @@ doc_kind: design
 status: active
 companions: [requirement-ui-architecture-rules-2026-07-13.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
 related_wiki: ../wiki/ui-architecture.md
-updated: 2026-07-13
+updated: 2026-07-14
 tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, artifacts, canon]
 ---
 
@@ -63,6 +63,17 @@ Every toggle page is a routable URL (route param per view/page, matching the Noc
 - The ⚙ **Control Panel icon slot** (`controlPanelTo` in `StandardToolbar.tsx`, between Filter and 3-dots — R-018/ADR-029) is **retired as a toolbar slot**. Control Panel becomes an **item inside the 3-dots menu**.
 - **Reconsider Control Panel contents** during alignment: anything that is *data about the page's own records* (resource tables, per-Initiative bindings, status overviews) becomes a **section on the page**; only true *administration* (mounting/unmounting capabilities, scope/permission config, versioning) stays behind the 3-dots → Control Panel.
 - 3-dots menu = page-level actions + admin entries (Control Panel, export, settings-ish); toolbar keeps: List dropdown → view dropdown → search → filter → custom actions → 3-dots → insights chevron.
+
+## 5a. Standard column + toggle context menus
+
+Right-click behavior is compiler-owned and consistent across every Module. DealPilot is an example, not a special implementation.
+
+- **Add page / Remove page** appears on a column **iff** the column's source is a database-backed entity/table. Add page creates a routable sibling toggle page backed by that database/schema; Remove page removes the toggle/page presentation only and never deletes its database or records. The same Add page / Remove page command appears when right-clicking a toggle. Its label and enabled state must describe the actual outcome; destructive structural changes use confirmation and an undo path.
+- Standard column menu, in this order/grouping: inline rename · Edit column · Change type · AI Smartfill on/off · Filter · Sort · Group · Calculate · Lock column · Hide column · Add column left · Add column right · Duplicate column · Delete column. Add page / Remove page sits with structural/page commands.
+- Commands are capability-aware: unsupported operations are omitted or disabled with a reason (for example, Calculate on a non-aggregatable type, AI Smartfill without an eligible model/permission, schema mutation on a read-only integration).
+- **AI Smartfill** previews source fields, destination, model/provider, cost/risk, and sample result; execution uses the ordinary governed write/enrichment pipeline and records provenance. It is not an unlogged table shortcut.
+- **Lock** blocks schema/value mutation according to scope, not viewing/filtering. Delete column requires impact preview for dependent views, Automations, Skills, formulas, and relations. Secrets remain credential references and never become revealable table cells.
+- Keyboard access and visible menu-button alternatives must expose every right-click command; context menus cannot be pointer-only.
 
 ## 6. Local artifact storage — `~/Documents/Bridge Workspace/`
 
@@ -133,6 +144,7 @@ Aligning the project = executing this checklist against `platform/apps/web`:
 6. Implement `~/Documents/Bridge Workspace/<Module>/<Sub-module>/` provisioning in the desktop shell + Artifacts section per page (incl. cloud-mirror + rename/move index per §6, empty states per §6a).
 7. Wire the >20-artifact watcher → CoS agent grouping call (§6).
 8. Update `docs/CODEMAPS/` + wiki after the structural change.
+9. Implement shared column/toggle context menus from §5a, including DB-backed Add page/Remove page eligibility, dependency impact checks, undo, permissions, and keyboard access; validate on DealPilot plus two unrelated Modules.
 
 Exit: typecheck + build green, live check of ≥3 restructured pages, BUGS/log/dummy ledgers updated.
 

@@ -97,6 +97,7 @@ designer brief: [../raw/dealpilot-design-requirements-2026-07.md](../raw/dealpil
 
 - Nav = ONE global DealPilot item → module rail (Overview/Deals/Sourcing/Theses/Work/Reports/Relationships/Playbooks) → Deal/Thesis tabs. No global-sidebar explosion.
 - Deal = core Element. CIM/Documents, Hypothesis Tree, Evidence, Diligence/MRL, Financials/QoE, Valuation/Returns, Risks, IC, Relationships, Execution, Activity live inside Deal workspace.
+- Deals/Sources/Theses = one strong cluster, three sibling DB-backed toggle pages. All relations many-to-many. Fields stay entity-owned (Deal EBITDA; Source CredentialBroker ref/health; Thesis target CAGR/criteria). Thesis change→source discovery; Source change→Deal discovery; relation change→explained fit rescore.
 - Global lists still expose cross-deal sourcing, work, reports, relationships, and playbooks; every row links home to source Deal/Thesis.
 - Tech catalog explicit: 9 package Agent archetypes, 28 Skills, 20 Automations, integrations/tools. CoS routes; no peer handoffs/autonomous IC decisions.
 - Business plan explicit: thesis→origination→triage→diligence→underwriting→IC→closing→100-day→learning. Explicit exclusions: professional opinions, fund admin, custody/payments, autonomous sends/decisions, ToS bypass, portfolio ERP.

@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [module-evolution-system-2026-07.md, roadmap-v2-universal-commons.md, oss-commons-integration-plan-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, desktop-companion-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/egg-commons.md
-updated: 2026-07-11
+updated: 2026-07-14
 tags: [egg, commons, shell, onboarding, avatar, marketplace, registry, ingestion, reuse, diligence]
 ---
 
@@ -42,6 +42,8 @@ Current: adaptive questions → `compileBlueprint` preview → EggHatcher hatch 
 - **Single next action**: ceremony ends with exactly one streamed prompt (talk to your Chief of Staff), auto-dismissing; never a feature tour;
 - **Live Module proposals during onboarding** (ADR-032/033 Day-1 bar): the 4-agent team drafts real proposals into Approvals while the user answers — shipped-for-approval, never live;
 - **Profile seam**: answers land in a typed onboarding-profile schema that compiles into CoS's system prompt (gap today — schema doesn't exist), including tone-to-spirit-animal mapping beyond the current `ANIMAL_TONE` map.
+- **Role-model learning**: ask which public figures the user admires and why. The Learning Agent resolves ambiguous names with the user, researches public material through the governed research lane, separates documented behavior from interpretation, and produces cited candidate habits/ideas. The Chief of Staff converts only relevant candidates into **recommended** Skills and scheduled Automations with trigger, cadence, expected benefit, source rationale, permissions, and stop condition. Nothing installs, schedules, or runs without the normal proposal/approval path; admiration never implies blanket endorsement.
+- **Progressive behavioral learning**: seven days after onboarding, ask which qualities the user most values in a person. Continue with one thoughtful, context-relevant question at configurable intervals—not a fixed interrogation script. Every prompt explains why it is being asked, may be skipped/snoozed/paused, and writes suggested Memories the user can inspect, correct, or delete. No diagnosis, covert personality score, protected-trait inference, or manipulative optimization. Learning must have a visible value link: preference → cited Memory → changed recommendation/communication/Automation, with feedback and rollback.
 
 ## 1.3 Avatar companion + annotation
 
@@ -266,8 +268,12 @@ sources:
 ```yaml
 Egg:
   OnboardingProfile:            # net-new typed schema
-    fields: profession, mode, domain, team, vocab prefs, spirit_animal, tone, connected_sources, permission_states
+    fields: profession, mode, domain, team, vocab prefs, spirit_animal, tone, role_models[{public_figure,why_admired}], connected_sources, permission_states, reflection_preferences
     compiles_to: CoS system prompt layer (PromptAssembler) + blueprint hints
+  ReflectionPrompt:
+    fields: question, why_now, source_context, cadence, sensitivity, skip_snooze_pause, response_memory_id
+    first_followup: day 7 favorite qualities in a person
+    invariant: every learned preference is inspectable/correctable/deletable and linked to a user-visible value change
   CaptureEvent:
     invariants: blink tell fired, Memory entry written, plane=local, provider + permission snapshot recorded
   AnnotationMark:               # built — typed enum, Rust-validated
@@ -294,11 +300,11 @@ egg_slices:
   EG0:
     scope: capture-core crates adoption (tauri-nspanel panels, xcap, shortcut registry + hotkey invocation) + keychain/CSP posture audit
   EG1:
-    scope: onboarding ceremony v2 — OnboardingProfile schema→CoS prompt seam, permission theater w/ proof-by-capture, governed live-demo pointing beat, live Module proposals via 4-agent Groq team
+    scope: onboarding ceremony v2 — OnboardingProfile schema→CoS prompt seam, public-role-model question + governed cited research, permission theater w/ proof-by-capture, governed live-demo pointing beat, live Module/Skill/Automation proposals via 4-agent Groq team
   EG2:
     scope: pointing input half — AX-tree walking + Computer-Use-locator fallback + [POINT] protocol; annotation walkthroughs
   EG3:
-    scope: daily rhythm — morning brief, commitment detection, background-artifact lane, approvals nudges
+    scope: daily rhythm — morning brief, commitment detection, background-artifact lane, approvals nudges, day-7 qualities reflection + configurable periodic behavioral-learning prompts with inspect/correct/delete and skip/snooze/pause controls
   EG4:
     scope: system-audio + real screen sensors on T0–T2 local tiers; post-meeting action drafts (never a notes product)
   EG5:

@@ -37,10 +37,12 @@ wins registry-first). Egg leads Commons by one beat.
   unverified.
 
 **Egg slices EG0–EG5**: EG0 crates+hotkey+keychain/CSP posture · EG1
-onboarding v2 (OnboardingProfile schema→CoS prompt, permission theater,
-governed live-demo beat, 4-agent live proposals) · EG2 pointing input
+onboarding v2 (OnboardingProfile schema→CoS prompt, role-model Q→cited
+Learning-Agent research→approval-gated Skill/Automation proposals,
+permission theater, governed live-demo beat, 4-agent live proposals) · EG2 pointing input
 (AX-tree + locator fallback + [POINT] port) · EG3 daily rhythm (brief,
-commitments, artifact lane) · EG4 audio+screen sensors on local tiers,
+commitments, artifact lane, day-7 qualities Q + periodic respectful reflection;
+why/skip/snooze/pause + inspect/correct/delete; no covert profiling) · EG4 audio+screen sensors on local tiers,
 post-meeting action (notes NOT product — saturated) · EG5 voice +
 proactive. Defer: broad computer-use actuation (category trust failure).
 

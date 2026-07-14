@@ -12,6 +12,8 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Toolbar:** Control Panel ⚙ slot DIES — moves into 3-dots menu. Contents re-sorted: record-ish data → page sections; true admin (mount/unmount, scopes, versions) stays in 3-dots→Control Panel.
 
+**Context menus:** shared across ALL Modules. Column right-click: rename/edit/type · AI Smartfill · filter/sort/group/calculate · lock/hide · add left/right · duplicate/delete. DB-backed source only → Add page/Remove page, also on toggle right-click; changes toggle presentation, never deletes DB/data. Capability/permission aware; dependency preview+undo; keyboard path required. Prove on DealPilot + 2 unrelated Modules.
+
 **Local artifacts:** `~/Documents/Bridge Workspace/<Module>/<Sub-module>/` (OS Documents folder, confirmed) — ALL local artifacts live here; cloud-resident data ALWAYS mirrored locally too, never cloud-only. Rename/move outside app tracked via FS-watcher + content-hash index (Dropbox-style), conflict = app never overwrites user-moved file, recreates its own copy instead.
 
 **Deep linking:** every toggle page = routable URL (§4a).
