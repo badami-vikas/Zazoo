@@ -23,6 +23,22 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 ---
 
+## INTERRUPT — 2026-07-14 onboarding + desktop shell + Intelligence consistency (user report)
+
+Source requirement: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`. Direct fixes below are the reported scope. Pulled-in adjacent work is capped at ~2.25–3.25 days against an estimated ~14–24 days of direct work (<30%). Resume the Egg+Commons batch after this interrupt clears.
+
+**HARD NEXT-SESSION START GATE — DO NOT SKIP:** begin here, execute in the numbered order below, and do not resume the completed H2 security roadmap, repo cleanup, generic bug backlog, EG2+, or CM2+ while any item in this INTERRUPT or EG0–EG1/CM0–CM1 remains open. The reported defects are acceptance criteria of the Egg prototype, not a later polish batch. First runtime action next session = reproduce and test **INTELLIGENCE-SHELL**; first desktop action = failing drag/Space/display test matrix for **COMPANION-MOBILITY**. A session that only audits, plans, or works an unrelated roadmap item has not followed the cursor.
+
+- [ ] **1A — INTELLIGENCE-SHELL** `[root-cause]` — Automations/Agents/Skills/Integrations/Tools/Apps classification + routable toggle pages; standard landing-section toolbar (List/view/search/filter/Add/3-dots); honest list read paths, no bespoke card/stub bypass → `docs/raw/ui-architecture-rules-2026-07.md` §2/§3/§5/§8 + `docs/BUGS.md` no ritual/tool/agent reads
+- [ ] **1B — AUTOMATIONS-VOCAB** `[root-cause]` — user-facing **Automations** everywhere; keep `ritual` only as an internal identifier where migration risk warrants it; remove stale Workflow copy/routes/toasts → `docs/wiki/ontology.md` + `docs/BUGS.md` R-020 tail
+- [ ] **2 — ONBOARDING-CLARITY / EG1** `[root-cause]` — replace the blueprint-centric questionnaire with EG1’s trust-first ceremony; every remaining question states why it is asked and its immediate consequence; no unexplained kernel vocabulary; live usability evidence → `docs/raw/egg-commons-feature-roadmap-2026-07.md` §1.2/EG1 + `docs/BUGS.md` 2026-07-14 onboarding report
+- [ ] **3A — COMPANION-MOBILITY / EG0** `[root-cause]` — draggable persistent overlay; active Space/fullscreen behavior; display/Space/topology reconciliation (attach/detach, extended displays); real-device matrix → Egg EG0 + `docs/raw/desktop-companion-agent-roadmap-2026-07.md`
+- [ ] **3B — DESKTOP-CHROME / EG0** `[root-cause]` — move native close/minimize/zoom controls into the sidebar header in the supplied-reference pattern, preserving window drag/accessibility and non-desktop fallback → `docs/BUGS.md` 2026-07-14 desktop chrome report
+- [ ] **ONBOARDING-REENTRY** `[same-surface]` `[easy-win]` — Settings → Organization re-run/reset entry while onboarding is open for changes → `docs/BUGS.md` 2026-07-07 manual re-entry
+- [ ] **ONBOARDING-DIALOG-WARNING** `[same-surface]` `[easy-win]` — clear the Radix ref warning during the onboarding component pass → `docs/BUGS.md` 2026-07-07 Dialog warning
+- [ ] **PACKAGE-GATED-SURFACES** `[same-surface]` — remove hardcoded DealPilot/JobPilot/Helpdesk shell presence; derive visible surfaces from available package state → `docs/BUGS.md` 2026-07-07 hardcoded packages
+- [ ] **ERROR-COPY-VOCAB** `[same-surface]` `[easy-win]` — scrub the server error-string tail to current user vocabulary, including Automation → `docs/BUGS.md` 2026-07-07 API error strings
+
 ## ⚠ REALIGNED 2026-07-13 (AP-010 + AP-011) — Egg+Commons prototype FIRST, then repo cleanup, then bugs, rest after
 **Standing pre-flight for every run: `git fetch && git pull` (or merge origin/main) BEFORE planned implementation — the developer pushes work in parallel.** The security-first H2 roadmap (Months 1–6) has since been fully built and **merged into main via PR #11→#12** (2026-07-14): Batch 1 Security P0 = AP-012 (ADR-057/058/059); Batches 2–9 = AP-013–019 (ADR-060–085). See "DONE — security-first H2 roadmap" below. Only Batch 8 (XP-2 unsigned-partial / XP-3 blocked) stays infra-gated. Go-forward priority is unchanged: Egg+Commons first.
 
@@ -31,7 +47,7 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, artifacts section + `~/Documents/Bridge Workspace/` tree
 - [ ] EG0 — Egg shell foundation: crates + hotkey + keychain/CSP posture → egg-commons roadmap §EG0
 - [ ] EG1 — onboarding v2 (OnboardingProfile → CoS prompt, permission theater, governed live-demo beat) → §EG1
-- [ ] CM0 — wire the Commons registry (commons.* tRPC exists, nothing consumes it — biggest gap) → §CM0
+- [ ] CM0 — wire the Commons registry (`CommonsRegistry` port + HTTP client exist; `commons.*` tRPC/app consumption is absent — biggest gap) → §CM0
 - [ ] CM1 — supply-chain trust (signing, content-hash pins, publisher verify, 8-point scan) — BEFORE any corpus ingest → §CM1
 
 ## Batch 2 — Repo cleanup: duplicates + deprecated data → `docs/raw/repo-restructure-egg-commons-2026-07.md`
