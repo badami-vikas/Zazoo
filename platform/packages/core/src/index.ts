@@ -157,6 +157,25 @@ export {
 } from "./package/lifecycle.js";
 export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
 
+// PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
+// prompt-injection defenses; ADR-063/064). The pipeline enforces the egress gate
+// STRUCTURALLY (always-on); these exports make the primitives reusable + testable, and
+// @bridge/models binds a local-plane ContentGuard adapter to the port.
+export {
+  TAINTED_EGRESS_POLICY_ID,
+  TAINTED_EGRESS_RESOURCES,
+  evaluateTaintedEgress,
+  taintedEgressPolicy,
+} from "./policy/taint-egress.js";
+export {
+  SPOTLIGHT_OPEN,
+  SPOTLIGHT_CLOSE,
+  spotlightUntrusted,
+  QuarantinedContentGuard,
+  type ContentGuard,
+  type ContentGuardVerdict,
+} from "./guard/content-guard.js";
+
 // Agent Quality Vector + eval harness (deterministic substrate, no model calls).
 export {
   computeAqv,

@@ -78,6 +78,11 @@ export interface PolicyEvalInput {
   phase: "pre" | "runtime" | "post";
   inputs: unknown;
   proposedOutput?: unknown;
+  /** The turn's effective provenance (PI-2), threaded by the pipeline from
+   * `req.trustOrigin ?? ctx.taint`. Lets a data-flow policy see that this turn
+   * carries untrusted_external content and gate egress accordingly. Absent =
+   * no tagged/ingested content drove the turn (kernel/user-authored). */
+  taint?: TrustOrigin;
 }
 
 export interface PolicyStore {

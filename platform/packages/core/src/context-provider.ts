@@ -14,6 +14,7 @@
  * itself (the Authority resolver / planeGate in ../authority.ts does); it
  * only documents the constraint at the type level via `dataScope`/`retention`.
  */
+import type { TrustOrigin } from "./types.js";
 
 /** The nine day-1 Sensor SPI sources (docs/wiki/roadmap.md P0). Screen is one
  * of nine — not a privileged member of this union. */
@@ -67,6 +68,11 @@ export interface ContextItem<TPayload = unknown> {
   /** Raw, LOCAL-PLANE-ONLY payload — never synced global-plane un-redacted
    * (see module doc comment). */
   payload: TPayload;
+  /** Provenance-trust of this payload (PI-1/PI-3). `untrusted_external` marks content
+   * that must be spotlighted as DATA (never instructions) when projected into a prompt
+   * (projectToPrompt) and that taints the turn for egress gating (PI-2). Absent = not
+   * tagged; spotlighting treats only an explicit `untrusted_external` as untrusted. */
+  trustOrigin?: TrustOrigin;
 }
 
 /**
