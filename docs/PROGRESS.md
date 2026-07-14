@@ -23,7 +23,7 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 ---
 
-## NOW — roadmap Months 1–6 DONE + APPROVED: Batches 1–7 + 9 ticked (AP-010–017 APPLIED, user · 2026-07-14). Only **Batch 8** (XP-2/XP-3) remains — INFRA-GATED (signing certs + 3-OS CI + on-branch mobile app). H2 roadmap code-complete through §M6 on PR #11 (commit `40306ca`).
+## NOW — roadmap Months 1–6 DONE + APPROVED: Batches 1–7 + 9 ticked (AP-010–017 APPLIED, user · 2026-07-14). **Batch 8** (XP-2/XP-3) remains — XP-2 now an HONEST PARTIAL (unsigned 3-OS installer CI authored + a real macOS `.dmg` built & verified locally; only signing/notarization is cert-gated — unticked), XP-3 confirmed-BLOCKED (no mobile app on any ref). AP-007 + AP-008 (Codex proposals) APPLIED. H2 roadmap code-complete through §M6 on PR #11.
 
 - [x] 2026-07-09 — `docs/INDEX.md` nav map (≤50 lines, where-does-X-live)
 - [x] 2026-07-09 — `docs/CODEMAPS/flows.md`: 3 mermaid sequence diagrams (pipeline propose→decide, plane gate, ritual executor) + schema ER sketch
@@ -95,10 +95,12 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 ## Batch 8 — Month-5 remainder: XP-2 + XP-3 (INFRA-GATED — deferred) → `docs/raw/roadmap-6month-2026-h2.md` §M5
 
-- [ ] XP-2 — native installers + desktop capture build, signed, running on macOS/Windows/Linux — **BLOCKED**: needs code-signing certificates + a 3-OS CI matrix (unavailable in this environment)
-- [ ] XP-3 — mobile app rebased onto the shared kernel, running on device/simulator — **BLOCKED**: the mobile (Expo) app does not exist on this branch (`platform/apps` = api/desktop/web only; stranded on branch `claude/heuristic-booth-f8f5da`), and needs devices/simulators
+- [ ] XP-2 — native installers + desktop capture build, **signed**, running on macOS/Windows/Linux — **PARTIAL (unticked)**: the *unsigned* installer path is DONE + proven — a 3-OS `desktop-bundle` CI job (tag/`workflow_dispatch`-gated), Tauri bundling enabled + a full icon set generated, `cargo check` green, and a real `Bridge_0.1.0_aarch64.dmg` built locally on macOS. REMAINING gate = code-signing + notarization (needs signing certs as repo secrets — unavailable here). Not DONE until *signed* installers ship. (ADR-081)
+- [ ] XP-3 — mobile app rebased onto the shared kernel, running on device/simulator — **BLOCKED (confirmed)**: no mobile (Expo) app exists on ANY accessible ref (scanned all ~20 remote branches — `platform/apps` = api/desktop/web only; no `app.json`/`eas.json`/react-native/expo anywhere; the stranded `claude/heuristic-booth-f8f5da` branch is not on the remote), and Expo/RN deps can't be installed here. Deliberately NOT scaffolded — fabrication would be dummy/break the build (ADR-082). Needs the app on-branch + devices/simulators.
 
 > **Status (2026-07-14)**: split OUT of Batch 7 (ADR-075) because both DONE-WHENs require infrastructure that cannot be executed or verified here — a DONE-WHEN that can't be proven would either be falsely claimed or force fabricated evidence. Confirmed with the user before proceeding. **Unblock conditions**: (XP-2) signing certs + a macOS/Windows/Linux CI matrix; (XP-3) the mobile app present on the working branch + a device/simulator. Nothing in code or docs claims XP-2/XP-3 complete.
+>
+> **Update (2026-07-14, "both untouched parts")**: XP-2 advanced to an HONEST PARTIAL — the unsigned installer path is real and proven: a `desktop-bundle` 3-OS CI job (tag/`workflow_dispatch`-gated) in `.github/workflows/ci.yml`, `bundle.active` enabled in `tauri.conf.json`, a full icon set generated via `tauri icon`, `cargo check` green, and a real `Bridge.app` + `Bridge_0.1.0_aarch64.dmg` built locally on macOS via `tauri build`. Only signing/notarization remains (cert-gated). XP-3 re-confirmed fully BLOCKED after scanning all ~20 remote refs (no Expo app anywhere; deps uninstallable) — deliberately not fabricated. Neither box ticked; Batch 8 is NOT complete. See ADR-081 (XP-2 partial) + ADR-082 (XP-3 blocked). Also applied this session (Codex proposals, not roadmap batches): **AP-007** (roadmap phase-mapping ingest, ADR-080) + **AP-008** (CLAUDE.md license-research standing rule).
 
 ## Batch 9 — Month-6: packages, Commons safety, consolidation (PKG-1 / PKG-2 / BLUEPRINT-1 / CONSOLIDATE) → `docs/raw/roadmap-6month-2026-h2.md` §M6
 

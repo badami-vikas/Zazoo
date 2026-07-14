@@ -8,6 +8,11 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+---
+
+## OPEN 2026-07-14 — mobile (Expo) app absent from ALL accessible refs — XP-3 blocker (not a code defect)
+XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobile/Expo app exists anywhere reachable: `platform/apps` = `api`/`desktop`/`web` only; a scan of all ~20 remote branches found no `app.json`, `eas.json`, react-native, or expo, and zero mobile commits across all refs; the previously-referenced `claude/heuristic-booth-f8f5da` branch is not on the remote (nothing to fetch). Expo/RN also can't be added here (no `pnpm install`). Recorded so a future session does not re-hunt for a non-existent app. This is an infra/sequencing gap, not a bug in shipped code. RESOLVE when the Expo app is present on the working branch + devices/simulators are available. See ADR-082; tracked in PROGRESS §Batch 8.
+
 ## OPEN 2026-07-14 — `blueprintFieldSchema` enum in the workspace-definition store omits `"location"` (10 kinds vs 11)
 `packages/db/src/workspace-definition-store.ts`'s `blueprintFieldSchema` field-`kind` enum lists 10 kinds but `@bridge/core`'s `BLUEPRINT_FIELD_KINDS` (blueprint.ts) and the router accept 11 — it is missing `"location"`. So a blueprint carrying a `location` field parses fine in core (`parseWorkspaceBlueprint`) and at the router, but would be REJECTED if validated through the db store's schema — an inconsistency that will surface once a `location`-using blueprint is persisted via that store. Spotted during BLUEPRINT-1 (Batch 9); pre-existing, NOT introduced here, and out of Batch-9 scope (Batch 9 touches core + apps/api + services/commons, not the db workspace-definition store). FIX (~1 line): add `"location"` to the `blueprintFieldSchema` enum so it matches `BLUEPRINT_FIELD_KINDS`. Detect: persist a blueprint with a `location` field through `workspace-definition-store` → schema rejection.
 
