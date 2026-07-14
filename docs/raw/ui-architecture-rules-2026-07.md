@@ -50,7 +50,13 @@ Page scroll model: page-level vertical scroll containing sections; the landing s
 
 ## 4. Standard views — Form joins the set
 
-Every landing section offers the standard views. New standard view: **Form** — instead of presenting existing data, it renders one input per field of the page's primary table (respecting field types, required flags, defaults) and **collects** a new row (or edits a selected one). Form view is the create/intake lens over the same schema the table view reads — no separate hand-built "create" screens for standard entities.
+Every landing section offers the standard views. New standard view: **Form** (confirmed 2026-07-13 — earlier "forum" wording was a typo) — instead of presenting existing data, it renders one input per field of the page's primary table (respecting field types, required flags, defaults) and **collects** a new row (or edits a selected one). Form view is the create/intake lens over the same schema the table view reads — no separate hand-built "create" screens for standard entities.
+
+**Write path (confirmed 2026-07-13)**: a Form submission **inserts directly** — it is not gated behind propose→decide like external-facing writes. But the Learning Agent must check whether any standard process already applied to other rows of the same table/DB (enrichment, dedup, tagging, scoring, etc.) and, if so, **apply that same process** to the Form-submitted row. Concretely: Form view's insert path calls the same post-insert hook/pipeline stage the table's other write paths (import, sync, agent-created rows) already go through — no second, thinner code path for form-created data.
+
+## 4a. Deep linking
+
+Every toggle page is a routable URL (route param per view/page, matching the NocoDB/Baserow/Twenty precedent in §7) — e.g. `/module/:moduleId/:page` or `/module/:moduleId/:subModule/:page`, with the active list/view/filter encoded as query params where useful. No page should be reachable only by in-app click-through.
 
 ## 5. Toolbar + 3-dots (Control Panel moves)
 
@@ -72,6 +78,19 @@ Canonical local tree (Documents = the OS user Documents folder; desktop shell re
 - ALL locally-stored artifacts and accumulated data live under this tree — no scattered app-data dumps for user-facing files (internal caches/DBs stay in app-data).
 - The page's Artifacts section is a view over the module's folder (and sub-folders). > 20 artifacts in one folder → sub-folders (see §3).
 - Local-plane rule unchanged: raw capture stays local; this tree IS local plane.
+- **Cloud-data mirroring rule (confirmed 2026-07-13)**: no personal data is stored cloud-only. Any cloud-resident data that appears inside the app is ALSO mirrored locally under this tree (or the relevant local store) — cloud is never the sole copy of anything the user sees.
+- **Grouping is smart, not fixed-rule, and delegated (confirmed 2026-07-13)**: the >20 threshold still triggers grouping, but the grouping *scheme* is not hardcoded sub-module→month — **the Chief of Staff agent decides and performs the grouping** (by type, project, Initiative, recency, whatever fits that module's artifacts) at the moment the count crosses 20. Implementation: an artifact-count watcher calls the CoS agent when a module/sub-module folder exceeds 20 ungrouped files; CoS proposes + applies a folder scheme (governed, not silent — logs the grouping decision like any other agent action).
+- **Rename/move tracking + conflict resolution (confirmed 2026-07-13)**: the app must track when the user renames or moves a file inside `Bridge Workspace` from outside the app (Finder/Explorer). Recommended approach — adopt the same pattern proven by sync tools (Dropbox/Syncthing-style): a lightweight local index (path + content-hash + inode/fileID where available) rebuilt on shell startup and updated via an OS file-watcher (macOS FSEvents / Windows ReadDirectoryChangesW / Linux inotify — already partially in the sensor SPI's provider surface, see `platform/apps/desktop/src-tauri/src/providers/`). Detect rename-vs-delete+recreate by content-hash match; update the artifact's DB record's path pointer, never re-generate the artifact. Conflict (user moved AND app tries to write to the old path): app writes win only for its own next-generated version; a user-moved file is treated as the user's copy and left alone — the app re-creates its own copy at the expected path rather than overwriting the moved one. Full design deferred to the sensor SPI build-out (EG-track); this is the standing policy to build to.
+
+## 6a. Empty-state spec (added 2026-07-13, closes AP-002 gap for this canon)
+
+No dummy data (AP-002) means every section that can be empty needs an honest, specific empty state — never a placeholder row:
+
+- **Landing section, no rows**: icon + one-line statement of what this page shows + the single next action that would populate it (e.g. "No deals yet — add one" → opens Form view for this page, per §4). Never a greyed-out fake table.
+- **Artifacts section, no artifacts yet**: one line naming what WOULD appear here ("Exports and briefs generated by this module will show up here") + no folder icon grid. Distinct from "module has artifacts but none match the current filter" (that state = "No artifacts match — clear filters", not the zero-state copy).
+- **Sub-module with no data yet**: the collapsible nav entry still renders (structure is real even if empty) but expanding it shows the same landing-section empty state, not a spinner or blank.
+- **List with zero rows**: same landing-section pattern, scoped to "in this list" ("No people in *VIPs* yet").
+- General rule: empty state text is generated from the page's own metadata (entity name + module name), not hand-authored copy per page — keeps it consistent as new toggle pages get added by the compiler.
 
 ## 7. OSS precedents consulted (code-level diligence 2026-07-13)
 
@@ -111,15 +130,22 @@ Aligning the project = executing this checklist against `platform/apps/web`:
 3. Add **Form** to the standard views set (extend `ToolbarView` sets + a shared `FormView` component driven by field metadata).
 4. Move Control Panel into 3-dots; re-sort its contents into page sections vs admin per §5; delete the `controlPanelTo` toolbar slot.
 5. Left nav: implement collapsible sub-module dropdowns under modules.
-6. Implement `~/Documents/Bridge Workspace/<Module>/<Sub-module>/` provisioning in the desktop shell + Artifacts section per page.
-7. Update `docs/CODEMAPS/` + wiki after the structural change.
+6. Implement `~/Documents/Bridge Workspace/<Module>/<Sub-module>/` provisioning in the desktop shell + Artifacts section per page (incl. cloud-mirror + rename/move index per §6, empty states per §6a).
+7. Wire the >20-artifact watcher → CoS agent grouping call (§6).
+8. Update `docs/CODEMAPS/` + wiki after the structural change.
 
 Exit: typecheck + build green, live check of ≥3 restructured pages, BUGS/log/dummy ledgers updated.
 
-## 9. Open questions for the user (defaults applied until answered)
+## 9. Questions resolved 2026-07-13 (superseded — kept for trail)
 
-1. **"forum as a standard view"** — read as **Form** (your next sentence says "the form collects data"). If you truly meant a discussion-forum view, say so.
-2. **Documents root** — assumed the OS `~/Documents` folder (desktop shell). If you meant an in-app "Documents" module instead, the tree moves there.
-3. **Artifacts >20 sub-folder grouping** — defaulted to sub-module → month. Override welcome (by type? by Initiative?).
-4. **Scope of first alignment** — defaulted to `platform/apps/web` (the real backend client). The deployed prototype (bridge-ai-1ay.pages.dev) is NOT auto-migrated — flag if you want it too.
-5. **Toggle vs sub-module boundary** for existing pages will surface judgment calls during UI-RULES-1; the audit will list them for approval rather than silently deciding.
+1. ~~"forum as a standard view"~~ → **Form**, confirmed typo. See §4.
+2. **Documents root** — confirmed OS `~/Documents` folder only. See §6.
+3. **Artifacts >20 grouping** — confirmed **smart, CoS-agent-driven**, not a fixed rule. See §6.
+4. **Scope of first alignment** — confirmed `platform/apps/web`; deployed prototype (bridge-ai-1ay.pages.dev) still NOT auto-migrated (unchanged).
+5. **Toggle vs sub-module boundary** — still surfaces as judgment calls in the UI-RULES-1 audit for approval (unchanged).
+6. **Form write path** — confirmed direct insert + Learning-Agent standard-process parity check. See §4.
+7. **Empty states** — spec added, §6a.
+8. **Cloud/local data** — confirmed no cloud-only personal data; cloud-resident data always mirrored locally. See §6.
+9. **Rename/move tracking + conflict resolution** — policy recommended and accepted. See §6.
+10. **Deep linking** — confirmed, every toggle page is a route. See §4a.
+11. **Acceptance criterion for "Egg + Commons prototype"** — confirmed as EG0–EG1 + CM0–CM1 (per `egg-commons-feature-roadmap-2026-07.md` §6). Status as of 2026-07-13: see `docs/wiki/egg-commons.md` status line / PROGRESS Batch 1 — NOT yet built (see session output for the concrete gap list).
