@@ -80,13 +80,13 @@ export function InitiativeDetail() {
   const persistDocs = (d: Doc[]) => { setDocs(d); save(`bridge.initiative.${iid}.docs`, d); };
 
   const pageParam = searchParams.get('page');
-  const activeTab = INITIATIVE_PAGES.find((page) => page.slug === pageParam)?.label ?? 'Overview';
+  const activeTab = INITIATIVE_PAGES.find((page) => page.slug === pageParam)?.label ?? INITIATIVE_PAGES[0].label;
   const viewParam = searchParams.get('view');
-  const touchpointsView = TOUCHPOINT_VIEWS.find((view) => view.id === viewParam)?.id ?? 'list';
+  const touchpointsView = TOUCHPOINT_VIEWS.find((view) => view.id === viewParam)?.id ?? TOUCHPOINT_VIEWS[0].id;
   function selectPage(page: (typeof INITIATIVE_PAGES)[number]) {
     const next = new URLSearchParams(searchParams);
     next.set('page', page.slug);
-    if (page.label !== 'Touchpoints') next.delete('view');
+    if (page.slug !== 'touchpoints') next.delete('view');
     setSearchParams(next);
   }
   function selectTouchpointsView(view: (typeof TOUCHPOINT_VIEWS)[number]['id']) {
