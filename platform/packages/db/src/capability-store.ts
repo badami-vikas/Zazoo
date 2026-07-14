@@ -51,7 +51,7 @@ export function parseEvidence(raw: unknown): CapabilityStateRow["evidence"] {
   if (!result.success) {
     throw new Error(`Invalid capability_states.evidence jsonb: ${result.error.message}`);
   }
-  return result.data;
+  return Object.fromEntries(Object.entries(result.data).filter(([, value]) => value !== undefined));
 }
 
 function unpackManifest(row: typeof capabilityManifests.$inferSelect): CapabilityManifestRow {

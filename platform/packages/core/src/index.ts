@@ -155,6 +155,35 @@ export {
   type PromoteResult,
 } from "./package/lifecycle.js";
 export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+
+// Agent Quality Vector + eval harness (deterministic substrate, no model calls).
+export {
+  computeAqv,
+  computeCorrection,
+  computeCorrectionDepth,
+  computeEfficiency,
+  computeReliability,
+  computeSafety,
+  computeSuccess,
+  recordsInWindow,
+  resolvedEpisodes,
+  scoreCapability,
+  type AQV,
+  type AqvEvidence,
+  type AqvRecord,
+  type AqvSource,
+  type AqvWindow,
+} from "./eval/aqv.js";
+export type { AxisScores, Comparison, EvalCase, EvalDataset, EvalRun, Scorer } from "./eval/types.js";
+export {
+  InMemoryEvalStore,
+  runEvalDataset,
+  writeEvalRunEvidence,
+  type EvalProducedCase,
+  type EvalStore,
+  type RunDatasetInput,
+} from "./eval/store.js";
+export { contractMatchScorer, deterministicScorers, replayDeterminismScorer, routeMatchScorer } from "./eval/scorers.js";
 // Universal Commons — client port + wire types. Local service (services/
 // commons) today, Bridge Cloud later; same contract, swap is config-only.
 export {

@@ -68,6 +68,21 @@ export interface CapabilityEvidence {
   successRate: number; // 0..1
   violationCount: number;
   ageDays: number;
+  evalRuns?: Array<{
+    runId: string;
+    datasetId: string;
+    aggregate: {
+      success?: number;
+      correction?: number;
+      quality?: number;
+      route_p?: number;
+      route_r?: number;
+      reliability?: number;
+      safety?: number;
+      efficiency?: number;
+    };
+    recordedAt: string;
+  }>;
 }
 
 /** Resolves a dependency's manifest by id — the seam risk.ts and lifecycle.ts

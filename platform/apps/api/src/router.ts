@@ -9,7 +9,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { PILOT_WORKSPACE } from "./wiring.js";
+import { PILOT_WORKSPACE, type Wiring } from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -165,6 +165,28 @@ class NonPilotWorkspaceError extends Error {
 
 function assertPilotWorkspace(workspaceId: string): void {
   if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
+}
+
+/**
+ * SEC-6: a workspace-scoped procedure must confirm the caller is actually a MEMBER
+ * of the workspace, not merely that the id is the pilot workspace. `assertPilotWorkspace`
+ * stays as the first (single-tenancy) layer; this membership check is the second, so
+ * the guarantee survives multi-tenancy. `ctx.identity` is server-resolved, never
+ * client-asserted. Applied to the membership surface (invite / listMembers / help route)
+ * now; extend to every workspace-scoped procedure as the test harness seeds member
+ * identities for its fixtures (see docs/raw/decisions-log.md, SEC-6).
+ */
+async function assertMembership(
+  workspaceStore: Wiring["workspaceStore"],
+  workspaceId: string,
+  userId: string,
+): Promise<void> {
+  if (!(await workspaceStore.isMember(workspaceId, userId))) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `actor "${userId}" is not a member of workspace "${workspaceId}"`,
+    });
+  }
 }
 
 const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
@@ -1185,7 +1207,12 @@ export const appRouter = t.router({
           workspaceId: z.string().min(1),
           animal: z.string().min(1),
           answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
-          verificationMethod: z.enum(["phone", "linkedin"]).nullable().default(null),
+          // SEC-7: `linkedin` was removed from this trust-bearing enum. There is no
+          // real LinkedIn OAuth proof wired, so accepting a client-asserted
+          // `verificationMethod:"linkedin"` would let the browser fabricate a
+          // verification/trust signal. Only `phone` (the explicitly-dummy OTP flow
+          // below) is accepted until a real OAuth proof exists.
+          verificationMethod: z.enum(["phone"]).nullable().default(null),
           connectedSourceIds: z.array(z.string()).default([]),
         }),
       )
@@ -1213,6 +1240,7 @@ export const appRouter = t.router({
         return {
           verified,
           dummy: true as const,
+          verificationSource: "dummy" as const,
           message: verified
             ? "Demo verification passed — no SMS was actually sent."
             : "Enter any 6-digit code (demo mode — no real SMS is sent).",
@@ -1235,6 +1263,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         return ctx.wiring.workspaceStore.inviteMember(input.workspaceId, input.email);
       }),
 
@@ -1242,6 +1271,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         return ctx.wiring.workspaceStore.listMembers(input.workspaceId);
       }),
 
@@ -1672,6 +1702,7 @@ export const appRouter = t.router({
       )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const members = await ctx.wiring.workspaceStore.listMembers(input.workspaceId);
         const candidates: HelpResponderCandidate[] = members.map((m) => ({
           personId: m.userId,

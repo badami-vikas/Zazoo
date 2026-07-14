@@ -21,7 +21,7 @@
  * backfill real role ids without changing this store's shape.
  */
 import { randomUUID } from "node:crypto";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { users, workspaces, workspaceMembers } from "./schema.js";
 
@@ -107,6 +107,20 @@ export class DrizzleWorkspaceStore {
   }
 
   /**
+   * True when `userId` is a member of `workspaceId`. Backs the SEC-6 membership
+   * check in the API router: workspace-scoped procedures must verify the caller
+   * actually belongs to the workspace, not merely that the id is the pilot one.
+   */
+  async isMember(workspaceId: string, userId: string): Promise<boolean> {
+    const rows = await this.#db
+      .select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
    * Idempotent find-or-create for the pilot workspace + pilot user rows. Every FK'd
    * write that references `workspaces.id`/`users.id` (e.g. `integrations.workspace_id`
    * via `integration.connect`, or `workspace_members.user_id` via `workspace.create`)
@@ -124,5 +138,12 @@ export class DrizzleWorkspaceStore {
       .insert(users)
       .values({ id: input.userId, email: input.userEmail, createdAt: new Date() })
       .onConflictDoNothing({ target: users.id });
+    // SEC-6: the pilot user must be a MEMBER of the pilot workspace, not just an
+    // existing user row — otherwise the membership check (`isMember`) would refuse
+    // the pilot identity that every tokenless/dev request falls back to.
+    await this.#db
+      .insert(workspaceMembers)
+      .values({ workspaceId: input.workspaceId, userId: input.userId, roleId: null })
+      .onConflictDoNothing({ target: [workspaceMembers.workspaceId, workspaceMembers.userId] });
   }
 }

@@ -5,7 +5,7 @@
  * The in-memory implementation here lets @bridge/core run + be tested with no
  * database, same as every other port in this package.
  */
-import type { Audience, CapabilityOrigin, CapabilityState, CapabilityType, RiskBand } from "./types.js";
+import type { Audience, CapabilityEvidence, CapabilityOrigin, CapabilityState, CapabilityType, RiskBand } from "./types.js";
 
 export interface CapabilityManifestRow {
   id: string;
@@ -32,12 +32,7 @@ export interface CapabilityStateRow {
   trustedUntil?: string | null;
   suspended: boolean;
   suspendReason?: string | null;
-  evidence: {
-    activeRunCount?: number | undefined;
-    successRate?: number | undefined;
-    violationCount?: number | undefined;
-    ageDays?: number | undefined;
-  };
+  evidence: Partial<CapabilityEvidence>;
   updatedAt: string;
 }
 

@@ -81,6 +81,7 @@ import {
   type OnboardingProfileStore,
 } from "@bridge/core";
 import {
+  assertRlsPosture,
   createDb,
   createDrizzlePorts,
   createLocalDb,
@@ -310,6 +311,10 @@ export interface ModePorts {
   modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
   closeDb: () => Promise<void>;
+  /** SEC-5 — persistent mode only. Asserts the connected Postgres role cannot
+   *  bypass RLS (superuser / BYPASSRLS) in production; self-gates to a no-op
+   *  outside prod. `buildWiring()` awaits this before the server serves traffic. */
+  verifyRlsPosture?: () => Promise<void>;
 }
 
 /**
@@ -380,6 +385,7 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
       ...(process.env.GROQ_API_KEY ? [new GroqProvider()] : []),
     ],
     closeDb: close,
+    verifyRlsPosture: () => assertRlsPosture(db, { env: process.env }),
   };
 }
 
@@ -459,6 +465,9 @@ export async function buildWiring(): Promise<Wiring> {
   const modePorts: ModePorts = url
     ? buildPersistentPorts({ url })
     : await buildInMemoryPorts({ localDir });
+  // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
+  // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
+  await modePorts.verifyRlsPosture?.();
   const {
     roles,
     agents,

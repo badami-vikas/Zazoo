@@ -149,6 +149,25 @@ export interface SkillOutput {
   diff?: unknown;
 }
 
+/** Minimal execution snapshot fields the eval reducers read. */
+export interface ExecutionSnapshot {
+  terminalState?: "completed" | "error" | "timeout" | "fallback" | "chain_depth_exceeded";
+  error?: boolean;
+  timedOut?: boolean;
+  fallbackUsed?: boolean;
+  chainDepthExceeded?: boolean;
+  violationCount?: number;
+  planeGateRejected?: boolean;
+  approvalBypassAttempted?: boolean;
+  modelVersion?: string;
+  tokenCount?: number;
+  toolInputCount?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  cost?: number;
+  baselineCost?: number;
+}
+
 export type ProposalStatus = "pending_review" | "applied" | "rejected";
 
 /** What the pipeline returns from `propose`. The id IS the ledger entry id. */
@@ -185,6 +204,7 @@ export interface LedgerEntry {
   policyResults: PolicyResult[];
   /** Links a decision row back to the proposal it resolves. */
   refLedgerId?: string;
+  executionSnapshot?: ExecutionSnapshot;
   seed?: string;
   /** Data tier this action touched (the access dropdown) — audit completeness;
    * threaded through unchanged when decide() replays this entry as a Proposal's
