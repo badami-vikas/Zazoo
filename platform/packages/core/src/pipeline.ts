@@ -320,6 +320,7 @@ export class UniversalActionPipeline {
       ...(original.seed ? { seed: original.seed } : {}),
       ...(original.dataScope ? { dataScope: original.dataScope } : {}),
       ...(original.context ? { context: original.context } : {}),
+      ...(original.trustOrigin ? { trustOrigin: original.trustOrigin } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     // If a second concurrent decide() raced past the pre-check above, the store
@@ -417,6 +418,7 @@ export class UniversalActionPipeline {
       ...(req.seed ? { seed: req.seed } : {}),
       ...(req.dataScope ? { dataScope: req.dataScope } : {}),
       ...(req.context ? { context: req.context } : {}),
+      ...(req.trustOrigin ? { trustOrigin: req.trustOrigin } : {}),
       createdAt: ctx.clock.nowISO(),
     };
     return this.#deps.ledger.append(entry);
@@ -485,6 +487,7 @@ export class UniversalActionPipeline {
       ...(entry.seed ? { seed: entry.seed } : {}),
       ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
       ...(entry.context ? { context: entry.context } : {}),
+      ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
     };
   }
 }

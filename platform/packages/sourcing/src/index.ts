@@ -1,4 +1,4 @@
-export type { ConnectorTier, SourceQuery, CaptureEnvelope, SourceConnector, BudgetLedger } from "./types.js";
+export type { ConnectorTier, SourceQuery, CaptureEnvelope, SourceConnector, BudgetLedger, TrustOrigin } from "./types.js";
 export { createBudgetLedger } from "./types.js";
 export type { WaterfallResult } from "./waterfall.js";
 export { runWaterfall } from "./waterfall.js";

@@ -29,6 +29,7 @@ export function createApiClientConnector(config: ApiClientConfig): SourceConnect
         confidence: confidenceOf(payload),
         costUnits: costPerCall,
         capturedAt: new Date().toISOString(),
+        trustOrigin: "untrusted_external", // PI-1: fetched from an external API — untrusted input
       }));
     },
   };

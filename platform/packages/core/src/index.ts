@@ -46,6 +46,7 @@ export {
   type RitualRunResult,
 } from "./ritual-executor.js";
 export * from "./memory/stores.js";
+export * from "./memory/memory-store.js";
 export * from "./skills.js";
 
 // Capability Trust Model (docs/wiki/vision.md "Capability Trust Model" +

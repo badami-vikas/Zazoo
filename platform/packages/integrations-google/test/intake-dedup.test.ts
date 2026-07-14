@@ -33,6 +33,7 @@ import { InMemoryCanonicalIdentityStore } from "@bridge/db";
 
 import {
   GoogleService,
+  GOOGLE_MANIFEST,
   IntakeMaterializer,
   IntakeService,
   googleSkills,
@@ -44,6 +45,7 @@ import {
   type GmailThread,
   type GoogleGateway,
   type GoogleGatewayFactory,
+  type IntakeDirective,
   type SendEmailEnvelope,
 } from "../src/index.js";
 
@@ -107,7 +109,13 @@ const externalApprovalPolicy: PolicyFn = (i) =>
     ? { policyId: "pol-external-approval", phase: "pre", effect: "require_approval", reason: "external send/share requires approval" }
     : null;
 
-async function build(): Promise<{ google: GoogleService; gw: test_fixture_FakeGateway; localPlane: LocalPlane; pipeline: UniversalActionPipeline }> {
+async function build(): Promise<{
+  google: GoogleService;
+  gw: test_fixture_FakeGateway;
+  localPlane: LocalPlane;
+  pipeline: UniversalActionPipeline;
+  ledger: InMemoryLedger;
+}> {
   const roles = new InMemoryRoleStore();
   const agents = new InMemoryAgentStore();
   const ephemeral = new InMemoryEphemeralStore();
@@ -167,7 +175,7 @@ async function build(): Promise<{ google: GoogleService; gw: test_fixture_FakeGa
     selfEmails: ["test_fixture_self@example.com"],
   });
 
-  return { google, gw, localPlane, pipeline };
+  return { google, gw, localPlane, pipeline, ledger };
 }
 
 function ctx(): RunCtx {
@@ -194,6 +202,25 @@ test("syncing twice before approval does NOT stage a second pending proposal for
   // A third sync for good measure — still no duplicate.
   const third = await google.syncGmail(c);
   assert.equal(third.proposals[0]?.proposalId, firstProposalId);
+
+  await localPlane.close();
+});
+
+test("Gmail intake tags Memory directives as untrusted external when manifest quarantine is enabled", async () => {
+  assert.equal(GOOGLE_MANIFEST.intake_policy.quarantine, true);
+  const { google, localPlane, ledger } = await build();
+  const c = ctx();
+
+  const result = await google.syncGmail(c);
+  assert.equal(result.proposals.length, 1);
+
+  const proposal = await ledger.get(result.proposals[0]!.proposalId);
+  assert.equal(proposal?.trustOrigin, "untrusted_external");
+  const output = proposal?.proposedOutput as { directive?: IntakeDirective } | undefined;
+  const memory = output?.directive?.entities.find((e) => e.kind === "memory");
+
+  assert.ok(memory, "Gmail intake stages a Memory directive");
+  assert.equal(memory.trustOrigin, "untrusted_external");
 
   await localPlane.close();
 });

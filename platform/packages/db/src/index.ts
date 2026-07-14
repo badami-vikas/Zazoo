@@ -46,6 +46,7 @@ export {
   workspaceBlueprintSchema,
 } from "./workspace-definition-store.js";
 export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
+export { DrizzleMemoryStore } from "./memory-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

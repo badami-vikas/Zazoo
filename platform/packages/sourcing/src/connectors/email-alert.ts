@@ -34,6 +34,7 @@ export function createEmailAlertConnector(config: EmailAlertConfig): SourceConne
           confidence: 0.6, // email-alert bodies are looser-structured than an API; lower floor by design
           costUnits: costPerMessage,
           capturedAt: new Date().toISOString(),
+          trustOrigin: "untrusted_external", // PI-1: parsed from an external email body — untrusted input
         });
       }
       return envelopes;

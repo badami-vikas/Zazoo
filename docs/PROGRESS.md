@@ -62,6 +62,13 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 
 > **Status (2026-07-14)**: all 5 items code-complete + verified green (full `turbo run typecheck test build --force` 59/59; core 230 / db 53 / api 67 / recon 5). Boxes above deliberately NOT ticked pending **AP-012** approval (governance). Details: `docs/log.md` 2026-07-14 Batch 3 entry; ADR-057/058/059/060.
 
+## Batch 4 — Month-3 PI-1 + MEM-1 (prompt-injection defense v1 + Memory primitive) → `docs/raw/roadmap-6month-2026-h2.md` §M3
+
+- [ ] PI-1 — provenance/taint tagging: `trustOrigin` from ingest edge → Memory + ledger; activate the dead `intake_policy.quarantine` flag (tag+persist only, no gating)
+- [ ] MEM-1 — the `memories` table + `MemoryStore` port; classification + authority-scoped reads at the store boundary; wire capture → inspectable Memory
+
+> **Status (2026-07-14)**: both items code-complete + verified green (full `turbo run typecheck test build --force` 59/59; db 53→57; migration 0009 clean in pglite). Boxes above deliberately NOT ticked pending **AP-013** approval (governance). Built core+db foundation directly, fanned the independent per-package edges (integrations-google Gmail, sensors) to 2 parallel subagents. DONE-WHEN met for both (Gmail + scraped page → `untrusted_external` end-to-end; capture → authority-scoped Memory + classification-respecting retrieval, in tests). Details: `docs/log.md` 2026-07-14 Batch 4 entry; ADR-061/062. **Deferred by design**: PI-2 (tainted-context egress gating) + PI-3 (dual-LLM quarantine + ContentGuard) to a follow-up batch.
+
 ## Resolved decisions (2026-07-09)
 - **Consolidation trio → RECONCILED (ADR-044, AP-003).** Governing model: `BRIDGE_PLATFORM_RESET_HANDOFF.md` = stable brief; `docs/raw/execution-plan-2026-07.md` Tracks A–G supply the stronger lanes but execute **only behind discovery + safety gates**; `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution. Discovery gate re-run 2026-07-09 now **PASSES** (apps/web, capability/lifecycle.ts, PromptAssembler, workspace_definitions, package_installations, code:exec all exist — the critique's 07-07 "these don't exist" objection is stale). Remaining live gate = **safety** (sandboxing, package-import security, test strategy) before any Track executes. Tracks still not scheduled into batches until a Track is picked + its safety gate cleared via `docs/APPROVALS.md`.
 - **Dummy data → SETTLED (AP-002).** No dummies unless unavoidable; unavoidable ones tracked in `docs/dummy.md`. Covers test fixtures too.

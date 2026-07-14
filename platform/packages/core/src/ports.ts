@@ -14,6 +14,7 @@ import type {
   ResourceType,
   RunContext,
   SkillOutput,
+  TrustOrigin,
 } from "./types.js";
 
 /** Per-request execution context. Carries the determinism seams — nothing in
@@ -22,6 +23,10 @@ export interface RunCtx {
   clock: Clock;
   rng: Rng;
   ids: IdGen;
+  /** Provenance of the most-tainted input threaded into this run (PI-1). Present
+   * when the run's context includes ingested content; lets a downstream policy
+   * (PI-2) see that the turn is tainted. PI-1 only surfaces it — no gating yet. */
+  taint?: TrustOrigin;
 }
 
 export interface RoleQuery {

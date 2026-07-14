@@ -29,7 +29,9 @@ import {
   type CapabilityPermission,
   type CapabilityStore,
   type EventBus,
+  type MemoryStore,
   type Plane,
+  type TrustOrigin,
 } from "@bridge/core";
 import type { CaptureLedger, MemoryEntryRecord } from "./capture-ledger.js";
 import {
@@ -53,8 +55,12 @@ export interface ContextConsumer {
 export interface SensorHubDeps {
   capabilities: CapabilityStore;
   ledger: CaptureLedger;
+  /** Optional MEM-1 store for derived, authority-scoped Memory candidates. */
+  memories?: MemoryStore;
   events: EventBus;
   workspaceId: string;
+  /** Capturing user; owns private Memories when a MemoryStore is configured. */
+  userId?: string;
   /** Which client surface this hub runs on — registration is limited to the
    * surface's provider subset (SURFACE_PROVIDER_KINDS). */
   surface: Surface;
@@ -197,10 +203,28 @@ export class SensorHub {
       content: observation.summary,
       occurredAt: observation.occurredAt,
       createdBy: observation.providerId,
+      trustOrigin: "untrusted_external" satisfies TrustOrigin,
       refs: [],
       payload: observation.payload,
       redactions: observation.redactions ?? [],
     });
+
+    if (this.#deps.memories) {
+      await this.#deps.memories.write({
+        id: this.#deps.ids(),
+        workspaceId: this.#deps.workspaceId,
+        type: "episodic",
+        scope: "private",
+        content: observation.summary,
+        sourceRefType: "timeline_entry",
+        sourceRefId: entry.id,
+        confidence: 0.5,
+        trustOrigin: "untrusted_external",
+        plane: "local",
+        createdBy: observation.providerId,
+        ownerUserId: this.#deps.userId ?? null,
+      });
+    }
 
     // The blink tell — any UI (overlay avatar on desktop, in-page persona on
     // web/mobile) subscribes to this event type to blink on capture.

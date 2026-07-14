@@ -360,6 +360,53 @@ export const timelineEntryRefs = pgTable(
   (t) => [primaryKey({ columns: [t.entryId, t.entityType, t.entityId] })],
 );
 
+/**
+ * memories — the MEM-1 "learns how you work" home (roadmap undefined-element #3).
+ * A thin, derived, CLASSIFIED layer of confirmed/superseded learned facts that
+ * sits ALONGSIDE timeline_entries (the raw capture log), NOT a fork of it: a
+ * capture lands as a timeline entry and, when wired, a derived Memory candidate
+ * is written here with `source_ref_*` pointing back at that entry.
+ *
+ * Append-only (corrections supersede via `supersedes_id`, the prior row is
+ * retained). Read visibility is authority-scoped by `scope` at the store
+ * boundary (@bridge/core MemoryStore) AND defended at the DB by RLS
+ * (migrations/0009). `trust_origin` carries PI-1 provenance so a Memory derived
+ * from untrusted content is auditable as such.
+ */
+export const memories = pgTable(
+  "memories",
+  {
+    id: uuidPkV7(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    /** episodic | semantic | procedural | preference */
+    type: text("type").notNull(),
+    /** The element (Person/Community/Initiative…) this fact is about, if any.
+     * No FK — it can reference any node type across the graph. */
+    subjectElementId: uuid("subject_element_id"),
+    /** Classification: public | workspace | team | private | restricted. */
+    scope: text("scope").notNull(),
+    content: text("content").notNull(),
+    /** What this Memory was derived from: timeline_entry | ledger | feedback. */
+    sourceRefType: text("source_ref_type"),
+    sourceRefId: uuid("source_ref_id"),
+    /** Writer's confidence in the fact, 0..1 (numeric; adapter Number()-izes). */
+    confidence: numeric("confidence").notNull(),
+    /** The Memory this row corrects/replaces (self-FK in migrations/0009). */
+    supersedesId: uuid("supersedes_id"),
+    /** PI-1 provenance: operator | user_content | untrusted_external. */
+    trustOrigin: text("trust_origin").notNull(),
+    /** local | cloud — captures/derived-facts default to the local plane. */
+    plane: text("plane").notNull(),
+    /** Provenance actor: provider/agent/user id that produced this Memory. */
+    createdBy: text("created_by").notNull(),
+    /** Owner for authority-scoping team/private/restricted reads. */
+    ownerUserId: uuid("owner_user_id"),
+    createdAt: now(),
+  },
+  (t) => [index("memories_ws_subject_idx").on(t.workspaceId, t.subjectElementId)],
+);
+
+
 export const files = pgTable("files", {
   id: uuidPk(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
@@ -666,6 +713,10 @@ export const ledger = pgTable("ledger", {
   /** Original run context (initiative/community/ritual + runId) — audit completeness;
    * lets a replayed decide() thread the SAME context instead of a synthetic one. */
   context: jsonb("context"),
+  /** Provenance / trust origin of the input that drove this action (PI-1):
+   * operator | user_content | untrusted_external. Nullable — absent on rows not
+   * ingested from a tagged source. Tag-and-persist only; gating is PI-2. */
+  trustOrigin: text("trust_origin"),
   createdAt: now(),
 });
 
