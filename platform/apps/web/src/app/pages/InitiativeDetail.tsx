@@ -46,6 +46,19 @@ const DEFAULT_OVERVIEW: Overview = {
   ],
 };
 
+const INITIATIVE_PAGES = [
+  { slug: 'overview', label: 'Overview' },
+  { slug: 'touchpoints', label: 'Touchpoints' },
+  { slug: 'knowledge', label: 'Knowledge Base' },
+] as const;
+
+const TOUCHPOINT_VIEWS = [
+  { id: 'list', icon: LayoutList, label: 'List' },
+  { id: 'table', icon: TableIcon, label: 'Table' },
+  { id: 'gantt', icon: BarChart3, label: 'Gantt' },
+  { id: 'calendar', icon: Calendar, label: 'Calendar' },
+] as const;
+
 export function InitiativeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -66,31 +79,22 @@ export function InitiativeDetail() {
   const persistTouchpoints = (t: Touchpoint[]) => { setTouchpoints(t); save(`bridge.initiative.${iid}.tasks`, t); };
   const persistDocs = (d: Doc[]) => { setDocs(d); save(`bridge.initiative.${iid}.docs`, d); };
 
-  const tabs = ['Overview', 'Touchpoints', 'Knowledge Base'];
-  const pageBySlug = { overview: 'Overview', touchpoints: 'Touchpoints', knowledge: 'Knowledge Base' } as const;
-  const slugByPage = { Overview: 'overview', Touchpoints: 'touchpoints', 'Knowledge Base': 'knowledge' } as const;
-  const activeTab = pageBySlug[searchParams.get('page') as keyof typeof pageBySlug] ?? 'Overview';
-  const touchpointsView = ['list', 'table', 'gantt', 'calendar'].includes(searchParams.get('view') ?? '')
-    ? searchParams.get('view')!
-    : 'list';
-  function selectPage(page: string) {
+  const pageParam = searchParams.get('page');
+  const activeTab = INITIATIVE_PAGES.find((page) => page.slug === pageParam)?.label ?? 'Overview';
+  const viewParam = searchParams.get('view');
+  const touchpointsView = TOUCHPOINT_VIEWS.find((view) => view.id === viewParam)?.id ?? 'list';
+  function selectPage(page: (typeof INITIATIVE_PAGES)[number]) {
     const next = new URLSearchParams(searchParams);
-    next.set('page', slugByPage[page as keyof typeof slugByPage] ?? 'overview');
-    if (page !== 'Touchpoints') next.delete('view');
+    next.set('page', page.slug);
+    if (page.label !== 'Touchpoints') next.delete('view');
     setSearchParams(next);
   }
-  function selectTouchpointsView(view: string) {
+  function selectTouchpointsView(view: (typeof TOUCHPOINT_VIEWS)[number]['id']) {
     const next = new URLSearchParams(searchParams);
     next.set('page', 'touchpoints');
     next.set('view', view);
     setSearchParams(next);
   }
-  const touchpointViews = [
-    { id: 'list', icon: LayoutList, label: 'List' },
-    { id: 'table', icon: TableIcon, label: 'Table' },
-    { id: 'gantt', icon: BarChart3, label: 'Gantt' },
-    { id: 'calendar', icon: Calendar, label: 'Calendar' },
-  ];
 
   // ── Touchpoint tree ops (flat model with parentId → arbitrary depth) ──────────────────────────
   const nid = () => `t-${++counter.current}-${touchpoints.length}`;
@@ -168,10 +172,10 @@ export function InitiativeDetail() {
         </div>
         {/* Tabs */}
         <div className="flex gap-1 border-b -mb-4" style={{ borderColor: 'var(--color-border)' }}>
-          {tabs.map(tab => (
-            <button key={tab} onClick={() => selectPage(tab)} className="pb-3 px-4 text-sm font-medium transition-colors relative" style={{ color: activeTab === tab ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>
-              {tab}
-              {activeTab === tab && <motion.div layoutId="initiativeTabIndicator" className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ backgroundColor: 'var(--color-steel)', boxShadow: '0 0 8px rgb(from var(--color-steel) r g b / 0.3)' }} />}
+          {INITIATIVE_PAGES.map(page => (
+            <button key={page.slug} onClick={() => selectPage(page)} className="pb-3 px-4 text-sm font-medium transition-colors relative" style={{ color: activeTab === page.label ? 'var(--color-steel)' : 'var(--color-warm-gray)' }}>
+              {page.label}
+              {activeTab === page.label && <motion.div layoutId="initiativeTabIndicator" className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ backgroundColor: 'var(--color-steel)', boxShadow: '0 0 8px rgb(from var(--color-steel) r g b / 0.3)' }} />}
             </button>
           ))}
         </div>
@@ -253,7 +257,7 @@ export function InitiativeDetail() {
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
-                  {touchpointViews.map(view => (
+                  {TOUCHPOINT_VIEWS.map(view => (
                     <button key={view.id} onClick={() => selectTouchpointsView(view.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: touchpointsView === view.id ? 'var(--color-steel)' : 'var(--color-surface)', color: touchpointsView === view.id ? 'white' : 'var(--color-navy-mid)' }}>
                       <view.icon className="w-4 h-4" /> {view.label}
                     </button>
@@ -293,7 +297,7 @@ export function InitiativeDetail() {
 
               {(touchpointsView === 'gantt' || touchpointsView === 'calendar') && (
                 <div className="border rounded-xl p-12 text-center bg-[var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
-                  <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>{touchpointViews.find(v => v.id === touchpointsView)?.label} view coming soon — List is the standard cascaded-touchpoint view.</p>
+                  <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>{TOUCHPOINT_VIEWS.find(v => v.id === touchpointsView)?.label} view coming soon — List is the standard cascaded-touchpoint view.</p>
                 </div>
               )}
             </motion.div>
