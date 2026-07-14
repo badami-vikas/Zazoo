@@ -15,6 +15,7 @@
  *     that together assemble the trifecta.
  */
 import { computeRisk, maxRisk } from "../capability/risk.js";
+import { sandboxTrifectaLegs } from "../capability/sandbox-policy.js";
 import type { CapabilityManifest, CapabilityPermission, ResolveDependency, RiskBand } from "../capability/types.js";
 import type { PackageManifest, ResolvePackageDependency } from "./types.js";
 
@@ -43,7 +44,11 @@ function hasEgress(m: CapabilityManifest): boolean {
  * own bundled capabilities plus every dependency package's capabilities —
  * the same population computePackageRisk() walks for composite risk). Legs
  * may come from DIFFERENT capabilities — this is deliberately not "does any
- * one capability contain all three."
+ * one capability contain all three." Each capability contributes a leg either
+ * through its declared permissions/connectors OR through its GRANTED SANDBOX
+ * CAPS (PKG-1: an executable capability's sandbox network -> egress+ingest,
+ * filesystem/env -> private-read), so a trifecta assembled via sandbox grants
+ * escalates exactly like a permission-derived one.
  */
 export function packageHasLethalTrifecta(capabilities: CapabilityManifest[]): boolean {
   let sawPrivateRead = false;
@@ -51,9 +56,10 @@ export function packageHasLethalTrifecta(capabilities: CapabilityManifest[]): bo
   let sawEgress = false;
 
   for (const cap of capabilities) {
-    if (cap.permissions.some(isPrivateRead)) sawPrivateRead = true;
-    if (cap.permissions.some(isUntrustedIngest)) sawUntrustedIngest = true;
-    if (hasEgress(cap)) sawEgress = true;
+    const sandbox = sandboxTrifectaLegs(cap);
+    if (cap.permissions.some(isPrivateRead) || sandbox.privateRead) sawPrivateRead = true;
+    if (cap.permissions.some(isUntrustedIngest) || sandbox.untrustedIngest) sawUntrustedIngest = true;
+    if (hasEgress(cap) || sandbox.egress) sawEgress = true;
   }
 
   return sawPrivateRead && sawUntrustedIngest && sawEgress;

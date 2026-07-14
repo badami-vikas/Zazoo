@@ -37,7 +37,13 @@
  * are identical by construction, only the type names differ to avoid the
  * cross-package dependency.
  */
+import type { PackageManifest } from "./package/types.js";
 
+/** Current WorkspaceBlueprint schema version (BLUEPRINT-1, Month-6). Bumped on a
+ * breaking change to the blueprint grammar; `parseWorkspaceBlueprint` stamps it
+ * when absent and rejects a version it does not understand, so a Commons-
+ * published blueprint carries the grammar version it was authored against. */
+export const BLUEPRINT_SCHEMA_VERSION = 1 as const;
 /** Structural mirror of @bridge/tables' ColumnKind, PLUS "location" (ADR-023/
  * ADR-024 view-convertibility grammar: map-view eligibility needs a real
  * location-kind column instead of a name-based heuristic). @bridge/tables'
@@ -121,6 +127,12 @@ export interface BlueprintViewSpec {
 
 /** The governed, versioned artifact stored in workspace_definitions.blueprint. */
 export interface WorkspaceBlueprint {
+  /** BLUEPRINT-1 grammar version this payload was authored against. Optional on
+   * the in-memory type (existing stored blueprints and code-constructed literals
+   * predate it) — `parseWorkspaceBlueprint` stamps BLUEPRINT_SCHEMA_VERSION when
+   * absent, and `workspaceBlueprintToPackageManifest` always sets it, so every
+   * Commons-published blueprint carries an explicit version. */
+  schemaVersion?: number;
   /** Kernel-vocab label overrides (e.g. { initiative: "Deal" } for DealPilot) —
    * "vocabulary override applied to labels" (workspace scope, CLAUDE.md's
    * two-scope vocab rule: this is exactly the sanctioned override point). */
@@ -332,4 +344,220 @@ export function compileBlueprint(
  * partial substring rewrite that could clobber unrelated text. */
 function applyVocabulary(label: string, vocabulary: Record<string, string>): string {
   return vocabulary[label] ?? label;
+}
+
+/**
+ * Thrown by parseWorkspaceBlueprint when a payload is not a well-formed,
+ * DECLARATIVE blueprint — distinct from BlueprintCompileError (which is about
+ * the grammar/registry, at compile time). "The LLM emits only the declarative
+ * manifest, never runtime code" (BLUEPRINT-1): this parser is the enforcement
+ * point, using a closed key allowlist at every level so there is nowhere to
+ * smuggle a `code`/`handler`/`exec`/`fn` field or any non-primitive value.
+ */
+export class BlueprintValidationError extends Error {
+  constructor(message: string) {
+    super(`workspace blueprint invalid: ${message}`);
+    this.name = "BlueprintValidationError";
+  }
+}
+
+function bfail(reason: string): never {
+  throw new BlueprintValidationError(reason);
+}
+
+function isPlainObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Reject any key on `obj` that is not in `allowed` — the closed-grammar rule
+ * that makes a blueprint declarative (no smuggled code/handler/exec fields). */
+function rejectUnknownKeys(obj: Record<string, unknown>, allowed: readonly string[], where: string): void {
+  for (const k of Object.keys(obj)) {
+    if (!allowed.includes(k)) bfail(`${where} has unknown key "${k}" (blueprints are declarative — only ${allowed.join("/")} are allowed here)`);
+  }
+}
+
+const BLUEPRINT_FIELD_KINDS: readonly BlueprintColumnKind[] = [
+  "text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool", "location",
+];
+const FILTER_OPS: readonly BlueprintFilterOp[] = ["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"];
+
+function parseField(raw: unknown, where: string): BlueprintFieldSpec {
+  if (!isPlainObj(raw)) bfail(`${where} must be an object`);
+  rejectUnknownKeys(raw, ["id", "label", "kind", "options", "toolId"], where);
+  const { id, label, kind } = raw;
+  if (typeof id !== "string" || id.length === 0) bfail(`${where}.id must be a non-empty string`);
+  if (typeof label !== "string" || label.length === 0) bfail(`${where}.label must be a non-empty string`);
+  if (typeof kind !== "string" || !BLUEPRINT_FIELD_KINDS.includes(kind as BlueprintColumnKind)) {
+    bfail(`${where}.kind must be one of ${BLUEPRINT_FIELD_KINDS.join(", ")}`);
+  }
+  let options: string[] | undefined;
+  if (raw.options !== undefined) {
+    if (!Array.isArray(raw.options) || raw.options.some((o) => typeof o !== "string")) bfail(`${where}.options must be a string[]`);
+    options = raw.options as string[];
+  }
+  if (raw.toolId !== undefined && typeof raw.toolId !== "string") bfail(`${where}.toolId must be a string`);
+  return {
+    id,
+    label,
+    kind: kind as BlueprintColumnKind,
+    ...(options ? { options } : {}),
+    ...(typeof raw.toolId === "string" ? { toolId: raw.toolId } : {}),
+  };
+}
+
+function parseViewConfig(raw: unknown, where: string): NonNullable<BlueprintViewSpec["config"]> {
+  if (!isPlainObj(raw)) bfail(`${where} must be an object`);
+  rejectUnknownKeys(raw, ["sorts", "rowFilters", "filterMatch", "groupBy"], where);
+  let sorts: BlueprintSortSpec[] | undefined;
+  if (raw.sorts !== undefined) {
+    if (!Array.isArray(raw.sorts)) bfail(`${where}.sorts must be an array`);
+    sorts = raw.sorts.map((s, i): BlueprintSortSpec => {
+      if (!isPlainObj(s)) bfail(`${where}.sorts[${i}] must be an object`);
+      rejectUnknownKeys(s, ["id", "dir"], `${where}.sorts[${i}]`);
+      if (typeof s.id !== "string" || (s.dir !== "asc" && s.dir !== "desc")) bfail(`${where}.sorts[${i}] must be { id, dir: asc|desc }`);
+      return { id: s.id, dir: s.dir };
+    });
+  }
+  let rowFilters: BlueprintRowFilter[] | undefined;
+  if (raw.rowFilters !== undefined) {
+    if (!Array.isArray(raw.rowFilters)) bfail(`${where}.rowFilters must be an array`);
+    rowFilters = raw.rowFilters.map((f, i): BlueprintRowFilter => {
+      if (!isPlainObj(f)) bfail(`${where}.rowFilters[${i}] must be an object`);
+      rejectUnknownKeys(f, ["field", "op", "value"], `${where}.rowFilters[${i}]`);
+      if (typeof f.field !== "string" || typeof f.value !== "string" || !FILTER_OPS.includes(f.op as BlueprintFilterOp)) {
+        bfail(`${where}.rowFilters[${i}] must be { field, op, value } with op in ${FILTER_OPS.join("/")}`);
+      }
+      return { field: f.field, op: f.op as BlueprintFilterOp, value: f.value };
+    });
+  }
+  if (raw.filterMatch !== undefined && raw.filterMatch !== "all" && raw.filterMatch !== "any") {
+    bfail(`${where}.filterMatch must be "all" or "any"`);
+  }
+  if (raw.groupBy !== undefined && raw.groupBy !== null && typeof raw.groupBy !== "string") {
+    bfail(`${where}.groupBy must be a string or null`);
+  }
+  return {
+    ...(sorts ? { sorts } : {}),
+    ...(rowFilters ? { rowFilters } : {}),
+    ...(raw.filterMatch === "all" || raw.filterMatch === "any" ? { filterMatch: raw.filterMatch } : {}),
+    ...(raw.groupBy !== undefined ? { groupBy: raw.groupBy as string | null } : {}),
+  };
+}
+
+/**
+ * Parse+validate an untrusted payload (a Commons-published blueprint, a tRPC
+ * input, or a stored jsonb row) into a WorkspaceBlueprint, rejecting anything
+ * that is not a well-formed DECLARATIVE blueprint. Uses a closed key allowlist
+ * at every level so runtime code cannot be smuggled in. Stamps
+ * BLUEPRINT_SCHEMA_VERSION when absent; rejects an unknown (future) version.
+ * Pure — no I/O. Does NOT check the node-type registry (that is
+ * compileBlueprint's job); this is the SHAPE/declarative gate.
+ */
+export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
+  if (!isPlainObj(raw)) bfail("root must be an object");
+  rejectUnknownKeys(raw, ["schemaVersion", "vocabulary", "entities", "views", "capabilities"], "blueprint");
+
+  let schemaVersion = BLUEPRINT_SCHEMA_VERSION as number;
+  if (raw.schemaVersion !== undefined) {
+    if (typeof raw.schemaVersion !== "number" || !Number.isInteger(raw.schemaVersion)) bfail("schemaVersion must be an integer");
+    if (raw.schemaVersion > BLUEPRINT_SCHEMA_VERSION) {
+      bfail(`schemaVersion ${raw.schemaVersion} is newer than this kernel understands (max ${BLUEPRINT_SCHEMA_VERSION})`);
+    }
+    schemaVersion = raw.schemaVersion;
+  }
+
+  if (!isPlainObj(raw.vocabulary)) bfail("vocabulary must be an object");
+  const vocabulary: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw.vocabulary)) {
+    if (typeof v !== "string") bfail(`vocabulary.${k} must be a string`);
+    vocabulary[k] = v;
+  }
+
+  if (!Array.isArray(raw.entities)) bfail("entities must be an array");
+  const entities = raw.entities.map((e, i): BlueprintEntitySpec => {
+    if (!isPlainObj(e)) bfail(`entities[${i}] must be an object`);
+    rejectUnknownKeys(e, ["nodeType", "label", "fields"], `entities[${i}]`);
+    if (typeof e.nodeType !== "string" || e.nodeType.length === 0) bfail(`entities[${i}].nodeType must be a non-empty string`);
+    if (typeof e.label !== "string" || e.label.length === 0) bfail(`entities[${i}].label must be a non-empty string`);
+    if (!Array.isArray(e.fields)) bfail(`entities[${i}].fields must be an array`);
+    return { nodeType: e.nodeType, label: e.label, fields: e.fields.map((f, j) => parseField(f, `entities[${i}].fields[${j}]`)) };
+  });
+
+  if (!Array.isArray(raw.views)) bfail("views must be an array");
+  const views = raw.views.map((v, i): BlueprintViewSpec => {
+    if (!isPlainObj(v)) bfail(`views[${i}] must be an object`);
+    rejectUnknownKeys(v, ["entity", "kind", "config"], `views[${i}]`);
+    if (typeof v.entity !== "string" || v.entity.length === 0) bfail(`views[${i}].entity must be a non-empty string`);
+    if (typeof v.kind !== "string" || !BLUEPRINT_VIEW_KINDS.includes(v.kind as BlueprintViewKind)) {
+      bfail(`views[${i}].kind must be one of ${BLUEPRINT_VIEW_KINDS.join(", ")}`);
+    }
+    return {
+      entity: v.entity,
+      kind: v.kind as BlueprintViewKind,
+      ...(v.config !== undefined ? { config: parseViewConfig(v.config, `views[${i}].config`) } : {}),
+    };
+  });
+
+  if (!Array.isArray(raw.capabilities) || raw.capabilities.some((c) => typeof c !== "string" || c.length === 0)) {
+    bfail("capabilities must be an array of non-empty capability-manifest-id strings");
+  }
+
+  return { schemaVersion, vocabulary, entities, views, capabilities: raw.capabilities as string[] };
+}
+
+export interface WorkspaceBlueprintPublishOptions {
+  /** kebab-case package name for the Commons entry. */
+  name: string;
+  /** exact semver for the Commons entry. */
+  version: string;
+  summary?: string;
+  description?: string;
+}
+
+/**
+ * Bridge a WorkspaceBlueprint into a Commons-publishable PackageManifest
+ * (kind "workspace_definition"). The blueprint travels intact in
+ * `manifest.blueprint` (so PKG-2 signing covers it byte-for-byte), with
+ * schemaVersion stamped. A workspace_definition COMPOSES capabilities by
+ * reference (blueprint.capabilities) rather than bundling them, so the
+ * manifest's own capabilities[] is empty — parsePackageManifest permits this
+ * for a blueprint-carrying workspace_definition. Pure.
+ */
+export function workspaceBlueprintToPackageManifest(
+  blueprint: WorkspaceBlueprint,
+  options: WorkspaceBlueprintPublishOptions,
+): PackageManifest {
+  const summary = options.summary ?? `${options.name} workspace blueprint`;
+  return {
+    name: options.name,
+    version: options.version,
+    kind: "workspace_definition",
+    summary,
+    description: options.description ?? summary,
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [],
+    contextProviders: [],
+    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: blueprint.vocabulary },
+    blueprint: { ...blueprint, schemaVersion: blueprint.schemaVersion ?? BLUEPRINT_SCHEMA_VERSION },
+  };
+}
+
+/**
+ * Inverse of workspaceBlueprintToPackageManifest — extract and re-validate the
+ * blueprint from an installed PackageManifest, running the full declarative
+ * gate (parseWorkspaceBlueprint) so a tampered/non-declarative payload that
+ * somehow reached install is rejected at the boundary. Throws
+ * BlueprintValidationError if the manifest is not a blueprint-carrying
+ * workspace_definition. Pure.
+ */
+export function workspaceBlueprintFromPackageManifest(manifest: PackageManifest): WorkspaceBlueprint {
+  if (manifest.kind !== "workspace_definition") {
+    bfail(`package "${manifest.name}" is kind "${manifest.kind}", not a workspace_definition — no blueprint to extract`);
+  }
+  if (manifest.blueprint === undefined) {
+    bfail(`workspace_definition package "${manifest.name}" carries no blueprint payload`);
+  }
+  return parseWorkspaceBlueprint(manifest.blueprint);
 }

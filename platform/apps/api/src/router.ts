@@ -55,12 +55,17 @@ import {
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
+  evaluateSandboxRequirement,
+  isUntrustedOrigin,
+  trustGrantsForOrigin,
   advancePackageState,
   promoteToAvailable,
   rollbackFromHistory,
   InvalidPackageTransitionError,
   type CapabilityManifest,
   type CapabilityManifestRow,
+  type CapabilityOrigin,
+  type TrustGrantView,
   type WhyBetterCard,
   type CapabilityHealthRecord,
   type PendingProposalRecord,
@@ -2205,6 +2210,22 @@ export const appRouter = t.router({
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
 
+      // PKG-1 sandbox floor (Month-6): an executable capability may only install
+      // when its declared isolation satisfies the sandbox gate — no
+      // `isolation: "none"`, and any capability whose sandbox grants network/
+      // filesystem needs a real container/VM boundary (process isolation is not
+      // a boundary). A half-declared executable is rejected here rather than
+      // reaching Active unsandboxed. Declarative capabilities pass trivially.
+      for (const cap of installation.manifest.capabilities) {
+        const sandbox = evaluateSandboxRequirement(cap);
+        if (!sandbox.satisfied) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `capability "${cap.name}" cannot be installed: ${sandbox.reason} (declared isolation "${sandbox.isolation}")`,
+          });
+        }
+      }
+
       // Resolve capability dependencies (by manifestId, ignoring versionRange —
       // capability-level dependency resolution is unversioned in the existing
       // capability.register path too) via the workspace's registered capability
@@ -2248,11 +2269,22 @@ export const appRouter = t.router({
           ? "team"
           : "private";
 
+      // PKG-2 community-origin floor input: a package is treated at its
+      // LEAST-trusted capability origin — if any bundled capability is
+      // community/user_code (untrusted), the whole install is floored there.
+      const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
+      const floorOrigin: CapabilityOrigin = installation.manifest.capabilities.some((c) => isUntrustedOrigin(c.origin))
+        ? "community"
+        : "built_in";
+
       const decision = await resolveActivationApproval({
         workspaceId: input.workspaceId,
         riskBand: risk.effectiveRisk,
         audience,
-        trustGrants: [], // trust_grants lookup is a store-layer follow-up — same gap capability.activate has
+        // PKG-2 community-origin floor: an untrusted origin (community/user_code)
+        // never receives trust-grant auto-activation — community is pinned to the
+        // same tier as unreviewed local code, so it can never auto-trust above it.
+        trustGrants: trustGrantsForOrigin(floorOrigin, resolvedTrustGrants),
         killSwitch: ctx.wiring.capabilityKillSwitch,
         budgets: ctx.wiring.capabilityBudgets,
         todayKey: input.todayKey,

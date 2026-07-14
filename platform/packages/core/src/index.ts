@@ -72,6 +72,8 @@ export {
   resolveActivationApproval,
   AUTO_ACTIVATION_BUDGETS,
   isBudgetedBand,
+  isUntrustedOrigin,
+  trustGrantsForOrigin,
   InMemoryAutoActivationBudgetStore,
   InMemoryKillSwitch,
   type ApprovalRequirement,
@@ -130,6 +132,15 @@ export {
   type SandboxRunResult,
   type SandboxProvider,
 } from "./capability/sandbox-provider.js";
+// PKG-1 (Month-6) — pre-Active sandbox floor gate + sandbox-cap trifecta legs
+// for executable capabilities (CapabilityManifest.execution).
+export {
+  evaluateSandboxRequirement,
+  sandboxTrifectaLegs,
+  type SandboxGateResult,
+  type SandboxGateDenialReason,
+  type SandboxTrifectaLegs,
+} from "./capability/sandbox-policy.js";
 
 // Context Provider contract (docs/wiki/clients.md, Sensor SPI) — desktop-only,
 // optional capability; screen capture is one provider among nine, never the
@@ -156,6 +167,22 @@ export {
   type PromoteResult,
 } from "./package/lifecycle.js";
 export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+// PKG-2 (Month-6) Commons supply-chain trust — pure signing/verification policy
+// + canonicalization + TLS-by-default (crypto itself is bound at the seam).
+export {
+  canonicalizeManifest,
+  verifyManifestSignature,
+  toSignedEnvelope,
+  assertCommonsUrlTls,
+  CommonsInsecureTransportError,
+  type ManifestSignatureAlgorithm,
+  type ManifestSignature,
+  type SignedManifestEnvelope,
+  type SignatureVerifier,
+  type ManifestVerificationFailure,
+  type ManifestVerificationResult,
+  type VerifyManifestOptions,
+} from "./package/signing.js";
 
 // PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
 // prompt-injection defenses; ADR-063/064). The pipeline enforces the egress gate
@@ -221,6 +248,11 @@ export {
 export {
   compileBlueprint,
   BlueprintCompileError,
+  BLUEPRINT_SCHEMA_VERSION,
+  parseWorkspaceBlueprint,
+  BlueprintValidationError,
+  workspaceBlueprintToPackageManifest,
+  workspaceBlueprintFromPackageManifest,
   type BlueprintColumnKind,
   type BlueprintColumnSpec,
   type BlueprintTableSpec,
@@ -233,6 +265,7 @@ export {
   type BlueprintEntitySpec,
   type BlueprintViewSpec,
   type WorkspaceBlueprint,
+  type WorkspaceBlueprintPublishOptions,
   type NavigationEntry,
   type CompiledWorkspace,
   type CompiledViewConfig,
