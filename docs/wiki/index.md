@@ -27,6 +27,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [stack](stack.md) — tech, libs, model provider.
 - [oss](oss.md) — open-source picks, build-not-buy, licenses.
 - [competitive](competitive.md) — rivals, easy-adds, avoid, moat.
+- [ui-architecture](ui-architecture.md) — **2026-07-13, AP-011 CANON**: data-shape→surface rules (toggles/pages/sections/lists/sub-modules), Form view, Control Panel→3-dots, `~/Documents/Bridge Workspace/` artifact tree; UI-RULES-1 = first task next run.
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Bridge fixes (ritual executor = authoritative actor).
