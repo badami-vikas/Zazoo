@@ -17,12 +17,16 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   parsePackageManifest,
   PackageManifestValidationError,
+  toSignedEnvelope,
+  verifyManifestSignature,
   type CommonsListResult,
   type CommonsPackageDetail,
   type CommonsPackageSummary,
+  type ManifestSignature,
   type PackageKind,
 } from "@bridge/core";
 import { findWorkspaceDataPaths } from "./privacy-gate.js";
+import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signManifest, type CommonsSigningKeyPair } from "./signing.js";
 import { DuplicateVersionError, type CommonsStore } from "./store.js";
 
 const PACKAGE_KINDS: readonly string[] = [
@@ -40,12 +44,17 @@ function latestOf<T extends { publishedAt: string }>(versions: T[]): T {
   return versions[versions.length - 1] as T;
 }
 
-export function buildCommonsServer(store: CommonsStore): FastifyInstance {
+export function buildCommonsServer(store: CommonsStore, options: { keyPair?: CommonsSigningKeyPair } = {}): FastifyInstance {
+  const keyPair = options.keyPair ?? resolveCommonsSigningKeyPair();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
   app.get("/health", async () => {
     const all = await store.listAll();
     return { ok: true, service: "commons", packages: new Set(all.map((e) => e.name)).size };
+  });
+
+  app.get("/v1/signing-key", async () => {
+    return { publicKey: keyPair.publicKeyPem, algorithm: "ed25519" };
   });
 
   app.get<{ Querystring: { kind?: string; tag?: string; limit?: string; offset?: string } }>(
@@ -112,7 +121,7 @@ export function buildCommonsServer(store: CommonsStore): FastifyInstance {
     return entry;
   });
 
-  app.post<{ Body: { manifest?: unknown; tags?: unknown } }>("/v1/packages", async (req, reply) => {
+  app.post<{ Body: { manifest?: unknown; tags?: unknown; signature?: unknown } }>("/v1/packages", async (req, reply) => {
     const body = req.body;
     if (typeof body !== "object" || body === null || body.manifest === undefined) {
       return reply.status(400).send({ error: "invalid_manifest", message: "body must be { manifest, tags? }" });
@@ -145,6 +154,22 @@ export function buildCommonsServer(store: CommonsStore): FastifyInstance {
       return reply.status(400).send({ error: "invalid_manifest", message: "tags must be an array of non-empty strings" });
     }
 
+    const suppliedSignature = manifestSignatureFromUnknown(body.signature);
+    if (suppliedSignature) {
+      const suppliedCheck = verifyManifestSignature(toSignedEnvelope(manifest, suppliedSignature), ed25519ManifestVerifier);
+      if (!suppliedCheck.valid) {
+        return reply.status(400).send({ error: "invalid_signature", message: "supplied manifest signature does not verify" });
+      }
+    }
+
+    const signature = signManifest(manifest, keyPair);
+    const check = verifyManifestSignature(toSignedEnvelope(manifest, signature), ed25519ManifestVerifier, {
+      trustedPublicKeys: [keyPair.publicKeyPem],
+    });
+    if (!check.valid) {
+      return reply.status(500).send({ error: "signing_failed", message: check.reason });
+    }
+
     try {
       await store.put({
         name: manifest.name,
@@ -153,6 +178,7 @@ export function buildCommonsServer(store: CommonsStore): FastifyInstance {
         summary: manifest.summary,
         tags: [...new Set(tagsRaw as string[])],
         manifest,
+        signature,
         publishedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -166,4 +192,11 @@ export function buildCommonsServer(store: CommonsStore): FastifyInstance {
   });
 
   return app;
+}
+
+function manifestSignatureFromUnknown(value: unknown): ManifestSignature | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.signature !== "string" || typeof candidate.publicKey !== "string") return undefined;
+  return candidate as unknown as ManifestSignature;
 }

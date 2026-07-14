@@ -45,6 +45,47 @@ test("capability store: createManifest + getManifest round-trip, dependencies js
   }
 });
 
+test("capability store: kind discriminator (REG-1) round-trips; absent kind reads back as null", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleCapabilityStore(db);
+
+    const withKind = await store.createManifest({
+      id: "21000000-0000-4000-8000-000000000001",
+      workspaceId,
+      capabilityType: "skill",
+      kind: "routing_rule",
+      name: "test_fixture_kinded",
+      version: "1.0.0",
+      origin: "user_code",
+      audience: "private",
+      manifest: {},
+      computedRisk: "informational",
+      dependencies: [],
+    });
+    const fetchedKind = await store.getManifest(withKind.id);
+    assert.equal(fetchedKind?.kind, "routing_rule");
+
+    const noKind = await store.createManifest({
+      id: "21000000-0000-4000-8000-000000000002",
+      workspaceId,
+      capabilityType: "skill",
+      name: "test_fixture_unkinded",
+      version: "1.0.0",
+      origin: "user_code",
+      audience: "private",
+      manifest: {},
+      computedRisk: "informational",
+      dependencies: [],
+    });
+    const fetchedNoKind = await store.getManifest(noKind.id);
+    assert.equal(fetchedNoKind?.kind, null);
+  } finally {
+    await close();
+  }
+});
+
 test("capability store: listManifests paginates within a workspace", async () => {
   const { db, close } = await createLocalDb();
   try {

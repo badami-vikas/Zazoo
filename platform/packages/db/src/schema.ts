@@ -889,6 +889,12 @@ export const capabilityManifests = pgTable(
     id: uuidPk(),
     workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
     capabilityType: text("capability_type").notNull(), // skill | workflow | agent | tool | integration | view | dashboard
+    /** REG-1 Component Registry discriminator (undefined-elements §2) — reuse
+     * this table as the registry rather than forking a second source of truth.
+     * Nullable: pre-REG-1 rows have no kind; overlap detection falls back to
+     * capability_type. Values: agent|skill|automation|workflow|tool|prompt|
+     * eval_set|routing_rule|policy|integration|template. */
+    kind: text("kind"),
     name: text("name").notNull(),
     version: text("version").notNull().default("1.0.0"),
     origin: text("origin").notNull().default("user_code"), // built_in | template | community | ai_generated | user_code

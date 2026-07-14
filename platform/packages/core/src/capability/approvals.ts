@@ -11,9 +11,42 @@
  * uses. Everything else (auto-activation budgets, the kill switch) only ever
  * NARROWS what auto-activates; nothing here can loosen the external floor.
  */
-import type { Audience, RiskBand } from "./types.js";
+import type { Audience, CapabilityOrigin, RiskBand } from "./types.js";
 
 export type ApprovalRequirement = "auto" | "user_pref" | "governance" | "explicit_human";
+
+/**
+ * Origin trust tiers (PKG-2 supply-chain trust). Higher = more trusted. The
+ * load-bearing pin: `community` is EQUAL to `user_code` — the least-trusted
+ * tier — so an externally-authored (Commons/MCP/foreign) manifest is never
+ * auto-trusted at a higher tier than unreviewed local code ("treat community-
+ * origin manifests as untrusted as user_code, never auto-trust at a higher
+ * tier"). Ordering only; the numbers are not stored anywhere.
+ */
+const ORIGIN_TRUST_TIER: Record<CapabilityOrigin, 0 | 1 | 2 | 3> = {
+  user_code: 0,
+  community: 0, // PKG-2 pin — never above user_code
+  ai_generated: 1,
+  template: 2,
+  built_in: 3,
+};
+
+/** True for the least-trusted origins (community/user_code) — the ones that
+ * must never receive trust-grant auto-activation (PKG-2). */
+export function isUntrustedOrigin(origin: CapabilityOrigin): boolean {
+  return ORIGIN_TRUST_TIER[origin] === 0;
+}
+
+/**
+ * PKG-2 community-origin floor: strip auto-activation trust grants for an
+ * untrusted origin (community/user_code) so such a capability can never
+ * auto-trust above the base risk/audience requirement. A trusted origin's
+ * grants pass through unchanged. Applied at the install/approve seam BEFORE
+ * requiredApproval, so `community` gets exactly the `user_code` treatment.
+ */
+export function trustGrantsForOrigin(origin: CapabilityOrigin, grants: TrustGrantView[]): TrustGrantView[] {
+  return isUntrustedOrigin(origin) ? [] : grants;
+}
 
 /** A trust grant record, as read from `trust_grants` — the subset approvals.ts
  * needs (not the full DB row shape, to keep this module store-agnostic). */

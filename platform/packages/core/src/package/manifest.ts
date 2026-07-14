@@ -9,7 +9,8 @@
  * package.yaml never installs as if it were empty.
  */
 import type { PackageDependency, PackageKind, PackageManifest, PackageWorkspaceVocab } from "./types.js";
-import type { CapabilityManifest } from "../capability/types.js";
+import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
+import { parseWorkspaceBlueprint } from "../blueprint.js";
 
 const PACKAGE_KINDS: readonly PackageKind[] = [
   "skill",
@@ -23,6 +24,8 @@ const PACKAGE_KINDS: readonly PackageKind[] = [
 
 /** Strict semver — MAJOR.MINOR.PATCH, no ranges/prerelease-only shorthand. */
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z-.]+)?$/;
+
+const SANDBOX_ISOLATION_LEVELS: readonly SandboxIsolationLevel[] = ["none", "process", "container", "vm"];
 
 export class PackageManifestValidationError extends Error {
   constructor(reason: string) {
@@ -54,6 +57,44 @@ function parseDependency(raw: unknown, index: number): PackageDependency {
   }
   const version = assertSemver(raw.version, `dependencies[${index}].version`);
   return { manifestId: manifestId as string, version };
+}
+
+function parseStringArray(raw: unknown, field: string): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) fail(`${field} must be an array of strings`);
+  return raw.map((v, i) => {
+    if (typeof v !== "string" || v.length === 0) fail(`${field}[${i}] must be a non-empty string`);
+    return v as string;
+  });
+}
+
+/** Parse an optional capability `execution` spec (PKG-1). Its PRESENCE marks
+ * the capability executable, so it must be well-formed when present — a
+ * half-declared executable (missing sandbox/isolation) fails loudly rather
+ * than installing as if declarative and dodging the sandbox floor. */
+function parseExecutionSpec(raw: unknown, index: number): CapabilityExecutionSpec | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) fail(`capabilities[${index}].execution must be an object when present`);
+  if (raw.executable !== true) {
+    fail(`capabilities[${index}].execution.executable must be the literal true (omit execution for a declarative capability)`);
+  }
+  const isolation = raw.isolation;
+  if (typeof isolation !== "string" || !SANDBOX_ISOLATION_LEVELS.includes(isolation as SandboxIsolationLevel)) {
+    fail(`capabilities[${index}].execution.isolation must be one of ${SANDBOX_ISOLATION_LEVELS.join(", ")}`);
+  }
+  const sandboxRaw = raw.sandbox;
+  if (!isPlainObject(sandboxRaw)) fail(`capabilities[${index}].execution.sandbox must be an object`);
+  const network = sandboxRaw.network ?? false;
+  if (typeof network !== "boolean") fail(`capabilities[${index}].execution.sandbox.network must be a boolean`);
+  return {
+    executable: true,
+    isolation: isolation as SandboxIsolationLevel,
+    sandbox: {
+      network,
+      filesystem: parseStringArray(sandboxRaw.filesystem, `capabilities[${index}].execution.sandbox.filesystem`),
+      env: parseStringArray(sandboxRaw.env, `capabilities[${index}].execution.sandbox.env`),
+    },
+  };
 }
 
 /** A capability entry inside package.yaml's `capabilities[]` — the full
@@ -121,6 +162,7 @@ function parseCapability(raw: unknown, index: number): CapabilityManifest {
     return { manifestId, versionRange };
   });
 
+  const execution = parseExecutionSpec(raw.execution, index);
   return {
     id,
     name: (typeof raw.name === "string" && raw.name.length > 0 ? raw.name : id) as string,
@@ -131,6 +173,7 @@ function parseCapability(raw: unknown, index: number): CapabilityManifest {
     permissions,
     connectors,
     dependencies,
+    ...(execution ? { execution } : {}),
   };
 }
 
@@ -181,13 +224,21 @@ export function parsePackageManifest(raw: unknown): PackageManifest {
   const lineageRaw = pkg.lineageManifestId ?? pkg.lineage_manifest_id ?? null;
   if (lineageRaw !== null && typeof lineageRaw !== "string") fail("package.lineage_manifest_id must be a string or null");
 
+  // BLUEPRINT-1: a workspace_definition package carries its declarative
+  // blueprint here; parse it through the full declarative gate. Presence also
+  // relaxes the capabilities>=1 rule below (a workspace_definition composes
+  // capabilities by reference inside the blueprint, not by bundling them).
+  const blueprint = pkg.blueprint !== undefined ? parseWorkspaceBlueprint(pkg.blueprint) : undefined;
+  const isBlueprintPackage = kind === "workspace_definition" && blueprint !== undefined;
+
   const dependenciesRaw = pkg.dependencies ?? [];
   if (!Array.isArray(dependenciesRaw)) fail("package.dependencies must be an array");
   const dependencies = dependenciesRaw.map(parseDependency);
 
-  const capabilitiesRaw = pkg.capabilities;
-  if (!Array.isArray(capabilitiesRaw) || capabilitiesRaw.length === 0) {
-    fail("package.capabilities must be a non-empty array — a package must bundle at least one capability");
+  const capabilitiesRaw = pkg.capabilities ?? [];
+  if (!Array.isArray(capabilitiesRaw)) fail("package.capabilities must be an array");
+  if (capabilitiesRaw.length === 0 && !isBlueprintPackage) {
+    fail("package.capabilities must be a non-empty array — a package must bundle at least one capability (except a workspace_definition carrying a blueprint)");
   }
   const capabilities = capabilitiesRaw.map(parseCapability);
   const seenIds = new Set<string>();
@@ -220,5 +271,6 @@ export function parsePackageManifest(raw: unknown): PackageManifest {
     capabilities,
     contextProviders,
     workspaceVocab,
+    ...(blueprint ? { blueprint } : {}),
   };
 }

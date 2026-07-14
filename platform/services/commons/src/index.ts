@@ -6,3 +6,4 @@
 export { buildCommonsServer } from "./server.js";
 export { FsCommonsStore, DuplicateVersionError, type CommonsStore } from "./store.js";
 export { findWorkspaceDataPaths } from "./privacy-gate.js";
+export { resolveCommonsSigningKeyPair, signManifest, ed25519ManifestVerifier, type CommonsSigningKeyPair } from "./signing.js";
