@@ -50,6 +50,24 @@ covered:
     evidence:
       - Initiative Control Panel is now reachable from the Initiative page 3-dots menu.
       - Its route remains direct-linkable.
+  form_view:
+    status: done
+    evidence:
+      - "form" added to ViewConfig["kind"] in @bridge/tables/src/types.ts.
+      - FormView component created at apps/web/src/app/dataviews/views/FormView.tsx — renders all editable, non-locked, non-computed columns as typed inputs; calls onInsert(draft) on submit.
+      - Registered as "form" in VIEW_COMPONENT_REGISTRY and REGISTERED_VIEW_KINDS (registry.ts).
+      - computeEligibleKinds (eligibility.ts) always includes "form" for non-relationship specs — same always-eligible rule as table/kanban/gallery.
+      - DataViewsProps extended with optional onInsert callback; forwarded to view components.
+      - Process parity: onInsert is the caller's hook into action.propose — the same pipeline enrichment path every other DB write goes through.
+  commons_registry:
+    status: done
+    evidence:
+      - commonsRegistry: CommonsRegistry added to Wiring interface + buildWiring() return (HttpCommonsClient, COMMONS_URL env, loopback-HTTP allowed).
+      - commons.list / commons.get / commons.getVersion / commons.installPropose / commons.publishBuiltins tRPC sub-router added to appRouter (router.ts).
+      - installPropose = fetch+register (PKG-2 signature verified by HttpCommonsClient) returning installationId; caller calls packages.install for governed risk/approval flow — no logic duplication.
+      - publishBuiltins = pushes BUILT_IN_PACKAGES to the running Commons registry; idempotent (skips duplicates).
+      - Intelligence → Registry tab added to IntelligencePage (commons.list + publishBuiltins button).
+      - 8 new focused tests in apps/api/test/commons.test.ts with in-memory CommonsRegistry mock; all 99 API tests pass.
 
 target_map:
   knowledge:
@@ -91,7 +109,7 @@ target_map:
 
 remaining:
   - Route all canonical toggle pages and encode active list, view, and filters where useful.
-  - Add Form as a first-class registered view backed by field metadata and the existing post-insert process.
+  - ~~Add Form as a first-class registered view backed by field metadata and the existing post-insert process.~~ DONE 2026-07-15: FormView registered, onInsert hook contract implemented.
   - Introduce collapsible module children only when a loosely-related dataset actually needs a sub-module.
   - Standardize landing, related, and Artifacts sections across at least three pages.
   - Provision and index the Bridge Workspace Documents tree in the desktop shell.
@@ -99,6 +117,7 @@ remaining:
   - Add the artifact-count watcher and governed Chief-of-Staff grouping call.
   - Generate honest empty-state copy from page metadata.
   - Reclassify Control Panel record data into page sections; leave only administration in Control Panel.
+  - ~~wire commons.* tRPC over CommonsRegistry port (CM0).~~ DONE 2026-07-15: commons sub-router + wiring + Registry Intelligence tab + 8 tests.
 
 macos_or_infrastructure_flags:
   - Do not claim macOS Documents resolution, filesystem watching, rename tracking, entitlements, app bundle, signing, or notarization from this environment.

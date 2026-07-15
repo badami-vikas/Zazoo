@@ -2469,7 +2469,7 @@ export const appRouter = t.router({
     list: procedure
       .input(
         z.object({
-          kind: z.enum(["workspace_definition", "capability", "skill", "automation", "integration"]).optional(),
+          kind: z.enum(["workspace_definition", "skill", "workflow", "agent", "tool", "view", "integration_bundle"]).optional(),
           tag: z.string().optional(),
           limit: z.number().int().min(1).max(100).optional(),
           offset: z.number().int().min(0).optional(),
