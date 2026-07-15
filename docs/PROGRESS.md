@@ -31,11 +31,18 @@ No per-instance APPROVALS row needed — this standing rule is the approval; rep
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, artifacts section + `~/Documents/Bridge Workspace/` tree
   - [x] 2026-07-14 — inventory + toggle/list/sub-module target map → `docs/raw/ui-architecture-alignment-audit-2026-07.md`
   - [x] 2026-07-14 — retire dead Control Panel toolbar slot; put Initiative Control Panel in page 3-dots; deep-link Initiative page/view query state
-  - [ ] Remaining — route-backed seed toggles · Form registry/write parity · sub-module nav · three-page section alignment · artifact tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
+  - [x] 2026-07-15 — Form registered as a standard DataView with metadata-driven typed fields and an insert-hook contract
+  - [ ] Remaining — bind Form direct-insert/process-parity handlers · route-backed seed toggles · sub-module nav · three-page section alignment · artifact tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
 - [ ] EG0 — Egg shell foundation: crates + hotkey + keychain/CSP posture → egg-commons roadmap §EG0
 - [ ] EG1 — onboarding v2 (OnboardingProfile → CoS prompt, permission theater, governed live-demo beat) → §EG1
 - [ ] CM0 — wire the Commons registry (commons.* tRPC exists, nothing consumes it — biggest gap) → §CM0
+  - [x] 2026-07-15 — `CommonsRegistry` wired into API composition; `commons.list/get/getVersion/installPropose/publishBuiltins` tRPC + Registry browser surface
+  - [ ] Remaining — browser evidence for install flow · Learning Agent similarity reads · slice-wide eval/provenance/cost gates
 - [ ] CM1 — supply-chain trust (signing, content-hash pins, publisher verify, 8-point scan) — BEFORE any corpus ingest → §CM1
+
+### User-directed parallel domain foundations (2026-07-15; no batch reorder, no slice marked DONE)
+- JobPilot JP1 partial — JSON Resume contract, deterministic multi-source master-profile compile/dedupe, NeedsHuman conflicts, human-approval guard. Real-document ingestion/eval + UI remain.
+- DealPilot DP0 partial — canonical Deal shell/stages, deterministic transitions, Summary/Profile/Documents/Activity projections, table/board metadata. Persistent store/API + browser shell remain.
 
 ## Batch 2 — Repo cleanup: duplicates + deprecated data → `docs/raw/repo-restructure-egg-commons-2026-07.md`
 

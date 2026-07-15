@@ -25,6 +25,28 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/tools/jobpilot/test/resume-schema.test.ts`,
+  `master-profile.test.ts`, `profile-approval.test.ts`).
+  **Reason:** deterministic merge/conflict/approval tests cannot use private real resumes in the repository.
+  **Real element they stand in for:** parsed user resumes and cover letters represented as JSON Resume records.
+  **Removal condition:** retain only as isolated unit fixtures; replace exit-gate/eval evidence with a
+  user-approved, local-only labeled real-document corpus when JP1 ingestion is exercised.
+
+- **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/tools/dealpilot/test/deal.test.ts`,
+  `projections.test.ts`, `table.test.ts`).
+  **Reason:** deterministic stage/projection tests need stable synthetic Deal shells, facts, flags, documents,
+  and activity events; repository tests cannot depend on private live deal data.
+  **Real element they stand in for:** Deal records and append-only facts from the governed sourcing pipeline.
+  **Removal condition:** retain only as isolated unit fixtures; add local-only real-store/browser evidence
+  before DP0 can be proposed DONE.
+
+- **2026-07-15 — Commons router test registry** (`platform/apps/api/test/commons.test.ts`).
+  **Reason:** API contract tests need deterministic package/version responses and cannot require a separately
+  running Commons service or mutate a shared registry.
+  **Real element it stands in for:** signed entries returned by the live `CommonsRegistry` transport.
+  **Removal condition:** keep the port double for unit isolation; add signed live-service integration evidence
+  before CM0 can be proposed DONE.
+
 - **2026-07-14 — desktop app icon set** (`platform/apps/desktop/src-tauri/icons/`: `icon.png`
   (now 512×512), `icon.icns`, `icon.ico`, `32x32.png`, `64x64.png`, `128x128.png`,
   `128x128@2x.png`, and the Windows `Square*Logo.png` / `StoreLogo.png` set).

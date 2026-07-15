@@ -67,6 +67,9 @@ full: [../raw/tools-internalization.md](../raw/tools-internalization.md) · plan
   `createPacingGate` (S7 daily + per-ATS-domain apply caps, resets per day). 46 tests. Not done:
   real PDF/LLM resume parsing, writer/browser-apply agents, PDF rendering, real ATS HTTP/Playwright
   execution, real Gmail API, the tier-escalation loop itself, persistence for any of the above.
+- **JobPilot JP1 partial (2026-07-15)**: typed JSON Resume contract; deterministic multi-document
+  master-profile compile/dedupe; conflicts become NeedsHuman; downstream use requires human approval.
+  Raw-document parsing, real-document eval, categories, persistence, and review UI remain.
 - **JobPilot + DealPilot prototype UI** (2026-07-04, `Design Bridge AI Interface (Copy)`):
   standardized on shared Notion-style components — `NotionCard`/`CardGrid` (compact, fixed
   `HelpdeskCard`'s "too broad and long" grid too), `FlagIcon` (literal colored flag, tooltip-only

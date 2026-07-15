@@ -45,7 +45,8 @@ post-meeting action (notes NOT product — saturated) · EG5 voice +
 proactive. Defer: broad computer-use actuation (category trust failure).
 
 **Commons slices CM0–CM5**: CM0 wire registry (commons.* tRPC — service
-built, NOTHING consumes it, biggest gap) · CM1 supply-chain trust FIRST
+built; **2026-07-15 partial landed**: API composition + list/get/version/install-propose/
+publish-builtins + Registry browser; Learning similarity + full exit gates remain) · CM1 supply-chain trust FIRST
 (signing, content-hash pins, publisher verify, 8-point scan, drop MCP
 exemption) · CM2 marketplace website (permissions/risk/provenance on
 install cards, deep-link install-via-conversation, beats CLI norm) · CM3
@@ -53,3 +54,6 @@ ingest ~10k corpus (dedup, taxonomy, per-artifact license, SKILL.md
 interchange) · CM4 evals + staged propagation + convergence miner · CM5
 Bridge Cloud Postgres twin + monetization seam. CM1 before CM3 (oss-commons
 ruling). Same universal exit gate. No sequencer reorder. ADR-049.
+
+**UI alignment partial 2026-07-15**: Form = registered standard DataView. Typed metadata fields +
+insert-hook seam built. Real direct-insert/process-parity bindings still required. No macOS checks run.

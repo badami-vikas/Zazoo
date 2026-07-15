@@ -102,3 +102,6 @@ designer brief: [../raw/dealpilot-design-requirements-2026-07.md](../raw/dealpil
 - Business plan explicit: thesis→origination→triage→diligence→underwriting→IC→closing→100-day→learning. Explicit exclusions: professional opinions, fund admin, custody/payments, autonomous sends/decisions, ToS bypass, portfolio ERP.
 - Reuse-first mandatory. Import/wrap/adapt existing assets before Bridge-native gap build. SmallPE inspected: real 1+7 agent team + MRL/evidence/thesis/impact/output assets; current FSL blocks competing commercial vendoring. Need permission/license/partnership; never silently copy.
 - License-limited source → clean-room research protocol: exhaustive functional inventory + black-box benchmark + independently authored spec + provenance/separation. Protected expression/assets stay out. Full: [clean-room protocol](../raw/clean-room-capability-research-protocol-2026-07.md).
+- **DP0 partial landed 2026-07-15**: canonical Deal shell/stages + deterministic transition graph +
+  Summary/Profile/Documents/Activity projections + stage-board metadata. Store/API/browser shell still open;
+  no DONE claim.
