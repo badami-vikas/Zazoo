@@ -22,6 +22,14 @@ tainted content never meets tool-bearing context (dual-LLM quarantine);
 graph stays source of truth (vectors index it, never replace); local plane
 never egresses; raw capture local-plane only.
 
+**Failure role:** detects patterns/corrections, proposes improvement. Never
+repairs runtime or policy directly. Engine recovers operation; Governance
+remediates control failures; Builder changes capability.
+
+**Root taint gap:** metadata+egress check already exist, full runtime flow does
+not. RT0–RT4: label+lattice → prompt/model/Skill/Action propagation → source/sink
+instrumentation → quarantine/deny → backfill+trace. Unknown label fails closed.
+
 **Slices LA0–LA6**:
 - LA0 Memory primitive — MemoryPort + Mem0 adapter; MemoryEntry w/
   provenance/taint/decay; onboarding profile persisted; suggested-Memory

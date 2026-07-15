@@ -1,12 +1,12 @@
 ---
-title: UI Architecture Rules — pages, toggles, sections, lists, sub-modules, views, artifacts
+title: UI Architecture Rules — pages, toggles, sections, lists, sub-modules, views, files
 type: raw
 doc_kind: design
 status: active
 companions: [requirement-ui-architecture-rules-2026-07-13.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
 related_wiki: ../wiki/ui-architecture.md
 updated: 2026-07-14
-tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, artifacts, canon]
+tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, files, canon]
 ---
 
 # UI Architecture Rules (canonical — user-directed 2026-07-13, AP-011)
@@ -25,7 +25,7 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 | **Landing section** | The first section of every page: the standard data views over the page's primary data. |
 | **View** | A rendering of the landing section's data: table, card, and now **form** (plus kanban/calendar where they already exist). |
 | **List** | A named saved subset of the same rows/columns, selected via the List dropdown (first slot in StandardToolbar). |
-| **Artifact** | Any file a module generates or accumulates locally (briefs, exports, captures, drafts). |
+| **File** | Any durable user-visible file a Module generates, imports, or accumulates (briefs, exports, captures, drafts). Non-file output is a Result. |
 
 ## 2. Data-shape → surface decision rules
 
@@ -44,7 +44,7 @@ Every page, unless a spec explicitly says otherwise:
 
 1. **Landing section** — the standard views (table, card, etc.) over the page's primary data. May be **internally scrollable**; once its internal scroll is exhausted (or the user scrolls outside it), scrolling moves the **whole page**.
 2. **Related sections below** — insights, related records, activity, etc., stacked under the landing section.
-3. **Artifacts section** — below the landing section (conventionally last): every artifact the module generated. **> 20 artifacts → organize into sub-folders** (default grouping: by sub-module, then by month; a module spec may override).
+3. **Files section** — below the landing section (conventionally last): every File the Module generated or accumulated. **> 20 Files → organize into sub-folders** through the governed grouping behavior below.
 
 Page scroll model: page-level vertical scroll containing sections; the landing section owns a bounded internal scroll area (virtualized table/card grid) so related sections stay reachable.
 
@@ -75,30 +75,31 @@ Right-click behavior is compiler-owned and consistent across every Module. DealP
 - **Lock** blocks schema/value mutation according to scope, not viewing/filtering. Delete column requires impact preview for dependent views, Automations, Skills, formulas, and relations. Secrets remain credential references and never become revealable table cells.
 - Keyboard access and visible menu-button alternatives must expose every right-click command; context menus cannot be pointer-only.
 
-## 6. Local artifact storage — `~/Documents/Bridge Workspace/`
+## 6. Local File storage — `~/Documents/Bridge/<Organization>/`
 
 Canonical local tree (Documents = the OS user Documents folder; desktop shell resolves it per-OS):
 
 ```
-~/Documents/Bridge Workspace/
-  <Module>/                 # one folder per module
+~/Documents/Bridge/
+  <Organization>/           # one folder per Organization
+   <Module>/                # one folder per Module
     <Sub-module>/           # one folder per sub-module
-    <artifacts...>          # module-level artifacts + accumulated local data
+    <files...>              # Module-level Files + accumulated local data
 ```
 
 - ALL locally-stored artifacts and accumulated data live under this tree — no scattered app-data dumps for user-facing files (internal caches/DBs stay in app-data).
-- The page's Artifacts section is a view over the module's folder (and sub-folders). > 20 artifacts in one folder → sub-folders (see §3).
+- The page's Files section is a view over the Module's folder (and sub-folders). > 20 Files in one folder → sub-folders (see §3).
 - Local-plane rule unchanged: raw capture stays local; this tree IS local plane.
 - **Cloud-data mirroring rule (confirmed 2026-07-13)**: no personal data is stored cloud-only. Any cloud-resident data that appears inside the app is ALSO mirrored locally under this tree (or the relevant local store) — cloud is never the sole copy of anything the user sees.
 - **Grouping is smart, not fixed-rule, and delegated (confirmed 2026-07-13)**: the >20 threshold still triggers grouping, but the grouping *scheme* is not hardcoded sub-module→month — **the Chief of Staff agent decides and performs the grouping** (by type, project, Initiative, recency, whatever fits that module's artifacts) at the moment the count crosses 20. Implementation: an artifact-count watcher calls the CoS agent when a module/sub-module folder exceeds 20 ungrouped files; CoS proposes + applies a folder scheme (governed, not silent — logs the grouping decision like any other agent action).
-- **Rename/move tracking + conflict resolution (confirmed 2026-07-13)**: the app must track when the user renames or moves a file inside `Bridge Workspace` from outside the app (Finder/Explorer). Recommended approach — adopt the same pattern proven by sync tools (Dropbox/Syncthing-style): a lightweight local index (path + content-hash + inode/fileID where available) rebuilt on shell startup and updated via an OS file-watcher (macOS FSEvents / Windows ReadDirectoryChangesW / Linux inotify — already partially in the sensor SPI's provider surface, see `platform/apps/desktop/src-tauri/src/providers/`). Detect rename-vs-delete+recreate by content-hash match; update the artifact's DB record's path pointer, never re-generate the artifact. Conflict (user moved AND app tries to write to the old path): app writes win only for its own next-generated version; a user-moved file is treated as the user's copy and left alone — the app re-creates its own copy at the expected path rather than overwriting the moved one. Full design deferred to the sensor SPI build-out (EG-track); this is the standing policy to build to.
+- **Rename/move tracking + conflict resolution**: track external Finder/Explorer changes with path + content hash + inode/fileID where available and an OS watcher. Update the File Record's path pointer; never regenerate or overwrite a user-moved File. The path change from the legacy folder is a VOCAB4 migration with discovery and compatibility indexing, never an unannounced move.
 
 ## 6a. Empty-state spec (added 2026-07-13, closes AP-002 gap for this canon)
 
 No dummy data (AP-002) means every section that can be empty needs an honest, specific empty state — never a placeholder row:
 
 - **Landing section, no rows**: icon + one-line statement of what this page shows + the single next action that would populate it (e.g. "No deals yet — add one" → opens Form view for this page, per §4). Never a greyed-out fake table.
-- **Artifacts section, no artifacts yet**: one line naming what WOULD appear here ("Exports and briefs generated by this module will show up here") + no folder icon grid. Distinct from "module has artifacts but none match the current filter" (that state = "No artifacts match — clear filters", not the zero-state copy).
+- **Files section, no Files yet**: one line naming what WOULD appear here ("Exports and briefs generated by this Module will show up here") + no folder icon grid. Distinct from "Module has Files but none match the current filter" (that state = "No Files match — clear filters", not the zero-state copy).
 - **Sub-module with no data yet**: the collapsible nav entry still renders (structure is real even if empty) but expanding it shows the same landing-section empty state, not a spinner or blank.
 - **List with zero rows**: same landing-section pattern, scoped to "in this list" ("No people in *VIPs* yet").
 - General rule: empty state text is generated from the page's own metadata (entity name + module name), not hand-authored copy per page — keeps it consistent as new toggle pages get added by the compiler.
@@ -137,11 +138,11 @@ Deep code analysis (clones inspected, not READMEs). Full agent reports: `outputs
 Aligning the project = executing this checklist against `platform/apps/web`:
 
 1. Inventory all pages; classify each dataset per §2 → produce toggle/list/sub-module target map (People/Communities, Automations/Agents/Skills/Integrations, Deals/Sources/Thesis are the seed toggles).
-2. Restructure page layouts to §3 (landing section + stacked sections + artifacts section).
+2. Restructure page layouts to §3 (landing section + stacked sections + Files section).
 3. Add **Form** to the standard views set (extend `ToolbarView` sets + a shared `FormView` component driven by field metadata).
 4. Move Control Panel into 3-dots; re-sort its contents into page sections vs admin per §5; delete the `controlPanelTo` toolbar slot.
 5. Left nav: implement collapsible sub-module dropdowns under modules.
-6. Implement `~/Documents/Bridge Workspace/<Module>/<Sub-module>/` provisioning in the desktop shell + Artifacts section per page (incl. cloud-mirror + rename/move index per §6, empty states per §6a).
+6. Implement `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/` provisioning in the desktop shell + Files section per page (incl. cloud-mirror + rename/move index per §6, empty states per §6a).
 7. Wire the >20-artifact watcher → CoS agent grouping call (§6).
 8. Update `docs/CODEMAPS/` + wiki after the structural change.
 9. Implement shared column/toggle context menus from §5a, including DB-backed Add page/Remove page eligibility, dependency impact checks, undo, permissions, and keyboard access; validate on DealPilot plus two unrelated Modules.
@@ -160,4 +161,4 @@ Exit: typecheck + build green, live check of ≥3 restructured pages, BUGS/log/d
 8. **Cloud/local data** — confirmed no cloud-only personal data; cloud-resident data always mirrored locally. See §6.
 9. **Rename/move tracking + conflict resolution** — policy recommended and accepted. See §6.
 10. **Deep linking** — confirmed, every toggle page is a route. See §4a.
-11. **Acceptance criterion for "Egg + Commons prototype"** — confirmed as EG0–EG1 + CM0–CM1 (per `egg-commons-feature-roadmap-2026-07.md` §6). Status as of 2026-07-13: see `docs/wiki/egg-commons.md` status line / PROGRESS Batch 1 — NOT yet built (see session output for the concrete gap list).
+11. **Acceptance criterion for Avatar + Commons prototype** — Avatar foundation/Onboarding (legacy EG0–EG1 ids) + CM0–CM1. Status: NOT yet built; see `docs/wiki/avatar-commons.md` + PROGRESS.

@@ -1499,3 +1499,14 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Preserved the user's requirement verbatim and added roadmap tasks: EG1 public-role-model question → governed cited Learning Agent research → approval-gated Skill/Automation recommendations; EG3 day-7 qualities reflection + configurable periodic behavioral questions with skip/snooze/pause and inspect/correct/delete safeguards.
 - Defined DealPilot Deals/Sources/Theses as one many-to-many cluster with dedicated DB-backed toggle pages, entity-owned fields, CredentialBroker-only Source secrets, and thesis→source→deal discovery/rescoring triggers.
 - Extended canonical UI rules with one compiler-owned column/toggle context menu for all Modules, including DB-backed-only Add page/Remove page and the requested rename/edit/type/Smartfill/filter/sort/group/calculate/lock/hide/add/duplicate/delete commands. Durable outcome: `outputs/2026-07-14-role-model-learning-dealpilot-ui-roadmap.md`.
+
+# 2026-07-14 — vocabulary + Relationship Module + failure/taint alignment (AP-020, ADR-087)
+- Created canonical `docs/glossary.md` with no retired-term entries; simplified to Organization/Module/Page/View/Database/Record/Relation/File, Request→Result, Human/Agent/Automation, Skill/Integration/Engine, Avatar/Onboarding, and Local/Cloud Planes.
+- Added VOCAB0–VOCAB5 mandatory code/schema/API/payload migration; explicitly recorded current legacy identifiers are not removed by copy changes. Renamed active Brain wiki to Engines, Egg+Commons wiki to Avatar+Commons, and superseded the historical staged-lifecycle consolidation spec.
+- Realigned Relationship as one Module containing People/Communities/Relations/Interactions/Introductions/Helpdesk/Sources/Automations with standard UI grammar and shared Record/Relation/Event model.
+- Routed failure ownership across Engine/Governance/Learning/Builder/Human and added RT0–RT4 runtime taint propagation to the long-term roadmap. Durable outcome: `outputs/2026-07-14-vocabulary-relationship-taint-alignment.md`.
+
+# 2026-07-14 — glossary expansion from external artifact
+- Reviewed the 343-entry Bridge Glossary artifact and expanded `docs/glossary.md` from its compact seed to 164 durable terms.
+- Applied AP-020 course corrections instead of copying stale definitions: Database/Record/Relation, File/Result, Avatar-only companion language, Engine/Skill/Automation boundaries, Local/Cloud-only Planes, Relationship Module consolidation, computed Review Mode, and RT0–RT4 runtime taint semantics.
+- Excluded deprecated aliases, display-only renames, implementation-only symbols, version-specific stack entries, and speculative archetypes. Durable outcome: `outputs/2026-07-14-glossary-expansion-course-correction.md`.

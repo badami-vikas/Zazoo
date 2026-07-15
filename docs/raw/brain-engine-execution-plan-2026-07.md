@@ -1,5 +1,5 @@
 ---
-title: Brain/Engine — step-by-step execution plan
+title: Engine — step-by-step execution plan
 type: raw
 doc_kind: plan
 status: draft
@@ -7,12 +7,12 @@ companions:
   - docs/raw/brain-engine-architecture-2026-07.md
   - docs/raw/agent-quality-eval-model-2026-07.md
   - docs/raw/security-audit-2026-07.md
-related_wiki: docs/wiki/brain.md
+related_wiki: docs/wiki/engine.md
 updated: 2026-07-09
 tags: [brain, execution-plan, roadmap, ingestion, routing, mcp, memory, automation-mining]
 ---
 
-# Brain/Engine Execution Plan
+# Engine Execution Plan
 
 Turns the ADR-035 design ([brain-engine-architecture-2026-07.md](brain-engine-architecture-2026-07.md)) into an ordered, buildable step list. Every step names real repo paths, its test, and a binary done-when. Sizing: **S** ≤ half-day session · **M** = one focused session · **L** = multi-session slice.
 

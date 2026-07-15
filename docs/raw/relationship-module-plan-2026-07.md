@@ -5,34 +5,34 @@ doc_kind: plan
 status: proposed
 companions: [relationship-design-requirements-2026-07.md, primitive-specifications.md, client-architecture-context-providers.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/relationships.md
-updated: 2026-07-11
-tags: [relationships, people, communities, touchpoints, memory, module, agents, skills, automations]
+updated: 2026-07-14
+tags: [relationship, people, communities, interactions, helpdesk, memory, module, agents, skills, automations]
 ---
 
 # 0. Decision
 
-Create **Relationships** as an installable capability package and generated Workspace projection over shared Bridge primitives. It is not a CRM, address book, lead pipeline, surveillance product, or second relationship database.
+The former Bridge/Relationships surface becomes one installable **Relationship Module**. It contains People, Communities, Relations, Interactions, Introductions, Helpdesk, Sources, and Automations over shared Record/Relation/Event contracts. It is not a CRM, address book, lead pipeline, surveillance product, or second relationship database.
 
 ```yaml
-kernel_objects_reused:
+canonical_objects_reused:
   - Person
   - Community
-  - graph Edge
+  - Record
+  - Relation
+  - Event
   - Memory
   - Knowledge
-  - Touchpoint
-  - Initiative/Project
   - Request
   - Action
-  - Incident/Signal
-  - Artifact
+  - Result
+  - File
   - Agent
   - Skill
   - Automation
   - Integration
 ```
 
-Relationship itself is a governed, typed graph edge plus an evidence-backed projection. Do not invent a parallel mutable “relationship record” whose score becomes truth. Person/Community live in Mirror plane; work and actions live in Operational plane and reference them through whitelisted edges.
+Relationship itself is a governed typed Relation plus an evidence-backed projection. A Relation carries one semantic type with typed attributes and multiple evidence references; different meanings use separate Relation rows. Group interactions use an Interaction/Event Record plus participant Relations. People/Communities live in the Relationship Domain; work lives in the Work Domain. Either Domain can contain Local- or Cloud-Plane data under residency policy.
 
 # 1. What exists today
 
@@ -47,30 +47,30 @@ implemented:
     - agent-floor deny for full-network reads and external send
     - approval-gated social read/write scopes
   data:
-    - people and communities workspace tables
+    - people and communities Organization-scoped tables
     - people_canonical and communities_canonical public identity tier
     - community_members
     - shared typed edges fabric
-    - initiative_participants and initiative_communities
-    - hierarchical touchpoints
+    - legacy initiative participant tables pending Record/Relation migration
+    - hierarchical interaction records (legacy table name pending VOCAB4 migration)
     - timeline_entries and entity references
     - local pglite store and local media store
   api:
     - graph.listPeople
     - graph.listCommunities
-    - graph listInitiatives/listTouchpoints/listSignals
-    - paginated workspace-scoped GraphStore methods
+    - graph legacy listInitiatives/listTouchpoints/listSignals endpoints (VOCAB3/VOCAB4 migration inventory)
+    - paginated Organization-scoped GraphStore methods
   intake:
-    - Gmail threads → proposed Person/Touchpoint/Memory
-    - Calendar events → proposed Touchpoint
-    - uncertain identity matches → possible_duplicate Signal, not silent linking
-    - card scanner → proposed Person + “Met” Touchpoint
-    - camera and conversation capture → private local artifacts and proposed Memory/Touchpoints
+    - Gmail threads → proposed Person/Interaction/Memory
+    - Calendar events → proposed Interaction
+    - uncertain identity matches → possible_duplicate Event, not silent linking
+    - card scanner → proposed Person + “Met” Interaction
+    - camera and conversation capture → private local Files and proposed Memory/Interactions
   surfaces:
-    - KnowledgeBase shell with Projects/Resources/Communities/People toggles
+    - legacy KnowledgeBase shell pending Relationship Module route migration
     - reusable DataViews table/board/card/calendar/map/graph eligibility
     - AssociationsMap and PeopleMapView components
-    - shared approvals, signals, calendar, Agent panel
+    - shared Approvals, Events, Calendar, Agent panel
 ```
 
 ## 1.2 Partial, prototype, or inconsistent
@@ -82,8 +82,8 @@ partial:
   - listPeople/listCommunities expose only shallow rows; no get/detail/search/mutation surface
   - associations use a local generated network export/static fallback rather than one governed graph query
   - network.ts schema contains warmth/trust/reciprocity fields not aligned cleanly to durable kernel contracts
-  - People UI has no full Person workspace
-  - Community UI has no full Community workspace
+  - People UI has no full Person Page
+  - Community UI has no full Community Page
   - Gmail/Calendar intake creates graph proposals, but end-user review/identity-resolution experience is incomplete
   - social-provider framework exists; runtime provider depth and UI vary
   - pins are localStorage, so module pinning does not sync across clients
@@ -99,7 +99,7 @@ The current tool catalog describes Reconnect, Open Threads, Community Pulse, Mem
 - Person/Community get, search, create, update, archive, merge, split and history procedures;
 - typed relationship-edge vocabulary and evidence/provenance contract;
 - identity-resolution review queue;
-- touchpoint-to-person/community participant model beyond current initiative/assignee shape;
+- Interaction-to-Person/Community participant model beyond current legacy assignee shape;
 - production MemoryEngine and relationship memory retrieval;
 - team ownership/delegation/visibility UX;
 - introductions, commitments and consent state models;
@@ -117,23 +117,21 @@ Relationships appears as one optional pinned module item, not permanent global c
 
 ```yaml
 navigation:
-  global_or_pinned_module_entry: Relationships
-  module_rail:
-    - Today
-    - People
-    - Communities
-    - Map
-    - Touchpoints
-    - Introductions
-    - Signals
-    - Workflows
-    - Sources
+  global_or_pinned_module_entry: Relationship
+  landing_page: Today
+  primary_toggle_pages: [People, Communities, Relations]
+  submodules:
+    Interactions: [Timeline, Table, Calendar, Unreviewed]
+    Introductions: [Requested, Suggested, Consent Pending, Active, Completed, Declined]
+    Helpdesk: [Requests, Routing, Responses, Activity]
+    Sources: [Accounts, Imports, Sync Health, Identity Review]
+    Automations: [Installed, Suggested, Runs, Failures]
   object_tabs:
-    Person: [Overview, Timeline, Context, Connections, Communities, Projects, Introductions, Commitments, Files, Permissions, Activity]
-    Community: [Overview, Members, Map, Touchpoints, Projects, Signals, Gatherings, Resources, Permissions, Activity]
+    Person: [Overview, Timeline, Context, Relations, Communities, Linked Records, Introductions, Commitments, Files, Permissions, Activity]
+    Community: [Overview, Members, Map, Interactions, Linked Records, Events, Gatherings, Files, Permissions, Activity]
 ```
 
-No third sidebar. Object tabs collapse into More on narrow screens.
+No third sidebar. Object tabs collapse into More on narrow screens. Every database-backed Page uses the canonical landing Section, standard Views/Lists/search/filter/Add/3-dots toolbar, shared column/toggle context menu, related Sections, and Files Section.
 
 ## 2.2 Today
 
@@ -162,17 +160,17 @@ Default columns:
 - current role/community;
 - relationship types;
 - ring/cadence when user-defined;
-- last meaningful Touchpoint;
+- last meaningful Interaction;
 - next commitment/action;
 - context freshness;
 - source coverage;
-- visible communities/projects;
+- visible Communities and linked Records from other Modules;
 - pending introduction/approval;
-- owner/visibility for team workspaces.
+- owner/visibility for team Organizations.
 
 Filters:
 
-- Community, Project, location, role, relationship type, owner, visibility;
+- Community, linked Module/Record, location, role, relationship type, owner, visibility;
 - source/integration;
 - recently changed;
 - touchpoint date/kind;
@@ -190,15 +188,15 @@ Bulk operations: tag/group through governed Community membership, assign steward
 - identity, role, organizations/communities and user-confirmed relationship context;
 - “where we left off” grounded summary;
 - upcoming meeting/important date/commitment;
-- current Projects and mutual Communities;
-- recent Touchpoints;
+- linked Records from other Modules and mutual Communities;
+- recent Interactions;
 - suggested next action with explanation;
 - unresolved conflicts or stale context;
 - privacy/visibility badge.
 
 ### Timeline
 
-Unified chronological view: meetings, emails, messages, notes, introductions, captures, shared Projects, commitments, Signals and human corrections. Filter by channel/type/source. Each item shows origin, participants, permission scope and source.
+Unified chronological view: meetings, emails, messages, notes, introductions, captures, linked Module Records, commitments, Events and human corrections. Filter by channel/type/source. Each item shows origin, participants, permission scope and source.
 
 ### Context
 
@@ -227,9 +225,9 @@ Memory is context, not instruction. Sensitive information defaults private/local
 
 Memberships, roles, confidence/source, history, related gatherings/resources and suggested corrections.
 
-### Projects
+### Linked Records
 
-Shared Initiatives/Projects, role, active commitments, linked Artifacts and last activity.
+Domain Records from installed Modules (for example Deal or Help Request), role, active commitments, linked Files and last activity. Relationship Module does not create a Project or Initiative primitive.
 
 ### Introductions
 
@@ -259,7 +257,7 @@ Community Overview:
 
 - purpose/description and source;
 - member count and confirmation status;
-- active Projects, recent Touchpoints and meaningful changes;
+- linked Module Records, recent Interactions and meaningful changes;
 - user role/relationship to Community;
 - open requests/commitments;
 - suggested gathering/resource/action.
@@ -268,11 +266,11 @@ Community tabs:
 
 - Members: roles, confidence, activity, membership history;
 - Map: member network and adjacent Communities;
-- Touchpoints: meetings/events/conversations involving Community;
-- Projects: linked Initiatives;
-- Signals: changes and action proposals;
+- Interactions: meetings/events/conversations involving Community;
+- Linked Records: permitted Records from installed Modules;
+- Events: changes and action proposals;
 - Gatherings: candidate group, consent, invite drafts, calendar event, follow-up;
-- Resources: shared Artifacts/Knowledge;
+- Files: shared Files/Knowledge;
 - Permissions: team visibility, source and Agent access;
 - Activity: immutable history.
 
@@ -280,7 +278,7 @@ Community tabs:
 
 Views:
 
-- centered on self, Person, Community or Project;
+- centered on self, Person, Community or linked Module Record;
 - 1st/2nd/3rd+ degree;
 - Community clusters;
 - geographic map when explicit location exists;
@@ -289,13 +287,13 @@ Views:
 
 Graph must not imply objective relationship strength. Explain edge source and uncertainty. Hide paths that would expose private third-party data.
 
-## 2.7 Touchpoints
+## 2.7 Interactions
 
-Cross-relationship journal/list of meetings, messages, calls, notes, captures, events, help, gifts, introductions and milestones.
+Cross-relationship Event journal/list of meetings, messages, calls, notes, captures, help, gifts, introductions and milestones.
 
 Views: Timeline, Table, Calendar, By Person, By Community, Unreviewed Intake.
 
-Each Touchpoint contains participants, kind, time, source, summary/context, linked Project, commitments, follow-ups, privacy scope, provenance and parent/child hierarchy.
+Each Interaction Event contains participants, kind, time, source, summary/context, linked Module Records, commitments, follow-ups, privacy scope, provenance and parent/child hierarchy.
 
 ## 2.8 Introductions
 
@@ -305,7 +303,7 @@ Pipeline is consent, not sales:
 
 Lists: Requested of Me, I Requested, Suggested, Consent Pending, Active, Completed, Declined. Never expose one party’s private reason to the other without permission.
 
-## 2.9 Signals
+## 2.9 Events and recommendations
 
 Categories:
 
@@ -320,11 +318,11 @@ Categories:
 - stale/contradicted context;
 - data-source failure or permission change.
 
-Every Signal contains evidence, confidence, why now, affected objects and at least one safe Action. User feedback tunes thresholds/inputs, not opaque code.
+Every surfaced Event/recommendation contains evidence, confidence, why now, affected Records and at least one safe Action. User feedback tunes thresholds/inputs, not opaque code.
 
-## 2.10 Workflows
+## 2.10 Automations
 
-Installable Automations and playbooks, not a fixed contact cadence system. Examples: meeting prep, after-meeting capture, monthly inner-ring review, introduction round, community gathering, new-role acknowledgement, commitment follow-up, relationship review before a Project milestone.
+Installable Automations and playbooks, not a fixed contact cadence system. Examples: meeting prep, after-meeting capture, monthly inner-ring review, introduction round, community gathering, new-role acknowledgement, commitment follow-up, and relationship review before a linked Module milestone.
 
 ## 2.11 Sources
 
@@ -353,7 +351,7 @@ covered:
     - track commitments and open loops
     - user-defined check-in cadences and reminders
   network_navigation:
-    - map People/Communities/Projects
+    - map People/Communities/linked Module Records
     - find permitted warm paths
     - understand mutual context and interaction evidence
   introductions:
@@ -362,8 +360,8 @@ covered:
     - membership and role tracking
     - community activity/change detection
     - gatherings, shared resources and help routing
-  project_support:
-    - attach People/Communities/Touchpoints to Initiatives
+  cross_module_support:
+    - relate People/Communities/Interactions to permitted Records in other Modules
     - surface relationship actions that unblock work
   knowledge_and_memory:
     - grounded relationship search
@@ -390,14 +388,14 @@ not_covered:
   - exposing one party’s private notes, graph, consent response or communications to another
   - claiming consent from silence
   - replacing email, calendar, chat or social networks
-  - background checks, investigations or risk adjudication without a separate governed package
+  - background checks, investigations or risk adjudication without a separate governed Module
   - full event-management, fundraising, membership billing or donor-management systems
   - hard-delete avoidance where law/user rights require deletion; privacy rights override append-only product history
 ```
 
 ## 3.3 Value and packaging
 
-Primary users: founders, investors, operators, community builders, recruiters, advisors, creators and teams whose work depends on durable trust. Workspace vocabulary adapts to user domain; “contact,” “member,” “candidate,” “investor,” “advisor” may appear as user/workspace terms, never kernel canon.
+Primary users: founders, investors, operators, community builders, recruiters, advisors, creators and teams whose work depends on durable trust. Module vocabulary adapts to user domain; “contact,” “member,” “candidate,” “investor,” and “advisor” may appear as user/domain labels, never kernel canon.
 
 Package slices:
 
@@ -412,7 +410,7 @@ North-star: useful relationship outcomes per trusted action—not number of cont
 Metrics:
 
 - identity-match precision and correction rate;
-- percentage of surfaced Signals acted/dismissed/tuned;
+- percentage of surfaced Events/recommendations acted/dismissed/tuned;
 - commitments closed on time;
 - meeting-prep usefulness;
 - introduction acceptance and beneficial-outcome rate;
@@ -427,13 +425,13 @@ Metrics:
 
 ```yaml
 required_records:
-  relationship_edges:
+  relations:
     note: may remain typed rows in shared edges table; define schema/validators, do not add parallel graph
     fields: [relationship_type, direction, evidence_refs, confidence, observed_at, valid_from, valid_to, user_confirmed, visibility, source]
-  touchpoint_participants:
-    fields: [touchpoint_id, entity_type, entity_id, role, attendance_state]
+  interaction_participants:
+    fields: [event_id, record_type, record_id, role, attendance_state]
   commitments:
-    fields: [workspace_id, person_id, touchpoint_id, direction, text, owner, due_at, status, sensitivity, source_ref]
+    fields: [organization_id, person_id, event_id, direction, text, owner, due_at, status, sensitivity, source_ref]
   introduction_cases:
     fields: [requester, party_a, party_b, introducer, purpose, value_a, value_b, consent_a, consent_b, state, messages, outcome]
   identity_candidates:
@@ -451,7 +449,7 @@ Derived indicators such as warmth/dormancy/reciprocity are versioned computation
 - `person.list/get/search/proposeCreate/proposeUpdate/archive/merge/split/history`;
 - `community.list/get/search/proposeCreate/proposeUpdate/members/history`;
 - `relationship.neighbors/path/evidence/proposeEdge/correctEdge`;
-- `touchpoint.list/get/propose/participants/tree`;
+- `interaction.list/get/propose/participants/tree`;
 - `commitment.list/propose/update`;
 - `introduction.list/get/propose/consent/advance`;
 - `identity.candidates/review`;
@@ -463,7 +461,7 @@ All mutations route through Pipeline. Reads enforce tenancy, relationship visibi
 
 ## 4.3 Agent archetypes
 
-Five permanent Bridge Agents remain unchanged. Optional package archetypes:
+Four permanent Bridge Agents remain unchanged. Optional Module archetypes:
 
 ```yaml
 agents:
@@ -483,7 +481,7 @@ agents:
     job: request public enrichment through cloud gate; never access private network directly
 ```
 
-Communications Agent owns final tone adaptation and external drafts. Governance Agent owns permissions/risk decisions. Chief of Staff is sole router; package Agents do not hand off peer-to-peer.
+Communications Skill owns final tone adaptation and external drafts. Governance Agent explains deterministic permission/risk decisions. Chief of Staff is sole router; Module Agents do not hand off peer-to-peer.
 
 ## 4.4 Skills
 
@@ -495,7 +493,7 @@ skills:
   - person-profile-synthesis
   - community-detection-proposal
   - community-membership-review
-  - touchpoint-capture-and-linking
+  - interaction-capture-and-linking
   - conversation-summary-and-next-steps
   - meeting-preparation
   - meeting-follow-up-drafting
@@ -529,8 +527,8 @@ automations:
   - source-health-and-scope-change-monitor
   - identity-candidate-generation
   - possible-duplicate-review-queue
-  - inbound-touchpoint-intake
-  - calendar-meeting-touchpoint-intake
+  - inbound-interaction-intake
+  - calendar-meeting-interaction-intake
   - pre-meeting-brief-proposal
   - post-meeting-summary-and-commitment-proposal
   - unanswered-inbound-detection
@@ -542,12 +540,12 @@ automations:
   - introduction-follow-up
   - community-change-digest
   - gathering-proposal-and-approved-invite
-  - project-milestone-relationship-review
+  - linked-record-milestone-relationship-review
   - privacy-retention-and-forgetting-run
   - correction-failure-to-eval-capture
 ```
 
-Each Automation defines trigger, scope, data plane, budget, idempotency, retry/backoff, owner, stop condition, risk band and immutable run evidence. No external send is automatic at launch.
+Each Automation defines trigger, scope, Plane, budget, idempotency, retry/backoff, owner, stop condition, risk band and immutable Run evidence. No external send is automatic at launch.
 
 ## 4.6 Integrations
 
@@ -560,7 +558,7 @@ Each Automation defines trigger, scope, data plane, budget, idempotency, retry/b
 - Slack/Teams/Discord/WhatsApp only where official APIs, user authorization and data rules permit;
 - CSV/vCard/LinkedIn export import;
 - scheduling/meeting/transcription providers behind ports;
-- DealPilot, Helpdesk, JobPilot and generated modules consume shared relationship objects rather than copy them.
+- DealPilot, Helpdesk, JobPilot and generated Modules consume shared Relationship Records rather than copy them.
 
 # 5. Reuse and competitive research
 
@@ -592,7 +590,7 @@ Bridge differentiation:
 - evidence-backed, inspectable relationship context;
 - consent-aware introductions;
 - user-defined purpose/cadence, not universal engagement maximization;
-- one graph reused by every compiled workspace;
+- one graph reused by every installed Module;
 - actions governed through one Pipeline;
 - relationship intelligence becomes usable Skills/Automations, not a static score dashboard.
 
@@ -601,17 +599,17 @@ Bridge differentiation:
 ```yaml
 slices:
   RM0:
-    scope: wire People/Communities to real endpoints; fix stale UI comments; honest empty/import states
+    scope: installable Relationship Module manifest/routes; People/Communities/Relations standard toggle pages; fold Helpdesk under the Module; wire real endpoints; honest empty/import states
   RM1:
     scope: Person/Community get/search/detail + Person Overview/Timeline/Sources + governed create/update/archive
   RM2:
-    scope: touchpoint participants + unified Timeline + Gmail/Calendar/capture review + identity queue
+    scope: Event/Interaction participants + unified Timeline + Gmail/Calendar/capture review + identity queue; migrate legacy interaction API/table names
   RM3:
     scope: MemoryEngine relationship retrieval/correction/forget + commitments + meeting prep/follow-up
   RM4:
-    scope: typed edges + governed Map/path finder + Communities workspace
+    scope: typed Relations + governed Map/path finder + Communities Page
   RM5:
-    scope: double-consent Introductions + relationship Signals + user-defined Workflows
+    scope: double-consent Introductions + surfaced Events/recommendations + user-defined Automations
   RM6:
     scope: team network permissions/delegation + cross-module consumers + eval-driven evolution
 ```
@@ -626,10 +624,10 @@ Dependencies: auth/security P0, RLS, runtime taint, MemoryEngine, source-account
 - uncertain identities never silently merge;
 - private relationship data cannot cross gate;
 - every introduction records both-party consent state;
-- every Signal explains why and offers correction/tuning;
+- every surfaced Event/recommendation explains why and offers correction/tuning;
 - no autonomous external send;
 - user can export, correct, disconnect and forget permitted data;
 - browser evidence for all changed surfaces at desktop and 375px;
 - matching/path/reminder/introduction evals pass held-out thresholds;
-- package manifests declare scopes, planes, sources, Agents, Skills, Automations and integrations;
+- Module manifests declare scopes, Planes, sources, Agents, Skills, Automations and Integrations;
 - runtime contains real connected data or honest empty state only.
