@@ -10,7 +10,7 @@
 - Requirements (verbatim): `docs/raw/requirement-zazoo-avatar-spec-2026-07-15.md` + `docs/raw/requirement-zazoo-avatar-feedback-2026-07-15.md`.
 - Roadmap (rewritten, detailed): `docs/raw/zazoo-companion-avatar-roadmap-2026-07.md` — character bible, Pixar-principles mapping, Z1–Z7 slices with per-slice exit criteria: Z1 notch home + Tauri overlay (rides EG0) · Z2 status/pipeline/capture-blink wiring · Z3 locomotion (legs appear only when moving; find-my-cursor) · Z4 Pixar-style voice + viseme lip-sync (local plane) · Z5 wardrobe persistence · Z6 crew of major animals on one shared skeleton (Commons-packaged) · Z7 long-idle life + personality memory. Perf/a11y budget included.
 - Wiki: `docs/wiki/desktop-companion.md` §Zazoo character (+v0.5 subsection).
-- Rename Bridge→Zazoo: **AP-020 PROPOSED** (recommendation: character/crew name only; Disney "Zazu" trademark adjacency needs clearance). Awaiting user verdict.
+- Rename Bridge→Zazoo: **AP-022 PROPOSED** (recommendation: character/crew name only; Disney "Zazu" trademark adjacency needs clearance). Awaiting user verdict.
 
 ## Verification
 - Zazoo files: 0 TS errors (isolated tsc, strict); 0 console errors live.

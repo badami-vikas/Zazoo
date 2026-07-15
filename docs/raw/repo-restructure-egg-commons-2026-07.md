@@ -1,15 +1,17 @@
 ---
-title: Repo Restructure — Egg vs Commons Separation
+title: Repo Restructure — Avatar shell, Modules, and Commons separation
 type: raw
 doc_kind: plan
 status: proposed
 companions: []
 related_wiki: ../wiki/module-evolution.md
-updated: 2026-07-11
-tags: [egg, commons, repo-structure, kernel, capabilities, monorepo]
+updated: 2026-07-14
+tags: [avatar, commons, repo-structure, kernel, modules, monorepo, vocabulary]
 ---
 
-# Repo Restructure Plan — make the egg/Commons boundary physical
+# Repo Restructure Plan — make shell/Module/Commons boundaries physical
+
+Vocabulary cleanup is a first-class code migration, not a copy pass. Execute `vocabulary-code-migration-plan-2026-07-14.md` VOCAB0–VOCAB5 alongside the phases below: identifier inventory + CI guard, schema/API/type/persisted-payload backfills, compatibility deletion, and real-path verification. Never mark cleanup complete while retired runtime identifiers remain outside historical records or time-boxed adapters.
 
 ## Problem (audit findings, 2026-07-11)
 
@@ -64,6 +66,11 @@ only (`@bridge/core`, `@bridge/tool-kit`). Enforced by ESLint boundary rule (sam
 `bridge/no-crm-vocab`).
 
 ## Phases
+
+### Phase 0 — vocabulary inventory and guard
+- Run VOCAB0 before structural moves so renamed paths do not preserve retired concepts.
+- Add CI denylist for new retired code identifiers; inventory schema/API/type/UI/payload/localStorage/test occurrences.
+- Sequence migrations: Avatar/Onboarding → Automation/Engine → Organization/Module/Record/Relation → Event/Result/File → Relationship Module consolidation.
 
 ### Phase 1 — kill duplicates (cheap, immediate)
 - Archive `Design Bridge AI Interface (Copy)/` out of the working tree: move to an

@@ -6,7 +6,7 @@ full: [../raw/day1-integrations-free-apis-2026-07.md](../raw/day1-integrations-f
 
 **Day-1 catalog** (4 buckets): (a) **relationship core** — Google Gmail+Calendar (already BUILT) +
 Microsoft Graph, free at Bridge scale via user OAuth; open CalDAV/ICS, no embedded calendar server ·
-(b) **knowledge/research/enrichment** — Wikidata, OpenAlex, Crossref/ORCID, Wikipedia, GitHub —
+(b) **research/evidence/enrichment** — Wikidata, OpenAlex, Crossref/ORCID, Wikipedia, GitHub —
 keyless, CC0/CC-BY · (c) **company/people registries** — genuinely-free launch trio: **SEC EDGAR**
 (US public domain, no key), **GLEIF LEI** (CC0), **UK Companies House** (free key) · (d) utilities —
 Frankfurter FX (no key/limit), Nominatim geocoding. Catalog is explicit about the 3 meanings of "free".

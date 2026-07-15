@@ -7,7 +7,7 @@ corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
 **Ground truth (audited 2026-07-12): nearly all greenfield.** @learning =
-prompt + one LLM call. Memory/Knowledge kernel primitive ABSENT
+prompt + one LLM call. Durable Memory runtime ABSENT
 (onboarding-profile.ts admits it). Mem0 decision ratified (ADR-010f), zero
 mem0 code. PromptAssembler unbuilt. competitor-discovery = "policy
 decided, no mechanism". Onboarding profile in-memory only. Signals tables
@@ -16,11 +16,19 @@ Learning = PRIMARY untrusted-input consumer, no taint marking, no SSRF
 client, no quarantine — all HIGH, all unbuilt.
 
 **Core invariants**: learned content = data never instructions; everything
-stored inspectable + deletable; suggested-then-accepted for durable user
-knowledge (never silent writes); taint tier travels with content forever;
-tainted content never meets tool-bearing context (dual-LLM quarantine);
+stored inspectable + deletable; suggested-then-accepted for durable Memory
+(never silent writes); taint tier travels with content forever;
+tainted content never meets privileged context (dual-model quarantine);
 graph stays source of truth (vectors index it, never replace); local plane
 never egresses; raw capture local-plane only.
+
+**Failure role:** detects patterns/corrections, proposes improvement. Never
+repairs runtime or policy directly. Engine recovers operation; Governance
+remediates control failures; Builder changes capability.
+
+**Root taint gap:** metadata+egress check already exist, full runtime flow does
+not. RT0–RT4: label+lattice → prompt/model/Skill/Action propagation → source/sink
+instrumentation → quarantine/deny → backfill+trace. Unknown label fails closed.
 
 **Slices LA0–LA6**:
 - LA0 Memory primitive — MemoryPort + Mem0 adapter; MemoryEntry w/
@@ -30,7 +38,7 @@ never egresses; raw capture local-plane only.
 - LA1 PromptAssembler — persona·capabilities·context·memory·governance
   layers (shared build w/ Builder BA0 — one subsystem two consumers);
   profile → CoS persona (closes foundational-agents open item);
-  tone-to-animal mapping (6 vs 14 animals reconciled, tone eval-gated).
+  explicit communication preferences drive tone; Avatar style visual only.
   Exit: accepted Memory demonstrably changes agent output.
 - LA2 observation loops — corrections/behavior → suggested digest
   (batched, annoyance-capped); Gmail/Docs ingestion taint-tiered;
@@ -43,9 +51,9 @@ never egresses; raw capture local-plane only.
 - LA4 integration-over-build — installed-software discovery (explicit
   permission, logged); overlap detect vs Registry + Commons; research
   handoff Builder consumes ("install instead?" evidence). Exit:
-  integrable tool intent → integration proposal not from-scratch build.
-- LA5 RAG layer — graph traversal + vector + structured filter fused;
-  personal/workspace/external layers; retrieval evals baselined,
+  integrable capability intent → Integration proposal, not from-scratch build.
+- LA5 Memory retrieval — graph traversal + vector + structured filter fused;
+  personal/connected/external evidence layers; retrieval evals baselined,
   regressions block ship; cross-plane leak test hard invariant.
 - LA6 ambient — sensor context stream, local models local plane; ambient
   Signals rate-capped, dismissals teach; capture contract (inspectable,

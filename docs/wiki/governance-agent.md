@@ -18,6 +18,12 @@ paper-only.
 grant, never decides above MINOR. Model narrates decisions kernel already
 made.
 
+**Failures:** Governance owns policy/control failures, not every error. Engine
+handles retry/timeout/idempotency/compensation/safe-stop. Learning finds repeat
+patterns + suggests improvements. Builder changes broken capabilities. Typed
+Failure Event routes one owner; Governance can suspend/tighten/revalidate and
+escalate, never invent runtime repair via LLM.
+
 **Slices GA0–GA6**:
 - GA0 DONE — trust-model substrate (ADR-012), gaps carried forward.
 - GA1 grounded identity — @governance answers backed by real

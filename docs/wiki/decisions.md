@@ -2,6 +2,8 @@
 
 Canonical. Mirror of memory `bridge-strategy-decisions`.
 
+> **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
+
 ## 2026-07-09 — OSS adoption decisions: providers + reference-only + rejects (ADR-035–ADR-041)
 - Docling = `DocumentProvider` primary (ADR-035); Tika = fallback for legacy formats.
 - `SandboxProvider` doctrine split (ADR-036): isolated-vm for narrow no-network JS only; E2B for `shell:execute`/`code:exec`; Daytona retired (unmaintained).

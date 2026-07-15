@@ -1,137 +1,48 @@
 # Ontology
 
-full: [../raw/primitive-specifications.md](../raw/primitive-specifications.md) ·
-simplification decided 2026-07-12 (ADR-053,
-[requirement](../raw/requirement-simplification-directives-2026-07-12.md),
-[proposal+resolution](../raw/simplification-proposal-2026-07-12.md))
+canonical glossary: [../glossary.md](../glossary.md) · migration:
+[../raw/vocabulary-code-migration-plan-2026-07-14.md](../raw/vocabulary-code-migration-plan-2026-07-14.md)
 
-Bridge primitives use one template: purpose, definition, responsibilities,
-boundaries, inputs, outputs, identity, persona, behaviors, habits, governance,
-dependencies, consumes, produces, lifecycle, runtime, persistence,
-observability, and evolution.
+Keep kernel vocabulary small. Product terms and code identifiers converge; no display-only aliases.
 
-Authority is part of Governance. Separate model because authority resolution is
-core mechanism.
+## Canonical model
 
-Shared docs:
+- Structure: Organization → installed Modules → Pages → Views/Lists/Sections → Databases → Records/Fields/Relations.
+- Work: Request → Plan → Decision → Run → Actions → Events → Result. Result may produce Files.
+- Actors: Human, Agent, Automation.
+- Capabilities: Skill, Integration. Capability = umbrella. Engine = internal runtime machinery.
+- Context: authorized temporary subset of Module Memory. Records/Relations/Events/Facts/Results/Files retain types while contributing to Memory.
+- Interface: Avatar + Onboarding.
+- Residency: Local Plane / Cloud Plane, joined only through Plane Gate.
+- Domains: Relationship Domain + Work Domain. Domain is grouping, never residency.
+- Services: Commons (generalized capability registry, no personal data) + Bridge Cloud (hosted control/sync services).
 
-- [Authority Model](../raw/authority-model.md): governance sub-model for who may
-  act.
-- [Runtime Pipeline](../raw/runtime-pipeline.md): how governed work executes.
-- [Capability Evolution](../raw/capability-evolution.md): promotion, downgrade,
-  suspend, kill, trust, maturity, autonomy, composition.
+## Important boundaries
 
-## Canonical taxonomy (post-simplification, ADR-053)
+- Module ≠ user project. Module = installed functionality. Domain work is stored as Records named for that domain.
+- Engine ≠ Skill ≠ Automation. Engine = runtime mechanics. Skill = bounded work invoked only by allowed Agent. Automation starts governed Agent Run; never invokes Skill directly.
+- File = user-visible durable file. Non-file output = Result.
+- Relation = one semantic relation plus typed attributes and evidence refs. Use multiple Relation rows for multiple meanings; participant Records for n-ary relationships.
+- Avatar ≠ Local Plane. Commons ≠ Cloud Plane. UI identity, residency boundary, registry, and hosting are separate security concepts.
+- Blink = short `sensor.capture` Event tell. Avatar may expose operational presence; no personality/lifecycle state model.
+- Signal = surfaced Relationship Event with Person/Community participants, reason, safe Action. Event storage; no parallel occurrence table.
+- Second Brain = cross-Module graph surface only. Engine never called brain.
 
-- **Execution actors**: Human, Agent, Automation.
-- **Capability primitives**: Skill, Integration. Capability = umbrella term for
-  any governed callable. One manifest type: CapabilityManifest (DB row = source
-  of truth; runtime type = generated projection; `surface: none|ui` field
-  replaces old Internal/External split).
-- **Work chain** (each stage distinct, immutably recorded):
-  **Request → Plan → Decision → Run → Action(s) → Event(s) → Result.**
-  - Request = human intent. NOT merged into Action (rejected — merge conflates
-    intent with execution; one Request fans into many Actions via Plan).
-  - Plan = Planner output, immutable (absorbs "Execution Snapshot").
-  - Decision = governance verdict on Plan (approve/veto/edit) + recorded
-    reviewMode resolution.
-  - Run = deterministic, replayable execution of approved Plan.
-  - Action = atomic governed work operation inside Run.
-  - Event = append-only occurrence record, residency-partitioned.
-  - Result = recorded outcome (status + produced Artifacts), not new table.
-- **Structure primitives**: Organization, Module, ElementType, Element, View.
-  - Organization = tenancy, membership, billing, security boundary.
-    Single user = Organization of one.
-  - Module = installed functional experience: capabilities + data types +
-    policies + views. DealPilot, Calendar, Relationships, JobPilot = Modules
-    installed into an Organization.
-  - ElementType = typed bucket of Elements. Element = durable domain data row.
-  - View = screen, projection, or layout.
-  - Home = distinguished cross-module landing View, optional. NOT a primitive.
-- **Context primitive**: Context. `source: observed|ingested` ×
-  `tier: working|episodic|semantic|procedural`. UI labels "Memory" (observed)
-  and "Knowledge" (ingested) = display filters, not primitives.
-- **Artifact**: durable output produced by Actions.
-- **Blueprint**: definition of an Organization's composition — installed
-  Modules, ElementTypes, Views, default Automations, Home layout.
-  Blueprint : Organization :: image : container. Commons-publishable.
+## Failure ownership
 
-## Invariants vs defaults (ADR-053 — do NOT re-freeze defaults)
+- Engine detects immediate runtime faults and performs bounded retry, timeout, idempotency, rollback/compensation, circuit-break, or safe-stop behavior.
+- Governance monitors policy violations, unauthorized actions, approval errors, budget breaches, provenance/signature failures, and repeated control failures. Kernel decides; Governance explains and proposes remediation.
+- Learning Agent analyzes corrections, outcomes, and repeated failure patterns. It suggests Memory, thresholds, Skills, or Automations; it never executes repairs.
+- Capability Builder changes broken Skills, Automations, Integrations, or Modules through tested governed proposals.
+- Human owns ambiguous, consequential, or policy-changing decisions.
 
-Kernel INVARIANTS (non-negotiable):
+No agent monitors “all failures.” One typed Failure Event routes by class and severity, preventing duplicated correction loops.
 
-- Governance contract: every mutation resolves authority → policy → immutable
-  ledger record. Contract enforced per plane; NOT a centralized service
-  requirement.
-- Bounded, attributable DAG execution: depth caps, every hop attributed, no
-  ungoverned peer handoff. Runs recorded + replayable.
-- Agent-floor DENY non-removable; exactly one distinguished governance
-  authority per Organization.
-- Plane Gate: Local→Egress DENY default; private ∩ egress = none.
-- Lethal-trifecta escalation (private-read + untrusted-ingest + egress).
-- reviewMode computed, never configured; resolved {result, inputs, reason,
-  policyVersion} immutably recorded.
+## Invariants
 
-Default COMPOSITIONS (product choices, swappable):
-
-- 4-agent roster (CoS, Learning, Governance, Capability Builder).
-- Star topology / CoS-as-sole-router.
-- Planner-then-Run phase split.
-- Home layout, module rails, view defaults.
-
-## Governance vocabulary
-
-- **reviewMode** (replaces L0–L3): semantic computed outcomes
-  `auto | notify | approve | quorum`.
-  `reviewMode = resolve(risk, origin, audience, authority, trust, sideEffect,
-  dataScope, egress, organizationPolicy, delegation, quorumRules)`.
-  Risk = what could go wrong. reviewMode = what governance this operation
-  requires. Never stored as source of truth; resolution always recorded.
-- **CapabilityState**: draft → approved → active → retired.
-  Trusted = `active.trusted: bool` + 90-day TTL attribute, not a state.
-- **ModuleVersionState**: draft → live → retired (+ `grace_until`).
-  Single-live-version rule unchanged.
-
-## Planes and domains
-
-- **Plane** = Local/Cloud trust, residency, egress boundary ONLY.
-  Local Plane / Cloud Plane. "Local inference / cloud inference" for models.
-- **Graph domains** (were Mirror/Operational "planes"):
-  - **Relationship Domain** — people, communities, relationship edges.
-    ("Relationship" not "Identity": holds more than identity records.)
-  - **Work Domain** — Initiatives→ElementTypes, Automations, Artifacts, Events.
-- Three distinct cloud services (unchanged): Cloud Plane = canonical user data
-  (Supabase, RLS) · Universal Commons = capability knowledge, never user data ·
-  Bridge Cloud = control plane (accounts/billing/telemetry).
-
-## Events and Timeline
-
-- Event logs are **residency-partitioned** (local-plane events never merge into
-  a cloud table — Plane Gate). `surfaced` flag = user-visible.
-- **Timeline = read-time projection over the partitioned event logs.** Not a
-  table. Same pattern as Calendar Projection. `timeline_entries` +
-  `timeline_entry_refs` fold into events + generic event refs (migration
-  pending).
-
-## Retired terms (do not use)
-
-Workspace (→ Organization/Module/View split) · Package (→ Module) · Tool at
-concept level (→ Module/View; code `tool` router = legacy, migration pending) ·
-ToolManifest (→ CapabilityManifest projection) · Ritual (→ Automation) ·
-Signal / Incident (→ Event) · Swarm (→ Planner) · Mirror Plane (→ Relationship
-Domain) · Operational Plane (→ Work Domain) · L0–L3 (→ reviewMode) ·
-Compiled Workspace/Product (→ Module + Blueprint) · Execution Snapshot (→ Plan).
-
-Egg = avatar growth stage, UX only. Unrelated to any plane/domain.
-
-## Migrations pending (direction locked, staged later)
-
-`workspace_id` → `organization_id` (RLS + every table — large blast radius) ·
-`ritual_runs` → `automation_runs` · `package_installations` →
-`module_installations` · `timeline_entries` → events projection · initiatives
-table → seeded ElementType row · CapabilityState/ModuleVersionState enum
-collapse · L0–L3 columns → recorded reviewMode resolutions.
-
-Key rule (unchanged): promotion never mutates primitive category. Skill stays
-Skill, Automation stays Automation, Agent stays Agent. Promotion creates new
-governed object consuming the existing primitive.
+- Every mutation resolves authority → policy → immutable record.
+- Runs bounded, attributable, replayable. No ungoverned peer handoff.
+- Agent-floor deny non-removable. One distinguished governance authority per Organization.
+- Local-to-network deny by default. Private data cannot egress.
+- Taint/provenance propagate at runtime from source through prompt, model, Skill, Action, Event, Result, and File; policy evaluates the joined label at every sink.
+- Promotion never changes category: Skill stays Skill; Automation stays Automation; Agent stays Agent.

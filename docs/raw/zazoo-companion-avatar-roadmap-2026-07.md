@@ -221,5 +221,5 @@ a11y: role=img + aria-label; every state change also exposed as text status for 
 
 ## 6. Naming note
 "Zazoo" = the character (and crew brand). Platform rename Bridge→Zazoo remains a separate canon
-decision — AP-020 in `docs/APPROVALS.md` (session recommendation: character-name only; trademark
+decision — AP-022 in `docs/APPROVALS.md` (session recommendation: character-name only; trademark
 adjacency to Disney's "Zazu" needs clearance before any platform-level use).

@@ -68,7 +68,7 @@ spec verbatim: `docs/raw/requirement-zazoo-avatar-spec-2026-07-15.md`. Plan:
 - Next: v1 = default in AvatarOverlay + status→emotion map + capture-blink tell + Tauri drag/pet
   (rides EG0). v2 = pipeline events→perform, long-idle scenes, hatch→Zazoo, persona axes. v3 =
   voice sync, Commons character packages.
-- Platform rename Bridge→Zazoo = separate canon question → AP-020 PROPOSED.
+- Platform rename Bridge→Zazoo = separate canon question → AP-022 PROPOSED.
 
 ### v0.5 crew redesign (same day, user feedback + reference image)
 Rig realigned to "Zazoo crew" felt style: young proportions, huge glossy eyes, tiny nose,

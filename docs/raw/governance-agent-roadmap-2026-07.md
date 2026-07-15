@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [builder-agent-roadmap-2026-07.md, learning-agent-roadmap-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, agent-quality-eval-model-2026-07.md, module-evolution-system-2026-07.md, security-audit-2026-07.md]
 related_wiki: ../wiki/governance-agent.md
-updated: 2026-07-12
+updated: 2026-07-14
 tags: [governance-agent, trust-model, risk, approvals, authority, agent-floor, org-health, audit]
 ---
 
@@ -34,6 +34,8 @@ current_state:
 ```
 
 **Load-bearing invariant — the kernel decides, the agent explains.** Risk bands, approval floors, and authority resolution stay deterministic kernel functions. The Governance Agent identity *wraps* them: it routes, explains, recommends, monitors, and holds the one audited MINOR auto-approve. An LLM never computes risk, never widens a grant, and never decides above MINOR. This is what separates Bridge from "AI safety officer" theater — the model narrates decisions the kernel already made deterministically.
+
+**Failure ownership is routed, not centralized.** Governance does not monitor or repair every failure. The Engine owns immediate runtime controls (retry/backoff, timeout, idempotency, compensation/rollback, circuit-break, safe stop). Governance owns policy/control failures (unauthorized action, wrong approval, budget breach, signature/provenance failure, repeated safety violation) and proposes tightening, suspension, re-validation, or human review. Learning analyzes correction/outcome patterns and suggests better Memories, thresholds, Skills, or Automations but never executes a repair. Capability Builder changes broken capabilities through tested governed proposals. A typed Failure Event carries class, severity, owner, retryability, evidence, affected Run/Capability, and remediation state so exactly one owner leads each correction loop.
 
 Competitive frame: agent-ops platforms (Retrace, AgentOS) and the builder platforms' shared finding (builder-agent roadmap §4: governance is universally the paywall) confirm governance-as-kernel is the moat. OpenFGA/OPA/Cedar/SpiceDB stay PARKED (decisions-log): custom CBAC + policy + ledger + trust model IS the differentiation; revisit only at enterprise-ReBAC scale (P6+).
 
