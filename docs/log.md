@@ -1529,3 +1529,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - First non-macOS UI alignment slice: removed `StandardToolbar.controlPanelTo` and its retired standalone icon; Initiative detail now exposes Control Panel inside its page-level 3-dots menu. Initiative Overview/Touchpoints/Knowledge Base and Touchpoint list/table/gantt/calendar selections now use `?page=` / `?view=` deep links instead of click-only component state.
 - UI-RULES-1 remains OPEN. PROGRESS records completed substeps without marking the parent DONE. Remaining: route-backed seed toggles, Form + write-process parity, sub-module nav, three-page section alignment, artifacts tree/index/watcher/CoS grouping, metadata empty states.
  - Validation at authoring time was dependency-blocked; this merge is covered by the current main baseline and post-merge verification. macOS-only Documents/FSEvents/entitlements/bundle/sign/notarize checks remain deferred.
+## 2026-07-15 — Reconciled roadmap implementation branch with main
+- Merged `origin/main` into `copilot/execute-roadmap-next-steps`; preserved the canonical INTERRUPT/Avatar roadmap and the branch's Form, Commons, JobPilot, and DealPilot progress.
+- Consolidated the legacy Egg wiki updates into `docs/wiki/avatar-commons.md` and removed residual conflict markers.
+- Durable outcome: `outputs/2026-07-15-merge-conflict-resolution.md`.
