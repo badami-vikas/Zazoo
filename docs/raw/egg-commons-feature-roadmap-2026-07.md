@@ -1,47 +1,49 @@
 ---
-title: Egg + Universal Commons Feature Roadmap — Design, Business, and Technical
+title: Avatar + Universal Commons Feature Roadmap — Design, Business, and Technical
 type: raw
 doc_kind: plan
 status: proposed
 companions: [module-evolution-system-2026-07.md, roadmap-v2-universal-commons.md, oss-commons-integration-plan-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, desktop-companion-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
-related_wiki: ../wiki/egg-commons.md
-updated: 2026-07-11
-tags: [egg, commons, shell, onboarding, avatar, marketplace, registry, ingestion, reuse, diligence]
+related_wiki: ../wiki/avatar-commons.md
+updated: 2026-07-14
+tags: [avatar, commons, shell, onboarding, marketplace, registry, ingestion, reuse, diligence]
 ---
 
 # 0. Product decision
 
-The **Egg** is Bridge's minimal kernel shell — fixed chrome, everything else streams in as installed Commons content. The **Universal Commons** is the registry of generalized capability knowledge (never user data) that keeps the Egg light. They are two halves of one thesis (user requirement, `roadmap-v2-universal-commons.md`): *"considering I wanted a minimalistic egg, pushing more capabilities to bridge commons will help keep the egg light."*
+The **Avatar shell** is Bridge's minimal interface — fixed chrome plus one visual companion, while installed Modules supply functional content. **Universal Commons** is the signed registry of generalized capability knowledge (never user data). Avatar is not a Plane; Commons is not the Cloud Plane. The filename remains legacy until VOCAB1/VOCAB2 performs code+file migration together.
 
 ```yaml
 composition:
-  egg:
-    is: ADR-029 shell (Home → Initiatives → "+ New" → Knowledge/Intelligence/Calendar gated → Settings) + DataViews surface compiler + onboarding ceremony + avatar companion + 4 permanent agents + Trust Model
-    is_not: ADR-023 six-container chrome (SUPERSEDED — do not build); a feature-stuffed assistant; a meeting-notes product
+  avatar_shell:
+    is: minimal chrome + standard Module pages/views + Onboarding + Avatar companion + 4 permanent Agents + Trust Model
+    is_not: a residency Plane; lifecycle ceremony; feature-stuffed assistant; meeting-notes product
   commons:
     is: knowledge-only package registry (service on :4780, permanent HTTP contract, privacy gate 422+offendingPaths) + future marketplace WEBSITE + Bridge Cloud hosted twin
     is_not: a store of user data (ever); an in-app marketplace tab (web app consumes INSTALLED Modules only, ADR-030); Bridge Cloud itself (separate service, ADR-020)
-  sequencing_thesis: surface first, ecosystem second — the proven composition order (Raycast, Notion templates, Zapier); nobody wins registry-first. Egg slices lead; Commons slices follow one beat behind.
+  sequencing_thesis: surface first, ecosystem second — Avatar foundation/onboarding leads; Commons follows one beat behind.
 ```
 
 Competitive frame (researched 2026-07-11 — code diligence on Clicky and Pluely; `My Data/New Data` corpus of 113 platforms, 60 chief-of-staff products, 14 skill registries): every desktop assistant ships the same seven table stakes (screen context, low-friction invocation, cross-app action, Gmail/Calendar/Slack/Notion connectors, persistent memory, background agents producing artifacts, daily brief). None answers the trust questions (retention, screenshot handling, audit) — HeyClicky's own doc shows "not found" across SOC2/audit/retention. **Bridge's capture contract (blink tell, inspectable Memory, draft-then-approve) IS the differentiated onboarding**, not a compliance appendix. On the Commons side, ~10k+ ingestible skills exist across public registries, yet none does versioning, trust metadata, or knowledge generalization — every gap is Bridge's occupied-by-design territory. Most structurally similar competitor: OpenClaw (runtime + de-facto skill registry); best composition benchmark: Raycast.
 
 # 1. Design lens — exact surfaces
 
-## 1.1 Egg shell (built — hold the line)
+## 1.1 Avatar shell (built — hold the line)
 
-ADR-029 chrome is the Egg: primary rail Home → Initiatives → "+ New" (Module picker over `packages.list` + CoS new-vs-extend) → Knowledge/Intelligence/Calendar (locked until unlocked) → Settings. DataViews shell + 7 registered views = the whole surface grammar. Roadmap rule: **no new chrome**; every feature below lands inside existing containers or the companion windows. Chrome fixed, content streams in — permanent pressure, not one-time.
+ADR-029 chrome becomes the minimal Avatar shell: Home → installed Modules → "+ New" Module → Knowledge/Intelligence/Calendar → Settings. DataViews remain the surface grammar. VOCAB3 migrates `packages.list` and older navigation/schema identifiers rather than hiding them behind display aliases.
 
 ## 1.2 Onboarding ceremony v2 (the Clicky merge)
 
-Current: adaptive questions → `compileBlueprint` preview → EggHatcher hatch <60s (E1 already removed LinkedIn/OTP). Upgrade with Clicky's choreography (MIT, founder-blessed), governed:
+Current: adaptive questions → `compileBlueprint` preview → legacy staged Avatar reveal. Replace with one Onboarding flow using Clicky's choreography (MIT, founder-blessed), governed:
 
 - **Trust copy in a human voice before any permission**: plain-language "nothing runs in the background; capture only happens when you see the blink" — the founder-as-narrator register, mapped to Bridge's capture contract;
 - **Permission theater**: sequenced rows (mic → accessibility → screen) with live polling that flips rows green in real time, grant proven by a real capture — but the proof capture itself is an **inspectable Memory entry with the avatar blink**, never silent. Adopt the theater, refuse the silence;
 - **First value performed, not explained**: mid-ceremony, the avatar points at one real thing on the user's own screen with a short comment — the "it can see me" beat — as a governed, blinking, Memory-logged capture; latency pre-warmed so the beat never lags;
 - **Single next action**: ceremony ends with exactly one streamed prompt (talk to your Chief of Staff), auto-dismissing; never a feature tour;
 - **Live Module proposals during onboarding** (ADR-032/033 Day-1 bar): the 4-agent team drafts real proposals into Approvals while the user answers — shipped-for-approval, never live;
-- **Profile seam**: answers land in a typed onboarding-profile schema that compiles into CoS's system prompt (gap today — schema doesn't exist), including tone-to-spirit-animal mapping beyond the current `ANIMAL_TONE` map.
+- **Profile seam**: answers land in a typed onboarding-profile schema that compiles into CoS's system prompt. Avatar style remains visual only; explicit communication preferences control tone.
+- **Role-model learning**: ask which public figures the user admires and why. The Learning Agent resolves ambiguous names with the user, researches public material through the governed research lane, separates documented behavior from interpretation, and produces cited candidate habits/ideas. The Chief of Staff converts only relevant candidates into **recommended** Skills and scheduled Automations with trigger, cadence, expected benefit, source rationale, permissions, and stop condition. Nothing installs, schedules, or runs without the normal proposal/approval path; admiration never implies blanket endorsement.
+- **Progressive behavioral learning**: seven days after onboarding, ask which qualities the user most values in a person. Continue with one thoughtful, context-relevant question at configurable intervals—not a fixed interrogation script. Every prompt explains why it is being asked, may be skipped/snoozed/paused, and writes suggested Memories the user can inspect, correct, or delete. No diagnosis, covert personality score, protected-trait inference, or manipulative optimization. Learning must have a visible value link: preference → cited Memory → changed recommendation/communication/Automation, with feedback and rollback.
 
 ## 1.3 Avatar companion + annotation
 
@@ -57,7 +59,7 @@ Built: per-monitor overlay avatar (hover chat, right-click menu), per-monitor cl
 - **Hotkey invocation** (category benchmark: Raycast speed, Clicky push-to-talk): global shortcut registry with runtime rebind + recorder UI (pattern from Pluely's registry, reimplemented on the permissive `tauri-plugin-global-shortcut`);
 - **Morning brief**: the chief-of-staff category's most repeated feature (Alfred/Bond/Ambient/Carly) — CoS composes a daily brief from Signals/Approvals/Calendar/commitments; every item links to its source Memory; never fabricated KPIs;
 - **Commitment detection** (Ambient/AirJelly pattern): CoS extracts commitments from connected mail/calendar into governed follow-up proposals;
-- **One background-agent lane producing a durable artifact** — the category's strongest proof-of-work pattern; result lands as an Artifact + approval card, not a chat answer.
+- **One background-agent lane producing a durable File or Result** — the category's strongest proof-of-work pattern; output lands with an approval card, not only a chat answer.
 
 ## 1.5 Commons marketplace (website surface)
 
@@ -80,12 +82,12 @@ Every capture, install, publish, and background run is inspectable: blink tell o
 covered_processes:
   day_1_trust:
     - permissioned capture with visible tells and inspectable Memory
-    - onboarding ceremony to first hatched workspace under 60s
+    - Onboarding to first usable Organization under 60s
     - live Module proposals drafted during onboarding (approval-gated)
   daily_operation:
     - morning brief, commitment detection, approvals nudges
     - in-context help ("what am I looking at"), governed annotation walkthroughs
-    - one background-agent artifact lane; draft-then-approve on all egress
+    - one background-agent File/Result lane; draft-then-approve on all egress
   capability_supply:
     - discover → inspect (permissions/risk/provenance) → governed install → single-live-version updates
     - publish: generalize → privacy gate → sign → curate → list
@@ -114,10 +116,10 @@ not_covered_or_not_authoritative:
 
 # 3. Technical lens
 
-## 3.1 Egg technical plan
+## 3.1 Avatar technical plan
 
 ```yaml
-egg_workstreams:
+avatar_workstreams:
   capture_core_crates:            # adopt Pluely's dependency set directly (all permissive), reimplement glue (~1.5k LOC)
     - tauri-nspanel (MIT): non-activating always-on-top panels for avatar/annotate
     - xcap (Apache-2.0): monitor capture; crop in Rust, no base64-megashot IPC
@@ -136,7 +138,7 @@ egg_workstreams:
     - split 3 non-CoS agents into separately invocable nodes (today one chief-of-staff.ts node)
     - 5-tier model ramp holds (T0 deterministic -> T1 local SLM -> T2 on-device VLM -> T3 Groq -> T4 frontier); capture plane local by default
   daily_rhythm:
-    - brief composer (Signals/Approvals/Calendar/commitments), commitment extractor, background-artifact lane on existing pipeline
+    - brief composer (Events/Approvals/Calendar/commitments), commitment extractor, background File/Result lane on existing pipeline
   security_posture:                # anti-patterns from diligence, enforced
     - secrets in OS keychain only; strict CSP everywhere; no vendor-API calls from webview with raw keys; per-user tokens only
 ```
@@ -264,10 +266,14 @@ sources:
 # 5. Data and capability model
 
 ```yaml
-Egg:
+Avatar:
   OnboardingProfile:            # net-new typed schema
-    fields: profession, mode, domain, team, vocab prefs, spirit_animal, tone, connected_sources, permission_states
+    fields: profession, mode, domain, team, vocab prefs, avatar_style, communication_preferences, role_models[{public_figure,why_admired}], connected_sources, permission_states, reflection_preferences
     compiles_to: CoS system prompt layer (PromptAssembler) + blueprint hints
+  ReflectionPrompt:
+    fields: question, why_now, source_context, cadence, sensitivity, skip_snooze_pause, response_memory_id
+    first_followup: day 7 favorite qualities in a person
+    invariant: every learned preference is inspectable/correctable/deletable and linked to a user-visible value change
   CaptureEvent:
     invariants: blink tell fired, Memory entry written, plane=local, provider + permission snapshot recorded
   AnnotationMark:               # built — typed enum, Rust-validated
@@ -283,22 +289,22 @@ invariants:
   - Commons never stores user/workspace data — privacy gate is code, not policy (422 + offendingPaths)
   - versions immutable; updates = new version + staged propagation; local customization never silently overwritten
   - every capture inspectable; every install/publish/run has an immutable record
-  - secrets: OS keychain / CredentialBroker only — never artifacts, localStorage, or binaries
+  - secrets: OS keychain / CredentialBroker only — never Files, localStorage, or binaries
   - contentProtected only for self-exclusion; no concealment features, ever
 ```
 
 # 6. Delivery sequence
 
 ```yaml
-egg_slices:
+avatar_slices:                 # legacy EG ids retained until VOCAB1 updates code/docs together
   EG0:
     scope: capture-core crates adoption (tauri-nspanel panels, xcap, shortcut registry + hotkey invocation) + keychain/CSP posture audit
   EG1:
-    scope: onboarding ceremony v2 — OnboardingProfile schema→CoS prompt seam, permission theater w/ proof-by-capture, governed live-demo pointing beat, live Module proposals via 4-agent Groq team
+    scope: onboarding ceremony v2 — OnboardingProfile schema→CoS prompt seam, public-role-model question + governed cited research, permission theater w/ proof-by-capture, governed live-demo pointing beat, live Module/Skill/Automation proposals via 4-agent Groq team
   EG2:
     scope: pointing input half — AX-tree walking + Computer-Use-locator fallback + [POINT] protocol; annotation walkthroughs
   EG3:
-    scope: daily rhythm — morning brief, commitment detection, background-artifact lane, approvals nudges
+    scope: daily rhythm — morning brief, commitment detection, background File/Result lane, approvals nudges, day-7 qualities reflection + configurable periodic behavioral-learning prompts with inspect/correct/delete and skip/snooze/pause controls
   EG4:
     scope: system-audio + real screen sensors on T0–T2 local tiers; post-meeting action drafts (never a notes product)
   EG5:
@@ -320,4 +326,4 @@ commons_slices:
 
 Exit gate per slice: source/license record, manifest risk computed, tests, held-out eval, browser evidence for changed surfaces, provenance/citation audit, security scan, cost/latency baseline, and no dummy runtime data.
 
-Sequencing notes: EG0–EG1 refine live P0–P1/desktop-companion tracks; CM0 is pure gap-closure on shipped code (registry exists, nothing consumes it); CM1 must precede CM3 (oss-commons ruling: supply-chain trust FIRST); CM5 aligns with roadmap P5 (Publish Blueprint) / P6 (community marketplace). Egg leads Commons by one beat (surface-first composition order). No H2 sequencer reorder; any pull-forward goes through `docs/APPROVALS.md`.
+Sequencing notes: legacy EG0–EG1 ids mean Avatar foundation + Onboarding until VOCAB1 renames them. CM0 is gap closure; CM1 precedes CM3. Avatar surface leads Commons by one beat. No H2 sequencer reorder.

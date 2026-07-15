@@ -5,13 +5,13 @@ doc_kind: plan
 status: proposed
 companions: [governance-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, roadmap-v2-universal-commons.md, undefined-elements-definitions-2026-07.md, security-audit-2026-07.md, desktop-companion-agent-roadmap-2026-07.md]
 related_wiki: ../wiki/learning-agent.md
-updated: 2026-07-13
+updated: 2026-07-14
 tags: [learning-agent, memory, mem0, rag, research, competitor-discovery, prompt-assembler, taint, injection]
 ---
 
 # 0. Product decision
 
-The Learning Agent is one of Bridge's four permanent platform Agents (ADR-046). It learns from conversations, behavior, corrections, connected systems, and documents; runs external research; builds org knowledge, user models, domain knowledge, and relationship understanding; and feeds recommendations to every other agent. Its one firm invariant is already enforced in code: **`neverExecutes: true`** — the Learning Agent never takes actions; its outputs are Memories, Signals, research briefs, and recommendations, all inspectable.
+The Learning Agent is one of Bridge's four permanent platform Agents (ADR-046). It learns from conversations, behavior, corrections, connected systems, and documents; runs external research; builds Organization knowledge, user models, domain knowledge, and relationship understanding; and feeds recommendations to every other agent. Its firm invariant is enforced in code: **`neverExecutes: true`** — it never takes Actions; outputs are Memories, Files/Results, Events, and recommendations, all inspectable.
 
 **Ground truth (audited 2026-07-12).** This roadmap is mostly greenfield:
 
@@ -36,6 +36,10 @@ current_state:
 ```
 
 **Load-bearing invariant — everything it learns is data, never instructions; everything it stores is inspectable.** The Learning Agent is Bridge's biggest prompt-injection surface (it reads email, documents, screens, and the open web). So taint/provenance marking ships in the *first* slice, not as hardening later: every Memory entry carries source + trust tier; tainted content never reaches a tool-bearing context; suggested Memories are proposed and user-visible, never silently absorbed (capture contract: every capture → inspectable Memory entry; avatar blink = the tell; raw capture local-plane only).
+
+**Metadata is not runtime tracking.** PI-1/PI-2 added provenance fields and a tainted-egress policy, but the root gap remains until taint labels propagate through every runtime value and composition boundary. RT0–RT4 below make taint a joined label on source envelopes, retrieved context, prompt segments, model outputs, Skill inputs/outputs, Action arguments/results, Events, Results, and Files; instrument sinks; deny tainted tool-bearing/egress use; and preserve labels across storage, serialization, retries, caches, and cross-process queues.
+
+Learning does not own correction execution. It detects repeated failure/correction patterns and proposes changes. Engine owns bounded operational recovery; Governance owns policy/control remediation; Capability Builder implements tested changes; Human resolves consequential ambiguity.
 
 Competitive frame: ambient desktop agents (Vida, Invoko, AirJelly) and memory layers (Mem0, Graphiti/Letta — reference-only per decisions-log) prove the demand; none combine governed learning (proposed memories, taint tiers, local plane) with a workspace that consumes the knowledge. Bridge's differentiation is that learning output feeds a governed capability platform, not a chat log.
 
@@ -74,7 +78,7 @@ covered_processes:
     - org/domain/relationship knowledge from connected systems (Gmail/Docs/tasks/CRM), source-attributed
     - retrieval serving every agent: graph traversal + semantic vector + structured filtering (graph = source of truth)
   prompt_construction:
-    - PromptAssembler feeds: persona (spirit-animal tone), capabilities, context, memory, governance state
+    - PromptAssembler feeds: Agent persona, capabilities, context, Memory, governance state
   research:
     - live external research at blueprint time (competitor-discovery; never hardcoded competitor tables — ADR-012e)
     - integration-over-custom discovery: installed software + browser apps checked (explicit permission, stated intent) before Builder builds
@@ -109,7 +113,7 @@ learning_skills:
   - user-model-maintenance           # goals/style/autonomy/privacy prefs; onboarding profile enrichment
   - knowledge-ingestion              # connected-system content → taint-tiered, source-attributed knowledge
   - retrieval-orchestration          # graph traversal + vector + structured filter, fused (RAG layer)
-  - prompt-context-assembly          # PromptAssembler memory/context layers (persona tone from spirit animal)
+  - prompt-context-assembly          # PromptAssembler Memory/context layers; tone from explicit communication preferences
   - competitor-discovery             # query synthesis → governed search/fetch → extract → CompetitorBrief
   - installed-software-discovery     # explicit-permission scan → integration candidates for Builder
   - overlap-similarity-detection     # vs Component Registry + Commons; feeds "install instead?"
@@ -215,6 +219,30 @@ Universal exit gate (every slice): source/license record, manifest risk computed
 
 ```yaml
 slices:
+  RT0:
+    goal: one runtime taint lattice and envelope contract
+    deliverables: [TaintLabel source/trust/sensitivity/instructionRisk, deterministic join, required RuntimeValue envelope, serialization contract]
+    exit_criteria: every ingest source and stored Memory carries a label; join is monotonic and property-tested
+  RT1:
+    goal: propagation through prompt/model/Skill/Action paths
+    depends_on: [RT0]
+    deliverables: [PromptSegment labels, model-output derivation, Skill IO propagation, Action/Event/Result/File propagation, cache/queue/retry preservation]
+    exit_criteria: end-to-end provenance trace survives process boundaries with no unlabeled fallback
+  RT2:
+    goal: sources and sinks instrumented
+    depends_on: [RT1]
+    deliverables: [screen/clipboard/email/web/MCP source adapters, network/file/credential/schema-mutation sinks, deny-by-default unknown labels]
+    exit_criteria: source/sink coverage inventory is complete; uninstrumented sink fails CI/runtime registration
+  RT3:
+    goal: policy enforcement and quarantine
+    depends_on: [RT2]
+    deliverables: [no tainted content in tool-bearing context, egress join gate, dual-model quarantine, declassification only by deterministic validator or explicit human Decision]
+    exit_criteria: injection/exfiltration/red-team suite has zero unauthorized Actions and zero label loss
+  RT4:
+    goal: operations, migration, and observability
+    depends_on: [RT3]
+    deliverables: [backfill existing data, taint trace UI, metrics/alerts, incident replay, compatibility removal]
+    exit_criteria: production-like replay proves propagation; old unlabeled records quarantined or classified; runtime taint root gap closed
   LA0:
     goal: the Memory primitive exists — taint-tiered from day one
     depends_on: [pgvector (in stack), Mem0 adoption decision (ADR-010f)]
@@ -233,12 +261,12 @@ slices:
     deliverables:
       - PromptAssembler v1 (shared build with Builder BA0): persona · capabilities · context · memory · governance-state layers
       - onboarding profile → Chief of Staff persona construction (closes the foundational-agents open item)
-      - tone-to-animal mapping: reconcile the 6-animal SPIRIT_ANIMALS set vs the 14-animal spec; tone parameter versioned + eval-gated
+      - Avatar visual style remains UI-only; Agent tone derives from explicit communication preferences and eval-gated Memory, never Avatar style
       - memory-retrieval serving @-dispatched agents (grounded answers replace prompt-only stubs)
     exit_criteria:
       - the same question answered before/after an accepted Memory demonstrably changes agent output (the learning-visible test)
       - assembled prompts fit a token budget with layer-level accounting; governance-state layer present in every agent call
-      - tone eval: two animals produce measurably distinct register on a fixed prompt set, without content divergence
+      - tone eval: two explicit communication preferences produce measurably distinct register on a fixed prompt set, without content divergence
   LA2:
     goal: Bridge learns from being used — observation + correction loops
     depends_on: [LA1]

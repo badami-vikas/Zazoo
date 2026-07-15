@@ -32,9 +32,8 @@ most load-bearing** — nearly everything touching eval/quality/self-improve was
 8. **Competitor-discovery mechanism** — "live at blueprint time", no query grammar.
 9. **Commons convergence + mining** — thresholds set, mining/generalization pipeline undefined.
 10. **Capability Trust Model risk + trust-decay** — bands built, decay entirely undefined.
-11. **Spirit-animal/avatar + onboarding-profile schema** — tone-to-animal map + profile→system-prompt
-    seam "not designed yet".
-12. **Knowledge/RAG layer** — unlock gate exists, engine doesn't.
+11. **Avatar + Onboarding profile** — visual style separated from explicit communication preferences; profile→prompt seam remains incomplete.
+12. **Memory retrieval layer** — unlock gate exists, Engine does not.
 13. **SandboxProvider + Builder toolbelt** — port named (E2B/Daytona later), no interface.
 
 Long tail (8, listed in raw): node_types/plane write-enforcement · workspace_definitions blueprint
@@ -43,4 +42,4 @@ materialization + CaptureLedger · RitualExecutor agentic Planner · Bridge Clou
 auto-mode allowlist token grammar.
 
 Every definition honors the same invariants: ports-and-adapters · governed pipeline · two-plane
-residency · **no hardcoded external knowledge** · earned-and-decaying trust.
+residency · no hardcoded external evidence · earned-and-decaying trust.

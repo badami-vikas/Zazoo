@@ -1,5 +1,7 @@
 # Vision — Living Software (wiki)
 
+> **Current vocabulary overlay (AP-020, 2026-07-14):** [glossary.md](../glossary.md) is the only current vocabulary authority and supersedes legacy terms retained in this historical vision record. The product has one Local Plane and one Cloud Plane; Relationship and Work are Domains; Avatar is the only companion term; user functionality is organized as Modules; recurring execution is an Automation; runtime machinery is an Engine; user-visible stored content is a File or Result. The mandatory code/data migration is tracked in [the vocabulary migration plan](../raw/vocabulary-code-migration-plan-2026-07-14.md). Do not implement aliases that preserve retired names.
+
 full: [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-software.md) · PIVOT adopted 2026-07-06 (+ 2026-07-06 second-pass amendments §12). NOTHING pre-pivot locked — all re-audited (verdict table in raw §3).
 
 ## Second-pass amendments (2026-07-06)

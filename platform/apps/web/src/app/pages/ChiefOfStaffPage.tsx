@@ -5,6 +5,7 @@ import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
+import { getRoutingDecisionDisplay } from "../lib/routing-decision-display";
 
 type ConverseResult = Awaited<ReturnType<typeof trpc.chiefOfStaff.converse.mutate>>;
 
@@ -69,8 +70,9 @@ export function ChiefOfStaffPage() {
       </p>
 
       <div className="flex-1 overflow-auto space-y-3 border rounded-md p-4 min-h-[280px]">
-        {turns.map((t, i) => (
-          <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
+        {turns.map((t, i) => {
+          const decisionDisplay = t.decision ? getRoutingDecisionDisplay(t.decision) : null;
+          return <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
             <div
               className={`inline-block max-w-[85%] rounded-md px-3 py-2 text-sm ${
                 t.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
@@ -78,16 +80,16 @@ export function ChiefOfStaffPage() {
             >
               {t.text}
             </div>
-            {t.decision && (
+            {t.decision && decisionDisplay && (
               <div className="mt-1 flex flex-wrap gap-1 justify-start">
-                <Badge variant="outline">{t.decision.kind}</Badge>
-                {t.decision.kind === "route" && <Badge variant="secondary">{t.decision.route}</Badge>}
+                <Badge variant="outline">{decisionDisplay.kindLabel}</Badge>
+                {decisionDisplay.routeLabel && <Badge variant="secondary">{decisionDisplay.routeLabel}</Badge>}
                 <Badge variant="outline">{t.decision.source}</Badge>
                 {t.proposalId && <Badge variant="outline">proposal pending in Approvals</Badge>}
               </div>
             )}
           </div>
-        ))}
+        })}
       </div>
 
       {error && <div className="text-sm text-red-600">{error}</div>}

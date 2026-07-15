@@ -1,5 +1,5 @@
 ---
-title: Brain/Engine Architecture — the cognitive core of the background desktop assistant
+title: Engine Architecture — reusable runtime machinery
 type: raw
 doc_kind: design
 status: draft
@@ -8,12 +8,12 @@ companions:
   - docs/raw/undefined-elements-definitions-2026-07.md
   - docs/raw/day1-integrations-free-apis-2026-07.md
   - docs/raw/bridge-foundational-agents-onboarding-2026-07.md
-related_wiki: docs/wiki/brain.md
+related_wiki: docs/wiki/engine.md
 updated: 2026-07-09
 tags: [brain, ingestion, model-routing, mcp, memory, domain-profile, automation-mining, architecture]
 ---
 
-# Brain/Engine Architecture
+# Engine Architecture
 
 **Scope**: the cognitive core ("Brain") of the background desktop assistant — memory management, model routing, domain discovery, dynamic context ingestion (connectors + OS streams), autonomous capability expansion (MCP), and execution/automation trigger logic. UI code and raw OS event hooks are out of scope (they live in the Tauri shell / Sensor providers).
 

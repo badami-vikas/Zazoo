@@ -5,7 +5,7 @@ doc_kind: plan
 status: proposed
 companions: [dealpilot-architecture-requirement.md, optimizations-memory-vm-dealpilot-plan-2026-07.md, oss-commons-integration-plan-2026-07.md, dealpilot-design-requirements-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/packages.md
-updated: 2026-07-11
+updated: 2026-07-14
 tags: [dealpilot, module, design, business-process, agents, skills, automations, reuse]
 ---
 
@@ -462,11 +462,28 @@ These are real reusable candidates, but current FSL restriction makes commercial
 
 # 5. Data and capability model
 
-Primary Deal graph:
+Deals, Sources, and Theses form one strongly-related DealPilot object cluster. Each may use a dedicated database because each owns different fields, but relationships are symmetric many-to-many—not a hierarchy:
 
 ```yaml
+DealPilot_cluster:
+  surfaces: [Deals, Sources, Theses]
+  surface_rule: sibling toggle pages in one module/sub-module; each page keeps its own DB-backed schema and standard toolbar/views
+  relationships:
+    Deal_Source: many_to_many
+    Deal_Thesis: many_to_many
+    Source_Thesis: many_to_many
+  field_ownership_examples:
+    Deal: [company, stage, revenue, EBITDA, asking_price, evidence_health]
+    Source: [name, connector_type, credential_ref, health, schedule, yield]
+    Thesis: [name, industry_focus, target_CAGR, criteria, exclusions, sourcing_strategy]
+  credential_rule: username/password values never live in Source rows; Source stores CredentialBroker/keychain references and non-secret connection metadata only
+  triggers:
+    thesis_created_or_materially_changed: propose governed source discovery/search Automation; attach discovered Sources only after dedupe and review policy
+    source_created_or_materially_changed: propose/run governed source scan; normalize and dedupe candidate Deals; preserve source provenance
+    source_or_thesis_link_changed: recompute affected Deal thesis-fit and explain the diff
 Deal:
   relates_to:
+    - Source
     - Company
     - Thesis
     - Listing
@@ -502,9 +519,9 @@ CIM and QoE semantics:
 ```yaml
 slices:
   DP0:
-    scope: Deals list + Deal shell + Summary/Profile/Documents/Activity; real data/empty states
+    scope: Deals/Sources/Theses many-to-many schema + sibling toggle pages + Deal shell + Summary/Profile/Documents/Activity; entity-owned fields; CredentialBroker references for Source secrets; real data/empty states
   DP1:
-    scope: Sourcing feed/sources/searches + normalization/dedupe + thesis-fit triage
+    scope: thesis→source-discovery and source→deal-discovery Automations + Sourcing feed/searches + normalization/dedupe + provenance-preserving thesis-fit triage
   DP2:
     scope: Hypotheses + Evidence + Diligence/MRL + red-flag gate
   DP3:

@@ -2,7 +2,7 @@
 title: Spec Consolidation — Control Panel, Workspace Naming, Avatar Day-1, Onboarding Egg, Dream Cycle, Virtual Office
 type: raw
 doc_kind: design
-status: active
+status: superseded
 updated: 2026-07-06
 companions: []
 related_wiki: ../wiki/vision.md
@@ -10,6 +10,8 @@ tags: [spec, avatar, onboarding, shell, control-panel, ux]
 ---
 
 # Spec Consolidation — Bridge Frontend + Kernel Interfaces (2026-07-06)
+
+> Superseded 2026-07-14 by `docs/glossary.md`, `vocabulary-code-migration-plan-2026-07-14.md`, the Avatar+Commons roadmap, and current UI architecture. Lifecycle/personality terminology in this historical spec must not drive new UI or code. VOCAB1 migrates existing runtime identifiers and persisted preferences; this is not a display-only change.
 
 This document consolidates five load-bearing UX + interaction specs that define the **first-session experience** and **daily workspace shell** for Bridge. Each section is independently buildable; together they form the Phase-1 interface contract for kernel + three clients.
 

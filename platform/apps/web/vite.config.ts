@@ -19,6 +19,8 @@ export default defineConfig({
         main: path.resolve(__dirname, "index.html"),
         overlay: path.resolve(__dirname, "overlay.html"),
         annotate: path.resolve(__dirname, "annotate.html"),
+        // Zazoo Lab — companion emotional-performance test surface (Egg track).
+        zazoo: path.resolve(__dirname, "zazoo.html"),
       },
     },
   },

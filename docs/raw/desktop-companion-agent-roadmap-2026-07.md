@@ -37,7 +37,7 @@ Rust-originated capture events.
   `avatar-store.ts` as the in-page `AvatarOverlay.tsx` (in-page one is suppressed under Tauri to
   avoid a double avatar — `docs/wiki/clients.md`).
 - **A status + prefs store.** `platform/apps/web/src/app/avatar/avatar-store.ts` holds durable
-  local prefs (`SpiritAnimal`, `eggHatched`, `avatarName` — localStorage, not kernel state) and
+  legacy local prefs (`SpiritAnimal`, `eggHatched`) require VOCAB1 migration to `AvatarStyle` + `avatarReady`; `avatarName` remains optional visual preference; none affect authority/tone, and
   an in-memory pub/sub `AvatarStatus` state machine: `idle · listening · reading_context ·
   drafting · awaiting_approval · blocked_by_policy · error`. `setAvatarStatus` is the seam any
   kernel event drives.
@@ -226,7 +226,7 @@ tier** · **trust band**.
 13. **Cross-app workflow help** — "build a workflow from what I'm doing": multi-app sequence
     synthesis into a proposed `ritual`. · Tier 4 · External-adjacent, always human approval.
 14. **Voice-driven in-context help** — the Voice Command Center (`clients.md`) drives the
-    companion: speak → intent → annotate/act, tone matched to spirit animal (Comms Agent). · Tier
+    companion: speak → intent → annotate/act, tone matched to explicit communication preferences (Communications Skill). · Tier
     1 (intent) + task-appropriate tier for the action · per-capability band.
 
 ---
