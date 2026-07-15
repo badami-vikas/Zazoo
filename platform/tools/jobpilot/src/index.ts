@@ -1,4 +1,19 @@
 export { jobPilotManifest } from "./manifest.js";
+// JP1 — domain foundation: JSON Resume contract, master profile compiler, approval guard
+export {
+  JsonResumeSchema,
+  BasicsSchema,
+  WorkEntrySchema,
+  EducationEntrySchema,
+  SkillSchema,
+  PROTECTED_WORK_FIELDS,
+  PROTECTED_EDUCATION_FIELDS,
+} from "./resume-schema.js";
+export type { JsonResume, Basics, WorkEntry, EducationEntry, Skill, Language, Project, Certificate } from "./resume-schema.js";
+export type { NeedsHumanReason, NeedsHumanField, ParsedSource, MasterProfile } from "./master-profile.js";
+export { compileProfile } from "./master-profile.js";
+export type { ApprovedProfile } from "./profile-approval.js";
+export { approveProfile, isApprovedProfile, assertApprovedProfile } from "./profile-approval.js";
 export type { CandidateProfile, JobProfile, FlagColor, FitResult, EvalVerdict, ApplicationStage } from "./types.js";
 export { scoreJobFit } from "./scoring.js";
 export type { ChangeLogEntry } from "./evaluator.js";

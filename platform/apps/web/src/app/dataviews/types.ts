@@ -24,6 +24,10 @@ export interface DataViewProps {
    * (e.g. clicking a column header to sort). DataViews merges the patch into
    * the current ViewConfig and calls the shell's own onViewChange. */
   onViewChange: (next: ViewConfig) => void;
+  /** Fired by FormView when the user submits a new row. The caller is responsible
+   * for routing this through the governed pipeline (e.g. action.propose). Absent
+   * for read-only views — FormView disables its submit button when not provided. */
+  onInsert?: (draft: Partial<DataRow>) => void | Promise<void>;
 }
 
 export type { RowFilter, SortSpec, TableSpec, ViewConfig };

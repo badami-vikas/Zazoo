@@ -84,6 +84,8 @@ import {
   type EvalStore,
   type PolicyParamStore,
 } from "@bridge/core";
+import { HttpCommonsClient, commonsUrlFromEnv } from "./commons-client.js";
+import type { CommonsRegistry } from "@bridge/core";
 import {
   assertRlsPosture,
   createDb,
@@ -195,6 +197,11 @@ export interface Wiring {
   capabilityKillSwitch: KillSwitchPort;
   /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
   credentialBroker: CredentialBroker;
+  /** Universal Commons client — reads/publishes against the local Commons registry
+   * (services/commons at :4780 by default; COMMONS_URL for Bridge Cloud swap).
+   * Implements CommonsRegistry port from @bridge/core; the tRPC commons.* router
+   * delegates here so no HTTP client code leaks into the router. */
+  commonsRegistry: CommonsRegistry;
   /** EVAL-1/2/3 eval runs + comparisons (agent-quality-eval-model). In-memory in
    * both modes for now — no Drizzle EvalStore binding exists yet (mirrors the
    * capabilityBudgets residency-gap pattern). capability.approve's Validated->Active
@@ -647,6 +654,13 @@ export async function buildWiring(): Promise<Wiring> {
   const evalStore = new InMemoryEvalStore();
   const policyParams = new InMemoryPolicyParamStore();
 
+  // Universal Commons client — binds CommonsRegistry port to the local Commons
+  // service (COMMONS_URL env, default http://localhost:4780). loopback HTTP is
+  // permitted by assertCommonsUrlTls; a remote plaintext URL is rejected.
+  // verifySignatures is ON by default (PKG-2 verify-on-install). The service may
+  // not be running in dev; tRPC procedures handle fetch errors gracefully.
+  const commonsRegistry: CommonsRegistry = new HttpCommonsClient(commonsUrlFromEnv());
+
   return {
     pipeline,
     localMedia,
@@ -693,6 +707,7 @@ export async function buildWiring(): Promise<Wiring> {
     capabilityBudgets,
     capabilityKillSwitch,
     credentialBroker,
+    commonsRegistry,
     onboardingProfileStore,
     evalStore,
     policyParams,
