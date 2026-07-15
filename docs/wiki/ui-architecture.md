@@ -26,6 +26,8 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **First task next run = UI-RULES-1** (PROGRESS INTERRUPT): remove deprecated capability/global-index routes, build Module drill-down, nest Skills under Agents, unify panels, Relationship toggles, then Second Brain per raw §8.
 
+**Alignment started 2026-07-14:** inventory + target map → [raw audit](../raw/ui-architecture-alignment-audit-2026-07.md). Covered already: toolbar/list spine, registered non-Form views, some stacked sections + honest empty states. Landed now: dead Control Panel toolbar slot removed; Initiative 3-dots owns Control Panel; Initiative page/view state deep-links via query params. Still open: route-backed seed toggles · Form registry/write parity · sub-module nav · standard Artifacts sections · Documents provisioning/index/watcher · CoS grouping · metadata empty states. macOS FS/entitlement validation flagged, not attempted.
+
 **OSS precedent (code diligence 2026-07-13):** view = stored overlay (column show/order + filters + sorts) over SAME table rows → lists + toggles = one mechanism; Form = first-class view type, submission = ordinary row insert; view-type set = registry w/ capability flags (Baserow pattern). Licenses: NocoDB head = Sustainable-Use, patterns ONLY never copy · Baserow core MIT ok (premium dirs proprietary) · Twenty/AppFlowy AGPL, patterns only.
 
 **Current gate:** Avatar foundation/Onboarding + CM0–CM1. Form/direct-insert, smart grouping, honest empty states, local mirror, rename tracking, deep links unchanged. Toggle-vs-sub-module judgment stays in UI-RULES-1 audit.

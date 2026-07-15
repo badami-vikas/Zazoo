@@ -1,6 +1,5 @@
 import { useState, type ComponentType, type ReactNode } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Check, MoreVertical, Settings2 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Search, Filter, ChevronDown, ChevronUp, Check, MoreVertical } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ListDropdown, type ListOption } from './ListDropdown';
 
@@ -13,7 +12,7 @@ export interface ToolbarView { id: string; label: string; icon: ComponentType<an
 export function StandardToolbar({
   view, views, onViewChange, search, onSearchChange, onFilterClick, filterCount = 0,
   filterOpen, filterPanel, customActions, moreMenu,
-  lists, activeListId, onListSelect, onAddList, insightsExpanded, onToggleInsights, controlPanelTo,
+  lists, activeListId, onListSelect, onAddList, insightsExpanded, onToggleInsights,
 }: {
   view: string;
   views: ToolbarView[];
@@ -35,9 +34,6 @@ export function StandardToolbar({
   // CollapsibleInsights section (expanded by default at the page level).
   insightsExpanded?: boolean;
   onToggleInsights?: () => void;
-  // Control Panel icon — always sits between the Filter button and the 3-dot menu. Only
-  // Initiative-scoped pages pass a route (/initiative/:id/control-panel); omitted = no icon.
-  controlPanelTo?: string;
 }) {
   const [viewOpen, setViewOpen] = useState(false);
   const activeView = views.find((v) => v.id === view) ?? views[0];
@@ -86,11 +82,6 @@ export function StandardToolbar({
           </div>
         )}
         {customActions}
-        {controlPanelTo && (
-          <Link to={controlPanelTo} title="Control Panel" className="p-1.5 rounded-lg border border-transparent" style={{ color: 'var(--color-warm-gray)' }}>
-            <Settings2 className="w-5 h-5" />
-          </Link>
-        )}
         {moreMenu && (
           <>
             <div className="w-px h-6 mx-1" style={{ backgroundColor: 'var(--color-border)' }} />

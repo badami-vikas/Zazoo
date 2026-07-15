@@ -53,6 +53,9 @@ Source requirements: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-inte
 ## NOW — Batch 1: Avatar + Commons PROTOTYPE → `docs/raw/egg-commons-feature-roadmap-2026-07.md` (legacy filename; Avatar foundation/onboarding + CM0–CM1) · UI rules: `docs/raw/ui-architecture-rules-2026-07.md`
 
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, Files section + `~/Documents/Bridge/<Organization>/` tree
+  - [x] 2026-07-14 — inventory + toggle/list/sub-module target map → `docs/raw/ui-architecture-alignment-audit-2026-07.md`
+  - [x] 2026-07-14 — retired the dead toolbar Control Panel slot; moved the legacy Initiative Control Panel to page 3-dots; added page/view query deep links
+  - [ ] Remaining — route-backed seed toggles · Form registry/write parity · sub-module nav · three-page section alignment · File tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
 - [ ] AV0 — Avatar shell foundation: crates + hotkey + keychain/CSP posture; draggable/multi-Space overlay → roadmap legacy §EG0
 - [ ] AV1 — Onboarding (not staged lifecycle ceremony): OnboardingProfile → CoS prompt, permission theater, governed live-demo beat, Avatar ready state → roadmap legacy §EG1
 - [ ] CM0 — wire the Commons registry (`CommonsRegistry` port + HTTP client exist; `commons.*` tRPC/app consumption is absent — biggest gap) → §CM0
