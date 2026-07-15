@@ -55,12 +55,19 @@ Source requirements: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-inte
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, Files section + `~/Documents/Bridge/<Organization>/` tree
   - [x] 2026-07-14 — inventory + toggle/list/sub-module target map → `docs/raw/ui-architecture-alignment-audit-2026-07.md`
   - [x] 2026-07-14 — retired the dead toolbar Control Panel slot; moved the legacy Initiative Control Panel to page 3-dots; added page/view query deep links
-  - [ ] Remaining — route-backed seed toggles · Form registry/write parity · sub-module nav · three-page section alignment · File tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
+  - [x] 2026-07-15 — Form registered as a standard DataView with metadata-driven typed fields and an insert-hook contract
+  - [ ] Remaining — bind Form direct-insert/process-parity handlers · route-backed seed toggles · sub-module nav · three-page section alignment · File tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
 - [ ] AV0 — Avatar shell foundation: crates + hotkey + keychain/CSP posture; draggable/multi-Space overlay → roadmap legacy §EG0
 - [ ] AV1 — Onboarding (not staged lifecycle ceremony): OnboardingProfile → CoS prompt, permission theater, governed live-demo beat, Avatar ready state → roadmap legacy §EG1
-- [ ] CM0 — wire the Commons registry (`CommonsRegistry` port + HTTP client exist; `commons.*` tRPC/app consumption is absent — biggest gap) → §CM0
+- [ ] CM0 — complete Commons registry wiring and acceptance evidence → §CM0
+  - [x] 2026-07-15 — `CommonsRegistry` wired into API composition; `commons.list/get/getVersion/installPropose/publishBuiltins` tRPC + Registry browser surface
+  - [ ] Remaining — browser evidence for install flow · Learning Agent similarity reads · slice-wide eval/provenance/cost gates
 - [ ] CM1 — supply-chain trust (signing, content-hash pins, publisher verify, 8-point scan) — BEFORE any corpus ingest → §CM1
 - [ ] **DP0–DP1 follow-on — Deal/Source/Thesis relational cluster**: three sibling DB-backed toggle pages; Deal↔Source, Deal↔Thesis, Source↔Thesis many-to-many; entity-owned fields + CredentialBroker refs; thesis changes trigger source discovery, source changes trigger deal discovery, link changes trigger explained fit rescoring → `docs/raw/dealpilot-module-plan-2026-07.md` §5–§6
+
+### User-directed parallel domain foundations (2026-07-15; no batch reorder, no slice marked DONE)
+- JobPilot JP1 partial — JSON Resume contract, deterministic multi-source master-profile compile/dedupe, NeedsHuman conflicts, human-approval guard. Real-document ingestion/eval + UI remain.
+- DealPilot DP0 partial — canonical Deal shell/stages, deterministic transitions, Summary/Profile/Documents/Activity projections, table/board metadata. Persistent store/API + browser shell remain.
 
 ## Batch 2 — Repo cleanup: duplicates + deprecated data → `docs/raw/repo-restructure-egg-commons-2026-07.md`
 
