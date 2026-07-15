@@ -1,5 +1,13 @@
 # Known Issues
 
+- **RESOLVED 2026-07-13 — Baseline web typecheck failed after Chief-of-Staff `direct_reply` routing was added.**
+  `platform/apps/web/src/app/components/shared/AgentPanel.tsx:218` and
+  `platform/apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` access `classification.route` without first narrowing
+  the routing union to `kind === "route"`; `pnpm typecheck` fails with TS2339 on clean `origin/main` (`db9a842`).
+  Fixed with shared, exhaustive `getRoutingDecisionDisplay()` handling used by both render paths; executable
+  behavior tests cover `route`, `clarify`, and `direct_reply`. Verified: focused tests 3/3, web typecheck, full
+  platform typecheck 38/38, full platform tests 38/38, focused ESLint, and two-stage independent review.
+
 Cross-session ledger of bugs / gaps / abnormalities. Persist across sessions. Agents:
 spot something off → add row here, do NOT wait for user ask. Fix → mark RESOLVED + date.
 Full rationale of decisions → [../raw/decisions-log.md](../raw/decisions-log.md).
