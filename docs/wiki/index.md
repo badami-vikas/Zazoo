@@ -13,17 +13,16 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [clients](clients.md) — **one platform, three clients** (desktop depth / browser reach / mobile accessibility) + context-provider registry (Learning Agent consumes context, not screenshots) + voice command center.
 - [architecture](architecture.md) — planes, pipeline, registries, local↔gate↔cloud two-plane agents.
 - [ontology](ontology.md) + [glossary](../glossary.md) — canonical vocabulary: Organization/Module/Page/View/Database/Record/Relation/File · Request→Plan→Decision→Run→Action→Event→Result · Human/Agent/Automation · Skill/Integration/Engine · Avatar/Onboarding · Local/Cloud Planes. Code names migrate too; no display-only aliases.
-- [initiatives](initiatives.md) — thin-slice Taskade call: views-over-one-tree; reject CRDT/universal-entity.
-- [rituals](rituals.md) — engine call: planner/executor split (swarm plans, DAG runs); broker/levels/snapshots/versioning; 3 reconciles.
-- [tools](tools.md) — tool model: internalize external repos · two run modes (standalone/shared-link + account-bound) · gated intake; reuses pipeline/contracts/versions.
-- [packages](packages.md) — capability package format: manifest bundles multiple capability_manifests · install = governed proposal + computed risk over dependency closure + lethal-trifecta escalation · Zapier single-live-version + fork-from-history rollback · DealPilot/Helpdesk/Recon sketches.
-- [relationships](relationships.md) — one Relationship Module: People/Communities/Relations toggles + Interactions/Introductions/Helpdesk/Sources/Automations sub-modules; shared Record/Relation/Event model.
-- [optimizations](optimizations.md) — runtime token/cost Optimization package · Hermes memory gap/target · account-constrained isolated-computer policy · strengthened DealPilot plan.
-- [commons](commons.md) — Universal Commons: local-first Module registry (services/commons, port 4780) · same contract as future Bridge Cloud · knowledge-only publish gate (422 + offending paths) · Marketplace = Commons website surface, web app consumes installed Modules only.
-- [module-evolution](module-evolution.md) — **2026-07-07/08, ADR-032**: AI-led Module creation/evolution (confidence-tiered, no user forms), Component Registry + eval harness design, minimal-egg definition restated for ADR-029 nav, Day-1 bar = Groq-backed onboarding + 5-agent team shipping real-time Module proposals — see [foundational-agents](foundational-agents.md) for the corrected/fuller spec.
+- [engine](engine.md) — runtime machinery; Agent-owned Skills; Automation→Agent Run boundary.
+- [relationships](relationships.md) — Relationship Module: Signals/People/Communities toggles; Signal = surfaced participant-linked Event; Agent-owned Skills; Second Brain consumer.
+- [dealpilot](dealpilot.md) — BRD summary: Deal/Source/Thesis graph, evidence, diligence, Agent-owned Skills, DP0–DP6.
+- [jobpilot](jobpilot.md) — BRD summary: truthful governed applications, Agent-owned Skills, JP0–JP6.
+- [optimizations](optimizations.md) — runtime token/cost Optimization Module · Memory targets · account-constrained isolated-computer policy · strengthened DealPilot plan.
+- [commons](commons.md) — Universal Commons: signed generalized Module/capability registry; privacy gate rejects personal Memory; separate from Bridge Cloud.
+- [module-evolution](module-evolution.md) — AI-led governed Module creation/evolution, Component Registry, evaluations, and proposal loop; current Avatar/Onboarding canon wins over historical language inside.
 - [foundational-agents](foundational-agents.md) — historical agent/onboarding design; current canon = 4 Agents (CoS, Learning, Governance, Capability Builder), Communications Skill, one Onboarding flow, one Avatar. VOCAB1 removes old code/payload names.
-- [calendar](calendar.md) — Calendar Tool = time-axis projection over graph; adopt react-big-calendar (MIT) + ical.js; never embed a calendar product/server.
-- [helpdesk](helpdesk.md) — AI-mediated assistance: capability routing over the graph → governed proposals; in-Bridge MVP; new Help Request entity.
+- [calendar](calendar.md) — Calendar Module = time-axis projection over Events and Records; provider implementations stay behind ports.
+- [helpdesk](helpdesk.md) — Relationship sub-module: capability routing over graph → governed Help Request Records.
 - [schema](schema.md) — data model, two-tier, governance tables.
 - [roadmap](roadmap.md) — phases 0–6.
 - [stack](stack.md) — tech, libs, model provider.
@@ -32,7 +31,9 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task.
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
-- [resilience](resilience.md) — failure-class field guide → Bridge fixes (ritual executor = authoritative actor).
+- [resilience](resilience.md) — failure-class field guide → Engine/Governance/Learning/Builder/Human ownership.
+
+Historical wiki pages whose filenames preserve retired identifiers are migration evidence only; [glossary](../glossary.md) and [VOCAB0–VOCAB6](../raw/vocabulary-code-migration-plan-2026-07-14.md) govern implementation.
 - [security](security.md) — **2026-07-08 audit**: no CRITICAL; 4 HIGH (auth-by-default, dep CVEs, Tauri csp:null, no rate-limit) + prompt-injection verdict (MODERATE-HIGH social-eng, LOW exfil — root gap = no runtime taint) + defense plan. Bug rows in [BUGS](../BUGS.md).
 - [agent-eval](agent-eval.md) — **"what better means"** (2026-07-08): Agent Quality Vector (7 axes from existing ledger/snapshots) · two-gate promotion · eval-harness data model · thresholds as policy_params · build #1 = scoring reducer (ship first).
 - [undefined-elements](undefined-elements.md) — **2026-07-08**: ~21 gaps found, top-13 defined w/ competitor grounding (eval harness · Component Registry · Memory · Variance Adjuster · Blueprint · …).

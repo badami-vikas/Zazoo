@@ -3,7 +3,7 @@ title: Relationship Module — Detailed Product, Business, and Technical Plan
 type: raw
 doc_kind: plan
 status: proposed
-companions: [relationship-design-requirements-2026-07.md, primitive-specifications.md, client-architecture-context-providers.md, clean-room-capability-research-protocol-2026-07.md]
+companions: [relationship-design-requirements-2026-07.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, primitive-specifications.md, client-architecture-context-providers.md, clean-room-capability-research-protocol-2026-07.md]
 related_wiki: ../wiki/relationships.md
 updated: 2026-07-14
 tags: [relationship, people, communities, interactions, helpdesk, memory, module, agents, skills, automations]
@@ -11,7 +11,7 @@ tags: [relationship, people, communities, interactions, helpdesk, memory, module
 
 # 0. Decision
 
-The former Bridge/Relationships surface becomes one installable **Relationship Module**. It contains People, Communities, Relations, Interactions, Introductions, Helpdesk, Sources, and Automations over shared Record/Relation/Event contracts. It is not a CRM, address book, lead pipeline, surveillance product, or second relationship database.
+The former Bridge/Relationships surface becomes one installable **Relationship Module**. Its primary toggle Pages are **Signals, People, and Communities**. It also owns Relations, Interactions, Introductions, Helpdesk, Sources, Files, Agents, Skills, and Automations over shared Record/Relation/Event contracts. It is not a CRM, address book, lead pipeline, surveillance product, or duplicate relationship database.
 
 ```yaml
 canonical_objects_reused:
@@ -20,8 +20,9 @@ canonical_objects_reused:
   - Record
   - Relation
   - Event
+  - Signal
   - Memory
-  - Knowledge
+  - Context
   - Request
   - Action
   - Result
@@ -67,7 +68,7 @@ implemented:
     - card scanner → proposed Person + “Met” Interaction
     - camera and conversation capture → private local Files and proposed Memory/Interactions
   surfaces:
-    - legacy KnowledgeBase shell pending Relationship Module route migration
+    - legacy global-index shell pending Relationship Module route migration
     - reusable DataViews table/board/card/calendar/map/graph eligibility
     - AssociationsMap and PeopleMapView components
     - shared Approvals, Events, Calendar, Agent panel
@@ -77,8 +78,8 @@ implemented:
 
 ```yaml
 partial:
-  - KnowledgeBase People/Communities still display NotWiredYet although backend endpoints now exist
-  - KnowledgeBase source comments are stale and claim those endpoints do not exist
+  - legacy People/Communities shell still displays NotWiredYet although backend endpoints now exist
+  - legacy source comments are stale and claim those endpoints do not exist
   - listPeople/listCommunities expose only shallow rows; no get/detail/search/mutation surface
   - associations use a local generated network export/static fallback rather than one governed graph query
   - network.ts schema contains warmth/trust/reciprocity fields not aligned cleanly to durable kernel contracts
@@ -113,13 +114,14 @@ The current tool catalog describes Reconnect, Open Threads, Community Pulse, Mem
 
 ## 2.1 Navigation
 
-Relationships appears as one optional pinned module item, not permanent global chrome. KnowledgeBase remains the universal index; Relationships is the richer operating projection.
+Every installed Module appears as a clickable left-navigation item. Relationship opens its Module Detail and defaults to the Signals Page. There is no global data-index shell: retained information stays associated with its originating Module and contributes to Memory. Cross-Module discovery happens through Second Brain below the Module list.
 
 ```yaml
 navigation:
-  global_or_pinned_module_entry: Relationship
-  landing_page: Today
-  primary_toggle_pages: [People, Communities, Relations]
+  left_nav_module_entry: Relationship
+  landing_page: Signals
+  primary_toggle_pages: [Signals, People, Communities]
+  module_detail_sections: [Overview, Pages, Agents with Skills, Automations, Integrations, Files, Runs, Settings]
   submodules:
     Interactions: [Timeline, Table, Calendar, Unreviewed]
     Introductions: [Requested, Suggested, Consent Pending, Active, Completed, Declined]
@@ -131,7 +133,7 @@ navigation:
     Community: [Overview, Members, Map, Interactions, Linked Records, Events, Gatherings, Files, Permissions, Activity]
 ```
 
-No third sidebar. Object tabs collapse into More on narrow screens. Every database-backed Page uses the canonical landing Section, standard Views/Lists/search/filter/Add/3-dots toolbar, shared column/toggle context menu, related Sections, and Files Section.
+No third sidebar. Object tabs collapse into More on narrow screens. Every database-backed Page uses the canonical landing Section, standard Views/Lists/search/filter/Add/3-dots toolbar, shared column/toggle context menu, related Sections, and Files Section. Every Signal is an Event with one or more Person/Community participant Relations, a surfaced reason, and at least one safe Action.
 
 ## 2.2 Today
 
@@ -270,7 +272,7 @@ Community tabs:
 - Linked Records: permitted Records from installed Modules;
 - Events: changes and action proposals;
 - Gatherings: candidate group, consent, invite drafts, calendar event, follow-up;
-- Files: shared Files/Knowledge;
+- Files: shared Files and other permitted Module Memory;
 - Permissions: team visibility, source and Agent access;
 - Activity: immutable history.
 
@@ -485,6 +487,8 @@ Communications Skill owns final tone adaptation and external drafts. Governance 
 
 ## 4.4 Skills
 
+Skills are not a standalone Page and cannot be invoked by Humans or Automations. Module Detail → Agents lists each Agent; expanding an Agent shows its declared Skills, permission ceiling, evaluation state, and recent Runs. API and authority checks require an attributable Agent identity and a closed-by-default Agent→Skill binding.
+
 ```yaml
 skills:
   - person-capture-and-normalization
@@ -519,6 +523,54 @@ skills:
   - relationship-playbook-evaluation
 ```
 
+```yaml
+agent_skill_bindings:
+  Relationship_Steward:
+    - person-profile-synthesis
+    - interaction-capture-and-linking
+    - conversation-summary-and-next-steps
+    - commitment-extraction-and-tracking
+    - open-loop-detection
+    - relationship-timeline-synthesis
+    - context-freshness-assessment
+    - cadence-review
+    - reconnect-opportunity-assessment
+    - relationship-memory-correction
+    - relationship-playbook-evaluation
+  Identity_Curator:
+    - person-capture-and-normalization
+    - identity-match-explanation
+    - duplicate-merge-review
+    - source-provenance-audit
+    - privacy-scope-and-redaction-review
+    - relationship-export-and-forgetting
+  Meeting_Briefer:
+    - meeting-preparation
+    - meeting-follow-up-drafting
+    - conversation-summary-and-next-steps
+    - commitment-extraction-and-tracking
+  Introduction_Coordinator:
+    - warm-path-finding
+    - introduction-value-assessment
+    - double-consent-introduction-drafting
+    - introduction-outcome-capture
+  Community_Steward:
+    - community-detection-proposal
+    - community-membership-review
+    - community-pulse-assessment
+    - gathering-design-and-attendee-shortlist
+    - help-request-capability-routing
+  Network_Navigator:
+    - grounded-relationship-search
+    - warm-path-finding
+    - relationship-timeline-synthesis
+    - privacy-scope-and-redaction-review
+  Context_Researcher:
+    - milestone-change-assessment
+    - source-provenance-audit
+    - privacy-scope-and-redaction-review
+```
+
 ## 4.5 Automations
 
 ```yaml
@@ -545,7 +597,7 @@ automations:
   - correction-failure-to-eval-capture
 ```
 
-Each Automation defines trigger, scope, Plane, budget, idempotency, retry/backoff, owner, stop condition, risk band and immutable Run evidence. No external send is automatic at launch.
+Each Automation defines trigger, selected Agent, scope, Plane, budget, idempotency, retry/backoff, owner, stop condition, risk band and immutable Run evidence. Automation starts the selected Agent Run; only that Agent may invoke its declared Skills. No external send is automatic at launch.
 
 ## 4.6 Integrations
 
@@ -599,7 +651,7 @@ Bridge differentiation:
 ```yaml
 slices:
   RM0:
-    scope: installable Relationship Module manifest/routes; People/Communities/Relations standard toggle pages; fold Helpdesk under the Module; wire real endpoints; honest empty/import states
+    scope: installable Relationship Module manifest/routes; Signals/People/Communities standard toggle Pages; Signal Event projection + Person/Community participants; fold Helpdesk under Module; wire real endpoints; honest empty/import states
   RM1:
     scope: Person/Community get/search/detail + Person Overview/Timeline/Sources + governed create/update/archive
   RM2:
@@ -611,7 +663,7 @@ slices:
   RM5:
     scope: double-consent Introductions + surfaced Events/recommendations + user-defined Automations
   RM6:
-    scope: team network permissions/delegation + cross-module consumers + eval-driven evolution
+    scope: team network permissions/delegation + Second Brain cross-Module graph consumers + eval-driven evolution
 ```
 
 Dependencies: auth/security P0, RLS, runtime taint, MemoryEngine, source-account constraints, synced preferences, whole-network bounded-query authorization and deletion/forget semantics.
@@ -620,6 +672,7 @@ Dependencies: auth/security P0, RLS, runtime taint, MemoryEngine, source-account
 
 - no duplicate relationship/contact store;
 - People/Communities backed by real APIs and stores;
+- Signals backed by Event storage with one or more Person/Community participant Relations, surfaced reason, and safe Action;
 - every material context statement cites source or labels inference;
 - uncertain identities never silently merge;
 - private relationship data cannot cross gate;
@@ -630,4 +683,6 @@ Dependencies: auth/security P0, RLS, runtime taint, MemoryEngine, source-account
 - browser evidence for all changed surfaces at desktop and 375px;
 - matching/path/reminder/introduction evals pass held-out thresholds;
 - Module manifests declare scopes, Planes, sources, Agents, Skills, Automations and Integrations;
+- every Skill invocation carries an allowed Agent identity; Human/Automation direct invocation is rejected and tested;
+- Relationship Module is clickable in left navigation and its Module Detail exposes Agents with nested Skills, Automations, Integrations, Files, and Runs;
 - runtime contains real connected data or honest empty state only.

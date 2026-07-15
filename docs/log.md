@@ -1510,3 +1510,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Reviewed the 343-entry Bridge Glossary artifact and expanded `docs/glossary.md` from its compact seed to 164 durable terms.
 - Applied AP-020 course corrections instead of copying stale definitions: Database/Record/Relation, File/Result, Avatar-only companion language, Engine/Skill/Automation boundaries, Local/Cloud-only Planes, Relationship Module consolidation, computed Review Mode, and RT0–RT4 runtime taint semantics.
 - Excluded deprecated aliases, display-only renames, implementation-only symbols, version-specific stack entries, and speculative archetypes. Durable outcome: `outputs/2026-07-14-glossary-expansion-course-correction.md`.
+
+# 2026-07-14 — actionable Module shell + BRDs + Relationship Signals + Second Brain (AP-021, ADR-088)
+- Verified prototype still contains visible Tools routes/copy, inert Module rows, standalone Skills UI, asymmetric panel controls, and a global Knowledge surface; filed five OPEN bug rows and inserted BUG-INTAKE interrupt 1A–1I with bounded adjacent pull-ins.
+- Added DealPilot and JobPilot BRDs plus terse wiki summaries. Both require clickable Module Detail, actionable UI, real data/empty states, no display aliases, and Agent-owned Skills.
+- Updated glossary, UI rules, Relationship plan, ontology, roadmap, and VOCAB6: all Modules in left nav; Skills only under/invoked by Agents; symmetric Sidebar/Chat controls; Signals/People/Communities Relationship toggles; Module-associated Memory; real actionable Second Brain graph.
+- Durable outcome: `outputs/2026-07-14-actionable-modules-brds-second-brain.md`.

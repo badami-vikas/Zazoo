@@ -8,7 +8,8 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Living Software** — software that adapts its data structures, capabilities, surfaces, and behavior from evidence while preserving user control.
 - **Organization** — user or team security, membership, billing, and data boundary. A solo user has an Organization of one.
 - **Kernel** — surface-independent shared core containing governance, graph, context, capability registration, and execution contracts.
-- **Module** — installed functional area containing Databases, Pages, Views, capabilities, rules, and domain language. Examples include Relationship, DealPilot, Calendar, and JobPilot.
+- **Module** — installed functional area containing Databases, Pages, Views, Agents, Skills, Automations, Integrations, rules, and domain language. Every installed Module is a clickable left-navigation destination.
+- **Module Detail** — actionable Module overview showing its purpose, status, Pages, Agents, each Agent’s Skills, Automations, Integrations, Files, recent Runs, settings, and permitted management Actions.
 - **Blueprint** — versioned definition of an Organization’s installed Modules, default Pages, Views, Automations, and Home composition. A Blueprint proposes configuration; it does not bypass activation governance.
 - **Home** — cross-Module landing View that assembles relevant, recurring context and Actions.
 - **Page** — routable Module surface selected by a toggle or navigation item.
@@ -34,23 +35,23 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Event** — append-only record that something happened. Events are residency-partitioned and may be surfaced or remain background evidence.
 - **Timeline** — read projection over Events; not an independent source of occurrences.
 - **Result** — outcome of a Run or Action, including status, changed Records, evidence, and produced Files.
-- **Automation** — trigger- or schedule-driven coordinator that starts governed Runs. It may invoke Skills and Engines but contains no hidden authority.
+- **Automation** — trigger- or schedule-driven coordinator that starts a governed Agent Run. The selected Agent may invoke its allowed Skills through Engines; an Automation never invokes a Skill directly or contains hidden authority.
 - **Scheduled Automation** — Automation whose trigger is a time, interval, or calendar rule.
 - **Automation Run** — one recorded execution of an Automation.
 
 ## Actors and capabilities
 
 - **Human** — accountable user who supplies intent, judgment, permissions, corrections, and approvals.
-- **Agent** — bounded reasoning actor with a mandate, capability scope, and attributable activity. An Agent proposes or coordinates work within granted authority.
+- **Agent** — bounded reasoning actor with a mandate, capability scope, attributable activity, and explicit Skill set. Only Agents consume Skills.
 - **Chief of Staff** — default coordinating Agent and interlocutor. Its routing role is a product composition, not an architectural requirement.
 - **Learning Agent** — Agent that observes authorized evidence, conducts governed research, maintains correctable context, and recommends improvements. It does not silently change authority or production capabilities.
 - **Governance Agent** — Agent that explains policy, monitors control outcomes, and coordinates remediation. Deterministic governance controls—not the Agent’s opinion—decide authority.
 - **Capability Builder** — Agent that creates and tests proposed capability changes. It cannot activate its own output.
-- **Skill** — governed, versioned, callable capability that performs one bounded job. It has typed inputs, outputs, permissions, and tests; it does not schedule itself.
+- **Skill** — governed, versioned, callable capability that performs one bounded job for an Agent. It has typed inputs, outputs, permissions, and tests; it is listed under its consuming Agent, never invoked directly by a Human or Automation, and never schedules itself.
 - **Communications Skill** — draft-only Skill for preparing communications. Sending remains a separate egress-governed Action.
 - **Integration** — governed connection to an external or local system, including authentication, synchronization, and data contracts.
-- **Engine** — reusable internal runtime machinery, such as execution, retrieval, routing, synchronization, policy evaluation, recurrence, or model selection. Skills use Engines; Automations coordinate Skills through Engines.
-- **Capability** — governed callable behavior, primarily a Skill or Integration. Agents and Automations use capabilities; Views present their effects.
+- **Engine** — reusable internal runtime machinery, such as execution, retrieval, routing, synchronization, policy evaluation, recurrence, or model selection. Agent-consumed Skills use Engines; Automations start Agent Runs.
+- **Capability** — governed callable behavior, primarily a Skill or Integration. Agents use Skills and Integrations; Views present their effects.
 - **Capability Manifest** — source-of-truth declaration of a capability’s inputs, outputs, permissions, Integrations, risk evidence, rollback behavior, evaluation requirements, and optional UI surface.
 - **Module Installation** — Organization-scoped record that a Module and version are available for use.
 - **Module Version** — immutable release of a Module. Exactly one version is live for an installation; replacement and rollback preserve history.
@@ -92,7 +93,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Plane Gate** — deny-default policy boundary for Local-to-network or cross-residency movement.
 - **Relationship Domain** — People, Communities, and Relations within either permitted Plane.
 - **Work Domain** — Requests, Plans, Runs, Actions, Events, Results, Automations, and Module Records within either permitted Plane.
-- **Commons** — signed registry of generalized Modules, Skills, Integrations, Blueprints, templates, and capability knowledge. It never stores personal user data.
+- **Commons** — signed registry of generalized Modules, Skills, Integrations, Blueprints, templates, and reusable capability patterns. It never stores personal user data.
 - **Bridge Cloud** — hosted control services for identity, synchronization coordination, billing, and telemetry policy. It is separate from Commons.
 - **Local Inference** — model execution inside the customer-controlled environment; describes compute location, not a separate Plane.
 - **Cloud Inference** — model execution through an authorized hosted provider; describes compute location, not a separate Plane.
@@ -102,9 +103,8 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 
 ## Context, learning, and sensing
 
-- **Context** — umbrella for the authorized Memory and Knowledge made available to an actor for a Request. Context is assembled for use; it is not a third durable content type.
-- **Memory** — inspectable, correctable, deletable context learned from user activity or explicit input.
-- **Knowledge** — user- or Module-supplied reference material used as evidence.
+- **Context** — authorized subset of Memory assembled for an actor and Request. Context is temporary and does not become a second durable data model.
+- **Memory** — umbrella for retained, inspectable information associated with a Module. Records, Relations, Events, Facts, Results, Files, and user-approved learning retain their own types while contributing to Module Memory. Memory is correctable, portable, and deletable subject to governance and audit requirements.
 - **Context Tier** — retention and use class: working, episodic, semantic, or procedural.
 - **Context Provider** — authorized source adapter for apps, accessibility, screen, voice, clipboard, filesystem, browser, documents, or email.
 - **Sensor SPI** — optional desktop interface implemented by Context Providers; it is never required by the Kernel.
@@ -112,7 +112,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Context Observation** — privacy-filtered, provenance-bearing information derived from a Raw Capture.
 - **Capture Tell** — brief Avatar blink emitted for a capture Event so sensing is visible to the user.
 - **Activity Span** — time-bounded grouping of related observed activity used before higher-level summarization.
-- **Prompt Assembler** — Engine that builds model context from authorized persona, governance, Request, relevant Memory, Knowledge, and Module evidence while preserving provenance and taint labels.
+- **Prompt Assembler** — Engine that builds model context from authorized persona, governance, Request, relevant Memory, and Module evidence while preserving provenance and taint labels.
 - **Fact** — one claimed attribute of a Record with provenance, confidence, validity, and correction history.
 - **Provenance** — source and transformation history of a Fact, File, Result, or context fragment.
 - **Living Profile** — current read projection over append-only Facts and their supersession history.
@@ -138,10 +138,13 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Overlay Window** — desktop-only floating Avatar surface that follows the user’s chosen display and desktop space while preserving drag, position, minimize, and close behavior.
 - **Onboarding** — initial trust, permission, preference, and first-value flow, followed by respectful progressive learning questions.
 - **Sidebar** — primary persistent navigation surface for Home, installed Modules, and global controls.
+- **Panel Control** — shared expand, collapse, and extend-arrow control used identically by the left Sidebar and right Chat Panel, including icon, direction, tooltip, keyboard behavior, animation, and persisted width/state.
+- **Chat Panel** — right-side conversational surface using the same Panel Controls and width-state model as the Sidebar.
 - **Control Panel** — Organization and Module configuration reached from the standard overflow menu.
 - **Standard Toolbar** — shared Page controls ordered as List, View, search, filter, primary Add Action, and overflow menu.
 - **Column Menu** — shared Database Field menu for rename, type, fill, filter, sort, group, calculate, lock, hide, insert, duplicate, delete, and Page-toggle commands when the Database supports them.
 - **Pin** — user-saved shortcut to a Page, View, List, Record, or File.
+- **Second Brain** — actionable cross-Module graph below the installed Modules in the Sidebar. It visualizes Records, Relations, Events, Files, Agents, and originating Modules; every node and edge opens its source or a governed Action. The name applies only to this user-facing graph and never to an Engine.
 
 ## Commons and distribution
 
@@ -156,7 +159,8 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 
 ## Relationship Module
 
-- **Relationship Module** — installed Module containing People, Communities, Relations, Interactions, Introductions, Helpdesk, Sources, and relationship Automations.
+- **Relationship Module** — installed Module whose primary toggle Pages are Signals, People, and Communities. It also owns Relations, Interactions, Introductions, Helpdesk, Sources, Files, and relationship Automations.
+- **Signal** — surfaced Relationship Event associated through participant Relations with one or more People and/or Communities. A Signal has a reason for surfacing and at least one safe Action; it is stored in the Event model, not a parallel occurrence store.
 - **Person** — Record representing a Human or public identity relevant to the Organization.
 - **Community** — Record representing a group, company, institution, or other collective.
 - **Interaction** — Record or Event describing a meaningful exchange among participants.

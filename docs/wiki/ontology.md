@@ -11,7 +11,7 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 - Work: Request → Plan → Decision → Run → Actions → Events → Result. Result may produce Files.
 - Actors: Human, Agent, Automation.
 - Capabilities: Skill, Integration. Capability = umbrella. Engine = internal runtime machinery.
-- Context: Memory + Knowledge.
+- Context: authorized temporary subset of Module Memory. Records/Relations/Events/Facts/Results/Files retain types while contributing to Memory.
 - Interface: Avatar + Onboarding.
 - Residency: Local Plane / Cloud Plane, joined only through Plane Gate.
 - Domains: Relationship Domain + Work Domain. Domain is grouping, never residency.
@@ -20,11 +20,13 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 ## Important boundaries
 
 - Module ≠ user project. Module = installed functionality. Domain work is stored as Records named for that domain.
-- Engine ≠ Skill ≠ Automation. Engine provides runtime mechanics; Skill performs bounded callable work; Automation triggers/schedules governed Runs and coordinates Skills through Engines.
+- Engine ≠ Skill ≠ Automation. Engine = runtime mechanics. Skill = bounded work invoked only by allowed Agent. Automation starts governed Agent Run; never invokes Skill directly.
 - File = user-visible durable file. Non-file output = Result.
 - Relation = one semantic relation plus typed attributes and evidence refs. Use multiple Relation rows for multiple meanings; participant Records for n-ary relationships.
 - Avatar ≠ Local Plane. Commons ≠ Cloud Plane. UI identity, residency boundary, registry, and hosting are separate security concepts.
 - Blink = short `sensor.capture` Event tell. Avatar may expose operational presence; no personality/lifecycle state model.
+- Signal = surfaced Relationship Event with Person/Community participants, reason, safe Action. Event storage; no parallel occurrence table.
+- Second Brain = cross-Module graph surface only. Engine never called brain.
 
 ## Failure ownership
 

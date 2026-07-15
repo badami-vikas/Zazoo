@@ -3,7 +3,7 @@ title: UI Architecture Rules — pages, toggles, sections, lists, sub-modules, v
 type: raw
 doc_kind: design
 status: active
-companions: [requirement-ui-architecture-rules-2026-07-13.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
+companions: [requirement-ui-architecture-rules-2026-07-13.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
 related_wiki: ../wiki/ui-architecture.md
 updated: 2026-07-14
 tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, files, canon]
@@ -17,7 +17,7 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 
 | Term | Definition |
 |---|---|
-| **Module** | A left-nav destination (e.g. DealPilot, Relationship, Helpdesk). |
+| **Module** | An installed functional area and mandatory clickable left-nav destination (e.g. DealPilot, Relationship, JobPilot). |
 | **Sub-module** | A collapsible/expandable child of a module in the left nav. |
 | **Page** | One toggle's worth of a module/sub-module surface. A module surface with toggles has one page per toggle. |
 | **Toggle** | Segmented switch at the top of a module surface that swaps between sibling pages. |
@@ -31,12 +31,12 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 
 The shape of the underlying data decides the UI construct. Apply top-down:
 
-1. **Different columns of the same table (or sibling tables of one strongly-related cluster) → TOGGLE.** Highly related datasets become sibling pages behind a toggle at the top of the module surface. Examples (user-given): People / Communities · Automations / Agents / Skills / Integrations · Deals / Sources / Thesis. Each toggle target is simply a *page*.
+1. **Different columns of the same table (or sibling tables of one strongly-related cluster) → TOGGLE.** Highly related datasets become sibling pages behind a toggle at the top of the module surface. Examples (user-given): Relationship Signals / People / Communities · Agents / Automations / Integrations · Deals / Sources / Thesis. Skills are not a sibling Page: only Agents consume Skills, so each Agent row/detail owns its Skills Section. Each toggle target is simply a *page*.
 2. **Same columns of the same table (row subsets) → LISTS.** Never a new page or toggle — a saved list in the List dropdown. (Matches existing `ListDropdown`/`lists` slot; ETA/WashU lists are the precedent.)
 3. **Related to the module but not strongly related to the root module or any current sub-module → NEW SUB-MODULE.** Sub-modules render as a collapsible, expandable dropdown under the module in the left nav.
 4. **Unrelated to any module → new module** (existing behavior; unchanged).
 
-Tie-break guidance: "strongly related" = shares the module's primary entity or is a direct attribute-cluster of it. If the candidate data would need its own toolbar, lists, and artifacts, it is a sub-module, not a toggle.
+Tie-break guidance: "strongly related" = shares the Module's primary Record or is a direct attribute cluster. If the candidate data needs its own toolbar, Lists, and Files, it is a sub-module, not a toggle.
 
 ## 3. Page anatomy
 
@@ -48,6 +48,10 @@ Every page, unless a spec explicitly says otherwise:
 
 Page scroll model: page-level vertical scroll containing sections; the landing section owns a bounded internal scroll area (virtualized table/card grid) so related sections stay reachable.
 
+### 3a. Actionability contract
+
+Every affordance does something useful. A card, row, node, badge, count, status, recommendation, Module name, or graph edge that looks interactive must open detail, edit, filter, provenance/explanation, or a governed Action. Read-only information uses plain non-interactive styling. Disabled Actions show the missing permission/dependency and next step. Keyboard, pointer, and touch paths reach the same Actions. Tests fail for clickable-looking elements without a route or handler and for handlers that only dismiss without an outcome.
+
 ## 4. Standard views — Form joins the set
 
 Every landing section offers the standard views. New standard view: **Form** (confirmed 2026-07-13 — earlier "forum" wording was a typo) — instead of presenting existing data, it renders one input per field of the page's primary table (respecting field types, required flags, defaults) and **collects** a new row (or edits a selected one). Form view is the create/intake lens over the same schema the table view reads — no separate hand-built "create" screens for standard entities.
@@ -57,6 +61,20 @@ Every landing section offers the standard views. New standard view: **Form** (co
 ## 4a. Deep linking
 
 Every toggle page is a routable URL (route param per view/page, matching the NocoDB/Baserow/Twenty precedent in §7) — e.g. `/module/:moduleId/:page` or `/module/:moduleId/:subModule/:page`, with the active list/view/filter encoded as query params where useful. No page should be reachable only by in-app click-through.
+
+## 4b. Module Detail and Agent-owned Skills
+
+Clicking any installed Module in left navigation opens `/module/:moduleId`. Module Detail is generated from the installed Module manifest and live bindings, never a hardcoded route map. Required Sections:
+
+1. Overview and health/status with actionable explanations;
+2. Pages and Databases;
+3. Agents; each Agent expands or opens to show only its declared Skills, permissions, recent Runs, evaluation state, and permitted Actions;
+4. Automations, showing trigger, selected Agent, next/last Run, failures, pause/edit/run Actions;
+5. Integrations and credential/sync health without exposing secrets;
+6. Files and recent Results;
+7. settings, version, rollback, archive/uninstall subject to authority.
+
+No standalone Skills toggle. Humans and Automations request work from an Agent; only that attributable Agent invokes an allowlisted Skill. Empty Sections use honest empty states rather than invented capability cards.
 
 ## 5. Toolbar + 3-dots (Control Panel moves)
 
@@ -75,6 +93,21 @@ Right-click behavior is compiler-owned and consistent across every Module. DealP
 - **Lock** blocks schema/value mutation according to scope, not viewing/filtering. Delete column requires impact preview for dependent views, Automations, Skills, formulas, and relations. Secrets remain credential references and never become revealable table cells.
 - Keyboard access and visible menu-button alternatives must expose every right-click command; context menus cannot be pointer-only.
 
+## 5b. Symmetric shell panels
+
+Left Sidebar and right Chat Panel share one `PanelControl` component and state model:
+
+- same expand, collapse, and extend-arrow icon family, size, position logic, tooltip language, focus ring, and animation;
+- same collapsed/expanded/extended states and persisted width per Organization/device;
+- resize handle sits on each panel’s inner edge and supports pointer + keyboard resizing;
+- controls remain visible in every state; Escape returns extended→expanded and expanded→collapsed without discarding chat or navigation state;
+- responsive collision policy preserves center content and converts panels to overlays at narrow widths;
+- ARIA labels state both action and target panel.
+
+## 5c. Left navigation and Second Brain
+
+All installed Modules render as clickable left-nav items, sourced from Module installations—not pins, local fixtures, or hardcoded route maps. Module sub-navigation may expand beneath each item. Below the Module list, **Second Brain** opens a cross-Module graph over permitted Records, Relations, Events, Files, Agents, and origin Modules. Graph requirements: Module/type/time/Person/Community filters; provenance and edge evidence; local/cloud permission pruning; node expansion and backlinks; keyboard/list fallback; virtualization threshold; no static or fabricated graph. Every node/edge opens source detail or a governed Action.
+
 ## 6. Local File storage — `~/Documents/Bridge/<Organization>/`
 
 Canonical local tree (Documents = the OS user Documents folder; desktop shell resolves it per-OS):
@@ -87,11 +120,11 @@ Canonical local tree (Documents = the OS user Documents folder; desktop shell re
     <files...>              # Module-level Files + accumulated local data
 ```
 
-- ALL locally-stored artifacts and accumulated data live under this tree — no scattered app-data dumps for user-facing files (internal caches/DBs stay in app-data).
+- ALL locally stored Files live under this tree—no scattered app-data dumps for user-facing Files (internal caches/Databases stay in app-data).
 - The page's Files section is a view over the Module's folder (and sub-folders). > 20 Files in one folder → sub-folders (see §3).
 - Local-plane rule unchanged: raw capture stays local; this tree IS local plane.
 - **Cloud-data mirroring rule (confirmed 2026-07-13)**: no personal data is stored cloud-only. Any cloud-resident data that appears inside the app is ALSO mirrored locally under this tree (or the relevant local store) — cloud is never the sole copy of anything the user sees.
-- **Grouping is smart, not fixed-rule, and delegated (confirmed 2026-07-13)**: the >20 threshold still triggers grouping, but the grouping *scheme* is not hardcoded sub-module→month — **the Chief of Staff agent decides and performs the grouping** (by type, project, Initiative, recency, whatever fits that module's artifacts) at the moment the count crosses 20. Implementation: an artifact-count watcher calls the CoS agent when a module/sub-module folder exceeds 20 ungrouped files; CoS proposes + applies a folder scheme (governed, not silent — logs the grouping decision like any other agent action).
+- **Grouping is smart, not fixed-rule, and delegated (confirmed 2026-07-13)**: the >20 threshold triggers grouping, but the scheme is not hardcoded. The Chief of Staff proposes grouping by type, related Record, recency, or another evidenced Module fit. A File-count watcher invokes the Agent when a folder exceeds 20 ungrouped Files; application is governed and logged.
 - **Rename/move tracking + conflict resolution**: track external Finder/Explorer changes with path + content hash + inode/fileID where available and an OS watcher. Update the File Record's path pointer; never regenerate or overwrite a user-moved File. The path change from the legacy folder is a VOCAB4 migration with discovery and compatibility indexing, never an unannounced move.
 
 ## 6a. Empty-state spec (added 2026-07-13, closes AP-002 gap for this canon)
@@ -137,17 +170,21 @@ Deep code analysis (clones inspected, not READMEs). Full agent reports: `outputs
 
 Aligning the project = executing this checklist against `platform/apps/web`:
 
-1. Inventory all pages; classify each dataset per §2 → produce toggle/list/sub-module target map (People/Communities, Automations/Agents/Skills/Integrations, Deals/Sources/Thesis are the seed toggles).
+1. Inventory all Pages; classify each dataset per §2 → produce toggle/List/sub-module target map (Relationship Signals/People/Communities, Agents/Automations/Integrations, Deals/Sources/Thesis are seed toggles; Skills nest under Agents).
 2. Restructure page layouts to §3 (landing section + stacked sections + Files section).
 3. Add **Form** to the standard views set (extend `ToolbarView` sets + a shared `FormView` component driven by field metadata).
 4. Move Control Panel into 3-dots; re-sort its contents into page sections vs admin per §5; delete the `controlPanelTo` toolbar slot.
-5. Left nav: implement collapsible sub-module dropdowns under modules.
+5. Left nav: render every installed Module from one manifest-backed registry; each item routes to Module Detail; implement collapsible sub-module dropdowns; remove hardcoded/local-fixture route maps.
 6. Implement `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/` provisioning in the desktop shell + Files section per page (incl. cloud-mirror + rename/move index per §6, empty states per §6a).
-7. Wire the >20-artifact watcher → CoS agent grouping call (§6).
+7. Wire the >20-File watcher → CoS Agent grouping call (§6).
 8. Update `docs/CODEMAPS/` + wiki after the structural change.
 9. Implement shared column/toggle context menus from §5a, including DB-backed Add page/Remove page eligibility, dependency impact checks, undo, permissions, and keyboard access; validate on DealPilot plus two unrelated Modules.
+10. Move Skills under Agents and enforce Agent-only Skill invocation in UI, API, authority, Automation executor, Events, and tests (§4b).
+11. Replace separate left/right panel implementations with shared symmetric controls (§5b).
+12. Add Second Brain under Modules with real cross-Module graph query, permission pruning, source navigation, Actions, and accessible list fallback (§5c).
+13. Apply §3a actionability audit to every changed card/row/node/status; no dead Module cards or decorative controls.
 
-Exit: typecheck + build green, live check of ≥3 restructured pages, BUGS/log/dummy ledgers updated.
+Exit: typecheck + build green; authority tests prove Skills reject non-Agent actors and closed allowlists; live desktop + 375px checks cover ≥3 restructured Pages, both panel directions, every Module drill-down, Relationship toggles, and Second Brain; repository search finds no visible Tools/Knowledge copy or routes; BUGS/log/dummy ledgers updated.
 
 ## 9. Questions resolved 2026-07-13 (superseded — kept for trail)
 

@@ -3,7 +3,7 @@
 full: [../raw/oss-commons-integration-plan-2026-07.md](../raw/oss-commons-integration-plan-2026-07.md) · 2026-07-08. Related: [commons](commons.md), [packages](packages.md), [module-evolution](module-evolution.md).
 
 Three ingestion strategies on ONE spine that never bypasses the two enforced Commons invariants:
-knowledge-only privacy gate + computed-risk governance.
+personal-data privacy gate + computed-risk governance.
 
 **The spine**: source-specific adapters → Canonical Intermediate Representation → **hard license gate**
 → map to `PackageManifest`/`CapabilityManifest` (ALWAYS `origin: community` = untrusted, same tier as

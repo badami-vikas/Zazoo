@@ -3,7 +3,7 @@
 full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-2026-07.md) · verbatim: [../raw/requirement-ui-architecture-rules-2026-07-13.md](../raw/requirement-ui-architecture-rules-2026-07-13.md) · AP-011. Binds hand-built pages AND compiler output.
 
 **Data shape decide surface:**
-- Different columns, same table / strong sibling cluster → **TOGGLE** at top. Each toggle target = **page**. Seeds: People/Communities · Automations/Agents/Skills/Integrations · Deals/Sources/Thesis.
+- Different columns, same table / strong sibling cluster → **TOGGLE**. Seeds: Relationship Signals/People/Communities · Agents/Automations/Integrations · Deals/Sources/Thesis. Skills nest under consuming Agents; no Skills toggle.
 - Same columns, same table (row subset) → **LIST** (ListDropdown). Never new page.
 - Related to module, not strongly to root/sub-modules → **new SUB-MODULE** = collapsible dropdown under module in left nav.
 - Unrelated → new module.
@@ -18,7 +18,13 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Deep linking:** every toggle page = routable URL (§4a).
 
-**First task next run = UI-RULES-1** (PROGRESS Batch 1): alignment audit of apps/web per raw doc §8.
+**Actionability:** interactive-looking item opens detail/edit/filter/explanation/governed Action. Otherwise plain text. Every installed Module = left-nav route → manifest-driven Module Detail (Pages, Agents+Skills, Automations, Integrations, Files, Runs, settings).
+
+**Shell:** left Sidebar + right Chat Panel share expand/collapse/extend icons, state model, persisted width, inner-edge resize, keyboard/ARIA, responsive collision rules.
+
+**Second Brain:** below Modules. Real cross-Module graph over permitted Records/Relations/Events/Files/Agents. Filters + evidence + backlinks + source navigation + governed Actions + list fallback. No static data.
+
+**First task next run = UI-RULES-1** (PROGRESS INTERRUPT): remove deprecated capability/global-index routes, build Module drill-down, nest Skills under Agents, unify panels, Relationship toggles, then Second Brain per raw §8.
 
 **OSS precedent (code diligence 2026-07-13):** view = stored overlay (column show/order + filters + sorts) over SAME table rows → lists + toggles = one mechanism; Form = first-class view type, submission = ordinary row insert; view-type set = registry w/ capability flags (Baserow pattern). Licenses: NocoDB head = Sustainable-Use, patterns ONLY never copy · Baserow core MIT ok (premium dirs proprietary) · Twenty/AppFlowy AGPL, patterns only.
 

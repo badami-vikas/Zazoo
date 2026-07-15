@@ -3,7 +3,7 @@ title: Canonical vocabulary and code migration plan
 type: raw
 doc_kind: plan
 status: active
-companions: [requirement-vocabulary-planes-relationship-taint-2026-07-14.md, ../glossary.md, relationship-module-plan-2026-07.md, ui-architecture-rules-2026-07.md, repo-restructure-egg-commons-2026-07.md]
+companions: [requirement-vocabulary-planes-relationship-taint-2026-07-14.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, ../glossary.md, relationship-module-plan-2026-07.md, ui-architecture-rules-2026-07.md, repo-restructure-egg-commons-2026-07.md]
 related_wiki: ../wiki/ontology.md
 updated: 2026-07-14
 tags: [vocabulary, migration, code, schema, api, ui, cleanup, avatar, engines, modules]
@@ -20,7 +20,7 @@ canonical:
   product_structure: [Organization, Module, Page, View, List, Section, Database, Record, Field, Relation, File]
   execution: [Request, Plan, Decision, Run, Action, Event, Result, Automation]
   actors_capability: [Human, Agent, Skill, Integration, Engine, Capability]
-  context_interface: [Memory, Knowledge, Avatar, Onboarding]
+  context_interface: [Memory, Context, Avatar, Onboarding, Second Brain]
   residency_services: [Local Plane, Cloud Plane, Plane Gate, Relationship Domain, Work Domain, Commons, Bridge Cloud]
 retire_from_product_and_code:
   - Workspace where it means Organization or Module
@@ -31,14 +31,15 @@ retire_from_product_and_code:
   - Touchpoint
   - Ritual
   - Workflow
-  - Signal and Incident
+  - Incident
   - Artifact
   - Tool as a product primitive
   - Mirror Plane
   - Operational Plane
   - Cross Plane
   - Infra Plane
-  - Brain
+  - Brain except the user-facing Second Brain graph
+  - Knowledge and KnowledgeBase
   - Egg
   - Creature
   - Hatch and Hatching
@@ -55,6 +56,10 @@ retire_from_product_and_code:
 - Relation stores exactly one semantic relation type plus any number of typed attributes and evidence references. Multiple meanings require multiple Relation rows. N-ary relationships use a case/interaction Record plus participant Relations.
 - Avatar has operational presence states only. Blink is an Event tell emitted by capture and does not become a persistent state. No lifecycle/personality taxonomy.
 - Local/Cloud are the only Planes. Relationship/Work are Domains. Commons and Bridge Cloud are services. Do not merge Avatar with Local Plane or Commons with Cloud Plane: interface identity, residency, registry, and hosted execution have different security invariants.
+- Memory is the umbrella for retained Module information; Record, Relation, Event, Fact, Result, and File keep their concrete types. Context is a temporary authorized Memory subset assembled for a Request. No separate Knowledge store or shell.
+- Signal is a real Relationship-domain subtype/projection of Event associated with one or more People and/or Communities. It uses Event storage and typed participant Relations; it is not a display alias or parallel occurrence table.
+- Only Agents invoke Skills. Automations start governed Agent Runs; the selected Agent may invoke only its declared Skills.
+- Second Brain is the user-facing cross-Module graph only. Engine remains the runtime term everywhere else.
 
 ## Legacy plane interpretation
 
@@ -99,6 +104,7 @@ migrations:
       - workflow copy/routes -> automation; no UI-only alias
       - brain directories/types/docs -> engine; preserve specific names such as RoutingEngine and MemoryEngine
       - tool product APIs -> skill/integration/module APIs according to actual behavior
+      - remove direct Automation-to-Skill and Human-to-Skill invocation; route through an attributable Agent Run
     exit: new canonical routes/types/tables are source of truth; compatibility reads are time-boxed and removed after migration
   VOCAB3_organization_module_record:
     code:
@@ -109,17 +115,29 @@ migrations:
     exit: production schema and runtime identifiers use Organization/Module/Database/Record/Relation; no dual-write remains
   VOCAB4_event_result_file:
     code:
-      - touchpoint/signal/incident -> typed Event + participant/evidence Relations
+      - touchpoint/incident -> typed Event + participant/evidence Relations
+      - migrate legacy signal tables/routes to Event storage, then expose a typed RelationshipSignal Event projection with participant Relations
       - artifact -> File when file-backed; otherwise Result
       - timeline entries -> read projection over Events
       - migrate local folders and APIs from Artifacts to Files without moving user content unexpectedly
     exit: Events are one occurrence ledger; Files section and storage paths are canonical; old tables/routes removed after verified backfill
   VOCAB5_relationship_module:
     code:
-      - consolidate People, Communities, Relations, Interactions, Introductions, Helpdesk, Sources, and Automations under installed Relationship Module manifest/routes
+      - consolidate Signals, People, Communities, Relations, Interactions, Introductions, Helpdesk, Sources, and Automations under installed Relationship Module manifest/routes
+      - make Signals/People/Communities routable sibling toggle Pages backed by Event/Record APIs
       - use standard Page/View/List/Section/Files layout and shared toolbar/context menus
       - remove hardcoded standalone Helpdesk and legacy Bridge/KnowledgeBase navigation after data+route migration
-    exit: real-path browser proof on desktop and 375px; no duplicate stores/routes/nav; cross-module consumers use shared Record/Relation APIs
+    exit: real-path browser proof on desktop and 375px; no duplicate stores/routes/nav; Signal always has Person/Community participants + reason + safe Action; cross-module consumers use shared Record/Relation/Event APIs
+  VOCAB6_actionable_shell_and_memory_graph:
+    code:
+      - render every installed Module as a clickable left-navigation item sourced from Module installations
+      - add Module Detail route with Pages, Agents, per-Agent Skills, Automations, Integrations, Files, Runs, settings, and permitted Actions
+      - remove Tools and Knowledge surfaces/routes/stores after classifying and migrating each item to Module, Agent Skill, Integration, Engine, File, Record, or Event
+      - place Skills as sections/rows under their consuming Agent on the Agents Page; remove standalone Skills toggle and direct-run affordances
+      - build one shared PanelControl component/state contract for left Sidebar and right Chat Panel expand, collapse, extend, width persistence, tooltips, keyboard controls, and responsive behavior
+      - add Second Brain below Modules: cross-Module graph over Records, Relations, Events, Files, Agents, and source Modules; every node/edge opens source detail or a governed Action
+      - enforce actionability contract: every non-decorative card, row, node, count, status, and recommendation opens detail, edit, filter, explanation, or governed Action; otherwise render it as plain text, not an affordance
+    exit: no Tools/Knowledge routes or visible copy; repository denylist clean outside migrations/history; all installed Modules drill down; Agent-only Skill invocation contract tested; symmetric panels proven; Second Brain cross-Module navigation and actions proven on desktop + 375px
 ```
 
 Every batch requires database backup/restore rehearsal, forward and rollback migration tests, API contract tests, RLS checks, browser evidence, and a repository search proving the retired identifiers remain only in historical records or explicitly time-boxed compatibility code.

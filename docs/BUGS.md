@@ -10,6 +10,21 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## OPEN 2026-07-14 — USER REPORT: deprecated Tools remain visible and Module rows are dead ends
+`platform/apps/web/src/app/pages/IntelligencePage.tsx` still exposes Modules/Tools/Integrations/Agents/Workflows/Skills; `routes.tsx` keeps `/tools` and `/tools/run`; Module rows are plain text while legacy Tool rows own click-through. This violates no-display-alias policy and inverts intended hierarchy. Resolve only after every legacy entry is classified into Module, Agent-owned Skill, Integration, or Engine; visible Tools routes/copy are deleted; every installed Module is sourced from manifest-backed installation state and opens Module Detail with Pages, Agents+Skills, Automations, Integrations, Files, Runs, settings, and real Actions. Source: `docs/raw/requirement-bugs-2026-07-14-actionable-shell-second-brain.md`.
+
+## OPEN 2026-07-14 — USER REPORT: Skills are a standalone toggle and runtime allows non-Agent invocation
+Current UI canon/code exposes Skills beside Agents. Runtime permits Human/Automation/Agent Skill invocation, and empty Agent allowlists can mean unrestricted access. User requires Skills only under consuming Agents and Agent-only invocation. Resolve through UI + authority migration: no Skills Page/direct-run affordance; Humans/Automations create Agent Requests; every Skill invocation records an attributable allowed Agent; allowlists fail closed; API/Automation executor/Events/tests reject non-Agent calls. Source: same requirement; plan: UI §4b + VOCAB2/VOCAB6.
+
+## OPEN 2026-07-14 — USER REPORT: left Sidebar and right Chat Panel controls behave differently
+`Layout.tsx` left rail snaps between widths and hides its collapse control in collapsed state; `AgentPanel.tsx` uses a different collapsed width, continuous resize, and different chevrons. Resolve with one shared expand/collapse/extend control/state contract, mirrored inner-edge resizing, persisted width, keyboard/ARIA parity, responsive collision handling, and desktop/375px evidence. Source: same requirement; plan: UI §5b.
+
+## OPEN 2026-07-14 — USER REPORT: global Knowledge surface conflicts with Module-owned Memory and Relationship IA
+Live routes still host a global index surface for People/Communities and older occurrence views. User requires retained data to stay associated with originating Modules; Relationship primary toggles must be Signals/People/Communities. Resolve by removing visible Knowledge routes/copy; wiring real People/Communities reads under Relationship; implementing Signal as Event storage with ≥1 Person/Community participant Relation, surfaced reason, and safe Action; migrating standalone deep links without an alias; updating Memory retrieval across Modules. Source: same requirement; plan: Relationship RM0 + VOCAB4–VOCAB6.
+
+## OPEN 2026-07-14 — USER REPORT: no actionable cross-Module Second Brain graph
+Existing association views rely partly on local generated/static fallback and there is no global cross-Module graph query/surface. Build Second Brain below installed Modules from real permitted Records/Relations/Events/Files/Agents with Module/type/time/Person/Community filters, provenance/evidence/backlinks, source navigation, governed Actions, Plane/authority pruning, virtualization threshold, and accessible list fallback. No fabricated graph data. Source: same requirement; plan: UI §5c + Relationship RM6.
+
 ## RESOLVED 2026-07-14 — sensor coverage gate was calibrated above Node 24.15's measured aggregate
 `@bridge/sensors`' six tests all passed, but its test command failed because Batch 9 set `--test-coverage-lines=39` from a reported 39.38% measurement while the repository-pinned Node 24.15.0 reports 38.59%. The package imports the `@bridge/core` barrel, so Node's coverage aggregate includes unrelated core files and can move when core or Node's coverage accounting changes; no sensor implementation coverage regressed and the Egg/Commons priority branch changes no platform source. Reproduced both in the serial full gate and the isolated sensor test. FIX: recalibrated the ratchet 39→38, at/below the current measured aggregate, exactly following ADR-082's existing downstream-floor rule. The isolated sensor suite is the failing test and must pass after the one-line configuration correction.
 
