@@ -16,6 +16,8 @@
 - DealPilot builder: 57/57 package tests; typecheck and build clean.
 - Egg/Commons builder: 99/99 API tests; web typecheck and full build clean.
 - Dependency advisory: zod 3.24.1 — no known vulnerability.
+- Final security review: no vulnerabilities found.
+- Final code review: one Form rejected-insert error path found and fixed with an accessible retry state.
 - Clean pre-change baseline exposed existing `@bridge/sensors` coverage failure: 35.39% vs 39% floor.
 
 ## Still open

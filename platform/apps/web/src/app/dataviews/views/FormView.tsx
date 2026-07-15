@@ -161,6 +161,7 @@ export function FormView({ spec, onInsert }: DataViewProps) {
   const editableColumns = spec.columns.filter(isFormEditable);
   const [draft, setDraft] = useState<Partial<DataRow>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   if (editableColumns.length === 0) {
     return (
@@ -174,9 +175,12 @@ export function FormView({ spec, onInsert }: DataViewProps) {
     e.preventDefault();
     if (!onInsert) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await onInsert(draft);
       setDraft({});
+    } catch {
+      setSubmitError("Could not add this row. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -206,6 +210,11 @@ export function FormView({ spec, onInsert }: DataViewProps) {
       {!onInsert && (
         <p className="text-xs text-muted-foreground">
           No insert handler wired — connect this form to an <code>action.propose</code> call.
+        </p>
+      )}
+      {submitError && (
+        <p className="text-xs text-red-600" role="alert">
+          {submitError}
         </p>
       )}
     </form>
