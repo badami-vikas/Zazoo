@@ -2,6 +2,14 @@
 
 This is the **only active execution queue**. A roadmap or plan defines scope; a bug supplies evidence; a request supplies intent; an approval supplies a gate. None of those creates a second task row. The Task Manager UI reads this file only.
 
+## Execution order
+
+Task Manager and Claude read this single ordered list. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
+
+`TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
+
+Captured from the user-provided Task Manager ranking on 2026-07-16.
+
 ## Operating standard
 
 ### One task, one outcome
@@ -97,7 +105,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: A short, repeatable demo proves the combined product rather than isolated screens.
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/PROGRESS.md history
+- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md
 - Requests: user prototype-priority directives 2026-07-13–15
 - Approval: none
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004

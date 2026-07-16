@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import generated from './pending-work.generated.json' with { type: 'json' };
 
 export type PendingWorkSource = 'task' | 'roadmap' | 'bug' | 'request' | 'approval' | 'manual';
-export type PendingWorkStatus = 'open' | 'in-progress' | 'partial' | 'proposed';
+export type PendingWorkStatus = 'pending' | 'in-progress' | 'blocked' | 'completed' | 'dropped' | 'open' | 'partial' | 'proposed';
 
 export interface PendingWorkItem {
   id: string;
@@ -50,6 +50,8 @@ export function applyPendingWorkEdits(source: PendingWorkItem[], edits: PendingW
     if (bRank !== undefined) return 1;
     return combined.findIndex((item) => item.id === a.id) - combined.findIndex((item) => item.id === b.id);
   });
+  const statusRank = (item: PendingWorkItem) => item.canonicalStatus === 'in_progress' ? 0 : item.canonicalStatus === 'done' || item.canonicalStatus === 'dropped' ? 2 : 1;
+  patched.sort((a, b) => statusRank(a) - statusRank(b));
   return includeArchived ? patched : patched.filter((item) => !item.archived);
 }
 

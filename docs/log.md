@@ -1,5 +1,7 @@
 # Change Log
 
+- **2026-07-16** — Captured user-provided Task Manager order in `docs/TASKS.md`; generator and UI consume that single ordered source. Status mapping retains blocked/completed records, with in-progress first and completed last. Reduced `docs/PROGRESS.md` to pointer/rules and archived prior detail at `docs/raw/progress-archive-2026-07.md`.
+
 - **2026-07-15** — Renamed the user-facing Calendar destination to Task Manager and added a rolling 12-day schedule for the source-backed pending queue. Added resizable/hidden columns, double-click editing, and right-click/row-menu database actions (delete cell, delete/hide row, duplicate, sort, hide column). Google Calendar projection remains available at `/calendar/google`.
 
 - **2026-07-15** — Added the source-backed Pending Work manager at `/pending-work`: scans PROGRESS, BUGS, requests, and approvals; supports persistent ranking, inline edits, local additions, filters/search, reversible archive/restore, source references, and responsive table layout. Browser QA caught and corrected an auto-layout horizontal clipping defect; six web data tests and production build pass. Whole-web typecheck passed before an unrelated concurrent `EditableField.tsx` edit introduced an unused directive; preserved and reported.
