@@ -89,7 +89,7 @@ export const tools: Tool[] = [
     capabilities: ['Capability-based routing (not topic)', 'Invisible-by-default — no feed noise', 'AI-assisted + Broadcast modes', 'Offer Help → governed draft → Touchpoint'],
     watches: ['Relationship graph', 'Help Requests', 'Capability overlap'],
     lastUsed: 'Live',
-    route: '/helpdesk',
+    route: '/module/relationship/helpdesk',
   },
   {
     id: 'jobpilot',

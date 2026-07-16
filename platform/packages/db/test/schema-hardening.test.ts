@@ -19,6 +19,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { createLocalDb, schema } from "../src/index.js";
 
@@ -37,6 +38,20 @@ function dbErrorMatches(re: RegExp) {
     return true;
   };
 }
+
+test("migration journal timestamps are strictly increasing", () => {
+  const journal = JSON.parse(
+    readFileSync(new URL("../../migrations/meta/_journal.json", import.meta.url), "utf8"),
+  ) as { entries: Array<{ tag: string; when: number }> };
+  for (let index = 1; index < journal.entries.length; index += 1) {
+    const previous = journal.entries[index - 1]!;
+    const current = journal.entries[index]!;
+    assert.ok(
+      current.when > previous.when,
+      `${current.tag} (${current.when}) must be newer than ${previous.tag} (${previous.when})`,
+    );
+  }
+});
 
 test("schema hardening: hnsw index exists on embeddings.embedding and is used by a similarity query", async () => {
   const { db, close } = await createLocalDb();

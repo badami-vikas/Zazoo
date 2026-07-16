@@ -211,8 +211,18 @@ export class InMemoryLedger implements LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
+    const resolvedProposalIds = new Set(
+      this.entries
+        .filter((entry) => entry.refLedgerId && entry.userDecision !== null)
+        .map((entry) => entry.refLedgerId!),
+    );
     const pending = this.entries
-      .filter((e) => e.workspaceId === workspaceId && e.userDecision === null)
+      .filter(
+        (entry) =>
+          entry.workspaceId === workspaceId &&
+          entry.userDecision === null &&
+          !resolvedProposalIds.has(entry.id),
+      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return { items: pending.slice(opts.offset, opts.offset + opts.limit), total: pending.length };
   }

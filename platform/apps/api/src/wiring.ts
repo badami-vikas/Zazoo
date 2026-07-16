@@ -324,6 +324,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);

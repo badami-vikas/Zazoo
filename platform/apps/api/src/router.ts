@@ -72,6 +72,8 @@ import {
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
+  type LedgerEntry,
+  type Proposal,
   type CommonsListQuery,
   type CommonsPackageDetail,
   uuidv7,
@@ -83,6 +85,11 @@ import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage,
 import { getIntegrationStore } from "./social/integration-service.js";
 import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
+import {
+  isRelationshipSignalEvidence,
+  materializeApprovedRelationshipProposal,
+  parseRelationshipSignalEvidence,
+} from "./relationship-materializer.js";
 
 const t = initTRPC.context<ApiContext>().create();
 
@@ -286,6 +293,46 @@ const paginatedInput = z.object({
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
+const relationshipNodeTypeEnum = z.enum(["person", "community", "signal", "event"]);
+const relationshipVisibilityEnum = z.enum(["private", "workspace", "public"]);
+
+function proposalFromResolvedLedger(original: LedgerEntry, decision: LedgerEntry): Proposal {
+  return {
+    id: decision.id,
+    status: "applied",
+    request: {
+      workspaceId: original.workspaceId,
+      actor: { type: original.actorType, id: original.actorId },
+      ...(original.onBehalfOfType && original.onBehalfOfId
+        ? {
+            onBehalfOf: {
+              type: original.onBehalfOfType,
+              id: original.onBehalfOfId,
+              ...(original.delegationId ? { delegationId: original.delegationId } : {}),
+            },
+          }
+        : {}),
+      action: original.action,
+      resourceType: original.resourceType,
+      ...(original.resourceId ? { resourceId: original.resourceId } : {}),
+      inputs: original.inputs,
+      skill: "stageMutation",
+      ...(original.dataScope ? { dataScope: original.dataScope } : {}),
+      ...(original.context ? { context: original.context } : {}),
+      ...(original.seed ? { seed: original.seed } : {}),
+      ...(original.trustOrigin ? { trustOrigin: original.trustOrigin } : {}),
+    },
+    authority: {
+      allowed: true,
+      reason: "authorized; approved at review",
+      basis: "role",
+      dataScope: original.dataScope ?? "all",
+    },
+    policyResults: original.policyResults,
+    output: { proposedOutput: decision.proposedOutput },
+  };
+}
+
 /** The local-first gate plane an actor runs on. Absent = local (private-first). */
 const planeEnum = z.enum(["local", "cloud"]);
 
@@ -728,6 +775,21 @@ export const appRouter = t.router({
     decide: procedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
       // claimed actor — the agent-floor in decide() blocks any agent from approving.
+      const pendingEntry = await ctx.wiring.ledger.get(input.proposalId);
+      if (
+        input.decision === "edit" &&
+        pendingEntry?.resourceType === "relation" &&
+        isRelationshipSignalEvidence(pendingEntry.inputs)
+      ) {
+        try {
+          parseRelationshipSignalEvidence(input.editedOutput);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Invalid edited Relationship evidence: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
       let resolved;
       try {
         resolved = await ctx.wiring.pipeline.decide(
@@ -754,7 +816,33 @@ export const appRouter = t.router({
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
       const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
-      return { ...resolved, effects };
+      try {
+        const relationshipRelations = await materializeApprovedRelationshipProposal(
+          ctx.wiring.graphStore,
+          resolved,
+        );
+        return relationshipRelations
+          ? {
+              ...resolved,
+              effects: {
+                ...effects,
+                relationshipMaterialization: { status: "materialized" as const, relations: relationshipRelations },
+              },
+            }
+          : { ...resolved, effects };
+      } catch (error) {
+        return {
+          ...resolved,
+          effects: {
+            ...effects,
+            relationshipMaterialization: {
+              status: "failed" as const,
+              reason: error instanceof Error ? error.message : String(error),
+              retryProcedure: "relationship.reconcileApproved" as const,
+            },
+          },
+        };
+      }
     }),
   }),
 
@@ -1602,6 +1690,186 @@ export const appRouter = t.router({
   }),
 
   /**
+   * TASK-008 Relationship Relation contract. Reads are always bounded to one
+   * accessible anchor node; no full-network traversal exists here.
+   */
+  relationship: t.router({
+    nodeTypeOwner: procedure
+      .input(z.object({ workspaceId: z.string().min(1), nodeType: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getNodeTypeOwner(input.nodeType);
+      }),
+
+    listRelations: procedure
+      .input(
+        paginatedInput.extend({
+          nodeType: relationshipNodeTypeEnum,
+          nodeId: z.string().uuid(),
+          limit: z.number().int().min(1).max(100).default(50),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listRelations(
+          input.workspaceId,
+          ctx.identity.id,
+          { nodeType: input.nodeType, nodeId: input.nodeId },
+          { limit: input.limit, offset: input.offset },
+        );
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    linkSignalEvidence: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          signalId: z.string().uuid(),
+          sourceEventId: z.string().uuid(),
+          visibility: relationshipVisibilityEnum.default("private"),
+          userConfirmed: z.boolean().default(false),
+          participants: z
+            .array(
+              z.object({
+                recordType: z.enum(["person", "community"]),
+                recordId: z.string().uuid(),
+                role: z.string().trim().min(1).max(100).optional(),
+                confidence: z.number().min(0).max(1),
+              }),
+            )
+            .min(1)
+            .max(100),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(
+          input.workspaceId,
+          ctx.identity.id,
+          input.signalId,
+        );
+        if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
+        if (!detail.sourceEvent || detail.sourceEvent.id !== input.sourceEventId) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "The source Event must be the accessible Event associated with the Signal.",
+          });
+        }
+        if (
+          !input.participants.some(
+            (participant) =>
+              participant.recordType === detail.signal.subjectType &&
+              participant.recordId === detail.signal.subjectId,
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Signal evidence participants must include the Signal subject.",
+          });
+        }
+        const participantKeys = input.participants.map(
+          (participant) => `${participant.recordType}:${participant.recordId}`,
+        );
+        if (new Set(participantKeys).size !== participantKeys.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Signal evidence participants must be unique by Record.",
+          });
+        }
+        for (const participant of input.participants) {
+          const record =
+            participant.recordType === "person"
+              ? await ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, participant.recordId)
+              : await ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, participant.recordId);
+          if (!record) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Participant ${participant.recordType}:${participant.recordId} is not accessible`,
+            });
+          }
+        }
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+            action: "write",
+            resourceType: "relation",
+            inputs: {
+              kind: "relationship_signal_evidence",
+              signalId: detail.signal.id,
+              sourceEventId: detail.sourceEvent.id,
+              visibility: input.visibility,
+              userConfirmed: input.userConfirmed,
+              participants: input.participants,
+            },
+            skill: "stageMutation",
+            dataScope: "private",
+            seed: detail.sourceEvent.id,
+          },
+          ctx.run,
+        );
+        try {
+          const relations = await materializeApprovedRelationshipProposal(
+            ctx.wiring.graphStore,
+            proposal,
+          );
+          return {
+            proposal,
+            relations,
+            materialization: relations
+              ? { status: "materialized" as const }
+              : { status: "pending" as const },
+          };
+        } catch (error) {
+          return {
+            proposal,
+            relations: null,
+            materialization: {
+              status: "failed" as const,
+              reason: error instanceof Error ? error.message : String(error),
+              retryProcedure: "relationship.reconcileApproved" as const,
+            },
+          };
+        }
+      }),
+
+    reconcileApproved: procedure
+      .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const original = await ctx.wiring.ledger.get(input.proposalId);
+        if (
+          !original ||
+          original.workspaceId !== input.workspaceId ||
+          original.resourceType !== "relation" ||
+          !isRelationshipSignalEvidence(original.inputs)
+        ) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Relationship proposal not found" });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (!decision || (decision.userDecision !== "approve" && decision.userDecision !== "edit" && decision.userDecision !== "auto")) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Relationship proposal has not been approved",
+          });
+        }
+        const proposal = proposalFromResolvedLedger(original, decision);
+        const relations = await materializeApprovedRelationshipProposal(ctx.wiring.graphStore, proposal);
+        if (!relations) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Approved proposal does not contain Relationship evidence",
+          });
+        }
+        return { proposalId: input.proposalId, status: "materialized" as const, relations };
+      }),
+  }),
+
+  /**
    * Read surface for Bridge's core vocabulary nouns — Initiative/Touchpoint/Signal
    * had ZERO tRPC coverage before this (frontend-migration-scoping.md Phase 3).
    * WRITES already flow through the generic `action.propose` (resourceType
@@ -1643,10 +1911,12 @@ export const appRouter = t.router({
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listSignals(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listSignals(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
@@ -1654,22 +1924,101 @@ export const appRouter = t.router({
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listPeople(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listPeople(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    getPerson: procedure
+      .input(z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.id);
       }),
 
     listCommunities: procedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listCommunities(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listCommunities(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    getCommunity: procedure
+      .input(z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, input.id);
+      }),
+
+    getSignalDetail: procedure
+      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+      }),
+
+    proposeSignalAction: procedure
+      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
+        }
+        if (detail.participants.length === 0 || !detail.sourceEvent) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "A governed Relationship Action requires an accessible participant Relation and source Event.",
+          });
+        }
+
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+            action: "write",
+            resourceType: "signal",
+            resourceId: detail.signal.id,
+            inputs: {
+              kind: "relationship_signal_action",
+              signalId: detail.signal.id,
+              sourceEventId: detail.sourceEvent.id,
+              participantRefs: detail.participants.map((participant) => ({
+                relationId: participant.relationId,
+                recordType: participant.recordType,
+                recordId: participant.recordId,
+              })),
+              recommendation: detail.signal.recommendedAction,
+            },
+            skill: "stageMutation",
+            dataScope: "private",
+            seed: detail.sourceEvent.id,
+          },
+          ctx.run,
+        );
+        if (proposal.status !== "rejected") {
+          await ctx.wiring.graphStore.recordSignalAction({
+            workspaceId: input.workspaceId,
+            signalId: input.signalId,
+            userId: ctx.identity.id,
+            verb: "act",
+          });
+        }
+        return proposal;
       }),
 
     /** Records the user's reaction to a Signal (act|dismiss|save) — bookkeeping,
@@ -1685,6 +2034,11 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
+        }
         await ctx.wiring.graphStore.recordSignalAction({
           workspaceId: input.workspaceId,
           signalId: input.signalId,
@@ -1850,6 +2204,7 @@ export const appRouter = t.router({
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
@@ -1861,6 +2216,7 @@ export const appRouter = t.router({
       .input(z.object({ workspaceId: z.string().min(1), ticketId: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const result = await ctx.wiring.helpdeskStore.getTicket(input.workspaceId, input.ticketId);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
         return result;
@@ -1877,6 +2233,7 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const message = await ctx.wiring.helpdeskStore.replyAsAgent(
           input.workspaceId,
           input.ticketId,
@@ -1942,6 +2299,15 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const routedPerson = await ctx.wiring.graphStore.getPerson(
+          input.workspaceId,
+          ctx.identity.id,
+          input.routedToPersonId,
+        );
+        if (!routedPerson) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "routed Person not found or not accessible" });
+        }
         const offer = draftHelpOffer(
           { subject: input.subject, body: input.body },
           { personId: input.routedToPersonId, displayName: input.routedToDisplayName, score: 0, matchedTopics: [] },

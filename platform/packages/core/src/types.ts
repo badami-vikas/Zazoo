@@ -21,6 +21,7 @@ export type ActorType = "user" | "team" | "agent";
 export type ResourceType =
   | "person"
   | "community"
+  | "relation"
   | "initiative"
   | "touchpoint"
   | "ritual"

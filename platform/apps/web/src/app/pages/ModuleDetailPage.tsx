@@ -35,10 +35,22 @@ import {
   Loader,
   ExternalLink,
   Activity,
+  ChevronRight,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
+type Capability = NonNullable<PackageRow["manifest"]>["capabilities"][number];
+
+function capabilityRoute(packageName: string, capabilityId: string): string | null {
+  for (const marker of [".page.", ".submodule."]) {
+    const prefix = `${packageName}${marker}`;
+    if (capabilityId.startsWith(prefix)) {
+      return `/module/${packageName}/${capabilityId.slice(prefix.length)}`;
+    }
+  }
+  return null;
+}
 
 // Human-readable risk labels
 const RISK_LABELS: Record<string, string> = {
@@ -166,28 +178,43 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
         />
       ) : (
         <ul className="divide-y border rounded-lg" style={{ borderColor: "var(--color-border)" }}>
-          {viewCaps.map((cap) => (
-            <li
-              key={cap.id}
-              className="flex items-center gap-3 p-3"
-            >
-              <Database className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-                  {cap.name}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
-                  {cap.id}
-                </p>
-              </div>
-              <span
-                className="text-xs border rounded px-1.5 py-0.5"
-                style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
-              >
-                {cap.capabilityType}
-              </span>
-            </li>
-          ))}
+          {viewCaps.map((cap) => {
+            const route = capabilityRoute(pkg.packageName, cap.id);
+            const content = (
+              <>
+                <Database className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                    {cap.name}
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
+                    {cap.id.includes(".submodule.") ? "Sub-module" : "Page"} · {cap.id}
+                  </p>
+                </div>
+                {route ? (
+                  <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+                ) : (
+                  <span
+                    className="text-xs border rounded px-1.5 py-0.5"
+                    style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+                  >
+                    {cap.capabilityType}
+                  </span>
+                )}
+              </>
+            );
+            return (
+              <li key={cap.id}>
+                {route ? (
+                  <Link to={route} className="flex items-center gap-3 p-3 no-underline hover:bg-[var(--color-surface)]">
+                    {content}
+                  </Link>
+                ) : (
+                  <div className="flex items-center gap-3 p-3">{content}</div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -196,26 +223,97 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
 
 /** Agents section — each with Skills nested underneath. */
 function AgentsSection({ pkg }: { pkg: PackageRow }) {
+  const capabilities = pkg.manifest?.capabilities ?? [];
+  const agents = capabilities.filter((capability) => capability.capabilityType === "agent");
+  const skills = new Map(
+    capabilities
+      .filter((capability) => capability.capabilityType === "skill")
+      .map((capability) => [capability.id, capability] as const),
+  );
+
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
-      <EmptyState
-        message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
-        hint="Skills remain hidden until the runtime exposes their consuming Agent. Only an attributable allowed Agent may invoke a Skill."
-      />
+      {agents.length === 0 ? (
+        <EmptyState
+          message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
+          hint="Skills remain hidden until the runtime exposes their consuming Agent. Only an attributable allowed Agent may invoke a Skill."
+        />
+      ) : (
+        <div className="space-y-2">
+          {agents.map((agent) => {
+            const boundSkills = agent.dependencies
+              .map((dependency) => skills.get(dependency.manifestId))
+              .filter((skill): skill is Capability => Boolean(skill));
+            return (
+              <details key={agent.id} className="rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+                <summary className="cursor-pointer list-none p-3 flex items-center gap-3">
+                  <Bot className="w-4 h-4 shrink-0" style={{ color: "var(--color-steel)" }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{agent.name}</p>
+                    <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                      {boundSkills.length} allowed Skill{boundSkills.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                </summary>
+                <div className="border-t p-3 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+                  {boundSkills.length === 0 ? (
+                    <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                      No Skills are bound to this Agent.
+                    </p>
+                  ) : (
+                    boundSkills.map((skill) => (
+                      <div key={skill.id} className="rounded-md border p-2" style={{ borderColor: "var(--color-border)" }}>
+                        <p className="text-xs font-medium" style={{ color: "var(--color-navy)" }}>{skill.name}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
+                          {skill.permissions.map((permission) => `${permission.action} ${permission.resourceType} (${permission.dataScope})`).join(" · ")}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
 /** Automations section. */
 function AutomationsSection({ pkg }: { pkg: PackageRow }) {
+  const capabilities = pkg.manifest?.capabilities ?? [];
+  const automations = capabilities.filter((capability) => capability.capabilityType === "workflow");
+  const byId = new Map(capabilities.map((capability) => [capability.id, capability] as const));
   return (
     <section className="space-y-3">
       <SectionHeader icon={Zap} title="Automations" />
-      <EmptyState
-        message={`No Automations configured for ${pkg.packageName} yet.`}
-        hint="Automations start governed Agent Runs. Configure one from Settings once the module is active."
-      />
+      {automations.length === 0 ? (
+        <EmptyState
+          message={`No Automations configured for ${pkg.packageName} yet.`}
+          hint="Automations start governed Agent Runs. Configure one from Settings once the module is active."
+        />
+      ) : (
+        <ul className="divide-y border rounded-lg" style={{ borderColor: "var(--color-border)" }}>
+          {automations.map((automation) => {
+            const selectedAgent = automation.dependencies
+              .map((dependency) => byId.get(dependency.manifestId))
+              .find((capability) => capability?.capabilityType === "agent");
+            return (
+              <li key={automation.id} className="flex items-center gap-3 p-3">
+                <Zap className="w-4 h-4 shrink-0" style={{ color: "var(--color-steel)" }} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{automation.name}</p>
+                  <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                    Starts {selectedAgent?.name ?? "an attributable Agent"} · no external send
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

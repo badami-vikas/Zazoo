@@ -1,5 +1,5 @@
 /**
- * Built-in workspace-definition packages — DealPilot, JobPilot, Helpdesk,
+ * Built-in workspace-definition packages — DealPilot, JobPilot, Relationship,
  * Calendar. These ship with the kernel (origin: "built_in") and are seeded
  * as `available` + `installed` on API startup so they appear in
  * Intelligence → Packages and gate Intelligence → Tools visibility.
@@ -19,7 +19,7 @@
  *
  * Risk classification rationale:
  *   deal-pilot / job-pilot = advisory (reads+writes local graph, no egress)
- *   helpdesk = operational (manages support tickets; future: sends replies)
+ *   relationship = external (local/private graph plus explicitly gated source reads)
  *   calendar = external (writes round-trip to Google Calendar through the
  *     governed propose→approve→egress pipeline — CalendarPage.tsx's own
  *     header comment; ANY egress permission maps to "external" per
@@ -106,34 +106,195 @@ export const BUILT_IN_PACKAGES: readonly {
     },
   },
   {
-    route: "/helpdesk",
-    computedRisk: "operational",
+    route: "/module/relationship",
+    computedRisk: "external",
     manifest: {
-      name: "helpdesk",
+      name: "relationship",
       version: "0.1.0",
       kind: "workspace_definition",
-      summary: "Support ticket inbox + routing.",
+      summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
-        "Adds a support-operations surface: ticket inbox, thread view, and routing rules. Operational risk: future versions will draft+send replies through the governed egress pipeline.",
+        "One Relationship Module over shared Record, Relation, and Event contracts. Private relationship Memory stays Module-associated; source reads cross the Plane Gate only with explicit authority. Helpdesk is a sub-module, not a separate installation.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: [
         {
-          id: "helpdesk.surface",
-          name: "Helpdesk surface",
+          id: "relationship.page.signals",
+          name: "Signals",
           version: "0.1.0",
           capabilityType: "view",
           origin: "built_in",
           audience: "team",
           permissions: [
-            { resourceType: "touchpoint", action: "read", dataScope: "all", egress: false },
-            { resourceType: "touchpoint", action: "write", dataScope: "all", egress: false },
+            { resourceType: "signal", action: "read", dataScope: "private", egress: false },
+            { resourceType: "signal", action: "write", dataScope: "private", egress: false },
+            { resourceType: "relation", action: "read", dataScope: "private", egress: false },
+            { resourceType: "relation", action: "write", dataScope: "private", egress: false },
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
           ],
           connectors: [],
           dependencies: [],
         },
+        {
+          id: "relationship.page.people",
+          name: "People",
+          version: "0.1.0",
+          capabilityType: "view",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "person", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.page.communities",
+          name: "Communities",
+          version: "0.1.0",
+          capabilityType: "view",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.submodule.helpdesk",
+          name: "Helpdesk",
+          version: "0.1.0",
+          capabilityType: "view",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "touchpoint", action: "read", dataScope: "private", egress: false },
+            { resourceType: "touchpoint", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.skill.timeline-synthesis",
+          name: "Relationship timeline synthesis",
+          version: "0.1.0",
+          capabilityType: "skill",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "signal", action: "read", dataScope: "private", egress: false },
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.skill.safe-action",
+          name: "Safe relationship action proposal",
+          version: "0.1.0",
+          capabilityType: "skill",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "signal", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.skill.help-routing",
+          name: "Help request capability routing",
+          version: "0.1.0",
+          capabilityType: "skill",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
+            { resourceType: "touchpoint", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "relationship.agent.steward",
+          name: "Relationship Steward",
+          version: "0.1.0",
+          capabilityType: "agent",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "signal", action: "read", dataScope: "private", egress: false },
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
+            { resourceType: "signal", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [
+            { manifestId: "relationship.skill.timeline-synthesis", versionRange: "0.1.0" },
+            { manifestId: "relationship.skill.safe-action", versionRange: "0.1.0" },
+          ],
+        },
+        {
+          id: "relationship.agent.community-steward",
+          name: "Community Steward",
+          version: "0.1.0",
+          capabilityType: "agent",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "community", action: "read", dataScope: "private", egress: false },
+            { resourceType: "touchpoint", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [
+            { manifestId: "relationship.skill.help-routing", versionRange: "0.1.0" },
+          ],
+        },
+        {
+          id: "relationship.automation.meeting-prep",
+          name: "Pre-meeting relationship review",
+          version: "0.1.0",
+          capabilityType: "workflow",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "person", action: "read", dataScope: "private", egress: false },
+            { resourceType: "signal", action: "write", dataScope: "private", egress: false },
+          ],
+          connectors: [],
+          dependencies: [
+            { manifestId: "relationship.agent.steward", versionRange: "0.1.0" },
+          ],
+        },
+        {
+          id: "relationship.integration.google-sources",
+          name: "Google relationship sources",
+          version: "0.1.0",
+          capabilityType: "integration",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "external:fetch", action: "read", dataScope: "private", egress: true },
+          ],
+          connectors: [
+            { id: "google-gmail" },
+            { id: "google-calendar" },
+          ],
+          dependencies: [],
+        },
       ],
-      contextProviders: [],
+      contextProviders: [
+        { kind: "email", required: false },
+        { kind: "calendar", required: false },
+        { kind: "capture", required: false },
+      ],
       workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
     },
   },

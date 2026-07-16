@@ -334,7 +334,7 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
     if (wakeTimeout.current) clearTimeout(wakeTimeout.current);
     wakeTimeout.current = setTimeout(() => {
       setAvatarStatus("idle");
-      void navigate("/signals");
+      void navigate("/module/relationship/signals");
     }, 300);
   }
 

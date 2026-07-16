@@ -331,8 +331,8 @@ function KnowledgeSection() {
       <Card>
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <h3 className="font-semibold text-[var(--color-navy)] text-sm">Connected sources</h3>
-          <Link to="/knowledge-base" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
-            Open Knowledge <ExternalLink className="w-3.5 h-3.5" />
+          <Link to="/module/relationship/signals" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
+            Open Relationship <ExternalLink className="w-3.5 h-3.5" />
           </Link>
         </div>
         {sources.length === 0 ? (

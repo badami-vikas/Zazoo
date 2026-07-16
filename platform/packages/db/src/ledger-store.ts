@@ -17,6 +17,7 @@
  * pre-check throws.
  */
 import { and, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
   type DataScope,
@@ -147,11 +148,28 @@ export class DrizzleLedgerStore implements LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
-    const where = and(eq(ledger.workspaceId, workspaceId), isNull(ledger.userDecision));
+    const decisions = alias(ledger, "resolved_decisions");
+    const join = and(eq(decisions.refLedgerId, ledger.id), isNotNull(decisions.userDecision));
+    const where = and(
+      eq(ledger.workspaceId, workspaceId),
+      isNull(ledger.userDecision),
+      isNull(decisions.id),
+    );
     const [rows, totalRows] = await Promise.all([
-      this.#db.select().from(ledger).where(where).orderBy(desc(ledger.createdAt)).limit(opts.limit).offset(opts.offset),
-      this.#db.select({ value: count() }).from(ledger).where(where),
+      this.#db
+        .select({ proposal: ledger })
+        .from(ledger)
+        .leftJoin(decisions, join)
+        .where(where)
+        .orderBy(desc(ledger.createdAt))
+        .limit(opts.limit)
+        .offset(opts.offset),
+      this.#db
+        .select({ value: count() })
+        .from(ledger)
+        .leftJoin(decisions, join)
+        .where(where),
     ]);
-    return { items: rows.map(unpack), total: Number(totalRows[0]?.value ?? 0) };
+    return { items: rows.map((row) => unpack(row.proposal)), total: Number(totalRows[0]?.value ?? 0) };
   }
 }

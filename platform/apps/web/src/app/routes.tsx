@@ -13,16 +13,12 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
 import { JobPilotApplicationDetail } from "./pages/JobPilotApplicationDetail";
-import { HelpdeskPage } from "./pages/HelpdeskPage";
-import { HelpdeskThread } from "./pages/HelpdeskThread";
 import { ResourcesPage } from "./pages/ResourcesPage";
 import { PublicHelpdesk } from "./pages/PublicHelpdesk";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
-import { KnowledgeBasePage } from "./pages/KnowledgeBasePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IntelligencePage } from "./pages/IntelligencePage";
-import { SignalsPage } from "./pages/SignalsPage";
 import { PendingWorkPage } from "./pages/PendingWorkPage";
 import { TaskManagerPage } from "./pages/TaskManagerPage";
 // Ported prototype surface (faithful visual port, 2026-07-07)
@@ -36,6 +32,16 @@ import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { DataEngine } from "./components/DataEngine";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
+import {
+  RelationshipPage,
+  RelationshipRecordDetailPage,
+  SignalDetailPage,
+  SignalSourceEventPage,
+} from "./pages/RelationshipPage";
+import {
+  RelationshipHelpdeskPage,
+  RelationshipHelpdeskThreadPage,
+} from "./pages/RelationshipHelpdeskPage";
 
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
@@ -57,6 +63,13 @@ export const router = createBrowserRouter([
       // Route param = packageName (e.g. "deal-pilot", "job-pilot"). Every
       // installed Module in the left nav links here.
       { path: "module/:moduleId", Component: ModuleDetailPage },
+      { path: "module/relationship/signals/:signalId/event", Component: SignalSourceEventPage },
+      { path: "module/relationship/signals/:signalId", Component: SignalDetailPage },
+      { path: "module/relationship/people/:recordId", element: <RelationshipRecordDetailPage kind="person" /> },
+      { path: "module/relationship/communities/:recordId", element: <RelationshipRecordDetailPage kind="community" /> },
+      { path: "module/relationship/helpdesk/:ticketId", Component: RelationshipHelpdeskThreadPage },
+      { path: "module/relationship/helpdesk", Component: RelationshipHelpdeskPage },
+      { path: "module/relationship/:page", Component: RelationshipPage },
 
       // Ported prototype surface (2026-07-07): the prototype mounted the
       // network DataEngine at "/" — here it lives at /network so HomePage
@@ -76,8 +89,6 @@ export const router = createBrowserRouter([
       { path: "integration/:id", Component: IntegrationDetail },
       { path: "tools", Component: ToolsPage },
       { path: "tool/:id", Component: ToolDetail },
-      { path: "helpdesk/ask/:id", Component: HelpdeskThread },
-
       // Standalone Tools destination removed (user revision 2026-07-06):
       // Intelligence (/intelligence) owns the capability surface now; pinned
       // individual tools still live in the left nav. tool.run stays reachable.
@@ -102,9 +113,6 @@ export const router = createBrowserRouter([
       { path: "jobpilot", Component: JobPilotPage },
       { path: "jobpilot/application/:id", Component: JobPilotApplicationDetail },
 
-      { path: "helpdesk", Component: HelpdeskPage },
-      { path: "helpdesk/:ticketId", Component: HelpdeskThread },
-
       { path: "resources", Component: ResourcesPage },
 
       { path: "workspace", Component: WorkspacePage },
@@ -116,10 +124,8 @@ export const router = createBrowserRouter([
       // capability surface: Tools/Integrations/Agents/Workflows/Skills), and
       // Settings are permanent chrome containers; Signals is a separate
       // pinned governance tool (split back out of Approvals per user call).
-      { path: "knowledge-base", Component: KnowledgeBasePage },
       { path: "intelligence", Component: IntelligencePage },
       { path: "settings", Component: SettingsPage },
-      { path: "signals", Component: SignalsPage },
       { path: "pending-work", Component: PendingWorkPage },
     ],
   },

@@ -26,6 +26,7 @@ export default function Layout() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [mobileModulesOpen, setMobileModulesOpen] = useState(false);
   const [avatarPrefs, setAvatarPrefs] = useState<AvatarPrefs | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
@@ -60,7 +61,7 @@ export default function Layout() {
   const DISPLAY_NAMES: Record<string, string> = {
     "deal-pilot": "DealPilot",
     "job-pilot": "JobPilot",
-    helpdesk: "Helpdesk",
+    relationship: "Relationship",
     calendar: "Calendar",
   };
 
@@ -367,8 +368,8 @@ export default function Layout() {
         <AgentPanel />
       </div>
 
-      {/* Mobile bottom tab bar — Home · New · Settings (initiatives are reached
-          from Home on narrow widths; a tab bar can't hold an unbounded list). */}
+      {/* Mobile bottom tab bar keeps an unbounded manifest-driven Module list
+          behind one accessible Modules control rather than dropping Modules. */}
       <nav className="sm:hidden fixed bottom-0 inset-x-0 border-t border-border bg-background flex items-stretch h-14 z-10">
         <Link
           to="/"
@@ -381,11 +382,15 @@ export default function Layout() {
         </Link>
         <button
           type="button"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
-          onClick={() => setNewOpen(true)}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs ${
+            mobileModulesOpen ? "font-medium text-[var(--color-steel)]" : "text-muted-foreground"
+          }`}
+          onClick={() => setMobileModulesOpen((open) => !open)}
+          aria-expanded={mobileModulesOpen}
+          aria-controls="mobile-module-menu"
         >
-          <Plus className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
-          New
+          <Package className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+          Modules
         </button>
         <Link
           to="/pending-work"
@@ -406,6 +411,55 @@ export default function Layout() {
           Settings
         </Link>
       </nav>
+
+      {mobileModulesOpen && (
+        <>
+          <button
+            type="button"
+            className="sm:hidden fixed inset-0 bottom-14 z-20 bg-black/20"
+            aria-label="Close Modules menu"
+            onClick={() => setMobileModulesOpen(false)}
+          />
+          <div
+            id="mobile-module-menu"
+            className="sm:hidden fixed inset-x-3 bottom-16 z-30 max-h-[70vh] overflow-auto rounded-2xl border p-2 shadow-xl"
+            style={{ backgroundColor: "var(--color-background)", borderColor: "var(--color-border)" }}
+          >
+            <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>
+              Installed Modules
+            </p>
+            {installedModules === null ? (
+              <p className="px-3 py-3 text-sm" style={{ color: "var(--color-warm-gray)" }}>Loading modules…</p>
+            ) : installedModules.length === 0 ? (
+              <p className="px-3 py-3 text-sm" style={{ color: "var(--color-warm-gray)" }}>No modules installed.</p>
+            ) : (
+              installedModules.map((mod) => (
+                <Link
+                  key={mod.packageName}
+                  to={`/module/${mod.packageName}`}
+                  onClick={() => setMobileModulesOpen(false)}
+                  className="flex items-center gap-3 rounded-xl px-3 py-3 no-underline hover:bg-[var(--color-surface)]"
+                >
+                  <Package className="w-5 h-5 shrink-0" style={{ color: "var(--color-steel)" }} />
+                  <span className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{mod.displayName}</span>
+                </Link>
+              ))
+            )}
+            <button
+              type="button"
+              className="mt-1 flex w-full items-center gap-3 rounded-xl border-t px-3 py-3 text-left"
+              style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
+              onClick={() => {
+                setMobileModulesOpen(false);
+                setNewOpen(true);
+              }}
+            >
+              <Plus className="w-5 h-5 shrink-0" />
+              <span className="text-sm font-medium">New module or record</span>
+            </button>
+          </div>
+        </>
+      )}
 
       <NewModuleDialog open={newOpen} onOpenChange={setNewOpen} />
 

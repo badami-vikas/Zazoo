@@ -24,6 +24,7 @@
  * proposals).
  */
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { Radio, LayoutGrid, List as ListIcon, Table as TableIcon } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
@@ -51,7 +52,19 @@ function isToday(iso: string): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export function SignalsPage() {
+function recommendedActionLabel(signal: SignalItem): string {
+  if (
+    typeof signal.recommendedAction === "object" &&
+    signal.recommendedAction !== null &&
+    !Array.isArray(signal.recommendedAction)
+  ) {
+    const label = (signal.recommendedAction as Record<string, unknown>).label;
+    if (typeof label === "string" && label.trim()) return label.trim();
+  }
+  return "Review action";
+}
+
+export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState<SignalPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -73,7 +86,17 @@ export function SignalsPage() {
   async function react(signalId: string, verb: "act" | "dismiss" | "save") {
     setBusyId(signalId);
     try {
-      await trpc.graph.recordSignalAction.mutate({ workspaceId: PILOT_WORKSPACE, signalId, verb });
+      if (verb === "act") {
+        const proposal = await trpc.graph.proposeSignalAction.mutate({
+          workspaceId: PILOT_WORKSPACE,
+          signalId,
+        });
+        if (proposal.status === "rejected") {
+          throw new Error(proposal.rejectionReason || "The governed Action was rejected.");
+        }
+      } else {
+        await trpc.graph.recordSignalAction.mutate({ workspaceId: PILOT_WORKSPACE, signalId, verb });
+      }
       refresh();
     } catch (e) {
       setError(String(e));
@@ -118,7 +141,7 @@ export function SignalsPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
-      <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />
+      {!embedded && <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />}
 
       <StandardToolbar
         // Signal types are system-detected categories, not user-created lists — no "Add list".
@@ -177,7 +200,7 @@ export function SignalsPage() {
             No signals match. Signals appear here once the detection pipeline surfaces one.
           </div>
         ) : view === "table" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
                 <th className="px-4 py-2 font-semibold">Type</th>
@@ -189,12 +212,20 @@ export function SignalsPage() {
             <tbody>
               {filtered.map((s: SignalItem) => (
                 <tr key={s.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="px-4 py-2" style={{ color: "var(--color-navy)" }}>{s.type}</td>
+                  <td className="px-4 py-2">
+                    <Link
+                      to={`/module/relationship/signals/${s.id}`}
+                      className="font-medium hover:underline"
+                      style={{ color: "var(--color-navy)" }}
+                    >
+                      {s.type}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2" style={{ color: "var(--color-warm-gray)" }}>{s.subjectType}</td>
                   <td className="px-4 py-2" style={{ color: "var(--color-warm-gray)" }}>{s.status}</td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1.5">
-                      <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
+                      <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>{recommendedActionLabel(s)}</Button>
                       <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "save")}>Save</Button>
                       <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
                     </div>
@@ -213,7 +244,10 @@ export function SignalsPage() {
                 metaChips={[s.status]}
                 footer={
                   <div className="flex gap-1.5">
-                    <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
+                    <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>{recommendedActionLabel(s)}</Button>
+                    <Button size="sm" variant="ghost" asChild>
+                      <Link to={`/module/relationship/signals/${s.id}`}>Evidence</Link>
+                    </Button>
                     <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
                   </div>
                 }
@@ -227,11 +261,17 @@ export function SignalsPage() {
             renderRow={(s: SignalItem) => (
               <>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate" style={{ color: "var(--color-navy)" }}>{s.type}</div>
+                  <Link
+                    to={`/module/relationship/signals/${s.id}`}
+                    className="text-sm font-semibold truncate hover:underline block"
+                    style={{ color: "var(--color-navy)" }}
+                  >
+                    {s.type}
+                  </Link>
                   <div className="text-xs truncate" style={{ color: "var(--color-warm-gray)" }}>{s.subjectType} · {s.status}</div>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
-                  <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
+                  <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>{recommendedActionLabel(s)}</Button>
                   <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
                 </div>
               </>

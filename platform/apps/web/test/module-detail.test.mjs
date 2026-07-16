@@ -27,7 +27,7 @@ const RISK_LABELS = {
 };
 
 /** Mirrored from built-in-packages.ts */
-const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "helpdesk", "calendar"];
+const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
 
 // ---------------------------------------------------------------------------
 // PanelControl state logic (mirrored from usePanelControl, no React)

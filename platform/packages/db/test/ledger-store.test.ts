@@ -95,6 +95,8 @@ test("ledger: partial unique index rejects a second resolving decision row for t
     const resolved = await store.decisionFor(proposal.id);
     assert.ok(resolved);
     assert.equal(resolved!.userDecision, "approve");
+    const pending = await store.listPending(ws.id, { limit: 20, offset: 0 });
+    assert.equal(pending.total, 0, "a proposal with a resolving decision is not pending");
   } finally {
     await close();
   }
