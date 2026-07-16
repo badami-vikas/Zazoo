@@ -106,3 +106,17 @@ test("agent store: write-time — saveAllowedSkills throws on a malformed list i
     await close();
   }
 });
+
+test("agent store: procedure-name Skill allowlists round-trip through text[] storage", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { agentId } = await seedWorkspaceAndAgent(db);
+    const store = new DrizzleAgentStore(db);
+
+    await store.saveAllowedSkills(agentId, ["dealpilot.source", "google.listCalendarEvents"]);
+
+    assert.deepEqual(await store.allowedSkills(agentId), ["dealpilot.source", "google.listCalendarEvents"]);
+  } finally {
+    await close();
+  }
+});

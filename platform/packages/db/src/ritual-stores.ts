@@ -121,7 +121,14 @@ export class DrizzleRitualRegistry implements RitualRegistry {
 
   async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
     const rows = await this.#db
-      .select({ id: rituals.id, name: rituals.name, pipeline: rituals.skillPipeline })
+      .select({
+        id: rituals.id,
+        name: rituals.name,
+        agentId: rituals.agentId,
+        agentPlane: rituals.agentPlane,
+        legacyAgentIds: rituals.agentIds,
+        pipeline: rituals.skillPipeline,
+      })
       .from(rituals)
       .where(and(eq(rituals.workspaceId, workspaceId), eq(rituals.id, ritualId), eq(rituals.status, "active")))
       .limit(1);
@@ -131,7 +138,40 @@ export class DrizzleRitualRegistry implements RitualRegistry {
     // another process, a raw insert bypassing `saveSteps`), throw loudly
     // rather than silently dropping the step.
     const steps = parseRitualSteps(row.pipeline);
-    return { id: row.id, name: row.name, workspaceId, steps };
+    const agentId = row.agentId ?? (row.legacyAgentIds.length === 1 ? row.legacyAgentIds[0] : undefined);
+    return {
+      id: row.id,
+      name: row.name,
+      workspaceId,
+      ...(agentId ? { agentId } : {}),
+      ...(row.agentPlane === "local" || row.agentPlane === "cloud" ? { agentPlane: row.agentPlane } : {}),
+      steps,
+    };
+  }
+
+  async save(definition: RitualDefinition): Promise<void> {
+    if (!definition.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
+    const steps = parseRitualSteps(definition.steps);
+    await this.#db.insert(rituals).values({
+      id: definition.id,
+      workspaceId: definition.workspaceId,
+      name: definition.name,
+      trigger: {},
+      agentId: definition.agentId,
+      agentPlane: definition.agentPlane ?? null,
+      agentIds: [definition.agentId],
+      skillPipeline: steps,
+    }).onConflictDoUpdate({
+      target: rituals.id,
+      set: {
+        name: definition.name,
+        agentId: definition.agentId,
+        agentPlane: definition.agentPlane ?? null,
+        agentIds: [definition.agentId],
+        skillPipeline: steps,
+        status: "active",
+      },
+    });
   }
 
   /** Write-time gate: validates the full pipeline and throws before anything is persisted. */

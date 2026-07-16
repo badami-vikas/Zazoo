@@ -1,172 +1,452 @@
 /**
- * Built-in workspace-definition packages — DealPilot, JobPilot, Helpdesk,
- * Calendar. These ship with the kernel (origin: "built_in") and are seeded
- * as `available` + `installed` on API startup so they appear in
- * Intelligence → Packages and gate Intelligence → Tools visibility.
- *
- * Chief of Staff is deliberately NOT in this list (removed 2026-07-10, user
- * correction): it's the non-deletable router agent (ADR-033), not an
- * installable capability package — nothing to "install," it's always
- * present. Its `/chief-of-staff` page/route stays real and reachable
- * (routes.tsx, pins.ts) independent of the package system; it just no
- * longer appears in Intelligence → Modules or the "+ New" Module picker.
- *
- * Each is a `workspace_definition` package: it defines a compiled workspace
- * surface (ADR-018/020 "packages, not products"). The route path lives as
- * workspaceVocab._route — a frontend convention read by IntelligencePage's
- * Tools section to resolve the link; it is NOT part of the canonical package
- * format (no schema enforcement here, intentional interim step).
- *
- * Risk classification rationale:
- *   deal-pilot / job-pilot = advisory (reads+writes local graph, no egress)
- *   helpdesk = operational (manages support tickets; future: sends replies)
- *   calendar = external (writes round-trip to Google Calendar through the
- *     governed propose→approve→egress pipeline — CalendarPage.tsx's own
- *     header comment; ANY egress permission maps to "external" per
- *     capability/risk.ts's riskForPermission, matching how the trifecta rule
- *     treats external sends regardless of read-side sensitivity)
+ * Signed source definitions for built-in Modules. Module Detail reads the same
+ * manifests the package store installs; no frontend inventory is hardcoded.
  */
-import type { PackageManifest } from "@bridge/core";
+import type { CapabilityManifest, CommonsProvenance, PackageManifest, RiskBand } from "@bridge/core";
 
-export const BUILT_IN_PACKAGES: readonly {
+type BuiltInPackage = {
   manifest: PackageManifest;
-  computedRisk: "informational" | "advisory" | "transformational" | "operational" | "external";
-  route: string;
-}[] = [
+  computedRisk: RiskBand;
+};
+
+type CommonsBuiltInPackage = BuiltInPackage & {
+  commons: {
+    provenance: CommonsProvenance;
+    tags: string[];
+  };
+};
+
+export const DEAL_PILOT_SOURCING_AGENT_ID = "b0000000-0000-4000-a000-0000000000e1";
+export const DEAL_PILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1";
+export const DEAL_PILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
+
+export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
+  return packageName === "deal-pilot" && manifestRitualId === DEAL_PILOT_SOURCE_RITUAL_KEY
+    ? DEAL_PILOT_SOURCE_RITUAL_ID
+    : undefined;
+}
+
+export function resolveModuleAgentRuntimeId(packageName: string, manifestAgentId: string): string | undefined {
+  return packageName === "deal-pilot" && manifestAgentId === "sourcing-agent"
+    ? DEAL_PILOT_SOURCING_AGENT_ID
+    : undefined;
+}
+
+const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
+const INSPECTED_COMMIT = "5775e5b9cf63938e9f2a8220e63b36e1122eac80";
+const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
+  "deal-pilot": "docs/raw/dealpilot-module-plan-2026-07.md",
+  "job-pilot": "docs/raw/jobpilot-module-plan-2026-07.md",
+  helpdesk: "docs/raw/helpdesk-plan.md",
+  calendar: "docs/raw/calendar-module-plan-2026-07.md",
+};
+
+function builtInSourceRef(packageName: string): string {
+  const sourceRef = BUILT_IN_SOURCE_REFS[packageName];
+  if (!sourceRef) throw new Error(`No inspected source reference declared for ${packageName}`);
+  return sourceRef;
+}
+
+function provenance(sourceRef: string): CommonsProvenance {
+  return {
+    sourceRepository: SOURCE_REPOSITORY,
+    sourceRef,
+    inspectedCommit: INSPECTED_COMMIT,
+    repositoryLicense: "NOASSERTION",
+    artifactLicense: "LicenseRef-Bridge-Internal",
+    licenseVerified: true,
+  };
+}
+
+const readAll = (resourceType: string) => ({
+  resourceType,
+  action: "read" as const,
+  dataScope: "all" as const,
+  egress: false,
+});
+
+const writeAll = (resourceType: string) => ({
+  resourceType,
+  action: "write" as const,
+  dataScope: "all" as const,
+  egress: false,
+});
+
+function capability(
+  id: string,
+  name: string,
+  capabilityType: CapabilityManifest["capabilityType"],
+  permissions: CapabilityManifest["permissions"],
+  connectors: CapabilityManifest["connectors"] = [],
+  dependencies: CapabilityManifest["dependencies"] = [],
+): CapabilityManifest {
+  return {
+    id,
+    name,
+    version: "0.2.0",
+    capabilityType,
+    origin: "built_in",
+    audience: "team",
+    permissions,
+    connectors,
+    dependencies,
+  };
+}
+
+const dealPilotCapabilities = [
+  capability("deal-pilot.deals", "Deals database and views", "view", [readAll("record"), writeAll("record")]),
+  capability(
+    "dealpilot.source",
+    "Source governed deal candidates",
+    "skill",
+    [readAll("external:fetch")],
+    [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
+  ),
+  capability(
+    "deal-pilot.sourcing-agent",
+    "Deal sourcing Agent",
+    "agent",
+    [readAll("record"), writeAll("record")],
+    [],
+    [{ manifestId: "dealpilot.source", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "deal-pilot.source-intake",
+    "Deal source intake",
+    "workflow",
+    [readAll("external:fetch"), writeAll("record")],
+    [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
+    [
+      { manifestId: "deal-pilot.sourcing-agent", versionRange: "0.2.0" },
+      { manifestId: "dealpilot.source", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "deal-pilot.brokerage-alerts",
+    "Brokerage alert intake",
+    "integration",
+    [readAll("external:fetch")],
+    [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
+  ),
+];
+
+const jobPilotCapabilities = [
+  capability("job-pilot.jobs", "Jobs database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("job-pilot.score-fit", "Score job fit", "skill", [readAll("record")]),
+  capability("job-pilot.transition-application", "Validate application transition", "skill", [writeAll("record")]),
+  capability(
+    "job-pilot.application-agent",
+    "Application tracking Agent",
+    "agent",
+    [readAll("record"), writeAll("record")],
+    [],
+    [
+      { manifestId: "job-pilot.score-fit", versionRange: "0.2.0" },
+      { manifestId: "job-pilot.transition-application", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "job-pilot.track-application",
+    "Job tracking intake",
+    "workflow",
+    [readAll("record"), writeAll("record")],
+    [],
+    [
+      { manifestId: "job-pilot.application-agent", versionRange: "0.2.0" },
+      { manifestId: "job-pilot.score-fit", versionRange: "0.2.0" },
+    ],
+  ),
+];
+
+const helpdeskCapabilities = [
+  capability("helpdesk.requests", "Help Requests database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("helpdesk.route-request", "Route a Help Request", "skill", [readAll("record"), writeAll("relation")]),
+  capability(
+    "helpdesk.routing-agent",
+    "Help Request routing Agent",
+    "agent",
+    [readAll("record"), writeAll("relation")],
+    [],
+    [{ manifestId: "helpdesk.route-request", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "helpdesk.route-intake",
+    "Help Request intake routing",
+    "workflow",
+    [readAll("record"), writeAll("relation")],
+    [],
+    [
+      { manifestId: "helpdesk.routing-agent", versionRange: "0.2.0" },
+      { manifestId: "helpdesk.route-request", versionRange: "0.2.0" },
+    ],
+  ),
+];
+
+const calendarCapabilities = [
+  capability(
+    "calendar.events",
+    "Calendar events database and views",
+    "view",
+    [readAll("event"), writeAll("event")],
+    [{ id: "google-calendar", externalSend: true }],
+  ),
+  capability(
+    "google.listCalendarEvents",
+    "List Google Calendar events",
+    "skill",
+    [readAll("event")],
+    [{ id: "google-calendar" }],
+  ),
+  capability(
+    "google.composeEvent",
+    "Compose a governed Calendar event",
+    "skill",
+    [writeAll("event")],
+    [{ id: "google-calendar", externalSend: true }],
+  ),
+  capability(
+    "calendar.agent",
+    "Calendar Agent",
+    "agent",
+    [readAll("event"), writeAll("event")],
+    [],
+    [
+      { manifestId: "google.listCalendarEvents", versionRange: "0.2.0" },
+      { manifestId: "google.composeEvent", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "calendar.refresh",
+    "Calendar refresh",
+    "workflow",
+    [readAll("event")],
+    [{ id: "google-calendar" }],
+    [
+      { manifestId: "calendar.agent", versionRange: "0.2.0" },
+      { manifestId: "google.listCalendarEvents", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "calendar.google",
+    "Google Calendar",
+    "integration",
+    [readAll("event"), writeAll("event")],
+    [{ id: "google-calendar", externalSend: true }],
+  ),
+];
+
+export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
   {
-    route: "/dealpilot",
     computedRisk: "advisory",
     manifest: {
       name: "deal-pilot",
-      version: "0.1.0",
+      version: "0.3.0",
       kind: "workspace_definition",
-      summary: "Sourcing waterfall + thesis-fit scoring for deal flow.",
+      summary: "Sourcing waterfall and thesis-fit scoring for deal flow.",
       description:
-        "Adds a deal-sourcing surface: waterfall pipeline, thesis-fit scoring, and Initiative tracking per prospect. Reads Person/Community graph. No external sends in v0.1.",
+        "Deal sourcing through governed brokerage-alert intake, candidate review, thesis-fit scoring, and real Deal records.",
       lineageManifestId: null,
       dependencies: [],
-      capabilities: [
-        {
-          id: "deal-pilot.surface",
-          name: "DealPilot surface",
-          version: "0.1.0",
-          capabilityType: "view",
-          origin: "built_in",
-          audience: "team",
-          permissions: [
-            { resourceType: "person", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "write", dataScope: "all", egress: false },
-          ],
-          connectors: [],
-          dependencies: [],
-        },
-      ],
+      capabilities: dealPilotCapabilities,
       contextProviders: [],
-      workspaceVocab: {
-        alignsToBridgeTheme: false,
-        domainTerms: { Initiative: "Deal", Person: "Founder" },
+      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: { Record: "Deal" } },
+      module: {
+        displayName: "DealPilot",
+        route: "/dealpilot",
+        pages: [{
+          id: "deals",
+          name: "Deals",
+          route: "/dealpilot",
+          databaseId: "dealpilot.candidates",
+          capabilityId: "deal-pilot.deals",
+        }],
+        agents: [{
+          id: "sourcing-agent",
+          name: "Deal sourcing Agent",
+          capabilityId: "deal-pilot.sourcing-agent",
+          skillIds: ["dealpilot.source"],
+          plane: "cloud",
+        }],
+        automations: [{
+          id: "source-intake",
+          name: "Deal source intake",
+          capabilityId: "deal-pilot.source-intake",
+          agentId: "sourcing-agent",
+          trigger: "Manual source refresh",
+          procedure: "dealpilot.source",
+          ritualId: DEAL_PILOT_SOURCE_RITUAL_KEY,
+        }],
       },
     },
   },
   {
-    route: "/jobpilot",
     computedRisk: "advisory",
     manifest: {
       name: "job-pilot",
-      version: "0.1.0",
+      version: "0.2.0",
       kind: "workspace_definition",
-      summary: "Job search tracker + application pipeline.",
+      summary: "Real job records and an application tracking pipeline.",
       description:
-        "Adds a job-search workspace: role tracking, application pipeline, and interview stage management. Reads Person/Community graph for contacts at target companies. No external sends in v0.1.",
+        "Stores real job records, scores fit deterministically, and validates every application-stage transition.",
       lineageManifestId: null,
       dependencies: [],
-      capabilities: [
-        {
-          id: "job-pilot.surface",
-          name: "JobPilot surface",
-          version: "0.1.0",
-          capabilityType: "view",
-          origin: "built_in",
-          audience: "team",
-          permissions: [
-            { resourceType: "person", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "write", dataScope: "all", egress: false },
-          ],
-          connectors: [],
-          dependencies: [],
-        },
-      ],
+      capabilities: jobPilotCapabilities,
       contextProviders: [],
-      workspaceVocab: {
-        alignsToBridgeTheme: false,
-        domainTerms: { Initiative: "Application", Person: "Hiring Manager" },
+      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: { Record: "Application" } },
+      module: {
+        displayName: "JobPilot",
+        route: "/jobpilot",
+        pages: [{
+          id: "jobs",
+          name: "Jobs",
+          route: "/jobpilot",
+          databaseId: "jobpilot.jobs",
+          capabilityId: "job-pilot.jobs",
+        }],
+        agents: [{
+          id: "application-agent",
+          name: "Application tracking Agent",
+          capabilityId: "job-pilot.application-agent",
+          skillIds: ["job-pilot.score-fit", "job-pilot.transition-application"],
+        }],
+        automations: [{
+          id: "track-application",
+          name: "Job tracking intake",
+          capabilityId: "job-pilot.track-application",
+          agentId: "application-agent",
+          trigger: "Job saved",
+          procedure: "jobpilot.create",
+        }],
+        commonsNeeds: [{
+          id: "interview-calendar-availability",
+          title: "Check interview availability",
+          description: "Let the Application tracking Agent read Calendar availability before proposing interview times.",
+          agentId: "application-agent",
+          kind: "skill",
+          tags: ["need:interview-calendar-availability"],
+        }],
       },
     },
   },
   {
-    route: "/helpdesk",
     computedRisk: "operational",
     manifest: {
       name: "helpdesk",
-      version: "0.1.0",
+      version: "0.2.0",
       kind: "workspace_definition",
-      summary: "Support ticket inbox + routing.",
-      description:
-        "Adds a support-operations surface: ticket inbox, thread view, and routing rules. Operational risk: future versions will draft+send replies through the governed egress pipeline.",
+      summary: "Help Request intake and governed relationship routing.",
+      description: "Captures real Help Requests and routes them through permitted relationship evidence.",
       lineageManifestId: null,
       dependencies: [],
-      capabilities: [
-        {
-          id: "helpdesk.surface",
-          name: "Helpdesk surface",
-          version: "0.1.0",
-          capabilityType: "view",
-          origin: "built_in",
-          audience: "team",
-          permissions: [
-            { resourceType: "touchpoint", action: "read", dataScope: "all", egress: false },
-            { resourceType: "touchpoint", action: "write", dataScope: "all", egress: false },
-          ],
-          connectors: [],
-          dependencies: [],
-        },
-      ],
+      capabilities: helpdeskCapabilities,
       contextProviders: [],
       workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Helpdesk",
+        route: "/helpdesk",
+        pages: [{
+          id: "requests",
+          name: "Help Requests",
+          route: "/helpdesk",
+          databaseId: "helpdesk.requests",
+          capabilityId: "helpdesk.requests",
+        }],
+        agents: [{
+          id: "routing-agent",
+          name: "Help Request routing Agent",
+          capabilityId: "helpdesk.routing-agent",
+          skillIds: ["helpdesk.route-request"],
+        }],
+        automations: [{
+          id: "route-intake",
+          name: "Help Request intake routing",
+          capabilityId: "helpdesk.route-intake",
+          agentId: "routing-agent",
+          trigger: "Help Request submitted",
+          procedure: "helpdesk.route",
+        }],
+      },
     },
   },
   {
-    route: "/calendar",
     computedRisk: "external",
     manifest: {
       name: "calendar",
-      version: "0.1.0",
+      version: "0.2.0",
       kind: "workspace_definition",
-      summary: "Time-axis projection over your graph — Google Calendar today.",
+      summary: "Time-axis projection over Events and Records.",
       description:
-        "A native calendar surface: month/week/day/agenda views over CalendarEvent, projected from the graph — not a calendar product or server (docs/wiki/calendar.md). v0.1's single source is Google Calendar; creating, editing, or deleting an event always goes through the governed propose→approve pipeline before it reaches Google, same as every other egress action. Pre-installed by default — this is a kernel Tool packaged as a Module, not a third-party add-on.",
+        "Reads Google Calendar through an attributable Calendar Agent and governs every external calendar write.",
       lineageManifestId: null,
       dependencies: [],
-      capabilities: [
-        {
-          id: "calendar.surface",
-          name: "Calendar surface",
-          version: "0.1.0",
-          capabilityType: "view",
-          origin: "built_in",
-          audience: "team",
-          permissions: [
-            { resourceType: "touchpoint", action: "read", dataScope: "all", egress: false },
-            { resourceType: "touchpoint", action: "write", dataScope: "all", egress: true },
-          ],
-          connectors: [{ id: "google-calendar", externalSend: true }],
-          dependencies: [],
-        },
-      ],
+      capabilities: calendarCapabilities,
       contextProviders: [],
       workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+      module: {
+        displayName: "Calendar",
+        route: "/calendar/google",
+        pages: [{
+          id: "events",
+          name: "Events",
+          route: "/calendar/google",
+          databaseId: "calendar.events",
+          capabilityId: "calendar.events",
+        }],
+        agents: [{
+          id: "calendar-agent",
+          name: "Calendar Agent",
+          capabilityId: "calendar.agent",
+          skillIds: ["google.listCalendarEvents", "google.composeEvent"],
+        }],
+        automations: [{
+          id: "refresh",
+          name: "Calendar refresh",
+          capabilityId: "calendar.refresh",
+          agentId: "calendar-agent",
+          trigger: "Manual refresh",
+          procedure: "google.listEvents",
+        }],
+      },
+    },
+  },
+];
+
+const interviewCalendarAvailability: BuiltInPackage = {
+  computedRisk: "informational",
+  manifest: {
+    name: "interview-calendar-availability",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Read Calendar availability before proposing interview times.",
+    description:
+      "Reuses Bridge's governed Google Calendar event reader so a Module Agent can check real availability without gaining write or send authority.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        ...calendarCapabilities.find((capability) => capability.id === "google.listCalendarEvents")!,
+        version: "1.0.0",
+        audience: "private",
+      },
+    ],
+    contextProviders: [],
+    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
+export const COMMONS_BUILT_IN_PACKAGES: readonly CommonsBuiltInPackage[] = [
+  ...BUILT_IN_PACKAGES.map((pkg) => ({
+    ...pkg,
+    commons: {
+      provenance: provenance(builtInSourceRef(pkg.manifest.name)),
+      tags: ["built-in", pkg.manifest.kind],
+    },
+  })),
+  {
+    ...interviewCalendarAvailability,
+    commons: {
+      provenance: provenance("platform/packages/integrations-google/src/skills.ts#SKILL_LIST_CALENDAR"),
+      tags: ["built-in", "calendar", "interview", "need:interview-calendar-availability"],
     },
   },
 ];

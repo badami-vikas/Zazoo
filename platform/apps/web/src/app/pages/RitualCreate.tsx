@@ -109,13 +109,13 @@ export function RitualCreate() {
   };
 
   const anyViolation = steps.some((s) => stepViolations(s).length > 0);
-  const canSave = name.trim().length > 0 && agentIds.length > 0 && !anyViolation;
+  const canSave = name.trim().length > 0 && agentIds.length === 1 && !anyViolation;
 
   const updateStep = (id: string, patch: Partial<Step>) =>
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   const toggleAgent = (id: string) =>
-    setAgentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setAgentIds((prev) => (prev.includes(id) ? [] : [id]));
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -203,7 +203,7 @@ export function RitualCreate() {
           {/* Assigned agents */}
           <section className="flex flex-col gap-4">
             <div className="border-b border-[var(--color-border)] pb-3">
-              <h2 className="font-bold text-[var(--color-navy)]">Assigned agents</h2>
+              <h2 className="font-bold text-[var(--color-navy)]">Owning Agent</h2>
               <p className="text-xs text-[var(--color-navy-mid)] mt-0.5">The workflow runs under these agents. Steps are clamped to their combined authority.</p>
             </div>
             <div className="flex flex-col gap-2">

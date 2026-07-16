@@ -51,17 +51,17 @@ There is no separate progress narrative. Report task deltas only: status change,
 The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → TASK-005. TASK-005 is the gate: do not resume broad vocabulary migration, repo cleanup, or later Modules until the combined Avatar + Commons path is usable and tested.
 
 ## TASK-001 — Coherent actionable shell prototype
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.
 - Prototype test: On desktop and 375px, open two installed Modules from the left nav; inspect their Agent-owned Skills, Automations, Integrations, Files, and standard table toolbar/context menu; resize/collapse/extend both panels; confirm no visible Tools, Knowledge, Workflows, Projects, or inert interactive rows.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §2–§5; docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB2/VOCAB6; docs/raw/relationship-module-plan-2026-07.md RM0; docs/raw/brd-dealpilot-2026-07.md; docs/raw/brd-jobpilot-2026-07.md
-- Evidence: BUGS 2026-07-14 deprecated Tools/dead Modules; BUGS standalone Skills; BUGS asymmetric panels; BUGS Knowledge/Relationship IA; BUGS Intelligence toolbar/Workflows; BUGS hardcoded Modules; BUGS server error vocabulary; BUGS pinned legacy surfaces
+- Evidence: RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, and pinned legacy surfaces; broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks
 - Requests: R-019; R-020; R-021; R-023; user shell/module/table directives 2026-07-14–15
-- Approval: AP-020 and AP-021 applied
+- Approval: AP-020, AP-021, and AP-027 applied
 - Dependencies: none
-- Unblock: Run the live desktop/375px prototype test with seeded installed Modules, then expose attributable Agent→Skill ownership and real Automation/File inventories instead of empty states.
+- Verification: 2026-07-16 exact Prototype test passed at 1280×720 and emulated 375×812 against isolated API/web processes; Tauri launched and remained alive against the same API-backed Vite client.
 
 ## TASK-002 — Trust-first onboarding and behavioral learning prototype
 - Status: in_progress
@@ -89,15 +89,15 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Unblock: In a local macOS session, implement and verify join-all-Spaces/fullscreen non-activating panel behavior, runtime display hot-plug reconciliation, and the supplied-reference Sidebar chrome across the full prototype test.
 
 ## TASK-004 — Commons install and trust prototype
-- Status: ready
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.
 - Prototype test: From a real Module need, search Commons, inspect provenance and scan results, install a signed content-hash-pinned capability, reject tampered/untrusted input, and show the installed capability in its owning Module.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md CM0–CM1; docs/raw/module-evolution-system-2026-07.md
-- Evidence: e5edafc audit — Commons port/client exist but app/tRPC consumption is absent
+- Evidence: e5edafc audit; `outputs/2026-07-16-task004-commons-task005-glue.md` — clean local Commons/API/web desktop+375px Prototype test passed with signed hash/provenance/scan inspection, governed Agent attachment, rejection/privacy tests, and no marketplace route
 - Requests: R-004; R-016; R-026
-- Approval: none
+- Approval: AP-030 applied
 - Dependencies: TASK-001
 
 ## TASK-005 — Avatar + Commons end-to-end demo certification
@@ -108,9 +108,11 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
 - Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: none
+- Approval: AP-030 applied for the bounded gate-glue implementation only; no DONE approval
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
+- Unblock: complete TASK-003 physical macOS evidence and run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
 
 ## TASK-006 — DealPilot ETA core prototype
 - Status: ready

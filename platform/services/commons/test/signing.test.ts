@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
   parsePackageManifest,
+  verifyCommonsEntry,
   toSignedEnvelope,
   verifyManifestSignature,
   type CommonsPackageEntry,
@@ -13,6 +15,23 @@ import {
 import { buildCommonsServer } from "../src/server.js";
 import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signManifest, type CommonsSigningKeyPair } from "../src/signing.js";
 import { FsCommonsStore } from "../src/store.js";
+
+const provenance = {
+  sourceRepository: "https://github.com/example/generalized-capability",
+  sourceRef: "capability",
+  inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
+  repositoryLicense: "MIT",
+  artifactLicense: "MIT",
+  licenseVerified: true,
+};
+const TEST_PUBLISH_TOKEN = "test-commons-publisher-token-00000001";
+const AUTH_HEADERS = { authorization: `Bearer ${TEST_PUBLISH_TOKEN}` };
+
+async function publish(app: ReturnType<typeof buildCommonsServer>, payload: Record<string, unknown>) {
+  return await app.inject({ method: "POST", url: "/v1/packages", headers: AUTH_HEADERS, payload });
+}
+
+const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
 function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): PackageManifest {
   return parsePackageManifest({
@@ -33,7 +52,7 @@ function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): P
 
 async function createApp(t: TestContext, keyPair: CommonsSigningKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" })) {
   const dataDir = await mkdtemp(join(process.cwd(), ".commons-signing-test-"));
-  const app = buildCommonsServer(new FsCommonsStore(dataDir), { keyPair });
+  const app = buildCommonsServer(new FsCommonsStore(dataDir), { keyPair, publishToken: TEST_PUBLISH_TOKEN });
   t.after(async () => {
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
@@ -44,11 +63,7 @@ async function createApp(t: TestContext, keyPair: CommonsSigningKeyPair = resolv
 test("publishing a valid manifest stores a server signature", async (t) => {
   const { app } = await createApp(t);
 
-  const published = await app.inject({
-    method: "POST",
-    url: "/v1/packages",
-    payload: { manifest: generalizedManifest(), tags: ["signed"] },
-  });
+  const published = await publish(app, { manifest: generalizedManifest(), tags: ["signed"], provenance });
   assert.equal(published.statusCode, 201);
 
   const entry = (await app.inject({ url: "/v1/packages/test-fixture-signed/1.0.0" })).json() as CommonsPackageEntry;
@@ -62,14 +77,14 @@ test("served signature verifies against the signing-key route", async (t) => {
   const { app } = await createApp(t);
   const manifest = generalizedManifest("test-fixture-verifies");
 
-  assert.equal((await app.inject({ method: "POST", url: "/v1/packages", payload: { manifest } })).statusCode, 201);
+  assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
   const entry = (await app.inject({ url: "/v1/packages/test-fixture-verifies/1.0.0" })).json() as CommonsPackageEntry;
   assert.ok(entry.signature);
   const signingKey = (await app.inject({ url: "/v1/signing-key" })).json() as { publicKey: string; algorithm: "ed25519" };
 
   assert.equal(signingKey.algorithm, "ed25519");
   assert.deepEqual(
-    verifyManifestSignature(toSignedEnvelope(entry.manifest, entry.signature), ed25519ManifestVerifier, {
+    verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, {
       trustedPublicKeys: [signingKey.publicKey],
     }),
     { valid: true },
@@ -80,37 +95,29 @@ test("altering a signed manifest invalidates the served signature", async (t) =>
   const { app } = await createApp(t);
   const manifest = generalizedManifest("test-fixture-tamper");
 
-  assert.equal((await app.inject({ method: "POST", url: "/v1/packages", payload: { manifest } })).statusCode, 201);
+  assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
   const entry = (await app.inject({ url: "/v1/packages/test-fixture-tamper/1.0.0" })).json() as CommonsPackageEntry;
   assert.ok(entry.signature);
 
-  const mutatedManifest = { ...entry.manifest, summary: "An altered signed manifest." };
-  assert.deepEqual(verifyManifestSignature(toSignedEnvelope(mutatedManifest, entry.signature), ed25519ManifestVerifier), {
+  const mutated = {
+    ...entry,
+    summary: "An altered signed manifest.",
+    manifest: { ...entry.manifest, summary: "An altered signed manifest." },
+  };
+  assert.deepEqual(verifyCommonsEntry(mutated, sha256, ed25519ManifestVerifier), {
     valid: false,
-    reason: "invalid_signature",
+    reason: "hash_mismatch",
   });
 });
 
-test("publishing with a bogus client-supplied signature is rejected", async (t) => {
-  const { app, keyPair } = await createApp(t);
-  const manifest = generalizedManifest("test-fixture-bogus");
+test("publishing without required provenance is rejected", async (t) => {
+  const { app } = await createApp(t);
+  const manifest = generalizedManifest("test-fixture-no-provenance");
 
-  const res = await app.inject({
-    method: "POST",
-    url: "/v1/packages",
-    payload: {
-      manifest,
-      signature: {
-        signature: "AAAA",
-        publicKey: keyPair.publicKeyPem,
-        algorithm: "ed25519",
-        signedAt: "2026-07-14T00:00:00.000Z",
-      },
-    },
-  });
+  const res = await publish(app, { manifest });
 
   assert.equal(res.statusCode, 400);
-  assert.equal(res.json().error, "invalid_signature");
+  assert.equal(res.json().error, "invalid_provenance");
 });
 
 test("resolving signing keys uses env PEMs or generates a usable pair", () => {
@@ -126,4 +133,30 @@ test("resolving signing keys uses env PEMs or generates a usable pair", () => {
   const manifest = generalizedManifest("test-fixture-generated-key");
   const signature: ManifestSignature = signManifest(manifest, generated);
   assert.deepEqual(verifyManifestSignature(toSignedEnvelope(manifest, signature), ed25519ManifestVerifier), { valid: true });
+});
+
+test("persisted signing keys keep stored entries readable across service restarts", async () => {
+  const dataDir = await mkdtemp(join(process.cwd(), ".commons-restart-test-"));
+  const keyFile = join(dataDir, "signing-key.json");
+  try {
+    const firstKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" }, keyFile);
+    const firstApp = buildCommonsServer(new FsCommonsStore(dataDir), {
+      keyPair: firstKeyPair,
+      publishToken: TEST_PUBLISH_TOKEN,
+    });
+    const manifest = generalizedManifest("test-fixture-restart");
+    assert.equal((await publish(firstApp, { manifest, provenance })).statusCode, 201);
+    await firstApp.close();
+
+    const secondKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" }, keyFile);
+    assert.equal(secondKeyPair.publicKeyPem, firstKeyPair.publicKeyPem);
+    const secondApp = buildCommonsServer(new FsCommonsStore(dataDir), {
+      keyPair: secondKeyPair,
+      publishToken: TEST_PUBLISH_TOKEN,
+    });
+    assert.equal((await secondApp.inject({ url: "/v1/packages/test-fixture-restart/1.0.0" })).statusCode, 200);
+    await secondApp.close();
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
 });

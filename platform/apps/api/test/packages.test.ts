@@ -5,9 +5,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import { parsePackageManifest, SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -19,7 +19,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "test_fixture_packages_user" },
+    identity: { type: "user", id: PILOT_USER },
     authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
     verifying: false,
   });
@@ -79,6 +79,25 @@ test("packages.register: rejects an invalid manifest with BAD_REQUEST", async ()
     await assert.rejects(
       () => caller.packages.register({ workspaceId: PILOT_WORKSPACE, manifest: { package: { name: "Bad Name", version: "1.0.0" } } }),
       /BAD_REQUEST|package manifest invalid/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("packages.register: rejects an authenticated workspace nonmember", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "user", id: "d0000000-0000-4000-a000-00000000dead" },
+      authenticated: true,
+      verifying: true,
+    });
+    await assert.rejects(
+      () => caller.packages.register({ workspaceId: PILOT_WORKSPACE, manifest: dummyManifest() }),
+      /not a member/,
     );
   } finally {
     await wiring.close();
@@ -219,6 +238,56 @@ test("packages.promote: auto-demotes the prior available version, never two live
       workspaceId: PILOT_WORKSPACE,
       manifest: dummyManifest({ version: "1.0.0" }),
     });
+
+    test("packages.promote: Commons attachments for different Module Agents remain available together", async () => {
+      const wiring = await buildWiring();
+      try {
+        const caller = await makeCaller(wiring);
+        const manifest = parsePackageManifest(dummyManifest({ name: "shared-commons-skill", version: "1.0.0" }));
+        const first = await wiring.packageStore.create({
+          workspaceId: PILOT_WORKSPACE,
+          packageName: manifest.name,
+          packageVersion: manifest.version,
+          manifest,
+          computedRisk: "informational",
+          state: "promoted",
+          status: "installed",
+          lineageManifestId: null,
+          moduleAttachment: {
+            source: "commons",
+            modulePackageName: "job-pilot",
+            agentId: "application-agent",
+            needId: "calendar",
+            contentHash: `sha256:${"1".repeat(64)}`,
+          },
+        });
+        const second = await wiring.packageStore.create({
+          workspaceId: PILOT_WORKSPACE,
+          packageName: manifest.name,
+          packageVersion: manifest.version,
+          manifest,
+          computedRisk: "informational",
+          state: "promoted",
+          status: "installed",
+          lineageManifestId: null,
+          moduleAttachment: {
+            source: "commons",
+            modulePackageName: "job-pilot",
+            agentId: "research-agent",
+            needId: "calendar",
+            contentHash: `sha256:${"1".repeat(64)}`,
+          },
+        });
+
+        await caller.packages.promote({ workspaceId: PILOT_WORKSPACE, installationId: first.id });
+        await caller.packages.promote({ workspaceId: PILOT_WORKSPACE, installationId: second.id });
+
+        assert.equal((await wiring.packageStore.get(first.id))?.state, "available");
+        assert.equal((await wiring.packageStore.get(second.id))?.state, "available");
+      } finally {
+        await wiring.close();
+      }
+    });
     await caller.packages.install({ workspaceId: PILOT_WORKSPACE, installationId: v1.id, todayKey: "2026-07-06" });
     const promotedV1 = await caller.packages.promote({ workspaceId: PILOT_WORKSPACE, installationId: v1.id });
     assert.equal(promotedV1.installation.state, "available");
@@ -286,6 +355,44 @@ test("packages.list: paginates a workspace's installations", async () => {
   }
 });
 
+test("packages.files: returns the real canonical File root for an installed Module", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const inventory = await caller.packages.files({
+      workspaceId: PILOT_WORKSPACE,
+      moduleName: "deal-pilot",
+    });
+
+    test("packages.files: authenticated deployments reject tokenless local-file metadata reads", async () => {
+      const wiring = await buildWiring();
+      try {
+        const caller = appRouter.createCaller({
+          wiring,
+          run: makeRun(),
+          identity: { type: "user", id: PILOT_USER },
+          authenticated: false,
+          verifying: true,
+        });
+        await assert.rejects(
+          () => caller.packages.files({ workspaceId: PILOT_WORKSPACE, moduleName: "deal-pilot" }),
+          /verified authentication is required/,
+        );
+        await assert.rejects(
+          () => caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
+          /verified authentication is required/,
+        );
+      } finally {
+        await wiring.close();
+      }
+    });
+    assert.match(inventory.root, /Documents[/\\]Bridge[/\\].+[/\\]DealPilot$/);
+    assert.ok(Array.isArray(inventory.items));
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("packages.install: re-installing two package versions whose bundled capability keeps the SAME (name, version) is idempotent — reuses the existing manifest instead of colliding with capability_manifests_uq (ADR-024)", async () => {
   const wiring = await buildWiring();
   try {
@@ -304,6 +411,7 @@ test("packages.install: re-installing two package versions whose bundled capabil
       workspaceId: PILOT_WORKSPACE,
       manifest: dummyManifest({ version: "1.0.0", capabilities: [sharedCapability] }),
     });
+
     const resultV1 = await caller.packages.install({
       workspaceId: PILOT_WORKSPACE,
       installationId: v1.id,
@@ -311,6 +419,14 @@ test("packages.install: re-installing two package versions whose bundled capabil
     });
     assert.equal(resultV1.installed, true);
     assert.equal(resultV1.registeredManifestIds.length, 1);
+    await wiring.capabilityStore.upsertState({
+      manifestId: resultV1.registeredManifestIds[0]!,
+      workspaceId: PILOT_WORKSPACE,
+      state: "active",
+      suspended: true,
+      suspendReason: "operator pause",
+      evidence: { activeRunCount: 9 },
+    });
 
     const { installation: v2 } = await caller.packages.register({
       workspaceId: PILOT_WORKSPACE,
@@ -326,9 +442,59 @@ test("packages.install: re-installing two package versions whose bundled capabil
     assert.equal(resultV2.registeredManifestIds.length, 1);
     // Same underlying manifest id is reused, not a second row.
     assert.equal(resultV2.registeredManifestIds[0], resultV1.registeredManifestIds[0]);
+    const preservedState = await wiring.capabilityStore.getState(resultV1.registeredManifestIds[0]!);
+    assert.equal(preservedState?.state, "active");
+    assert.equal(preservedState?.suspended, true);
+    assert.equal(preservedState?.suspendReason, "operator pause");
+    assert.deepEqual(preservedState?.evidence, { activeRunCount: 9 });
 
     const { total } = await wiring.capabilityStore.listManifests(PILOT_WORKSPACE, { limit: 100, offset: 0 });
     assert.equal(total, 1);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("packages.install: rejects a signed capability collision with different content", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const originalCapability = {
+      id: "test-fixture.content-pinned-capability",
+      capability_type: "skill",
+      version: "1.0.0",
+      permissions: [{ resource_type: "person", action: "read", data_scope: "all", egress: false }],
+      connectors: [],
+    };
+    const { installation: original } = await caller.packages.register({
+      workspaceId: PILOT_WORKSPACE,
+      manifest: dummyManifest({ version: "1.0.0", capabilities: [originalCapability] }),
+    });
+    await caller.packages.install({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: original.id,
+      todayKey: "2026-07-16",
+    });
+
+    const { installation: collision } = await caller.packages.register({
+      workspaceId: PILOT_WORKSPACE,
+      manifest: dummyManifest({
+        version: "2.0.0",
+        capabilities: [{
+          ...originalCapability,
+          permissions: [{ resource_type: "person", action: "write", data_scope: "all", egress: false }],
+        }],
+      }),
+    });
+    await assert.rejects(
+      () =>
+        caller.packages.install({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: collision.id,
+          todayKey: "2026-07-16",
+        }),
+      /different signed content/,
+    );
   } finally {
     await wiring.close();
   }

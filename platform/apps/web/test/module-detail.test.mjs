@@ -10,6 +10,7 @@
  * Run with: node --test test/module-detail.test.mjs
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 // ---------------------------------------------------------------------------
@@ -39,9 +40,9 @@ function clampWidth(raw, min, max) {
 }
 
 /** Pure snap helper matching usePanelControl's snap onUp logic. */
-function snapDecision(finalWidth, snapMidpoint, maxWidth) {
+function snapDecision(finalWidth, snapMidpoint, defaultWidth) {
   if (finalWidth >= snapMidpoint) {
-    return { collapsed: false, width: maxWidth };
+    return { collapsed: false, width: Math.max(defaultWidth, finalWidth) };
   }
   return { collapsed: true };
 }
@@ -76,14 +77,19 @@ test("PanelControl snap: below midpoint collapses panel", () => {
   assert.deepEqual(result, { collapsed: true });
 });
 
-test("PanelControl snap: at or above midpoint expands panel to max", () => {
-  const result = snapDecision(150, 148, 220); // 150 >= midpoint(148) → expand
+test("PanelControl snap: above midpoint preserves the dragged width", () => {
+  const result = snapDecision(150, 148, 220);
   assert.deepEqual(result, { collapsed: false, width: 220 });
 });
 
 test("PanelControl snap: exactly at midpoint expands (boundary inclusive)", () => {
   const result = snapDecision(148, 148, 220);
   assert.deepEqual(result, { collapsed: false, width: 220 });
+});
+
+test("PanelControl snap: extended width is preserved instead of snapping to normal width", () => {
+  const result = snapDecision(340, 148, 220);
+  assert.deepEqual(result, { collapsed: false, width: 340 });
 });
 
 test("PanelControl right panel: drag left (negative client delta) grows width", () => {
@@ -108,14 +114,27 @@ test("PanelControl right panel: drag respects minimum width", () => {
   assert.equal(result, 260, "should clamp to minimum 260");
 });
 
-test("Nav module filter: only available packages appear", () => {
+test("Nav module filter: only installed Module manifests appear", () => {
   const packages = [
-    { packageName: "deal-pilot", state: "available", status: "installed" },
-    { packageName: "job-pilot", state: "available", status: "pending_review" },
-    { packageName: "helpdesk", state: "available", status: "installed" },
-    { packageName: "calendar", state: "deprecated", status: "installed" },
+    { packageName: "deal-pilot", state: "available", status: "installed", manifest: { module: {} } },
+    { packageName: "job-pilot", state: "available", status: "pending_review", manifest: { module: {} } },
+    { packageName: "helpdesk", state: "available", status: "installed", manifest: { module: {} } },
+    { packageName: "calendar", state: "deprecated", status: "installed", manifest: { module: {} } },
+    {
+      packageName: "calendar-skill",
+      state: "available",
+      status: "installed",
+      manifest: {},
+      moduleAttachment: { modulePackageName: "job-pilot" },
+    },
   ];
-  const navModules = packages.filter((p) => p.state === "available" && p.status === "installed");
+  const navModules = packages.filter(
+    (p) =>
+      p.state === "available" &&
+      p.status === "installed" &&
+      p.manifest?.module !== undefined &&
+      p.moduleAttachment === undefined,
+  );
   assert.equal(navModules.length, 2);
   assert.deepEqual(
     navModules.map((m) => m.packageName),
@@ -132,12 +151,64 @@ test("Module Detail route uses packageName as route param", () => {
   }
 });
 
-test("IntelligencePage sections do not include Tools, Workflows, or Skills", () => {
-  // These are the section IDs that were removed (VOCAB2/VOCAB6).
-  const deprecatedSectionIds = ["tools", "workflows", "skills"];
-  // Mirror the current SECTIONS array from IntelligencePage.tsx
-  const currentSections = ["packages", "integrations", "agents", "commons"];
-  for (const deprecated of deprecatedSectionIds) {
-    assert.ok(!currentSections.includes(deprecated), `Section "${deprecated}" should be removed`);
+test("Commons discovery stays Module-scoped and does not resurrect an Intelligence route", () => {
+  const routedSurfaces = ["home", "module/:moduleId", "dealpilot", "jobpilot", "helpdesk", "calendar/google"];
+  assert.equal(routedSurfaces.includes("intelligence"), false);
+  assert.equal(routedSurfaces.includes("marketplace"), false);
+});
+
+test("only installed available Commons packages attach beneath their declared Module Agent", () => {
+  const packages = [
+    {
+      packageName: "calendar-skill",
+      state: "available",
+      status: "installed",
+      moduleAttachment: { modulePackageName: "job-pilot", agentId: "application-agent", needId: "calendar" },
+    },
+    {
+      packageName: "pending-skill",
+      state: "promoted",
+      status: "pending_review",
+      moduleAttachment: { modulePackageName: "job-pilot", agentId: "application-agent", needId: "calendar" },
+    },
+    {
+      packageName: "other-module-skill",
+      state: "available",
+      status: "installed",
+      moduleAttachment: { modulePackageName: "deal-pilot", agentId: "sourcing-agent", needId: "source" },
+    },
+  ];
+  const attachments = packages.filter(
+    (item) =>
+      item.moduleAttachment?.modulePackageName === "job-pilot" &&
+      item.moduleAttachment.agentId === "application-agent" &&
+      item.state === "available" &&
+      item.status === "installed"
+  );
+  assert.deepEqual(attachments.map((item) => item.packageName), ["calendar-skill"]);
+});
+
+test("Commons install retries resume promotion after an interrupted install", () => {
+  function nextStep(installation) {
+    if (installation.state === "available" && installation.status === "installed") return "done";
+    if (installation.state === "promoted" && installation.status === "installed") return "promote";
+    return "install";
   }
+
+  assert.equal(nextStep({ state: "private", status: "pending_review" }), "install");
+  assert.equal(nextStep({ state: "promoted", status: "installed" }), "promote");
+  assert.equal(nextStep({ state: "available", status: "installed" }), "done");
+});
+
+test("Module Automation Run delegates to server-owned ritual execution and existing Approvals", () => {
+  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /trpc\.ritual\.runById\.mutate/);
+  assert.match(source, /ritualId,/);
+  assert.match(source, /modulePackageName:\s*pkg\.packageName/);
+  assert.match(source, /automation\.ritualId/);
+  assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
+  assert.match(source, /Runtime binding pending/);
+  assert.doesNotMatch(source, /actor:\s*\{/);
+  assert.match(source, /to="\/approvals"/);
+  assert.match(source, /Review or correct in Approvals/);
 });

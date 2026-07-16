@@ -8,3 +8,9 @@ Commons = signed registry of generalized Modules, Blueprints, Skills, Integratio
 - Marketplace = optional website discovery surface. App consumes installed Modules only. Install still passes signature, dependency, risk, lethal-trifecta, authority, and approval checks.
 - Registry starts honest/empty. Built-ins publish as generalized signed entries. No personal Memory.
 - CM0 wire client/API consumption. CM1 signature/hash/publisher/security scan before corpus ingest.
+- Content hash: canonical manifest + provenance + scan. No hash recursion.
+- Signature also binds hash + publish time. “Latest” cannot be timestamp-tampered.
+- Publish: authenticated. Registry key: persistent + allowlisted. Shared deployment: TLS.
+- Scan: deterministic dependency closure. Every dependency gets exact content hash. Unresolved/substituted dependency fails. Signed scan risk is install floor.
+- Install: Module need → inspect → governed install → owning Agent. Skill never becomes top-level Module.
+- Personal data/credentials rejected before storage. Runtime ownership metadata stays Local Plane.

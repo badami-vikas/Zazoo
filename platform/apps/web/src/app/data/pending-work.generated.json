@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-07-16T09:46:07.538Z",
+  "generatedAt": "2026-07-16T18:46:07.604Z",
   "items": [
     {
       "id": "TASK-001",
       "title": "TASK-001 — Coherent actionable shell prototype",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.",
@@ -17,14 +17,8 @@
         "docs/raw/brd-jobpilot-2026-07.md"
       ],
       "evidence": [
-        "BUGS 2026-07-14 deprecated Tools/dead Modules",
-        "BUGS standalone Skills",
-        "BUGS asymmetric panels",
-        "BUGS Knowledge/Relationship IA",
-        "BUGS Intelligence toolbar/Workflows",
-        "BUGS hardcoded Modules",
-        "BUGS server error vocabulary",
-        "BUGS pinned legacy surfaces"
+        "RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, and pinned legacy surfaces",
+        "broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks"
       ],
       "requests": [
         "R-019",
@@ -33,9 +27,9 @@
         "R-023",
         "user shell/module/table directives 2026-07-14–15"
       ],
-      "approval": "AP-020 and AP-021 applied",
+      "approval": "AP-020, AP-021, and AP-027 applied",
       "dependencies": [],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 53,
@@ -74,7 +68,7 @@
     {
       "id": "TASK-004",
       "title": "TASK-004 — Commons install and trust prototype",
-      "status": "pending",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.",
@@ -84,18 +78,19 @@
         "docs/raw/module-evolution-system-2026-07.md"
       ],
       "evidence": [
-        "e5edafc audit — Commons port/client exist but app/tRPC consumption is absent"
+        "e5edafc audit",
+        "`outputs/2026-07-16-task004-commons-task005-glue.md` — clean local Commons/API/web desktop+375px Prototype test passed with signed hash/provenance/scan inspection, governed Agent attachment, rejection/privacy tests, and no marketplace route"
       ],
       "requests": [
         "R-004",
         "R-016",
         "R-026"
       ],
-      "approval": "none",
+      "approval": "AP-030 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 91,
@@ -120,7 +115,7 @@
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "none",
+      "approval": "AP-030 applied for the bounded gate-glue implementation only; no DONE approval",
       "dependencies": [
         "TASK-001",
         "TASK-002",
@@ -160,7 +155,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 199,
+      "sourceLine": 201,
       "rank": 5
     },
     {
@@ -193,7 +188,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 187,
+      "sourceLine": 189,
       "rank": 6
     },
     {
@@ -222,7 +217,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 163,
+      "sourceLine": 165,
       "rank": 7
     },
     {
@@ -251,7 +246,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 139,
+      "sourceLine": 141,
       "rank": 8
     },
     {
@@ -283,7 +278,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 127,
+      "sourceLine": 129,
       "rank": 9
     },
     {
@@ -315,7 +310,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 211,
+      "sourceLine": 213,
       "rank": 10
     },
     {
@@ -344,7 +339,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 223,
+      "sourceLine": 225,
       "rank": 11
     },
     {
@@ -373,7 +368,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 235,
+      "sourceLine": 237,
       "rank": 12
     },
     {
@@ -394,7 +389,8 @@
         "BUGS Node vm browser leak",
         "BUGS empty globals.css",
         "BUGS client-only pin persistence",
-        "BUGS 2026-07-16 baseline lint/typecheck failures"
+        "BUGS 2026-07-16 baseline lint/typecheck failures",
+        "BUGS 2026-07-15 sensor coverage floor"
       ],
       "requests": [],
       "approval": "none",
@@ -404,7 +400,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 247,
+      "sourceLine": 249,
       "rank": 13
     },
     {
@@ -432,7 +428,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 115,
+      "sourceLine": 117,
       "rank": 14
     },
     {
@@ -460,7 +456,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 175,
+      "sourceLine": 177,
       "rank": 15
     },
     {
@@ -488,7 +484,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 151,
+      "sourceLine": 153,
       "rank": 16
     },
     {
@@ -552,7 +548,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 283,
+      "sourceLine": 285,
       "rank": 18
     },
     {
@@ -580,7 +576,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 259,
+      "sourceLine": 261,
       "rank": 19
     },
     {
@@ -607,7 +603,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 271,
+      "sourceLine": 273,
       "rank": 20
     }
   ]

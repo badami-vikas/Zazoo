@@ -1,0 +1,193 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import { appRouter } from "../src/router.js";
+import {
+  DEAL_PILOT_SOURCE_RITUAL_ID,
+  DEAL_PILOT_SOURCE_RITUAL_KEY,
+  DEAL_PILOT_SOURCING_AGENT_ID,
+} from "../src/built-in-packages.js";
+import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+
+function makeRun(): RunCtx {
+  const clock = new SystemClock();
+  const rng = new SeededRng(41);
+  return { clock, rng, ids: new UuidGen(clock, rng) };
+}
+
+function makeCaller(wiring: Wiring) {
+  return appRouter.createCaller({
+    wiring,
+    run: makeRun(),
+    identity: { type: "user" as const, id: PILOT_USER },
+    authenticated: true,
+    verifying: false,
+  });
+}
+
+test("ritual.runById derives the actor from the stored owning Agent", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const agent = await caller.agent.create({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Ownership test Agent",
+      capabilityScope: ["touchpoint:write"],
+      allowedSkills: ["stageMutation"],
+      dataScope: "all",
+      egressTier: "none",
+    });
+    const created = await caller.ritual.create({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Ownership test Automation",
+      agentIds: [agent.agentId],
+      steps: [{
+        skill: "stageMutation",
+        action: "write",
+        resourceType: "touchpoint",
+        inputs: { title: "Prepare governed draft" },
+      }],
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const result = await caller.ritual.runById({
+      workspaceId: PILOT_WORKSPACE,
+      ritualId: created.ritualId,
+    });
+    assert.equal(result.proposals[0]?.request.actor.type, "agent");
+    assert.equal(result.proposals[0]?.request.actor.id, agent.agentId);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("ritual.runById rejects an arbitrary caller-supplied actor", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const agent = await caller.agent.create({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Bound test Agent",
+      capabilityScope: ["touchpoint:write"],
+      allowedSkills: ["stageMutation"],
+      dataScope: "all",
+      egressTier: "none",
+    });
+    const created = await caller.ritual.create({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Bound test Automation",
+      agentIds: [agent.agentId],
+      steps: [{
+        skill: "stageMutation",
+        action: "write",
+        resourceType: "touchpoint",
+        inputs: {},
+      }],
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    await assert.rejects(
+      () =>
+        caller.ritual.runById({
+          workspaceId: PILOT_WORKSPACE,
+          ritualId: created.ritualId,
+          actor: { type: "user", id: PILOT_USER },
+        }),
+      /does not match owning Agent/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("ritual.create rejects ambiguous multi-Agent ownership", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.ritual.create({
+          workspaceId: PILOT_WORKSPACE,
+          name: "Ambiguous test Automation",
+          agentIds: ["agent-one", "agent-two"],
+          steps: [{
+            skill: "stageMutation",
+            action: "write",
+            resourceType: "touchpoint",
+            inputs: {},
+          }],
+        }),
+      /exactly one owning Agent/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("manifest-declared DealPilot Automation registers its cloud owning Agent in the Ritual runtime", async () => {
+  const wiring = await buildWiring();
+  try {
+    const definition = await wiring.ritualRegistry.load(PILOT_WORKSPACE, DEAL_PILOT_SOURCE_RITUAL_ID);
+    assert.equal(definition?.agentId, DEAL_PILOT_SOURCING_AGENT_ID);
+    assert.equal(definition?.agentPlane, "cloud");
+    assert.equal(definition?.steps[0]?.skill, "dealpilot.source");
+    assert.equal(definition?.steps[0]?.resourceType, "external:fetch");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("manifest Ritual keys resolve only through their installed owning Module", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    await assert.rejects(
+      () =>
+        caller.ritual.runById({
+          workspaceId: PILOT_WORKSPACE,
+          ritualId: DEAL_PILOT_SOURCE_RITUAL_KEY,
+          modulePackageName: "deal-pilot",
+          actor: { type: "user", id: PILOT_USER },
+        }),
+      /does not match owning Agent/,
+    );
+
+    await assert.rejects(
+      () =>
+        caller.ritual.runById({
+          workspaceId: PILOT_WORKSPACE,
+          ritualId: DEAL_PILOT_SOURCE_RITUAL_KEY,
+          modulePackageName: "job-pilot",
+        }),
+      /no verified runtime binding/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("ritual.runById rejects authenticated nonmembers before deriving the owning Agent", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "user" as const, id: "b0000000-0000-4000-a000-00000000ffff" },
+      authenticated: true,
+      verifying: false,
+    });
+    await assert.rejects(
+      () =>
+        caller.ritual.runById({
+          workspaceId: PILOT_WORKSPACE,
+          ritualId: DEAL_PILOT_SOURCE_RITUAL_KEY,
+          modulePackageName: "deal-pilot",
+        }),
+      /FORBIDDEN|not a member of workspace/i,
+    );
+  } finally {
+    await wiring.close();
+  }
+});

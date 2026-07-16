@@ -37,8 +37,10 @@ import {
   Activity,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { CommonsCapabilityPanel } from "../components/CommonsCapabilityPanel";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
+type FileInventory = Awaited<ReturnType<typeof trpc.packages.files.query>>;
 
 // Human-readable risk labels
 const RISK_LABELS: Record<string, string> = {
@@ -153,38 +155,41 @@ function OverviewSection({ pkg }: { pkg: PackageRow }) {
 /** Pages and Databases section — sourced from the module manifest. */
 function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
   const manifest = pkg.manifest;
-  const capabilities = manifest?.capabilities ?? [];
-  const viewCaps = capabilities.filter((c) => c.capabilityType === "view");
+  const pages = manifest?.module?.pages ?? [];
 
   return (
     <section className="space-y-3">
       <SectionHeader icon={Database} title="Pages and Databases" />
-      {viewCaps.length === 0 ? (
+      {pages.length === 0 ? (
         <EmptyState
           message={`No pages or databases defined in ${pkg.packageName} v${pkg.packageVersion}.`}
           hint="Pages and Databases appear here once a module version declares view capabilities."
         />
       ) : (
         <ul className="divide-y border rounded-lg" style={{ borderColor: "var(--color-border)" }}>
-          {viewCaps.map((cap) => (
+          {pages.map((page) => (
             <li
-              key={cap.id}
+              key={page.id}
               className="flex items-center gap-3 p-3"
             >
               <Database className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-                  {cap.name}
-                </p>
+                <Link
+                  to={page.route}
+                  className="text-sm font-medium underline-offset-2 hover:underline"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  {page.name}
+                </Link>
                 <p className="text-xs mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
-                  {cap.id}
+                  Database: {page.databaseId}
                 </p>
               </div>
               <span
                 className="text-xs border rounded px-1.5 py-0.5"
                 style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
               >
-                {cap.capabilityType}
+                Open page
               </span>
             </li>
           ))}
@@ -195,27 +200,196 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
 }
 
 /** Agents section — each with Skills nested underneath. */
-function AgentsSection({ pkg }: { pkg: PackageRow }) {
+function AgentsSection({
+  pkg,
+  attachments,
+  onInstalled,
+}: {
+  pkg: PackageRow;
+  attachments: PackageRow[];
+  onInstalled: () => void;
+}) {
+  const agents = pkg.manifest?.module?.agents ?? [];
+  const capabilities = new Map((pkg.manifest?.capabilities ?? []).map((capability) => [capability.id, capability]));
+  const needs = pkg.manifest?.module?.commonsNeeds ?? [];
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
-      <EmptyState
-        message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
-        hint="Skills remain hidden until the runtime exposes their consuming Agent. Only an attributable allowed Agent may invoke a Skill."
-      />
+      {agents.length === 0 ? (
+        <EmptyState
+          message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
+          hint="Skills remain hidden until an installed manifest binds them to a consuming Agent."
+        />
+      ) : (
+        <div className="space-y-2">
+          {agents.map((agent) => {
+            const agentCapability = capabilities.get(agent.capabilityId);
+            const attachedPackages = attachments.filter((attachment) => attachment.moduleAttachment?.agentId === agent.id);
+            const attachedSkills = attachedPackages.flatMap((attachment) =>
+              attachment.manifest.capabilities
+                .filter((capability) => capability.capabilityType === "skill")
+                .map((capability) => ({ capability, attachment }))
+            );
+            const totalSkills = agent.skillIds.length + attachedSkills.length;
+            return (
+              <details
+                key={agent.id}
+                className="rounded-lg border p-3"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                  {agent.name} · {totalSkills} {totalSkills === 1 ? "Skill" : "Skills"}
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {(agentCapability?.permissions ?? []).map((permission, index) => (
+                      <span
+                        key={`${permission.resourceType}-${permission.action}-${index}`}
+                        className="text-xs rounded border px-1.5 py-0.5"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+                      >
+                        {permission.action} {permission.resourceType}
+                      </span>
+                    ))}
+                  </div>
+                  <ul className="divide-y rounded border" style={{ borderColor: "var(--color-border)" }}>
+                    {agent.skillIds.map((skillId) => {
+                      const skill = capabilities.get(skillId);
+                      return (
+                        <li key={skillId} className="p-3">
+                          <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                            {skill?.name ?? skillId}
+                          </p>
+                          <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            {skillId} · invoked only by {agent.name}
+                          </p>
+                        </li>
+                      );
+                    })}
+                    {attachedSkills.map(({ capability, attachment }) => (
+                      <li key={`${attachment.id}-${capability.id}`} className="p-3">
+                        <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                          {capability.name}
+                        </p>
+                        <p className="mt-0.5 text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
+                          {capability.id} · installed from Commons · invoked only by {agent.name}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                  {needs.filter((need) => need.agentId === agent.id).map((need) => (
+                    <CommonsCapabilityPanel
+                      key={need.id}
+                      modulePackageName={pkg.packageName}
+                      need={need}
+                      installed={attachedPackages.find((attachment) => attachment.moduleAttachment?.needId === need.id)}
+                      onInstalled={onInstalled}
+                    />
+                  ))}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
 /** Automations section. */
 function AutomationsSection({ pkg }: { pkg: PackageRow }) {
+  const automations = pkg.manifest?.module?.automations ?? [];
+  const runtimeAutomationIds = new Set(pkg.runtimeAutomationIds);
+  const agents = new Map((pkg.manifest?.module?.agents ?? []).map((agent) => [agent.id, agent]));
+  const [runStates, setRunStates] = useState<Record<string, {
+    status: "running" | "completed" | "halted" | "error";
+    runId?: string;
+    needsReview?: boolean;
+    message?: string;
+  }>>({});
+
+  const runAutomation = async (automationId: string, ritualId: string) => {
+    setRunStates((current) => ({ ...current, [automationId]: { status: "running" } }));
+    try {
+      const result = await trpc.ritual.runById.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        ritualId,
+        modulePackageName: pkg.packageName,
+      });
+      setRunStates((current) => ({
+        ...current,
+        [automationId]: {
+          status: result.status,
+          runId: result.runId,
+          needsReview: result.proposals.some((proposal) => proposal.status === "pending_review"),
+        },
+      }));
+    } catch (failure) {
+      setRunStates((current) => ({
+        ...current,
+        [automationId]: { status: "error", message: String(failure) },
+      }));
+    }
+  };
+
   return (
     <section className="space-y-3">
       <SectionHeader icon={Zap} title="Automations" />
-      <EmptyState
-        message={`No Automations configured for ${pkg.packageName} yet.`}
-        hint="Automations start governed Agent Runs. Configure one from Settings once the module is active."
-      />
+      {automations.length === 0 ? (
+        <EmptyState
+          message={`No Automations are declared by ${pkg.packageName} v${pkg.packageVersion}.`}
+          hint="This inventory reads the installed manifest; it does not invent Automation cards."
+        />
+      ) : (
+        <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+          {automations.map((automation) => {
+            const runState = runStates[automation.id];
+            return (
+            <li key={automation.id} className="p-3 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{automation.name}</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                    Trigger: {automation.trigger} · Agent: {agents.get(automation.agentId)?.name ?? automation.agentId}
+                  </p>
+                </div>
+                {automation.ritualId && runtimeAutomationIds.has(automation.id) ? <button
+                  type="button"
+                  onClick={() => void runAutomation(automation.id, automation.ritualId!)}
+                  disabled={runState?.status === "running"}
+                  className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
+                  style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                >
+                  {runState?.status === "running" ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  {runState?.status === "running" ? "Running…" : "Run"}
+                </button> : (
+                  <span className="rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+                    Runtime binding pending
+                  </span>
+                )}
+              </div>
+              <p className="text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
+                Procedure: {automation.procedure}
+              </p>
+              {runState && runState.status !== "running" && (
+                <div className="text-xs" style={{ color: runState.status === "error" ? "var(--destructive)" : "var(--color-warm-gray)" }}>
+                  {runState.status === "error"
+                    ? `Run failed: ${runState.message}`
+                    : `Run ${runState.runId} ${runState.status}.`}
+                  {runState.needsReview && (
+                    <>
+                      {" "}
+                      <Link to="/approvals" className="font-medium underline" style={{ color: "var(--color-steel)" }}>
+                        Review or correct in Approvals
+                      </Link>
+                    </>
+                  )}
+                </div>
+              )}
+            </li>
+          )})}
+        </ul>
+      )}
     </section>
   );
 }
@@ -224,8 +398,9 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
 function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
   const manifest = pkg.manifest;
   const capabilities = manifest?.capabilities ?? [];
-  const connectors = capabilities.flatMap((c) =>
-    c.connectors.map((conn) => ({ ...conn, capabilityName: c.name }))
+  const integrations = capabilities.filter((capability) => capability.capabilityType === "integration");
+  const connectors = integrations.flatMap((capability) =>
+    capability.connectors.map((connector) => ({ ...connector, capabilityName: capability.name }))
   );
 
   return (
@@ -233,7 +408,7 @@ function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
       <SectionHeader icon={Cable} title="Integrations" />
       {connectors.length === 0 ? (
         <EmptyState
-          message={`${pkg.packageName} has no external connectors in this version.`}
+          message={`${pkg.packageName} has no Integration bindings in this version.`}
           hint="Integrations will appear here once this module declares connector dependencies."
         />
       ) : (
@@ -267,14 +442,48 @@ function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
 }
 
 /** Files and Results section. */
-function FilesSection({ pkg }: { pkg: PackageRow }) {
+function FilesSection({
+  pkg,
+  inventory,
+  loading,
+  error,
+}: {
+  pkg: PackageRow;
+  inventory: FileInventory | null;
+  loading: boolean;
+  error: string | null;
+}) {
   return (
     <section className="space-y-3">
       <SectionHeader icon={FolderOpen} title="Files and Results" />
-      <EmptyState
-        message={`Exports, briefs, and results generated by ${pkg.packageName} will appear here.`}
-        hint="Files are stored locally under ~/Documents/Bridge/<Organization>/<Module>/."
-      />
+      {loading ? (
+        <div className="text-sm" style={{ color: "var(--color-warm-gray)" }}>Loading local File inventory…</div>
+      ) : error ? (
+        <div className="rounded-lg border p-3 text-sm text-red-600" style={{ borderColor: "var(--color-border)" }}>
+          Could not read local Files: {error}
+        </div>
+      ) : inventory && inventory.items.length > 0 ? (
+        <div className="rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+          <p className="border-b p-3 text-xs break-all" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+            {inventory.root}
+          </p>
+          <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+            {inventory.items.map((file) => (
+              <li key={file.path} className="p-3">
+                <p className="text-sm font-medium break-all" style={{ color: "var(--color-navy)" }}>{file.path}</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  {file.size.toLocaleString()} bytes · {new Date(file.modifiedAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <EmptyState
+          message={`No Files currently exist in ${pkg.manifest?.module?.displayName ?? pkg.packageName}'s local inventory.`}
+          hint={inventory?.root ?? "The local File inventory path could not be resolved."}
+        />
+      )}
     </section>
   );
 }
@@ -336,27 +545,65 @@ export function ModuleDetailPage() {
   const [pkg, setPkg] = useState<PackageRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileInventory | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<PackageRow[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!moduleId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setPkg(null);
+    setFiles(null);
+    setFilesError(null);
+    setFilesLoading(false);
+    setAttachments([]);
     trpc.packages.list
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((result) => {
+        if (cancelled) return;
         // Find the package whose packageName matches the route param.
         // The moduleId in the URL IS the packageName (e.g. "deal-pilot").
         const found = result.items.find(
           (p) => p.packageName === moduleId && p.state === "available" && p.status === "installed"
         );
         setPkg(found ?? null);
+        setAttachments(
+          result.items.filter(
+            (item) =>
+              item.moduleAttachment?.modulePackageName === moduleId &&
+              item.state === "available" &&
+              item.status === "installed"
+          )
+        );
+        if (found) {
+          setFilesLoading(true);
+          trpc.packages.files
+            .query({ workspaceId: PILOT_WORKSPACE, moduleName: found.packageName })
+            .then((inventory) => {
+              if (!cancelled) setFiles(inventory);
+            })
+            .catch((filesFailure) => {
+              if (!cancelled) setFilesError(String(filesFailure));
+            })
+            .finally(() => {
+              if (!cancelled) setFilesLoading(false);
+            });
+        }
         setLoading(false);
       })
       .catch((e) => {
+        if (cancelled) return;
         setError(String(e));
         setLoading(false);
       });
-  }, [moduleId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleId, refreshKey]);
 
   if (loading) {
     return (
@@ -431,13 +678,13 @@ export function ModuleDetailPage() {
 
       {/* Scrollable sections */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-2xl mx-auto px-6 py-6 space-y-8">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-8">
           <OverviewSection pkg={pkg} />
           <PagesDatabasesSection pkg={pkg} />
-          <AgentsSection pkg={pkg} />
+          <AgentsSection pkg={pkg} attachments={attachments} onInstalled={() => setRefreshKey((value) => value + 1)} />
           <AutomationsSection pkg={pkg} />
           <IntegrationsSection pkg={pkg} />
-          <FilesSection pkg={pkg} />
+          <FilesSection pkg={pkg} inventory={files} loading={filesLoading} error={filesError} />
           <SettingsSection pkg={pkg} />
         </div>
       </div>

@@ -31,8 +31,16 @@ export function corsOriginConfig(): true | string[] {
       .map((o) => o.trim())
       .filter(Boolean);
   }
+
   if (process.env.NODE_ENV === "production" || isVerifierConfigured()) return [];
   return true;
+}
+
+export function serverHostConfig(): string {
+  if (process.env.API_HOST) return process.env.API_HOST;
+  return process.env.NODE_ENV === "production" || isVerifierConfigured() || Boolean(process.env.DATABASE_URL)
+    ? "0.0.0.0"
+    : "127.0.0.1";
 }
 
 /** Sensitive tRPC procedures that get a tighter per-IP rate cap than the global default:
@@ -224,7 +232,7 @@ const isMain = entry !== undefined && import.meta.url === pathToFileURL(entry).h
 if (isMain) {
   const port = Number(process.env.PORT ?? 4000);
   buildServer()
-    .then((app) => app.listen({ port, host: "0.0.0.0" }))
+    .then((app) => app.listen({ port, host: serverHostConfig() }))
     .then((addr) => console.log(`bridge-api listening at ${addr}`))
     .catch((err) => {
       console.error(err);

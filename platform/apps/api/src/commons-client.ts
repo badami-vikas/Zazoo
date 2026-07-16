@@ -14,18 +14,19 @@
  * The ed25519 primitive is bound here (apps/api may use node:crypto); @bridge/
  * core stays zero-runtime-deps and supplies only the pure verification policy.
  */
-import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import {
   CommonsPublishRejectedError,
   assertCommonsUrlTls,
-  toSignedEnvelope,
-  verifyManifestSignature,
+  verifyCommonsEntry,
+  verifyCommonsEntryContent,
   type CommonsListQuery,
   type CommonsListResult,
   type CommonsPackageDetail,
   type CommonsPackageEntry,
+  type CommonsEntryVerificationFailure,
+  type CommonsProvenance,
   type CommonsRegistry,
-  type ManifestVerificationFailure,
   type PackageManifest,
   type SignatureVerifier,
 } from "@bridge/core";
@@ -34,6 +35,28 @@ export const DEFAULT_COMMONS_URL = "http://localhost:4780";
 
 export function commonsUrlFromEnv(): string {
   return process.env.COMMONS_URL ?? DEFAULT_COMMONS_URL;
+}
+
+export function trustedCommonsPublicKeysFromEnv(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const keys: string[] = [];
+  if (env.COMMONS_TRUSTED_PUBLIC_KEY_PEM?.trim()) {
+    keys.push(env.COMMONS_TRUSTED_PUBLIC_KEY_PEM);
+  }
+  if (env.COMMONS_TRUSTED_PUBLIC_KEYS_JSON !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(env.COMMONS_TRUSTED_PUBLIC_KEYS_JSON);
+    } catch {
+      throw new Error("COMMONS_TRUSTED_PUBLIC_KEYS_JSON must be a JSON array of PEM public keys");
+    }
+    if (!Array.isArray(parsed) || parsed.some((key) => typeof key !== "string" || key.trim() === "")) {
+      throw new Error("COMMONS_TRUSTED_PUBLIC_KEYS_JSON must be a JSON array of PEM public keys");
+    }
+    keys.push(...parsed);
+  }
+  return [...new Set(keys.map((key) =>
+    createPublicKey(key).export({ type: "spki", format: "pem" }).toString()
+  ))];
 }
 
 /** ed25519 verification bound to node:crypto — PEM public key, base64 raw
@@ -48,23 +71,37 @@ const ed25519ManifestVerifier: SignatureVerifier = (data, signatureB64, publicKe
   }
 };
 
-/** A fetched Commons entry failed signature verification (PKG-2) — unsigned,
- * altered, or signed by an untrusted key. Install/consume must not proceed. */
+const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
+
+/** A fetched Commons entry failed supply-chain verification. */
 export class CommonsSignatureError extends Error {
-  readonly reason: ManifestVerificationFailure;
-  constructor(name: string, version: string, reason: ManifestVerificationFailure) {
-    super(`commons: refusing ${name}@${version} — manifest signature ${reason} (PKG-2 verify-on-install)`);
+  readonly reason: CommonsEntryVerificationFailure;
+  constructor(name: string, version: string, reason: CommonsEntryVerificationFailure) {
+    super(`commons: refusing ${name}@${version} — trust verification ${reason}`);
     this.name = "CommonsSignatureError";
     this.reason = reason;
   }
 }
 
+export class CommonsResponseMismatchError extends Error {
+  constructor(expected: string, actual: string) {
+    super(`commons: refusing response substitution — requested ${expected}, received ${actual}`);
+    this.name = "CommonsResponseMismatchError";
+  }
+}
+
+/** Install seam repeats the deterministic content/scan/provenance check. */
+export function assertCommonsEntryContentTrusted(entry: CommonsPackageEntry): void {
+  const result = verifyCommonsEntryContent(entry, sha256);
+  if (!result.valid) throw new CommonsSignatureError(entry.name, entry.version, result.reason);
+}
+
 export interface HttpCommonsClientOptions {
-  /** When set, a fetched entry's signing key MUST be in this allowlist (a
-   * valid signature from an unknown key is rejected). When omitted, any
-   * cryptographically-valid signature is accepted (integrity-only / TOFU —
-   * still rejects unsigned and altered manifests). */
+  /** A fetched entry's signing key MUST be in this allowlist. An omitted or
+   * empty allowlist rejects every signed entry as untrusted. */
   trustedPublicKeys?: readonly string[];
+  /** Curated publisher credential. Read-only clients leave this unset. */
+  publishToken?: string;
   /** Escape hatch to disable verification (e.g. a legacy unsigned registry in a
    * controlled test). Defaults to true — verification is ON by default. */
   verifySignatures?: boolean;
@@ -73,24 +110,28 @@ export interface HttpCommonsClientOptions {
 export class HttpCommonsClient implements CommonsRegistry {
   readonly #baseUrl: string;
   readonly #verify: boolean;
-  readonly #trustedPublicKeys: readonly string[] | undefined;
+  readonly #trustedPublicKeys: readonly string[];
+  readonly #publishToken: string | undefined;
 
   constructor(baseUrl: string = commonsUrlFromEnv(), options: HttpCommonsClientOptions = {}) {
     this.#baseUrl = baseUrl.replace(/\/+$/, "");
     // PKG-2 TLS-by-default: reject a remote plaintext registry up front.
     assertCommonsUrlTls(this.#baseUrl);
     this.#verify = options.verifySignatures ?? true;
-    this.#trustedPublicKeys = options.trustedPublicKeys;
+    this.#trustedPublicKeys = (options.trustedPublicKeys ?? []).map((key) =>
+      createPublicKey(key).export({ type: "spki", format: "pem" }).toString()
+    );
+    this.#publishToken = options.publishToken;
   }
 
   /** PKG-2 verify-on-install: reject an unsigned or altered fetched entry. */
   #verifyEntry(entry: CommonsPackageEntry): void {
     if (!this.#verify) return;
-    const envelope = entry.signature ? toSignedEnvelope(entry.manifest, entry.signature) : null;
-    const result = verifyManifestSignature(
-      envelope,
+    const result = verifyCommonsEntry(
+      entry,
+      sha256,
       ed25519ManifestVerifier,
-      this.#trustedPublicKeys ? { trustedPublicKeys: this.#trustedPublicKeys } : {},
+      { trustedPublicKeys: this.#trustedPublicKeys },
     );
     if (!result.valid) throw new CommonsSignatureError(entry.name, entry.version, result.reason);
   }
@@ -99,6 +140,7 @@ export class HttpCommonsClient implements CommonsRegistry {
     const params = new URLSearchParams();
     if (query.kind !== undefined) params.set("kind", query.kind);
     if (query.tag !== undefined) params.set("tag", query.tag);
+    if (query.search !== undefined) params.set("search", query.search);
     if (query.limit !== undefined) params.set("limit", String(query.limit));
     if (query.offset !== undefined) params.set("offset", String(query.offset));
     const qs = params.size > 0 ? `?${params.toString()}` : "";
@@ -113,6 +155,9 @@ export class HttpCommonsClient implements CommonsRegistry {
     if (!res.ok) throw new Error(`commons get failed: ${res.status}`);
     const detail = (await res.json()) as CommonsPackageDetail;
     this.#verifyEntry(detail.latest);
+    if (detail.name !== name || detail.latest.name !== name) {
+      throw new CommonsResponseMismatchError(name, `${detail.name}/${detail.latest.name}`);
+    }
     return detail;
   }
 
@@ -122,16 +167,32 @@ export class HttpCommonsClient implements CommonsRegistry {
     if (!res.ok) throw new Error(`commons getVersion failed: ${res.status}`);
     const entry = (await res.json()) as CommonsPackageEntry;
     this.#verifyEntry(entry);
+    if (entry.name !== name || entry.version !== version) {
+      throw new CommonsResponseMismatchError(`${name}@${version}`, `${entry.name}@${entry.version}`);
+    }
     return entry;
   }
 
-  async publish(manifest: PackageManifest, tags: string[] = []): Promise<{ name: string; version: string }> {
+  async publish(
+    manifest: PackageManifest,
+    options: { tags?: string[]; provenance: CommonsProvenance; expectedContentHash?: string },
+  ): Promise<{ name: string; version: string; contentHash: string }> {
     const res = await fetch(`${this.#baseUrl}/v1/packages`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifest, tags }),
+      headers: {
+        "content-type": "application/json",
+        ...(this.#publishToken ? { authorization: `Bearer ${this.#publishToken}` } : {}),
+      },
+      body: JSON.stringify({
+        manifest,
+        tags: options.tags ?? [],
+        provenance: options.provenance,
+        ...(options.expectedContentHash ? { expectedContentHash: options.expectedContentHash } : {}),
+      }),
     });
-    if (res.status === 201) return (await res.json()) as { name: string; version: string };
+    if (res.status === 201) {
+      return (await res.json()) as { name: string; version: string; contentHash: string };
+    }
     const body = (await res.json().catch(() => ({}))) as { message?: string; offendingPaths?: string[] };
     if (res.status === 422) {
       throw new CommonsPublishRejectedError(body.message ?? "workspace data rejected", body.offendingPaths ?? []);

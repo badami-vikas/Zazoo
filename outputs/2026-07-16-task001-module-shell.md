@@ -2,77 +2,32 @@
 title: "TASK-001 Module Shell — Implementation Handoff"
 date: 2026-07-16
 task: TASK-001
-status: in_progress
-blockers:
-  - Live viewport checks (desktop + 375px) not verifiable without browser session
-  - packages.list must return available packages for nav to populate (requires running API)
-  - No real agent.list API or manifest Agent ownership — Agents/Skills remain an honest empty state
+status: done
+blockers: []
 ---
 
-## What was delivered
+## Outcome
 
-### New files
-| File | Purpose |
-|------|---------|
-| `platform/apps/web/src/app/components/shared/PanelControl.tsx` | Shared `usePanelControl` hook + `ResizeHandle` + `CollapseToggleButton` (§5b) |
-| `platform/apps/web/src/app/pages/ModuleDetailPage.tsx` | Manifest-driven Module Detail at `/module/:moduleId` with 7 canonical sections |
-| `platform/apps/web/test/module-detail.test.mjs` | 14 focused pure-logic tests for module detail + panel control algorithms |
+TASK-001 is complete. Installed Modules now come from signed `packages.list` manifests and open a manifest-driven Module Detail with real Page/Database bindings, attributable Agent-owned Skills, Automations, Integrations, and canonical local-plane File inventory. DealPilot and JobPilot use real tRPC records and retain their standard table headers/column menus when the database is empty.
 
-### Modified files
-| File | Change |
-|------|--------|
-| `platform/apps/web/src/app/routes.tsx` | Added `module/:moduleId → ModuleDetailPage` route |
-| `platform/apps/web/src/app/Layout.tsx` | Modules from `packages.list` API; deprecated nav items removed; PanelControl shared hook |
-| `platform/apps/web/src/app/components/shared/AgentPanel.tsx` | Refactored to use shared PanelControl; storage keys v1→v2 |
-| `platform/apps/web/src/app/pages/IntelligencePage.tsx` | Removed Tools, Workflows, standalone Skills sections; SECTIONS → 4 items |
-| `docs/log.md` | Appended TASK-001 change entry |
+The shell has one persisted panel contract: desktop Sidebar and Chat Panel both collapse, explicitly reopen, resize by pointer or keyboard, and preserve extended widths. At 375px, Module and Chat overlays retain access to installed Modules, New, Pending work, and chat. Deprecated Tools, Knowledge, Workflows, Projects, ritual, Intelligence, and standalone Skill routes are absent; live Page routes are installation-gated.
 
----
+The Tauri startup race was fixed by creating windows before setup returns. The desktop process now remains alive against the same isolated API-backed Vite client.
 
-## Module Detail sections (§4b)
+## Evidence
 
-Each `/module/:moduleId` page renders:
-1. **Overview** — packageName + description + risk tier badge + computed risk
-2. **Pages/Databases** — `manifest.capabilities` as module surfaces
-3. **Agents + Skills** — honest empty state until attributable runtime ownership is available
-4. **Automations** — honest empty state (backend not wired)
-5. **Integrations** — `manifest.connectors` list
-6. **Files / Results** — honest empty state (backend not wired)
-7. **Settings / Actions** — install/uninstall placeholder
+- API `4010`: health passed; four built-in Module manifests at `0.2.0` loaded as installed/available with explicit Agent→Skill and Automation bindings.
+- Desktop `1280×720`: DealPilot and JobPilot inventories opened; column menu stayed inside viewport; Sidebar/Chat extended to `252px/318px`, collapsed to `76px/51px`, then reopened at persisted widths.
+- Mobile `375×812`: both Module details, nested Skills, Automations, File inventory, Module drawer actions, Chat overlay, table header, and clamped column menu passed; deprecated-label denylist was empty.
+- Tauri: debug app compiled, launched, and remained alive against web `5174` and API `4010`.
+- Tests: core manifest `12/12`, API package/File `11/11`, web `25/25`, desktop Rust `19/19`; web typecheck/build and desktop `cargo check` passed.
 
----
+## Files
 
-## Panel control behavior (§5b)
+Core/runtime: `platform/packages/core/src/package/{types,manifest}.ts`, `platform/apps/api/src/{built-in-packages,module-files,router,wiring}.ts`.
 
-Both shell panels now use `usePanelControl`:
-- **Left sidebar** — snap=true, midpoint=148, collapses to 76px icon rail, expands to 220px
-- **Right AgentPanel** — snap=false, continuous width 260–520px, persists via localStorage v2 key
-- Both support: Escape-to-collapse keyboard shortcut, ARIA labels on resize handle and toggle
+Shell: `platform/apps/web/src/app/{Layout,routes}.tsx`, `pages/{ModuleDetailPage,DealPilotPage,JobPilotPage,CalendarPage,ResourcesPage}.tsx`, `components/InstalledModuleBoundary.tsx`, `components/shared/{PanelControl,AgentPanel,StandardColumnMenu}.tsx`.
 
----
+Desktop: `platform/apps/desktop/src-tauri/src/lib.rs`.
 
-## Deprecated surfaces removed (VOCAB2/VOCAB6)
-
-Left nav: removed Knowledge and Intelligence items. Only `installedModules` + Settings + Pending Work remain.  
-IntelligencePage: removed Tools tab, Workflows tab, standalone Skills tab. Routes still exist for backward compat.
-
----
-
-## Validation
-
-| Check | Result |
-|-------|--------|
-| TypeScript `--noEmit` | ✅ No errors (only pre-existing vite/client + baseUrl warnings) |
-| 14 new module-detail tests | ✅ All pass |
-| Pre-existing data tests | ⚠️ 2 failures pre-existed (react import in Node env) — not caused by these changes |
-| Blast-radius: no removed imports referenced | ✅ Verified with grep |
-| Deprecated identifiers in modified files | ✅ None found |
-
----
-
-## Remaining blockers (TASK-001 cannot be marked done)
-
-1. **Live viewport** — desktop + 375px checks require a running browser. Cannot simulate here.
-2. **packages.list data** — nav modules only populate when the API returns `state === "available"` packages. Requires running API server + seeded DB.
-3. **Agent ownership API/manifest** — the UI does not invent ownership; Agent-owned Skills remain hidden until the runtime exposes attributable bindings.
-4. **Automations/Files backends** — sections show honest empty states; backend not yet wired.
+Broader Agent invocation enforcement, Module Run/lifecycle actions, Relationship storage migration, and server error-copy migration remain in their existing canonical follow-up tasks; they do not block the TASK-001 Prototype test.

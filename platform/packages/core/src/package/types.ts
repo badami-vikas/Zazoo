@@ -12,6 +12,7 @@
  */
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
 import type { WorkspaceBlueprint } from "../blueprint.js";
+import type { Plane } from "../types.js";
 
 /** package.yaml's `kind` — one level broader than CapabilityType (a package
  * can itself be shaped like a whole workspace_definition, not just one
@@ -43,6 +44,57 @@ export interface PackageWorkspaceVocab {
   domainTerms: Record<string, string>;
 }
 
+export interface ModulePageBinding {
+  id: string;
+  name: string;
+  route: string;
+  databaseId: string;
+  capabilityId: string;
+}
+
+export interface ModuleAgentBinding {
+  id: string;
+  name: string;
+  capabilityId: string;
+  skillIds: string[];
+  plane?: Plane;
+}
+
+export interface ModuleAutomationBinding {
+  id: string;
+  name: string;
+  capabilityId: string;
+  agentId: string;
+  trigger: string;
+  procedure: string;
+  /** Persisted Ritual definition backing the governed Run action. */
+  ritualId?: string;
+}
+
+export interface ModuleCapabilityNeed {
+  id: string;
+  title: string;
+  description: string;
+  agentId: string;
+  kind: PackageKind;
+  tags: string[];
+}
+
+/**
+ * Compiler-owned Module Detail bindings. Capability definitions remain the
+ * trust source of truth; these bindings provide the routable inventory and
+ * explicit Agent→Skill/Automation ownership needed to render a Module.
+ */
+export interface ModuleSurfaceManifest {
+  displayName: string;
+  route: string;
+  pages: ModulePageBinding[];
+  agents: ModuleAgentBinding[];
+  automations: ModuleAutomationBinding[];
+  /** Source-backed capability gaps that may be satisfied from Commons. */
+  commonsNeeds?: ModuleCapabilityNeed[];
+}
+
 /**
  * The package manifest — `package.yaml`'s parsed shape. `capabilities[]` is
  * the "package carries MULTIPLE capability manifests" requirement: each
@@ -66,6 +118,8 @@ export interface PackageManifest {
   capabilities: CapabilityManifest[];
   contextProviders: PackageContextProvider[];
   workspaceVocab: PackageWorkspaceVocab;
+  /** Required for installed Module navigation and Module Detail inventory. */
+  module?: ModuleSurfaceManifest;
   /** Present ONLY for a `workspace_definition` package (BLUEPRINT-1, Month-6):
    * the versioned, declarative WorkspaceBlueprint this package publishes. A
    * workspace_definition COMPOSES capabilities by reference (blueprint.
@@ -77,6 +131,14 @@ export interface PackageManifest {
 
 /** Single-live-version states (format doc §3, Zapier model). */
 export type PackageVersionState = "private" | "promoted" | "available" | "legacy" | "deprecating" | "deprecated";
+
+export interface PackageModuleAttachment {
+  source: "commons";
+  modulePackageName: string;
+  agentId: string;
+  needId: string;
+  contentHash: string;
+}
 
 /** package_installations row shape (or the equivalent PackageStore row) — one
  * per (workspace, package name, version). */
@@ -90,6 +152,8 @@ export interface PackageInstallationRow {
   state: PackageVersionState;
   status: "pending_review" | "installed" | "rejected";
   lineageManifestId: string | null;
+  /** Installation-local ownership. The signed Commons artifact stays immutable. */
+  moduleAttachment?: PackageModuleAttachment;
   createdAt: string;
 }
 

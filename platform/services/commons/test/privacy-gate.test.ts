@@ -45,3 +45,51 @@ test("credentials and tokens are denied — secrets are never registry content",
   const paths = findWorkspaceDataPaths({ config: { api_key: "sk-...", nested: [{ refreshToken: "t" }] } });
   assert.deepEqual(paths.sort(), ["config.api_key", "config.nested[0].refreshToken"]);
 });
+
+test("cloud-provider credentials embedded in scalar values are denied", () => {
+  const paths = findWorkspaceDataPaths({
+    aws: "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+    secret: "aws_secret_access_key=******",
+    google: "AIzaSyDUMMYDUMMYDUMMYDUMMYDUMMYDUMMYDUM",
+    slack: "xoxb-123456789012-example-token",
+    oauth: "GOCSPX-exampleOAuthSecretValue123",
+    slackApp: "xapp-1-example-app-token",
+    nested: { clientSecret: "not-even-a-pattern" },
+  });
+  assert.deepEqual(paths.sort(), ["aws", "google", "nested.clientSecret", "oauth", "secret", "slack", "slackApp"]);
+});
+
+test("personal and workspace identifiers embedded in scalar values are denied", () => {
+  const paths = findWorkspaceDataPaths({
+    summary: "Contact Alice at alice@example.com",
+    tags: ["customer:Acme"],
+    provenance: { sourceRef: "users/alice/private" },
+    nested: { target: "ws_12345678" },
+  });
+
+  test("personal-data field names inside retained manifest maps are denied", () => {
+    const paths = findWorkspaceDataPaths({
+      workspaceVocab: {
+        domainTerms: {
+          primaryContact: "Alice Smith",
+          companyName: "Acme",
+        },
+      },
+    });
+    assert.deepEqual(paths.sort(), [
+      "workspaceVocab.domainTerms.companyName",
+      "workspaceVocab.domainTerms.primaryContact",
+    ]);
+  });
+  assert.deepEqual(paths.sort(), ["nested.target", "provenance.sourceRef", "summary", "tags[0]"]);
+});
+
+test("common phone, government identifier, payment, and address forms are denied", () => {
+  const paths = findWorkspaceDataPaths({
+    phone: "Call +1 (415) 555-2671",
+    governmentId: "SSN 123-45-6789",
+    payment: "4111 1111 1111 1111",
+    address: "1600 Amphitheatre Parkway",
+  });
+  assert.deepEqual(paths.sort(), ["address", "governmentId", "payment", "phone"]);
+});

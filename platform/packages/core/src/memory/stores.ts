@@ -350,6 +350,9 @@ export class InMemoryRitualRegistry implements RitualRegistry {
     this.rituals.set(`${def.workspaceId}:${def.id}`, def);
     return this;
   }
+  async save(def: RitualDefinition): Promise<void> {
+    this.register(def);
+  }
   async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
     return this.rituals.get(`${workspaceId}:${ritualId}`) ?? null;
   }

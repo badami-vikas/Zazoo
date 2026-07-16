@@ -78,6 +78,20 @@
       "when": 1784290000000,
       "tag": "0010_steep_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784300000000,
+      "tag": "0011_same_cyclops",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784320000000,
+      "tag": "0013_uneven_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

@@ -89,3 +89,95 @@ test("parsePackageManifest: reads workspace_vocab snake_case keys", () => {
   assert.equal(parsed.workspaceVocab.alignsToBridgeTheme, false);
   assert.equal(parsed.workspaceVocab.domainTerms.listing, "Initiative-shaped");
 });
+
+test("parsePackageManifest: validates Module Agent-owned Skills and Automations", () => {
+  const parsed = parsePackageManifest(
+    rawManifest({
+      capabilities: [
+        { id: "dummy.view", capability_type: "view", permissions: [] },
+        { id: "dummy.skill", capability_type: "skill", permissions: [] },
+        { id: "dummy.agent", capability_type: "agent", permissions: [] },
+        { id: "dummy.automation", capability_type: "workflow", permissions: [] },
+      ],
+      module: {
+        display_name: "Dummy",
+        route: "/dummy",
+        pages: [{ id: "records", name: "Records", route: "/dummy", database_id: "dummy.records", capability_id: "dummy.view" }],
+        agents: [{ id: "operator", name: "Operator", capability_id: "dummy.agent", skill_ids: ["dummy.skill"] }],
+        automations: [{
+          id: "intake",
+          name: "Intake",
+          capability_id: "dummy.automation",
+          agent_id: "operator",
+          trigger: "Manual",
+          procedure: "dummy.intake",
+        }],
+        commons_needs: [{
+          id: "calendar-availability",
+          title: "Check availability",
+          description: "Read Calendar availability before proposing a time.",
+          agent_id: "operator",
+          kind: "skill",
+          tags: ["need:calendar-availability"],
+        }],
+      },
+    }),
+  );
+
+  assert.equal(parsed.module?.displayName, "Dummy");
+  assert.deepEqual(parsed.module?.agents[0]?.skillIds, ["dummy.skill"]);
+  assert.equal(parsed.module?.automations[0]?.agentId, "operator");
+  assert.equal(parsed.module?.commonsNeeds?.[0]?.agentId, "operator");
+});
+
+test("parsePackageManifest: rejects a Commons need without an attributable Module Agent", () => {
+  assert.throws(
+    () =>
+      parsePackageManifest(
+        rawManifest({
+          capabilities: [
+            { id: "dummy.agent", capability_type: "agent", permissions: [] },
+            { id: "dummy.skill", capability_type: "skill", permissions: [] },
+          ],
+          module: {
+            display_name: "Dummy",
+            route: "/dummy",
+            pages: [],
+            agents: [{ id: "operator", name: "Operator", capability_id: "dummy.agent", skill_ids: ["dummy.skill"] }],
+            automations: [],
+            commons_needs: [{
+              id: "missing-owner",
+              title: "Missing owner",
+              description: "This need names an undeclared Agent.",
+              agent_id: "other-agent",
+              kind: "skill",
+              tags: ["need:missing-owner"],
+            }],
+          },
+        }),
+      ),
+    /declared module agent/,
+  );
+});
+
+test("parsePackageManifest: rejects a Module Skill not owned by a declared capability", () => {
+  assert.throws(
+    () =>
+      parsePackageManifest(
+        rawManifest({
+          capabilities: [
+            { id: "dummy.view", capability_type: "view", permissions: [] },
+            { id: "dummy.agent", capability_type: "agent", permissions: [] },
+          ],
+          module: {
+            display_name: "Dummy",
+            route: "/dummy",
+            pages: [{ id: "records", name: "Records", route: "/dummy", database_id: "dummy.records", capability_id: "dummy.view" }],
+            agents: [{ id: "operator", name: "Operator", capability_id: "dummy.agent", skill_ids: ["dummy.missing"] }],
+            automations: [],
+          },
+        }),
+      ),
+    /skill capabilities/,
+  );
+});

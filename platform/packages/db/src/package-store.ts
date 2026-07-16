@@ -24,7 +24,13 @@
  */
 import { and, eq, count } from "drizzle-orm";
 import { z } from "zod";
-import type { PackageInstallationRow, PackageManifest, PackageStore, PackageVersionState } from "@bridge/core";
+import type {
+  PackageAttachmentTarget,
+  PackageInstallationRow,
+  PackageManifest,
+  PackageStore,
+  PackageVersionState,
+} from "@bridge/core";
 import type { Database } from "./client.js";
 import { packageInstallations } from "./schema.js";
 
@@ -53,6 +59,14 @@ const packageManifestSchema = z
   })
   .passthrough();
 
+const moduleAttachmentSchema = z.object({
+  source: z.literal("commons"),
+  modulePackageName: z.string().min(1),
+  agentId: z.string().min(1),
+  needId: z.string().min(1),
+  contentHash: z.string().startsWith("sha256:"),
+});
+
 /**
  * Validate `package_installations.manifest` jsonb. Throws loudly on a
  * malformed shape rather than silently treating a corrupted manifest as
@@ -69,6 +83,9 @@ export function parsePackageManifestRow(raw: unknown): PackageManifest {
 }
 
 function unpack(row: typeof packageInstallations.$inferSelect): PackageInstallationRow {
+  const moduleAttachment = row.moduleAttachment === null
+    ? undefined
+    : moduleAttachmentSchema.parse(row.moduleAttachment);
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -79,8 +96,29 @@ function unpack(row: typeof packageInstallations.$inferSelect): PackageInstallat
     state: row.state as PackageVersionState,
     status: row.status as PackageInstallationRow["status"],
     lineageManifestId: row.lineageManifestId,
+    ...(moduleAttachment ? { moduleAttachment } : {}),
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function sameAttachment(
+  left: PackageInstallationRow["moduleAttachment"],
+  right: PackageInstallationRow["moduleAttachment"],
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function matchesAttachmentTarget(
+  row: PackageInstallationRow,
+  target: PackageAttachmentTarget | undefined,
+): boolean {
+  if (!target) return row.moduleAttachment === undefined;
+  return Boolean(
+    row.moduleAttachment &&
+      row.moduleAttachment.modulePackageName === target.modulePackageName &&
+      row.moduleAttachment.agentId === target.agentId &&
+      row.moduleAttachment.needId === target.needId,
+  );
 }
 
 export class DrizzlePackageStore implements PackageStore {
@@ -97,7 +135,7 @@ export class DrizzlePackageStore implements PackageStore {
    */
   async create(row: Omit<PackageInstallationRow, "id" | "createdAt">): Promise<PackageInstallationRow> {
     const validatedManifest = parsePackageManifestRow(row.manifest);
-    const existing = await this.#db
+    const existingRows = await this.#db
       .select()
       .from(packageInstallations)
       .where(
@@ -106,10 +144,10 @@ export class DrizzlePackageStore implements PackageStore {
           eq(packageInstallations.packageName, row.packageName),
           eq(packageInstallations.packageVersion, row.packageVersion),
         ),
-      )
-      .limit(1);
-    if (existing[0]) {
-      return unpack(existing[0]);
+      );
+    const existing = existingRows.map(unpack).find((candidate) => sameAttachment(candidate.moduleAttachment, row.moduleAttachment));
+    if (existing) {
+      return existing;
     }
 
     const [inserted] = await this.#db
@@ -123,10 +161,25 @@ export class DrizzlePackageStore implements PackageStore {
         state: row.state,
         status: row.status,
         ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
+        ...(row.moduleAttachment ? { moduleAttachment: row.moduleAttachment } : {}),
       })
+      .onConflictDoNothing()
       .returning();
-    if (!inserted) throw new Error("package_installations: insert returned no row");
-    return unpack(inserted);
+    if (inserted) return unpack(inserted);
+
+    const racedRows = await this.#db
+      .select()
+      .from(packageInstallations)
+      .where(
+        and(
+          eq(packageInstallations.workspaceId, row.workspaceId),
+          eq(packageInstallations.packageName, row.packageName),
+          eq(packageInstallations.packageVersion, row.packageVersion),
+        ),
+      );
+    const raced = racedRows.map(unpack).find((candidate) => sameAttachment(candidate.moduleAttachment, row.moduleAttachment));
+    if (!raced) throw new Error("package_installations: conflicting insert did not match the attachment identity");
+    return raced;
   }
 
   async get(id: string): Promise<PackageInstallationRow | null> {
@@ -159,7 +212,11 @@ export class DrizzlePackageStore implements PackageStore {
     return rows.map(unpack);
   }
 
-  async getAvailable(workspaceId: string, packageName: string): Promise<PackageInstallationRow | null> {
+  async getAvailable(
+    workspaceId: string,
+    packageName: string,
+    attachmentTarget?: PackageAttachmentTarget,
+  ): Promise<PackageInstallationRow | null> {
     const rows = await this.#db
       .select()
       .from(packageInstallations)
@@ -169,16 +226,24 @@ export class DrizzlePackageStore implements PackageStore {
           eq(packageInstallations.packageName, packageName),
           eq(packageInstallations.state, "available"),
         ),
-      )
-      .limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+      );
+    return rows.map(unpack).find((row) => matchesAttachmentTarget(row, attachmentTarget)) ?? null;
   }
 
   async setState(id: string, state: PackageVersionState): Promise<PackageInstallationRow> {
     const [updated] = await this.#db
       .update(packageInstallations)
       .set({ state })
+      .where(eq(packageInstallations.id, id))
+      .returning();
+    if (!updated) throw new Error(`package_installations: unknown id ${id}`);
+    return unpack(updated);
+  }
+
+  async setComputedRisk(id: string, risk: PackageInstallationRow["computedRisk"]): Promise<PackageInstallationRow> {
+    const [updated] = await this.#db
+      .update(packageInstallations)
+      .set({ computedRisk: risk })
       .where(eq(packageInstallations.id, id))
       .returning();
     if (!updated) throw new Error(`package_installations: unknown id ${id}`);

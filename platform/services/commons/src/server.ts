@@ -14,19 +14,23 @@
  *        422 workspace_data_rejected { offendingPaths } ← knowledge-only gate
  */
 import Fastify, { type FastifyInstance } from "fastify";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
+  computeCommonsContentHash,
+  normalizeCommonsTags,
   parsePackageManifest,
   PackageManifestValidationError,
-  toSignedEnvelope,
-  verifyManifestSignature,
+  verifyCommonsEntry,
   type CommonsListResult,
   type CommonsPackageDetail,
+  type CommonsPackageEntry,
   type CommonsPackageSummary,
-  type ManifestSignature,
+  type CommonsProvenance,
   type PackageKind,
 } from "@bridge/core";
 import { findWorkspaceDataPaths } from "./privacy-gate.js";
-import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signManifest, type CommonsSigningKeyPair } from "./signing.js";
+import { scanCommonsPackage } from "./security-scan.js";
+import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signCommonsEntry, type CommonsSigningKeyPair } from "./signing.js";
 import { DuplicateVersionError, type CommonsStore } from "./store.js";
 
 const PACKAGE_KINDS: readonly string[] = [
@@ -39,12 +43,83 @@ const PACKAGE_KINDS: readonly string[] = [
   "workspace_definition",
 ];
 
+const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
+
+function provenanceFromUnknown(value: unknown): CommonsProvenance | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.sourceRepository !== "string" ||
+    candidate.sourceRepository.trim() === "" ||
+    typeof candidate.sourceRef !== "string" ||
+    candidate.sourceRef.trim() === "" ||
+    typeof candidate.inspectedCommit !== "string" ||
+    candidate.inspectedCommit.trim() === "" ||
+    typeof candidate.repositoryLicense !== "string" ||
+    candidate.repositoryLicense.trim() === "" ||
+    typeof candidate.artifactLicense !== "string" ||
+    candidate.artifactLicense.trim() === "" ||
+    typeof candidate.licenseVerified !== "boolean"
+  ) {
+    return null;
+  }
+  return candidate as unknown as CommonsProvenance;
+}
+
+function assertStoredEntryTrusted(entry: CommonsPackageEntry, publicKey: string): void {
+  const result = verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, { trustedPublicKeys: [publicKey] });
+  if (!result.valid) throw new Error(`commons stored entry failed trust verification: ${result.reason}`);
+}
+
 function latestOf<T extends { publishedAt: string }>(versions: T[]): T {
   // listVersions is oldest-first by publishedAt.
   return versions[versions.length - 1] as T;
 }
 
-export function buildCommonsServer(store: CommonsStore, options: { keyPair?: CommonsSigningKeyPair } = {}): FastifyInstance {
+function publisherAuthorized(authorization: string | undefined, publishToken: string): boolean {
+  if (!authorization?.startsWith("Bearer ")) return false;
+  const supplied = Buffer.from(authorization.slice("Bearer ".length), "utf8");
+  const expected = Buffer.from(publishToken, "utf8");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+async function verifiedDependencyResolver(
+  store: CommonsStore,
+  manifest: ReturnType<typeof parsePackageManifest>,
+  publicKey: string,
+): Promise<
+  (
+    manifestId: string,
+    version: string,
+  ) => { manifest: ReturnType<typeof parsePackageManifest>; contentHash: string } | undefined
+> {
+  const resolved = new Map<string, { manifest: ReturnType<typeof parsePackageManifest>; contentHash: string }>();
+  const visited = new Set<string>();
+
+  async function visit(current: ReturnType<typeof parsePackageManifest>): Promise<void> {
+    for (const dependency of current.dependencies) {
+      const key = `${dependency.manifestId}@${dependency.version}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const entry = await store.get(dependency.manifestId, dependency.version);
+      if (!entry) continue;
+      assertStoredEntryTrusted(entry, publicKey);
+      resolved.set(key, { manifest: entry.manifest, contentHash: entry.integrity.value });
+      await visit(entry.manifest);
+    }
+  }
+
+  await visit(manifest);
+  return (manifestId, version) => resolved.get(`${manifestId}@${version}`);
+}
+
+export function buildCommonsServer(
+  store: CommonsStore,
+  options: { keyPair?: CommonsSigningKeyPair; publishToken: string },
+): FastifyInstance {
+  if (options.publishToken.length < 32) {
+    throw new Error("COMMONS_PUBLISH_TOKEN must contain at least 32 characters");
+  }
   const keyPair = options.keyPair ?? resolveCommonsSigningKeyPair();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
@@ -57,7 +132,7 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
     return { publicKey: keyPair.publicKeyPem, algorithm: "ed25519" };
   });
 
-  app.get<{ Querystring: { kind?: string; tag?: string; limit?: string; offset?: string } }>(
+  app.get<{ Querystring: { kind?: string; tag?: string; search?: string; limit?: string; offset?: string } }>(
     "/v1/packages",
     async (req, reply) => {
       const { kind, tag } = req.query;
@@ -69,6 +144,7 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
 
       const byName = new Map<string, Awaited<ReturnType<CommonsStore["listVersions"]>>>();
       for (const entry of await store.listAll()) {
+        assertStoredEntryTrusted(entry, keyPair.publicKeyPem);
         const versions = byName.get(entry.name) ?? [];
         versions.push(entry);
         byName.set(entry.name, versions);
@@ -88,6 +164,12 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
       });
       if (kind !== undefined) summaries = summaries.filter((s) => s.kind === (kind as PackageKind));
       if (tag !== undefined) summaries = summaries.filter((s) => s.tags.includes(tag));
+      const search = req.query.search?.trim().toLocaleLowerCase();
+      if (search) {
+        summaries = summaries.filter((summary) =>
+          [summary.name, summary.summary, ...summary.tags].some((value) => value.toLocaleLowerCase().includes(search)),
+        );
+      }
       summaries.sort((a, b) => a.name.localeCompare(b.name));
 
       const result: CommonsListResult = {
@@ -105,6 +187,7 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
     if (versions.length === 0) {
       return reply.status(404).send({ error: "not_found", message: `no package named ${req.params.name}` });
     }
+    for (const entry of versions) assertStoredEntryTrusted(entry, keyPair.publicKeyPem);
     const detail: CommonsPackageDetail = {
       name: req.params.name,
       latest: latestOf(versions),
@@ -118,10 +201,19 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
     if (entry === null) {
       return reply.status(404).send({ error: "not_found", message: `no ${req.params.name}@${req.params.version}` });
     }
+    assertStoredEntryTrusted(entry, keyPair.publicKeyPem);
     return entry;
   });
 
-  app.post<{ Body: { manifest?: unknown; tags?: unknown; signature?: unknown } }>("/v1/packages", async (req, reply) => {
+  app.post<{
+    Body: { manifest?: unknown; tags?: unknown; provenance?: unknown; expectedContentHash?: unknown };
+  }>("/v1/packages", async (req, reply) => {
+    if (!publisherAuthorized(req.headers.authorization, options.publishToken)) {
+      return reply.status(401).send({
+        error: "publisher_unauthorized",
+        message: "a valid Commons publisher bearer token is required",
+      });
+    }
     const body = req.body;
     if (typeof body !== "object" || body === null || body.manifest === undefined) {
       return reply.status(400).send({ error: "invalid_manifest", message: "body must be { manifest, tags? }" });
@@ -129,7 +221,11 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
 
     // Knowledge-only gate FIRST, on the raw payload — workspace/user data is
     // rejected even when it hides in fields the manifest parser would drop.
-    const offendingPaths = findWorkspaceDataPaths(body.manifest);
+    const offendingPaths = findWorkspaceDataPaths({
+      manifest: body.manifest,
+      provenance: body.provenance,
+      tags: body.tags,
+    });
     if (offendingPaths.length > 0) {
       return reply.status(422).send({
         error: "workspace_data_rejected",
@@ -153,34 +249,58 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
     if (!Array.isArray(tagsRaw) || tagsRaw.some((t) => typeof t !== "string" || t.length === 0)) {
       return reply.status(400).send({ error: "invalid_manifest", message: "tags must be an array of non-empty strings" });
     }
+    const tags = normalizeCommonsTags(tagsRaw as string[]);
 
-    const suppliedSignature = manifestSignatureFromUnknown(body.signature);
-    if (suppliedSignature) {
-      const suppliedCheck = verifyManifestSignature(toSignedEnvelope(manifest, suppliedSignature), ed25519ManifestVerifier);
-      if (!suppliedCheck.valid) {
-        return reply.status(400).send({ error: "invalid_signature", message: "supplied manifest signature does not verify" });
-      }
+    const provenance = provenanceFromUnknown(body.provenance);
+    if (!provenance) {
+      return reply.status(400).send({
+        error: "invalid_provenance",
+        message:
+          "provenance must declare sourceRepository, sourceRef, inspectedCommit, repositoryLicense, artifactLicense, and licenseVerified",
+      });
     }
 
-    const signature = signManifest(manifest, keyPair);
-    const check = verifyManifestSignature(toSignedEnvelope(manifest, signature), ed25519ManifestVerifier, {
-      trustedPublicKeys: [keyPair.publicKeyPem],
-    });
+    const resolveDependency = await verifiedDependencyResolver(store, manifest, keyPair.publicKeyPem);
+    const securityScan = scanCommonsPackage(manifest, provenance, offendingPaths, resolveDependency);
+    if (securityScan.status !== "passed") {
+      return reply.status(422).send({
+        error: "security_scan_failed",
+        message: "deterministic Commons security scan rejected the artifact",
+        securityScan,
+      });
+    }
+
+    const content = {
+      name: manifest.name,
+      version: manifest.version,
+      kind: manifest.kind,
+      summary: manifest.summary,
+      tags,
+      manifest,
+      provenance,
+      securityScan,
+    };
+    const integrity = computeCommonsContentHash(content, sha256);
+    if (body.expectedContentHash !== undefined && body.expectedContentHash !== integrity.value) {
+      return reply.status(409).send({
+        error: "content_hash_mismatch",
+        message: `publisher expected ${String(body.expectedContentHash)}, computed ${integrity.value}`,
+        computedContentHash: integrity.value,
+      });
+    }
+    const unsignedEntry: Omit<CommonsPackageEntry, "signature"> = {
+      ...content,
+      integrity,
+      publishedAt: new Date().toISOString(),
+    };
+    const entry: CommonsPackageEntry = { ...unsignedEntry, signature: signCommonsEntry(unsignedEntry, keyPair) };
+    const check = verifyCommonsEntry(entry, sha256, ed25519ManifestVerifier, { trustedPublicKeys: [keyPair.publicKeyPem] });
     if (!check.valid) {
       return reply.status(500).send({ error: "signing_failed", message: check.reason });
     }
 
     try {
-      await store.put({
-        name: manifest.name,
-        version: manifest.version,
-        kind: manifest.kind,
-        summary: manifest.summary,
-        tags: [...new Set(tagsRaw as string[])],
-        manifest,
-        signature,
-        publishedAt: new Date().toISOString(),
-      });
+      await store.put(entry);
     } catch (err) {
       if (err instanceof DuplicateVersionError) {
         return reply.status(409).send({ error: "duplicate_version", message: err.message });
@@ -188,15 +308,8 @@ export function buildCommonsServer(store: CommonsStore, options: { keyPair?: Com
       throw err;
     }
 
-    return reply.status(201).send({ name: manifest.name, version: manifest.version });
+    return reply.status(201).send({ name: manifest.name, version: manifest.version, contentHash: integrity.value });
   });
 
   return app;
-}
-
-function manifestSignatureFromUnknown(value: unknown): ManifestSignature | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate.signature !== "string" || typeof candidate.publicKey !== "string") return undefined;
-  return candidate as unknown as ManifestSignature;
 }

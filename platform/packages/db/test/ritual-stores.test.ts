@@ -27,6 +27,18 @@ async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
   return ws.id;
 }
 
+async function seedAgent(
+  db: Awaited<ReturnType<typeof createLocalDb>>["db"],
+  workspaceId: string,
+) {
+  const [agent] = await db
+    .insert(schema.agents)
+    .values({ workspaceId, name: "test_fixture_ritual_owner" })
+    .returning({ id: schema.agents.id });
+  assert.ok(agent);
+  return agent.id;
+}
+
 test("ritual store: write-time — saveSteps throws on a malformed step instead of persisting it", async () => {
   const { db, close } = await createLocalDb();
   try {
@@ -79,6 +91,66 @@ test("ritual store: write-time — saveSteps persists and load() round-trips a v
     const loaded = await registry.load(workspaceId, ritual.id);
     assert.equal(loaded?.steps.length, 1);
     assert.equal(loaded?.steps[0]?.skill, "test_fixture_send_note");
+  } finally {
+    await close();
+  }
+});
+
+test("ritual store: save and load round-trip the singular owning Agent", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const agentId = await seedAgent(db, workspaceId);
+    const registry = new DrizzleRitualRegistry(db);
+    const ritualId = "b0000000-0000-4000-a000-0000000000f1";
+
+    await registry.save({
+      id: ritualId,
+      workspaceId,
+      name: "test_fixture_owned_ritual",
+      agentId,
+      agentPlane: "cloud",
+      steps: [validStep],
+    });
+
+    const loaded = await registry.load(workspaceId, ritualId);
+    assert.equal(loaded?.agentId, agentId);
+    assert.equal(loaded?.agentPlane, "cloud");
+    assert.deepEqual(loaded?.steps, [validStep]);
+  } finally {
+    await close();
+  }
+});
+
+test("ritual store: one legacy agent_ids owner is readable but ambiguous ownership stays unbound", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const firstAgentId = await seedAgent(db, workspaceId);
+    const secondAgentId = await seedAgent(db, workspaceId);
+    const inserted = await db
+      .insert(schema.rituals)
+      .values([
+        {
+          workspaceId,
+          name: "test_fixture_legacy_single_owner",
+          trigger: {},
+          agentIds: [firstAgentId],
+          skillPipeline: [validStep],
+        },
+        {
+          workspaceId,
+          name: "test_fixture_legacy_ambiguous_owner",
+          trigger: {},
+          agentIds: [firstAgentId, secondAgentId],
+          skillPipeline: [validStep],
+        },
+      ])
+      .returning({ id: schema.rituals.id });
+    const registry = new DrizzleRitualRegistry(db);
+
+    assert.equal((await registry.load(workspaceId, inserted[0]!.id))?.agentId, firstAgentId);
+    assert.equal((await registry.load(workspaceId, inserted[1]!.id))?.agentId, undefined);
   } finally {
     await close();
   }

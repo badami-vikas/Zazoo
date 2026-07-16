@@ -24,6 +24,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -489,7 +490,7 @@ export const agents = pgTable("agents", {
   ownerUserId: uuid("owner_user_id").references(() => users.id),
   assumesRoleId: uuid("assumes_role_id"),
   goal: text("goal"),
-  allowedSkills: uuid("allowed_skills").array().notNull().default(sql`'{}'`),
+  allowedSkills: text("allowed_skills").array().notNull().default(sql`'{}'`),
   allowedTools: uuid("allowed_tools").array().notNull().default(sql`'{}'`),
   capabilityScope: jsonb("capability_scope").notNull().default({}),
   status: text("status").notNull().default("active"),
@@ -501,6 +502,9 @@ export const rituals = pgTable("rituals", {
   name: text("name").notNull(),
   trigger: jsonb("trigger").notNull(),
   cadence: text("cadence"),
+  agentId: uuid("agent_id").references(() => agents.id),
+  agentPlane: text("agent_plane"),
+  /** Legacy multi-owner field retained only for migration compatibility. */
   agentIds: uuid("agent_ids").array().notNull().default(sql`'{}'`),
   skillPipeline: jsonb("skill_pipeline").notNull().default([]),
   policyScopeId: uuid("policy_scope_id"),
@@ -1035,10 +1039,20 @@ export const packageInstallations = pgTable(
      * separate flag from capability_states.state). */
     status: text("status").notNull().default("pending_review"),
     lineageManifestId: uuid("lineage_manifest_id"),
+    /** Installation-local ownership for a signed Commons capability. */
+    moduleAttachment: jsonb("module_attachment"),
     createdAt: now(),
   },
   (t) => [
     index("package_installations_ws_name_idx").on(t.workspaceId, t.packageName),
     index("package_installations_ws_state_idx").on(t.workspaceId, t.packageName, t.state),
+    uniqueIndex("package_installations_attachment_uq").on(
+      t.workspaceId,
+      t.packageName,
+      t.packageVersion,
+      sql`coalesce(${t.moduleAttachment}->>'modulePackageName', '')`,
+      sql`coalesce(${t.moduleAttachment}->>'agentId', '')`,
+      sql`coalesce(${t.moduleAttachment}->>'needId', '')`,
+    ),
   ],
 );

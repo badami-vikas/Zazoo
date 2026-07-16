@@ -91,6 +91,23 @@ test("rollbackFromHistory: forks a NEW draft row, never mutating the historical 
   assert.equal(historical.state, "legacy");
 });
 
+test("rollbackFromHistory: rejects local forks of content-hash-pinned Commons artifacts", () => {
+  const moduleAttachment = {
+    source: "commons" as const,
+    modulePackageName: "job-pilot",
+    agentId: "application-agent",
+    needId: "calendar",
+    contentHash: `sha256:${"1".repeat(64)}`,
+  };
+  const current = row({ id: "current", packageVersion: "1.2.0", state: "available", moduleAttachment });
+  const historical = row({ id: "hist", packageVersion: "1.1.0", state: "legacy", moduleAttachment });
+
+  assert.throws(
+    () => rollbackFromHistory({ currentAvailable: current, rollbackTarget: historical }),
+    /exact signed version/,
+  );
+});
+
 test("rollbackFromHistory: rejects a cross-package rollback target", () => {
   const current = row({ id: "current", packageName: "package-a" });
   const historical = row({ id: "hist", packageName: "package-b" });

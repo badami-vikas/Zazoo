@@ -12,45 +12,24 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import {
   BlueprintValidationError,
-  canonicalizeManifest,
   compileBlueprint,
   parseWorkspaceBlueprint,
   workspaceBlueprintFromPackageManifest,
   workspaceBlueprintToPackageManifest,
-  type CommonsPackageEntry,
-  type ManifestSignature,
   type PackageManifest,
   type WorkspaceBlueprint,
 } from "@bridge/core";
 import { HttpCommonsClient } from "../src/commons-client.js";
+import { signCommonsEntryForTest } from "./commons-fixtures.js";
 
 function makeKeyPair(): { privateKeyPem: string; publicKeyPem: string } {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   return {
     privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }) as string,
     publicKeyPem: publicKey.export({ type: "spki", format: "pem" }) as string,
-  };
-}
-
-function signEntry(manifest: PackageManifest, keyPair: { privateKeyPem: string; publicKeyPem: string }): CommonsPackageEntry {
-  const signature: ManifestSignature = {
-    signature: cryptoSign(null, Buffer.from(canonicalizeManifest(manifest), "utf8"), createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
-    publicKey: keyPair.publicKeyPem,
-    algorithm: "ed25519",
-    signedAt: "2026-07-14T00:00:00.000Z",
-  };
-  return {
-    name: manifest.name,
-    version: manifest.version,
-    kind: manifest.kind,
-    summary: manifest.summary,
-    tags: [],
-    manifest,
-    publishedAt: "2026-07-14T00:00:00.000Z",
-    signature,
   };
 }
 
@@ -85,7 +64,7 @@ test("BLUEPRINT-1: a blueprint round-trips manifest -> transport(verify) -> extr
   assert.ok(manifest.blueprint);
   assert.equal(manifest.blueprint?.schemaVersion, 1);
 
-  const entry = signEntry(manifest, keyPair);
+  const entry = signCommonsEntryForTest(manifest, keyPair);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });

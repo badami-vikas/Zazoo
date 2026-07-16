@@ -77,6 +77,7 @@ import {
   type ToolRegistry,
   type CapabilityStore,
   type AutoActivationBudgetStore,
+  type Action,
   type KillSwitchPort,
   type CredentialBroker,
   type WorkspaceDefinitionStore,
@@ -84,8 +85,9 @@ import {
   type OnboardingProfileStore,
   type EvalStore,
   type PolicyParamStore,
+  type ResourceType,
 } from "@bridge/core";
-import { HttpCommonsClient, commonsUrlFromEnv } from "./commons-client.js";
+import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
   assertRlsPosture,
@@ -104,6 +106,7 @@ import {
   DrizzlePackageStore,
   DrizzleMemoryStore,
   InMemoryCanonicalIdentityStore,
+  schema,
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
@@ -127,7 +130,12 @@ import { createFactStore, type FactStore } from "@bridge/facts";
 import { createBizBuySellAlertConnector, createGmailFetchMessages, type ThesisProfile } from "@bridge/dealpilot";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
-import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
+import {
+  BUILT_IN_PACKAGES,
+  DEAL_PILOT_SOURCING_AGENT_ID,
+  resolveModuleAgentRuntimeId,
+  resolveModuleRitualRuntimeId,
+} from "./built-in-packages.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -137,7 +145,9 @@ import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
-const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
+const EGRESS_AGENT = DEAL_PILOT_SOURCING_AGENT_ID;
+const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
+const EGRESS_ROLE_PERMISSION = "b0000000-0000-4000-a000-0000000000c2";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
 // seeded user id — workspace_definitions.created_by is a real FK to `users`,
@@ -305,6 +315,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   agents.assumed.set(EGRESS_AGENT, "role-egress");
   agents.scope.set(EGRESS_AGENT, ["external:fetch:read"]);
   agents.tiers.set(EGRESS_AGENT, "public");
+  agents.skills.set(EGRESS_AGENT, ["dealpilot.source"]);
   roles.roleGrants.set("role-egress", [
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
   ]);
@@ -365,6 +376,7 @@ export interface ModePorts {
    *  bypass RLS (superuser / BYPASSRLS) in production; self-gates to a no-op
    *  outside prod. `buildWiring()` awaits this before the server serves traffic. */
   verifyRlsPosture?: () => Promise<void>;
+  bootstrapModuleRuntime?: () => Promise<void>;
 }
 
 /**
@@ -437,6 +449,46 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     ],
     closeDb: close,
     verifyRlsPosture: () => assertRlsPosture(db, { env: process.env }),
+    bootstrapModuleRuntime: async () => {
+      await db
+        .insert(schema.roles)
+        .values({
+          id: EGRESS_ROLE,
+          workspaceId: PILOT_WORKSPACE,
+          name: "Deal sourcing Agent role",
+          kind: "agent",
+        })
+        .onConflictDoNothing();
+      await db
+        .insert(schema.agents)
+        .values({
+          id: EGRESS_AGENT,
+          workspaceId: PILOT_WORKSPACE,
+          name: "Deal sourcing Agent",
+          assumesRoleId: EGRESS_ROLE,
+          allowedSkills: ["dealpilot.source"],
+          capabilityScope: { resources: ["external:fetch:read"], dataScope: "public" },
+        })
+        .onConflictDoUpdate({
+          target: schema.agents.id,
+          set: {
+            assumesRoleId: EGRESS_ROLE,
+            allowedSkills: ["dealpilot.source"],
+            capabilityScope: { resources: ["external:fetch:read"], dataScope: "public" },
+            status: "active",
+          },
+        });
+      await db
+        .insert(schema.rolePermissions)
+        .values({
+          id: EGRESS_ROLE_PERMISSION,
+          roleId: EGRESS_ROLE,
+          resourceType: "external:fetch",
+          action: "read",
+          effect: "allow",
+        })
+        .onConflictDoNothing();
+    },
   };
 }
 
@@ -632,13 +684,18 @@ export async function buildWiring(): Promise<Wiring> {
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
+  await modePorts.bootstrapModuleRuntime?.();
 
   // Seed built-in workspace-definition packages as available+installed.
   // Idempotent: checks existing rows before inserting so a restart doesn't duplicate.
   const existing = await packageStore.list(PILOT_WORKSPACE, { limit: 100, offset: 0 });
-  const existingNames = new Set(existing.items.map((r) => r.packageName));
   for (const pkg of BUILT_IN_PACKAGES) {
-    if (!existingNames.has(pkg.manifest.name)) {
+    const versions = existing.items.filter((row) => row.packageName === pkg.manifest.name);
+    const current = versions.find((row) => row.packageVersion === pkg.manifest.version);
+    if (!current) {
+      for (const previous of versions.filter((row) => row.state === "available")) {
+        await packageStore.setState(previous.id, "legacy");
+      }
       await packageStore.create({
         workspaceId: PILOT_WORKSPACE,
         packageName: pkg.manifest.name,
@@ -648,6 +705,34 @@ export async function buildWiring(): Promise<Wiring> {
         state: "available",
         status: "installed",
         lineageManifestId: null,
+      });
+    }
+  }
+
+  // Signed Module manifests opt individual Automations into the executable
+  // runtime with a stable Ritual id. Inventory-only rows remain non-clickable.
+  for (const pkg of BUILT_IN_PACKAGES) {
+    const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
+    for (const automation of pkg.manifest.module?.automations ?? []) {
+      if (!automation.ritualId) continue;
+      const capability = pkg.manifest.capabilities.find((item) => item.id === automation.capabilityId);
+      const permission = capability?.permissions[0];
+      const agent = moduleAgents.get(automation.agentId);
+      const ritualId = resolveModuleRitualRuntimeId(pkg.manifest.name, automation.ritualId);
+      const agentId = resolveModuleAgentRuntimeId(pkg.manifest.name, automation.agentId);
+      if (!permission || !agent || !ritualId || !agentId) continue;
+      await ritualRegistry.save({
+        id: ritualId,
+        name: automation.name,
+        workspaceId: PILOT_WORKSPACE,
+        agentId,
+        ...(agent.plane ? { agentPlane: agent.plane } : {}),
+        steps: [{
+          skill: automation.procedure,
+          action: permission.action as Action,
+          resourceType: permission.resourceType as ResourceType,
+          dataScope: permission.dataScope,
+        }],
       });
     }
   }
@@ -693,9 +778,13 @@ export async function buildWiring(): Promise<Wiring> {
   // Universal Commons client — binds CommonsRegistry port to the local Commons
   // service (COMMONS_URL env, default http://localhost:4780). loopback HTTP is
   // permitted by assertCommonsUrlTls; a remote plaintext URL is rejected.
-  // verifySignatures is ON by default (PKG-2 verify-on-install). The service may
-  // not be running in dev; tRPC procedures handle fetch errors gracefully.
-  const commonsRegistry: CommonsRegistry = new HttpCommonsClient(commonsUrlFromEnv());
+  // Signature verification fails closed unless the publisher key is explicitly
+  // pinned. The service may not be running in dev; tRPC procedures handle fetch
+  // errors gracefully.
+  const commonsRegistry: CommonsRegistry = new HttpCommonsClient(commonsUrlFromEnv(), {
+    trustedPublicKeys: trustedCommonsPublicKeysFromEnv(),
+    ...(process.env.COMMONS_PUBLISH_TOKEN ? { publishToken: process.env.COMMONS_PUBLISH_TOKEN } : {}),
+  });
 
   return {
     pipeline,

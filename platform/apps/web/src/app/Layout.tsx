@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Package, Plus, Settings, Check, ListChecks } from "lucide-react";
+import { Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -30,15 +30,19 @@ export default function Layout() {
   const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
+  const [mobileModulesOpen, setMobileModulesOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
 
-  // TASK-001 §5b: left rail uses the shared usePanelControl hook, sharing the
-  // same two-fixed-state snap semantics as before but via the canonical hook.
+  // TASK-001 §5b: left rail uses the shared usePanelControl hook. A drag below
+  // the midpoint collapses it; larger widths are preserved as the extended
+  // state instead of snapping back to the normal width.
   const RAIL_COLLAPSED = 76;
   const RAIL_EXPANDED = 220;
+  const RAIL_EXTENDED = 360;
   const rail = usePanelControl({
     defaultWidth: RAIL_EXPANDED,
     minWidth: RAIL_COLLAPSED,
-    maxWidth: RAIL_EXPANDED,
+    maxWidth: RAIL_EXTENDED,
     storageKeyWidth: "bridge.rail.width.v2",
     storageKeyCollapsed: "bridge.rail.collapsed.v2",
     snap: true,
@@ -56,13 +60,7 @@ export default function Layout() {
     { packageName: string; displayName: string }[] | null
   >(null);
 
-  // Pretty display names for known packages (mirrors built-in-packages.ts).
-  const DISPLAY_NAMES: Record<string, string> = {
-    "deal-pilot": "DealPilot",
-    "job-pilot": "JobPilot",
-    helpdesk: "Helpdesk",
-    calendar: "Calendar",
-  };
+  const [moduleLoadError, setModuleLoadError] = useState<string | null>(null);
 
   const [growthStage, setGrowthStage] = useState<GrowthStage>("egg");
 
@@ -73,17 +71,23 @@ export default function Layout() {
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
-          .filter((p) => p.state === "available" && p.status === "installed")
+          .filter(
+            (p) =>
+              p.state === "available" &&
+              p.status === "installed" &&
+              p.manifest?.module !== undefined &&
+              p.moduleAttachment === undefined,
+          )
           .map((p) => ({
             packageName: p.packageName,
-            displayName: DISPLAY_NAMES[p.packageName] ?? p.packageName,
+            displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.packageName,
           }));
         setInstalledModules(available);
         // Recompute growth stage from module count (proxy for capability count).
         setGrowthStage(computeGrowthStage(0, available.length));
       })
-      .catch(() => {
-        // Honest no-op: API unreachable → empty modules list.
+      .catch((failure) => {
+        setModuleLoadError(String(failure));
         setInstalledModules([]);
       });
   }, []);
@@ -170,7 +174,7 @@ export default function Layout() {
           !railExpanded ? "cursor-pointer" : ""
         }`}
         style={{
-          width: rail.dragWidth ?? (railExpanded ? RAIL_EXPANDED : RAIL_COLLAPSED),
+          width: rail.dragWidth ?? (railExpanded ? rail.panelWidth : RAIL_COLLAPSED),
           backgroundColor: "var(--color-background)",
           borderColor: "var(--color-border)",
         }}
@@ -190,7 +194,11 @@ export default function Layout() {
         <ResizeHandle
           side="left"
           onMouseDown={(e) => rail.startDrag(e, "left")}
-          label={railExpanded ? "Drag to collapse sidebar" : "Drag to expand sidebar"}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight") rail.resizeBy(16);
+            if (e.key === "ArrowLeft") rail.resizeBy(-16);
+          }}
+          label="Resize sidebar"
         />
 
         {/* Desktop window chrome (TASK-003) — cross-platform close/minimize/zoom
@@ -282,6 +290,15 @@ export default function Layout() {
             Modules are sourced from packages.list (not hardcoded). Each links to
             /module/:packageName (manifest-driven Module Detail, §4b). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
+          {!railExpanded && (
+            <div className="flex justify-center pb-1">
+              <CollapseToggleButton
+                side="left"
+                collapsed
+                onClick={() => setRailExpandedPersisted(true)}
+              />
+            </div>
+          )}
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
             <Home className="w-5 h-5 shrink-0" style={{ color: homeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
@@ -301,7 +318,7 @@ export default function Layout() {
             </div>
           ) : installedModules.length === 0 ? (
             <div className="py-1.5 text-[9px] text-center" style={{ color: "var(--color-warm-gray)" }}>
-              {railExpanded ? "No modules installed" : "—"}
+              {railExpanded ? (moduleLoadError ? "Modules unavailable" : "No modules installed") : "—"}
             </div>
           ) : (
             installedModules.map((mod) => {
@@ -367,8 +384,82 @@ export default function Layout() {
         <AgentPanel />
       </div>
 
-      {/* Mobile bottom tab bar — Home · New · Settings (initiatives are reached
-          from Home on narrow widths; a tab bar can't hold an unbounded list). */}
+      {mobileModulesOpen && (
+        <div className="sm:hidden fixed inset-0 z-40 flex">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/20"
+            aria-label="Close Module navigation"
+            onClick={() => setMobileModulesOpen(false)}
+          />
+          <nav
+            aria-label="Mobile Module navigation"
+            className="relative z-10 h-full w-[min(86vw,320px)] border-r bg-white p-3 shadow-xl"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <div className="mb-3 flex h-11 items-center justify-between border-b" style={{ borderColor: "var(--color-border)" }}>
+              <span className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Installed Modules</span>
+              <button type="button" onClick={() => setMobileModulesOpen(false)} aria-label="Collapse sidebar" className="rounded p-2">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-1">
+              {installedModules?.map((module) => (
+                <Link
+                  key={module.packageName}
+                  to={`/module/${module.packageName}`}
+                  onClick={() => setMobileModulesOpen(false)}
+                  className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  <Package className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                  {module.displayName}
+                </Link>
+              ))}
+              {moduleLoadError && <p className="px-3 py-2 text-xs text-red-600">Modules unavailable: {moduleLoadError}</p>}
+            </div>
+            <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileModulesOpen(false);
+                  setNewOpen(true);
+                }}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                style={{ color: "var(--color-navy)" }}
+              >
+                <Plus className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                New module or record
+              </button>
+              <Link
+                to="/pending-work"
+                onClick={() => setMobileModulesOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                style={{ color: "var(--color-navy)" }}
+              >
+                <ListChecks className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                Pending work
+              </Link>
+            </div>
+          </nav>
+        </div>
+      )}
+
+      {mobileChatOpen && (
+        <div className="sm:hidden fixed inset-0 z-40 flex justify-end">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/20"
+            aria-label="Close chat panel"
+            onClick={() => setMobileChatOpen(false)}
+          />
+          <div className="relative z-10 h-full">
+            <AgentPanel mobile onClose={() => setMobileChatOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Narrow-screen overlay controls preserve access to both shell panels. */}
       <nav className="sm:hidden fixed bottom-0 inset-x-0 border-t border-border bg-background flex items-stretch h-14 z-10">
         <Link
           to="/"
@@ -382,20 +473,19 @@ export default function Layout() {
         <button
           type="button"
           className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
-          onClick={() => setNewOpen(true)}
+          onClick={() => setMobileModulesOpen(true)}
         >
-          <Plus className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
-          New
+          <Package className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
+          Modules
         </button>
-        <Link
-          to="/pending-work"
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs no-underline ${
-            pendingWorkActive ? "font-medium text-[var(--color-steel)]" : "text-muted-foreground"
-          }`}
+        <button
+          type="button"
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
+          onClick={() => setMobileChatOpen(true)}
         >
-          <ListChecks className="w-4 h-4" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-          Work
-        </Link>
+          <MessageSquare className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
+          Chat
+        </button>
         <Link
           to="/settings"
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs no-underline ${

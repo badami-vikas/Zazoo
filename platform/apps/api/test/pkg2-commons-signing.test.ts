@@ -9,31 +9,23 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import {
-  canonicalizeManifest,
   CommonsInsecureTransportError,
-  type CommonsPackageEntry,
-  type ManifestSignature,
   type PackageManifest,
 } from "@bridge/core";
-import { HttpCommonsClient, CommonsSignatureError } from "../src/commons-client.js";
+import { CommonsResponseMismatchError, HttpCommonsClient, CommonsSignatureError } from "../src/commons-client.js";
+import {
+  makeUnsignedCommonsEntry,
+  signCommonsEntryForTest,
+  TEST_COMMONS_PROVENANCE,
+} from "./commons-fixtures.js";
 
 function makeKeyPair(): { privateKeyPem: string; publicKeyPem: string } {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   return {
     privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }) as string,
     publicKeyPem: publicKey.export({ type: "spki", format: "pem" }) as string,
-  };
-}
-
-function signManifest(manifest: PackageManifest, keyPair: { privateKeyPem: string; publicKeyPem: string }): ManifestSignature {
-  const data = canonicalizeManifest(manifest);
-  return {
-    signature: cryptoSign(null, Buffer.from(data, "utf8"), createPrivateKey(keyPair.privateKeyPem)).toString("base64"),
-    publicKey: keyPair.publicKeyPem,
-    algorithm: "ed25519",
-    signedAt: "2026-07-14T00:00:00.000Z",
   };
 }
 
@@ -64,19 +56,6 @@ function fixtureManifest(): PackageManifest {
   };
 }
 
-function entryOf(manifest: PackageManifest, signature?: ManifestSignature): CommonsPackageEntry {
-  return {
-    name: manifest.name,
-    version: manifest.version,
-    kind: manifest.kind,
-    summary: manifest.summary,
-    tags: [],
-    manifest,
-    publishedAt: "2026-07-14T00:00:00.000Z",
-    ...(signature ? { signature } : {}),
-  };
-}
-
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -91,7 +70,7 @@ test("HttpCommonsClient: TLS-by-default — rejects a remote plaintext COMMONS_U
 test("HttpCommonsClient.getVersion: accepts a validly-signed entry (verify-on-install)", async (t) => {
   const keyPair = makeKeyPair();
   const manifest = fixtureManifest();
-  const entry = entryOf(manifest, signManifest(manifest, keyPair));
+  const entry = signCommonsEntryForTest(manifest, keyPair);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
@@ -99,12 +78,56 @@ test("HttpCommonsClient.getVersion: accepts a validly-signed entry (verify-on-in
   assert.equal(fetched?.name, "test-fixture-signed-pkg");
 });
 
-test("HttpCommonsClient.getVersion: rejects an ALTERED manifest (signature no longer matches the bytes)", async (t) => {
+test("HttpCommonsClient rejects substitution of another validly signed package", async (t) => {
+  const keyPair = makeKeyPair();
+  const substitutedManifest = { ...fixtureManifest(), name: "test-fixture-other-pkg" };
+  const entry = signCommonsEntryForTest(substitutedManifest, keyPair);
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
+
+  const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
+  await assert.rejects(
+    () => client.getVersion("test-fixture-signed-pkg", "1.0.0"),
+    CommonsResponseMismatchError,
+  );
+});
+
+test("HttpCommonsClient.get rejects substitution in package detail responses", async (t) => {
+  const keyPair = makeKeyPair();
+  const substitutedManifest = { ...fixtureManifest(), name: "test-fixture-other-pkg" };
+  const latest = signCommonsEntryForTest(substitutedManifest, keyPair);
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({ name: "test-fixture-other-pkg", latest, versions: [] })
+  );
+
+  const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
+  await assert.rejects(() => client.get("test-fixture-signed-pkg"), CommonsResponseMismatchError);
+});
+
+test("HttpCommonsClient.getVersion: rejects an ALTERED manifest with a hash mismatch", async (t) => {
   const keyPair = makeKeyPair();
   const manifest = fixtureManifest();
-  const signature = signManifest(manifest, keyPair); // signed over the ORIGINAL bytes
   const tampered = { ...manifest, summary: "tampered after signing" };
-  const entry = entryOf(tampered, signature);
+  const entry = {
+    ...signCommonsEntryForTest(manifest, keyPair),
+    summary: tampered.summary,
+    manifest: tampered,
+  };
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
+
+  const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
+  await assert.rejects(() => client.getVersion("test-fixture-signed-pkg", "1.0.0"), (err: unknown) => {
+    assert.ok(err instanceof CommonsSignatureError);
+    assert.equal(err.reason, "hash_mismatch");
+    return true;
+  });
+});
+
+test("HttpCommonsClient.getVersion: rejects a recomputed hash when the signed envelope was altered", async (t) => {
+  const keyPair = makeKeyPair();
+  const manifest = fixtureManifest();
+  const original = signCommonsEntryForTest(manifest, keyPair);
+  const tampered = { ...manifest, summary: "tampered and rehashed" };
+  const entry = { ...makeUnsignedCommonsEntry(tampered), signature: original.signature };
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
@@ -117,7 +140,7 @@ test("HttpCommonsClient.getVersion: rejects an ALTERED manifest (signature no lo
 
 test("HttpCommonsClient.getVersion: rejects an UNSIGNED entry (missing_signature)", async (t) => {
   const manifest = fixtureManifest();
-  const entry = entryOf(manifest); // no signature
+  const entry = makeUnsignedCommonsEntry(manifest);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780");
@@ -132,7 +155,7 @@ test("HttpCommonsClient.getVersion: rejects a valid signature from an UNTRUSTED 
   const publisher = makeKeyPair();
   const otherKey = makeKeyPair();
   const manifest = fixtureManifest();
-  const entry = entryOf(manifest, signManifest(manifest, publisher));
+  const entry = signCommonsEntryForTest(manifest, publisher);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [otherKey.publicKeyPem] });
@@ -143,9 +166,22 @@ test("HttpCommonsClient.getVersion: rejects a valid signature from an UNTRUSTED 
   });
 });
 
+test("HttpCommonsClient.getVersion: rejects a valid signature when no trust root is configured", async (t) => {
+  const publisher = makeKeyPair();
+  const entry = signCommonsEntryForTest(fixtureManifest(), publisher);
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
+
+  const client = new HttpCommonsClient("http://localhost:4780");
+  await assert.rejects(() => client.getVersion("test-fixture-signed-pkg", "1.0.0"), (err: unknown) => {
+    assert.ok(err instanceof CommonsSignatureError);
+    assert.equal(err.reason, "untrusted_key");
+    return true;
+  });
+});
+
 test("HttpCommonsClient: verifySignatures:false disables the gate (controlled legacy case)", async (t) => {
   const manifest = fixtureManifest();
-  const entry = entryOf(manifest); // unsigned
+  const entry = makeUnsignedCommonsEntry(manifest);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
 
   const client = new HttpCommonsClient("http://localhost:4780", { verifySignatures: false });
@@ -157,4 +193,52 @@ test("HttpCommonsClient.getVersion: returns null on 404 without touching verific
   t.mock.method(globalThis, "fetch", async () => jsonResponse({ error: "not_found" }, 404));
   const client = new HttpCommonsClient("http://localhost:4780");
   assert.equal(await client.getVersion("nope", "1.0.0"), null);
+});
+
+test("HttpCommonsClient.getVersion: rejects an entry whose deterministic scan did not pass", async (t) => {
+  const keyPair = makeKeyPair();
+  const entry = signCommonsEntryForTest(
+    fixtureManifest(),
+    keyPair,
+    [],
+    {
+      scanner: "bridge-commons-manifest",
+      scannerVersion: "1.0.0",
+      policyVersion: "CM1-2026-07",
+      status: "failed",
+      riskBand: "informational",
+      lethalTrifecta: false,
+      checks: [{ id: "artifact-license", status: "fail", detail: "license absent" }],
+    },
+  );
+  t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));
+
+  const client = new HttpCommonsClient("http://localhost:4780", { trustedPublicKeys: [keyPair.publicKeyPem] });
+  await assert.rejects(() => client.getVersion("test-fixture-signed-pkg", "1.0.0"), (err: unknown) => {
+    assert.ok(err instanceof CommonsSignatureError);
+    assert.equal(err.reason, "scan_failed");
+    return true;
+  });
+});
+
+test("HttpCommonsClient sends generalized publish metadata and no workspace or personal identifiers", async (t) => {
+  let requestBody = "";
+  let authorization = "";
+  t.mock.method(globalThis, "fetch", async (_url: string | URL | Request, init?: RequestInit) => {
+    requestBody = String(init?.body ?? "");
+    authorization = new Headers(init?.headers).get("authorization") ?? "";
+    return jsonResponse({ name: "test-fixture-signed-pkg", version: "1.0.0", contentHash: "sha256:abc" }, 201);
+  });
+
+  const client = new HttpCommonsClient("http://localhost:4780", {
+    publishToken: "test-commons-publisher-token-00000001",
+  });
+  await client.publish(fixtureManifest(), { provenance: TEST_COMMONS_PROVENANCE, tags: ["generalized"] });
+
+  const body = JSON.parse(requestBody) as Record<string, unknown>;
+  assert.equal(authorization, "Bearer test-commons-publisher-token-00000001");
+  assert.equal("workspaceId" in body, false);
+  assert.equal("userId" in body, false);
+  assert.equal("email" in body, false);
+  assert.equal(requestBody.includes("b0000000-0000-4000-a000-000000000001"), false);
 });

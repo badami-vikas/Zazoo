@@ -14,6 +14,44 @@
 import type { PackageKind, PackageManifest } from "./types.js";
 import type { ManifestSignature } from "./signing.js";
 
+export interface CommonsProvenance {
+  sourceRepository: string;
+  sourceRef: string;
+  inspectedCommit: string;
+  repositoryLicense: string;
+  artifactLicense: string;
+  licenseVerified: boolean;
+}
+
+export interface CommonsSecurityCheck {
+  id: string;
+  status: "pass" | "warning" | "fail";
+  detail: string;
+}
+
+export interface CommonsDependencyPin {
+  name: string;
+  version: string;
+  contentHash: string;
+}
+
+export interface CommonsSecurityScan {
+  scanner: "bridge-commons-manifest";
+  scannerVersion: "1.0.0";
+  policyVersion: "CM1-2026-07";
+  status: "passed" | "failed";
+  riskBand: "informational" | "advisory" | "transformational" | "operational" | "external";
+  lethalTrifecta: boolean;
+  /** Exact verified closure identities. Required when package dependencies exist. */
+  dependencyPins?: CommonsDependencyPin[];
+  checks: CommonsSecurityCheck[];
+}
+
+export interface CommonsContentHash {
+  algorithm: "sha256";
+  value: string;
+}
+
 /** One published (name, version) entry as the registry stores/serves it.
  * `tags` are publisher-supplied generalized keywords (discovery only) — they
  * live in the registry envelope, NOT inside the manifest, so the manifest
@@ -25,8 +63,11 @@ export interface CommonsPackageEntry {
   summary: string;
   tags: string[];
   manifest: PackageManifest;
+  provenance: CommonsProvenance;
+  securityScan: CommonsSecurityScan;
+  integrity: CommonsContentHash;
   publishedAt: string;
-  /** Detached publisher signature over the manifest (PKG-2). Optional on the
+  /** Detached publisher signature over immutable content + integrity. Optional on the
    * type for backward compatibility with pre-signing entries, but the server
    * signs every publish and the install path REJECTS an entry without a valid
    * signature — so in practice a served entry always carries one. */
@@ -48,6 +89,7 @@ export interface CommonsPackageSummary {
 export interface CommonsListQuery {
   kind?: PackageKind;
   tag?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }
@@ -83,7 +125,14 @@ export interface CommonsRegistry {
   getVersion(name: string, version: string): Promise<CommonsPackageEntry | null>;
   /** Publish a GENERALIZED manifest. Throws CommonsPublishRejectedError when
    * the registry's privacy gate finds workspace-specific data. */
-  publish(manifest: PackageManifest, tags?: string[]): Promise<{ name: string; version: string }>;
+  publish(
+    manifest: PackageManifest,
+    options: {
+      tags?: string[];
+      provenance: CommonsProvenance;
+      expectedContentHash?: string;
+    },
+  ): Promise<{ name: string; version: string; contentHash: string }>;
 }
 
 /** Publish refused — either invalid manifest shape or (the important case)

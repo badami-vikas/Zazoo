@@ -135,36 +135,29 @@ pub fn run() {
             toggle_zoom_main_window,
         ])
         .setup(|app| {
-            let handle = app.handle().clone();
-            // Boot sequence off the main thread: (release only) spawn the API
-            // sidecar on a free port, wait for /health, THEN create the
-            // windows with the resolved URL injected — the UI never shows
-            // before the API it depends on is answering (or has honestly
-            // failed, in which case the UI surfaces connection errors).
-            std::thread::spawn(move || {
-                let api_url: Option<String> = if let Ok(url) = std::env::var("BRIDGE_API_URL") {
-                    // Explicit override — e.g. pointing the shell at a remote
-                    // or already-running local API. No sidecar spawned.
-                    Some(url)
-                } else if cfg!(debug_assertions) {
-                    // Dev mode unchanged: external Vite (5173) + external API
-                    // (4000, via VITE_API_URL fallback). No sidecar.
-                    None
-                } else {
-                    let resource_dir = handle.path().resource_dir().ok();
-                    api_sidecar::start(resource_dir).map(|spawned| {
-                        let url = format!("http://127.0.0.1:{}", spawned.port);
-                        let state = handle.state::<api_sidecar::ApiSidecarState>();
-                        if let Ok(mut guard) = state.0.lock() {
-                            *guard = Some(spawned.child);
-                        }
-                        url
-                    })
-                };
-                let init_script = build_init_script(api_url.as_deref());
-                let h = handle.clone();
-                let _ = handle.run_on_main_thread(move || create_windows(&h, &init_script));
-            });
+            // Create at least the main window before setup returns. Returning
+            // with zero windows lets Tauri's event loop exit before an
+            // asynchronous bootstrap can schedule window creation.
+            let api_url: Option<String> = if let Ok(url) = std::env::var("BRIDGE_API_URL") {
+                // Explicit override — e.g. pointing the shell at a remote
+                // or already-running local API. No sidecar spawned.
+                Some(url)
+            } else if cfg!(debug_assertions) {
+                // Dev mode: external Vite + API. No sidecar.
+                None
+            } else {
+                let resource_dir = app.path().resource_dir().ok();
+                api_sidecar::start(resource_dir).map(|spawned| {
+                    let url = format!("http://127.0.0.1:{}", spawned.port);
+                    let state = app.state::<api_sidecar::ApiSidecarState>();
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = Some(spawned.child);
+                    }
+                    url
+                })
+            };
+            let init_script = build_init_script(api_url.as_deref());
+            create_windows(app.handle(), &init_script);
             Ok(())
         })
         .build(tauri::generate_context!())

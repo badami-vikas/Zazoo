@@ -8,7 +8,17 @@
  * malformed manifest rather than silently defaulting fields, so a corrupt
  * package.yaml never installs as if it were empty.
  */
-import type { PackageDependency, PackageKind, PackageManifest, PackageWorkspaceVocab } from "./types.js";
+import type {
+  ModuleAgentBinding,
+  ModuleAutomationBinding,
+  ModuleCapabilityNeed,
+  ModulePageBinding,
+  ModuleSurfaceManifest,
+  PackageDependency,
+  PackageKind,
+  PackageManifest,
+  PackageWorkspaceVocab,
+} from "./types.js";
 import type { CapabilityExecutionSpec, CapabilityManifest, SandboxIsolationLevel } from "../capability/types.js";
 import { parseWorkspaceBlueprint } from "../blueprint.js";
 
@@ -192,6 +202,121 @@ function parseWorkspaceVocab(raw: unknown): PackageWorkspaceVocab {
   return { alignsToBridgeTheme: alignsRaw, domainTerms };
 }
 
+function requiredString(raw: unknown, field: string): string {
+  if (typeof raw !== "string" || raw.length === 0) fail(`${field} must be a non-empty string`);
+  return raw;
+}
+
+function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): ModuleSurfaceManifest | undefined {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw)) fail("package.module must be an object");
+
+  const displayName = requiredString(raw.displayName ?? raw.display_name, "package.module.display_name");
+  const route = requiredString(raw.route, "package.module.route");
+  if (!route.startsWith("/")) fail("package.module.route must start with /");
+
+  const capabilityById = new Map(capabilities.map((capability) => [capability.id, capability]));
+
+  const pagesRaw = raw.pages ?? [];
+  if (!Array.isArray(pagesRaw)) fail("package.module.pages must be an array");
+  const pages: ModulePageBinding[] = pagesRaw.map((page, index) => {
+    if (!isPlainObject(page)) fail(`package.module.pages[${index}] must be an object`);
+    const binding = {
+      id: requiredString(page.id, `package.module.pages[${index}].id`),
+      name: requiredString(page.name, `package.module.pages[${index}].name`),
+      route: requiredString(page.route, `package.module.pages[${index}].route`),
+      databaseId: requiredString(page.databaseId ?? page.database_id, `package.module.pages[${index}].database_id`),
+      capabilityId: requiredString(page.capabilityId ?? page.capability_id, `package.module.pages[${index}].capability_id`),
+    };
+    if (!binding.route.startsWith("/")) fail(`package.module.pages[${index}].route must start with /`);
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "view") {
+      fail(`package.module.pages[${index}].capability_id must reference a view capability`);
+    }
+    return binding;
+  });
+
+  const agentsRaw = raw.agents ?? [];
+  if (!Array.isArray(agentsRaw)) fail("package.module.agents must be an array");
+  const agents: ModuleAgentBinding[] = agentsRaw.map((agent, index) => {
+    if (!isPlainObject(agent)) fail(`package.module.agents[${index}] must be an object`);
+    const plane = agent.plane;
+    if (plane !== undefined && plane !== "local" && plane !== "cloud") {
+      fail(`package.module.agents[${index}].plane must be local or cloud`);
+    }
+    const binding: ModuleAgentBinding = {
+      id: requiredString(agent.id, `package.module.agents[${index}].id`),
+      name: requiredString(agent.name, `package.module.agents[${index}].name`),
+      capabilityId: requiredString(agent.capabilityId ?? agent.capability_id, `package.module.agents[${index}].capability_id`),
+      skillIds: parseStringArray(agent.skillIds ?? agent.skill_ids, `package.module.agents[${index}].skill_ids`),
+      ...(plane ? { plane } : {}),
+    };
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "agent") {
+      fail(`package.module.agents[${index}].capability_id must reference an agent capability`);
+    }
+    for (const skillId of binding.skillIds) {
+      if (capabilityById.get(skillId)?.capabilityType !== "skill") {
+        fail(`package.module.agents[${index}].skill_ids must reference skill capabilities`);
+      }
+    }
+    return binding;
+  });
+  const agentIds = new Set(agents.map((agent) => agent.id));
+
+  const automationsRaw = raw.automations ?? [];
+  if (!Array.isArray(automationsRaw)) fail("package.module.automations must be an array");
+  const automations: ModuleAutomationBinding[] = automationsRaw.map((automation, index) => {
+    if (!isPlainObject(automation)) fail(`package.module.automations[${index}] must be an object`);
+    const ritualId = automation.ritualId ?? automation.ritual_id;
+    const binding: ModuleAutomationBinding = {
+      id: requiredString(automation.id, `package.module.automations[${index}].id`),
+      name: requiredString(automation.name, `package.module.automations[${index}].name`),
+      capabilityId: requiredString(
+        automation.capabilityId ?? automation.capability_id,
+        `package.module.automations[${index}].capability_id`,
+      ),
+      agentId: requiredString(automation.agentId ?? automation.agent_id, `package.module.automations[${index}].agent_id`),
+      trigger: requiredString(automation.trigger, `package.module.automations[${index}].trigger`),
+      procedure: requiredString(automation.procedure, `package.module.automations[${index}].procedure`),
+      ...(ritualId !== undefined
+        ? { ritualId: requiredString(ritualId, `package.module.automations[${index}].ritual_id`) }
+        : {}),
+    };
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "workflow") {
+      fail(`package.module.automations[${index}].capability_id must reference a workflow capability`);
+    }
+    if (!agentIds.has(binding.agentId)) {
+      fail(`package.module.automations[${index}].agent_id must reference a declared module agent`);
+    }
+    return binding;
+  });
+
+  const commonsNeedsRaw = raw.commonsNeeds ?? raw.commons_needs ?? [];
+  if (!Array.isArray(commonsNeedsRaw)) fail("package.module.commons_needs must be an array");
+  const commonsNeeds: ModuleCapabilityNeed[] = commonsNeedsRaw.map((need, index) => {
+    if (!isPlainObject(need)) fail(`package.module.commons_needs[${index}] must be an object`);
+    const agentId = requiredString(need.agentId ?? need.agent_id, `package.module.commons_needs[${index}].agent_id`);
+    if (!agentIds.has(agentId)) {
+      fail(`package.module.commons_needs[${index}].agent_id must reference a declared module agent`);
+    }
+    const needKind = requiredString(need.kind, `package.module.commons_needs[${index}].kind`);
+    if (!PACKAGE_KINDS.includes(needKind as PackageKind)) {
+      fail(`package.module.commons_needs[${index}].kind must be one of ${PACKAGE_KINDS.join(", ")}`);
+    }
+    const tags = parseStringArray(need.tags, `package.module.commons_needs[${index}].tags`);
+    if (tags.length === 0) fail(`package.module.commons_needs[${index}].tags must contain at least one tag`);
+    return {
+      id: requiredString(need.id, `package.module.commons_needs[${index}].id`),
+      title: requiredString(need.title, `package.module.commons_needs[${index}].title`),
+      description: requiredString(need.description, `package.module.commons_needs[${index}].description`),
+      agentId,
+      kind: needKind as PackageKind,
+      tags,
+    };
+  });
+
+  return { displayName, route, pages, agents, automations, commonsNeeds };
+}
+
 /**
  * Parse+validate an already-parsed `package.yaml` object (or the equivalent
  * plain-object shape from a tRPC input) into a `PackageManifest`. Accepts
@@ -259,6 +384,7 @@ export function parsePackageManifest(raw: unknown): PackageManifest {
   });
 
   const workspaceVocab = parseWorkspaceVocab(pkg.workspaceVocab ?? pkg.workspace_vocab);
+  const module = parseModuleSurface(pkg.module, capabilities);
 
   return {
     name,
@@ -271,6 +397,7 @@ export function parsePackageManifest(raw: unknown): PackageManifest {
     capabilities,
     contextProviders,
     workspaceVocab,
+    ...(module ? { module } : {}),
     ...(blueprint ? { blueprint } : {}),
   };
 }

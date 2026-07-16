@@ -25,6 +25,14 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-16 — package manifest parser fixtures** (`platform/packages/core/test/package-manifest.test.ts`).
+  **Reason:** deterministic parser validation needs malformed and internally linked manifests that cannot be
+  registered in a live package store without contaminating shared installation state.
+  **Real element they stand in for:** signed Commons or built-in Module manifests with Page, Agent-owned Skill,
+  and Automation bindings.
+  **Removal condition:** retain only as isolated parser fixtures; use signed real manifests for end-to-end
+  Commons/install certification.
+
 - **2026-07-15 — JobPilot JP1 domain test fixtures** (`platform/tools/jobpilot/test/resume-schema.test.ts`,
   `master-profile.test.ts`, `profile-approval.test.ts`).
   **Reason:** deterministic merge/conflict/approval tests cannot use private real resumes in the repository.

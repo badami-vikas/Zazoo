@@ -64,17 +64,18 @@ export function toSignedEnvelope(manifest: PackageManifest, signature: ManifestS
  * external JSON-canonicalization dependency — this package is zero-deps).
  */
 export function canonicalizeManifest(manifest: PackageManifest): string {
-  return stableStringify(manifest);
+  return canonicalizeJson(manifest);
 }
 
-function stableStringify(value: unknown): string {
+/** Deterministic JSON used by every Commons hash/signature boundary. */
+export function canonicalizeJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (Array.isArray(value)) return `[${value.map(canonicalizeJson).join(",")}]`;
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj)
     .filter((k) => obj[k] !== undefined)
     .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalizeJson(obj[k])}`).join(",")}}`;
 }
 
 /** The ed25519 check, injected from the seam (node:crypto). Returns true iff

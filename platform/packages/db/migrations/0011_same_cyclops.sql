@@ -1,0 +1,2 @@
+ALTER TABLE "package_installations" ADD COLUMN "module_attachment" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX "package_installations_attachment_uq" ON "package_installations" USING btree ("workspace_id","package_name","package_version",coalesce("module_attachment"->>'modulePackageName', ''),coalesce("module_attachment"->>'agentId', ''),coalesce("module_attachment"->>'needId', ''));
