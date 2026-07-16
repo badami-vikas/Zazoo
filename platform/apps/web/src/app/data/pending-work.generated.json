@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T09:21:39.393Z",
+  "generatedAt": "2026-07-16T09:46:07.538Z",
   "items": [
     {
       "id": "TASK-001",
@@ -393,7 +393,8 @@
         "BUGS caller-supplied Helpdesk topics",
         "BUGS Node vm browser leak",
         "BUGS empty globals.css",
-        "BUGS client-only pin persistence"
+        "BUGS client-only pin persistence",
+        "BUGS 2026-07-16 baseline lint/typecheck failures"
       ],
       "requests": [],
       "approval": "none",
@@ -493,7 +494,7 @@
     {
       "id": "TASK-002",
       "title": "TASK-002 — Trust-first onboarding and behavioral learning prototype",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.",
@@ -506,7 +507,8 @@
       "evidence": [
         "BUGS 2026-07-14 blueprint-centric onboarding",
         "BUGS onboarding re-entry",
-        "BUGS Radix Dialog warning"
+        "BUGS Radix Dialog warning",
+        "2026-07-16 API/Memory regression evidence in outputs/2026-07-16-task002-onboarding-learning.md"
       ],
       "requests": [
         "R-028",
@@ -516,7 +518,7 @@
       ],
       "approval": "AP-020 applied",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 66,

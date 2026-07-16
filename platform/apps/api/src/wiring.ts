@@ -59,6 +59,7 @@ import {
   InMemoryWorkspaceDefinitionStore,
   InMemoryPackageStore,
   InMemoryOnboardingProfileStore,
+  type MemoryStore,
   InMemoryEvalStore,
   InMemoryPolicyParamStore,
   EchoModelProvider,
@@ -101,6 +102,7 @@ import {
   DrizzleCapabilityStore,
   DrizzleWorkspaceDefinitionStore,
   DrizzlePackageStore,
+  DrizzleMemoryStore,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
 } from "@bridge/db";
@@ -134,6 +136,7 @@ import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 // — full multi-tenancy is out of scope for this pass).
 export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
+export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
 const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
@@ -215,6 +218,8 @@ export interface Wiring {
    * verification method, connected sources. In-memory in both modes for now (see
    * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
   onboardingProfileStore: OnboardingProfileStore;
+  /** Inspectable, correctable, deletable learned preferences. */
+  memoryStore: MemoryStore;
   /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
@@ -249,7 +254,25 @@ const stageMutation: Skill = {
   },
 };
 
+const stageLearningRecommendation: Skill = {
+  name: "stageLearningRecommendation",
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
 const policies: PolicyFn[] = [
+  (i) =>
+    typeof i.inputs === "object" &&
+    i.inputs !== null &&
+    (i.inputs as { kind?: unknown }).kind === "learning_recommendation"
+      ? {
+          policyId: "pol-learning-recommendation-approval",
+          phase: "pre",
+          effect: "require_approval",
+          reason: "Learned recommendations require human approval before becoming active",
+        }
+      : null,
   // Sending/sharing externally always requires a human approval (governed agentic).
   (i) =>
     i.resourceType === "external:send" || i.action === "share"
@@ -270,6 +293,12 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   roles.roleGrants.set("role-outreach", [
     { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
+  ]);
+
+  agents.assumed.set(LEARNING_AGENT, "role-learning");
+  agents.scope.set(LEARNING_AGENT, ["signal:write"]);
+  roles.roleGrants.set("role-learning", [
+    { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // Egress agent (cloud) — SOURCES the internet (external:fetch read).
@@ -327,6 +356,7 @@ export interface ModePorts {
    * package_installations-shaped rows. Real Drizzle-backed table in persistent mode
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
   packageStore: PackageStore;
+  memoryStore: MemoryStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
@@ -396,6 +426,7 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     // P2 packages: real Drizzle-backed store in persistent mode (ADR-023) — no
     // longer in-memory-only once DATABASE_URL is set.
     packageStore: new DrizzlePackageStore(db),
+    memoryStore: new DrizzleMemoryStore(db),
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
     // no fake fallback, same fail-closed posture as the Google gateway.
@@ -449,6 +480,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     // In-memory mode keeps packages in-memory (no persistent backing store needed
     // for zero-infra dev/test) — persistent mode uses the real DrizzlePackageStore.
     packageStore: new InMemoryPackageStore(),
+    memoryStore: new DrizzleMemoryStore(localDb),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
     modelProviders: [new EchoModelProvider()],
@@ -459,7 +491,10 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
 
 export async function buildWiring(): Promise<Wiring> {
   const events = new InMemoryEventBus();
-  const skillRegistry = new InMemorySkillRegistry().register(stageMutation).register(stageCapture);
+  const skillRegistry = new InMemorySkillRegistry()
+    .register(stageMutation)
+    .register(stageCapture)
+    .register(stageLearningRecommendation);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -507,6 +542,7 @@ export async function buildWiring(): Promise<Wiring> {
     capabilityStore,
     workspaceDefinitionStore,
     packageStore,
+    memoryStore,
     modelProviders,
     memory,
     closeDb,
@@ -709,6 +745,7 @@ export async function buildWiring(): Promise<Wiring> {
     credentialBroker,
     commonsRegistry,
     onboardingProfileStore,
+    memoryStore,
     evalStore,
     policyParams,
     models,

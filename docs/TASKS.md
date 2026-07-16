@@ -64,13 +64,13 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Unblock: Run the live desktop/375px prototype test with seeded installed Modules, then expose attributable Agent→Skill ownership and real Automation/File inventories instead of empty states.
 
 ## TASK-002 — Trust-first onboarding and behavioral learning prototype
-- Status: ready
+- Status: in_progress
 - Priority: P0
 - Horizon: Prototype
 - Outcome: One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.
 - Prototype test: A new user completes Onboarding without internal vocabulary, sees why/consequence copy for every question, supplies an admired public figure, receives a cited Learning recommendation that requires approval, can re-enter/reset Onboarding, and can skip/snooze/pause/inspect/correct/delete learned preferences; the day-7 qualities prompt is schedulable.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md AV1/EG3; docs/raw/bridge-foundational-agents-onboarding-2026-07.md; docs/raw/learning-agent-roadmap-2026-07.md
-- Evidence: BUGS 2026-07-14 blueprint-centric onboarding; BUGS onboarding re-entry; BUGS Radix Dialog warning
+- Evidence: BUGS 2026-07-14 blueprint-centric onboarding; BUGS onboarding re-entry; BUGS Radix Dialog warning; 2026-07-16 API/Memory regression evidence in outputs/2026-07-16-task002-onboarding-learning.md
 - Requests: R-028; R-029; R-030; role-model and behavioral-learning directive 2026-07-14
 - Approval: AP-020 applied
 - Dependencies: none
@@ -251,7 +251,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
 - Prototype test: Package state survives restart; install proposals use the right resource type; Helpdesk topics are derived/validated; browser bundle excludes Node-only sandbox code; web styling loads; persisted pins use governed storage.
 - Scope: docs/BUGS.md detailed runtime evidence
-- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence
+- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
 - Requests: none
 - Approval: none
 - Dependencies: TASK-012

@@ -73,8 +73,15 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    // Integrity is enforced by the self-FK (supersedes_id → memories.id): a
-    // supersede of an unknown id fails at the DB rather than silently orphaning.
+    const current = await this.#db
+      .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+      .from(memories)
+      .where(eq(memories.id, id))
+      .limit(1);
+    if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
+    if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
+      throw new Error("memory store: a correction cannot change workspace or owner");
+    }
     return this.#insert(next, id);
   }
 
@@ -105,6 +112,24 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (query.offset != null) q = q.offset(query.offset);
     const rows = await q;
     return rows.map(unpack);
+  }
+
+  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+    const target = await this.get(id, authScope);
+    if (!target) return false;
+    await this.#db.execute(sql`
+      WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
+        SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
+        UNION
+        SELECT m.id, m.supersedes_id, m.owner_user_id
+        FROM memories m
+        JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
+        WHERE m.workspace_id = ${authScope.workspaceId}
+          AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
+      )
+      DELETE FROM memories WHERE id IN (SELECT id FROM lineage)
+    `);
+    return true;
   }
 
   async #insert(entry: MemoryWrite, supersedesId: string | null): Promise<MemoryEntry> {

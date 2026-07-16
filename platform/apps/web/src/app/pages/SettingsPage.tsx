@@ -29,6 +29,7 @@ import { MODULE_ROUTES } from "../lib/moduleRoutes";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
+  { id: "learning", label: "Learning", icon: Brain },
   { id: "team", label: "Team & Permissions", icon: Users },
   { id: "knowledge", label: "Knowledge", icon: BookOpen },
   { id: "intelligence", label: "Intelligence", icon: Brain },
@@ -39,6 +40,118 @@ const navItems = [
   { id: "api", label: "API Keys", icon: Key },
   { id: "help", label: "Help & Support", icon: HelpCircle },
 ];
+
+type LearningState = Awaited<ReturnType<typeof trpc.onboarding.learningState.query>>;
+
+function LearningSection() {
+  const [state, setState] = useState<LearningState | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  function refresh() {
+    trpc.onboarding.learningState
+      .query({ workspaceId: PILOT_WORKSPACE })
+      .then(setState)
+      .catch((error) => setMessage(String(error)));
+  }
+  useEffect(refresh, []);
+
+  const preference = state?.memories.find((item) => item.value.kind === "onboarding_preference");
+  const reflection = state?.memories.find((item) => item.value.kind === "reflection_schedule");
+  const reflectionStatus = reflection?.value.kind === "reflection_schedule" ? reflection.value.status : null;
+
+  async function correct() {
+    if (!preference || preference.value.kind !== "onboarding_preference") return;
+    const next = window.prompt("What should Bridge remember instead?", preference.value.admiredFor);
+    if (!next?.trim()) return;
+    await trpc.onboarding.correctMemory.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      memoryId: preference.row.id,
+      content: next.trim(),
+    });
+    setMessage("Preference corrected. The prior value remains only in correction history.");
+    refresh();
+  }
+
+  async function forget() {
+    if (!preference || !window.confirm("Delete this learned preference from Bridge?")) return;
+    await trpc.onboarding.forgetMemory.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      memoryId: preference.row.id,
+    });
+    setMessage("Preference deleted.");
+    refresh();
+  }
+
+  async function updateReflection(action: "snooze" | "pause" | "resume" | "skip") {
+    if (!reflection) return;
+    await trpc.onboarding.setReflection.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      memoryId: reflection.row.id,
+      action,
+    });
+    setMessage(`Reflection ${action === "resume" ? "resumed" : action === "skip" ? "skipped" : `${action}d`}.`);
+    refresh();
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionHeader title="Learning" desc="Inspect and control what Bridge learns from onboarding." />
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Onboarding</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">Re-enter the flow at any time. “Start over” clears the draft answers, not your Organization.</p>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("bridge:open-onboarding"))}
+            className="text-xs font-semibold px-3 py-2 rounded-lg bg-[var(--color-steel)] text-white"
+          >
+            Re-enter onboarding
+          </button>
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Learned preferences</div>
+          {!state && <p className="text-xs text-[var(--color-warm-gray)]">Loading…</p>}
+          {state && !preference && <p className="text-xs text-[var(--color-warm-gray)]">No onboarding preferences saved.</p>}
+          {preference?.value.kind === "onboarding_preference" && (
+            <>
+              <p className="text-sm">You admire {preference.value.figure} for {preference.value.admiredFor}.</p>
+              <p className="text-xs text-[var(--color-warm-gray)]">Source: your onboarding answer · private · Local Plane</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => void correct()} className="text-xs font-semibold px-3 py-2 rounded-lg border">Correct</button>
+                <button type="button" onClick={() => void forget()} className="text-xs font-semibold px-3 py-2 rounded-lg border text-red-600">Delete</button>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Day-7 reflection</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            Why: asking which qualities you value helps future recommendations reflect your choices. You can skip, snooze, or pause it.
+          </p>
+          {reflection?.value.kind === "reflection_schedule" ? (
+            <>
+              <p className="text-sm">Status: {reflection.value.status} · {new Date(reflection.value.dueAt).toLocaleString()}</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void updateReflection("snooze")} className="text-xs font-semibold px-3 py-2 rounded-lg border">Snooze 1 day</button>
+                <button type="button" onClick={() => void updateReflection(reflectionStatus === "paused" ? "resume" : "pause")} className="text-xs font-semibold px-3 py-2 rounded-lg border">
+                  {reflectionStatus === "paused" ? "Resume" : "Pause"}
+                </button>
+                <button type="button" onClick={() => void updateReflection("skip")} className="text-xs font-semibold px-3 py-2 rounded-lg border">Skip</button>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-[var(--color-warm-gray)]">Scheduled after you complete role-model learning.</p>
+          )}
+          {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 function SectionHeader({ title, desc }: { title: string; desc: string }) {
   return (
@@ -376,6 +489,8 @@ export function SettingsPage() {
     switch (activeSection) {
       case "organization":
         return <OrganizationSection />;
+      case "learning":
+        return <LearningSection />;
       case "team":
         return <TeamSection />;
       case "knowledge":

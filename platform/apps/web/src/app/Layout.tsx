@@ -89,6 +89,12 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
+    const openOnboarding = () => setOnboardingOpen(true);
+    window.addEventListener("bridge:open-onboarding", openOnboarding);
+    return () => window.removeEventListener("bridge:open-onboarding", openOnboarding);
+  }, []);
+
+  useEffect(() => {
     trpc.workspace.blueprint.get
       .query({ workspaceId: PILOT_WORKSPACE })
       .then((res) => {

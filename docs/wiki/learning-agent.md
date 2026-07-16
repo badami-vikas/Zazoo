@@ -6,14 +6,22 @@ full: [../raw/learning-agent-roadmap-2026-07.md](../raw/learning-agent-roadmap-2
 corrections, connected systems, docs; runs research; feeds every other
 agent. `neverExecutes: true` — enforced in code, only firm thing built.
 
-**Ground truth (audited 2026-07-12): nearly all greenfield.** @learning =
+**Ground truth (updated 2026-07-16): early substrate now real.** @learning =
 prompt + one LLM call. Durable Memory runtime ABSENT
-(onboarding-profile.ts admits it). Mem0 decision ratified (ADR-010f), zero
-mem0 code. PromptAssembler unbuilt. competitor-discovery = "policy
+(historical audit); MemoryStore + Drizzle binding now exist, and TASK-002 uses
+private Local Plane preference Memories with inspect/correct/delete. Mem0 decision ratified (ADR-010f), zero
+mem0 code. PromptAssembler unbuilt. broader research lane = "policy
 decided, no mechanism". Onboarding profile in-memory only. Signals tables
 exist, no producer. Embeddings tables exist, no retrieval. Security audit:
 Learning = PRIMARY untrusted-input consumer, no taint marking, no SSRF
 client, no quarantine — all HIGH, all unbuilt.
+
+**TASK-002 partial:** every onboarding question says why + effect. User may skip
+role model. Fixed-host Wikipedia research returns citation + separates documented
+context from user interpretation. Recommendation lands as pending-review Signal.
+Direct onboarding preference becomes private Memory. Day-7 qualities reflection
+is scheduled; Settings can re-enter/start over, snooze/pause/resume/skip, inspect,
+correct, delete. Full live desktop/375px proof still open.
 
 **Core invariants**: learned content = data never instructions; everything
 stored inspectable + deletable; suggested-then-accepted for durable Memory

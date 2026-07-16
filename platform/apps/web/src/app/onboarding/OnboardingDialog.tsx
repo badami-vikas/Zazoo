@@ -66,6 +66,7 @@ type Step = "questions" | "preview" | "submitted";
  * what ACTUALLY happened instead of a generic "check Approvals" that may be
  * empty (the dead-end bug in BUGS.md, found live-testing 2026-07-06). */
 type SubmitOutcome = "activated" | "pending_review" | null;
+type RecommendationResult = Awaited<ReturnType<typeof trpc.onboarding.recommendFromRoleModel.mutate>>;
 
 /**
  * Onboarding pop-up (docs/wiki/clients.md: "pop-up screen, not a separate
@@ -92,6 +93,8 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
   const [textDraft, setTextDraft] = useState("");
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
   const [eggStage, setEggStage] = useState<EggStage>("incubating");
+  const [recommendationResult, setRecommendationResult] = useState<RecommendationResult | null>(null);
+  const [learningError, setLearningError] = useState<string | null>(null);
 
   const question = useMemo(() => nextQuestion(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
@@ -168,7 +171,19 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setTextDraft("");
     setOutcome(null);
     setEggStage("incubating");
+    setRecommendationResult(null);
+    setLearningError(null);
     onOpenChange(false);
+  }
+
+  function startOver() {
+    setAnswers({});
+    setStep("questions");
+    setError(null);
+    setTextDraft("");
+    setOutcome(null);
+    setRecommendationResult(null);
+    setLearningError(null);
   }
 
   function answer(id: string, value: string | string[]) {
@@ -221,6 +236,21 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           // Cosmetic/personalization only — swallow, same posture as avatar
           // prefs' localStorage write failing silently.
         });
+      const figure = typeof answers.role_model === "string" ? answers.role_model.trim() : "";
+      const admiredFor = typeof answers.role_model_why === "string" ? answers.role_model_why.trim() : "";
+      if (figure && admiredFor) {
+        try {
+          setRecommendationResult(
+            await trpc.onboarding.recommendFromRoleModel.mutate({
+              workspaceId: PILOT_WORKSPACE,
+              figure,
+              admiredFor,
+            }),
+          );
+        } catch (learningFailure) {
+          setLearningError(`Your setup is saved, but public-source research could not finish: ${String(learningFailure)}`);
+        }
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -234,8 +264,8 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
         <DialogHeader>
           <DialogTitle>Set up Bridge</DialogTitle>
           <DialogDescription>
-            A few quick questions — Bridge generates a starting setup from your answers. Nothing is created until
-            you approve it.
+            A few quick questions help Bridge prepare something useful. Each one explains why it matters, and
+            nothing is created or scheduled without your approval.
           </DialogDescription>
         </DialogHeader>
 
@@ -246,6 +276,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
             <div className="space-y-1">
               <p className="text-sm font-medium">{question.prompt}</p>
               {question.helpText && <p className="text-xs text-muted-foreground">{question.helpText}</p>}
+              <p className="text-xs text-[var(--color-steel)]">{question.consequence}</p>
             </div>
 
             {question.kind === "single_select" && (
@@ -300,26 +331,36 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <Button disabled={!textDraft.trim()} onClick={() => answer(question.id, textDraft.trim())}>
                   Next
                 </Button>
+                {question.id === "role_model" && (
+                  <Button variant="ghost" onClick={() => answer(question.id, "")}>
+                    Skip
+                  </Button>
+                )}
               </div>
+            )}
+            {answered > 0 && (
+              <Button variant="ghost" size="sm" onClick={startOver}>
+                Start over
+              </Button>
             )}
           </div>
         )}
 
         {step === "preview" && (
           <div className="space-y-3">
-            <p className="text-sm font-medium">Preview — this is what will be proposed</p>
+            <p className="text-sm font-medium">Review your starting setup</p>
             {compiled && "error" in compiled ? (
               <div className="text-sm text-red-600 border rounded-md p-3">{compiled.error}</div>
             ) : (
               <div className="border rounded-md p-3 space-y-2 text-sm">
                 <div>
-                  <span className="text-muted-foreground">Entities: </span>
+                  <span className="text-muted-foreground">Information you'll start with: </span>
                   {blueprint.entities.map((e) => blueprint.vocabulary[e.label] ?? e.label).join(", ") || "none"}
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Views: </span>
+                  <span className="text-muted-foreground">Starting layouts: </span>
                   {compiled && "viewConfigs" in compiled
-                    ? compiled.viewConfigs.map((v) => `${v.entity} (${v.kind})`).join(", ")
+                    ? compiled.viewConfigs.map((v) => v.kind === "table" ? "List" : v.kind === "kanban" ? "Board" : "Calendar").join(", ")
                     : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground pt-1">
@@ -354,8 +395,30 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <strong>Approvals</strong> inbox and applies the moment it's approved.
               </p>
             )}
+            {recommendationResult && (
+              <div className="rounded-md border p-3 space-y-2 text-sm">
+                <p className="font-medium">{recommendationResult.recommendation.title}</p>
+                <p>{recommendationResult.recommendation.summary}</p>
+                <p className="text-xs text-muted-foreground">{recommendationResult.recommendation.interpretation}</p>
+                <a
+                  className="text-xs text-[var(--color-steel)] underline"
+                  href={recommendationResult.recommendation.citation.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Source: {recommendationResult.recommendation.citation.label}
+                </a>
+                <p className="text-xs font-medium">Proposed for approval — it will not run unless you approve it.</p>
+              </div>
+            )}
+            {!recommendationResult && !learningError && answers.role_model && (
+              <p className="text-xs text-muted-foreground">Learning Agent is checking a public source…</p>
+            )}
+            {learningError && <p className="text-xs text-red-600">{learningError}</p>}
             <DialogFooter>
-              <Button onClick={resetAndClose}>Done</Button>
+              <Button onClick={resetAndClose} disabled={submitting}>
+                {submitting ? "Finishing research…" : "Done"}
+              </Button>
             </DialogFooter>
           </div>
         )}
