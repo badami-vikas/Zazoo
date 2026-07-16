@@ -16,6 +16,7 @@ import { Header } from "../components/shared/Header";
 import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
 import { CardGrid, NotionCard } from "../components/shared/NotionCard";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
 
 type PageId = "deals" | "sources" | "theses";
 type ViewId = "table" | "card" | "board" | "form";
@@ -81,6 +82,7 @@ export function DealPilotPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ field: string; direction: "asc" | "desc" } | null>(null);
 
   useEffect(() => {
     if (!params.page) navigate("/dealpilot/deals", { replace: true });
@@ -142,9 +144,17 @@ export function DealPilotPage() {
 
   const visibleRecords = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!records || !query) return records?.items ?? [];
-    return records.items.filter((record) => JSON.stringify(record).toLowerCase().includes(query));
-  }, [records, search]);
+    const visible = !records
+      ? []
+      : !query
+        ? records.items
+        : records.items.filter((record) => JSON.stringify(record).toLowerCase().includes(query));
+    if (!sort) return visible;
+    return [...visible].sort((left, right) => {
+      const order = displayValue(left, sort.field).localeCompare(displayValue(right, sort.field));
+      return sort.direction === "asc" ? order : -order;
+    });
+  }, [records, search, sort]);
 
   if (error) {
     return (
@@ -257,6 +267,8 @@ export function DealPilotPage() {
                   rows={visibleRecords}
                   columns={activePage?.columns ?? []}
                   onOpen={(record) => navigate(`/dealpilot/${recordPage(record)}/${record.id}`)}
+                  onFilter={() => setNotice("Use the standard toolbar search while field filters are being connected.")}
+                  onSort={(field, direction) => setSort({ field, direction })}
                 />
               ) : view === "board" ? (
                 <DealBoard rows={visibleRecords} onOpen={(record) => navigate(`/dealpilot/deals/${record.id}`)} />
@@ -312,16 +324,29 @@ function RecordTable({
   rows,
   columns,
   onOpen,
+  onFilter,
+  onSort,
 }: {
   rows: RecordRow[];
   columns: ModuleManifest["pages"][number]["columns"];
   onOpen: (record: RecordRow) => void;
+  onFilter: () => void;
+  onSort: (field: string, direction: "asc" | "desc") => void;
 }) {
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-          {columns.map((column) => <th key={column.id} className="px-4 py-2 font-semibold">{column.label}</th>)}
+          {columns.map((column) => (
+            <th key={column.id} className="px-4 py-2 font-semibold">
+              <StandardColumnMenu
+                label={column.label}
+                databaseBacked
+                onFilter={onFilter}
+                onSort={(direction) => onSort(column.id, direction)}
+              />
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>

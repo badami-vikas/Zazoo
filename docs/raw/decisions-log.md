@@ -5,7 +5,7 @@ doc_kind: reference
 status: active
 companions: []
 related_wiki: ../wiki/decisions.md
-updated: 2026-07-09
+updated: 2026-07-16
 tags: [adr, decisions, governance, rationale]
 ---
 
@@ -2813,3 +2813,21 @@ Ollama/Anthropic call.
 - **Why**: TASK-002 needs useful cited output now without inventing a general crawler or allowing caller-selected URLs. Signal is the canonical surfaced Event/recommendation shape and preserves Agent attribution plus approval. Privacy deletion must actually forget user-controlled learning; exposing an old superseded value after deleting its replacement would violate the product promise.
 - **Alternatives rejected**: open-web caller-selected fetches before the SSRF research client exists; uncited model-only advice; direct Skill/Automation installation; treating role-model admiration as blanket endorsement; soft-delete/tombstone that retains personal preference text; silently scheduling the day-7 prompt.
 - **Consequences**: the prototype has a narrow lawful public-source lane, not a general Learning research engine. Broader research remains gated on the SSRF-hardened client and runtime taint work. Persistent production governance must provision the Learning Agent's `signal:write` grant just as zero-infrastructure mode now does. TASK-002 stays in progress until desktop/375px live proof and the remaining onboarding ceremony exit criteria pass.
+
+## ADR-096 — macOS Avatar uses a pinned non-activating NSPanel; Sidebar chrome keeps native AppKit controls (2026-07-16)
+- **Decision**: On macOS, Avatar overlays convert through `tauri-nspanel` 2.1.0 pinned to inspected commit `a3122e894383aa068ec5365a42994e3ac94ba1b6` (MIT OR Apache-2.0), apply the non-activating style mask, join all Spaces, and opt into fullscreen auxiliary behavior. The main window uses Tauri's overlay title bar with hidden title so AppKit's real close/minimize/zoom controls sit in a draggable Sidebar lane. Windows/Linux retain ordinary native decorations.
+- **Why**: NSPanel is the platform primitive for a floating companion that must remain present without taking app focus. Native traffic lights preserve macOS accessibility, keyboard, fullscreen, and window-management semantics while matching the supplied Sidebar layout and preventing duplicate controls.
+- **Alternatives rejected**: duplicate HTML traffic-light buttons beside native controls; fully undecorated cross-platform windows; an unpinned moving branch dependency; custom Objective-C panel swizzling instead of the inspected permissive plugin; launch-only monitor enumeration.
+- **Consequences**: macOS has a target-gated dependency and runtime panel conversion; other targets do not compile or render the macOS path. A one-second topology watcher creates/removes overlay instances and reconciles off-screen positions. Physical attach/detach, Space, fullscreen, drag/relaunch, and native-control interaction remain mandatory prototype evidence on suitable hardware.
+
+## ADR-097 — File roots fail closed; desktop sidecar readiness never blocks Tauri setup (2026-07-16)
+- **Decision**: Module File inventory resolves Organization and Module segments beneath the canonical `~/Documents/Bridge` root, rejects empty/`.`/`..` segments, and verifies the result is a strict descendant before reading. Package intake also rejects dot-segment Module display names. Desktop release startup synchronously resolves/spawns the API and creates windows with its port, but runs the bounded readiness probe on a named detached thread.
+- **Why**: Human-readable manifest and Organization names are untrusted filesystem inputs; sanitizing separators alone does not stop `.`/`..` resolution. Tauri must create a window before `setup()` returns to avoid a zero-window exit, while its event loop must not wait up to 20 seconds for API health.
+- **Alternatives rejected**: character replacement without post-resolution containment; silently mapping invalid names to a colliding fallback directory; moving all desktop bootstrap work back to a thread and reintroducing the zero-window race; blocking `setup()` until API health; creating the webview without the resolved API port and trying to mutate an import-time global later.
+- **Consequences**: invalid File-root inputs fail explicitly and cannot enumerate outside the Local Plane directory. The desktop webview receives the correct API URL immediately; if readiness is slow, the UI may surface a transient connection error rather than freezing the native event loop. API child ownership and exit cleanup remain unchanged.
+
+## ADR-098 — Roadmap fan-out starts early but dependencies remain hard gates (2026-07-16)
+- **Decision**: Under the user's AP-029 directive, TASK-006 through TASK-015 start before TASK-005 certification. Independent foundations TASK-006/007/008 execute in parallel. TASK-009–015 begin with isolated scope/file/test planning and cannot enter implementation until their named dependencies are available. Task completion still requires the canonical Prototype test and affected-neighbour evidence.
+- **Why**: The remaining physical TASK-003 matrix and Commons integration can proceed independently from substantial DealPilot, Agent-runtime, and Relationship foundations. Planning dependent work now removes discovery latency without pretending unavailable upstream contracts exist.
+- **Alternatives rejected**: keep all later work idle behind hardware evidence; execute all ten implementations blindly against missing dependencies; weaken or delete dependency edges; mark research or builds as task completion.
+- **Consequences**: TASKS temporarily carries multiple `in_progress` foundations, an explicit exception to the normal single-task rule. Isolated worktrees own one task each; shared router/schema/docs changes require coordinator reconciliation. TASK-009–015 remain dependency-blocked after planning, and AP-029 does not authorize destructive TASK-013 deletion.

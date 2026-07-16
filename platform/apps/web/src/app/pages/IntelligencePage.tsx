@@ -15,6 +15,7 @@
  * Packages tab uses "Modules" as display label (vocabulary rule R-017–R-020).
  */
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Package, Cable, Bot, Globe } from "lucide-react";
 import { Header } from "../components/shared/Header";

@@ -8,9 +8,11 @@
  *   - SUPABASE_URL set         → verify against the project's remote JWKS (ES256/RS256).
  *   - neither set (local dev)  → no verifier; fall back to the server-pinned pilot user.
  *
- * If a verifier IS configured and a bearer token is present, it MUST verify — an
- * invalid token is rejected (never silently downgraded to the pilot identity). A
- * request with no token uses the pilot fallback so local/no-auth dev still works.
+ * If a verifier IS configured and an Authorization header is present, it MUST contain
+ * a non-empty bearer whose signature and subject verify — invalid credentials are
+ * rejected, never silently downgraded to the pilot identity. A request with no header
+ * uses the pilot fallback; authenticated procedures still reject that fallback whenever
+ * a verifier or persistent stores are active.
  *
  * JWKS hardening: the remote JWKS fetch has its own bounded timeout (jose's
  * `timeoutDuration`) AND every verify call is wrapped in try/catch here. A slow or
@@ -56,7 +58,8 @@ export interface IdentityResolver {
 export function bearerToken(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
   const m = authHeader.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1]!.trim() : null;
+  const token = m?.[1]?.trim();
+  return token ? token : null;
 }
 
 /**
@@ -91,7 +94,8 @@ export function createIdentityResolver(pilotUserId: string): IdentityResolver {
   const verifying = Boolean(hsKey || jwks);
 
   function actorFrom(payload: JWTPayload): Actor {
-    const sub = typeof payload.sub === "string" && payload.sub ? payload.sub : pilotUserId;
+    const sub = typeof payload.sub === "string" ? payload.sub.trim() : "";
+    if (!sub) throw new Error("verified token is missing a non-empty subject");
     return { type: "user", id: sub };
   }
 
@@ -99,9 +103,13 @@ export function createIdentityResolver(pilotUserId: string): IdentityResolver {
     verifying,
     async resolve(authHeader) {
       const token = bearerToken(authHeader);
-      if (!verifying || !token) {
-        // Dev / no-auth: server-pinned pilot identity (never client-asserted).
+      if (!verifying) {
+        // Pure local dev: server-pinned pilot identity (never client-asserted).
         return { type: "user", id: pilotUserId };
+      }
+      if (!authHeader) return { type: "user", id: pilotUserId };
+      if (!token) {
+        throw new IdentityVerificationError(new Error("malformed or empty bearer credentials"));
       }
       try {
         if (hsKey) {

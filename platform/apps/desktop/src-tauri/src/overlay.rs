@@ -26,28 +26,40 @@
 //! rotated display). A position outside every monitor's bounds falls back to
 //! the default bottom-right anchor.
 //!
-//! **macOS Spaces / fullscreen — NOT implemented here (TASK-003 blocker)**
-//! The roadmap (egg-commons-feature-roadmap-2026-07.md §1.3) calls for
-//! `tauri-nspanel` (NonActivatingPanel + FullScreenAuxiliary +
-//! NSWindowCollectionBehaviorCanJoinAllSpaces) so the avatar persists across
-//! macOS Spaces and floats over fullscreen apps without stealing focus. That
-//! crate is macOS-only and has not been added (no new macOS dependencies per
-//! this task's constraints). These three behaviours must be verified and
-//! enabled in a local macOS session:
-//!   1. Avatar visible when switching Spaces (NSWindowCollectionBehaviorCanJoinAllSpaces).
-//!   2. Avatar visible over fullscreen apps (NSWindowCollectionBehaviorFullScreenAuxiliary).
-//!   3. Avatar panel does not steal keyboard focus on expand (NSNonactivatingPanelMask).
+//! On macOS each overlay is converted to a `tauri-nspanel` non-activating
+//! panel that joins all Spaces and remains visible beside fullscreen windows.
+//! Other targets keep the ordinary undecorated Tauri window.
 //!
-//! **Multi-monitor hot-plug** — still static-at-launch only. A monitor
-//! plugged/unplugged after startup does not add/remove overlay instances.
-//! Tauri doesn't emit a monitor-added event; a periodic topology check or
-//! AppKit NSScreens-changed observer would be needed.
+//! Display topology is reconciled at runtime. A lightweight watcher snapshots
+//! monitor geometry once per second and, on change, creates/removes overlay
+//! instances and re-anchors any now-off-screen position.
 
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
 use tauri::{
     AppHandle, LogicalSize, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
+
+#[cfg(target_os = "macos")]
+use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelLevel, StyleMask, WebviewWindowExt};
+
+#[cfg(target_os = "macos")]
+tauri_panel! {
+    panel!(AvatarPanel {
+        config: {
+            can_become_key_window: true,
+            can_become_main_window: false,
+            is_floating_panel: true
+        }
+    })
+}
 
 pub const OVERLAY_LABEL: &str = "overlay";
 pub const MAIN_LABEL: &str = "main";
@@ -57,6 +69,34 @@ pub const COLLAPSED_SIZE: f64 = 96.0;
 /// enough to clear a default Dock.
 const MARGIN_RIGHT: f64 = 24.0;
 const MARGIN_BOTTOM: f64 = 96.0;
+const TOPOLOGY_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Clone, PartialEq)]
+struct DisplayGeometry {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale_bits: u64,
+}
+
+type DisplayTopology = Vec<DisplayGeometry>;
+
+pub struct DisplayTopologyState {
+    last: Mutex<Option<DisplayTopology>>,
+    failed_labels: Mutex<HashSet<String>>,
+    running: AtomicBool,
+}
+
+impl Default for DisplayTopologyState {
+    fn default() -> Self {
+        Self {
+            last: Mutex::new(None),
+            failed_labels: Mutex::new(HashSet::new()),
+            running: AtomicBool::new(false),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Position persistence (TASK-003)
@@ -85,8 +125,12 @@ fn positions_file(app: &AppHandle) -> Option<std::path::PathBuf> {
 /// Load the saved position map. Returns an empty map on any I/O or parse
 /// error — degrading gracefully to default anchoring rather than panicking.
 pub fn load_positions(app: &AppHandle) -> PositionMap {
-    let Some(path) = positions_file(app) else { return HashMap::new() };
-    let Ok(bytes) = std::fs::read(&path) else { return HashMap::new() };
+    let Some(path) = positions_file(app) else {
+        return HashMap::new();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return HashMap::new();
+    };
     serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
@@ -94,12 +138,16 @@ pub fn load_positions(app: &AppHandle) -> PositionMap {
 /// Errors are logged but never propagated — position persistence is a
 /// best-effort UX improvement, not a load-bearing invariant.
 fn save_positions(app: &AppHandle, map: &PositionMap) {
-    let Some(path) = positions_file(app) else { return };
+    let Some(path) = positions_file(app) else {
+        return;
+    };
     // Ensure parent directories exist.
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let Ok(json) = serde_json::to_vec_pretty(map) else { return };
+    let Ok(json) = serde_json::to_vec_pretty(map) else {
+        return;
+    };
     // Write to a sibling temp file then rename for atomicity.
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, &json).is_ok() {
@@ -177,6 +225,64 @@ fn label_for_monitor(index: usize) -> String {
     }
 }
 
+fn is_overlay_label(label: &str) -> bool {
+    label == OVERLAY_LABEL
+        || label
+            .strip_prefix(&format!("{OVERLAY_LABEL}-"))
+            .is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+}
+
+fn desired_overlay_labels(monitor_count: usize) -> Vec<String> {
+    (0..monitor_count.max(1)).map(label_for_monitor).collect()
+}
+
+#[derive(Debug, PartialEq)]
+struct TopologyPlan {
+    create: Vec<(usize, String)>,
+    remove: Vec<String>,
+}
+
+fn plan_overlay_topology(existing_labels: &[String], monitor_count: usize) -> TopologyPlan {
+    let desired_labels = desired_overlay_labels(monitor_count);
+    let desired: HashSet<String> = desired_labels.iter().cloned().collect();
+    let existing: HashSet<String> = existing_labels.iter().cloned().collect();
+    TopologyPlan {
+        create: desired_labels
+            .into_iter()
+            .enumerate()
+            .filter(|(_, label)| !existing.contains(label.as_str()))
+            .collect(),
+        remove: existing_labels
+            .iter()
+            .filter(|label| !desired.contains(label.as_str()))
+            .cloned()
+            .collect(),
+    }
+}
+
+fn topology_monitors(app: &AppHandle) -> Vec<Monitor> {
+    app.available_monitors().unwrap_or_default()
+}
+
+fn display_topology(monitors: &[Monitor]) -> DisplayTopology {
+    monitors
+        .iter()
+        .map(|monitor| DisplayGeometry {
+            x: monitor.position().x,
+            y: monitor.position().y,
+            width: monitor.size().width,
+            height: monitor.size().height,
+            scale_bits: monitor.scale_factor().to_bits(),
+        })
+        .collect()
+}
+
+fn topology_changed(previous: Option<&DisplayTopology>, next: &DisplayTopology) -> bool {
+    previous != Some(next)
+}
+
 /// Position `win` bottom-right of `monitor`, sized at `COLLAPSED_SIZE`
 /// (logical) scaled to that monitor's own scale factor.
 fn anchor_bottom_right(win: &WebviewWindow, monitor: &Monitor) {
@@ -199,21 +305,26 @@ fn anchor_bottom_right(win: &WebviewWindow, monitor: &Monitor) {
 /// `window.__BRIDGE_API_URL__` injection as the main window so every
 /// instance's tRPC client talks to the sidecar API too.
 pub fn create_overlay_windows(app: &AppHandle, init_script: &str) -> tauri::Result<()> {
-    let monitors = app.available_monitors().unwrap_or_default();
+    let monitors = topology_monitors(app);
     if monitors.is_empty() {
         return create_one_overlay_window(app, init_script, 0, None);
     }
     let mut first_err: Option<tauri::Error> = None;
     for (index, monitor) in monitors.iter().enumerate() {
         if let Err(err) = create_one_overlay_window(app, init_script, index, Some(monitor)) {
-            eprintln!("[bridge-desktop] failed to create overlay window for monitor {index}: {err}");
+            eprintln!(
+                "[bridge-desktop] failed to create overlay window for monitor {index}: {err}"
+            );
             first_err.get_or_insert(err);
         }
     }
     // Only fail the caller if EVERY monitor failed — a partial multi-monitor
     // rollout (e.g. one weird virtual display) still leaves a usable
     // companion on the monitors that worked.
-    let any_overlay_created = app.webview_windows().keys().any(|l| l.starts_with(OVERLAY_LABEL));
+    let any_overlay_created = app
+        .webview_windows()
+        .keys()
+        .any(|l| l.starts_with(OVERLAY_LABEL));
     if let Some(err) = first_err {
         if !any_overlay_created {
             return Err(err);
@@ -249,19 +360,32 @@ fn create_one_overlay_window(
     .always_on_top(true)
     .skip_taskbar(true)
     .accept_first_mouse(true)
+    .focused(false)
     .initialization_script(init_script)
     .build()?;
+
+    #[cfg(target_os = "macos")]
+    if let Err(error) = configure_macos_panel(&win) {
+        if let Ok(mut failed) = app.state::<DisplayTopologyState>().failed_labels.lock() {
+            failed.insert(label.clone());
+        }
+        let _ = win.destroy();
+        use tauri_nspanel::ManagerExt;
+        let _ = app.remove_webview_panel(&label);
+        return Err(error);
+    }
+    if let Ok(mut failed) = app.state::<DisplayTopologyState>().failed_labels.lock() {
+        failed.remove(&label);
+    }
 
     // Try to restore a previously-saved drag position. Fall back to the
     // default bottom-right anchor when absent or off-screen.
     let restored = {
         let monitors: Vec<Monitor> = app.available_monitors().unwrap_or_default();
-        let phys_size = win
-            .outer_size()
-            .unwrap_or(tauri::PhysicalSize {
-                width: (COLLAPSED_SIZE * win.scale_factor().unwrap_or(1.0)) as u32,
-                height: (COLLAPSED_SIZE * win.scale_factor().unwrap_or(1.0)) as u32,
-            });
+        let phys_size = win.outer_size().unwrap_or(tauri::PhysicalSize {
+            width: (COLLAPSED_SIZE * win.scale_factor().unwrap_or(1.0)) as u32,
+            height: (COLLAPSED_SIZE * win.scale_factor().unwrap_or(1.0)) as u32,
+        });
         reconcile_saved_position(app, &label, &monitors, phys_size.width, phys_size.height)
     };
 
@@ -280,6 +404,198 @@ fn create_one_overlay_window(
         }
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_panel(window: &WebviewWindow) -> tauri::Result<()> {
+    let panel = window.to_panel::<AvatarPanel>()?;
+    panel.set_level(PanelLevel::Floating.value());
+    panel.set_floating_panel(true);
+    panel.set_hides_on_deactivate(false);
+    panel.set_becomes_key_only_if_needed(true);
+    panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
+    panel.set_collection_behavior(
+        CollectionBehavior::new()
+            .full_screen_auxiliary()
+            .can_join_all_spaces()
+            .into(),
+    );
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[bridge-desktop] macOS panel ready label={} class={:?} floating={} can_become_key={} policy=nonactivating+all-spaces+fullscreen-auxiliary",
+        window.label(),
+        panel.as_panel().class().name(),
+        panel.is_floating_panel(),
+        panel.can_become_key_window(),
+    );
+    Ok(())
+}
+
+fn collapsed_top_left(
+    position: PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    collapsed_size: u32,
+) -> PersistedPosition {
+    PersistedPosition {
+        x: position.x + size.width as i32 - collapsed_size as i32,
+        y: position.y + size.height as i32 - collapsed_size as i32,
+    }
+}
+
+fn collapsed_window_position(window: &WebviewWindow) -> Result<PersistedPosition, String> {
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let size = window.outer_size().map_err(|error| error.to_string())?;
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let collapsed_size = (COLLAPSED_SIZE * scale).round() as u32;
+    Ok(collapsed_top_left(position, size, collapsed_size))
+}
+
+fn persist_collapsed_window_position(app: &AppHandle, window: &WebviewWindow) {
+    let Ok(position) = collapsed_window_position(window) else {
+        return;
+    };
+    let mut positions = load_positions(app);
+    positions.insert(window.label().to_string(), position);
+    save_positions(app, &positions);
+}
+
+fn reconcile_overlay_topology(
+    app: &AppHandle,
+    init_script: &str,
+    monitors: &[Monitor],
+) -> tauri::Result<()> {
+    let desired_labels = desired_overlay_labels(monitors.len());
+    let failed_labels = app
+        .state::<DisplayTopologyState>()
+        .failed_labels
+        .lock()
+        .map(|failed| failed.clone())
+        .unwrap_or_default();
+    let existing_labels: Vec<String> = app
+        .webview_windows()
+        .keys()
+        .filter(|label| is_overlay_label(label) && !failed_labels.contains(*label))
+        .cloned()
+        .collect();
+    let plan = plan_overlay_topology(&existing_labels, monitors.len());
+
+    for label in plan.remove {
+        if let Some(window) = app.get_webview_window(&label) {
+            window.close()?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use tauri_nspanel::ManagerExt;
+            let _ = app.remove_webview_panel(&label);
+        }
+    }
+
+    let mut first_error = None;
+    for (index, _) in plan.create {
+        if let Err(error) = create_one_overlay_window(app, init_script, index, monitors.get(index))
+        {
+            eprintln!(
+                "[bridge-desktop] failed to create hot-plug overlay for monitor {index}: {error}"
+            );
+            first_error.get_or_insert(error);
+        }
+    }
+
+    for (index, label) in desired_labels.iter().enumerate() {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
+        let reconcile_result = (|| -> tauri::Result<()> {
+            let position = window.outer_position()?;
+            let size = window.outer_size()?;
+            let collapsed_size = (COLLAPSED_SIZE * window.scale_factor()?).round() as u32;
+            let current = collapsed_top_left(position, size, collapsed_size);
+            if let Some(target) = monitors.get(index).or_else(|| monitors.first()) {
+                if !is_on_screen(
+                    &current,
+                    std::slice::from_ref(target),
+                    collapsed_size,
+                    collapsed_size,
+                    32,
+                ) {
+                    anchor_bottom_right(&window, target);
+                    persist_collapsed_window_position(app, &window);
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = reconcile_result {
+            eprintln!(
+                "[bridge-desktop] failed to reconcile overlay {label} for monitor {index}: {error}"
+            );
+            first_error.get_or_insert(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+fn reconcile_display_topology(app: &AppHandle, init_script: &str) -> Result<(), String> {
+    let monitors = topology_monitors(app);
+    let next = display_topology(&monitors);
+    let state = app.state::<DisplayTopologyState>();
+    {
+        let last = state
+            .last
+            .lock()
+            .map_err(|_| "display topology state poisoned".to_string())?;
+        if !topology_changed(last.as_ref(), &next) {
+            return Ok(());
+        }
+    }
+
+    reconcile_overlay_topology(app, init_script, &monitors).map_err(|error| error.to_string())?;
+    let mut last = state
+        .last
+        .lock()
+        .map_err(|_| "display topology state poisoned".to_string())?;
+    *last = Some(next);
+    Ok(())
+}
+
+pub fn start_display_topology_watcher(app: AppHandle, init_script: String) {
+    let state = app.state::<DisplayTopologyState>();
+    if state.running.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    if let Err(error) = reconcile_display_topology(&app, &init_script) {
+        eprintln!("[bridge-desktop] initial display topology reconciliation failed: {error}");
+    }
+
+    let init_script = Arc::new(init_script);
+    std::thread::spawn(move || loop {
+        std::thread::sleep(TOPOLOGY_POLL_INTERVAL);
+        if !app
+            .state::<DisplayTopologyState>()
+            .running
+            .load(Ordering::SeqCst)
+        {
+            break;
+        }
+        let handle = app.clone();
+        let init_script = Arc::clone(&init_script);
+        if let Err(error) = app.run_on_main_thread(move || {
+            if let Err(error) = reconcile_display_topology(&handle, init_script.as_str()) {
+                eprintln!("[bridge-desktop] display topology reconciliation failed: {error}");
+            }
+        }) {
+            eprintln!(
+                "[bridge-desktop] failed to schedule display topology reconciliation: {error}"
+            );
+            break;
+        }
+    });
+}
+
+pub fn stop_display_topology_watcher(app: &AppHandle) {
+    app.state::<DisplayTopologyState>()
+        .running
+        .store(false, Ordering::SeqCst);
 }
 
 /// Resize the CALLING overlay window (whichever monitor's instance the user
@@ -321,10 +637,10 @@ pub fn overlay_hide(window: WebviewWindow) -> Result<(), String> {
 /// writes are atomic (temp→rename) so partial writes never corrupt the file.
 #[tauri::command]
 pub fn overlay_save_position(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
-    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    let pos = collapsed_window_position(&window)?;
     let label = window.label().to_string();
     let mut map = load_positions(&app);
-    map.insert(label, PersistedPosition { x: pos.x, y: pos.y });
+    map.insert(label, pos);
     save_positions(&app, &map);
     Ok(())
 }
@@ -341,9 +657,10 @@ pub fn overlay_save_position(window: WebviewWindow, app: AppHandle) -> Result<()
 pub fn overlay_get_position(window: WebviewWindow, app: AppHandle) -> Option<PersistedPosition> {
     let label = window.label().to_string();
     let monitors: Vec<Monitor> = app.available_monitors().unwrap_or_default();
-    let phys_size = window
-        .outer_size()
-        .unwrap_or(tauri::PhysicalSize { width: 96, height: 96 });
+    let phys_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+        width: 96,
+        height: 96,
+    });
     reconcile_saved_position(&app, &label, &monitors, phys_size.width, phys_size.height)
 }
 
@@ -370,7 +687,8 @@ mod tests {
     // The geometric check is extracted here so it can be tested without
     // a real Monitor handle (tauri::Monitor fields are private).
     fn is_on_screen_raw(
-        px: i32, py: i32,
+        px: i32,
+        py: i32,
         monitors: &[(i32, i32, u32, u32)], // (mx, my, mw, mh)
         win_w: u32,
         win_h: u32,
@@ -394,19 +712,40 @@ mod tests {
     #[test]
     fn position_on_screen_typical() {
         // Window 96×96 at (900, 800) on a 1920×1080 monitor at origin.
-        assert!(is_on_screen_raw(900, 800, &[(0, 0, 1920, 1080)], 96, 96, 32));
+        assert!(is_on_screen_raw(
+            900,
+            800,
+            &[(0, 0, 1920, 1080)],
+            96,
+            96,
+            32
+        ));
     }
 
     #[test]
     fn position_off_screen_too_far_right() {
         // Window left-edge past the right margin — only 10px visible.
-        assert!(!is_on_screen_raw(1900, 500, &[(0, 0, 1920, 1080)], 96, 96, 32));
+        assert!(!is_on_screen_raw(
+            1900,
+            500,
+            &[(0, 0, 1920, 1080)],
+            96,
+            96,
+            32
+        ));
     }
 
     #[test]
     fn position_off_screen_entirely_outside() {
         // Saved on a now-disconnected second monitor (x=2000..3920).
-        assert!(!is_on_screen_raw(2500, 500, &[(0, 0, 1920, 1080)], 96, 96, 32));
+        assert!(!is_on_screen_raw(
+            2500,
+            500,
+            &[(0, 0, 1920, 1080)],
+            96,
+            96,
+            32
+        ));
     }
 
     #[test]
@@ -414,6 +753,18 @@ mod tests {
         // Primary 1920×1080, secondary at x=1920, same y-origin.
         let monitors = [(0, 0, 1920, 1080), (1920, 0, 2560, 1440)];
         assert!(is_on_screen_raw(2200, 800, &monitors, 96, 96, 32));
+    }
+
+    #[test]
+    fn position_on_other_monitor_is_invalid_for_assigned_monitor() {
+        assert!(!is_on_screen_raw(
+            2200,
+            800,
+            &[(0, 0, 1920, 1080)],
+            96,
+            96,
+            32,
+        ));
     }
 
     #[test]
@@ -458,7 +809,134 @@ mod tests {
         map.insert("overlay-1".into(), PersistedPosition { x: 30, y: 40 });
         let json = serde_json::to_string(&map).unwrap();
         let back: PositionMap = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.get("overlay"), Some(&PersistedPosition { x: 10, y: 20 }));
-        assert_eq!(back.get("overlay-1"), Some(&PersistedPosition { x: 30, y: 40 }));
+        assert_eq!(
+            back.get("overlay"),
+            Some(&PersistedPosition { x: 10, y: 20 })
+        );
+        assert_eq!(
+            back.get("overlay-1"),
+            Some(&PersistedPosition { x: 30, y: 40 })
+        );
+    }
+
+    #[test]
+    fn desired_labels_follow_runtime_monitor_count() {
+        assert_eq!(desired_overlay_labels(0), vec!["overlay"]);
+        assert_eq!(desired_overlay_labels(1), vec!["overlay"]);
+        assert_eq!(
+            desired_overlay_labels(3),
+            vec!["overlay", "overlay-1", "overlay-2"]
+        );
+    }
+
+    #[test]
+    fn topology_plan_adds_and_removes_hot_plug_windows() {
+        assert_eq!(
+            plan_overlay_topology(&["overlay".into()], 3),
+            TopologyPlan {
+                create: vec![(1, "overlay-1".into()), (2, "overlay-2".into()),],
+                remove: vec![],
+            }
+        );
+        assert_eq!(
+            plan_overlay_topology(
+                &["overlay".into(), "overlay-1".into(), "overlay-2".into(),],
+                1,
+            ),
+            TopologyPlan {
+                create: vec![],
+                remove: vec!["overlay-1".into(), "overlay-2".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn expanded_window_normalizes_to_collapsed_top_left() {
+        assert_eq!(
+            collapsed_top_left(
+                PhysicalPosition::new(100, 200),
+                tauri::PhysicalSize::new(384, 480),
+                96,
+            ),
+            PersistedPosition { x: 388, y: 584 },
+        );
+    }
+
+    #[test]
+    fn hover_window_normalizes_horizontal_drag_position() {
+        assert_eq!(
+            collapsed_top_left(
+                PhysicalPosition::new(100, 200),
+                tauri::PhysicalSize::new(260, 96),
+                96,
+            ),
+            PersistedPosition { x: 264, y: 200 },
+        );
+    }
+
+    #[test]
+    fn expanded_overlap_does_not_mask_collapsed_off_monitor_position() {
+        let expanded_position = PhysicalPosition::new(1776, 300);
+        let expanded_size = tauri::PhysicalSize::new(320, 480);
+        let collapsed = collapsed_top_left(expanded_position, expanded_size, 96);
+
+        assert!(is_on_screen_raw(
+            expanded_position.x,
+            expanded_position.y,
+            &[(0, 0, 1920, 1080)],
+            expanded_size.width,
+            expanded_size.height,
+            32,
+        ));
+        assert!(!is_on_screen_raw(
+            collapsed.x,
+            collapsed.y,
+            &[(0, 0, 1920, 1080)],
+            96,
+            96,
+            32,
+        ));
+    }
+
+    #[test]
+    fn overlay_label_filter_rejects_unrelated_prefixes() {
+        assert!(is_overlay_label("overlay"));
+        assert!(is_overlay_label("overlay-12"));
+        assert!(!is_overlay_label("overlay-menu"));
+        assert!(!is_overlay_label("overlay-"));
+        assert!(!is_overlay_label("annotate"));
+    }
+
+    #[test]
+    fn topology_change_detects_hot_plug_and_reposition() {
+        let primary = DisplayGeometry {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale_bits: 2.0_f64.to_bits(),
+        };
+        let secondary = DisplayGeometry {
+            x: 1920,
+            y: 0,
+            width: 2560,
+            height: 1440,
+            scale_bits: 2.0_f64.to_bits(),
+        };
+        let initial = vec![primary.clone()];
+        let attached = vec![primary.clone(), secondary.clone()];
+        let repositioned = vec![
+            DisplayGeometry {
+                x: -2560,
+                ..secondary
+            },
+            primary,
+        ];
+
+        assert!(topology_changed(None, &initial));
+        assert!(!topology_changed(Some(&initial), &initial));
+        assert!(topology_changed(Some(&initial), &attached));
+        assert!(topology_changed(Some(&attached), &repositioned));
+        assert!(topology_changed(Some(&repositioned), &initial));
     }
 }

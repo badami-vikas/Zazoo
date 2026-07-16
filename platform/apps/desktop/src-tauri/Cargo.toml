@@ -31,6 +31,10 @@ serde_json = "1"
 # NSPasteboard polling), so off macOS nothing references them and the non-macOS
 # command arms return empty / unsupported instead (see sensor_bridge.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
+# tauri-nspanel 2.1.0, pinned to the inspected v2.1 branch commit.
+# Upstream: https://github.com/ahkohd/tauri-nspanel
+# License: MIT OR Apache-2.0 (LICENSE_MIT + LICENSE_APACHE-2.0 at this rev).
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",

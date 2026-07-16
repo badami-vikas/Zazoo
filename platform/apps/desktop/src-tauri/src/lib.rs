@@ -31,71 +31,38 @@ mod overlay;
 mod providers;
 mod sensor_bridge;
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
-
-// ---------------------------------------------------------------------------
-// Main-window chrome commands (TASK-003) — cross-platform-safe.
-// Called by the sidebar header window control buttons that appear when running
-// under Tauri. These coexist with the native title bar controls on
-// Windows/Linux. On macOS, the full "traffic lights in sidebar" experience
-// (remove title bar, `data-tauri-drag-region` on the sidebar header, native
-// NSWindowButton positions) requires removing `decorations(false)` from the
-// main window builder AND adding platform-specific CSS — flagged as a local
-// macOS session blocker in the TASK-003 output.
-// ---------------------------------------------------------------------------
-
-/// Close the main Bridge window (sidebar "×" button).
-#[tauri::command]
-fn close_main_window(app: AppHandle) -> Result<(), String> {
-    let win = app
-        .get_webview_window(overlay::MAIN_LABEL)
-        .ok_or("main window not found")?;
-    win.close().map_err(|e| e.to_string())
-}
-
-/// Minimize the main Bridge window (sidebar "–" button).
-#[tauri::command]
-fn minimize_main_window(app: AppHandle) -> Result<(), String> {
-    let win = app
-        .get_webview_window(overlay::MAIN_LABEL)
-        .ok_or("main window not found")?;
-    win.minimize().map_err(|e| e.to_string())
-}
-
-/// Toggle maximize / restore the main Bridge window (sidebar "⬜" button).
-#[tauri::command]
-fn toggle_zoom_main_window(app: AppHandle) -> Result<(), String> {
-    let win = app
-        .get_webview_window(overlay::MAIN_LABEL)
-        .ok_or("main window not found")?;
-    if win.is_maximized().unwrap_or(false) {
-        win.unmaximize().map_err(|e| e.to_string())
-    } else {
-        win.maximize().map_err(|e| e.to_string())
-    }
-}
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Init script injected into BOTH webviews before any app code runs, so the
 /// tRPC client module can read it at import time. `__BRIDGE_DESKTOP__` is the
 /// flag apps/web uses to suppress the in-page AvatarOverlay (the OS-level
 /// overlay window replaces it in the desktop context).
 fn build_init_script(api_url: Option<&str>) -> String {
-    match api_url {
-        Some(url) => format!(
-            "window.__BRIDGE_DESKTOP__ = true; window.__BRIDGE_API_URL__ = {};",
-            serde_json::to_string(url).unwrap_or_else(|_| "null".into())
-        ),
-        None => "window.__BRIDGE_DESKTOP__ = true;".to_string(),
+    let mut script = format!(
+        "window.__BRIDGE_DESKTOP__ = true; window.__BRIDGE_DESKTOP_PLATFORM__ = {};",
+        serde_json::to_string(std::env::consts::OS)
+            .expect("serializing the static desktop OS name cannot fail")
+    );
+    if let Some(url) = api_url {
+        script.push_str(&format!(
+            " window.__BRIDGE_API_URL__ = {};",
+            serde_json::to_string(url).expect("serializing the sidecar URL cannot fail")
+        ));
     }
+    script
 }
 
 fn create_windows(app: &tauri::AppHandle, init_script: &str) {
-    let main = WebviewWindowBuilder::new(app, overlay::MAIN_LABEL, WebviewUrl::default())
+    let main_builder = WebviewWindowBuilder::new(app, overlay::MAIN_LABEL, WebviewUrl::default())
         .title("Bridge")
         .inner_size(1280.0, 800.0)
         .resizable(true)
-        .initialization_script(init_script)
-        .build();
+        .initialization_script(init_script);
+    #[cfg(target_os = "macos")]
+    let main_builder = main_builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    let main = main_builder.build();
     if let Err(err) = main {
         eprintln!("[bridge-desktop] failed to create main window: {err}");
         return;
@@ -108,13 +75,18 @@ fn create_windows(app: &tauri::AppHandle, init_script: &str) {
         // Also additive — annotation is a help feature, never load-bearing.
         eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
+    overlay::start_display_topology_watcher(app.clone(), init_script.to_string());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(sensor_bridge::SensorHubState::default())
         .manage(api_sidecar::ApiSidecarState::default())
+        .manage(overlay::DisplayTopologyState::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             sensor_bridge::sensor_list,
             sensor_bridge::sensor_start,
@@ -130,41 +102,34 @@ pub fn run() {
             annotate::annotate_show,
             annotate::annotate_clear,
             providers::accessibility::ax_permission_status,
-            close_main_window,
-            minimize_main_window,
-            toggle_zoom_main_window,
         ])
         .setup(|app| {
-            let handle = app.handle().clone();
-            // Boot sequence off the main thread: (release only) spawn the API
-            // sidecar on a free port, wait for /health, THEN create the
-            // windows with the resolved URL injected — the UI never shows
-            // before the API it depends on is answering (or has honestly
-            // failed, in which case the UI surfaces connection errors).
-            std::thread::spawn(move || {
-                let api_url: Option<String> = if let Ok(url) = std::env::var("BRIDGE_API_URL") {
-                    // Explicit override — e.g. pointing the shell at a remote
-                    // or already-running local API. No sidecar spawned.
-                    Some(url)
-                } else if cfg!(debug_assertions) {
-                    // Dev mode unchanged: external Vite (5173) + external API
-                    // (4000, via VITE_API_URL fallback). No sidecar.
-                    None
-                } else {
-                    let resource_dir = handle.path().resource_dir().ok();
-                    api_sidecar::start(resource_dir).map(|spawned| {
-                        let url = format!("http://127.0.0.1:{}", spawned.port);
-                        let state = handle.state::<api_sidecar::ApiSidecarState>();
-                        if let Ok(mut guard) = state.0.lock() {
-                            *guard = Some(spawned.child);
-                        }
-                        url
-                    })
-                };
-                let init_script = build_init_script(api_url.as_deref());
-                let h = handle.clone();
-                let _ = handle.run_on_main_thread(move || create_windows(&h, &init_script));
-            });
+            // Create at least the main window before setup returns. Returning
+            // with zero windows lets Tauri's event loop exit before an
+            // asynchronous bootstrap can schedule window creation.
+            let api_url: Option<String> = if let Ok(url) = std::env::var("BRIDGE_API_URL") {
+                // Explicit override — e.g. pointing the shell at a remote
+                // or already-running local API. No sidecar spawned.
+                Some(url)
+            } else if cfg!(debug_assertions) {
+                // Dev mode: external Vite + API. No sidecar.
+                None
+            } else {
+                let resource_dir = app.path().resource_dir().ok();
+                // start() only resolves/spawns the child; its bounded health
+                // probe runs on a named background thread. setup must return
+                // promptly so the Tauri event loop can service this window.
+                api_sidecar::start(resource_dir).map(|spawned| {
+                    let url = format!("http://127.0.0.1:{}", spawned.port);
+                    let state = app.state::<api_sidecar::ApiSidecarState>();
+                    if let Ok(mut guard) = state.0.lock() {
+                        *guard = Some(spawned.child);
+                    }
+                    url
+                })
+            };
+            let init_script = build_init_script(api_url.as_deref());
+            create_windows(app.handle(), &init_script);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -172,6 +137,7 @@ pub fn run() {
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
+            overlay::stop_display_topology_watcher(app_handle);
             // Kill the API child on quit — otherwise it would leak and hold
             // the port. (If the shell CRASHES this never runs; known gap,
             // acceptable for a localhost-bound, in-memory-by-default process.)

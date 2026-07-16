@@ -34,10 +34,10 @@ Implemented the DP0-DP1 prototype slice:
 ## Verification
 
 - `@bridge/dealpilot`: build passed; 63 tests passed; 83.44% line coverage.
-- `@bridge/api`: build and full test suite passed; 65.01% line coverage.
-- `@bridge/web`: 28 tests passed; production build passed.
-- `@bridge/core`: build passed; 347 tests passed.
-- `@bridge/db`: build passed; 62 tests passed.
+- `@bridge/api`: build and full test suite passed; 65.58% line coverage.
+- `@bridge/web`: 40 tests passed; production build and typecheck passed.
+- `@bridge/core`: build passed; 350 tests passed.
+- `@bridge/db`: build passed; 66 tests passed.
 - `git diff --check`: passed.
 
 Live isolated API/web evidence:
@@ -56,15 +56,16 @@ Live isolated API/web evidence:
 - The local run has no Google credentials, so the real BizBuySell Gmail-alert fetch could not produce a live Deal. API tests prove the governed quarantine-to-Deal/Source/Thesis chain with isolated tracked fixtures.
 - The local run has no verified JWT `auth_time` or OS re-auth provider, so live reveal/copy correctly failed closed. The authorized path is covered by credential and API tests.
 - Browser canvas was unavailable, so no visual desktop/375px evidence was captured. The production web build and deep-link HTTP route passed.
-- Repository-wide web typecheck remains blocked by the pre-existing missing `Link` import in `platform/apps/web/src/app/pages/IntelligencePage.tsx:87,89`; DealPilot has no type errors.
 
 ## Coordinator reconciliation
 
-- TASK-006 declares no specialist Agent roster or Skill-manifest resolver. Thesis discovery
+- TASK-006 adds no competing specialist Agent roster or Skill-manifest resolver. Thesis discovery
   and capture commit use the shared `stageMutation` governance hook with typed DealPilot task
-  payloads; `dealpilot.source` remains the pre-existing connector execution seam that TASK-007
-  may bind into the shared Agent/Goal/Task catalog.
+  payloads. The Agent/Automation inventory already present on `origin/main` was preserved during
+  reconciliation; TASK-007 remains its owner. `dealpilot.source` remains the pre-existing connector
+  execution seam for TASK-007 to bind into the shared Agent/Goal/Task catalog.
 - No database migration was added; reserved migrations `0011` and `0012` remain untouched.
-- `platform/apps/api/src/built-in-packages.ts`, `router.ts`, `wiring.ts`, `platform/apps/web/src/app/pages/DealPilotPage.tsx`, and `routes.tsx` overlap uncommitted TASK-001-TASK-004 coordinator work.
-- Preserve the coordinator's `PackageManifest.module`, `InstalledModuleBoundary`, shared `StandardColumnMenu`, and newer shell contracts while carrying over the three DealPilot Page bindings/routes and all DP0-DP1 API/security behavior here.
+- Reconciled against `origin/main` commit `1e0d652`, preserving `PackageManifest.module`,
+  `InstalledModuleBoundary`, shared `StandardColumnMenu`, Relationship Module routes, current
+  security hardening, and the three DealPilot Page bindings/routes plus DP0-DP1 behavior.
 - Reconcile TASK-006 evidence/status, log, and any bug/ADR ledger entries centrally; this branch intentionally does not allocate IDs or flip canonical status.

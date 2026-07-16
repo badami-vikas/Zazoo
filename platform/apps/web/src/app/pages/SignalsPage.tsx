@@ -18,13 +18,15 @@
  * (docs/dummy.md). Filed as a schema gap below rather than guessed at.
  *
  * Reuses `graph.listSignals` for the read and `graph.recordSignalAction` for
- * act/dismiss/save — a direct write, not a governed proposal (see
+ * dismiss/save — direct reaction bookkeeping, not a governed proposal (see
  * graph-store.ts's header comment: recording a reaction to an observation
  * carries no external effect requiring approval, unlike ApprovalsPage's
  * proposals).
  */
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { Radio, LayoutGrid, List as ListIcon, Table as TableIcon } from "lucide-react";
+import { collectAllPages } from "../lib/pagination";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
@@ -51,9 +53,23 @@ function isToday(iso: string): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export function SignalsPage() {
+function recommendedActionLabel(signal: SignalItem): string {
+  if (
+    typeof signal.recommendedAction === "object" &&
+    signal.recommendedAction !== null &&
+    !Array.isArray(signal.recommendedAction)
+  ) {
+    const label = (signal.recommendedAction as Record<string, unknown>).label;
+    if (typeof label === "string" && label.trim()) return label.trim();
+  }
+  return "Review action";
+}
+
+export function SignalsPage({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState<SignalPage | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [view, setView] = useState<ViewId>("table");
   const [search, setSearch] = useState("");
@@ -62,21 +78,35 @@ export function SignalsPage() {
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(true);
 
-  function refresh() {
-    trpc.graph.listSignals
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })
-      .then(setPage)
-      .catch((e) => setError(String(e)));
+  async function refresh(): Promise<void> {
+    try {
+      const items = await collectAllPages((offset, limit) =>
+        trpc.graph.listSignals.query({ workspaceId: PILOT_WORKSPACE, limit, offset }),
+      );
+      setPage({ items, total: items.length, hasMore: false });
+      setLoadError(null);
+      setRefreshError(null);
+    } catch (e) {
+      if (page) setRefreshError(String(e));
+      else setLoadError(String(e));
+    }
   }
-  useEffect(refresh, []);
+  useEffect(() => {
+    void refresh();
+  }, []);
 
-  async function react(signalId: string, verb: "act" | "dismiss" | "save") {
+  async function react(signalId: string, verb: "dismiss" | "save") {
     setBusyId(signalId);
+    setActionErrors((current) => {
+      const next = { ...current };
+      delete next[signalId];
+      return next;
+    });
     try {
       await trpc.graph.recordSignalAction.mutate({ workspaceId: PILOT_WORKSPACE, signalId, verb });
-      refresh();
+      await refresh();
     } catch (e) {
-      setError(String(e));
+      setActionErrors((current) => ({ ...current, [signalId]: String(e) }));
     } finally {
       setBusyId(null);
     }
@@ -113,12 +143,12 @@ export function SignalsPage() {
       ]
     : [];
 
-  if (error) return <div className="p-4 sm:p-6 text-sm text-red-600 break-words">{error}</div>;
+  if (loadError) return <div className="p-4 sm:p-6 text-sm text-red-600 break-words">{loadError}</div>;
   if (!page) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading…</div>;
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
-      <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />
+      {!embedded && <Header tabs={[{ id: "Signals", icon: Radio }]} activeTab="Signals" onTabChange={() => {}} />}
 
       <StandardToolbar
         // Signal types are system-detected categories, not user-created lists — no "Add list".
@@ -167,6 +197,11 @@ export function SignalsPage() {
         }}
         metrics={metrics}
       />
+      {refreshError && (
+        <div role="alert" className="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          The Signal was updated, but the latest list could not be loaded: {refreshError}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto">
         {filtered.length === 0 ? (
@@ -177,7 +212,7 @@ export function SignalsPage() {
             No signals match. Signals appear here once the detection pipeline surfaces one.
           </div>
         ) : view === "table" ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
                 <th className="px-4 py-2 font-semibold">Type</th>
@@ -189,15 +224,26 @@ export function SignalsPage() {
             <tbody>
               {filtered.map((s: SignalItem) => (
                 <tr key={s.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="px-4 py-2" style={{ color: "var(--color-navy)" }}>{s.type}</td>
+                  <td className="px-4 py-2">
+                    <Link
+                      to={`/module/relationship/signals/${s.id}`}
+                      className="font-medium hover:underline"
+                      style={{ color: "var(--color-navy)" }}
+                    >
+                      {s.type}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2" style={{ color: "var(--color-warm-gray)" }}>{s.subjectType}</td>
                   <td className="px-4 py-2" style={{ color: "var(--color-warm-gray)" }}>{s.status}</td>
                   <td className="px-4 py-2">
                     <div className="flex gap-1.5">
-                      <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to={`/module/relationship/signals/${s.id}`}>{recommendedActionLabel(s)}</Link>
+                      </Button>
                       <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "save")}>Save</Button>
                       <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
                     </div>
+                    {actionErrors[s.id] && <p role="alert" className="mt-1 text-xs text-red-600">{actionErrors[s.id]}</p>}
                   </td>
                 </tr>
               ))}
@@ -213,8 +259,14 @@ export function SignalsPage() {
                 metaChips={[s.status]}
                 footer={
                   <div className="flex gap-1.5">
-                    <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to={`/module/relationship/signals/${s.id}`}>{recommendedActionLabel(s)}</Link>
+                    </Button>
+                    <Button size="sm" variant="ghost" asChild>
+                      <Link to={`/module/relationship/signals/${s.id}`}>Evidence</Link>
+                    </Button>
                     <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
+                    {actionErrors[s.id] && <span role="alert" className="text-xs text-red-600">{actionErrors[s.id]}</span>}
                   </div>
                 }
               />
@@ -227,12 +279,23 @@ export function SignalsPage() {
             renderRow={(s: SignalItem) => (
               <>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate" style={{ color: "var(--color-navy)" }}>{s.type}</div>
+                  <Link
+                    to={`/module/relationship/signals/${s.id}`}
+                    className="text-sm font-semibold truncate hover:underline block"
+                    style={{ color: "var(--color-navy)" }}
+                  >
+                    {s.type}
+                  </Link>
                   <div className="text-xs truncate" style={{ color: "var(--color-warm-gray)" }}>{s.subjectType} · {s.status}</div>
                 </div>
-                <div className="flex gap-1.5 shrink-0">
-                  <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "act")}>Act</Button>
-                  <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to={`/module/relationship/signals/${s.id}`}>{recommendedActionLabel(s)}</Link>
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={busyId === s.id} onClick={() => react(s.id, "dismiss")}>Dismiss</Button>
+                  </div>
+                  {actionErrors[s.id] && <span role="alert" className="max-w-xs text-right text-xs text-red-600">{actionErrors[s.id]}</span>}
                 </div>
               </>
             )}

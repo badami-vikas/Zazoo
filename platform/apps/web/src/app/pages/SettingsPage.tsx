@@ -57,6 +57,7 @@ function LearningSection() {
 
   const preference = state?.memories.find((item) => item.value.kind === "onboarding_preference");
   const reflection = state?.memories.find((item) => item.value.kind === "reflection_schedule");
+  const trustCaptures = state?.memories.filter((item) => item.value.kind === "trust_capture") ?? [];
   const reflectionStatus = reflection?.value.kind === "reflection_schedule" ? reflection.value.status : null;
 
   async function correct() {
@@ -79,6 +80,16 @@ function LearningSection() {
       memoryId: preference.row.id,
     });
     setMessage("Preference deleted.");
+    refresh();
+  }
+
+  async function forgetTrustCapture(memoryId: string) {
+    if (!window.confirm("Delete this one-time observation from Bridge?")) return;
+    await trpc.onboarding.forgetMemory.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      memoryId,
+    });
+    setMessage("One-time observation deleted.");
     refresh();
   }
 
@@ -111,6 +122,30 @@ function LearningSection() {
       </Card>
       <Card>
         <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">One-time trust checks</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            Inspect exactly what the onboarding live check saved. These private Local Plane Memories are never instructions.
+          </p>
+          {state && trustCaptures.length === 0 && <p className="text-xs text-[var(--color-warm-gray)]">No live check has been saved.</p>}
+          {trustCaptures.map((item) => item.value.kind === "trust_capture" && (
+            <div key={item.row.id} className="rounded-lg border p-3 space-y-1">
+              <p className="text-sm">Foreground app: {item.value.appName}</p>
+              <p className="text-xs text-[var(--color-warm-gray)]">
+                Captured {new Date(item.value.capturedAt).toLocaleString()} · private · Local Plane · untrusted observation
+              </p>
+              <button
+                type="button"
+                onClick={() => void forgetTrustCapture(item.row.id)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg border text-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-3">
           <div className="font-semibold text-sm text-[var(--color-navy)]">Learned preferences</div>
           {!state && <p className="text-xs text-[var(--color-warm-gray)]">Loading…</p>}
           {state && !preference && <p className="text-xs text-[var(--color-warm-gray)]">No onboarding preferences saved.</p>}
@@ -137,8 +172,12 @@ function LearningSection() {
               <p className="text-sm">Status: {reflection.value.status} · {new Date(reflection.value.dueAt).toLocaleString()}</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void updateReflection("snooze")} className="text-xs font-semibold px-3 py-2 rounded-lg border">Snooze 1 day</button>
-                <button type="button" onClick={() => void updateReflection(reflectionStatus === "paused" ? "resume" : "pause")} className="text-xs font-semibold px-3 py-2 rounded-lg border">
-                  {reflectionStatus === "paused" ? "Resume" : "Pause"}
+                <button
+                  type="button"
+                  onClick={() => void updateReflection(reflectionStatus === "paused" || reflectionStatus === "skipped" ? "resume" : "pause")}
+                  className="text-xs font-semibold px-3 py-2 rounded-lg border"
+                >
+                  {reflectionStatus === "paused" || reflectionStatus === "skipped" ? "Schedule in 7 days" : "Pause"}
                 </button>
                 <button type="button" onClick={() => void updateReflection("skip")} className="text-xs font-semibold px-3 py-2 rounded-lg border">Skip</button>
               </div>
@@ -331,8 +370,8 @@ function KnowledgeSection() {
       <Card>
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <h3 className="font-semibold text-[var(--color-navy)] text-sm">Connected sources</h3>
-          <Link to="/knowledge-base" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
-            Open Knowledge <ExternalLink className="w-3.5 h-3.5" />
+          <Link to="/module/relationship/signals" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
+            Open Relationship <ExternalLink className="w-3.5 h-3.5" />
           </Link>
         </div>
         {sources.length === 0 ? (

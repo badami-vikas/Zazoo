@@ -41,7 +41,7 @@ export interface ApiContext {
    * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
    * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
   verifying: boolean;
-  /** Server-derived auth_time/iat from the already-verified bearer. Credential
+  /** Server-derived auth_time from the already-verified bearer. Credential
    * reveal/copy accepts it only while it remains within the recent-auth window. */
   reauthenticatedAt?: number;
 }

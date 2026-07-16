@@ -76,6 +76,7 @@ export function usePanelControl({
   setCollapsedPersisted: (v: boolean) => void;
   panelWidth: number;
   setPanelWidthPersisted: (v: number) => void;
+  resizeBy: (delta: number) => void;
   dragWidth: number | null;
   startDrag: (e: React.MouseEvent, side: PanelSide) => void;
   isDragging: boolean;
@@ -99,9 +100,10 @@ export function usePanelControl({
   }
 
   function setPanelWidthPersisted(v: number) {
-    setPanelWidth(v);
+    const clamped = Math.min(maxWidth, Math.max(minWidth, v));
+    setPanelWidth(clamped);
     try {
-      window.localStorage.setItem(storageKeyWidth, String(v));
+      window.localStorage.setItem(storageKeyWidth, String(clamped));
     } catch { /* cosmetic preference — safe no-op */ }
   }
 
@@ -119,13 +121,11 @@ export function usePanelControl({
       const finalWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + dx));
       setDragWidth(null);
       if (snap && snapMidpoint !== undefined) {
-        const snapped = finalWidth >= snapMidpoint;
-        // If snapping collapsed side away from min, expand; collapse otherwise.
-        if (!snapped) {
+        if (finalWidth < snapMidpoint) {
           setCollapsedPersisted(true);
         } else {
           setCollapsedPersisted(false);
-          setPanelWidthPersisted(maxWidth);
+          setPanelWidthPersisted(Math.max(defaultWidth, finalWidth));
         }
       } else {
         setPanelWidthPersisted(finalWidth);
@@ -137,11 +137,17 @@ export function usePanelControl({
     window.addEventListener("mouseup", onUp);
   }
 
+  function resizeBy(delta: number) {
+    setCollapsedPersisted(false);
+    setPanelWidthPersisted(panelWidth + delta);
+  }
+
   return {
     collapsed,
     setCollapsedPersisted,
     panelWidth,
     setPanelWidthPersisted,
+    resizeBy,
     dragWidth,
     startDrag,
     isDragging: dragWidth !== null,
@@ -197,10 +203,12 @@ export function CollapseToggleButton({
 export function ResizeHandle({
   side,
   onMouseDown,
+  onKeyDown,
   label,
 }: {
   side: PanelSide;
   onMouseDown: (e: React.MouseEvent) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
   label?: string;
 }) {
   return (
@@ -208,8 +216,10 @@ export function ResizeHandle({
       role="separator"
       aria-label={label ?? `Drag to resize ${side} panel`}
       aria-orientation="vertical"
+      tabIndex={0}
       onMouseDown={onMouseDown}
-      className={`absolute top-0 ${side === "left" ? "right-0" : "left-0"} h-full w-1.5 cursor-col-resize z-10 group ${side === "right" ? "-ml-0.5" : ""}`}
+      onKeyDown={onKeyDown}
+      className={`absolute top-0 ${side === "left" ? "right-0" : "left-0"} h-full w-1.5 cursor-col-resize z-10 group focus:outline-none focus:bg-[var(--color-steel-light)] ${side === "right" ? "-ml-0.5" : ""}`}
       title={label ?? "Drag to resize"}
     >
       <div className="w-px h-full mx-auto bg-transparent group-hover:bg-[var(--color-steel-light)] transition-colors" />
