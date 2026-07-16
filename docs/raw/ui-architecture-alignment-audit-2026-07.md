@@ -132,4 +132,3 @@ macos_or_infrastructure_flags:
 - Intelligence `Packages` and `Tools`: retain as user-facing toggle pages, move to Control Panel administration, or hide as implementation surfaces.
 - Helpdesk `Knowledge`: strongly related toggle page or a reusable Knowledge sub-module shared with other modules.
 - Initiative `Knowledge Base`: keep as a toggle because it is initiative-scoped, or make it a child sub-module when it needs its own lists, toolbar, and artifacts.
-

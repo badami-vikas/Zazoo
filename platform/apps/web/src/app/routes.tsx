@@ -12,6 +12,7 @@ import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
 import { CalendarPage } from "./pages/CalendarPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
+import { JobPilotApplicationDetail } from "./pages/JobPilotApplicationDetail";
 import { HelpdeskPage } from "./pages/HelpdeskPage";
 import { HelpdeskThread } from "./pages/HelpdeskThread";
 import { ResourcesPage } from "./pages/ResourcesPage";
@@ -22,6 +23,8 @@ import { KnowledgeBasePage } from "./pages/KnowledgeBasePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { IntelligencePage } from "./pages/IntelligencePage";
 import { SignalsPage } from "./pages/SignalsPage";
+import { PendingWorkPage } from "./pages/PendingWorkPage";
+import { TaskManagerPage } from "./pages/TaskManagerPage";
 // Ported prototype surface (faithful visual port, 2026-07-07)
 import { HomePage } from "./pages/HomePage";
 import { WorkPage } from "./pages/WorkPage";
@@ -77,7 +80,9 @@ export const router = createBrowserRouter([
       { path: "rituals/new", Component: RitualCreate },
       { path: "rituals/run", Component: RitualDetail },
 
-      { path: "calendar", Component: CalendarPage },
+      { path: "calendar", Component: TaskManagerPage },
+      { path: "calendar/google", Component: CalendarPage },
+      { path: "task-manager", Component: TaskManagerPage },
 
       { path: "approvals", Component: ApprovalsPage },
 
@@ -88,6 +93,7 @@ export const router = createBrowserRouter([
       { path: "integrations/google", Component: GoogleIntegrationPanel },
 
       { path: "jobpilot", Component: JobPilotPage },
+      { path: "jobpilot/application/:id", Component: JobPilotApplicationDetail },
 
       { path: "helpdesk", Component: HelpdeskPage },
       { path: "helpdesk/:ticketId", Component: HelpdeskThread },
@@ -107,6 +113,7 @@ export const router = createBrowserRouter([
       { path: "intelligence", Component: IntelligencePage },
       { path: "settings", Component: SettingsPage },
       { path: "signals", Component: SignalsPage },
+      { path: "pending-work", Component: PendingWorkPage },
     ],
   },
 ]);

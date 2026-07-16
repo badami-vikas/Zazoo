@@ -3,15 +3,15 @@ title: DealPilot Detailed Module Plan — Design, Business, and Technical
 type: raw
 doc_kind: plan
 status: proposed
-companions: [dealpilot-architecture-requirement.md, optimizations-memory-vm-dealpilot-plan-2026-07.md, oss-commons-integration-plan-2026-07.md, dealpilot-design-requirements-2026-07.md, clean-room-capability-research-protocol-2026-07.md]
+companions: [dealpilot-architecture-requirement.md, optimizations-memory-vm-dealpilot-plan-2026-07.md, oss-commons-integration-plan-2026-07.md, dealpilot-design-requirements-2026-07.md, clean-room-capability-research-protocol-2026-07.md, requirement-dealpilot-eta-agent-skill-red-flag-2026-07-15.md, agent-goal-skill-orchestration-plan-2026-07.md]
 related_wiki: ../wiki/packages.md
-updated: 2026-07-14
-tags: [dealpilot, module, design, business-process, agents, skills, automations, reuse]
+updated: 2026-07-15
+tags: [dealpilot, eta, module, design, business-process, agents, skills, automations, reuse]
 ---
 
 # 0. Product decision
 
-DealPilot is one installable capability package and one primary global-nav item. It is not seven unrelated top-level apps. Inside it, progressive navigation has three layers:
+DealPilot is one installable ETA Module and one primary global-nav item. It is not seven unrelated top-level apps. Its only default Pages are Deals, Sources, and Theses.
 
 ```yaml
 navigation_layers:
@@ -19,18 +19,18 @@ navigation_layers:
     item: DealPilot
     purpose: enter package
   module_navigation:
-    form: persistent secondary rail on desktop; drawer/segmented selector on mobile
-    items: [Overview, Deals, Sourcing, Theses, Work, Reports, Relationships, Playbooks]
+    form: top toggle selector for default Database Pages
+    items: [Deals, Sources, Theses]
   object_navigation:
-    form: tabs within selected Deal/Thesis/Relationship; collapses to More menu on narrow screens
-    purpose: show every artifact and workflow around one Element without exploding global navigation
+    form: Record Detail Sections within selected Deal/Source/Thesis; collapses appropriately on narrow screens
+    purpose: show every Field, File, Result, Relation, Task, Integration, and related activity around one Record without creating more Pages
 ```
 
-Reason: one top-level module keeps Bridge composable. Secondary module navigation supports real PE breadth. Tertiary object tabs keep CIM, QoE, hypothesis tree, evidence, valuation, and IC history attached to the Deal they explain.
+Reason: one top-level Module keeps Bridge composable. Three Database Pages match independent schemas. Record Detail keeps CIM, QoE, hypotheses, evidence, valuation, and Decision history attached to the Record they explain.
 
 # 1. Design lens — exact information architecture
 
-## 1.1 Overview
+## 1.1 Module health and attention Section
 
 Purpose: partner-level operating view, not generic dashboard.
 
@@ -185,7 +185,7 @@ Cross-deal operational lists:
 
 ## 1.7 Reports
 
-Cross-deal Artifact library:
+Cross-Deal Files and Results library:
 
 - instant briefs, IC memos, diligence reports, QoE workbooks, valuation models;
 - sourcing plans, interview guides, MRL exports, LOI/closing packs, 100-day plans;
@@ -278,40 +278,18 @@ Future optional packages—not DealPilot core: Fund Administration, LP/Investor 
 
 ## 3.1 Agents
 
-Bridge keeps five permanent platform Agents. DealPilot specialists are package-provided/generated Agent archetypes, installed only when useful, routed by Chief of Staff, governed individually, and prohibited from peer-to-peer autonomous handoffs.
+Bridge keeps five permanent platform Agents: Chief of Staff, Learning, Internal Strategist, Governance, and Capability Builder. DealPilot installs no specialist Agents by default. ETA work maps to these permanent responsibilities; separate Agents require a durable identity, authority/data boundary, evaluation lifecycle, independent queue/cadence, or irreducible conflict of duties.
 
 ```yaml
-dealpilot_agents:
-  Deal_Lead:
-    job: synthesize Deal state and draft partner recommendations
-    inspiration: SmallPE Managing Partner
-  Thesis_Analyst:
-    job: thesis/trend/whitespace/stress-test work
-    inspiration: SmallPE Oracle
-  Sourcing_Analyst:
-    job: thesis-driven discovery, screening, snapshots, warm paths
-    inspiration: SmallPE Helios; deal-evaluator
-  Diligence_Coordinator:
-    job: MRL, workstreams, requests, synthesis, escalation
-    inspiration: SmallPE Athena; PE-DD skill
-  Business_Evaluator:
-    job: commercial/operational/management/value-creation analysis
-    inspiration: SmallPE Prometheus
-  Evidence_Reviewer:
-    job: verify claims, contradictions, gaps, citation sufficiency
-    inspiration: SmallPE Themis; PE-DD skill
-  Financial_Modeler:
-    job: normalization, QoE, valuation, returns, sensitivities
-    inspiration: SmallPE Logos; financial-services plugins
-  Transaction_Coordinator:
-    job: financing comparisons, closing checklist, conditions, handoff drafts
-    inspiration: SmallPE Hermes
-  Impact_Reviewer:
-    job: materiality, Theory of Change, promises, impact evidence and KPIs
-    inspiration: SmallPE Iris
+dealpilot_assignments:
+  Learning: authorized research, Source discovery, retrieval, normalization, evidence, provenance
+  Internal_Strategist: ETA thesis, fit, commercial and operational analysis, diligence synthesis, financial models, valuation, scenarios, recommendations, IC materials
+  Chief_of_Staff: stakeholder management, relationship-aware coordination, communications, approvals, meetings, commitments, next Actions
+  Capability_Builder: programmed connectors, Integrations, Skills, formulas, schemas, Views, tests, governed deployment
+  Governance: data-rights and policy review, control checks, risk, evidence sufficiency, approvals, audit
 ```
 
-Chief of Staff directly invokes each specialist and synthesizes results. Diligence_Coordinator may request parallel work through Chief of Staff/runtime planner; it does not directly command Business_Evaluator or Evidence_Reviewer. Human remains accountable for decisions.
+Each permanent Agent may create bounded child Agent Runs. Child authority, Skills, data scope, budget, review requirement, taint, and delegation depth are intersections/subsets of the parent Run. Child Runs never become invisible specialist Agents; parent remains accountable. Human remains accountable for commercial data rights and investment Decisions.
 
 ## 3.2 Skills
 
@@ -344,7 +322,11 @@ skills:
   - financing-and-closing-readiness
   - post-close-100-day-plan
   - impact-materiality-and-theory-of-change
-  - artifact-render-and-quality-assurance
+  - file-render-and-quality-assurance
+skill_binding:
+  primary: [Goal type, Task type]
+  defaults: Agent manifests may list preferred Skills
+  runtime: any assigned eligible Agent may select a matching Skill after authority, Plane, data, rights, risk, budget, and evaluation gates
 ```
 
 ## 3.3 Automations
@@ -382,7 +364,7 @@ Every Automation has trigger, idempotency key, budget, retry/backoff, owner, sto
 - sourcing/research: user URLs, email alerts, public registries, approved broker connectors, browser agent only as last tier;
 - financial: Excel workbook generation with live formulas; optional approved market/private-data providers;
 - relationships: Bridge Person/Relationship graph and permitted email/calendar signals;
-- outputs: HTML, PDF, Word, Excel, PowerPoint behind Artifact providers;
+- outputs: HTML, PDF, Word, Excel, PowerPoint behind File providers;
 - execution: CredentialBroker + isolated browser/container/VM target when account or host isolation requires it.
 
 # 4. Reuse-first source map
@@ -408,7 +390,7 @@ reuse_policy:
     - build_minimal_Bridge_native_gap_only_after_documented_review
   gates:
     - pinned_commit
-    - repository_and_artifact_license
+    - repository_and_output_license
     - transitive_dependencies
     - security_and_prompt_injection
     - provenance_and_signature
@@ -421,7 +403,7 @@ Source decisions:
 sources:
   noahnan-max/private-equity-investment-dd-skill:
     use: diligence workflow, evidence matrix, red flags, adapters, report structure
-    mode: import/adapt only after license and artifact review
+    mode: import/adapt only after license and output review
     link: https://github.com/noahnan-max/private-equity-investment-dd-skill
   yuping322/financial-services-plugins-new:
     use: PE/financial-analysis skills, data-to-Excel/Word/PowerPoint workflows, connectors
@@ -467,16 +449,26 @@ Deals, Sources, and Theses form one strongly-related DealPilot object cluster. E
 ```yaml
 DealPilot_cluster:
   surfaces: [Deals, Sources, Theses]
-  surface_rule: sibling toggle pages in one module/sub-module; each page keeps its own DB-backed schema and standard toolbar/views
+  surface_rule: only default sibling toggle Pages in DealPilot; each keeps its own DB-backed schema and standard toolbar/views
+  non_pages: [Overview, Summary, Reports, Files, Results]
+  optional_pages: user-created only from eligible DB-backed sources via standard Add page; Relationships, Agents, Automations, Integrations, or Work are not default Pages
   relationships:
     Deal_Source: many_to_many
     Deal_Thesis: many_to_many
     Source_Thesis: many_to_many
   field_ownership_examples:
     Deal: [company, stage, revenue, EBITDA, asking_price, evidence_health]
-    Source: [name, connector_type, credential_ref, health, schedule, yield]
+    Source: [name, link, connector_type, credential_ref, last_checked_at, spend_cap, spend_to_date, health, schedule, yield, rights_state]
     Thesis: [name, industry_focus, target_CAGR, criteria, exclusions, sourcing_strategy]
-  credential_rule: username/password values never live in Source rows; Source stores CredentialBroker/keychain references and non-secret connection metadata only
+  credential_rule:
+    - Source stores opaque CredentialBroker/keychain reference, never raw user ID/password
+    - Sources table projects secure virtual User ID and Password columns like browser password managers
+    - password masked by default; reveal/copy requires explicit Human gesture and recent OS/application re-authentication
+    - reveal is time-limited and audited; secret never enters Agent/Skill/Automation/crawler input, ordinary API, logs, prompts, exports, Files, Results, or persistent browser storage
+  conditional_columns:
+    Relationships: only when authorized Relationship Module Database binding exists
+    Tasks: when Calendar/Work Database binding exists; present by default because Calendar is a default Module
+  record_detail_rule: every Deal, Source, and Thesis row opens a dedicated Record Detail route; its Fields, Files, Results, Relations, Integrations, Agent/Automation activity, and Event history are Sections, not sibling Module Pages
   triggers:
     thesis_created_or_materially_changed: propose governed source discovery/search Automation; attach discovered Sources only after dedupe and review policy
     source_created_or_materially_changed: propose/run governed source scan; normalize and dedupe candidate Deals; preserve source provenance
@@ -501,17 +493,18 @@ Deal:
     - Relationship
     - Communication
     - Meeting
-    - Artifact
+    - File
+    - Result
     - Action
     - Memory
 ```
 
 CIM and QoE semantics:
 
-- CIM = versioned Document/Artifact linked to Deal; parsed facts never overwrite source;
-- QoE = structured Analysis/Artifact linked to source financials, adjustments, reviewer decisions, and formulas;
-- HypothesisTree = versioned structured Artifact plus Hypothesis nodes; evidence links are first-class;
-- IC Memo = generated Artifact snapshot citing the exact Deal graph/version used;
+- CIM = versioned File linked to Deal; parsed facts never overwrite source;
+- QoE = structured Result linked to source financial Files, adjustments, reviewer Decisions, and formulas;
+- Hypothesis Tree = versioned Result plus hypothesis Records; evidence links are first-class;
+- IC Memo = generated File snapshot citing the exact Deal graph/version used;
 - every derived figure resolves to original document/page/cell or explicitly says user/Agent inference.
 
 # 6. Delivery sequence
@@ -519,13 +512,13 @@ CIM and QoE semantics:
 ```yaml
 slices:
   DP0:
-    scope: Deals/Sources/Theses many-to-many schema + sibling toggle pages + Deal shell + Summary/Profile/Documents/Activity; entity-owned fields; CredentialBroker references for Source secrets; real data/empty states
+    scope: ETA Deals/Sources/Theses many-to-many schema + only-default sibling Pages + dedicated Record Detail contracts + conditional Relationship/Task columns + standard capability inventory + Source Link/credential projection/last checked/spend cap/rights gate + real data/empty states
   DP1:
     scope: thesis→source-discovery and source→deal-discovery Automations + Sourcing feed/searches + normalization/dedupe + provenance-preserving thesis-fit triage
   DP2:
     scope: Hypotheses + Evidence + Diligence/MRL + red-flag gate
   DP3:
-    scope: Financials/QoE + valuation/returns + live-formula artifacts
+    scope: Financials/QoE + valuation/returns + live-formula Files and Results
   DP4:
     scope: IC room + cited memo/FAQ + approvals/decision history
   DP5:

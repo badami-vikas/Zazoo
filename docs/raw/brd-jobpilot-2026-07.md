@@ -3,9 +3,9 @@ title: JobPilot — Business Requirements Document
 type: raw
 doc_kind: reference
 status: proposed
-companions: [jobpilot-module-plan-2026-07.md, jobpilot-vision-requirement.md, jobpilot-architecture-requirement.md, vocabulary-code-migration-plan-2026-07-14.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md]
+companions: [jobpilot-module-plan-2026-07.md, jobpilot-vision-requirement.md, jobpilot-architecture-requirement.md, vocabulary-code-migration-plan-2026-07-14.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, requirement-dealpilot-eta-agent-skill-red-flag-2026-07-15.md, agent-goal-skill-orchestration-plan-2026-07.md]
 related_wiki: ../wiki/jobpilot.md
-updated: 2026-07-14
+updated: 2026-07-15
 tags: [brd, jobpilot, module, jobs, agents, skills, automations, governance]
 ---
 
@@ -15,7 +15,7 @@ tags: [brd, jobpilot, module, jobs, agents, skills, automations, governance]
 
 ## 1. Executive decision
 
-JobPilot is an installable **Module** that helps a candidate discover suitable jobs, decide which are worth pursuing, prepare truthful application Files, submit only with explicit approval, track every Application, and learn from outcomes. Its defining interaction is a concise green/red decision supported by evidence; Agents perform the bounded preparation around that decision.
+JobPilot is an installable **Module** that helps a candidate discover suitable jobs, decide which are worth pursuing, prepare truthful application Files, submit only with explicit approval, track every Application, and learn from outcomes. Its defining interaction is an explicit Pursue/Review/Dismiss Decision supported by evidence; Agents perform the bounded preparation around that decision. Red flag is platform feedback, not a positive/negative Decision pair.
 
 JobPilot composes shared Bridge Engines, Integrations, Agents, Skills, Automations, Databases, Records, Relations, Views, Files, Results, Events, Decisions, and Actions. It does not create a parallel runtime or duplicate shared capability.
 
@@ -25,7 +25,7 @@ product_decisions:
   route: /jobpilot
   primary_user: individual job candidate
   primary_value: higher-quality applications with less repetitive effort and complete visibility
-  defining_interaction: evidence-backed green or red decision on each Job Posting
+  defining_interaction: evidence-backed Pursue, Review, or Dismiss Decision on each Job Posting; red flag is separate correction feedback
   submission_policy: every external submission requires an explicit Human approval at launch
   sourcing_policy: authorized structured Sources first; restricted Sources disabled by default
   truth_policy: every tailored claim must resolve to verified Candidate Profile evidence
@@ -66,7 +66,7 @@ business_opportunity:
 goals:
   G1: produce useful, deduplicated Job Posting Records from authorized Sources
   G2: explain why each posting may or may not fit the Candidate Profile
-  G3: turn a green Decision into truthful, reviewable Tailored Materials
+  G3: turn a Pursue Decision into truthful, reviewable Tailored Materials
   G4: prepare application fields while reserving sensitive and uncertain answers for the Human
   G5: require approval before every external submission
   G6: maintain one complete Application history including Files, Results, Events, Decisions, and Actions
@@ -106,7 +106,7 @@ supporting_roles:
 jobs_to_be_done:
   - when I start a search, compile my verified Candidate Profile and let me correct it before use
   - when new jobs appear, show the strongest reasons for and against pursuing each one
-  - when I choose green, prepare accurate materials and answers for my review
+  - when I choose Pursue, prepare accurate materials and answers for my review
   - before anything leaves Bridge, show the exact payload, destination, reason, and approval consequence
   - after I apply, keep status, correspondence, deadlines, and sent Files together
   - when an interview approaches, prepare an evidenced brief and connect it to Calendar
@@ -129,7 +129,7 @@ module_detail:
     Data:
       purpose: Databases, Records, Relations, Files, Results, and Memory scoped to JobPilot
     Agents:
-      form: Page with nested Sections
+      form: standard Module Section with nested Agent details
       sections:
         Agents: installed JobPilot Agents, authority, state, evaluation, and activity
         per-Agent Skills: Skills grouped within each owning or allowed Agent row and detail
@@ -154,11 +154,12 @@ Within JobPilot, strongly related Databases use toggle Pages. Every Database Pag
 
 ```yaml
 jobpilot_pages:
-  Overview:
-    sections: [attention queue, sourcing health, application pipeline, upcoming interviews, recent Events, Agent activity]
-  Cards:
-    purpose: green-red review feed for scored Job Postings
-    saved_views: [New, Green, Review, Dismissed, Changed, Missing detail]
+  Candidate_Profiles:
+    views: [Table, Cards, Form]
+  Job_Postings:
+    views: [Table, Cards]
+    purpose: Pursue/Review/Dismiss review feed with separate red-flag feedback
+    saved_views: [New, Pursue, Review, Dismissed, Changed, Missing detail]
   Applications:
     views: [Table, Board, Calendar, Cards]
     board_stages: [Sourced, Flagged, Tailoring, Evaluating, Approved, Awaiting Submit, Applied, Response, Interview, Offer, Rejected, Archived]
@@ -170,14 +171,9 @@ jobpilot_pages:
     views: [Table]
   Interviews:
     views: [Table, Calendar, Cards]
-  Agents:
-    sections: [Agents, per-Agent Skills]
-  Automations:
-    views: [Table, Cards]
-  Integrations:
-    views: [Table, Cards]
-  Files:
-    purpose: all user-visible Files associated with JobPilot Records
+  Communications:
+    views: [Table]
+module_and_record_sections: [health and attention, Agents and Skills, Automations, Integrations, Files, Results, Runs, Event history]
 ```
 
 ## 6. Core experience requirements
@@ -213,7 +209,7 @@ requirements:
   JP-BRD-011:
     statement: evaluate each Job Posting against the approved Candidate Profile and categories
     acceptance:
-      - output is an explained Result with green reasons, red concerns, missing evidence, and uncertainty
+      - output is an explained Result with reasons to pursue, concerns, missing evidence, and uncertainty
       - no unlabeled percentage is presented as objective fit
       - users can inspect the supporting profile and posting Fields
   JP-BRD-012:
@@ -230,7 +226,7 @@ requirements:
 ```yaml
 requirements:
   JP-BRD-020:
-    statement: generate Tailored Materials only after a green Decision
+    statement: generate Tailored Materials only after a Pursue Decision
     acceptance:
       - each changed claim resolves to Candidate Profile evidence
       - protected facts cannot be inferred from a Job Posting
@@ -295,6 +291,9 @@ requirements:
     statement: prepare an interview brief when an Application enters Interview
     acceptance:
       - claims cite authorized Sources or Module Memory
+      - Learning Agent researches company culture through lawfully accessible company material, Google reviews, Reddit, blogs, and Glassdoor only where access and terms permit
+      - culture findings separate sourced fact, attributed opinion, repeated theme, contradiction, recency, and Agent inference
+      - cover-letter and interview suggestions never present anonymous review claims as verified fact and never encourage deceptive identity, invented affinity, or harassment
       - interview scheduling uses the Calendar Module
       - relevant Hiring Contacts use Relations to Relationship Module Records
 ```
@@ -345,37 +344,29 @@ memory_rules:
 
 ## 8. Agent, Skill, Automation, and Integration requirements
 
-Only Agents consume Skills. An Automation creates a scheduled or triggered **Agent Request**; the assigned Agent selects a permitted Skill under the Request, policy, Plane, and budget. A Human asks an Agent to act. A View exposes Actions that create Human Requests or Agent Requests. An Integration exposes governed external access but does not invoke a Skill itself.
+Only Agents consume Skills. Skills bind primarily to typed Goals and Tasks; Agent manifests declare default access, but any newly assigned eligible Agent may select a matching Skill when identity, authority, Plane, data scope, rights, risk, budget, and evaluation gates pass. An Automation creates a scheduled or triggered **Agent Request**. A Human asks an Agent to act. A View exposes Actions that create Human Requests or Agent Requests. An Integration exposes governed external access but does not invoke a Skill itself.
 
 ```yaml
 agents:
-  Search_Strategist:
-    outcome: maintain categories, sourcing strategy, and authorized Source priorities
-    allowed_skills: [compile candidate profile, generate categories, assess source strategy]
-  Sourcing_Analyst:
-    outcome: retrieve, normalize, deduplicate, and monitor Job Postings
-    allowed_skills: [scan authorized sources, normalize posting, deduplicate posting, detect changes]
-  Fit_Scorer:
-    outcome: produce evidenced green and red fit Results
-    allowed_skills: [score deterministic rules, explain fit, learn from flag feedback]
-  Materials_Writer:
-    outcome: draft truthful Tailored Materials after a green Decision
-    allowed_skills: [tailor resume, tailor cover letter, render ATS-safe PDF]
-  Materials_Evaluator:
-    outcome: evaluate relevance and truthfulness with bounded iteration
-    allowed_skills: [evaluate materials, verify protected fields, compare versions]
-  Application_Coordinator:
-    outcome: prepare approved form data, route approval, and preserve submission Outcomes
-    allowed_skills: [match answers, detect sensitive questions, map form fields, prepare handoff]
-  Response_Router:
-    outcome: match inbound communication and draft appropriate follow-up
-    allowed_skills: [match inbound message, draft follow-up, summarize response]
-  Interview_Prep:
-    outcome: produce evidenced interview preparation and Calendar coordination
-    allowed_skills: [research company, prepare interview brief, draft follow-up]
+  Learning:
+    outcome: retrieve and normalize Jobs; research company, culture, public reviews, forums, blogs, and evidence with provenance and rights controls
+    default_skills: [scan authorized sources, normalize posting, deduplicate posting, detect changes, research company culture, summarize attributed review themes]
+  Internal_Strategist:
+    outcome: analyze fit, tradeoffs, positioning, culture evidence, interview strategy, and material quality
+    default_skills: [score deterministic rules, explain fit, synthesize culture evidence, prepare interview brief, evaluate materials, compare versions]
+  Chief_of_Staff:
+    outcome: coordinate the search, stakeholder communication, approvals, application handoffs, interviews, and follow-up
+    default_skills: [tailor truthful communication, draft cover letter, match answers, prepare approval, match inbound message, draft follow-up]
+  Capability_Builder:
+    outcome: build or repair connectors, form mappings, renderers, Skills, and evaluation harnesses
+    default_skills: [build source adapter, map form fields, render ATS-safe PDF, repair changed form integration]
+  Governance:
+    outcome: review truthfulness, source rights, sensitive questions, external submissions, and audit evidence
+    default_skills: [verify protected fields, detect sensitive questions, review source rights, review submission payload]
 
 agent_skill_invariants:
-  - each Skill declares allowed Agent identities, typed input, typed output, Plane, permissions, budget, and evaluation version
+  - each Skill declares Goal/Task types, default Agent identities, typed input, typed output, Plane, permissions, budget, and evaluation version
+  - runtime eligibility, not default ownership, determines whether an assigned Agent may use a Skill
   - no Skill has independent authority or a direct user-run control
   - removing an Agent's permission makes the Skill unavailable immediately
   - Agent detail shows available Skills; Skill detail shows every allowed Agent
@@ -383,29 +374,32 @@ agent_skill_invariants:
 
 automations:
   Scheduled_Source_Scan:
-    agent: Sourcing_Analyst
+    agent: Learning
     trigger: authorized schedule
   Posting_Change_Detection:
-    agent: Sourcing_Analyst
+    agent: Learning
     trigger: Source ingestion completion
   Fit_Rescore:
-    agent: Fit_Scorer
+    agent: Internal_Strategist
     trigger: Candidate Profile, category, or Job Posting material change
   Materials_Preparation:
-    agent: Materials_Writer
-    trigger: green Decision
+    agent: Chief_of_Staff
+    trigger: Pursue Decision
   Materials_Evaluation:
-    agent: Materials_Evaluator
+    agent: Internal_Strategist
     trigger: new Tailored Materials version
   Submission_Approval_Request:
-    agent: Application_Coordinator
+    agent: Chief_of_Staff
     trigger: approved materials and complete mapped answers
   Inbound_Response_Routing:
-    agent: Response_Router
+    agent: Chief_of_Staff
     trigger: authorized new communication Event
   Interview_Preparation:
-    agent: Interview_Prep
+    agent: Internal_Strategist
     trigger: Application enters Interview
+  Company_Culture_Research:
+    agent: Learning
+    trigger: Human request or Application enters Tailoring/Interview with authorized sources
 
 automation_invariants:
   - every Automation declares trigger, owner Agent, idempotency key, budget, retry policy, stop condition, risk band, and run history
@@ -445,6 +439,10 @@ requirements:
   credentials:
     - raw secrets never appear in Records, Files, Results, logs, prompts, or browser storage
     - revocation immediately blocks dependent execution and creates actionable health state
+  source_rights:
+    - user attests commercial data rights and permitted purpose before enabling restricted or paid Sources
+    - Bridge never bypasses authentication, access controls, rate limits, provider terms, or legal restrictions based on user attestation alone
+    - Glassdoor and other restricted platforms remain off unless lawful access and terms permit the exact use; ambiguous commercial use stops for counsel/upstream permission
   audit:
     - material Agent, Automation, approval, submission, stage, and configuration changes produce append-only Events
 ```
@@ -459,7 +457,7 @@ quality_requirements:
     - standard navigation and toolbar behavior matches every other Module
   accessibility:
     - full keyboard navigation and visible focus for cards, menus, toggles, tables, and dialogs
-    - color is never the sole carrier of green, red, stage, or risk meaning
+    - color is never the sole carrier of red-flag state, stage, risk, or any Decision
     - status and async updates are announced to assistive technology
   reliability:
     - no posting, application, draft, or approval is silently dropped
@@ -483,7 +481,7 @@ success_measures:
   source_quality:
     metrics: [authorized postings per day, freshness, duplicate rate, Source failure recovery time]
   decision_quality:
-    metrics: [green-to-application rate, dismissal reasons, recommendation calibration over time]
+    metrics: [Pursue-to-application rate, dismissal reasons, recommendation calibration over time]
   materials_quality:
     metrics: [truthfulness block rate, evaluator-Human agreement, approved version rate]
     hard_invariant: seeded unsupported claims and protected-field changes are blocked

@@ -1,6 +1,8 @@
-# APPROVALS — internal canon-change ledger
+# APPROVALS — canon gate and audit ledger
 
 Bridge governs its product with draft-then-approve. This repo governs **its own canon** the same way. Changes to canonical/plan docs are **proposed here first** and only become authoritative once the user (the sole approver today) flips them to APPROVED. This is the doc-layer analogue of the platform's `propose → decide → commit` pipeline.
+
+This ledger gates or records decisions; it is not an execution queue. A proposed approval is referenced by the relevant canonical item in [`docs/TASKS.md`](TASKS.md) and blocks that item when required.
 
 ## What requires an approval row (canon + plan changes)
 - Editing a **locked/canonical doc**: `docs/wiki/vision.md`, `docs/wiki/decisions.md` (strategic one-liners), any `requirement` doc (verbatim user text — also never-edit).
@@ -9,7 +11,7 @@ Bridge governs its product with draft-then-approve. This repo governs **its own 
 - Marking any consolidation-plan track as executed.
 
 ## What does NOT (routine — just do it, then log to `docs/log.md`)
-- New `docs/raw/` drafts; wiki summaries of existing raw; `docs/log.md` / `docs/BUGS.md` / `docs/dummy.md` rows; `docs/PROGRESS.md` batch bookkeeping; CODEMAPS regen; code changes with passing tests.
+- New `docs/raw/` drafts; wiki summaries of existing raw; `docs/log.md` / `docs/BUGS.md` / `docs/dummy.md` evidence; TASKS evidence/verification bookkeeping that does not alter canonical scope/order; CODEMAPS regen; code changes with passing tests.
 
 ## Protocol
 1. Agent appends a **PROPOSED** row below (+ the concrete diff/patch as a proposal — do NOT apply it to the canon doc yet, and do NOT mark anything DONE).
@@ -23,6 +25,8 @@ Bridge governs its product with draft-then-approve. This repo governs **its own 
 
 | ID | Date | Proposer | Scope (canon doc / decision) | Change summary | Status | Decided-by · date | Applied-commit |
 |----|------|----------|------------------------------|----------------|--------|-------------------|----------------|
+| AP-024 | 2026-07-15 | user directive | canonical task/documentation system + reconciled roadmap order | Replace overlapping active roadmap/bug/request/approval queues with `docs/TASKS.md`: one task contains roadmap scope, bug evidence, user requests, approval gate, implementation status, and a falsifiable prototype test. Preserve PROGRESS/BUGS/requests/APPROVALS as history/evidence/audit only. Reconcile related work into 20 ordered tasks and gate broad cleanup behind the TASK-001→TASK-005 Avatar+Commons demo path. Task Manager consumes only canonical tasks. | APPLIED | user · 2026-07-15 | (this commit) |
+| AP-023 | 2026-07-15 | user directive | DealPilot ETA/Page/Source credential model + permanent Internal Strategist + Goal/Task Skills + child Agent Runs + platform red flag + JobPilot culture research | DealPilot has no personas and only Deals/Sources/Theses default Pages; every Record has dedicated Record Detail; standard capability inventory is not customized structurally; Source table securely projects credential-vault values and adds Link/Last checked/Spend cap with explicit data-rights gates. Permanent roster becomes CoS/Learning/Internal Strategist/Governance/Builder. Skills bind Goals/Tasks; eligible assigned Agents may use them; bounded child Agent Runs inherit ceilings. Green/yellow feedback flags removed; red flag becomes platform feedback. JobPilot adds governed culture research. | APPLIED | user · 2026-07-15 | (this commit) |
 | AP-021 | 2026-07-14 | user directive | shell IA + Module actionability + Agent/Skill authority + Relationship Signal/Memory model | No display aliases accepted. Remove visible Tools and global Knowledge surfaces through real route/code/schema migration. Every installed Module appears in left nav and opens manifest-driven detail showing Pages, Agents with nested Skills, Automations, Integrations, Files, Runs, and settings. Only Agents consume Skills; Automations start Agent Runs. Left Sidebar/right Chat Panel share expand/collapse/extend behavior. Relationship toggles become Signals/People/Communities; Signal is surfaced Event with Person/Community participants. All retained data is Module-associated Memory. Add actionable Second Brain cross-Module graph below Modules; name never replaces Engine. | APPLIED | user · 2026-07-14 | (this commit) |
 | AP-020 | 2026-07-14 | user directive | vocabulary canon + Avatar/Engine/Relationship/Plane decisions + code migration | One `docs/glossary.md`; only Local/Cloud are Planes; Relationship/Work are Domains; Commons/Bridge Cloud are services; Engine replaces Brain; Avatar is one term with operational presence only; one Onboarding flow; File replaces user-visible Artifact; Project/Initiative/Touchpoint/Ritual/Workflow/Signal/Incident/Element/Package/Workspace and other retired identifiers enter mandatory code/schema/API migration, not display aliases. Relationship becomes one Module containing People/Communities/Relations/Interactions/Introductions/Helpdesk/Sources/Automations. Add RT0–RT4 runtime-taint root-gap plan. Supersedes conflicting vocabulary portions of ADR-033/035/053; sequencing remains Avatar+Commons prototype first. | APPLIED | user · 2026-07-14 | (this commit) |
 | AP-001 | 2026-07-09 | session (opus) | mechanism bootstrap | Create this approval mechanism itself | APPLIED | user · 2026-07-09 | (this commit) |

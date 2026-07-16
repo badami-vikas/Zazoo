@@ -1,4 +1,6 @@
-# Known Issues
+# Known Issues — evidence ledger
+
+> This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
 - **RESOLVED 2026-07-13 — Baseline web typecheck failed after Chief-of-Staff `direct_reply` routing was added.**
   `platform/apps/web/src/app/components/shared/AgentPanel.tsx:218` and

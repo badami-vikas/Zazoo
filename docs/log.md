@@ -1,5 +1,9 @@
 # Change Log
 
+- **2026-07-15** — Renamed the user-facing Calendar destination to Task Manager and added a rolling 12-day schedule for the source-backed pending queue. Added resizable/hidden columns, double-click editing, and right-click/row-menu database actions (delete cell, delete/hide row, duplicate, sort, hide column). Google Calendar projection remains available at `/calendar/google`.
+
+- **2026-07-15** — Added the source-backed Pending Work manager at `/pending-work`: scans PROGRESS, BUGS, requests, and approvals; supports persistent ranking, inline edits, local additions, filters/search, reversible archive/restore, source references, and responsive table layout. Browser QA caught and corrected an auto-layout horizontal clipping defect; six web data tests and production build pass. Whole-web typecheck passed before an unrelated concurrent `EditableField.tsx` edit introduced an unused directive; preserved and reported.
+
 - **2026-07-09** — **Shell nav rail restyled to match prototype visual language (Track C2)**: `Layout.tsx` nav shrunk from 224px expanded sidebar to 76px always-collapsed icon rail; `Header.tsx` bg fixed; `badge.tsx` extended with Bridge semantic variants success/warning/danger/neutral.
 - **2026-07-09** — E1: onboarding rewrite — profession-led first question, LinkedIn/phone removed, workspace-name-from-email utility added
 - **2026-07-09** — ADR-035–ADR-041: OSS adoption decisions documented. New `docs/raw/spec-adapter-ports.md` with `DocumentProvider` and `ConnectorProvider` port interface sketches.
@@ -1533,3 +1537,21 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Merged `origin/main` into `copilot/execute-roadmap-next-steps`; preserved the canonical INTERRUPT/Avatar roadmap and the branch's Form, Commons, JobPilot, and DealPilot progress.
 - Consolidated the legacy Egg wiki updates into `docs/wiki/avatar-commons.md` and removed residual conflict markers.
 - Durable outcome: `outputs/2026-07-15-merge-conflict-resolution.md`.
+
+# 2026-07-15 — DealPilot ETA + Agent/Skill/red-flag redesign (AP-023, ADR-090)
+- Removed DealPilot personas; constrained default Pages to Deals/Sources/Theses; added dedicated Record Detail contracts, conditional Relationship/Task columns, and platform-standard capability inventory.
+- Expanded Source schema with Link, secure virtual User ID/Password projection, Last checked, Spend cap/spend, and explicit data-rights state/gates. Secrets remain vault-backed with Human re-authenticated reveal/copy and no Agent/crawler/API/export exposure.
+- Added Internal Strategist as permanent Agent; replaced DealPilot/JobPilot specialist-agent catalogs with Learning/Strategist/CoS/Builder/Governance responsibility mapping. Added Goal/Task-bound Skill resolution and bounded child Agent Runs.
+- Replaced green/yellow flag semantics with platform red-only correction feedback. Added JobPilot culture research across permitted company/review/forum/blog Sources with evidence separation and access/terms gates.
+- Durable outcome: `outputs/2026-07-15-dealpilot-eta-agent-skill-redesign.md`.
+
+# 2026-07-15 — BCG MBA Consultant JobPilot application workspace (ADR-091)
+- Added a routable BCG application-preparation line item to `platform/apps/web` with a fit decision, one-page resume draft, cover letter, answer bank, networking plan, behavioral stories, six-week case plan, interviewer questions, and submission checklist.
+- Grounded claims in the supplied Master Profile and consulting Files; surfaced conflicting dates/metrics as review items rather than normalizing them silently. Added Agent/Skill attribution and a hard Human approval gate.
+- Added three content-contract tests; `@bridge/web` typecheck and production build pass. Browser verification remains pending because local preview approval was rejected when the workspace approval service ran out of credits.
+- Durable outcome: `outputs/2026-07-15-bcg-jobpilot-application-workspace.md`.
+
+# 2026-07-15 — canonical task-system reconciliation (AP-024, ADR-092)
+- Replaced the 67-row union of roadmap checkboxes, bug headings, partial requests, and proposed approvals with 20 canonical tasks in `docs/TASKS.md`; every task now carries outcome, falsifiable prototype test, plan scope, evidence, requests, approval gate, dependencies, status, priority, and horizon.
+- Made TASK-001→TASK-005 the non-skippable shell→Onboarding→Avatar→Commons→combined-demo path. Reclassified PROGRESS as historical and BUGS/requests/APPROVALS as evidence/audit ledgers rather than competing queues.
+- Changed Task Manager generation to consume TASKS only and added a parser contract proving multiple references reconcile into one task. Durable outcome: `outputs/2026-07-15-task-system-reconciliation.md`.

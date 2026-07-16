@@ -5,11 +5,13 @@ doc_kind: design
 status: proposed
 companions: [module-evolution-system-2026-07.md, decisions-log.md]
 related_wiki: ../wiki/foundational-agents.md
-updated: 2026-07-08
+updated: 2026-07-15
 tags: [agents, chief-of-staff, onboarding, groq, spirit-animal, day-1]
 ---
 
 # Bridge Foundational Agents + Day-1 Onboarding Proposal
+
+> **Current correction (2026-07-15, AP-023 / ADR-090):** the permanent roster is Chief of Staff, Learning, Internal Strategist, Governance, and Capability Builder. Communications is a Goal/Task-bound Skill family, not an Agent. Chief of Staff owns stakeholder management and coordination; Learning owns authorized research/evidence; Internal Strategist owns analytical synthesis and recommendations; Governance reviews and explains controls; Builder programs tested changes. The historical five-Agent and spirit-animal language below is retained as migration evidence only; Avatar does not set Agent identity, tone, or authority. Current execution plan: `agent-goal-skill-orchestration-plan-2026-07.md`.
 
 Verbatim adoption of two user specs (2026-07-08): "Bridge Foundational Agents"
 and "Bridge Onboarding Proposal (Day 1)". This doc **corrects two errors** in

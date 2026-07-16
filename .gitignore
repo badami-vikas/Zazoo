@@ -60,4 +60,7 @@ npm-debug.log*
 
 # Build caches
 .turbo/
+.pnpm-store/
+**/.playwright-cli/
+platform/output/
 .DS_Store

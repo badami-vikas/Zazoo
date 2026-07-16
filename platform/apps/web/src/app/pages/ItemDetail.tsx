@@ -19,22 +19,26 @@ type Filter = 'all' | Tier;
 
 const heading = 'text-2xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4';
 
-function EditableText({ text, onSave, className, multiline = false, as: Component = 'div' }: {
-  text: string; onSave: (v: string) => void; className?: string; multiline?: boolean; as?: ElementType;
+function EditableText({ text, base, onSave, className, multiline = false, as: Component = 'div' }: {
+  text: string; base?: string; onSave: (v: string) => void; className?: string; multiline?: boolean; as?: ElementType;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [val, setVal] = useState(text);
+  const edited = base !== undefined && text !== base;
   useEffect(() => { setVal(text); }, [text]);
   if (isEditing) {
     const save = () => { if (val.trim() !== '') onSave(val); setIsEditing(false); };
+    const cancel = () => { setVal(text); setIsEditing(false); };
     return multiline
-      ? <textarea autoFocus value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Escape') setIsEditing(false); }} className={clsx('w-full bg-white border border-[var(--color-steel)] rounded p-1.5 outline-none shadow-sm resize-none', className)} rows={3} />
-      : <input autoFocus value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') save(); }} className={clsx('bg-white border border-[var(--color-steel)] rounded p-1 outline-none shadow-sm max-w-full', className)} />;
+      ? <textarea autoFocus value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Escape') cancel(); }} className={clsx('w-full bg-white border border-[var(--color-steel)] rounded p-1.5 outline-none shadow-sm resize-none', className)} rows={3} />
+      : <input autoFocus value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }} className={clsx('bg-white border border-[var(--color-steel)] rounded p-1 outline-none shadow-sm max-w-full', className)} />;
   }
   return (
-    <div className="group relative inline-flex items-start w-fit max-w-full cursor-text" onClick={() => setIsEditing(true)}>
+    <div className="group relative inline-flex items-start w-fit max-w-full cursor-text" onDoubleClick={() => setIsEditing(true)} title="Double-click to edit">
       <Component className={clsx('pr-6 border border-transparent hover:border-dashed hover:border-[var(--color-border)] rounded transition-colors', className)}>{text}</Component>
-      <button className="opacity-0 group-hover:opacity-100 absolute right-0 top-1.5 p-1 text-[var(--color-warm-gray)] hover:text-[var(--color-steel)]"><Edit2 className="w-3.5 h-3.5" /></button>
+      {edited && (
+        <span className="pointer-events-none absolute right-0 top-0 -translate-y-1/2 translate-x-1/4 select-none rounded-sm border px-1 py-px text-[9px] font-semibold uppercase tracking-wide opacity-0 transition-opacity group-hover:opacity-100" style={{ color: 'var(--color-warm-gray)', background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>edited</span>
+      )}
     </div>
   );
 };
@@ -377,9 +381,9 @@ export function ItemDetail() {
               {isCommunity ? <Building2 className="w-8 h-8" style={{ color: 'var(--color-warm-gray)' }} /> : <span className="text-3xl font-semibold text-[var(--color-warm-gray)]">{name.charAt(0)}</span>}
             </div>
             <div className="flex-1 min-w-0">
-              <EditableText as="h1" text={fv('name', name)} onSave={(v: string) => setField('name', v)} className="text-4xl font-bold text-[var(--color-navy)] mb-2 tracking-tight break-words" />
+              <EditableText as="h1" text={fv('name', name)} base={name} onSave={(v: string) => setField('name', v)} className="text-4xl font-bold text-[var(--color-navy)] mb-2 tracking-tight break-words" />
               <div className="flex gap-4 text-sm text-[var(--color-navy-mid)] font-medium flex-wrap">
-                <span className="flex items-center gap-1.5">{isCommunity ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}<EditableText text={fv('subtitle', subtitle || '—')} onSave={(v: string) => setField('subtitle', v)} className="text-sm" /></span>
+                <span className="flex items-center gap-1.5">{isCommunity ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}<EditableText text={fv('subtitle', subtitle || '—')} base={subtitle || '—'} onSave={(v: string) => setField('subtitle', v)} className="text-sm" /></span>
                 {!isCommunity && (() => {
                   const rawLoc = fv('location', location || '—') as string;
                   const isApprox = rawLoc.startsWith('~');
@@ -402,7 +406,7 @@ export function ItemDetail() {
               <h2 className={heading}>{s.label}</h2>
               {s.id === 'about' && (
                 <div className="flex flex-col gap-5">
-                  <EditableText multiline text={fv('bio', bio)} onSave={(v: string) => setField('bio', v)} className="text-[var(--color-navy-mid)] text-lg leading-relaxed max-w-3xl" />
+                  <EditableText multiline text={fv('bio', bio)} base={bio} onSave={(v: string) => setField('bio', v)} className="text-[var(--color-navy-mid)] text-lg leading-relaxed max-w-3xl" />
                   {person?.skills && person.skills.length > 0 && (
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-warm-gray)' }}>Skills</div>
@@ -462,7 +466,7 @@ export function ItemDetail() {
                   {([['Warmth', 'warmth', warmthLabel(person?.warmth)], ['Orbit', 'orbit', `${person?.ring || 'Active'} ring`], ['Last touchpoint', 'lastTouch', person?.connectedOn || '—']] as [string, string, string][]).map(([k, key, v]) => (
                     <div key={k} className="rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
                       <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>{k}</div>
-                      <EditableText text={fv(key, v)} onSave={(val: string) => setField(key, val)} className="text-sm font-semibold" />
+                      <EditableText text={fv(key, v)} base={v} onSave={(val: string) => setField(key, val)} className="text-sm font-semibold" />
                     </div>
                   ))}
                   <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>

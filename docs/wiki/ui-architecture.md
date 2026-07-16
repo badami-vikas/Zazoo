@@ -3,12 +3,14 @@
 full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-2026-07.md) · verbatim: [../raw/requirement-ui-architecture-rules-2026-07-13.md](../raw/requirement-ui-architecture-rules-2026-07-13.md) · AP-011. Binds hand-built pages AND compiler output.
 
 **Data shape decide surface:**
-- Different columns, same table / strong sibling cluster → **TOGGLE**. Seeds: Relationship Signals/People/Communities · Agents/Automations/Integrations · Deals/Sources/Thesis. Skills nest under consuming Agents; no Skills toggle.
+- Different columns, same table / strong sibling cluster → **TOGGLE**. Seeds: Relationship Signals/People/Communities · DealPilot Deals/Sources/Theses. Agents/Automations/Integrations/Files/Results stay standard Sections unless user adds eligible DB-backed Page. Skills never Page.
 - Same columns, same table (row subset) → **LIST** (ListDropdown). Never new page.
 - Related to module, not strongly to root/sub-modules → **new SUB-MODULE** = collapsible dropdown under module in left nav.
 - Unrelated → new module.
 
 **Page anatomy:** landing section (standard views: table, card, … + **Form view** — one input/field, collects new row, direct insert + Learning Agent applies same standard process other DB writes get e.g. enrichment) → related sections below → **Files section** (>20 → CoS agent smart-groups, not fixed rule). Landing section internally scrollable; scroll past it = page scroll. Empty states = honest, metadata-generated, never dummy rows (§6a).
+
+**Record Detail:** every DB row gets routable detail. Fields + Relations/Tasks/Files/Results/Integrations/Agent activity/Event history = Sections. Detail ≠ sibling Page.
 
 **Toolbar:** Control Panel ⚙ slot DIES — moves into 3-dots menu. Contents re-sorted: record-ish data → page sections; true admin (mount/unmount, scopes, versions) stays in 3-dots→Control Panel.
 
@@ -18,7 +20,9 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Deep linking:** every toggle page = routable URL (§4a).
 
-**Actionability:** interactive-looking item opens detail/edit/filter/explanation/governed Action. Otherwise plain text. Every installed Module = left-nav route → manifest-driven Module Detail (Pages, Agents+Skills, Automations, Integrations, Files, Runs, settings).
+**Actionability:** interactive-looking item opens detail/edit/filter/explanation/governed Action. Otherwise plain text. Every installed Module = left-nav route → one standard manifest-driven capability inventory. Module customizes content, never inventory structure.
+
+**Red flag:** only feedback flag. Hover/focus cell or bullet → subtle uncolored flag. Select → red, scoped, reversible, audited. No green/yellow feedback flags. Domain choices use explicit Actions.
 
 **Shell:** left Sidebar + right Chat Panel share expand/collapse/extend icons, state model, persisted width, inner-edge resize, keyboard/ARIA, responsive collision rules.
 

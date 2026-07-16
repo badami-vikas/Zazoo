@@ -1,4 +1,6 @@
-# Requests Ledger
+# Requests — intent ledger
+
+> This append-only file preserves user intent and fulfillment history. It is not an execution queue. Partial/open intent must map to exactly one canonical item in [`docs/TASKS.md`](TASKS.md), where related requests may share a task.
 
 All explicit product and engineering requirements from Vikas, recorded verbatim or close-paraphrase with date and status.
 
