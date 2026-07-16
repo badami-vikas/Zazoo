@@ -110,12 +110,19 @@ export function createGmailFetchMessages(
   integrationId: string,
   query = "from:(alerts@bizbuysell.com OR noreply@bizbuysell.com OR savedsearch@bizbuysell.com)",
 ): (sourceQuery: SourceQuery) => Promise<Array<{ subject: string; body: string }>> {
-  return async () => {
+  return async (sourceQuery) => {
     const gateway = await gateways.forIntegration(integrationId);
-    const { threads } = await gateway.fetchThreads({ query });
-    return threads.flatMap((thread) =>
-      thread.messages.map((message) => ({ subject: message.subject || thread.subject, body: message.bodyText })),
-    );
+    const requestedMax = Number(sourceQuery.hints.maxResults);
+    const maxResults =
+      Number.isInteger(requestedMax) && requestedMax > 0
+        ? Math.min(requestedMax, 100)
+        : 25;
+    const { threads } = await gateway.fetchThreads({ query, maxResults });
+    return threads
+      .flatMap((thread) =>
+        thread.messages.map((message) => ({ subject: message.subject || thread.subject, body: message.bodyText })),
+      )
+      .slice(0, maxResults);
   };
 }
 

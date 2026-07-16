@@ -52,6 +52,8 @@ export const router = createBrowserRouter([
       { index: true, Component: HomePage },
       { path: "home", Component: HomePage },
       { path: "dealpilot", Component: DealPilotPage },
+      { path: "dealpilot/:page", Component: DealPilotPage },
+      { path: "dealpilot/:page/:recordId", Component: DealPilotPage },
 
       // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
       // Route param = packageName (e.g. "deal-pilot", "job-pilot"). Every

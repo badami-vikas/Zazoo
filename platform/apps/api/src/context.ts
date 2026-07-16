@@ -21,6 +21,7 @@
  * context creation instead of a normal auth failure.
  */
 import { TRPCError } from "@trpc/server";
+import { decodeJwt } from "jose";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
@@ -40,6 +41,9 @@ export interface ApiContext {
    * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
    * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
   verifying: boolean;
+  /** Server-derived auth_time/iat from the already-verified bearer. Credential
+   * reveal/copy accepts it only while it remains within the recent-auth window. */
+  reauthenticatedAt?: number;
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -76,7 +80,14 @@ export function makeContextFactory(wiring: Wiring) {
     // gate must still reject it. Derived from the SAME parser resolve() uses, so the two
     // never drift.
     const verifying = identityResolver.verifying;
-    const authenticated = verifying && bearerToken(authHeader) !== null;
+    const token = bearerToken(authHeader);
+    const authenticated = verifying && token !== null;
+    let reauthenticatedAt: number | undefined;
+    if (authenticated && token) {
+      const payload = decodeJwt(token);
+      const authSeconds = typeof payload.auth_time === "number" ? payload.auth_time : undefined;
+      if (authSeconds != null) reauthenticatedAt = authSeconds * 1_000;
+    }
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
     return {
       wiring,
@@ -84,6 +95,7 @@ export function makeContextFactory(wiring: Wiring) {
       identity,
       authenticated,
       verifying,
+      ...(reauthenticatedAt != null ? { reauthenticatedAt } : {}),
     };
   };
 }

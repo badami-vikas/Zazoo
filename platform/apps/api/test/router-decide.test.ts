@@ -3,9 +3,9 @@ import test from "node:test";
 import { TRPCError } from "@trpc/server";
 import { InMemoryRoleStore, SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 
-const TEST_USER_ID = "test_fixture_router_decide_user";
+const TEST_USER_ID = PILOT_USER;
 
 function makeRun(seed = 1): RunCtx {
   const clock = new SystemClock();

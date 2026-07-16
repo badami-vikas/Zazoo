@@ -122,9 +122,20 @@ import {
   type GoogleOAuthConfig,
   type ToolManifest,
 } from "@bridge/integrations-google";
-import { createInMemoryCaptureStore, createToolSourceSkill, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
+import { createInMemoryCaptureStore, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
 import { createFactStore, type FactStore } from "@bridge/facts";
-import { createBizBuySellAlertConnector, createGmailFetchMessages, type ThesisProfile } from "@bridge/dealpilot";
+import {
+  HumanReauthentication,
+  InMemoryCredentialAuditSink,
+  InMemoryDealPilotStore,
+  InMemorySourceCredentialVault,
+  SourceCredentialService,
+  assertSourceDiscoveryAllowed,
+  createBizBuySellAlertConnector,
+  createGmailFetchMessages,
+  type DealPilotBindings,
+  type DealPilotStore,
+} from "@bridge/dealpilot";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
 import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
@@ -232,10 +243,16 @@ export interface Wiring {
     facts: FactStore;
     materializer: ToolIntakeMaterializer;
     integrationId: string;
+    store: DealPilotStore;
+    /** Compatibility read index for the legacy candidate list endpoint. */
     candidateIds: string[];
-    /** Current pilot thesis (in-memory, session-lifetime — no thesis-management UI yet). */
-    thesis: ThesisProfile;
-    setThesis(next: ThesisProfile): void;
+    credentials: SourceCredentialService;
+    credentialVault: InMemorySourceCredentialVault;
+    credentialAudit: InMemoryCredentialAuditSink;
+    captureSources: Map<string, string>;
+    committedCaptureIds: Set<string>;
+    committingCaptureIds: Set<string>;
+    bindings: DealPilotBindings;
   };
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
   memory?: {
@@ -262,6 +279,18 @@ const stageLearningRecommendation: Skill = {
 };
 
 const policies: PolicyFn[] = [
+  (i) =>
+    i.phase === "pre" &&
+    typeof i.inputs === "object" &&
+    i.inputs !== null &&
+    (i.inputs as { kind?: unknown }).kind === "thesis_source_discovery"
+      ? {
+          policyId: "pol-dealpilot-source-discovery-approval",
+          phase: "pre",
+          effect: "require_approval",
+          reason: "Attaching discovered Sources to a Thesis requires Human review",
+        }
+      : null,
   (i) =>
     typeof i.inputs === "object" &&
     i.inputs !== null &&
@@ -324,6 +353,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -576,19 +607,122 @@ export async function buildWiring(): Promise<Wiring> {
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
   const dealPilotFacts: FactStore = createFactStore();
-  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
-  skillRegistry.register(
-    createToolSourceSkill({
-      toolId: "dealpilot",
-      captures: dealPilotCaptures,
-      connector: createBizBuySellAlertConnector(createGmailFetchMessages(gateways, dealPilotIntegrationId)),
-    }),
+  const dealPilotStore = new InMemoryDealPilotStore();
+  const dealPilotCredentialVault = new InMemorySourceCredentialVault();
+  const dealPilotCredentialAudit = new InMemoryCredentialAuditSink();
+  const dealPilotCredentials = new SourceCredentialService(
+    dealPilotCredentialVault,
+    new HumanReauthentication(),
+    dealPilotCredentialAudit,
   );
+  if (url) {
+    console.warn(
+      "DealPilot DP0 prototype: Records and Source credential-vault references are process-local until the approved Local Plane persistence/keychain adapters land; restart discards them.",
+    );
+  }
+  const dealPilotCaptureSources = new Map<string, string>();
+  const dealPilotCommittedCaptureIds = new Set<string>();
+  const dealPilotCommittingCaptureIds = new Set<string>();
   const dealPilotCandidateIds: string[] = [];
-  // Basic thesis storage (in-memory, session-lifetime — mirrors dealPilotCandidateIds).
-  // Full thesis-management UI is a separate, larger future item; this is just get/set state
-  // so `dealpilot.list`'s fit-scoring has something other than a hardcoded stand-in.
-  let dealPilotThesis: ThesisProfile = { industries: [], geo: [] };
+  const dealPilotBindings: DealPilotBindings = {
+    relationshipAuthorized: false,
+    tasksAuthorized: true,
+  };
+  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
+  const dealPilotSourceConnector = createBizBuySellAlertConnector(
+    createGmailFetchMessages(gateways, dealPilotIntegrationId),
+  );
+  const dealPilotDiscoveryLocks = new Map<string, Promise<unknown>>();
+  skillRegistry.register({
+    name: "dealpilot.source",
+    async run(inputs, ctx) {
+      const request = inputs as { workspaceId?: unknown; sourceId?: unknown };
+      if (typeof request.workspaceId !== "string" || typeof request.sourceId !== "string") {
+        throw new Error("DealPilot Source discovery requires workspaceId and sourceId");
+      }
+      const lockKey = `${request.workspaceId}:${request.sourceId}`;
+      const previous = dealPilotDiscoveryLocks.get(lockKey) ?? Promise.resolve();
+      const operation = previous.catch(() => undefined).then(async () => {
+        const source = await dealPilotStore.get("source", request.workspaceId as string, request.sourceId as string);
+        if (!source || source.kind !== "source") throw new Error("DealPilot Source Record not found");
+        const baseQuery = { kind: "company" as const, hints: { sourceId: source.id } };
+        const estimate = dealPilotSourceConnector.estimateCost(baseQuery);
+        assertSourceDiscoveryAllowed(source, estimate);
+        const hostname = new URL(source.link).hostname.toLowerCase();
+        if (
+          source.connectionType !== "email_alert" ||
+          (hostname !== "bizbuysell.com" && !hostname.endsWith(".bizbuysell.com"))
+        ) {
+          throw new Error("This prototype supports Deal discovery only for an authorized BizBuySell email-alert Source");
+        }
+        const remaining = source.spendCap - source.spendToDate;
+        const maxResults = Math.max(1, Math.floor(remaining / estimate));
+        const query = {
+          kind: "company" as const,
+          hints: { sourceId: source.id, maxResults: String(maxResults) },
+        };
+        let envelopes;
+        try {
+          envelopes = await dealPilotSourceConnector.fetch(query);
+        } catch (error) {
+          await dealPilotStore.updateSource(source.id, source.workspaceId, { health: "degraded" });
+          throw error;
+        }
+
+        let actualSpend = 0;
+        let droppedForBudget = 0;
+        const captureIds: string[] = [];
+        const sample: Record<string, unknown>[] = [];
+        for (const envelope of envelopes) {
+          if (actualSpend + envelope.costUnits > remaining) {
+            droppedForBudget += 1;
+            continue;
+          }
+          actualSpend += envelope.costUnits;
+          const captureId = ctx.ids.next();
+          await dealPilotCaptures.put({
+            ...envelope,
+            captureId,
+            toolId: "dealpilot",
+            trustOrigin: envelope.trustOrigin ?? "untrusted_external",
+          });
+          dealPilotCaptureSources.set(captureId, source.id);
+          captureIds.push(captureId);
+          if (sample.length < 3) sample.push(envelope.payload);
+        }
+        if (actualSpend === 0) actualSpend = estimate;
+        await dealPilotStore.updateSource(source.id, source.workspaceId, {
+          lastCheckedAt: ctx.clock.nowISO(),
+          spendToDate: source.spendToDate + actualSpend,
+          ...(droppedForBudget > 0 ? { health: "paused" } : {}),
+        });
+        return {
+          proposedOutput: {
+            toolId: "dealpilot",
+            count: captureIds.length,
+            captureIds,
+            sample,
+            droppedForBudget,
+            spend: {
+              estimated: estimate,
+              actual: actualSpend,
+              cap: source.spendCap,
+              exceeded: false,
+            },
+          },
+          diff: { quarantined: captureIds.length, droppedForBudget },
+        };
+      });
+      dealPilotDiscoveryLocks.set(lockKey, operation);
+      try {
+        return await operation;
+      } finally {
+        if (dealPilotDiscoveryLocks.get(lockKey) === operation) {
+          dealPilotDiscoveryLocks.delete(lockKey);
+        }
+      }
+    },
+  });
   const dealPilotMaterializer = new ToolIntakeMaterializer({
     captures: dealPilotCaptures,
     commit: async (capture) => {
@@ -596,15 +730,10 @@ export async function buildWiring(): Promise<Wiring> {
       // `processDealCandidate` uses) so two captures of the same company merge into one
       // candidate instead of piling up duplicate rows. A "strong" match merges facts into
       // the existing candidate; anything weaker commits as its own new candidate.
-      const existingDealPilotCandidates: DedupeCandidate[] = dealPilotCandidateIds.map((id) => {
-        const profile = dealPilotFacts.livingProfile(id);
-        return {
-          id,
-          name: String(profile.name?.value ?? id),
-          domain: profile.domain?.value as string | undefined,
-          industry: profile.industry?.value as string | undefined,
-        };
-      });
+      const existingDeals = await dealPilotStore.list("deals", PILOT_WORKSPACE, { limit: 200, offset: 0 });
+      const existingDealPilotCandidates: DedupeCandidate[] = existingDeals.items
+        .filter((record) => record.kind === "deal")
+        .map((record) => ({ id: record.id, name: record.company }));
       const candidateForMatch: DedupeCandidate = {
         id: capture.captureId,
         name: String(capture.payload.name ?? capture.captureId),
@@ -617,7 +746,42 @@ export async function buildWiring(): Promise<Wiring> {
       for (const [field, value] of Object.entries(capture.payload)) {
         dealPilotFacts.append({ entityId: candidateId, field, value, provenance: "listing", confidence: capture.confidence });
       }
-      if (candidateId === capture.captureId) dealPilotCandidateIds.push(candidateId);
+      if (candidateId === capture.captureId) {
+        await dealPilotStore.createDeal({
+          id: candidateId,
+          workspaceId: PILOT_WORKSPACE,
+          company: String(capture.payload.name ?? candidateId),
+          ...(typeof capture.payload.revenue === "number" ? { revenue: capture.payload.revenue } : {}),
+          ...(typeof capture.payload.sde === "number" ? { sde: capture.payload.sde } : {}),
+          ...(typeof capture.payload.askPrice === "number" ? { askingPrice: capture.payload.askPrice } : {}),
+        });
+        dealPilotCandidateIds.push(candidateId);
+      }
+      const sourceId = dealPilotCaptureSources.get(capture.captureId);
+      if (sourceId) {
+        await dealPilotStore.link({
+          workspaceId: PILOT_WORKSPACE,
+          kind: "deal_source",
+          fromId: candidateId,
+          toId: sourceId,
+          confidence: capture.confidence,
+          provenance: capture.sourceToolId,
+          evidenceRefs: [capture.captureId],
+        });
+        const sourceRelations = await dealPilotStore.relations(PILOT_WORKSPACE, sourceId);
+        for (const relation of sourceRelations.filter((row) => row.kind === "source_thesis")) {
+          await dealPilotStore.link({
+            workspaceId: PILOT_WORKSPACE,
+            kind: "deal_thesis",
+            fromId: candidateId,
+            toId: relation.toId,
+            confidence: Math.min(capture.confidence, relation.confidence),
+            provenance: `source:${sourceId}`,
+            evidenceRefs: [capture.captureId, relation.id],
+          });
+        }
+      }
+      dealPilotCommittedCaptureIds.add(capture.captureId);
     },
   });
 
@@ -723,13 +887,15 @@ export async function buildWiring(): Promise<Wiring> {
       facts: dealPilotFacts,
       materializer: dealPilotMaterializer,
       integrationId: dealPilotIntegrationId,
+      store: dealPilotStore,
       candidateIds: dealPilotCandidateIds,
-      get thesis() {
-        return dealPilotThesis;
-      },
-      setThesis(next: ThesisProfile) {
-        dealPilotThesis = next;
-      },
+      credentials: dealPilotCredentials,
+      credentialVault: dealPilotCredentialVault,
+      credentialAudit: dealPilotCredentialAudit,
+      captureSources: dealPilotCaptureSources,
+      committedCaptureIds: dealPilotCommittedCaptureIds,
+      committingCaptureIds: dealPilotCommittingCaptureIds,
+      bindings: dealPilotBindings,
     },
     ritualRegistry,
     workspaceStore,

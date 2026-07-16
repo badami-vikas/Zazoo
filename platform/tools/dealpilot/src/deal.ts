@@ -3,8 +3,9 @@
 // §1.2 column "stage": sourced → triage → engaged → NDA/CIM → diligence → IC → LOI →
 // closing → portfolio / passed).
 
-/** All stage identifiers in pipeline order. Names normalised to snake_case for code; display
- *  labels are a UI concern. */
+/** All stage identifiers in pipeline order. `triage` is a workflow stage where a Human
+ * evaluates a Deal; it is unrelated to platform Red Flag feedback or Thesis fit bands.
+ * Names are normalized to snake_case for code; display labels are a UI concern. */
 export type DealStage =
   | "sourced"
   | "triage"

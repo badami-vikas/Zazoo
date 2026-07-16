@@ -34,39 +34,63 @@ export const BUILT_IN_PACKAGES: readonly {
   route: string;
 }[] = [
   {
-    route: "/dealpilot",
-    computedRisk: "advisory",
+    route: "/dealpilot/deals",
+    computedRisk: "external",
     manifest: {
       name: "deal-pilot",
       version: "0.1.0",
       kind: "workspace_definition",
-      summary: "Sourcing waterfall + thesis-fit scoring for deal flow.",
+      summary: "Governed ETA sourcing across Deals, Sources, and Theses.",
       description:
-        "Adds a deal-sourcing surface: waterfall pipeline, thesis-fit scoring, and Initiative tracking per prospect. Reads Person/Community graph. No external sends in v0.1.",
+        "Adds sibling Deal, Source, and Thesis Databases with reviewed discovery, provenance, rights/spend gates, and secure credential projection.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: [
         {
-          id: "deal-pilot.surface",
-          name: "DealPilot surface",
+          id: "deal-pilot.deals",
+          name: "Deals",
           version: "0.1.0",
           capabilityType: "view",
           origin: "built_in",
           audience: "team",
           permissions: [
-            { resourceType: "person", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "read", dataScope: "all", egress: false },
-            { resourceType: "initiative", action: "write", dataScope: "all", egress: false },
+            { resourceType: "tool", action: "read", dataScope: "all", egress: false },
+            { resourceType: "tool", action: "write", dataScope: "all", egress: false },
+          ],
+          connectors: [],
+          dependencies: [],
+        },
+        {
+          id: "deal-pilot.sources",
+          name: "Sources",
+          version: "0.1.0",
+          capabilityType: "view",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "tool", action: "read", dataScope: "all", egress: false },
+            { resourceType: "external:fetch", action: "read", dataScope: "public", egress: true },
+          ],
+          connectors: [{ id: "bizbuysell-alerts", externalSend: false }, { id: "google-gmail", externalSend: false }],
+          dependencies: [],
+        },
+        {
+          id: "deal-pilot.theses",
+          name: "Theses",
+          version: "0.1.0",
+          capabilityType: "view",
+          origin: "built_in",
+          audience: "team",
+          permissions: [
+            { resourceType: "tool", action: "read", dataScope: "all", egress: false },
+            { resourceType: "tool", action: "write", dataScope: "all", egress: false },
           ],
           connectors: [],
           dependencies: [],
         },
       ],
       contextProviders: [],
-      workspaceVocab: {
-        alignsToBridgeTheme: false,
-        domainTerms: { Initiative: "Deal", Person: "Founder" },
-      },
+      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
     },
   },
   {
