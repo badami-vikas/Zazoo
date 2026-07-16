@@ -1,7 +1,7 @@
 {
   "$schema": "gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main Bridge window + the floating companion overlay windows. Deliberately minimal: core only — the sensor_bridge commands are gated behind explicit user permission grants (deny OS permissions → Bridge still fully useful, per the graceful-degradation rule). overlay-1 through overlay-3 cover common multi-monitor setups (primary + up to 3 additional displays); users with > 4 monitors see the same core:default IPC on their extra displays.",
-  "windows": ["main", "overlay", "overlay-1", "overlay-2", "overlay-3"],
+  "description": "Default capability for the main Bridge window and every floating companion overlay window. Deliberately minimal: core only — the sensor_bridge commands are gated behind explicit user permission grants (deny OS permissions → Bridge still fully useful, per the graceful-degradation rule).",
+  "windows": ["main", "overlay*"],
   "permissions": ["core:default"]
 }

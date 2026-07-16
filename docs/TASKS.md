@@ -76,7 +76,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Dependencies: none
 
 ## TASK-003 — Movable cross-screen Avatar desktop prototype
-- Status: in_progress
+- Status: blocked
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
@@ -86,6 +86,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
 - Approval: AP-020 applied
 - Dependencies: none
+- Unblock: In a local macOS session, implement and verify join-all-Spaces/fullscreen non-activating panel behavior, runtime display hot-plug reconciliation, and the supplied-reference Sidebar chrome across the full prototype test.
 
 ## TASK-004 — Commons install and trust prototype
 - Status: ready

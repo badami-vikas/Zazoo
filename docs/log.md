@@ -1565,11 +1565,12 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Added `overlay_save_position`, `overlay_get_position` Tauri commands to `overlay.rs`; positions persist to `{app_data_dir}/bridge/overlay_positions.json` (atomic temp→rename write).
 - Added `reconcile_saved_position` + `is_on_screen` helpers: on launch, saved position validated against current monitor topology; off-screen positions fall back to bottom-right anchor.
 - Updated `create_one_overlay_window` to restore saved drag position at startup.
-- Extended capabilities JSON to cover `overlay-1..overlay-3` (multi-monitor support up to 4 displays).
+- Extended capabilities JSON with the supported `overlay*` glob so all monitor overlay windows receive core IPC access.
 - Added drag handle div with `data-tauri-drag-region` to `OverlayApp.tsx`; saves position on pointerup. Collapsed state only — drag handle hidden when panel is expanded.
 - Added `DesktopWindowChrome` component: close/minimize/zoom buttons in sidebar header, visible only under Tauri. `close_main_window`, `minimize_main_window`, `toggle_zoom_main_window` Rust commands registered in `lib.rs`.
-- Added 12 unit tests to `overlay::tests` (geometry, label naming, JSON roundtrip); 18/18 tests pass.
+- Added 10 unit tests to `overlay::tests` (geometry, label naming, JSON roundtrip); 18/18 desktop-library tests pass.
 - Zero new TypeScript errors introduced; pre-existing errors unaffected.
 - **macOS-only blockers** (not implemented, flagged for local macOS session): `tauri-nspanel` (NonActivatingPanel + FullScreenAuxiliary + join-all-Spaces), macOS Spaces persistence, macOS fullscreen overlay, traffic-lights-in-sidebar title-bar removal.
 - TASK-003 remains `in_progress` — prototype test requires live macOS desktop verification.
 - Durable outcome: `outputs/2026-07-16-task-003-avatar-drag-persistence.md`.
+- TASK-003 moved to `blocked` with a named local-macOS unblock condition; no later roadmap task was started.

@@ -2,7 +2,7 @@
 title: "TASK-003 Platform-Neutral Avatar Drag, Position Persistence, and Window Chrome"
 date: 2026-07-16
 task: TASK-003
-status: in_progress — macOS prototype test outstanding
+status: blocked — local macOS implementation and prototype test outstanding
 scope: platform-neutral only (macOS-specific items flagged below)
 ---
 
@@ -66,14 +66,14 @@ scope: platform-neutral only (macOS-specific items flagged below)
 
 **File:** `platform/apps/desktop/src-tauri/capabilities/default.json`
 
-- `windows` array extended to `["main", "overlay", "overlay-1", "overlay-2", "overlay-3"]`,
-  covering up to 4 connected displays.
+- `windows` uses the supported `overlay*` glob so every generated monitor window receives
+  the same minimal core capability without an arbitrary display-count cap.
 
 ### 6. Unit tests
 
 **File:** `platform/apps/desktop/src-tauri/src/overlay.rs` `overlay::tests` module
 
-12 new tests:
+10 new tests:
 - `position_on_screen_typical` — window at (900, 800) on 1920×1080 → valid
 - `position_off_screen_too_far_right` — window right-edge past margin → invalid
 - `position_off_screen_entirely_outside` — saved on disconnected second monitor → invalid
@@ -85,7 +85,7 @@ scope: platform-neutral only (macOS-specific items flagged below)
 - `persisted_position_roundtrips_json`
 - `position_map_roundtrips_json` — multi-key map roundtrip
 
-**Test result:** 18/18 pass (12 new + 6 pre-existing).
+**Test result:** 18/18 desktop-library tests pass; 10 position/label/serialization tests live in `overlay.rs`.
 
 ---
 
@@ -161,5 +161,5 @@ or a periodic topology check would be needed.
 | Move between displays | ✅ Per-label position persistence handles this |
 | close/minimize/zoom accessible | ✅ `DesktopWindowChrome` + native title bar (which stays) |
 
-**TASK-003 status: `in_progress`** — the platform-neutral work is complete; the macOS-specific
+**TASK-003 status: `blocked`** — the platform-neutral work is complete; the macOS-specific
 prototype test requires a local macOS session with `tauri-nspanel` added.
