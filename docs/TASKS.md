@@ -51,7 +51,7 @@ There is no separate progress narrative. Report task deltas only: status change,
 The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → TASK-005. TASK-005 is the gate: do not resume broad vocabulary migration, repo cleanup, or later Modules until the combined Avatar + Commons path is usable and tested.
 
 ## TASK-001 — Coherent actionable shell prototype
-- Status: in_progress
+- Status: blocked
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.
@@ -61,6 +61,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Requests: R-019; R-020; R-021; R-023; user shell/module/table directives 2026-07-14–15
 - Approval: AP-020 and AP-021 applied
 - Dependencies: none
+- Unblock: Run the live desktop/375px prototype test with seeded installed Modules, then expose attributable Agent→Skill ownership and real Automation/File inventories instead of empty states.
 
 ## TASK-002 — Trust-first onboarding and behavioral learning prototype
 - Status: ready
@@ -75,7 +76,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Dependencies: none
 
 ## TASK-003 — Movable cross-screen Avatar desktop prototype
-- Status: ready
+- Status: in_progress
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
