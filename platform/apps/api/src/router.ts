@@ -186,7 +186,8 @@ async function researchPublicFigure(figure: string): Promise<{ title: string; ex
     throw new TRPCError({ code: "NOT_FOUND", message: `No unambiguous public source found for "${figure}".` });
   }
   const article = encodeURIComponent(page.title.replaceAll(" ", "_"));
-  return { title: page.title, extract: page.extract.slice(0, 4_000), url: `https://en.wikipedia.org/wiki/${article}` };
+  const url = new URL(`/wiki/${article}`, "https://en.wikipedia.org").toString();
+  return { title: page.title, extract: page.extract.slice(0, 4_000), url };
 }
 
 /** Strip `undefined` so exactOptionalPropertyTypes is satisfied at the seam. */
