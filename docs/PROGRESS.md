@@ -1,6 +1,8 @@
-# PROGRESS — single work tracker
+# PROGRESS — historical execution ledger
 
-**This is the ONE place to look for "what's being worked on and what's next."** It is a cursor, not a plan: every task points at its source doc, which stays the single source of truth for full detail. Nothing here replaces or deletes a plan — see the Plan Registry at the bottom for where everything lives.
+> Retired as an active queue on 2026-07-15 by AP-024/ADR-092. Use [`docs/TASKS.md`](TASKS.md) for current work. This file preserves the former batch cursor and completion history for audit only; unchecked boxes here do not create tasks.
+
+The text below is historical and is not maintained as a competing progress/plan system.
 
 ## Protocol (read before working)
 - **Where tasks load from**: each task cites `→ source-doc §section`. Open the source doc for full spec/exit criteria before starting. Never work from this file's one-liner alone.
@@ -57,7 +59,18 @@ Source requirements: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-inte
 - [ ] AV1 — Onboarding (not staged lifecycle ceremony): OnboardingProfile → CoS prompt, permission theater, governed live-demo beat, Avatar ready state → roadmap legacy §EG1
 - [ ] CM0 — wire the Commons registry (`CommonsRegistry` port + HTTP client exist; `commons.*` tRPC/app consumption is absent — biggest gap) → §CM0
 - [ ] CM1 — supply-chain trust (signing, content-hash pins, publisher verify, 8-point scan) — BEFORE any corpus ingest → §CM1
-- [ ] **DP0–DP1 follow-on — Deal/Source/Thesis relational cluster**: three sibling DB-backed toggle pages; Deal↔Source, Deal↔Thesis, Source↔Thesis many-to-many; entity-owned fields + CredentialBroker refs; thesis changes trigger source discovery, source changes trigger deal discovery, link changes trigger explained fit rescoring → `docs/raw/dealpilot-module-plan-2026-07.md` §5–§6
+- [ ] **DP0–DP1 follow-on — ETA Deal/Source/Thesis cluster**: only three default Pages; every row gets Record Detail; standard capability inventory; many-to-many Relations; conditional Relationship/Task columns; Source Link + secure virtual User ID/Password + Last checked + Spend cap/spend + rights gate; thesis→Source→Deal discovery and explained fit → `docs/raw/dealpilot-module-plan-2026-07.md` §5–§6
+- [ ] **AGS0–AGS3 — Internal Strategist + portable Skills + child Runs**: permanent fifth Agent; Goal/Task-first Skill resolver; Agent defaults as preferences; bounded child Agent Run inheritance/depth/budget/taint/audit; migrate DealPilot/JobPilot specialist catalogs → `docs/raw/agent-goal-skill-orchestration-plan-2026-07.md`
+- [ ] **RED-FLAG-1 — platform negative feedback**: hover/focus cell or bullet shows subtle uncolored flag; click turns red; scoped/reversible/audited; Learning correction evidence; remove green/yellow flag semantics from pilot UI/code/API/tests → UI rules §5d
+- [ ] **JP3B — company culture research**: Learning researches permitted company pages/Google reviews/Reddit/blogs/Glassdoor where terms allow; Internal Strategist separates fact/opinion/theme/contradiction/inference for cover letters/interviews; no bypass or invented insider claims → JobPilot plans
+
+### Ad hoc user delivery — BCG MBA Consultant application workspace (2026-07-15)
+- [x] Real request-scoped BCG application detail implemented in `platform/apps/web`: fit decision, eight prepared artifacts, Agent-owned Skills, evidence ledger, and Human-only submission gate; content grounded in the supplied Master Profile, existing consulting materials, JobPilot BRD, and official BCG guidance. Acceptance tests, web typecheck, and production build pass.
+- [ ] Live desktop + 375px browser evidence remains outstanding: local Vite preview launch was rejected because the workspace approval service is out of credits. No workaround attempted.
+
+### Ad hoc user delivery — pending-work manager (2026-07-15)
+- [x] `/pending-work` aggregates unchecked roadmap tasks, OPEN/IN PROGRESS bugs, partially fulfilled requests, and proposed approvals into one source-linked queue. Rank by drag/arrows, edit inline, add local work, filter/search, and reversibly archive/restore with undo. Source rescan runs before web dev/build; local-plane edits persist without rewriting historical source records. Verified by six web data tests, production build, and real-browser edit/rank/archive/undo plus visual QA. Whole-web typecheck passed before a concurrent unrelated `EditableField.tsx` edit introduced an unused `@ts-expect-error`; that foreign work was preserved. Output: `outputs/2026-07-15-pending-work-manager.md`.
+- [x] Task Manager follow-up: Calendar destination renamed to Task Manager; pending work allocated over a rolling 12-day window; resizable/hidden columns, double-click editing, and right-click/row-menu database actions added. Google Calendar remains at `/calendar/google`.
 
 ## Batch 2 — Repo cleanup: duplicates + deprecated data → `docs/raw/repo-restructure-egg-commons-2026-07.md`
 
@@ -116,7 +129,7 @@ Full per-batch detail lives in the `AP-0xx` rows of `docs/APPROVALS.md`, the dat
 **Consolidation trio (RECONCILED 2026-07-09, ADR-044):** `BRIDGE_PLATFORM_RESET_HANDOFF.md` = stable brief · `docs/raw/execution-plan-2026-07.md` = gated lanes (safety gate required) · `BRIDGE_PLAN_CRITIQUE_AND_EXTENDED_PLAN.md` = accepted resolution.
 **UI architecture canon (AP-011, 2026-07-13):** `docs/raw/ui-architecture-rules-2026-07.md` (wiki `docs/wiki/ui-architecture.md`) — binds all page/nav/view work; UI-RULES-1 alignment audit = Batch 1 first task.
 **Canon governance:** `docs/APPROVALS.md` (propose→approve ledger for locked-doc/plan-status/DONE changes) · `docs/dummy.md` (unavoidable-dummy ledger).
-**Domain plans/BRDs (raw/):** `vocabulary-code-migration-plan-2026-07-14` (VOCAB0–VOCAB6) · `egg-commons-feature-roadmap-2026-07` (legacy filename; Avatar+Commons) · `relationship-module-plan-2026-07` · `brd-dealpilot-2026-07` + `dealpilot-module-plan-2026-07` · `brd-jobpilot-2026-07` + `jobpilot-module-plan-2026-07` · `learning-agent-roadmap-2026-07` (RT0–RT4 + LA0–LA6) · `governance-agent-roadmap-2026-07` · `builder-agent-roadmap-2026-07` · remaining plans in `docs/INDEX.md`.
+**Domain plans/BRDs (raw/):** `vocabulary-code-migration-plan-2026-07-14` (VOCAB0–VOCAB6) · `egg-commons-feature-roadmap-2026-07` (legacy filename; Avatar+Commons) · `relationship-module-plan-2026-07` · `brd-dealpilot-2026-07` + `dealpilot-module-plan-2026-07` · `brd-jobpilot-2026-07` + `jobpilot-module-plan-2026-07` · `agent-goal-skill-orchestration-plan-2026-07` (AGS0–AGS3) · `learning-agent-roadmap-2026-07` (RT0–RT4 + LA0–LA6) · `governance-agent-roadmap-2026-07` · `builder-agent-roadmap-2026-07` · remaining plans in `docs/INDEX.md`.
 **Tools:** `Tools/recon/EXPANSION.md` (Phase 2–4 + estimators) · `Tools/Job/*` (DealPilot/JobPilot specs, feed P2/P6).
 **Repo restructure:** `docs/raw/repo-restructure-egg-commons-2026-07.md` (legacy filename) — VOCAB0 guard/inventory → duplicate cleanup → Module boundary → tool convergence. Prototype archive still needs separate sign-off because PII/deploy source.
 **Older checkbox plans:** `docs/superpowers/plans/2026-06-18-searcherinsights-profile-scraper.md` (open) · `2026-06-20-camera-tool.md` (⚠ predates no-dummy-data pivot — re-spec before executing).

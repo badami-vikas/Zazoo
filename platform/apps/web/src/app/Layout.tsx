@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Target, Plus, Settings, Brain, BookOpen, Lock, Check, PanelLeftClose } from "lucide-react";
+import { Home, Target, Plus, Settings, Brain, BookOpen, Lock, Check, PanelLeftClose, ListChecks } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -252,6 +252,7 @@ export default function Layout() {
   const settingsActive = isActive("/settings");
   const intelligenceActive = isActive("/intelligence");
   const knowledgeActive = isActive("/knowledge-base");
+  const pendingWorkActive = isActive("/pending-work");
   const knowledgeUnlocked = connectedSourceCount >= 2;
 
   return (
@@ -487,6 +488,11 @@ export default function Layout() {
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Settings</span>
           </Link>
+          <Link to="/pending-work" className={navItemClass(pendingWorkActive)} title="Pending work">
+            {pendingWorkActive && <ActiveBar />}
+            <ListChecks className="w-5 h-5 shrink-0" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass()}>Pending work</span>
+          </Link>
 
         </div>
       </nav>
@@ -521,6 +527,15 @@ export default function Layout() {
           <Plus className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
           New
         </button>
+        <Link
+          to="/pending-work"
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs no-underline ${
+            pendingWorkActive ? "font-medium text-[var(--color-steel)]" : "text-muted-foreground"
+          }`}
+        >
+          <ListChecks className="w-4 h-4" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+          Work
+        </Link>
         <Link
           to="/settings"
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs no-underline ${

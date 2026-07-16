@@ -3,15 +3,15 @@ title: DealPilot Business Requirements
 type: raw
 doc_kind: reference
 status: proposed
-companions: [dealpilot-module-plan-2026-07.md, dealpilot-design-requirements-2026-07.md, dealpilot-architecture-requirement.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md]
+companions: [dealpilot-module-plan-2026-07.md, dealpilot-design-requirements-2026-07.md, dealpilot-architecture-requirement.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, requirement-dealpilot-eta-agent-skill-red-flag-2026-07-15.md, agent-goal-skill-orchestration-plan-2026-07.md]
 related_wiki: ../wiki/dealpilot.md
-updated: 2026-07-14
-tags: [dealpilot, module, business-requirements, sourcing, diligence, underwriting]
+updated: 2026-07-15
+tags: [dealpilot, eta, module, business-requirements, sourcing, diligence, underwriting]
 ---
 
 # 1. Executive decision
 
-DealPilot is one installable Module for sourcing, evaluating, diligencing, deciding on, and preparing the execution of investment opportunities. It is one item in the global Modules list, not a collection of unrelated applications.
+DealPilot is one installable Module for Entrepreneurship Through Acquisition (ETA): sourcing, evaluating, diligencing, deciding on, and preparing the acquisition of an operating business. It is one item in the global Modules list, not a collection of unrelated applications or a generic institutional-fund platform.
 
 DealPilot must make five answers available to an authorized decision-maker in under two minutes:
 
@@ -38,26 +38,13 @@ DealPilot must:
 - retain reusable, correctable Memory from outcomes, corrections, and failures;
 - provide real connected data or honest empty states, never fabricated operating data.
 
-# 3. Users and accountability
+# 3. Human accountability
 
-```yaml
-personas:
-  Partner:
-    accountable_for: [triage, investment judgment, IC Decisions, risk-return judgment]
-  Deal_Lead:
-    accountable_for: [Deal coordination, workstream synthesis, next Actions, IC readiness]
-  Associate_or_Analyst:
-    accountable_for: [sourcing, normalization, evidence maintenance, analysis]
-  Operating_Partner:
-    accountable_for: [business evaluation, value creation, post-close readiness]
-  Specialist_Reviewer:
-    accountable_for: [scoped review within professional competence]
-  Read_Only_Reviewer:
-    accountable_for: [review within explicitly granted scope]
-permission_states: [view, propose, edit, approve, external_send, restricted]
-```
+DealPilot defines no user personas. Authority comes from the authenticated Human, Organization membership, Record scope, and explicit permissions—not a fictional role template.
 
-Restricted information is omitted or replaced by an explicit access state. It is never exposed and visually blurred.
+The Human remains accountable for commercial data rights, Source authorization, investment judgment, professional advice, external commitments, and final Decisions. Bridge must surface that onus at the point it matters and must not treat a user attestation as permission to bypass law, contract, authentication, access controls, robots/rate limits, or provider terms.
+
+Restricted information is omitted or replaced by an explicit access state. It is never exposed through blur, CSS masking, logs, exports, prompts, or browser storage.
 
 # 4. Scope
 
@@ -74,7 +61,7 @@ included_capabilities:
     - normalization, deduplication, change detection, and warm-path mapping
     - transparent Thesis-fit evaluation
   triage_and_engagement:
-    - red-yellow-green assessment and pass rationale
+    - evidenced fit, concern, and pass rationale with explicit Decisions; platform red flags remain feedback only
     - opportunity briefs and comparison
     - approval-gated outreach, NDA and CIM requests, and meeting preparation
   diligence:
@@ -113,42 +100,41 @@ excluded:
 
 # 5. Information architecture and actionability
 
-DealPilot appears as a clickable item under Modules in the global Sidebar. Selecting it opens its Module overview and capability inventory. Every visible Record, metric, status, and recommendation must offer an appropriate next Action when an Action exists; permission-denied Actions are clearly unavailable, not misleadingly enabled.
+DealPilot appears as a clickable item under Modules in the global Sidebar. Selecting it opens the standard Module Detail shell and its standard capability inventory. DealPilot customizes inventory data—activities, evaluations, permissions, Runs, versions, health—not the inventory structure. Every visible Record, metric, status, and recommendation must offer an appropriate next Action when an Action exists; permission-denied Actions are clearly unavailable, not misleadingly enabled.
 
 ```yaml
 module_click_through:
-  summary:
-    - current Decisions, changes, risks, deadlines, and recent Results
-  pages:
-    - Overview
+  default_pages:
     - Deals
     - Sources
     - Theses
-    - Sourcing
-    - Work
-    - Reports
-    - Relationships
-    - Agents
-    - Automations
-    - Integrations
-    - Files
-  capability_inventory:
-    Agents:
-      shows: [mandate, state, permissions, associated Modules, activity, evaluations]
-      Skills_section: [Skills available to each Agent, input-output contract, permissions, version, evaluations]
-    Automations:
-      shows: [trigger, schedule, owner, invoked Agents, state, last Run, next Run, failures]
-    Integrations:
-      shows: [connection, scope, health, permissions, last synchronization]
-    Files:
-      shows: [type, related Records, version, provenance, sensitivity, approval]
+  forbidden_default_pages: [Overview, Summary, Reports, Files, Results, Relationships, Agents, Automations, Integrations, Work]
+  optional_page_rule: user may add a Page only from an eligible Database-backed source through the standard Add page command; removal changes presentation only
+  standard_module_sections: [health_and_attention, Databases_and_Pages, Agents_and_goal_task_Skills, Automations, Integrations, Files_and_Results, Runs, settings]
+  capability_inventory_contract: platform standard; DealPilot supplies manifest and live values only
   configuration:
     entry: Control Panel in the standard overflow menu
 ```
 
 Every Database-backed Page uses the Standard Toolbar in this order: List, View, search, filter, primary Add Action, and overflow. Required Views are selected from table, cards, board, calendar, timeline, map, graph, and form according to the data shape. The shared Column Menu and Page-toggle commands apply consistently.
 
-Deal detail uses local tabs rather than adding more global Sidebar items. Core tabs are Summary, Profile, Listings, Files, Hypotheses, Evidence, Diligence, Financials, Valuation and Returns, Risks, IC, Relationships, Execution, and Activity.
+Every Deal, Source, and Thesis Record opens a dedicated Record Detail route. Record Detail is not a sibling Module Page: it is one Record’s full workspace, assembled from Fields and Sections. Overview, Summary, Reports, Files, Results, Relations, Agents, Integrations, and Activity are Sections or Views inside Record Detail, never default Pages merely because they need display space.
+
+Default Record Detail contracts:
+
+```yaml
+Deal_detail_sections: [key Fields, evaluation and decision state, Theses, Sources, Files, Results, Integrations, evidence and diligence, financial analysis, Relations when available, Tasks when available, Agent and Automation activity, Event history]
+Source_detail_sections: [connection Fields, credential controls, rights and approval state, Integrations when predefined, dynamic acquisition Skills when applicable, crawl health and Runs, linked Deals, linked Theses, spend and usage, Files and Results, Event history]
+Thesis_detail_sections: [criteria and exclusions, industry and market assumptions, versions, evidence, sourcing strategy, linked Sources, linked Deals, fit Results, Files, Agent and Automation activity, Event history]
+conditional_columns:
+  Relationships:
+    condition: Relationship Module Database is installed, bound, and authorized
+    behavior: Relation-backed column; never a duplicate DealPilot contact store
+  Tasks:
+    condition: Calendar/Work Database is installed, bound, and authorized
+    default_state: present because Calendar is a default Module
+    behavior: Relation-backed task column and Section
+```
 
 # 6. Core domain model
 
@@ -161,7 +147,7 @@ databases:
     owned_fields: [company, stage, revenue, EBITDA, SDE, asking_price, evidence_health, owner]
   Sources:
     record: Source
-    owned_fields: [name, connection_type, credential_reference, health, schedule, yield, rights_state]
+    owned_fields: [name, link, connection_type, credential_reference, last_checked_at, spend_cap, spend_to_date, health, schedule, yield, rights_state, rights_attested_at, rights_attested_by]
   Theses:
     record: Thesis
     owned_fields: [name, focus, target_CAGR, criteria, exclusions, sourcing_strategy, version]
@@ -170,7 +156,12 @@ relations:
   Deal_Thesis: many_to_many
   Source_Thesis: many_to_many
 relation_rule: one Relation row expresses one semantic connection and may carry attributes, dates, confidence, provenance, and evidence references
-credential_rule: Source Records hold only opaque Credential Broker references and non-secret connection metadata
+credential_rule:
+  storage: Source Records hold one opaque Credential Broker reference; user ID and password values remain encrypted in OS keychain or approved vault
+  table_projection: virtual User ID and Password columns appear in Sources table; password is masked; user ID follows configured masking
+  reveal: explicit Human gesture plus recent re-authentication; time-limited; audited; never available to Agents, Skills, Automations, crawlers, exports, logs, prompts, Files, Results, or ordinary API responses
+  copy: OS-authenticated copy without persistent reveal; clipboard clearing where supported; Event recorded without secret value
+  access_state: unavailable, revoked, or locked is shown as state—not fake bullets
 ```
 
 A Deal can have multiple Sources and Theses. A Source can support multiple Deals and Theses. A Thesis can govern multiple Deals and Sources. Deal-only Fields such as EBITDA remain on the Deal. Source-only connection Fields remain on the Source. Thesis-only Fields such as target industry CAGR remain on the Thesis.
@@ -221,9 +212,11 @@ rules:
 ## 8.3 Source discovery and health
 
 - Add authorized URLs, feeds, email alerts, APIs, and account-backed connections.
+- Sources table includes Link, virtual User ID, virtual masked Password, Last checked timestamp, Spend cap, spend-to-date, rights state, health, and next Run.
 - Show last/next Run, yield, duplicate rate, extraction confidence, rights state, cost, and failures.
 - Support pause, test, reschedule, inspect Run, and correct connection Actions.
 - A blocked Source must not cascade into other Source Runs.
+- Enabling an account-backed or commercially licensed Source requires explicit Human attestation of data rights, intended use, permitted scope, and spend cap. Ambiguous or commercially material restrictions stop at counsel/upstream-permission review.
 
 ## 8.4 Thesis management and fit
 
@@ -265,19 +258,20 @@ rules:
 
 # 9. Agents, Skills, Automations, and Integrations
 
-Skills are consumed through Agents and therefore appear as a dedicated section within the DealPilot Agents Page and within each Agent detail. They are not presented as independent actors.
+DealPilot defines no default specialist Agents. It assigns ETA Goals and Tasks to the five permanent platform Agents. Skills are Goal/Task-bound; listed Agent access is a default preference, not exclusive ownership. A different eligible Agent may use the Skill when runtime authority, Plane, data scope, risk, budget, and evaluation gates pass.
 
 ```yaml
 agents:
-  Deal_Lead: synthesize Deal state and propose next Actions
-  Thesis_Analyst: develop and test Theses, trends, and assumptions
-  Sourcing_Analyst: discover, normalize, screen, and explain targets
-  Diligence_Coordinator: coordinate MRL, workstreams, blockers, and synthesis
-  Business_Evaluator: assess business quality, operations, management, and value creation
-  Evidence_Reviewer: test claims, contradictions, gaps, and citation sufficiency
-  Financial_Modeler: normalize earnings, build cases, and analyze returns
-  Transaction_Coordinator: prepare financing, closing, and handoff materials
-  Impact_Reviewer: assess material impact claims only when enabled and evidenced
+  Learning:
+    owns: authorized Source discovery, retrieval, normalization, evidence collection, provenance, and research Memory
+  Internal_Strategist:
+    owns: ETA thesis, fit, business quality, diligence synthesis, financial analysis, valuation, scenarios, risks, recommendations, and decision materials
+  Chief_of_Staff:
+    owns: stakeholder context, relationship-sensitive coordination, communications, meetings, approvals, commitments, and next-action orchestration
+  Capability_Builder:
+    owns: connector, Integration, Skill, schema, model, formula, and workflow programming with tests and governed deployment
+  Governance:
+    owns: data-rights gate, policy/control review, evidence sufficiency review, risk classification, approval routing, audit, and conflict checks
 skills_by_job:
   thesis_and_sourcing:
     - Thesis development and iteration
@@ -303,6 +297,7 @@ skills_by_job:
     - IOI and LOI drafting support
     - financing and closing readiness
     - 100-day-plan preparation
+agent_creation_rule: create a separate Agent only for a durable identity, authority/data boundary, evaluation lifecycle, independent queue/cadence, or irreducible conflict of duties; otherwise use a Goal/Task Skill or bounded child Agent Run
 automations:
   - scheduled Source scan with domain budget
   - Source yield and extraction health monitoring
@@ -329,6 +324,8 @@ integrations:
   - Credential Broker and isolated browser execution where required
 ```
 
+Predefined external connections appear in the Integrations Section of the relevant Record Detail, especially Source detail. Dynamic acquisition or transformation behavior is a Goal/Task Skill, not a fake Integration. Files and Results (the canonical replacement for “artefacts”) appear as separate Sections in Deal detail.
+
 Every Automation declares its trigger or schedule, owner, idempotency key, budget, retry/backoff, stop condition, risk band, invoked Agents, and immutable Run record. An Automation contains no hidden authority.
 
 # 10. Governance, privacy, and security
@@ -336,7 +333,8 @@ Every Automation declares its trigger or schedule, owner, idempotency key, budge
 - Every mutation resolves authority and policy and emits an immutable Event.
 - Row-level access separates Organizations and sensitive Deal material.
 - Local Plane and Cloud Plane residency is explicit; cross-plane movement passes the deny-default Plane Gate.
-- Raw credentials are never exposed to Agents, Skills, Automations, Modules, or Records.
+- Raw credentials are never exposed to Agents, Skills, Automations, crawlers, Module data APIs, Files, Results, logs, prompts, exports, or persistent browser state. Authorized Humans may reveal/copy them only through the dedicated credential projection and re-authentication flow.
+- User commercial-data-rights responsibility is shown before Source activation, schedule changes, broader scope, and spend-cap increases. Bridge still blocks prohibited bypass and fails closed where rights are missing or ambiguous.
 - External and account-affecting Actions show exact scope and require the configured Review Mode.
 - Runtime taint labels remain attached through prompts, Engines, Skills, Actions, Events, Results, Files, queues, caches, and retries.
 - Untrusted content is quarantined from privileged or egress-capable execution until deterministic validation or recorded Human Decision.
@@ -404,7 +402,7 @@ measures:
 ```yaml
 slices:
   DP0:
-    outcome: clickable DealPilot Module shell; Deals, Sources, and Theses sibling Databases; many-to-many Relations; standard Page controls; Deal Summary, Profile, Files, and Activity; honest empty states
+    outcome: ETA-focused clickable DealPilot Module shell; only Deals, Sources, and Theses default Pages; dedicated Record Detail for every row; many-to-many Relations; conditional Relationship and Task columns; standard capability inventory; Source credential projection, last checked, spend cap, rights gate; honest empty states
   DP1:
     outcome: Thesis-to-Source discovery, Source-to-Deal discovery, normalization, deduplication, provenance, and fit triage
   DP2:
@@ -431,11 +429,14 @@ slice_gate:
 
 # 14. Acceptance criteria
 
-- DealPilot is a clickable global Module item and opens a complete Module overview and capability inventory.
+- DealPilot is a clickable global Module item and opens the standard Module Detail and standard capability inventory populated by DealPilot manifest/live data.
 - Deals, Sources, and Theses are sibling Database Pages with symmetric many-to-many Relations.
+- No other default DealPilot Page exists. Overview, Summary, Reports, Files, and Results are Sections/Views; user-added Pages require an eligible Database-backed source.
+- Every Deal, Source, and Thesis row has a dedicated Record Detail route containing its complete Field/Section contract.
+- Sources table contains Link, secure virtual User ID/Password columns, Last checked, Spend cap, spend-to-date, and rights state without returning raw secrets through ordinary data paths.
 - The standard toolbar, Views, search, filters, Add Action, overflow, and shared column behavior are consistent across Database Pages.
 - Agents, Automations, Integrations, Files, and Results associated with DealPilot are discoverable from the Module overview.
-- Skills appear within the Agents Page and each Agent detail, with version, permissions, input-output contract, and evaluation state.
+- Skills resolve from Goals and Tasks, remain discoverable under eligible Agents, and show version, permissions, input-output contract, and evaluation state.
 - Every surfaced recommendation, status, Record, File, and Result links to context and an appropriate next Action when one exists.
 - Every material claim and derived figure reaches its source within two interactions.
 - Source evidence, Human input, and Agent inference are unambiguous.
@@ -450,7 +451,7 @@ slice_gate:
 
 ```yaml
 decisions_required_before_later_slices:
-  - initial customer segment and transaction adapter: ETA/search fund versus broader lower-middle-market buyout
+  - initial ETA segment and transaction adapter: searcher, self-funded search, traditional search fund, independent sponsor, or ETA lender/advisor workflow
   - authorized Source portfolio and commercial data rights
   - launch boundary between draft-only and approval-gated external sending
   - default Review Mode for stage changes, merge decisions, and financial adjustments

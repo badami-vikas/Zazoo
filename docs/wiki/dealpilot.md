@@ -2,9 +2,11 @@
 
 BRD: [../raw/brd-dealpilot-2026-07.md](../raw/brd-dealpilot-2026-07.md) · delivery: [../raw/dealpilot-module-plan-2026-07.md](../raw/dealpilot-module-plan-2026-07.md)
 
-- One installable Module. Goal: evidence-backed sourcing→fit→diligence→IC→closing readiness. Human owns investment Decisions.
-- Left-nav click → Module Detail: Pages, Databases, Agents+their Skills, Automations, Integrations, Files, Runs, settings. No dead cards.
-- Core cluster: Deals / Sources / Theses sibling toggle Pages. Symmetric many-to-many Relations. Source change discovers Deals; Thesis change discovers Sources; links recompute explained fit.
-- Entity Fields stay on owner Database. Source secrets = Credential Broker refs. Evidence/provenance mandatory for material Facts and financial Results.
-- Skills exist only under allowed Agents. Automations start Agent Runs. External send/investment Decision always governed.
+- One ETA Module. Human owns data rights + investment Decisions.
+- Only default Pages: Deals / Sources / Theses. Everything else = standard Module or Record Detail Section unless user adds eligible DB-backed Page.
+- Every row gets Record Detail. Deal: evidence/finance/Files/Results/Integrations/Relations/Tasks/activity. Source: connection/credential controls/rights/health/Runs/Deals/Theses. Thesis: criteria/versions/evidence/Sources/Deals/fit.
+- Source table: Link · secure virtual User ID/Password · Last checked · Spend cap/spend · rights/health. Secret stays Credential Broker/keychain. Reveal/copy = Human re-auth + audit; never Agent/crawler/API/export.
+- Relationship column only with Relationship DB binding. Tasks column with Calendar/Work binding; present by default.
+- Standard capability inventory. DealPilot customizes contents, never structure.
+- Work split: Learning research · Internal Strategist analysis · CoS stakeholders · Builder programming · Governance review. Skills bind Goal/Task; no default specialist Agents.
 - Delivery DP0–DP6. Acceptance includes real data/empty states, standard toolbar/menus, desktop+375px proof, no display aliases, runtime taint gates.

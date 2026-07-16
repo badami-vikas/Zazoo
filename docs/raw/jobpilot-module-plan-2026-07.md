@@ -3,9 +3,9 @@ title: JobPilot Detailed Module Plan — Design, Business, and Technical
 type: raw
 doc_kind: plan
 status: proposed
-companions: [jobpilot-vision-requirement.md, jobpilot-architecture-requirement.md, tool-standardization-plan.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, day1-integrations-free-apis.md]
+companions: [jobpilot-vision-requirement.md, jobpilot-architecture-requirement.md, tool-standardization-plan.md, dealpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, day1-integrations-free-apis.md, requirement-dealpilot-eta-agent-skill-red-flag-2026-07-15.md, agent-goal-skill-orchestration-plan-2026-07.md]
 related_wiki: ../wiki/tools.md
-updated: 2026-07-13
+updated: 2026-07-15
 tags: [jobpilot, module, design, business-process, agents, skills, automations, reuse, sourcing]
 ---
 
@@ -21,8 +21,8 @@ navigation_layers:
     item: JobPilot
     purpose: enter package
   module_navigation:
-    form: persistent secondary rail on desktop; drawer/segmented selector on mobile
-    items: [Overview, Cards, Pipeline, Materials, Sources, Answers, Interviews, Playbooks]
+    form: Database Page toggles; drawer/segmented selector on mobile
+    items: [Candidate Profiles, Job Postings, Applications, Sources, Materials, Answer Bank, Communications, Interviews]
   object_navigation:
     form: tabs within a selected Application (Job); collapses to More menu on narrow screens
     purpose: keep JD, fit flags, tailored materials, application record, communications, and interview prep attached to the one Application they explain
@@ -32,17 +32,17 @@ Vocabulary (built-in manifest): `Initiative → Application`, `Person → Hiring
 
 # 1. Design lens — exact information architecture
 
-## 1.1 Overview
+## 1.1 Module health and attention Section
 
 Purpose: candidate's operating view, not a generic dashboard.
 
-Sections: decision queue (new green-worthy cards, materials awaiting approval, applications awaiting submit-approval, responses needing action); pipeline by stage and category; sourcing health (source yield, freshness, dedupe rate, ToS-tier mix, quota/pacing state); materials health (tailored-vs-approved counts, truthfulness-gate pass rate); upcoming interviews and follow-up deadlines; recent changes (new postings, response detected, stage advanced); Agent activity + optimization receipts; configurable saved views, never fabricated KPIs (no invented "match %").
+Sections: decision queue (new high-fit cards, materials awaiting approval, applications awaiting submit-approval, responses needing action); pipeline by stage and category; sourcing health; materials health; upcoming interviews and follow-up deadlines; recent changes; Agent activity; configurable saved Views; never fabricated KPIs.
 
-## 1.2 Cards — the green/red flag feed
+## 1.2 Job Postings Cards View — analysis plus platform red-flag feedback
 
-The product's identity. Each card = one scored `JobProfile` (a projection off `facts.livingProfile`, deduped). Local-LLM fit scoring produces green flags (why apply) and red flags (concerns) over the deterministic rule score. **The flag IS the action** (already built in `JobPilotPage.tsx`): green → queue for tailoring; yellow → review; red → dismiss (feeds the flag-feedback loop). Scores shown as flags with reasons, never as a false-precision percentage.
+Each card = one scored `JobProfile` (a projection off `facts.livingProfile`, deduped). Fit analysis produces evidenced reasons to pursue, reasons for concern, gaps, and uncertainty over the deterministic rule score. Green/yellow flag semantics are retired. Pursue, Review, and Dismiss are explicit Decisions/Actions. Platform red-flag feedback remains separate: hovering or focusing a data cell or bullet reveals a subtle uncolored flag; selecting it turns red and records scoped negative feedback.
 
-Card contents: company/title/location/comp-if-known, source + freshness, green/red flag chips with one-line reasons, category match, dedupe/already-applied badge, quick actions (green/dismiss/open JD). Saved views/toggles: Feed · Flagged · Tailoring · Approved · Applied · Responses · Interviews · Archived; by category, source tier, remote/onsite, seniority, comp band, flag severity; "changed since last review", "missing JD detail", "needs human decision".
+Card contents: company/title/location/comp-if-known, Source + freshness, evidenced reasons to pursue/avoid, gaps, uncertainty, category match, dedupe/already-applied badge, and explicit Actions (Pursue/Review/Dismiss/Open JD). Saved views: Feed · Red-flagged · Tailoring · Approved · Applied · Responses · Interviews · Archived; by category, Source tier, remote/onsite, seniority, comp band, and concern severity.
 
 ## 1.3 Application detail — complete object workspace
 
@@ -53,7 +53,7 @@ application_tabs:
   Summary:
     - decision-first brief: why it fits / why it may not
     - key facts (comp, location, remote, seniority, work-auth requirement)
-    - green/red flags, category match, next actions, recent changes
+    - reasons to pursue, concerns, gaps, category match, next Actions, recent changes, platform red-flag feedback
   Job:
     - full JD (source-linked), parsed requirements, keywords
     - source + freshness + ToS tier of the listing; dedupe lineage (merged duplicate postings)
@@ -81,7 +81,7 @@ application_tabs:
     - immutable timeline of Human/Agent/Automation actions; Memory/Skills/model+prompt versions; approvals; optimization receipts
 ```
 
-## 1.4 Pipeline
+## 1.4 Applications Pipeline View
 
 Kanban tracker: Sourced → Flagged → Tailoring → Evaluating → Approved → Awaiting-Submit → Applied → Response → Interview → Offer/Rejected (mirrors the built `ApplicationStage` 12-state machine + `transition()`). Every card links to its Application context; work is never a disconnected task island. Per-day + per-ATS-domain pacing gate visible (defer, don't drop).
 
@@ -101,7 +101,7 @@ The answer bank: work-auth, salary expectation, notice period, "why us" snippets
 
 Fires on stage → Interview: auto company-research brief, prep pack from real signals (relationship graph + public company facts), scheduling handed to the Calendar module, post-interview follow-up drafts. Small % of pipeline, high value.
 
-## 1.9 Playbooks
+## 1.9 Playbooks Section
 
 Installable/configurable capability library: category templates, per-ATS scoring profiles, resume/cover-letter prompt packs, answer-bank presets, interview-prep templates, pacing/ToS policies. Version, provenance, license, eval status, active/legacy state.
 
@@ -118,10 +118,10 @@ covered_processes:
     - Tier-1 legitimate sourcing (ATS public JSON, aggregator APIs, RSS) via governed connectors
     - normalization, dedupe, already-applied detection, freshness + quota tracking
   scoring_and_triage:
-    - deterministic rule score + local-LLM green/red flags
-    - one-click flag decision; flag-feedback learning loop
+    - deterministic rule score + evidenced pursue/concern analysis
+    - explicit Pursue/Review/Dismiss Decision plus separate red-flag feedback loop
   materials:
-    - writer agent tailors resume + cover letter to the JD (post-green only)
+    - communications/material Skills tailor resume + cover letter to JD after Pursue Decision only
     - evaluator agent: 5-dimension scorers + truthfulness gate; bounded iteration then human
     - PDF render (ATS-safe selectable text)
   application_preparation:
@@ -131,7 +131,7 @@ covered_processes:
     - draft-then-approve submission; Tier-1 form map surfaced for one-click human confirm
     - failure taxonomy handling; pacing/ToS caps
   tracking_and_response:
-    - end-to-end kanban with per-job artifact + event history
+    - end-to-end kanban with per-job Files, Results, and Event history
     - Gmail response detection + confidence-routed stage advance (draft-gated)
     - follow-up reminders and draft outreach
   interview_and_learning:
@@ -151,7 +151,7 @@ not_covered_or_not_authoritative:
   - covert interview assistance / stealth-from-screen-capture (Final Round AI "God Mode" — rejected as an ethics anti-pattern; both-party consent)
   - representing probabilistic fit scores as guarantees or as a true "match percentage"
   - guaranteeing outcomes (offers, TC uplifts, interview counts)
-  - storing credentials in the artifact/localStorage; egress with raw keys (CredentialBroker only)
+  - storing credentials in Files, Results, or localStorage; egress with raw keys (CredentialBroker only)
   - cross-tenant reuse of the user's profile, materials, or answers
   - salary/comp figures presented as fact without a cited, permitted source
 ```
@@ -160,37 +160,18 @@ not_covered_or_not_authoritative:
 
 ## 3.1 Agents
 
-Bridge keeps its 4 permanent platform agents. JobPilot specialists are package-provided archetypes, installed only when useful, routed by Chief of Staff, governed individually, no peer-to-peer autonomous handoffs.
+Bridge uses five permanent platform Agents. JobPilot installs no specialist Agents by default. Goal/Task-bound Skills express the workflow; a separate Agent is justified only by durable identity, authority/data boundary, evaluation lifecycle, independent queue/cadence, or irreducible conflict of duties.
 
 ```yaml
-jobpilot_agents:
-  Search_Strategist:
-    job: turn profile + goals into categories, saved searches, and source-tier strategy
-    inspiration: career-ops A–G rubric; category-generation prompt
-  Sourcing_Analyst:
-    job: run the legitimate-source waterfall, normalize, dedupe, track yield/quota/ToS tier
-    inspiration: career-ops providers; JobSpy schema; jobhive ATS catalog
-  Fit_Scorer:
-    job: deterministic + local-LLM green/red flag scoring vs categories and master profile
-    inspiration: ats-screener per-ATS profiles; Resume-Matcher keyword extraction
-  Materials_Writer:
-    job: tailor resume + cover letter to the JD, post-green, with per-line evidence
-    inspiration: Resume-Matcher tailoring prompts; lib_resume_builder_AIHawk templates
-  Materials_Evaluator:
-    job: 5-dimension scorers + truthfulness gate + LLM-judge; bounded iteration
-    inspiration: Resume-Matcher scorers + verify_skill_target_plan truthfulness gate
-  Application_Coordinator:
-    job: answer-bank fill, ATS form mapping, prefilled sheets, submit-approval routing, failure taxonomy
-    inspiration: ApplyPilot 3-tier question policy + result taxonomy (pattern only; AGPL)
-  Response_Router:
-    job: Gmail response detection, confidence-routed stage advance, follow-up drafts
-    inspiration: job-ops Smart Router (pattern only; AGPL+Commons-Clause)
-  Interview_Prep:
-    job: company brief + prep pack from real signals when stage -> Interview
-    inspiration: relationship-graph + public company facts
+jobpilot_assignments:
+  Learning: authorized job retrieval, normalization, company and culture research, review-theme extraction, provenance
+  Internal_Strategist: search strategy, fit, positioning, culture synthesis, material evaluation, interview analysis
+  Chief_of_Staff: application coordination, stakeholder communication, approvals, interview/follow-up orchestration
+  Capability_Builder: source adapters, form mappings, renderers, Skills, tests, repair of changed integrations
+  Governance: truthfulness, sensitive fields, source rights, submission review, policy/control audit
 ```
 
-Chief of Staff invokes each specialist and synthesizes. Human remains accountable for every flag decision, every materials approval, and every submission.
+Human remains accountable for pursuit/dismissal, materials approval, every submission, and commercial data rights. Agents may create bounded child Agent Runs whose authority, Skills, data scope, budget, review requirement, taint, and depth cannot exceed the parent Run.
 
 ## 3.2 Skills
 
@@ -203,7 +184,7 @@ skills:
   - listing-normalization-and-dedupe
   - already-applied-detection
   - deterministic-fit-scoring
-  - green-red-flag-narration                # local LLM
+  - fit-reason-and-concern-narration        # local LLM
   - flag-feedback-learning
   - resume-tailoring                         # writer, evidence-required
   - cover-letter-tailoring
@@ -216,7 +197,14 @@ skills:
   - gmail-response-routing
   - follow-up-drafting
   - interview-prep-brief
+  - company-culture-research                # Learning; lawful company/review/forum/blog sources
+  - attributed-review-theme-extraction
+  - culture-evidence-synthesis              # Internal Strategist; fact/opinion/theme/inference kept distinct
   - response-analytics
+skill_binding:
+  primary: [Goal type, Task type]
+  defaults: permanent Agent manifests
+  runtime: newly assigned eligible Agent may select matching Skill only after authority, Plane, data-rights, risk, budget, and evaluation checks
 ```
 
 ## 3.3 Automations
@@ -227,8 +215,8 @@ automations:
   - source-yield-and-freshness-monitor
   - listing-normalize-dedupe-and-change-detect
   - fit-rescore-on-profile-or-category-change
-  - new-green-card-triage-queue
-  - materials-tailor-on-green-flag             # post-intent only; spends quality tokens only after green
+  - new-high-fit-card-triage-queue
+  - materials-tailor-on-pursue-decision        # post-intent only
   - evaluation-loop-with-iteration-cap
   - application-pacing-gate                     # per-day + per-ATS-domain caps, defer-not-drop
   - submit-approval-request                     # draft-then-approve; never unattended external send
@@ -240,7 +228,7 @@ automations:
   - outcome-learning-and-eval-capture
 ```
 
-Every Automation carries trigger, idempotency key, budget, retry/backoff, owner, stop condition, risk band, and immutable run record. External submission and consequential stage changes remain human-approved. The waterfall cost policy holds: never use an LLM to *find* jobs (local Ollama only to *score*); spend Claude tokens only post-green-flag.
+Every Automation carries trigger, idempotency key, budget, retry/backoff, owner, stop condition, risk band, and immutable Run record. External submission and consequential stage changes remain Human-approved. Never use an LLM to find Jobs; spend quality-model tokens only after Pursue Decision.
 
 ## 3.4 Integrations/tools
 
@@ -266,7 +254,7 @@ reuse_policy:
     - build_minimal_Bridge_native_gap_only_after_documented_review
   gates:
     - pinned_commit
-    - repository_and_artifact_license
+    - repository_and_output_license
     - transitive_dependencies
     - security_and_prompt_injection
     - provenance_and_signature
@@ -289,7 +277,7 @@ sources:
     link: https://github.com/jsonresume/resume-schema
   Resume-Matcher:
     use: THE crown jewel — tailoring prompts, truthfulness gate (verify_skill_target_plan improver.py:754 + diff gate _BLOCKED_FIELD_NAMES/verify_diff_result), 5 deterministic scorers + LLM-judge (all CODE-VERIFIED 2026-07-13, decoupled from FastAPI/Next)
-    mode: Apache-2.0 fork-components; adapt into Bridge Materials_Writer/Evaluator with attribution
+    mode: Apache-2.0 fork-components; adapt into Bridge materials-writing/evaluation Skills with attribution
     port_notes: their ResumeData schema ≠ JSON Resume — rewrite allow/block path regexes on remap; upstream ACCEPTS jd_added skills (diff-preview review) — Bridge tightens to PROTECTED_FIELDS-never-jd_added on port
     link: https://github.com/srbhr/Resume-Matcher
   career-ops:
@@ -366,7 +354,8 @@ Application:
     - Communication       # Gmail-matched responses, follow-ups
     - Relationship        # recruiters / hiring managers / warm paths
     - Meeting             # interviews (via Calendar module)
-    - Artifact            # rendered PDFs, prep packs
+    - File                # rendered PDFs, prep packs
+    - Result              # fit, evaluation, culture synthesis
     - Action
     - Memory
 ```
@@ -419,7 +408,7 @@ slices:
     goal: tailored materials the user can trust — every changed line evidenced, embellishment impossible
     depends_on: [JP1]
     deliverables:
-      - Materials_Writer + Materials_Evaluator on Resume-Matcher-derived prompts (Apache-2.0, attributed)
+      - materials-writing + materials-evaluation Skills on Resume-Matcher-derived prompts (Apache-2.0, attributed)
       - truthfulness gate wired to PROTECTED_FIELDS; per-line change_log with evidence pointers into the master profile
       - 5-dimension scorers + LLM-judge; bounded iteration cap then human
       - ATS-safe PDF via @react-pdf/renderer (selectable text); materials approval state machine
@@ -427,6 +416,19 @@ slices:
       - red-team eval — a seeded suite of embellishment/fabrication attempts (jd_added claims, PROTECTED_FIELD edits) is 100% blocked; suite reruns on every prompt-pack change
       - evaluator-vs-human agreement measured on the user's real approve/reject decisions; disagreement feeds prompt tuning
       - PDF renders with selectable text and parses back cleanly through an ATS-style extractor
+  JP3B:
+    goal: cited company-culture research strengthens truthful cover letters and interview preparation
+    depends_on: [JP2]
+    deliverables:
+      - Learning Skill for authorized company pages, Google reviews, Reddit, blogs, and Glassdoor only where access and terms permit
+      - source-rights/ToS classification, recency, author context where available, attribution, contradiction and repeated-theme extraction
+      - Internal Strategist synthesis separating fact, opinion, theme, uncertainty, and inference
+      - cover-letter/interview suggestions linked to evidence; no anonymous claim represented as verified fact
+    exit_criteria:
+      - every surfaced culture claim opens its Source and retrieval date
+      - inaccessible, paywalled, prohibited, or ambiguous sources are skipped or stop for user/counsel permission; no bypass path
+      - seeded contradictory reviews remain visible rather than collapsed into false consensus
+      - generated materials contain no invented personal affinity, insider claim, or defamatory assertion
   JP4:
     goal: one real application submitted end-to-end under draft-then-approve
     depends_on: [JP2, JP3]
@@ -436,7 +438,7 @@ slices:
       - submit-approval as pipeline egress proposal; SubmissionRecord immutable; failure taxonomy (CAPTCHA/LOGIN/FAILED) router
       - pacing gate enforced per-day + per-ATS-domain (defer, never drop)
     exit_criteria:
-      - >= 1 real application submitted via approve flow with complete immutable record (channel, form map, approval, confirmation)
+      - ">= 1 real application submitted via approve flow with complete immutable record (channel, form map, approval, confirmation)"
       - sensitive-field eval: 0 auto-fills across a seeded SSN/payment/EEO question set
       - pacing verified: overflow defers with visible queue state; nothing silently dropped; no submission path exists that skips approval (negative test)
   JP5:
@@ -457,7 +459,7 @@ slices:
     deliverables:
       - interview-prep packs from real signals (relationship graph + public company facts) on stage -> Interview
       - scheduling handed to the Calendar module (one contract, no private scheduler)
-      - flag-feedback + outcome learning: user green/dismiss decisions and response outcomes tune scoring prompts (versioned, eval-gated)
+      - red-flag feedback + outcome learning: scoped corrections, Pursue/Dismiss Decisions, and outcomes tune scoring prompts (versioned, eval-gated)
       - multi-profile support; OPTIONAL Tier-2 gray-zone sourcing behind explicit enable + rate caps + governance record
     exit_criteria:
       - an interview event round-trips through the Calendar module projection
@@ -469,7 +471,7 @@ slices:
 
 ```yaml
 metrics:
-  activation: time from package install -> first green-flagged card (target: same session)
+  activation: "time from Module install -> first evidence-backed recommendation card (target: same session)"
   sourcing: postings/day from Tier-1, dedupe rate, median listing freshness, source failure MTTR
   materials_quality: truthfulness-gate pass rate, evaluator-human agreement %, red-team block rate (must stay 100%)
   outcomes: response rate by category/resume-variant/channel (the analytics loop, JP5)

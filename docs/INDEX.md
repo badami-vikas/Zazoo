@@ -32,4 +32,4 @@ Two codebases: `platform/` (real backend, pnpm+turbo monorepo) · `Design Bridge
 | Recon OSINT tool (outside monorepo) | `Tools/recon` | `EXPANSION.md` = its backlog |
 | Prototype UI | `Design Bridge AI Interface (Copy)/` | localStorage-backed; PII — never publish |
 
-Docs: start `docs/wiki/index.md` → raw only on need. **Canonical vocabulary: `docs/glossary.md`.** Work tracker: `docs/PROGRESS.md` · migration: `docs/raw/vocabulary-code-migration-plan-2026-07-14.md` · BRDs: `docs/raw/brd-dealpilot-2026-07.md`, `docs/raw/brd-jobpilot-2026-07.md` · bugs: `docs/BUGS.md` · ADRs: `docs/raw/decisions-log.md` · flows/ER: `docs/CODEMAPS/flows.md`.
+Docs: start `docs/wiki/index.md` → raw only on need. **Canonical vocabulary: `docs/glossary.md`.** Active tasks: `docs/TASKS.md` · historical progress: `docs/PROGRESS.md` · migration: `docs/raw/vocabulary-code-migration-plan-2026-07-14.md` · BRDs: `docs/raw/brd-dealpilot-2026-07.md`, `docs/raw/brd-jobpilot-2026-07.md` · Agent/Skill orchestration: `docs/raw/agent-goal-skill-orchestration-plan-2026-07.md` · bug evidence: `docs/BUGS.md` · ADRs: `docs/raw/decisions-log.md` · flows/ER: `docs/CODEMAPS/flows.md`.

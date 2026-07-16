@@ -12,13 +12,14 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Module Detail** — actionable Module overview showing its purpose, status, Pages, Agents, each Agent’s Skills, Automations, Integrations, Files, recent Runs, settings, and permitted management Actions.
 - **Blueprint** — versioned definition of an Organization’s installed Modules, default Pages, Views, Automations, and Home composition. A Blueprint proposes configuration; it does not bypass activation governance.
 - **Home** — cross-Module landing View that assembles relevant, recurring context and Actions.
-- **Page** — routable Module surface selected by a toggle or navigation item.
+- **Page** — routable Module surface backed by one Database or an eligible parallel Database cluster and selected by a toggle or navigation item. Overview, Summary, Report, File, Result, or section-only content is not a Page.
 - **View** — presentation of a Page’s Database, such as table, cards, board, calendar, map, graph, or form.
 - **View Grammar** — registered View types and conversion rules that every Module and generated surface must follow.
 - **List** — saved Record subset of one Database with shared Fields.
 - **Section** — titled block within a Page.
 - **Database** — structured collection of Records governed by one schema.
 - **Record** — durable row in a Module Database.
+- **Record Detail** — routable surface for one Record’s Fields and related Sections. Every Record has one; Record Detail is not a sibling Module Page.
 - **Field** — typed value on a Record.
 - **Relation** — one typed semantic connection between Records. It may carry attributes, dates, confidence, provenance, and many evidence references. Different meanings use separate Relations; group relationships use a Record or Event plus participant Relations.
 - **File** — durable user-visible file produced, imported, or accumulated by a Module. Non-file outcomes are Results.
@@ -26,6 +27,8 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 ## Work and execution
 
 - **Request** — wanted outcome supplied by a Human or another authorized actor.
+- **Goal** — durable intended outcome used to classify and prioritize related Tasks and eligible Skills.
+- **Task** — bounded unit of work toward a Goal with inputs, owner, state, constraints, and done criteria.
 - **Planner** — bounded reasoning phase that proposes a Plan. It receives no authority to execute merely because it can plan.
 - **Plan** — immutable proposed steps or directed action graph for a Request.
 - **Decision** — recorded governance verdict on a Plan or consequential Action.
@@ -45,9 +48,11 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Agent** — bounded reasoning actor with a mandate, capability scope, attributable activity, and explicit Skill set. Only Agents consume Skills.
 - **Chief of Staff** — default coordinating Agent and interlocutor. Its routing role is a product composition, not an architectural requirement.
 - **Learning Agent** — Agent that observes authorized evidence, conducts governed research, maintains correctable context, and recommends improvements. It does not silently change authority or production capabilities.
+- **Internal Strategist** — Agent that performs analytical synthesis, comparison, hypothesis testing, scenario modeling, and evidenced recommendations from Human and Learning outputs. It does not own stakeholder commitments, source-rights attestation, policy approval, or code deployment.
 - **Governance Agent** — Agent that explains policy, monitors control outcomes, and coordinates remediation. Deterministic governance controls—not the Agent’s opinion—decide authority.
 - **Capability Builder** — Agent that creates and tests proposed capability changes. It cannot activate its own output.
-- **Skill** — governed, versioned, callable capability that performs one bounded job for an Agent. It has typed inputs, outputs, permissions, and tests; it is listed under its consuming Agent, never invoked directly by a Human or Automation, and never schedules itself.
+- **Skill** — governed, versioned, callable capability that performs one bounded Goal/Task job for an eligible Agent. It has typed inputs, outputs, permissions, Plane/data scope, risk, budget, and tests. Agent defaults are preferences, not ownership; a Human or Automation never invokes it directly, and it never schedules itself.
+- **Child Agent Run** — bounded delegated Run created by a parent Agent for one Goal/Task. Authority, Skills, data scope, budget, review requirement, runtime taint, and delegation depth cannot exceed the parent Run; parent remains accountable.
 - **Communications Skill** — draft-only Skill for preparing communications. Sending remains a separate egress-governed Action.
 - **Integration** — governed connection to an external or local system, including authentication, synchronization, and data contracts.
 - **Engine** — reusable internal runtime machinery, such as execution, retrieval, routing, synchronization, policy evaluation, recurrence, or model selection. Agent-consumed Skills use Engines; Automations start Agent Runs.
@@ -143,6 +148,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 - **Control Panel** — Organization and Module configuration reached from the standard overflow menu.
 - **Standard Toolbar** — shared Page controls ordered as List, View, search, filter, primary Add Action, and overflow menu.
 - **Column Menu** — shared Database Field menu for rename, type, fill, filter, sort, group, calculate, lock, hide, insert, duplicate, delete, and Page-toggle commands when the Database supports them.
+- **Red Flag** — platform-wide scoped negative-feedback marker on a data cell or rendered bullet. It appears uncolored on hover/focus, turns red when selected, remains reversible/audited, and never substitutes for a domain status or Decision.
 - **Pin** — user-saved shortcut to a Page, View, List, Record, or File.
 - **Second Brain** — actionable cross-Module graph below the installed Modules in the Sidebar. It visualizes Records, Relations, Events, Files, Agents, and originating Modules; every node and edge opens its source or a governed Action. The name applies only to this user-facing graph and never to an Engine.
 
@@ -173,7 +179,7 @@ The only canonical vocabulary for product copy, architecture, APIs, schemas, Eve
 
 ## DealPilot Module
 
-- **DealPilot** — Module for sourcing, evaluating, diligencing, and governing investment opportunities.
+- **DealPilot** — Entrepreneurship Through Acquisition Module for sourcing, evaluating, diligencing, and governing acquisition opportunities.
 - **Deal** — Record representing an investment opportunity.
 - **Thesis** — Record describing investment focus, constraints, evidence, and evaluation criteria.
 - **Deal Fit** — explained Result evaluating a Deal against one or more Theses with evidence and uncertainty.

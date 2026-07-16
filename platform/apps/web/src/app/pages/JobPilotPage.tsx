@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Briefcase, LayoutGrid, Kanban as KanbanIcon, List as ListIcon } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import {
   JOBS, useCandidateProfile, useApplications, applicationForJob, queueJob, approveReview,
   resumeParked, runDispatch, confirmSubmitted, scoreJobFit, STAGE_LABEL,
@@ -15,6 +16,7 @@ import { CreateListModal } from '../components/shared/ListDropdown';
 import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { useLists, createList, toggleMember } from '../data/lists';
 import { Check } from 'lucide-react';
+import { BCG_APPLICATION } from '../data/bcg-application';
 
 type ViewId = 'card' | 'kanban' | 'list';
 const VIEWS = [
@@ -35,6 +37,7 @@ const LANES: { key: string; label: string; stages: ApplicationStage[] }[] = [
 const SCOPE = 'jobpilot';
 
 export function JobPilotPage() {
+  const navigate = useNavigate();
   const candidate = useCandidateProfile();
   const applications = useApplications();
   const [view, setView] = useState<ViewId>('card');
@@ -57,6 +60,8 @@ export function JobPilotPage() {
     () => (view === 'list' ? searched : searched.filter(({ job }) => !activeList || activeList.memberIds.includes(job.id))),
     [searched, activeList, view],
   );
+  const showsBcgApplication = `${BCG_APPLICATION.role} ${BCG_APPLICATION.company}`.toLowerCase().includes(search.trim().toLowerCase());
+  const openBcgApplication = () => navigate(`/jobpilot/application/${BCG_APPLICATION.id}`);
 
   // The flag IS the action — green queues auto, yellow queues for manual review before any
   // status changes, red is a no-go (no application created). No separate buttons on the card.
@@ -87,8 +92,8 @@ export function JobPilotPage() {
       <CollapsibleInsights
         expanded={insightsOpen}
         metrics={[
-          { id: 'jobs', label: 'Jobs shown', value: String(scored.length) },
-          { id: 'tracker', label: 'In tracker', value: String(applications.length) },
+          { id: 'jobs', label: 'Jobs shown', value: String(scored.length + (showsBcgApplication ? 1 : 0)) },
+          { id: 'tracker', label: 'In tracker', value: String(applications.length + 1) },
           { id: 'review', label: 'Awaiting review', value: String(applications.filter((a) => a.stage === 'awaiting_review').length) },
         ]}
       />
@@ -101,8 +106,24 @@ export function JobPilotPage() {
 
       <div className="flex-1 overflow-auto">
         {view === 'card' && (
-          scored.length > 0 ? (
+          scored.length > 0 || showsBcgApplication ? (
             <CardGrid>
+              {showsBcgApplication && (
+                <NotionCard
+                  eyebrow={<span className="w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFF6DD', color: '#8A5A00' }}>Application preparation</span>}
+                  title={BCG_APPLICATION.role}
+                  subtitle={`${BCG_APPLICATION.company} · ${BCG_APPLICATION.location}`}
+                  cornerBadge={<FlagIcon color="green" kind="ai_inference" matched={[...BCG_APPLICATION.fit.strengths]} unmatched={[...BCG_APPLICATION.fit.concerns]} disabled />}
+                  bodyLines={[
+                    { text: 'Founder-to-consultant story with measurable client impact', matched: true },
+                    { text: 'STEM MBA · Dean’s Scholar · GMAT 98th percentile', matched: true },
+                    { text: 'Office preference and three evidence conflicts remain', matched: false },
+                  ]}
+                  metaChips={[`${BCG_APPLICATION.artifacts.length} artifacts`, 'Human approval required']}
+                  footer={<span className="flex items-center justify-between text-xs font-medium" style={{ color: 'var(--color-steel)' }}><span>Open application workspace</span><span>→</span></span>}
+                  onOpen={openBcgApplication}
+                />
+              )}
               {scored.map(({ job, fit }) => {
                 const app = applicationForJob(job.id);
                 return (
@@ -126,14 +147,19 @@ export function JobPilotPage() {
         )}
 
         {view === 'kanban' && (
-          <KanbanBoard<Application>
-            keyFor={(a) => a.id}
-            lanes={LANES.map((lane): KanbanLane<Application> => ({ key: lane.key, label: lane.label, items: applications.filter((a) => lane.stages.includes(a.stage)) }))}
-            renderCard={(app) => <ApplicationCard app={app} />}
-          />
+          <div>
+            {showsBcgApplication && <button onClick={openBcgApplication} className="m-4 flex w-[calc(100%_-_2rem)] max-w-md items-center justify-between rounded-xl border bg-white p-4 text-left transition-shadow hover:shadow-sm" style={{ borderColor: 'var(--color-steel)' }}><div><div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#8A5A00' }}>Application preparation</div><div className="mt-1 text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{BCG_APPLICATION.role}</div><div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>{BCG_APPLICATION.company}</div></div><span className="text-lg" style={{ color: 'var(--color-steel)' }}>→</span></button>}
+            <KanbanBoard<Application>
+              keyFor={(a) => a.id}
+              lanes={LANES.map((lane): KanbanLane<Application> => ({ key: lane.key, label: lane.label, items: applications.filter((a) => lane.stages.includes(a.stage)) }))}
+              renderCard={(app) => <ApplicationCard app={app} />}
+            />
+          </div>
         )}
 
         {view === 'list' && (
+          <div>
+          {showsBcgApplication && <button onClick={openBcgApplication} className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-[var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}><FlagIcon color="green" kind="ai_inference" matched={[...BCG_APPLICATION.fit.strengths]} unmatched={[...BCG_APPLICATION.fit.concerns]} disabled /><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{BCG_APPLICATION.role}</div><div className="truncate text-xs" style={{ color: 'var(--color-warm-gray)' }}>{BCG_APPLICATION.company} · {BCG_APPLICATION.location}</div></div><span className="hidden text-xs sm:block" style={{ color: 'var(--color-navy-mid)' }}>{BCG_APPLICATION.artifacts.length} artifacts</span><span className="hidden w-40 shrink-0 text-right text-xs font-medium md:block" style={{ color: '#8A5A00' }}>{BCG_APPLICATION.stage}</span></button>}
           <ListView
             items={scored}
             keyFor={({ job }) => job.id}
@@ -166,6 +192,7 @@ export function JobPilotPage() {
               );
             }}
           />
+          </div>
         )}
       </div>
     </div>

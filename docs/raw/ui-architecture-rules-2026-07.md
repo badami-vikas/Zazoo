@@ -5,7 +5,7 @@ doc_kind: design
 status: active
 companions: [requirement-ui-architecture-rules-2026-07-13.md, requirement-bugs-2026-07-14-actionable-shell-second-brain.md, egg-commons-feature-roadmap-2026-07.md, spec-control-panel-icon.md]
 related_wiki: ../wiki/ui-architecture.md
-updated: 2026-07-14
+updated: 2026-07-15
 tags: [ui, information-architecture, pages, sections, views, lists, sub-modules, files, canon]
 ---
 
@@ -19,7 +19,7 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 |---|---|
 | **Module** | An installed functional area and mandatory clickable left-nav destination (e.g. DealPilot, Relationship, JobPilot). |
 | **Sub-module** | A collapsible/expandable child of a module in the left nav. |
-| **Page** | One toggle's worth of a module/sub-module surface. A module surface with toggles has one page per toggle. |
+| **Page** | One toggle's worth of a Module/sub-module surface backed by a Database or eligible parallel Database cluster. Summary, overview, report, File, or section-only content is not a Page. |
 | **Toggle** | Segmented switch at the top of a module surface that swaps between sibling pages. |
 | **Section** | A titled block within a page, stacked vertically. |
 | **Landing section** | The first section of every page: the standard data views over the page's primary data. |
@@ -31,7 +31,7 @@ Source of truth for how Bridge surfaces (apps/web today, Egg shell + generated w
 
 The shape of the underlying data decides the UI construct. Apply top-down:
 
-1. **Different columns of the same table (or sibling tables of one strongly-related cluster) → TOGGLE.** Highly related datasets become sibling pages behind a toggle at the top of the module surface. Examples (user-given): Relationship Signals / People / Communities · Agents / Automations / Integrations · Deals / Sources / Thesis. Skills are not a sibling Page: only Agents consume Skills, so each Agent row/detail owns its Skills Section. Each toggle target is simply a *page*.
+1. **Different columns of the same table (or sibling tables of one strongly-related cluster) → TOGGLE.** Highly related datasets become sibling Pages behind a toggle at the top of the Module surface. Examples: Relationship Signals / People / Communities · DealPilot Deals / Sources / Theses. Agents, Automations, Integrations, Files, Results, Summary, Overview, and Reports remain standard Module/Record Sections unless the user explicitly adds a Page from an eligible Database-backed source. Skills are never a sibling Page.
 2. **Same columns of the same table (row subsets) → LISTS.** Never a new page or toggle — a saved list in the List dropdown. (Matches existing `ListDropdown`/`lists` slot; ETA/WashU lists are the precedent.)
 3. **Related to the module but not strongly related to the root module or any current sub-module → NEW SUB-MODULE.** Sub-modules render as a collapsible, expandable dropdown under the module in the left nav.
 4. **Unrelated to any module → new module** (existing behavior; unchanged).
@@ -47,6 +47,10 @@ Every page, unless a spec explicitly says otherwise:
 3. **Files section** — below the landing section (conventionally last): every File the Module generated or accumulated. **> 20 Files → organize into sub-folders** through the governed grouping behavior below.
 
 Page scroll model: page-level vertical scroll containing sections; the landing section owns a bounded internal scroll area (virtualized table/card grid) so related sections stay reachable.
+
+### 3b. Record Detail
+
+Every Database Record has a dedicated routable Record Detail surface. Record Detail is not a sibling Page and does not create a new toggle. It composes the Record’s Fields plus standard Sections for linked Records, Relations, Tasks, Files, Results, Integrations, Agent/Automation activity, and Event history according to installed Module bindings and permissions. A Module may add domain Sections, but it may not turn section-only content into default Pages.
 
 ### 3a. Actionability contract
 
@@ -64,7 +68,7 @@ Every toggle page is a routable URL (route param per view/page, matching the Noc
 
 ## 4b. Module Detail and Agent-owned Skills
 
-Clicking any installed Module in left navigation opens `/module/:moduleId`. Module Detail is generated from the installed Module manifest and live bindings, never a hardcoded route map. Required Sections:
+Clicking any installed Module in left navigation opens `/module/:moduleId`. Module Detail and capability inventory use one compiler-owned structure generated from the installed Module manifest and live bindings, never a Module-specific layout or hardcoded route map. Modules customize values and contents—activity, evaluation process, permissions, versions, health, Runs—not inventory anatomy. Required Sections:
 
 1. Overview and health/status with actionable explanations;
 2. Pages and Databases;
@@ -90,7 +94,8 @@ Right-click behavior is compiler-owned and consistent across every Module. DealP
 - Standard column menu, in this order/grouping: inline rename · Edit column · Change type · AI Smartfill on/off · Filter · Sort · Group · Calculate · Lock column · Hide column · Add column left · Add column right · Duplicate column · Delete column. Add page / Remove page sits with structural/page commands.
 - Commands are capability-aware: unsupported operations are omitted or disabled with a reason (for example, Calculate on a non-aggregatable type, AI Smartfill without an eligible model/permission, schema mutation on a read-only integration).
 - **AI Smartfill** previews source fields, destination, model/provider, cost/risk, and sample result; execution uses the ordinary governed write/enrichment pipeline and records provenance. It is not an unlogged table shortcut.
-- **Lock** blocks schema/value mutation according to scope, not viewing/filtering. Delete column requires impact preview for dependent views, Automations, Skills, formulas, and relations. Secrets remain credential references and never become revealable table cells.
+- **Lock** blocks schema/value mutation according to scope, not viewing/filtering. Delete column requires impact preview for dependent views, Automations, Skills, formulas, and Relations.
+- Secret Fields remain credential references in Database rows. A security-approved virtual credential column may project a masked value for an authorized Human, like browser password managers: reveal/copy requires explicit gesture plus recent re-authentication, is time-limited and audited, and never exposes the secret through ordinary table APIs, Agents, Skills, Automations, crawlers, logs, prompts, exports, Files, Results, or persistent browser state.
 - Keyboard access and visible menu-button alternatives must expose every right-click command; context menus cannot be pointer-only.
 
 ## 5b. Symmetric shell panels
@@ -107,6 +112,17 @@ Left Sidebar and right Chat Panel share one `PanelControl` component and state m
 ## 5c. Left navigation and Second Brain
 
 All installed Modules render as clickable left-nav items, sourced from Module installations—not pins, local fixtures, or hardcoded route maps. Module sub-navigation may expand beneath each item. Below the Module list, **Second Brain** opens a cross-Module graph over permitted Records, Relations, Events, Files, Agents, and origin Modules. Graph requirements: Module/type/time/Person/Community filters; provenance and edge evidence; local/cloud permission pruning; node expansion and backlinks; keyboard/list fallback; virtualization threshold; no static or fabricated graph. Every node/edge opens source detail or a governed Action.
+
+## 5d. Platform red-flag feedback
+
+Green/yellow feedback flags do not exist. Red flag is one platform feedback primitive, separate from domain status, fit, stage, or Decision.
+
+- On pointer hover or keyboard focus of any eligible data cell or rendered bullet, show a subtle uncolored flag without shifting layout.
+- Selecting it records scoped negative feedback and turns it red. Selecting again opens inspect/edit/clear; clearing is reversible and audited.
+- Flag target stores Module, Database/Record/Field or File/Result/bullet anchor, rendered value/version, actor, time, optional reason, and downstream learning status. It never silently changes source data.
+- Learning may use red flags as correction evidence. It proposes Memory/ranking/process changes; it never infers the opposite preference from absence of a flag.
+- Domain Actions use explicit labels such as Pursue, Review, Dismiss, Approve, or Reject. They never overload flag color.
+- Touch and keyboard paths expose the same control; bulk flagging, permission rules, undo, and accessible name/state are standard.
 
 ## 6. Local File storage — `~/Documents/Bridge/<Organization>/`
 

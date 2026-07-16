@@ -1,4 +1,6 @@
-# Known Issues
+# Known Issues — evidence ledger
+
+> This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
 Cross-session ledger of bugs / gaps / abnormalities. Persist across sessions. Agents:
 spot something off → add row here, do NOT wait for user ask. Fix → mark RESOLVED + date.
