@@ -8,7 +8,7 @@
  * behaviour. The chat state (turns, draft) is unaffected — it survives
  * collapse/expand cycles.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronsLeft } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../../lib/trpc";
 import { Button } from "../ui/button";
@@ -49,7 +49,7 @@ const PANEL_MAX_WIDTH = 520;
 const WIDTH_KEY = "bridge.agentPanel.width.v2";
 const COLLAPSE_KEY = "bridge.agentPanel.collapsed.v2";
 
-export function AgentPanel() {
+export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onClose?: () => void }) {
   // §5b: shared usePanelControl — same semantics as the left sidebar but
   // continuous width (no snap), right-side drag direction.
   const panel = usePanelControl({
@@ -61,6 +61,14 @@ export function AgentPanel() {
     snap: false,
   });
   const { collapsed, setCollapsedPersisted, panelWidth, dragWidth } = panel;
+  useEffect(() => {
+    if (mobile) setCollapsedPersisted(false);
+  }, [mobile]);
+
+  function collapse() {
+    setCollapsedPersisted(true);
+    onClose?.();
+  }
 
   const [turns, setTurns] = useState<ChatTurn[]>([
     {
@@ -120,17 +128,21 @@ export function AgentPanel() {
     <aside
       id="panel-right"
       aria-label="Chat panel"
-      style={{ width: dragWidth ?? panelWidth, borderColor: "var(--color-border)" }}
+      style={{ width: mobile ? "min(100vw, 360px)" : dragWidth ?? panelWidth, borderColor: "var(--color-border)" }}
       className={`shrink-0 border-l flex flex-col h-full overflow-hidden bg-white relative ${dragWidth === null ? "transition-[width] duration-75" : ""}`}
       onKeyDown={(e) => {
         // §5b: Escape key returns expanded → collapsed (does not discard chat).
-        if (e.key === "Escape") setCollapsedPersisted(true);
+        if (e.key === "Escape") collapse();
       }}
     >
       {/* Resize handle — shared ResizeHandle component (§5b), left edge. */}
       <ResizeHandle
         side="right"
         onMouseDown={(e) => panel.startDrag(e, "right")}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") panel.resizeBy(16);
+          if (e.key === "ArrowRight") panel.resizeBy(-16);
+        }}
         label="Drag to resize chat panel"
       />
       <div className="h-14 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
@@ -138,7 +150,7 @@ export function AgentPanel() {
         <CollapseToggleButton
           side="right"
           collapsed={false}
-          onClick={() => setCollapsedPersisted(true)}
+          onClick={collapse}
         />
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
           <AvatarIcon animal={animal} size={24} />

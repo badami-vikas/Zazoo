@@ -2,9 +2,10 @@
 //!
 //! The desktop shell is self-contained offline by spawning the Fastify API
 //! build (`apps/api/dist/src/server.js`) as a child Node process on a free
-//! localhost port, health-checking `/health`, and injecting the resolved URL
-//! into both webviews as `window.__BRIDGE_API_URL__` (an initialization
-//! script, so it exists before the tRPC client module evaluates).
+//! localhost port, health-checking `/health` in the background, and injecting
+//! the resolved URL into both webviews as `window.__BRIDGE_API_URL__` (an
+//! initialization script, so it exists before the tRPC client module
+//! evaluates).
 //!
 //! Decisions (ADR-024 in docs/raw/decisions-log.md):
 //!  - `std::process::Command` child, NOT a Tauri "sidecar" externalBin: the
@@ -68,8 +69,8 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
         }
     }
     // apps/desktop/src-tauri → apps/api/dist/src/server.js
-    let repo_relative = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../api/dist/src/server.js");
+    let repo_relative =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api/dist/src/server.js");
     if repo_relative.is_file() {
         return Some(repo_relative);
     }
@@ -104,9 +105,8 @@ pub fn health_ok(port: u16, timeout: Duration) -> bool {
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let req = format!(
-        "GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let req =
+        format!("GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -128,9 +128,32 @@ pub fn wait_healthy(port: u16, attempts: u32, interval: Duration) -> bool {
     false
 }
 
-/// Spawn + wait for readiness. Returns None (with a logged reason) when the
-/// API build or Node itself is missing — the shell still opens, the web app
-/// falls back to VITE_API_URL / localhost:4000 and surfaces connection errors.
+fn monitor_health(port: u16) {
+    let monitor = std::thread::Builder::new()
+        .name("bridge-api-health".to_string())
+        .spawn(move || {
+            // ~20s budget: cold Node + Fastify + in-memory wiring boots in well
+            // under that; DATABASE_URL wiring may take a few seconds on first
+            // connect. This must never block Tauri's setup/event-loop thread.
+            if wait_healthy(port, 80, Duration::from_millis(250)) {
+                println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
+            } else {
+                eprintln!(
+                    "[bridge-desktop] api sidecar: /health never answered on port {port}; \
+                     leaving process running and letting the UI surface connection errors"
+                );
+            }
+        });
+    if let Err(error) = monitor {
+        eprintln!("[bridge-desktop] api sidecar: could not start health monitor: {error}");
+    }
+}
+
+/// Spawn the API and return its URL material immediately. Readiness probing is
+/// detached so Tauri can create a window and start its event loop without a
+/// 20-second launch stall. Returns None (with a logged reason) when the API
+/// build or Node itself is missing; the shell still opens and surfaces the
+/// connection error.
 pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
     let Some(entry) = resolve_api_entry(resource_dir) else {
         eprintln!(
@@ -156,18 +179,8 @@ pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
             return None;
         }
     };
-    // ~20s budget: cold Node + Fastify + in-memory wiring boots in well under
-    // that; DATABASE_URL wiring may take a few seconds on first connect.
-    if wait_healthy(port, 80, Duration::from_millis(250)) {
-        println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
-        Some(SpawnedApi { port, child })
-    } else {
-        eprintln!(
-            "[bridge-desktop] api sidecar: /health never answered on port {port}; \
-             leaving process running and letting the UI surface connection errors"
-        );
-        Some(SpawnedApi { port, child })
-    }
+    monitor_health(port);
+    Some(SpawnedApi { port, child })
 }
 
 /// Kill the child (called from the RunEvent::Exit handler in lib.rs).
@@ -177,5 +190,24 @@ pub fn shutdown(state: &ApiSidecarState) {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn health_monitor_never_blocks_the_setup_caller() {
+        let port = pick_free_port().expect("test should obtain an unused loopback port");
+        let started = Instant::now();
+
+        monitor_health(port);
+
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "health monitoring must stay detached from the caller"
+        );
     }
 }

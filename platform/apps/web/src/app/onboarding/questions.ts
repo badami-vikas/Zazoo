@@ -39,7 +39,9 @@ export interface OnboardingQuestion {
   kind: QuestionKind;
   prompt: string;
   helpText?: string;
-  /** Plain-language reason for asking and the immediate user-visible effect. */
+  /** Plain-language reason for asking. */
+  why: string;
+  /** Immediate user-visible effect, including whether it can be changed later. */
   consequence: string;
   options?: QuestionOption[];
   placeholder?: string;
@@ -56,7 +58,8 @@ const Q_PROFESSION: OnboardingQuestion = {
   kind: "text",
   prompt: "What's your role or profession?",
   helpText: "E.g. 'Sales lead at a SaaS startup', 'Independent investor', 'Customer support manager'",
-  consequence: "Why we ask: this helps Bridge make relevant suggestions instead of generic ones. You can change it later.",
+  why: "This keeps Bridge's suggestions relevant to the work you actually do.",
+  consequence: "What changes: your role guides later questions and recommendations. You can correct or delete it later.",
   placeholder: "e.g. Sales lead at a SaaS startup",
 };
 
@@ -65,7 +68,8 @@ const Q_DOMAIN: OnboardingQuestion = {
   kind: "single_select",
   prompt: "What's the main kind of work you want Bridge to organize?",
   helpText: "This decides which entities your Organization starts with.",
-  consequence: "Why we ask: your answer chooses the first useful area Bridge prepares for you. Nothing is added until you approve the preview.",
+  why: "This identifies the first useful area for Bridge to prepare.",
+  consequence: "What changes: your answer shapes the proposed Records and Views. Nothing is created until you approve the preview.",
   options: [
     { value: "sales_deals", label: "Deals / sales pipeline" },
     { value: "job_search", label: "Job search" },
@@ -79,7 +83,8 @@ const Q_WATCH_FIRST: OnboardingQuestion = {
   kind: "multi_select",
   prompt: "What should Bridge watch or do first?",
   helpText: "You can change this later — this just seeds your first views.",
-  consequence: "Why we ask: this decides what Bridge should surface first. It does not grant permission to act.",
+  why: "This tells Bridge what would be useful to surface first.",
+  consequence: "What changes: your first Views reflect these choices. This does not grant permission to act.",
   options: [
     { value: "track_stage", label: "Track stage/status changes" },
     { value: "surface_signals", label: "Surface signals that need a response" },
@@ -92,8 +97,9 @@ const Q_VOCAB: OnboardingQuestion = {
   id: "vocab_name",
   kind: "text",
   prompt: "What do you call the thing you're tracking? (e.g. \"Deal\", \"Candidate\", \"Case\")",
-  helpText: "Bridge calls this an Initiative by default — your own word for it is what you'll see everywhere.",
-  consequence: "Why we ask: Bridge will use your familiar term in the setup you review next.",
+  helpText: "Use the word you already use at work.",
+  why: "Using your own vocabulary makes the proposed setup easier to understand.",
+  consequence: "What changes: Bridge uses this term in the setup you review next. You can rename it later.",
   placeholder: "e.g. Deal",
 };
 
@@ -101,7 +107,8 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
   id: "view_style",
   kind: "single_select",
   prompt: "How do you like to see your work — a list, or a board?",
-  consequence: "Why we ask: this chooses your starting layout. You can switch layouts whenever you want.",
+  why: "This makes the first View match how you prefer to scan work.",
+  consequence: "What changes: Bridge proposes a list or board as the starting layout. You can switch later.",
   options: [
     { value: "table", label: "List / table" },
     { value: "kanban", label: "Board (kanban)" },
@@ -113,7 +120,8 @@ const Q_NAME: OnboardingQuestion = {
   kind: "text",
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
-  consequence: "Why we ask: this is the name shown in your sidebar and can be changed later.",
+  why: "A clear Organization name helps you recognize its scope.",
+  consequence: "What changes: this name appears in your sidebar. You can rename it later.",
 };
 
 /** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
@@ -128,7 +136,8 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
   kind: "single_select",
   prompt: "Pick your avatar's spirit animal.",
   helpText: "Purely cosmetic — you can change this later in Settings.",
-  consequence: "Why we ask: this only changes how your avatar looks. It never changes permissions, authority, or communication style.",
+  why: "A familiar visual makes the companion easier to spot.",
+  consequence: "What changes: only the avatar's appearance. Permissions, authority, and communication style do not change.",
   options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
 };
 
@@ -137,7 +146,8 @@ const Q_ROLE_MODEL: OnboardingQuestion = {
   kind: "text",
   prompt: "Is there a public figure whose way of working you admire?",
   helpText: "Use a full name so the Learning Agent can find the right person. You can skip this.",
-  consequence: "Why we ask: Bridge will research public sources and suggest one relevant habit with citations. The suggestion still needs your approval.",
+  why: "A public example can ground one useful recommendation in evidence instead of guesswork.",
+  consequence: "What changes: Learning checks a bounded public source and drafts one cited recommendation for your approval. You can skip this.",
   placeholder: "e.g. Indra Nooyi",
 };
 
@@ -146,7 +156,8 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
   kind: "text",
   prompt: "What do you admire about how they work?",
   helpText: "Describe a behavior or quality, not a blanket endorsement of the person.",
-  consequence: "Why we ask: this keeps the recommendation tied to what matters to you instead of copying someone else's whole approach.",
+  why: "The specific behavior matters more than blanket admiration of a person.",
+  consequence: "What changes: the cited recommendation is limited to this quality and still requires your approval.",
   placeholder: "e.g. They prepare carefully and communicate decisions clearly",
 };
 
@@ -160,15 +171,17 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  * Question order (E2 2026-07-10 — dropped "solo or team?"):
  *   1. profession (text, always first — context for everything downstream)
  *   2. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
- *   3. domain (select; profession answer can inform default pre-selection in UI)
- *   4. watch_first (multi-select)
- *   5. vocab_name (only if domain ≠ relationships)
- *   6. view_style
- *   7. workspace_name (auto-populated from email in dialog, still shown for confirmation)
+ *   3. role_model (optional public figure)
+ *   4. role_model_why (only when a figure was supplied)
+ *   5. domain (select; profession answer can inform default pre-selection in UI)
+ *   6. watch_first (multi-select)
+ *   7. vocab_name (only if domain ≠ relationships)
+ *   8. view_style
+ *   9. workspace_name (auto-populated from email in dialog, still shown for confirmation)
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
- * (relationships domain) asks 5; the longest (a domain needing a vocab
- * override) asks 7 — both comfortably inside the 5-12 band without padding.
+ * (role model skipped + relationships domain) asks 7; the longest (role model
+ * supplied + a domain needing a vocabulary override) asks 9.
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.profession === undefined) return Q_PROFESSION;
@@ -183,9 +196,7 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   return null;
 }
 
-/** Total number of questions in the LONGEST real path (a vocab-needing
- * domain): profession + spirit_animal + domain + watch_first + vocab_name +
- * view_style + workspace_name = 7. Used only as the denominator for
+/** Total number of questions in the LONGEST real path. Used only as the denominator for
  * egg-growth progress, never for branching logic itself (that stays in
  * `nextQuestion`). */
 export const MAX_QUESTIONS = 9;

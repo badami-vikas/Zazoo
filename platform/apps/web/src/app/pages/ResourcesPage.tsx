@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BookOpen, ExternalLink, Pin, PinOff, Star, Plus, Trash2, Download, Table as TableIcon } from 'lucide-react';
+import { BookOpen, ExternalLink, Star, Plus, Trash2, Download, Table as TableIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
 import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import { exportRowsToCsv } from '../lib/exportTable';
-import { usePinnedTools } from '../lib/usePinnedTools';
 import { loadCanonicalResources, type PeopleSource } from '../data/db';
 import { resources as localResources, type NetworkResource } from '../data/resources.generated';
 import { listCaptures, getBlobUrl, type MediaCaptureRecord } from '../data/localMedia';
@@ -85,8 +85,6 @@ function EditableCell({ value, onSave, placeholder, multiline, className }: { va
 // `embedded` = rendered inside another shell-v2 page (KnowledgeBase tab) — skip the page-level
 // centered Header so the host page's toggle stays the identity element.
 export function ResourcesPage({ embedded = false }: { embedded?: boolean } = {}) {
-  const { isPinned, togglePin } = usePinnedTools();
-  const pinned = isPinned('resources');
   const [rows, setRows] = useState<NetworkResource[]>(localResources);
   const [source, setSource] = useState<PeopleSource>('local');
   const [query, setQuery] = useState('');
@@ -194,20 +192,9 @@ export function ResourcesPage({ embedded = false }: { embedded?: boolean } = {})
             >
               <Download className="w-3.5 h-3.5" /> Export
             </button>
-            {!embedded && (
-              <button
-                onClick={() => togglePin('resources')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold border rounded-lg shadow-sm transition-colors hover:bg-[var(--color-surface)]"
-                style={{ borderColor: 'var(--color-border)', color: pinned ? 'var(--color-steel)' : 'var(--color-navy-mid)', backgroundColor: 'white' }}
-                title={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
-              >
-                {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-                {pinned ? 'Pinned' : 'Pin to sidebar'}
-              </button>
-            )}
           </>
         }
-        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+        moreMenu={!embedded ? <Link to="/settings" className="block px-3 py-2 text-xs hover:bg-black/5">Open Settings</Link> : undefined}
       />
       <CollapsibleInsights
         expanded={insightsOpen}

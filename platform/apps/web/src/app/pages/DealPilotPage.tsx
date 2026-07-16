@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Handshake, LayoutGrid, List as ListIcon, Table as TableIcon, RefreshCw } from "lucide-react";
+import { Link } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Header } from "../components/shared/Header";
 import { CreateListModal } from "../components/shared/ListDropdown";
@@ -10,6 +11,7 @@ import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { CardGrid, NotionCard } from "../components/shared/NotionCard";
 import { ListView } from "../components/shared/ListView";
 import { useLists, createList } from "../data/lists";
+import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
 
 type DealPilotList = Awaited<ReturnType<typeof trpc.dealpilot.list.query>>;
 type DealItem = DealPilotList["items"][number];
@@ -40,6 +42,7 @@ export function DealPilotPage() {
   const [selectedList, setSelectedList] = useState<string | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [addListOpen, setAddListOpen] = useState(false);
+  const [sort, setSort] = useState<{ field: "name" | "industry" | "fit"; direction: "asc" | "desc" } | null>(null);
   const lists = useLists(SCOPE);
 
   function load() {
@@ -63,13 +66,20 @@ export function DealPilotPage() {
   const filtered = useMemo(() => {
     if (!page) return [];
     const q = search.trim().toLowerCase();
-    return page.items.filter((item) => {
+    const visible = page.items.filter((item) => {
       if (industryFilter && item.profile.industry !== industryFilter) return false;
       if (!q) return true;
       const name = String(item.profile.name ?? "").toLowerCase();
       return name.includes(q);
     });
-  }, [page, search, industryFilter]);
+    if (!sort) return visible;
+    return [...visible].sort((left, right) => {
+      const leftValue = sort.field === "fit" ? left.fit.triage : String(left.profile[sort.field] ?? "");
+      const rightValue = sort.field === "fit" ? right.fit.triage : String(right.profile[sort.field] ?? "");
+      const order = leftValue.localeCompare(rightValue);
+      return sort.direction === "asc" ? order : -order;
+    });
+  }, [page, search, industryFilter, sort]);
 
   const activeFilters: ActiveFilter[] = industryFilter ? [{ id: "industry", label: `Industry: ${industryFilter}` }] : [];
 
@@ -135,7 +145,15 @@ export function DealPilotPage() {
             Refresh
           </button>
         }
-        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+        moreMenu={
+          <Link
+            to="/module/deal-pilot"
+            className="block w-full px-3 py-2 text-left text-xs hover:bg-black/5"
+            style={{ color: "var(--color-navy-mid)" }}
+          >
+            Open Module Detail
+          </Link>
+        }
       />
       <CollapsibleInsights
         expanded={insightsOpen}
@@ -152,23 +170,31 @@ export function DealPilotPage() {
       )}
 
       <div className="flex-1 overflow-auto">
-        {filtered.length === 0 ? (
-          <div
-            className="p-10 text-center border border-dashed rounded-xl m-4"
-            style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
-          >
-            No candidates match. Source new listings or clear filters.
-          </div>
-        ) : view === "table" ? (
+        {view === "table" ? (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-                <th className="px-4 py-2 font-semibold">Name</th>
-                <th className="px-4 py-2 font-semibold">Industry</th>
-                <th className="px-4 py-2 font-semibold">Fit</th>
+                <th className="px-4 py-2 font-semibold">
+                  <StandardColumnMenu label="Name" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "name", direction })} />
+                </th>
+                <th className="px-4 py-2 font-semibold">
+                  <StandardColumnMenu label="Industry" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "industry", direction })} />
+                </th>
+                <th className="px-4 py-2 font-semibold">
+                  <StandardColumnMenu label="Fit" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "fit", direction })} />
+                </th>
               </tr>
             </thead>
             <tbody>
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="p-10 text-center" style={{ color: "var(--color-warm-gray)" }}>
+                    {page.total === 0
+                      ? "No real Deal records yet. Run governed source intake to populate this database."
+                      : "No Deal records match the current search and filters."}
+                  </td>
+                </tr>
+              )}
               {filtered.map((item) => (
                 <tr key={item.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
                   <td className="px-4 py-2" style={{ color: "var(--color-navy)" }}>
@@ -186,6 +212,15 @@ export function DealPilotPage() {
               ))}
             </tbody>
           </table>
+        ) : filtered.length === 0 ? (
+          <div
+            className="p-10 text-center border border-dashed rounded-xl m-4"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+          >
+            {page.total === 0
+              ? "No real Deal records yet. Run governed source intake to populate this database."
+              : "No Deal records match the current search and filters."}
+          </div>
         ) : view === "card" ? (
           <CardGrid>
             {filtered.map((item) => (

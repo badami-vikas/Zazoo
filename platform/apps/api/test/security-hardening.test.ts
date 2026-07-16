@@ -80,7 +80,12 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
 
 test("onboarding role-model learning is cited, approval-gated, controllable, and forgettable", async () => {
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () =>
+      let requestedUrl = "";
+      let requestedRedirect: string | undefined;
+      globalThis.fetch = async (input, init) => {
+        requestedUrl = String(input);
+        requestedRedirect = init?.redirect;
+        return (
         new Response(JSON.stringify({
           query: {
             pages: {
@@ -91,18 +96,35 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
               },
             },
           },
-        }), { status: 200, headers: { "content-type": "application/json" } });
+        }), { status: 200, headers: { "content-type": "application/json" } })
+        );
+      };
       const wiring = await buildWiring();
       try {
         const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+        await caller.onboarding.saveProfile({
+          workspaceId: PILOT_WORKSPACE,
+          animal: "owl",
+          answers: { role_model: "Test Fixture Leader", role_model_why: "clear preparation" },
+          verificationMethod: null,
+          connectedSourceIds: [],
+        });
         const result = await caller.onboarding.recommendFromRoleModel({
           workspaceId: PILOT_WORKSPACE,
           figure: "Test Fixture Leader",
           admiredFor: "clear preparation",
         });
         assert.equal(result.recommendation.citation.url, "https://en.wikipedia.org/wiki/Test_Fixture_Leader");
+        assert.equal(new URL(requestedUrl).origin, "https://en.wikipedia.org");
+        assert.equal(new URL(requestedUrl).pathname, "/w/api.php");
+        assert.equal(requestedRedirect, "error");
         assert.equal(result.proposal.status, "pending_review", JSON.stringify(result.proposal));
         assert.ok(result.proposal.policyResults.some((policy) => policy.effect === "require_approval"));
+        const approved = await caller.action.decide({
+          proposalId: result.proposal.id,
+          decision: "approve",
+        });
+        assert.equal(approved.status, "applied");
 
         let state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
         const preference = state.memories.find((item) => item.value.kind === "onboarding_preference");
@@ -128,6 +150,36 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
         assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "paused"));
 
+        const pausedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
+        assert.ok(pausedReflection);
+        await caller.onboarding.setReflection({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: pausedReflection.row.id,
+          action: "resume",
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        const resumedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
+        assert.ok(resumedReflection?.value.kind === "reflection_schedule");
+        assert.equal(resumedReflection.value.status, "scheduled");
+
+        await caller.onboarding.setReflection({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: resumedReflection.row.id,
+          action: "snooze",
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        const snoozedReflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
+        assert.ok(snoozedReflection?.value.kind === "reflection_schedule");
+        assert.equal(snoozedReflection.value.status, "snoozed");
+
+        await caller.onboarding.setReflection({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: snoozedReflection.row.id,
+          action: "skip",
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "skipped"));
+
         await caller.onboarding.forgetMemory({
           workspaceId: PILOT_WORKSPACE,
           memoryId: corrected.row.id,
@@ -138,6 +190,37 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         globalThis.fetch = originalFetch;
         await wiring.close();
       }
+});
+
+test("onboarding trust check persists one inspectable, tainted Local Plane Memory", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const result = await caller.onboarding.recordTrustCapture({
+      workspaceId: PILOT_WORKSPACE,
+      appName: "Test Fixture Editor",
+      bundleId: "com.example.test-fixture-editor",
+      capturedAt: "2026-07-16T10:00:00.000Z",
+    });
+    assert.equal(result.memory.type, "episodic");
+    assert.equal(result.memory.scope, "private");
+    assert.equal(result.memory.plane, "local");
+    assert.equal(result.memory.trustOrigin, "untrusted_external");
+
+    const state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    const capture = state.memories.find((item) => item.value.kind === "trust_capture");
+    assert.ok(capture?.value.kind === "trust_capture");
+    assert.equal(capture.value.appName, "Test Fixture Editor");
+
+    await caller.onboarding.forgetMemory({
+      workspaceId: PILOT_WORKSPACE,
+      memoryId: capture.row.id,
+    });
+    const afterDelete = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    assert.equal(afterDelete.memories.some((item) => item.value.kind === "trust_capture"), false);
+  } finally {
+    await wiring.close();
+  }
 });
 
 test("onboarding.verifyPhoneOtp: a passing code is labeled verificationSource:'dummy', never a real verification", async () => {

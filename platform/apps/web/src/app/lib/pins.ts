@@ -7,12 +7,8 @@
  * per-user server-side yet.
  *
  * A pin is just a navigable link — { id, label, to } — not a fabricated
- * domain object. Projects pins point at `/knowledge-base?section=projects`
- * plus (once real per-project detail routes exist) an individual project;
- * today, with no `graph.getInitiative`-backed detail page in this app, the
- * only real pinnable "project" destination is the Projects toggle itself, so
- * that's what ships as the sole default Projects pin — never a fake pinned
- * project.
+ * domain object. There is no global Knowledge destination; Project pins stay
+ * empty until a Module-owned routable Record Detail exists.
  */
 export interface PinnedItem {
   id: string;
@@ -26,15 +22,15 @@ const STORAGE_KEY_TOOLS = "bridge.pins.tools";
 /** No fabricated pins — these are the only real, currently-routable
  * destinations for each kind, used only when the user's own localStorage
  * list is empty (first run). The user can unpin them like any other pin. */
-const DEFAULT_PROJECT_PINS: PinnedItem[] = [{ id: "projects", label: "Initiatives", to: "/knowledge-base?section=projects" }];
+const DEFAULT_PROJECT_PINS: PinnedItem[] = [];
 const DEFAULT_TOOL_PINS: PinnedItem[] = [
   // Approvals + Signals = TWO separate pinned governance tools by default
   // (user revision 2026-07-06 splitting the earlier tabs-merge back apart).
   { id: "approvals", label: "Approvals", to: "/approvals" },
-  { id: "signals", label: "Signals", to: "/signals" },
+  { id: "signals", label: "Signals", to: "/module/relationship/signals" },
   { id: "dealpilot", label: "DealPilot", to: "/dealpilot" },
   { id: "jobpilot", label: "JobPilot", to: "/jobpilot" },
-  { id: "helpdesk", label: "Helpdesk", to: "/helpdesk" },
+  { id: "helpdesk", label: "Helpdesk", to: "/module/relationship/helpdesk" },
   { id: "chief-of-staff", label: "Chief of Staff", to: "/chief-of-staff" },
 ];
 

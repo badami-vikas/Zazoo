@@ -49,10 +49,22 @@ test("routeHelpRequest: respects the limit", () => {
   assert.equal(routes.length, 2);
 });
 
+test("routeHelpRequest: duplicate topics do not inflate score or evidence", () => {
+  const [route] = routeHelpRequest(
+    { subject: "database migration help", body: "" },
+    [{ personId: "test_fixture_p1", displayName: "one", topics: ["database", "database", "database"] }],
+  );
+  assert.ok(route);
+  assert.equal(route.score, 1 / 3);
+  assert.deepEqual(route.matchedTopics, ["database"]);
+});
+
 test("draftHelpOffer: produces a proposal-inputs shape, rejects empty body", () => {
   const routes = routeHelpRequest({ subject: "postgres help", body: "database migrations" }, candidates);
   const draft = draftHelpOffer({ subject: "postgres help", body: "database migrations" }, routes[0]!, "Try the staged runner.");
   assert.equal(draft.kind, "help_offer");
   assert.equal(draft.routedTo, "test_fixture_p1");
+  assert.deepEqual(draft.routeEvidence.matchedTopics, ["postgres tuning", "database migrations"]);
+  assert.equal(draft.routeEvidence.topicSource, "caller_supplied");
   assert.throws(() => draftHelpOffer({ subject: "s", body: "b" }, routes[0]!, "   "), /non-empty/);
 });
