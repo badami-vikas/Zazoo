@@ -8,9 +8,8 @@ const output = resolve(platformRoot, 'apps/web/src/app/data/pending-work.generat
 
 const file = 'docs/TASKS.md';
 const document = await readFile(resolve(repoRoot, file), 'utf8');
-const statusMap = { inbox: 'open', ready: 'open', in_progress: 'in-progress', blocked: 'open' };
+const statusMap = { inbox: 'pending', ready: 'pending', in_progress: 'in-progress', blocked: 'blocked', done: 'completed', dropped: 'dropped' };
 const items = parseCanonicalTasks(document)
-  .filter((task) => task.status !== 'done' && task.status !== 'dropped')
   .map((task, index) => ({
     ...task,
     canonicalStatus: task.status,

@@ -8,6 +8,7 @@ function list(value) {
 export function parseCanonicalTasks(document) {
   const tasks = [];
   let task = null;
+  const explicitOrder = document.match(/`(TASK-\d+(?:,\s*TASK-\d+)*)`/);
 
   for (const line of document.split(/\r?\n/)) {
     const heading = line.match(/^## (TASK-\d+) — (.+)$/);
@@ -26,5 +27,7 @@ export function parseCanonicalTasks(document) {
     else if (key === 'status' || key === 'priority' || key === 'horizon' || key === 'outcome' || key === 'approval') task[key] = value;
   }
 
-  return tasks;
+  if (!explicitOrder) return tasks;
+  const ranks = new Map(explicitOrder[1].split(',').map((id, index) => [id.trim(), index]));
+  return tasks.slice().sort((a, b) => (ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER));
 }

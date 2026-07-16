@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-07-16T05:46:24.061Z",
+  "generatedAt": "2026-07-16T06:50:16.941Z",
   "items": [
     {
       "id": "TASK-001",
       "title": "TASK-001 — Coherent actionable shell prototype",
-      "status": "open",
+      "status": "pending",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.",
@@ -38,45 +38,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 45,
+      "sourceLine": 53,
       "rank": 1
-    },
-    {
-      "id": "TASK-002",
-      "title": "TASK-002 — Trust-first onboarding and behavioral learning prototype",
-      "status": "open",
-      "priority": "P0",
-      "horizon": "Prototype",
-      "outcome": "One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.",
-      "prototypeTest": "A new user completes Onboarding without internal vocabulary, sees why/consequence copy for every question, supplies an admired public figure, receives a cited Learning recommendation that requires approval, can re-enter/reset Onboarding, and can skip/snooze/pause/inspect/correct/delete learned preferences; the day-7 qualities prompt is schedulable.",
-      "scope": [
-        "docs/raw/egg-commons-feature-roadmap-2026-07.md AV1/EG3",
-        "docs/raw/bridge-foundational-agents-onboarding-2026-07.md",
-        "docs/raw/learning-agent-roadmap-2026-07.md"
-      ],
-      "evidence": [
-        "BUGS 2026-07-14 blueprint-centric onboarding",
-        "BUGS onboarding re-entry",
-        "BUGS Radix Dialog warning"
-      ],
-      "requests": [
-        "R-028",
-        "R-029",
-        "R-030",
-        "role-model and behavioral-learning directive 2026-07-14"
-      ],
-      "approval": "AP-020 applied",
-      "dependencies": [],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 57,
-      "rank": 2
     },
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "open",
+      "status": "pending",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -100,13 +68,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 69,
-      "rank": 3
+      "sourceLine": 77,
+      "rank": 2
     },
     {
       "id": "TASK-004",
       "title": "TASK-004 — Commons install and trust prototype",
-      "status": "open",
+      "status": "pending",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.",
@@ -130,13 +98,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 81,
-      "rank": 4
+      "sourceLine": 89,
+      "rank": 3
     },
     {
       "id": "TASK-005",
       "title": "TASK-005 — Avatar + Commons end-to-end demo certification",
-      "status": "open",
+      "status": "blocked",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A short, repeatable demo proves the combined product rather than isolated screens.",
@@ -147,7 +115,7 @@
       ],
       "evidence": [
         "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "outstanding live-browser evidence in docs/PROGRESS.md history"
+        "outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
@@ -162,187 +130,43 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 93,
+      "sourceLine": 101,
+      "rank": 4
+    },
+    {
+      "id": "TASK-013",
+      "title": "TASK-013 — Repository and manifest cleanup",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.",
+      "prototypeTest": "Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.",
+      "scope": [
+        "docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2",
+        "docs/dummy.md"
+      ],
+      "evidence": [
+        "BUGS duplicate prototype/Tools copies",
+        "BUGS dummy-prefix conflict"
+      ],
+      "requests": [
+        "cleanup directives 2026-07-14"
+      ],
+      "approval": "archive/deletion substep requires a dedicated approval before destructive removal",
+      "dependencies": [
+        "TASK-005",
+        "TASK-012"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 197,
       "rank": 5
-    },
-    {
-      "id": "TASK-006",
-      "title": "TASK-006 — DealPilot ETA core prototype",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
-      "prototypeTest": "Add a Thesis and observe governed Source discovery; add a Source and observe Deal discovery; inspect each Record Detail; reveal/copy a vault-backed Source credential only after Human re-authentication; verify conditional Relationship and Task columns.",
-      "scope": [
-        "docs/raw/brd-dealpilot-2026-07.md",
-        "docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1"
-      ],
-      "evidence": [
-        "user DealPilot corrections 2026-07-14–15"
-      ],
-      "requests": [
-        "DealPilot requirements 2026-07-14–15"
-      ],
-      "approval": "AP-023 applied",
-      "dependencies": [
-        "TASK-001"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 105,
-      "rank": 6
-    },
-    {
-      "id": "TASK-007",
-      "title": "TASK-007 — Agent, Skill, and child-Run orchestration",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.",
-      "prototypeTest": "Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.",
-      "scope": [
-        "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3",
-        "docs/raw/bridge-foundational-agents-onboarding-2026-07.md"
-      ],
-      "evidence": [
-        "BUGS standalone Skills/non-Agent invocation",
-        "specialist-agent overfit review"
-      ],
-      "requests": [
-        "R-019",
-        "R-028",
-        "R-029",
-        "agent redesign directive 2026-07-15"
-      ],
-      "approval": "AP-021 and AP-023 applied",
-      "dependencies": [
-        "TASK-001"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 117,
-      "rank": 7
-    },
-    {
-      "id": "TASK-008",
-      "title": "TASK-008 — Relationship Module consolidation",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
-      "prototypeTest": "Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.",
-      "scope": [
-        "docs/raw/relationship-module-plan-2026-07.md RM0–RM6",
-        "docs/raw/ui-architecture-rules-2026-07.md"
-      ],
-      "evidence": [
-        "BUGS Knowledge/Relationship IA",
-        "BUGS no actionable cross-Module graph"
-      ],
-      "requests": [
-        "Relationship alignment directive 2026-07-14"
-      ],
-      "approval": "AP-020 and AP-021 applied",
-      "dependencies": [
-        "TASK-001"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 129,
-      "rank": 8
-    },
-    {
-      "id": "TASK-009",
-      "title": "TASK-009 — Actionable Second Brain graph",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "A permission-filtered graph below Modules reveals useful cross-Module connections while every datum remains owned by its source Module.",
-      "prototypeTest": "Traverse a real cross-Module Record/Relation/Event/File connection, filter it, inspect provenance/backlinks, return to the owning Module, and perform a governed Action; inaccessible nodes never render and an accessible list fallback works.",
-      "scope": [
-        "docs/raw/ui-architecture-rules-2026-07.md §5c",
-        "docs/raw/relationship-module-plan-2026-07.md RM6"
-      ],
-      "evidence": [
-        "BUGS 2026-07-14 no Second Brain graph"
-      ],
-      "requests": [
-        "Second Brain directive 2026-07-14"
-      ],
-      "approval": "AP-021 applied",
-      "dependencies": [
-        "TASK-008"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 141,
-      "rank": 9
-    },
-    {
-      "id": "TASK-010",
-      "title": "TASK-010 — Platform red-flag correction feedback",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.",
-      "prototypeTest": "Hover/focus a cell and bullet, flag each, explain scope, undo it, inspect the audit evidence, and verify no green/yellow feedback semantics remain.",
-      "scope": [
-        "docs/raw/ui-architecture-rules-2026-07.md §5d",
-        "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md"
-      ],
-      "evidence": [
-        "user feedback-mechanism correction 2026-07-15"
-      ],
-      "requests": [
-        "red-flag directive 2026-07-15"
-      ],
-      "approval": "AP-023 applied",
-      "dependencies": [
-        "TASK-001",
-        "TASK-007"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
-      "rank": 10
-    },
-    {
-      "id": "TASK-011",
-      "title": "TASK-011 — JobPilot culture-research slice",
-      "status": "open",
-      "priority": "P1",
-      "horizon": "Core Modules",
-      "outcome": "JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.",
-      "prototypeTest": "For one target company, Learning gathers permitted evidence; Internal Strategist separates fact, opinion, theme, contradiction, and inference; the user sees citations and a rights/access warning before using recommendations.",
-      "scope": [
-        "docs/raw/brd-jobpilot-2026-07.md",
-        "docs/raw/jobpilot-module-plan-2026-07.md JP3B"
-      ],
-      "evidence": [
-        "BCG application workspace live-evidence gap"
-      ],
-      "requests": [
-        "JobPilot culture-research directive 2026-07-15"
-      ],
-      "approval": "AP-023 applied",
-      "dependencies": [
-        "TASK-007"
-      ],
-      "canonicalStatus": "ready",
-      "sourceType": "task",
-      "sourceFile": "docs/TASKS.md",
-      "sourceLine": 165,
-      "rank": 11
     },
     {
       "id": "TASK-012",
       "title": "TASK-012 — Complete vocabulary migration",
-      "status": "open",
+      "status": "pending",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Product copy, code, schema, API, Events, persisted payloads, routes, errors, and tests use the canonical glossary with time-boxed compatibility removed.",
@@ -369,43 +193,103 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
-      "rank": 12
+      "sourceLine": 185,
+      "rank": 6
     },
     {
-      "id": "TASK-013",
-      "title": "TASK-013 — Repository and manifest cleanup",
-      "status": "open",
-      "priority": "P2",
-      "horizon": "Convergence",
-      "outcome": "Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.",
-      "prototypeTest": "Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.",
+      "id": "TASK-010",
+      "title": "TASK-010 — Platform red-flag correction feedback",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.",
+      "prototypeTest": "Hover/focus a cell and bullet, flag each, explain scope, undo it, inspect the audit evidence, and verify no green/yellow feedback semantics remain.",
       "scope": [
-        "docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2",
-        "docs/dummy.md"
+        "docs/raw/ui-architecture-rules-2026-07.md §5d",
+        "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md"
       ],
       "evidence": [
-        "BUGS duplicate prototype/Tools copies",
-        "BUGS dummy-prefix conflict"
+        "user feedback-mechanism correction 2026-07-15"
       ],
       "requests": [
-        "cleanup directives 2026-07-14"
+        "red-flag directive 2026-07-15"
       ],
-      "approval": "archive/deletion substep requires a dedicated approval before destructive removal",
+      "approval": "AP-023 applied",
       "dependencies": [
-        "TASK-005",
-        "TASK-012"
+        "TASK-001",
+        "TASK-007"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 189,
-      "rank": 13
+      "sourceLine": 161,
+      "rank": 7
+    },
+    {
+      "id": "TASK-008",
+      "title": "TASK-008 — Relationship Module consolidation",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
+      "prototypeTest": "Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.",
+      "scope": [
+        "docs/raw/relationship-module-plan-2026-07.md RM0–RM6",
+        "docs/raw/ui-architecture-rules-2026-07.md"
+      ],
+      "evidence": [
+        "BUGS Knowledge/Relationship IA",
+        "BUGS no actionable cross-Module graph"
+      ],
+      "requests": [
+        "Relationship alignment directive 2026-07-14"
+      ],
+      "approval": "AP-020 and AP-021 applied",
+      "dependencies": [
+        "TASK-001"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 137,
+      "rank": 8
+    },
+    {
+      "id": "TASK-007",
+      "title": "TASK-007 — Agent, Skill, and child-Run orchestration",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.",
+      "prototypeTest": "Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.",
+      "scope": [
+        "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3",
+        "docs/raw/bridge-foundational-agents-onboarding-2026-07.md"
+      ],
+      "evidence": [
+        "BUGS standalone Skills/non-Agent invocation",
+        "specialist-agent overfit review"
+      ],
+      "requests": [
+        "R-019",
+        "R-028",
+        "R-029",
+        "agent redesign directive 2026-07-15"
+      ],
+      "approval": "AP-021 and AP-023 applied",
+      "dependencies": [
+        "TASK-001"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 125,
+      "rank": 9
     },
     {
       "id": "TASK-014",
       "title": "TASK-014 — Full standard Module UI rollout",
-      "status": "open",
+      "status": "pending",
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype.",
@@ -431,13 +315,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 201,
-      "rank": 14
+      "sourceLine": 209,
+      "rank": 10
     },
     {
       "id": "TASK-015",
       "title": "TASK-015 — End-to-end runtime taint tracking",
-      "status": "open",
+      "status": "pending",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Trust labels propagate monotonically across retrieval, prompts, models, Skills, Actions, Events, Results, Files, storage, serialization, caches, queues, retries, and governed declassification.",
@@ -460,13 +344,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 213,
-      "rank": 15
+      "sourceLine": 221,
+      "rank": 11
     },
     {
       "id": "TASK-016",
       "title": "TASK-016 — Database and migration correctness backlog",
-      "status": "open",
+      "status": "pending",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Known schema, migration, identity-upsert, UUID-validation, and concurrent-test defects are corrected with regression coverage.",
@@ -489,13 +373,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 225,
-      "rank": 16
+      "sourceLine": 233,
+      "rank": 12
     },
     {
       "id": "TASK-017",
       "title": "TASK-017 — Runtime and package correctness backlog",
-      "status": "open",
+      "status": "pending",
       "priority": "P3",
       "horizon": "Hardening",
       "outcome": "Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.",
@@ -519,68 +403,129 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 237,
-      "rank": 17
+      "sourceLine": 245,
+      "rank": 13
     },
     {
-      "id": "TASK-018",
-      "title": "TASK-018 — Cross-platform release blockers",
-      "status": "open",
-      "priority": "P3",
-      "horizon": "Hardening",
-      "outcome": "Desktop signing/CI and the mobile client meet their real-device release criteria without fabricated scaffolding.",
-      "prototypeTest": "Desktop checks pass on the named OS matrix with signing prerequisites, and a real on-branch Expo app runs against the shared kernel on a device/simulator.",
+      "id": "TASK-006",
+      "title": "TASK-006 — DealPilot ETA core prototype",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
+      "prototypeTest": "Add a Thesis and observe governed Source discovery; add a Source and observe Deal discovery; inspect each Record Detail; reveal/copy a vault-backed Source credential only after Human re-authentication; verify conditional Relationship and Task columns.",
       "scope": [
-        "docs/raw/roadmap-6month-2026-h2.md XP2–XP3"
+        "docs/raw/brd-dealpilot-2026-07.md",
+        "docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1"
       ],
       "evidence": [
-        "BUGS mobile app absent from accessible refs",
-        "AP-012 desktop CI-green follow-up"
+        "user DealPilot corrections 2026-07-14–15"
       ],
       "requests": [
-        "cross-platform roadmap work"
+        "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "none",
+      "approval": "AP-023 applied",
       "dependencies": [
-        "TASK-005"
+        "TASK-001"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 249,
-      "rank": 18
+      "sourceLine": 113,
+      "rank": 14
     },
     {
-      "id": "TASK-019",
-      "title": "TASK-019 — Approved long-term optimization rollout",
-      "status": "open",
-      "priority": "P4",
-      "horizon": "Later",
-      "outcome": "Observability, Memory lifecycle/security, retrieval-first context, stronger sandboxing, and optional remote execution are sequenced only after the user accepts the proposed phase mapping and prerequisite gates pass.",
-      "prototypeTest": "Approval is applied, each optimization has a measurable baseline and safety boundary, and the first approved slice improves that measure without weakening privacy/authority.",
+      "id": "TASK-011",
+      "title": "TASK-011 — JobPilot culture-research slice",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.",
+      "prototypeTest": "For one target company, Learning gathers permitted evidence; Internal Strategist separates fact, opinion, theme, contradiction, and inference; the user sees citations and a rights/access warning before using recommendations.",
       "scope": [
-        "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md §6",
-        "docs/raw/module-evolution-system-2026-07.md"
+        "docs/raw/brd-jobpilot-2026-07.md",
+        "docs/raw/jobpilot-module-plan-2026-07.md JP3B"
       ],
-      "evidence": [],
+      "evidence": [
+        "BCG application workspace live-evidence gap"
+      ],
       "requests": [
-        "R-026"
+        "JobPilot culture-research directive 2026-07-15"
       ],
-      "approval": "AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied",
+      "approval": "AP-023 applied",
       "dependencies": [
-        "TASK-005",
-        "TASK-015"
+        "TASK-007"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 261,
-      "rank": 19
+      "sourceLine": 173,
+      "rank": 15
+    },
+    {
+      "id": "TASK-009",
+      "title": "TASK-009 — Actionable Second Brain graph",
+      "status": "pending",
+      "priority": "P1",
+      "horizon": "Core Modules",
+      "outcome": "A permission-filtered graph below Modules reveals useful cross-Module connections while every datum remains owned by its source Module.",
+      "prototypeTest": "Traverse a real cross-Module Record/Relation/Event/File connection, filter it, inspect provenance/backlinks, return to the owning Module, and perform a governed Action; inaccessible nodes never render and an accessible list fallback works.",
+      "scope": [
+        "docs/raw/ui-architecture-rules-2026-07.md §5c",
+        "docs/raw/relationship-module-plan-2026-07.md RM6"
+      ],
+      "evidence": [
+        "BUGS 2026-07-14 no Second Brain graph"
+      ],
+      "requests": [
+        "Second Brain directive 2026-07-14"
+      ],
+      "approval": "AP-021 applied",
+      "dependencies": [
+        "TASK-008"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 149,
+      "rank": 16
+    },
+    {
+      "id": "TASK-002",
+      "title": "TASK-002 — Trust-first onboarding and behavioral learning prototype",
+      "status": "pending",
+      "priority": "P0",
+      "horizon": "Prototype",
+      "outcome": "One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.",
+      "prototypeTest": "A new user completes Onboarding without internal vocabulary, sees why/consequence copy for every question, supplies an admired public figure, receives a cited Learning recommendation that requires approval, can re-enter/reset Onboarding, and can skip/snooze/pause/inspect/correct/delete learned preferences; the day-7 qualities prompt is schedulable.",
+      "scope": [
+        "docs/raw/egg-commons-feature-roadmap-2026-07.md AV1/EG3",
+        "docs/raw/bridge-foundational-agents-onboarding-2026-07.md",
+        "docs/raw/learning-agent-roadmap-2026-07.md"
+      ],
+      "evidence": [
+        "BUGS 2026-07-14 blueprint-centric onboarding",
+        "BUGS onboarding re-entry",
+        "BUGS Radix Dialog warning"
+      ],
+      "requests": [
+        "R-028",
+        "R-029",
+        "R-030",
+        "role-model and behavioral-learning directive 2026-07-14"
+      ],
+      "approval": "AP-020 applied",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 65,
+      "rank": 17
     },
     {
       "id": "TASK-020",
       "title": "TASK-020 — Browser companion and Avatar visual expansion",
-      "status": "open",
+      "status": "pending",
       "priority": "P4",
       "horizon": "Later",
       "outcome": "The deferred browser companion is a real permission-bounded extension, and expanded Avatar visuals use production assets without reviving retired lifecycle/personality vocabulary.",
@@ -605,7 +550,62 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 273,
+      "sourceLine": 281,
+      "rank": 18
+    },
+    {
+      "id": "TASK-018",
+      "title": "TASK-018 — Cross-platform release blockers",
+      "status": "blocked",
+      "priority": "P3",
+      "horizon": "Hardening",
+      "outcome": "Desktop signing/CI and the mobile client meet their real-device release criteria without fabricated scaffolding.",
+      "prototypeTest": "Desktop checks pass on the named OS matrix with signing prerequisites, and a real on-branch Expo app runs against the shared kernel on a device/simulator.",
+      "scope": [
+        "docs/raw/roadmap-6month-2026-h2.md XP2–XP3"
+      ],
+      "evidence": [
+        "BUGS mobile app absent from accessible refs",
+        "AP-012 desktop CI-green follow-up"
+      ],
+      "requests": [
+        "cross-platform roadmap work"
+      ],
+      "approval": "none",
+      "dependencies": [
+        "TASK-005"
+      ],
+      "canonicalStatus": "blocked",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 257,
+      "rank": 19
+    },
+    {
+      "id": "TASK-019",
+      "title": "TASK-019 — Approved long-term optimization rollout",
+      "status": "blocked",
+      "priority": "P4",
+      "horizon": "Later",
+      "outcome": "Observability, Memory lifecycle/security, retrieval-first context, stronger sandboxing, and optional remote execution are sequenced only after the user accepts the proposed phase mapping and prerequisite gates pass.",
+      "prototypeTest": "Approval is applied, each optimization has a measurable baseline and safety boundary, and the first approved slice improves that measure without weakening privacy/authority.",
+      "scope": [
+        "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md §6",
+        "docs/raw/module-evolution-system-2026-07.md"
+      ],
+      "evidence": [],
+      "requests": [
+        "R-026"
+      ],
+      "approval": "AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied",
+      "dependencies": [
+        "TASK-005",
+        "TASK-015"
+      ],
+      "canonicalStatus": "blocked",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 269,
       "rank": 20
     }
   ]
