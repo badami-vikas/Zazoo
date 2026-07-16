@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T22:20:23.926Z",
+  "generatedAt": "2026-07-16T22:24:12.114Z",
   "items": [
     {
       "id": "TASK-001",
@@ -225,7 +225,7 @@
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "completed",
+      "status": "in-progress",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -236,6 +236,7 @@
       ],
       "evidence": [
         "RESOLVED BUGS Knowledge/Relationship IA",
+        "OPEN BUGS missing RM4 Relation persistence/materialization integration",
         "`outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
         "desktop + 375px live evidence",
         "permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009."
@@ -247,7 +248,7 @@
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "done",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 141,

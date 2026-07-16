@@ -139,13 +139,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-001
 
 ## TASK-008 — Relationship Module consolidation
-- Status: done
+- Status: in_progress
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.
 - Prototype test: Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.
 - Scope: docs/raw/relationship-module-plan-2026-07.md RM0–RM6; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: RESOLVED BUGS Knowledge/Relationship IA; `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009.
+- Evidence: RESOLVED BUGS Knowledge/Relationship IA; OPEN BUGS missing RM4 Relation persistence/materialization integration; `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009.
 - Requests: Relationship alignment directive 2026-07-14
 - Approval: AP-020, AP-021, and AP-029 applied
 - Dependencies: TASK-001

@@ -1598,3 +1598,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Made public Helpdesk bounded, rate-limited, token-hashed, transaction-safe, and retry-idempotent with recoverable client operation state.
 - Recorded AP-030, ADR-099, resolved Relationship trust/IA evidence, retained durable effect retry under TASK-017, and marked TASK-008 done from its desktop/375px plus affected-package evidence.
 - Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
+
+# 2026-07-17 — TASK-008 completion corrected after RM4 branch audit
+- Audit commit `db2b19c` showed that Relation schema/store/materializer/API contracts and owner-isolation/idempotency tests remained branch-only even though the visible prototype and trust-boundary hardening had landed.
+- Reopened TASK-008 and attached the exact missing RM4 evidence. Integration must preserve current hardened Relationship UI, Approvals, and public Helpdesk and resolve the migration-number collision after TASK-004/TASK-007.

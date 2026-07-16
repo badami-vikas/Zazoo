@@ -122,4 +122,8 @@ TASK-008 was reconciled onto `main` and the browser/server trust boundary was ti
 - The browser persists ticket/reply operations before submission when possible. If reply-key persistence or Clipboard access fails, the key remains selectable.
 - Capture adoption/dismissal verifies that persistence changed a row; failures remain visible instead of reporting success.
 
-Affected core, DB, API, and web suites; platform build/typecheck; web production build; targeted lint; diff checks; and the final security/correctness review passed. AP-030 records the user's task-by-task integration directive. TASK-008 is complete; TASK-009 owns the cross-Module graph and TASK-017 owns durable retry of failed approved external effects.
+Affected core, DB, API, and web suites; platform build/typecheck; web production build; targeted lint; diff checks; and the final security/correctness review passed for the integrated slice. AP-030 records the user's task-by-task integration directive.
+
+## Post-integration audit correction
+
+After the hardened slice reached `main`, audit commit `db2b19c` proved that the branch-only RM4 Relation persistence/materialization contract had not been integrated. TASK-008 is therefore reopened until that schema/store/materializer/API/test slice lands without overwriting the hardened UI, Approvals, or public Helpdesk. TASK-009 still owns the cross-Module graph; TASK-017 owns durable retry of failed approved external effects.
