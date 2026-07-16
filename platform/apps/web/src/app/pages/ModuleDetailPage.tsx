@@ -35,10 +35,12 @@ import {
   Loader,
   ExternalLink,
   Activity,
+  ChevronRight,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
+type FileInventory = Awaited<ReturnType<typeof trpc.packages.files.query>>;
 
 // Human-readable risk labels
 const RISK_LABELS: Record<string, string> = {
@@ -57,6 +59,37 @@ function SectionHeader({ icon: Icon, title }: { icon: typeof Package; title: str
         {title}
       </h2>
     </div>
+  );
+}
+
+function SubmodulesSection({ pkg }: { pkg: PackageRow }) {
+  const prefix = `${pkg.packageName}.submodule.`;
+  const submodules = (pkg.manifest?.capabilities ?? []).filter(
+    (capability) => capability.capabilityType === "view" && capability.id.startsWith(prefix),
+  );
+  if (submodules.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader icon={Package} title="Sub-modules" />
+      <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+        {submodules.map((submodule) => (
+          <li key={submodule.id}>
+            <Link
+              to={`/module/${pkg.packageName}/${submodule.id.slice(prefix.length)}`}
+              className="flex items-center gap-3 p-3 no-underline hover:bg-[var(--color-surface)]"
+            >
+              <Package className="h-4 w-4 shrink-0" style={{ color: "var(--color-steel)" }} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{submodule.name}</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>{submodule.id}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -111,7 +144,7 @@ function OverviewSection({ pkg }: { pkg: PackageRow }) {
               className="text-base font-semibold"
               style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}
             >
-              {manifest?.name ?? pkg.packageName}
+              {manifest?.module?.displayName ?? manifest?.name ?? pkg.packageName}
             </h1>
             {manifest?.summary && (
               <p className="text-sm mt-0.5" style={{ color: "var(--color-navy-mid)" }}>
@@ -153,38 +186,41 @@ function OverviewSection({ pkg }: { pkg: PackageRow }) {
 /** Pages and Databases section — sourced from the module manifest. */
 function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
   const manifest = pkg.manifest;
-  const capabilities = manifest?.capabilities ?? [];
-  const viewCaps = capabilities.filter((c) => c.capabilityType === "view");
+  const pages = manifest?.module?.pages ?? [];
 
   return (
     <section className="space-y-3">
       <SectionHeader icon={Database} title="Pages and Databases" />
-      {viewCaps.length === 0 ? (
+      {pages.length === 0 ? (
         <EmptyState
           message={`No pages or databases defined in ${pkg.packageName} v${pkg.packageVersion}.`}
           hint="Pages and Databases appear here once a module version declares view capabilities."
         />
       ) : (
         <ul className="divide-y border rounded-lg" style={{ borderColor: "var(--color-border)" }}>
-          {viewCaps.map((cap) => (
+          {pages.map((page) => (
             <li
-              key={cap.id}
+              key={page.id}
               className="flex items-center gap-3 p-3"
             >
               <Database className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-                  {cap.name}
-                </p>
+                <Link
+                  to={page.route}
+                  className="text-sm font-medium underline-offset-2 hover:underline"
+                  style={{ color: "var(--color-navy)" }}
+                >
+                  {page.name}
+                </Link>
                 <p className="text-xs mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
-                  {cap.id}
+                  Database: {page.databaseId}
                 </p>
               </div>
               <span
                 className="text-xs border rounded px-1.5 py-0.5"
                 style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
               >
-                {cap.capabilityType}
+                Open page
               </span>
             </li>
           ))}
@@ -196,26 +232,97 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
 
 /** Agents section — each with Skills nested underneath. */
 function AgentsSection({ pkg }: { pkg: PackageRow }) {
+  const agents = pkg.manifest?.module?.agents ?? [];
+  const capabilities = new Map((pkg.manifest?.capabilities ?? []).map((capability) => [capability.id, capability]));
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
-      <EmptyState
-        message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
-        hint="Skills remain hidden until the runtime exposes their consuming Agent. Only an attributable allowed Agent may invoke a Skill."
-      />
+      {agents.length === 0 ? (
+        <EmptyState
+          message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
+          hint="Skills remain hidden until an installed manifest binds them to a consuming Agent."
+        />
+      ) : (
+        <div className="space-y-2">
+          {agents.map((agent) => {
+            const agentCapability = capabilities.get(agent.capabilityId);
+            return (
+              <details
+                key={agent.id}
+                className="rounded-lg border p-3"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                  {agent.name} · {agent.skillIds.length} {agent.skillIds.length === 1 ? "Skill" : "Skills"}
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {(agentCapability?.permissions ?? []).map((permission, index) => (
+                      <span
+                        key={`${permission.resourceType}-${permission.action}-${index}`}
+                        className="text-xs rounded border px-1.5 py-0.5"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+                      >
+                        {permission.action} {permission.resourceType}
+                      </span>
+                    ))}
+                  </div>
+                  <ul className="divide-y rounded border" style={{ borderColor: "var(--color-border)" }}>
+                    {agent.skillIds.map((skillId) => {
+                      const skill = capabilities.get(skillId);
+                      return (
+                        <li key={skillId} className="p-3">
+                          <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                            {skill?.name ?? skillId}
+                          </p>
+                          <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            {skillId} · invoked only by {agent.name}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
 /** Automations section. */
 function AutomationsSection({ pkg }: { pkg: PackageRow }) {
+  const automations = pkg.manifest?.module?.automations ?? [];
+  const agents = new Map((pkg.manifest?.module?.agents ?? []).map((agent) => [agent.id, agent]));
   return (
     <section className="space-y-3">
       <SectionHeader icon={Zap} title="Automations" />
-      <EmptyState
-        message={`No Automations configured for ${pkg.packageName} yet.`}
-        hint="Automations start governed Agent Runs. Configure one from Settings once the module is active."
-      />
+      {automations.length === 0 ? (
+        <EmptyState
+          message={`No Automations are declared by ${pkg.packageName} v${pkg.packageVersion}.`}
+          hint="This inventory reads the installed manifest; it does not invent Automation cards."
+        />
+      ) : (
+        <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+          {automations.map((automation) => (
+            <li key={automation.id} className="p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{automation.name}</p>
+                  <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                    Trigger: {automation.trigger} · Agent: {agents.get(automation.agentId)?.name ?? automation.agentId}
+                  </p>
+                </div>
+                <span className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}>
+                  {automation.procedure}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -224,8 +331,9 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
 function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
   const manifest = pkg.manifest;
   const capabilities = manifest?.capabilities ?? [];
-  const connectors = capabilities.flatMap((c) =>
-    c.connectors.map((conn) => ({ ...conn, capabilityName: c.name }))
+  const integrations = capabilities.filter((capability) => capability.capabilityType === "integration");
+  const connectors = integrations.flatMap((capability) =>
+    capability.connectors.map((connector) => ({ ...connector, capabilityName: capability.name }))
   );
 
   return (
@@ -233,7 +341,7 @@ function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
       <SectionHeader icon={Cable} title="Integrations" />
       {connectors.length === 0 ? (
         <EmptyState
-          message={`${pkg.packageName} has no external connectors in this version.`}
+          message={`${pkg.packageName} has no Integration bindings in this version.`}
           hint="Integrations will appear here once this module declares connector dependencies."
         />
       ) : (
@@ -267,14 +375,48 @@ function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
 }
 
 /** Files and Results section. */
-function FilesSection({ pkg }: { pkg: PackageRow }) {
+function FilesSection({
+  pkg,
+  inventory,
+  loading,
+  error,
+}: {
+  pkg: PackageRow;
+  inventory: FileInventory | null;
+  loading: boolean;
+  error: string | null;
+}) {
   return (
     <section className="space-y-3">
       <SectionHeader icon={FolderOpen} title="Files and Results" />
-      <EmptyState
-        message={`Exports, briefs, and results generated by ${pkg.packageName} will appear here.`}
-        hint="Files are stored locally under ~/Documents/Bridge/<Organization>/<Module>/."
-      />
+      {loading ? (
+        <div className="text-sm" style={{ color: "var(--color-warm-gray)" }}>Loading local File inventory…</div>
+      ) : error ? (
+        <div className="rounded-lg border p-3 text-sm text-red-600" style={{ borderColor: "var(--color-border)" }}>
+          Could not read local Files: {error}
+        </div>
+      ) : inventory && inventory.items.length > 0 ? (
+        <div className="rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+          <p className="border-b p-3 text-xs break-all" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+            {inventory.root}
+          </p>
+          <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+            {inventory.items.map((file) => (
+              <li key={file.path} className="p-3">
+                <p className="text-sm font-medium break-all" style={{ color: "var(--color-navy)" }}>{file.path}</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  {file.size.toLocaleString()} bytes · {new Date(file.modifiedAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <EmptyState
+          message={`No Files currently exist in ${pkg.manifest?.module?.displayName ?? pkg.packageName}'s local inventory.`}
+          hint={inventory?.root ?? "The local File inventory path could not be resolved."}
+        />
+      )}
     </section>
   );
 }
@@ -336,26 +478,53 @@ export function ModuleDetailPage() {
   const [pkg, setPkg] = useState<PackageRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileInventory | null>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!moduleId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
+    setPkg(null);
+    setFiles(null);
+    setFilesError(null);
+    setFilesLoading(false);
     trpc.packages.list
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((result) => {
+        if (cancelled) return;
         // Find the package whose packageName matches the route param.
         // The moduleId in the URL IS the packageName (e.g. "deal-pilot").
         const found = result.items.find(
           (p) => p.packageName === moduleId && p.state === "available" && p.status === "installed"
         );
         setPkg(found ?? null);
+        if (found) {
+          setFilesLoading(true);
+          trpc.packages.files
+            .query({ workspaceId: PILOT_WORKSPACE, moduleName: found.packageName })
+            .then((inventory) => {
+              if (!cancelled) setFiles(inventory);
+            })
+            .catch((filesFailure) => {
+              if (!cancelled) setFilesError(String(filesFailure));
+            })
+            .finally(() => {
+              if (!cancelled) setFilesLoading(false);
+            });
+        }
         setLoading(false);
       })
       .catch((e) => {
+        if (cancelled) return;
         setError(String(e));
         setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [moduleId]);
 
   if (loading) {
@@ -422,7 +591,7 @@ export function ModuleDetailPage() {
           className="text-base font-semibold"
           style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}
         >
-          {pkg.manifest?.name ?? pkg.packageName}
+          {pkg.manifest?.module?.displayName ?? pkg.manifest?.name ?? pkg.packageName}
         </h1>
         <div className="ml-auto flex items-center gap-2">
           <StatusBadge value={pkg.state} />
@@ -431,13 +600,14 @@ export function ModuleDetailPage() {
 
       {/* Scrollable sections */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-2xl mx-auto px-6 py-6 space-y-8">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-8">
           <OverviewSection pkg={pkg} />
           <PagesDatabasesSection pkg={pkg} />
+          <SubmodulesSection pkg={pkg} />
           <AgentsSection pkg={pkg} />
           <AutomationsSection pkg={pkg} />
           <IntegrationsSection pkg={pkg} />
-          <FilesSection pkg={pkg} />
+          <FilesSection pkg={pkg} inventory={files} loading={filesLoading} error={filesError} />
           <SettingsSection pkg={pkg} />
         </div>
       </div>

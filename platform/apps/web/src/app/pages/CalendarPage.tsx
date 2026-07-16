@@ -10,7 +10,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router';
 import {
-  ChevronRight, ChevronLeft, Plus, Pin, PinOff, Calendar as CalendarIcon, Clock, MapPin,
+  ChevronRight, ChevronLeft, Plus, Calendar as CalendarIcon, Clock, MapPin,
   Users, Trash2, Pencil, X, RefreshCw, Cable, ShieldCheck, CalendarRange, CalendarDays, List as ListIcon,
 } from 'lucide-react';
 import { Header } from '../components/shared/Header';
@@ -20,8 +20,6 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, addMonths, addWeeks,
   addDays, format, isSameDay, isSameMonth, isToday, parseISO, startOfDay, differenceInMinutes,
 } from 'date-fns';
-import { usePinnedTools } from '../lib/usePinnedTools';
-import { toolById } from '../data/tools';
 import {
   API_ENABLED, apiListCalendarEvents, apiProposeCalendarWrite, apiApproveProposal,
   type CalendarEventDTO, type CalendarWriteAction,
@@ -57,10 +55,6 @@ interface FormState {
 }
 
 export function CalendarPage() {
-  const { isPinned, togglePin } = usePinnedTools();
-  const tool = toolById('calendar');
-  const pinned = tool ? isPinned(tool.id) : false;
-
   const [view, setView] = useState<View>('month');
   const [cursor, setCursor] = useState<Date>(new Date());
   const [events, setEvents] = useState<CalendarEventDTO[]>([]);
@@ -214,21 +208,11 @@ export function CalendarPage() {
             </div>
             <span className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{title}</span>
             <ModePill mode={mode} loading={loading} onRefresh={() => void reload(rangeStart.toISOString(), rangeEnd.toISOString())} />
-            {tool && (
-              <button onClick={() => togglePin(tool.id)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all active:scale-95 shrink-0"
-                style={pinned
-                  ? { backgroundColor: 'color-mix(in srgb, var(--color-steel) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--color-steel) 25%, transparent)', color: STEEL }
-                  : { backgroundColor: 'white', borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>
-                {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-                {pinned ? 'Pinned' : 'Pin to sidebar'}
-              </button>
-            )}
             <button onClick={() => openCreate(view === 'day' ? cursor : undefined)} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
               style={{ backgroundColor: STEEL, color: 'white' }}><Plus className="w-3.5 h-3.5" /> New event</button>
           </>
         }
-        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
+        moreMenu={<Link to="/module/calendar" className="block px-3 py-2 text-xs hover:bg-black/5">Open Module Detail</Link>}
       />
       <CollapsibleInsights
         expanded={insightsOpen}

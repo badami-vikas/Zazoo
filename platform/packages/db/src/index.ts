@@ -15,8 +15,10 @@ export {
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureLearningAgentGovernance,
   type InternalStrategistGovernanceConfig,
   type FoundationalAgentGovernanceConfig,
+  type LearningAgentGovernanceConfig,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
 export {
@@ -36,7 +38,15 @@ export {
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
-export { DrizzleGraphStore, type PageOpts, type Page } from "./graph-store.js";
+export {
+  DrizzleGraphStore,
+  type CommunityRecord,
+  type PageOpts,
+  type Page,
+  type PersonRecord,
+  type SignalDetail,
+  type SignalParticipant,
+} from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
 export { DrizzleHelpdeskStore, type TicketRow, type MessageRow } from "./helpdesk-store.js";
 export { DrizzleResourcesStore, type ResourceRow, type CreateResourceInput as CreateResourceStoreInput } from "./resources-store.js";

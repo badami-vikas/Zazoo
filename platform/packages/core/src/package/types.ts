@@ -43,6 +43,43 @@ export interface PackageWorkspaceVocab {
   domainTerms: Record<string, string>;
 }
 
+export interface ModulePageBinding {
+  id: string;
+  name: string;
+  route: string;
+  databaseId: string;
+  capabilityId: string;
+}
+
+export interface ModuleAgentBinding {
+  id: string;
+  name: string;
+  capabilityId: string;
+  skillIds: string[];
+}
+
+export interface ModuleAutomationBinding {
+  id: string;
+  name: string;
+  capabilityId: string;
+  agentId: string;
+  trigger: string;
+  procedure: string;
+}
+
+/**
+ * Compiler-owned Module Detail bindings. Capability definitions remain the
+ * trust source of truth; these bindings provide the routable inventory and
+ * explicit Agent→Skill/Automation ownership needed to render a Module.
+ */
+export interface ModuleSurfaceManifest {
+  displayName: string;
+  route: string;
+  pages: ModulePageBinding[];
+  agents: ModuleAgentBinding[];
+  automations: ModuleAutomationBinding[];
+}
+
 /**
  * The package manifest — `package.yaml`'s parsed shape. `capabilities[]` is
  * the "package carries MULTIPLE capability manifests" requirement: each
@@ -66,6 +103,8 @@ export interface PackageManifest {
   capabilities: CapabilityManifest[];
   contextProviders: PackageContextProvider[];
   workspaceVocab: PackageWorkspaceVocab;
+  /** Required for installed Module navigation and Module Detail inventory. */
+  module?: ModuleSurfaceManifest;
   /** Present ONLY for a `workspace_definition` package (BLUEPRINT-1, Month-6):
    * the versioned, declarative WorkspaceBlueprint this package publishes. A
    * workspace_definition COMPOSES capabilities by reference (blueprint.

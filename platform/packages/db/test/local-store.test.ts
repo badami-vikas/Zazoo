@@ -10,7 +10,12 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDrizzlePorts, createLocalDb } from "../src/index.js";
+import {
+  createDrizzlePorts,
+  createLocalDb,
+  ensureLearningAgentGovernance,
+  schema,
+} from "../src/index.js";
 
 test("local plane: migrations apply and Drizzle ports read the local store", async () => {
   // UUID columns reject non-UUID text (22P02), so probe with the nil UUID.
@@ -34,6 +39,61 @@ test("local plane: migrations apply and Drizzle ports read the local store", asy
       new Date(0).toISOString(),
     );
     assert.deepEqual(grants, []);
+  } finally {
+    await close();
+  }
+});
+
+test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
+  const workspaceId = "b0000000-0000-4000-a000-000000000001";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
+  const agentId = "b0000000-0000-4000-a000-0000000000d2";
+  const roleId = "b0000000-0000-4000-a000-0000000000f2";
+  const permissionId = "b0000000-0000-4000-a000-0000000000c2";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "learning-governance@test.invalid" });
+    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Learning governance test" });
+
+    const config = { workspaceId, userId, agentId, roleId, permissionId };
+    await Promise.all(
+      Array.from({ length: 10 }, () => ensureLearningAgentGovernance(db, config)),
+    );
+    await ensureLearningAgentGovernance(db, config);
+
+    const ports = createDrizzlePorts(db);
+    assert.equal(await ports.agents.assumedRole(agentId), roleId);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["signal:write"]);
+    assert.ok(
+      (await ports.roles.grantsForRole(roleId)).some(
+        (grant) =>
+          grant.resourceType === "signal" &&
+          grant.action === "write" &&
+          grant.effect === "allow",
+      ),
+    );
+    assert.ok(
+      (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
+        (grant) =>
+          grant.resourceType === "signal" &&
+          grant.action === "write" &&
+          grant.effect === "allow",
+      ),
+    );
+    const principalRows = await db.select().from(schema.permissions);
+    assert.equal(
+      principalRows.filter(
+        (row) =>
+          row.workspaceId === workspaceId &&
+          row.actorType === "user" &&
+          row.actorId === userId &&
+          row.resourceType === "signal" &&
+          row.resourceId === null &&
+          row.action === "write" &&
+          row.effect === "allow",
+      ).length,
+      1,
+    );
   } finally {
     await close();
   }

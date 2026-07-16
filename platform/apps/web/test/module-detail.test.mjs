@@ -27,7 +27,7 @@ const RISK_LABELS = {
 };
 
 /** Mirrored from built-in-packages.ts */
-const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "helpdesk", "calendar"];
+const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
 
 // ---------------------------------------------------------------------------
 // PanelControl state logic (mirrored from usePanelControl, no React)
@@ -39,9 +39,9 @@ function clampWidth(raw, min, max) {
 }
 
 /** Pure snap helper matching usePanelControl's snap onUp logic. */
-function snapDecision(finalWidth, snapMidpoint, maxWidth) {
+function snapDecision(finalWidth, snapMidpoint, defaultWidth) {
   if (finalWidth >= snapMidpoint) {
-    return { collapsed: false, width: maxWidth };
+    return { collapsed: false, width: Math.max(defaultWidth, finalWidth) };
   }
   return { collapsed: true };
 }
@@ -76,14 +76,19 @@ test("PanelControl snap: below midpoint collapses panel", () => {
   assert.deepEqual(result, { collapsed: true });
 });
 
-test("PanelControl snap: at or above midpoint expands panel to max", () => {
-  const result = snapDecision(150, 148, 220); // 150 >= midpoint(148) → expand
+test("PanelControl snap: above midpoint preserves the dragged width", () => {
+  const result = snapDecision(150, 148, 220);
   assert.deepEqual(result, { collapsed: false, width: 220 });
 });
 
 test("PanelControl snap: exactly at midpoint expands (boundary inclusive)", () => {
   const result = snapDecision(148, 148, 220);
   assert.deepEqual(result, { collapsed: false, width: 220 });
+});
+
+test("PanelControl snap: extended width is preserved instead of snapping to normal width", () => {
+  const result = snapDecision(340, 148, 220);
+  assert.deepEqual(result, { collapsed: false, width: 340 });
 });
 
 test("PanelControl right panel: drag left (negative client delta) grows width", () => {
@@ -112,14 +117,14 @@ test("Nav module filter: only available packages appear", () => {
   const packages = [
     { packageName: "deal-pilot", state: "available", status: "installed" },
     { packageName: "job-pilot", state: "available", status: "pending_review" },
-    { packageName: "helpdesk", state: "available", status: "installed" },
+    { packageName: "relationship", state: "available", status: "installed" },
     { packageName: "calendar", state: "deprecated", status: "installed" },
   ];
   const navModules = packages.filter((p) => p.state === "available" && p.status === "installed");
   assert.equal(navModules.length, 2);
   assert.deepEqual(
     navModules.map((m) => m.packageName),
-    ["deal-pilot", "helpdesk"]
+    ["deal-pilot", "relationship"]
   );
 });
 

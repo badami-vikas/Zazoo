@@ -77,3 +77,32 @@ test("identity: no verifier configured + no token => pilot fallback, unaffected 
     assert.deepEqual(actor, { type: "user", id: "test_fixture_pilot_user" });
   });
 });
+
+test("identity: configured verifier rejects empty bearer credentials instead of authenticating the pilot", async () => {
+  await withEnv(
+    { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
+    async () => {
+      const resolver = createIdentityResolver("test_fixture_pilot_user");
+      await assert.rejects(
+        () => resolver.resolve("Bearer     "),
+        (err: unknown) => err instanceof IdentityVerificationError,
+      );
+    },
+  );
+});
+
+test("identity: configured verifier rejects a signed token without a subject", async () => {
+  const secret = "test_fixture_correct_secret";
+  await withEnv({ SUPABASE_JWT_SECRET: secret, SUPABASE_URL: undefined }, async () => {
+    const resolver = createIdentityResolver("test_fixture_pilot_user");
+    const subjectless = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(secret));
+    await assert.rejects(
+      () => resolver.resolve(`Bearer ${subjectless}`),
+      (err: unknown) => err instanceof IdentityVerificationError,
+    );
+  });
+});

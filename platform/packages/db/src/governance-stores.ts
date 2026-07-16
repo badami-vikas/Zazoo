@@ -307,6 +307,28 @@ export async function ensureCapabilityBuilderGovernance(
   });
 }
 
+export type LearningAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
+
+/**
+ * TASK-005 (onboarding-learning gate) persistent-mode Learning Agent authority
+ * — reconciled onto the SAME `ensureFoundationalAgentGovernance` shared
+ * algorithm every other foundational Agent's governance-seed function uses
+ * (originally a standalone duplicate of the same idempotent seeding logic;
+ * merged here rather than kept as a second copy, since the two are
+ * behaviorally identical apart from the display name/description/goal).
+ */
+export async function ensureLearningAgentGovernance(
+  db: Database,
+  config: LearningAgentGovernanceConfig,
+): Promise<void> {
+  return ensureFoundationalAgentGovernance(db, config, {
+    displayName: "Learning Agent",
+    roleDescription: "May draft inspectable Signal recommendations; never approves or executes them.",
+    agentGoal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
+    verificationLabel: "Learning Agent",
+  });
+}
+
 function asGrant(row: {
   resourceType: string;
   resourceId: string | null;

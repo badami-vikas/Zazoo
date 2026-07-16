@@ -4,8 +4,20 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
-## 2026-07-16 — Avatar position persistence (ADR-094, AP-026)
-- Avatar drag uses Tauri's OS-level drag region. Physical window positions persist atomically per overlay label and reconcile against connected displays at launch; off-screen positions return to the default anchor. macOS Spaces/fullscreen behavior remains a local-macOS implementation and verification gate.
+## 2026-07-16 — Roadmap fan-out (ADR-098, AP-029)
+- Start TASK-006–015 now.
+- Build 006/007/008 parallel. Plan rest now. Dependencies still hard.
+- No fake DONE. Prototype proof still required.
+
+## 2026-07-16 — File + desktop boot safety (ADR-097)
+- Module Files stay strict child of `~/Documents/Bridge`. Dot paths fail.
+- Desktop window starts now. API health check runs background. No 20-second frozen setup.
+
+## 2026-07-16 — Avatar desktop movement + native chrome (ADR-094, ADR-096, AP-026)
+- OS drag. Atomic position save. Runtime display watcher repairs hot-plug topology.
+- macOS Avatar = pinned non-activating NSPanel. Joins all Spaces. Fullscreen auxiliary.
+- Sidebar gets real AppKit traffic lights. No duplicate web controls. Other OSes keep native chrome.
+- Physical external-display + full interaction proof still gates TASK-003 closure.
 
 ## 2026-07-09 — OSS adoption decisions: providers + reference-only + rejects (ADR-035–ADR-041)
 - Docling = `DocumentProvider` primary (ADR-035); Tika = fallback for legacy formats.
