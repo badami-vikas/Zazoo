@@ -51,7 +51,7 @@ There is no separate progress narrative. Report task deltas only: status change,
 The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → TASK-005. TASK-005 is the gate: do not resume broad vocabulary migration, repo cleanup, or later Modules until the combined Avatar + Commons path is usable and tested.
 
 ## TASK-001 — Coherent actionable shell prototype
-- Status: ready
+- Status: in_progress
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.
