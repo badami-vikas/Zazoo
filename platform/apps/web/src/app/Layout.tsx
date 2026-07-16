@@ -201,12 +201,8 @@ export default function Layout() {
           label="Resize sidebar"
         />
 
-        {/* Desktop window chrome (TASK-003) — cross-platform close/minimize/zoom
-            buttons shown only when running under Tauri. On macOS the native title
-            bar traffic lights are already present; these provide a supplemental
-            in-sidebar affordance. The full "traffic lights replace the title bar"
-            UX requires removing decorations(false) on the main window and applying
-            macOS-specific CSS — flagged as a local macOS session blocker. */}
+        {/* macOS-only titlebar lane: AppKit's real traffic lights overlay this
+            draggable Sidebar space. Other platforms keep native chrome. */}
         <DesktopWindowChrome expanded={railExpanded} />
 
         {/* Organization switcher — h-14 matches center Header and right panel headers. */}
@@ -393,6 +389,7 @@ export default function Layout() {
             onClick={() => setMobileModulesOpen(false)}
           />
           <nav
+            id="mobile-module-menu"
             aria-label="Mobile Module navigation"
             className="relative z-10 h-full w-[min(86vw,320px)] border-r bg-white p-3 shadow-xl"
             style={{ borderColor: "var(--color-border)" }}
@@ -472,10 +469,14 @@ export default function Layout() {
         </Link>
         <button
           type="button"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
-          onClick={() => setMobileModulesOpen(true)}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs ${
+            mobileModulesOpen ? "font-medium text-[var(--color-steel)]" : "text-muted-foreground"
+          }`}
+          onClick={() => setMobileModulesOpen((open) => !open)}
+          aria-expanded={mobileModulesOpen}
+          aria-controls="mobile-module-menu"
         >
-          <Package className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
+          <Package className="w-4 h-4" style={{ color: mobileModulesOpen ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
           Modules
         </button>
         <button

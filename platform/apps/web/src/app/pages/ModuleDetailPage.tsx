@@ -35,6 +35,7 @@ import {
   Loader,
   ExternalLink,
   Activity,
+  ChevronRight,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { CommonsCapabilityPanel } from "../components/CommonsCapabilityPanel";
@@ -59,6 +60,37 @@ function SectionHeader({ icon: Icon, title }: { icon: typeof Package; title: str
         {title}
       </h2>
     </div>
+  );
+}
+
+function SubmodulesSection({ pkg }: { pkg: PackageRow }) {
+  const prefix = `${pkg.packageName}.submodule.`;
+  const submodules = (pkg.manifest?.capabilities ?? []).filter(
+    (capability) => capability.capabilityType === "view" && capability.id.startsWith(prefix),
+  );
+  if (submodules.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader icon={Package} title="Sub-modules" />
+      <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+        {submodules.map((submodule) => (
+          <li key={submodule.id}>
+            <Link
+              to={`/module/${pkg.packageName}/${submodule.id.slice(prefix.length)}`}
+              className="flex items-center gap-3 p-3 no-underline hover:bg-[var(--color-surface)]"
+            >
+              <Package className="h-4 w-4 shrink-0" style={{ color: "var(--color-steel)" }} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{submodule.name}</p>
+                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>{submodule.id}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -113,7 +145,7 @@ function OverviewSection({ pkg }: { pkg: PackageRow }) {
               className="text-base font-semibold"
               style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}
             >
-              {manifest?.name ?? pkg.packageName}
+              {manifest?.module?.displayName ?? manifest?.name ?? pkg.packageName}
             </h1>
             {manifest?.summary && (
               <p className="text-sm mt-0.5" style={{ color: "var(--color-navy-mid)" }}>
@@ -669,7 +701,7 @@ export function ModuleDetailPage() {
           className="text-base font-semibold"
           style={{ color: "var(--color-navy)", fontFamily: "var(--font-editorial)" }}
         >
-          {pkg.manifest?.name ?? pkg.packageName}
+          {pkg.manifest?.module?.displayName ?? pkg.manifest?.name ?? pkg.packageName}
         </h1>
         <div className="ml-auto flex items-center gap-2">
           <StatusBadge value={pkg.state} />
@@ -681,6 +713,7 @@ export function ModuleDetailPage() {
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-8">
           <OverviewSection pkg={pkg} />
           <PagesDatabasesSection pkg={pkg} />
+          <SubmodulesSection pkg={pkg} />
           <AgentsSection pkg={pkg} attachments={attachments} onInstalled={() => setRefreshKey((value) => value + 1)} />
           <AutomationsSection pkg={pkg} />
           <IntegrationsSection pkg={pkg} />

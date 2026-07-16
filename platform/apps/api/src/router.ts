@@ -86,11 +86,12 @@ import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage,
 import { getIntegrationStore } from "./social/integration-service.js";
 import {
   COMMONS_BUILT_IN_PACKAGES,
+  isModuleRuntimeRitualId,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
-import { listModuleFiles } from "./module-files.js";
+import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
@@ -154,29 +155,37 @@ const requireAuthOnMutation = t.middleware(async ({ ctx, type, next }) => {
   return next();
 });
 
-const requireAuthOnSensitiveRead = t.middleware(async ({ ctx, next }) => {
+const requireAuthenticatedIdentity = t.middleware(async ({ ctx, next }) => {
   const persistent = ctx.wiring.persistent || process.env.NODE_ENV === "production";
   const allowed = ctx.authenticated || (!ctx.verifying && !persistent);
   if (!allowed) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
-      message: "verified authentication is required for local-plane file metadata",
+      message:
+        "authentication required: verified authentication is required because this deployment verifies identities (or persists data), " +
+        "but the request presented no verified credentials",
     });
   }
   return next();
 });
 
 const procedure = t.procedure.use(requireAuthOnMutation).use(withPilotWorkspaceGuard);
-const sensitiveReadProcedure = t.procedure.use(requireAuthOnSensitiveRead).use(withPilotWorkspaceGuard);
+const authenticatedProcedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotWorkspaceGuard);
+const publicProcedure = t.procedure.use(withPilotWorkspaceGuard);
 
 type LearningMemoryContent =
   | { kind: "onboarding_preference"; figure: string; admiredFor: string }
-  | { kind: "reflection_schedule"; dueAt: string; status: "scheduled" | "snoozed" | "paused" | "skipped" };
+  | { kind: "reflection_schedule"; dueAt: string; status: "scheduled" | "snoozed" | "paused" | "skipped" }
+  | { kind: "trust_capture"; appName: string; bundleId?: string; capturedAt: string };
 
 function parseLearningMemory(content: string): LearningMemoryContent | null {
   try {
     const parsed = JSON.parse(content) as LearningMemoryContent;
-    return parsed?.kind === "onboarding_preference" || parsed?.kind === "reflection_schedule" ? parsed : null;
+    return parsed?.kind === "onboarding_preference" ||
+      parsed?.kind === "reflection_schedule" ||
+      parsed?.kind === "trust_capture"
+      ? parsed
+      : null;
   } catch {
     return null;
   }
@@ -195,10 +204,18 @@ async function researchPublicFigure(figure: string): Promise<{ title: string; ex
     format: "json",
     origin: "*",
   });
-  const response = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+  const endpoint = new URL("/w/api.php", "https://en.wikipedia.org");
+  endpoint.search = params.toString();
+  const response = await fetch(endpoint, {
     headers: { "user-agent": "Bridge/0.1 onboarding-research" },
+    // This bounded lane never follows a redirect to a caller-controlled or
+    // private address. General research remains in TASK-015.
+    redirect: "error",
     signal: AbortSignal.timeout(8_000),
   });
+  if (response.url && new URL(response.url).origin !== endpoint.origin) {
+    throw new TRPCError({ code: "BAD_GATEWAY", message: "Public-source research left its allowlisted origin." });
+  }
   if (!response.ok) throw new TRPCError({ code: "BAD_GATEWAY", message: "Public-source research is unavailable." });
   const body = (await response.json()) as {
     query?: { pages?: Record<string, { title?: string; extract?: string }> };
@@ -730,7 +747,7 @@ export const appRouter = t.router({
      * enumerating what's awaiting approval). Paginated per this repo's list-endpoint
      * convention (dealpilot.list/integration.list).
      */
-    listPending: procedure
+    listPending: authenticatedProcedure
       .input(
         z
           .object({
@@ -742,6 +759,7 @@ export const appRouter = t.router({
       )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const { items, total } = await ctx.wiring.pipeline.listPending(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
@@ -750,9 +768,13 @@ export const appRouter = t.router({
       }),
 
     /** Resolve a pending proposal: approve | veto | edit. */
-    decide: procedure.input(decideInput).mutation(async ({ input, ctx }) => {
+    decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
       // claimed actor — the agent-floor in decide() blocks any agent from approving.
+      const original = await ctx.wiring.ledger.get(input.proposalId);
+      if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+      assertPilotWorkspace(original.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
       let resolved;
       try {
         resolved = await ctx.wiring.pipeline.decide(
@@ -956,6 +978,7 @@ export const appRouter = t.router({
      * authority (ritual ⊆ agent). The gate cannot be widened by a workflow. */
     create: procedure.input(ritualCreateInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       if (input.agentIds.length !== 1) {
         throw new Error("ritual.create: exactly one owning Agent is required");
       }
@@ -999,6 +1022,13 @@ export const appRouter = t.router({
     /** Run a ritual: ordered, governed steps through the pipeline. */
     run: procedure.input(ritualRunInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ritual.run actor must match the authenticated workspace member",
+        });
+      }
       return ctx.wiring.ritualExecutor.run(
         {
           workspaceId: input.workspaceId,
@@ -1027,6 +1057,12 @@ export const appRouter = t.router({
     runById: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (isModuleRuntimeRitualId(input.ritualId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Module Automations must run through their manifest Ritual key and package binding",
+        });
+      }
       let ritualId = input.ritualId;
       if (input.modulePackageName) {
         const moduleInstallation = await ctx.wiring.packageStore.getAvailable(
@@ -1348,6 +1384,28 @@ export const appRouter = t.router({
           updatedAtISO: new Date().toISOString(),
         };
         await ctx.wiring.onboardingProfileStore.save(row);
+        const existingMemories = await ctx.wiring.memoryStore.retrieve(
+          { limit: 100 },
+          { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
+        );
+        if (!existingMemories.some((memory) => parseLearningMemory(memory.content)?.kind === "reflection_schedule")) {
+          await ctx.wiring.memoryStore.write({
+            id: uuidv7(),
+            workspaceId: input.workspaceId,
+            type: "procedural",
+            scope: "private",
+            content: JSON.stringify({
+              kind: "reflection_schedule",
+              dueAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+              status: "scheduled",
+            }),
+            confidence: 1,
+            trustOrigin: "operator",
+            plane: "local",
+            createdBy: "learning",
+            ownerUserId: ctx.wiring.pilotUserId,
+          });
+        }
         return { profile: row };
       }),
 
@@ -1365,6 +1423,37 @@ export const appRouter = t.router({
               .filter((item): item is typeof item & { value: LearningMemoryContent } => item.value !== null),
           };
         }),
+
+    recordTrustCapture: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          appName: z.string().trim().min(1).max(200),
+          bundleId: z.string().trim().min(1).max(300).optional(),
+          capturedAt: z.string().datetime(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const memory = await ctx.wiring.memoryStore.write({
+          id: uuidv7(),
+          workspaceId: input.workspaceId,
+          type: "episodic",
+          scope: "private",
+          content: JSON.stringify({
+            kind: "trust_capture",
+            appName: input.appName,
+            ...(input.bundleId ? { bundleId: input.bundleId } : {}),
+            capturedAt: input.capturedAt,
+          }),
+          confidence: 1,
+          trustOrigin: "untrusted_external",
+          plane: "local",
+          createdBy: "desktop:apps",
+          ownerUserId: ctx.wiring.pilotUserId,
+        });
+        return { memory };
+      }),
 
     recommendFromRoleModel: procedure
         .input(
@@ -1418,21 +1507,6 @@ export const appRouter = t.router({
               trustOrigin: "user_content",
               plane: "local",
               createdBy: ctx.identity.id,
-              ownerUserId: ctx.wiring.pilotUserId,
-            });
-          }
-          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "reflection_schedule")) {
-            const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString();
-            await ctx.wiring.memoryStore.write({
-              id: uuidv7(),
-              workspaceId: input.workspaceId,
-              type: "procedural",
-              scope: "private",
-              content: JSON.stringify({ kind: "reflection_schedule", dueAt, status: "scheduled" }),
-              confidence: 1,
-              trustOrigin: "operator",
-              plane: "local",
-              createdBy: "learning",
               ownerUserId: ctx.wiring.pilotUserId,
             });
           }
@@ -1696,43 +1770,129 @@ export const appRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    listSignals: procedure
+    listSignals: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listSignals(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listSignals(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    listPeople: procedure
+    listPeople: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listPeople(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listPeople(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    listCommunities: procedure
+    getPerson: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.id);
+      }),
+
+    listCommunities: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listCommunities(input.workspaceId, {
-          limit: input.limit,
-          offset: input.offset,
-        });
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listCommunities(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit, offset: input.offset },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    getCommunity: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, input.id);
+      }),
+
+    getSignalDetail: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+      }),
+
+    proposeSignalAction: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
+        }
+        if (
+          !detail.sourceEvent ||
+          !detail.participants.some(
+            (participant) => participant.relationType === "participant" && participant.relationId,
+          )
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "A governed Relationship Action requires an accessible participant Relation and source Event.",
+          });
+        }
+
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+            action: "write",
+            resourceType: "signal",
+            resourceId: detail.signal.id,
+            inputs: {
+              kind: "relationship_signal_action",
+              signalId: detail.signal.id,
+              sourceEventId: detail.sourceEvent.id,
+              participantRefs: detail.participants.map((participant) => ({
+                relationId: participant.relationId,
+                recordType: participant.recordType,
+                recordId: participant.recordId,
+              })),
+              recommendation: detail.signal.recommendedAction,
+            },
+            skill: "stageMutation",
+            dataScope: "private",
+            seed: detail.sourceEvent.id,
+          },
+          ctx.run,
+        );
+        if (proposal.status !== "rejected") {
+          await ctx.wiring.graphStore.recordSignalAction({
+            workspaceId: input.workspaceId,
+            signalId: input.signalId,
+            userId: ctx.identity.id,
+            verb: "act",
+          });
+        }
+        return proposal;
       }),
 
     /** Records the user's reaction to a Signal (act|dismiss|save) — bookkeeping,
      * not a governed mutation; see graph-store.ts's header comment for why this
      * is a direct write rather than routed through action.propose. */
-    recordSignalAction: procedure
+    recordSignalAction: authenticatedProcedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
@@ -1742,6 +1902,11 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
+        }
         await ctx.wiring.graphStore.recordSignalAction({
           workspaceId: input.workspaceId,
           signalId: input.signalId,
@@ -1863,7 +2028,7 @@ export const appRouter = t.router({
    */
   helpdesk: t.router({
     public: t.router({
-      createTicket: procedure
+      createTicket: publicProcedure
         .input(
           z.object({
             workspaceId: z.string().min(1),
@@ -1885,7 +2050,7 @@ export const appRouter = t.router({
           return { ticket, message };
         }),
 
-      getThread: procedure
+      getThread: publicProcedure
         .input(z.object({ accessToken: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
           const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
@@ -1893,7 +2058,7 @@ export const appRouter = t.router({
           return result;
         }),
 
-      reply: procedure
+      reply: publicProcedure
         .input(z.object({ accessToken: z.string().min(1), body: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
           const message = await ctx.wiring.helpdeskStore.replyByToken(input.accessToken, input.body);
@@ -1903,10 +2068,11 @@ export const appRouter = t.router({
     }),
 
     /** Support-agent inbox — workspace-authenticated. */
-    list: procedure
+    list: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
@@ -1914,16 +2080,17 @@ export const appRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    get: procedure
+    get: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1), ticketId: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const result = await ctx.wiring.helpdeskStore.getTicket(input.workspaceId, input.ticketId);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
         return result;
       }),
 
-    reply: procedure
+    reply: authenticatedProcedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
@@ -1934,6 +2101,7 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const message = await ctx.wiring.helpdeskStore.replyAsAgent(
           input.workspaceId,
           input.ticketId,
@@ -1948,12 +2116,13 @@ export const appRouter = t.router({
     /**
      * Help Request routing (P2 Helpdesk package, ADR-021 — the
      * `helpdesk.capability-routing` capability in tools/helpdesk/package.yaml).
-     * Routes a help request over the workspace graph: candidates default to
-     * the workspace's members; topic tags may be supplied by the caller (the
+     * Routes a help request over the accessible Relationship graph: candidates
+     * are Person Records, not workspace-user identities. Topic tags may be
+     * supplied by the caller (the
      * graph carries no per-person topic tags yet — with none supplied the
      * result is an HONEST empty route list, never a fabricated match).
      */
-    route: procedure
+    route: authenticatedProcedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
@@ -1961,19 +2130,38 @@ export const appRouter = t.router({
           body: z.string().default(""),
           /** Optional per-person topic tags ({personId -> topics[]}) until the
            * graph carries real topic/skill data (see docs/BUGS.md). */
-          topicsByPerson: z.record(z.array(z.string())).optional(),
+          topicsByPerson: z
+            .record(z.array(z.string().min(1)).max(50))
+            .refine(
+              (value) => Object.keys(value).every((id) => z.string().uuid().safeParse(id).success),
+              "candidate Person ids must be UUIDs",
+            )
+            .refine((value) => Object.keys(value).length <= 500, "at most 500 candidate People may be routed")
+            .optional(),
           limit: z.number().int().min(1).max(10).default(3),
         }),
       )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const members = await ctx.wiring.workspaceStore.listMembers(input.workspaceId);
-        const candidates: HelpResponderCandidate[] = members.map((m) => ({
-          personId: m.userId,
-          displayName: m.name ?? m.email,
-          topics: input.topicsByPerson?.[m.userId] ?? [],
-        }));
+        const candidates = (
+          await Promise.all(
+            Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
+              const person = await ctx.wiring.graphStore.getPerson(
+                input.workspaceId,
+                ctx.identity.id,
+                personId,
+              );
+              return person
+                ? {
+                    personId: person.id,
+                    displayName: person.displayName ?? "Unnamed person",
+                    topics,
+                  } satisfies HelpResponderCandidate
+                : null;
+            }),
+          )
+        ).filter((candidate): candidate is HelpResponderCandidate => candidate !== null);
         const routes = routeHelpRequest({ subject: input.subject, body: input.body }, candidates, input.limit);
         return { routes };
       }),
@@ -1986,22 +2174,46 @@ export const appRouter = t.router({
      * "signal": a Help Offer is a Signal-shaped recommendation (every Signal
      * -> an action), decided by a human on the approvals surface.
      */
-    stageAnswer: procedure
+    stageAnswer: authenticatedProcedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
           subject: z.string().min(1),
           body: z.string().default(""),
-          routedToPersonId: z.string().min(1),
-          routedToDisplayName: z.string().min(1),
+          routedToPersonId: z.string().uuid(),
+          candidateTopics: z.array(z.string().min(1)).max(50),
           draftBody: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const routedPerson = await ctx.wiring.graphStore.getPerson(
+          input.workspaceId,
+          ctx.identity.id,
+          input.routedToPersonId,
+        );
+        if (!routedPerson) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "routed Person not found or not accessible" });
+        }
+        const [route] = routeHelpRequest(
+          { subject: input.subject, body: input.body },
+          [{
+            personId: routedPerson.id,
+            displayName: routedPerson.displayName ?? "Unnamed person",
+            topics: input.candidateTopics,
+          }],
+          1,
+        );
+        if (!route) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "the selected Person no longer matches the supplied routing topics",
+          });
+        }
         const offer = draftHelpOffer(
           { subject: input.subject, body: input.body },
-          { personId: input.routedToPersonId, displayName: input.routedToDisplayName, score: 0, matchedTopics: [] },
+          route,
           input.draftBody,
         );
         const proposal = await ctx.wiring.pipeline.propose(
@@ -2417,7 +2629,7 @@ export const appRouter = t.router({
    */
   packages: t.router({
     /** Real local-plane File inventory for one installed Module. */
-    files: sensitiveReadProcedure
+    files: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1), moduleName: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
@@ -2426,15 +2638,22 @@ export const appRouter = t.router({
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
         }
-        const organization = (await ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id))
-          .find((workspace) => workspace.id === input.workspaceId);
+        const workspaces = await ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
+        const organization = workspaces.find((workspace) => workspace.id === input.workspaceId);
         if (!organization) {
           throw new TRPCError({ code: "FORBIDDEN", message: "workspace membership required" });
         }
-        return listModuleFiles(
-          organization.name,
-          installation.manifest.module?.displayName ?? installation.packageName,
-        );
+        try {
+          return await listModuleFiles(
+            organization.name,
+            installation.manifest.module?.displayName ?? installation.packageName,
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
       }),
 
     /** Register a package manifest. Always creates state=private, status=
@@ -2824,7 +3043,7 @@ export const appRouter = t.router({
       };
     }),
 
-    list: sensitiveReadProcedure.input(paginatedInput).query(async ({ input, ctx }) => {
+    list: authenticatedProcedure.input(paginatedInput).query(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const { items, total } = await ctx.wiring.packageStore.list(input.workspaceId, {
@@ -2855,7 +3074,7 @@ export const appRouter = t.router({
       };
     }),
 
-    get: sensitiveReadProcedure.input(packageIdInput).query(async ({ input, ctx }) => {
+    get: authenticatedProcedure.input(packageIdInput).query(async ({ input, ctx }) => {
       const installation = await ctx.wiring.packageStore.get(input.installationId);
       if (!installation) throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       await assertMembership(ctx.wiring.workspaceStore, installation.workspaceId, ctx.identity.id);

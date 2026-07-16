@@ -17,7 +17,7 @@ Live clean-registry evidence:
 - Desktop `1280x720`: Module-scoped search/inspect/install; provenance/hash/scan visible; no Intelligence/marketplace route.
 - Mobile `375x812`: installed need, attached Skill, owning Agent attribution, body width `375`.
 - Final build `20/20`, typecheck `37/37`, no-dummy runtime gate passed.
-- Affected suites: core `357/357`, Commons `19/19`, DB `68/68`, API `122/122`, web `28/28`.
+- Post-main reconciliation suites: core `358/358`, Commons `19/19`, DB `72/72`, API `134/134`, web `40/40`.
 
 ## TASK-005 gate-glue delta
 
@@ -26,6 +26,7 @@ TASK-005 remains blocked; it is not certified or marked done.
 - Ritual definitions persist one owning Agent and Plane through core, in-memory, and Drizzle stores.
 - `ritual.create` rejects ambiguous multi-Agent ownership.
 - `ritual.runById` checks workspace membership, derives the actor server-side, and rejects arbitrary caller actors or missing ownership.
+- Legacy direct `ritual.run` is membership-gated and accepts only the authenticated member as actor; Module runtime UUIDs cannot bypass manifest/package binding.
 - Migration `0013_uneven_dragon_lord.sql` backfills only singular legacy ownership and stores procedure-name Skill allowlists as `text[]`.
 - DealPilot's signed Module manifest declares one generalized Ritual key. The server resolves `(Module package, Ritual key)` to Local-Plane UUIDs, confirms the installed manifest and stored owning Agent in both runtime modes, and only then tells Module Detail to expose one governed Run.
 - Inventory-only Automations say runtime binding pending instead of exposing fake Actions.

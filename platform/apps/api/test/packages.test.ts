@@ -5,9 +5,23 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parsePackageManifest, SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import {
+  InMemoryPackageStore,
+  SeededRng,
+  SystemClock,
+  UuidGen,
+  parsePackageManifest,
+  type RunCtx,
+} from "@bridge/core";
+import { ModuleFilesPathError, moduleFilesRoot } from "../src/module-files.js";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import {
+  buildWiring,
+  PILOT_USER,
+  PILOT_WORKSPACE,
+  retireSupersededBuiltIns,
+  type Wiring,
+} from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -355,6 +369,25 @@ test("packages.list: paginates a workspace's installations", async () => {
   }
 });
 
+test("built-in bootstrap retires standalone Helpdesk without deleting its history", async () => {
+  const store = new InMemoryPackageStore();
+  const row = await store.create({
+    workspaceId: PILOT_WORKSPACE,
+    packageName: "helpdesk",
+    packageVersion: "1.0.0",
+    manifest: parsePackageManifest(dummyManifest({ name: "helpdesk" })),
+    computedRisk: "operational",
+    state: "available",
+    status: "installed",
+    lineageManifestId: null,
+  });
+
+  await retireSupersededBuiltIns(store, PILOT_WORKSPACE);
+
+  const retired = await store.get(row.id);
+  assert.equal(retired?.state, "legacy");
+  assert.equal(retired?.status, "installed");
+});
 test("packages.files: returns the real canonical File root for an installed Module", async () => {
   const wiring = await buildWiring();
   try {
@@ -363,29 +396,6 @@ test("packages.files: returns the real canonical File root for an installed Modu
       workspaceId: PILOT_WORKSPACE,
       moduleName: "deal-pilot",
     });
-
-    test("packages.files: authenticated deployments reject tokenless local-file metadata reads", async () => {
-      const wiring = await buildWiring();
-      try {
-        const caller = appRouter.createCaller({
-          wiring,
-          run: makeRun(),
-          identity: { type: "user", id: PILOT_USER },
-          authenticated: false,
-          verifying: true,
-        });
-        await assert.rejects(
-          () => caller.packages.files({ workspaceId: PILOT_WORKSPACE, moduleName: "deal-pilot" }),
-          /verified authentication is required/,
-        );
-        await assert.rejects(
-          () => caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
-          /verified authentication is required/,
-        );
-      } finally {
-        await wiring.close();
-      }
-    });
     assert.match(inventory.root, /Documents[/\\]Bridge[/\\].+[/\\]DealPilot$/);
     assert.ok(Array.isArray(inventory.items));
   } finally {
@@ -393,6 +403,34 @@ test("packages.files: returns the real canonical File root for an installed Modu
   }
 });
 
+test("packages.files: authenticated deployments reject tokenless local-file metadata reads", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = appRouter.createCaller({
+      wiring,
+      run: makeRun(),
+      identity: { type: "user", id: PILOT_USER },
+      authenticated: false,
+      verifying: true,
+    });
+    await assert.rejects(
+      () => caller.packages.files({ workspaceId: PILOT_WORKSPACE, moduleName: "deal-pilot" }),
+      /verified authentication is required/,
+    );
+    await assert.rejects(
+      () => caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
+      /verified authentication is required/,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("moduleFilesRoot: rejects Organization and Module traversal segments", () => {
+  assert.throws(() => moduleFilesRoot("..", "DealPilot"), ModuleFilesPathError);
+  assert.throws(() => moduleFilesRoot("Bridge", "."), ModuleFilesPathError);
+  assert.throws(() => moduleFilesRoot(" .. ", " .. "), ModuleFilesPathError);
+});
 test("packages.install: re-installing two package versions whose bundled capability keeps the SAME (name, version) is idempotent — reuses the existing manifest instead of colliding with capability_manifests_uq (ADR-024)", async () => {
   const wiring = await buildWiring();
   try {

@@ -178,6 +178,70 @@ test("ritual.runById rejects authenticated nonmembers before deriving the owning
       authenticated: true,
       verifying: false,
     });
+
+    test("ritual.create and direct ritual.run reject nonmember or caller-selected authority", async () => {
+      const wiring = await buildWiring();
+      try {
+        const caller = makeCaller(wiring);
+        await assert.rejects(
+          () =>
+            caller.ritual.run({
+              workspaceId: PILOT_WORKSPACE,
+              ritualId: "caller-selected",
+              actor: { type: "user", id: "b0000000-0000-4000-a000-00000000ffff" },
+              steps: [{
+                skill: "stageMutation",
+                action: "write",
+                resourceType: "touchpoint",
+                inputs: {},
+              }],
+            }),
+          /actor must match the authenticated workspace member/,
+        );
+
+        const outsider = appRouter.createCaller({
+          wiring,
+          run: makeRun(),
+          identity: { type: "user" as const, id: "b0000000-0000-4000-a000-00000000ffff" },
+          authenticated: true,
+          verifying: false,
+        });
+        await assert.rejects(
+          () =>
+            outsider.ritual.create({
+              workspaceId: PILOT_WORKSPACE,
+              name: "Unauthorized Automation",
+              agentIds: [DEAL_PILOT_SOURCING_AGENT_ID],
+              steps: [{
+                skill: "dealpilot.source",
+                action: "read",
+                resourceType: "external:fetch",
+                inputs: {},
+              }],
+            }),
+          /not a member of workspace/,
+        );
+      } finally {
+        await wiring.close();
+      }
+    });
+
+    test("module-owned runtime Ritual UUID cannot bypass package binding", async () => {
+      const wiring = await buildWiring();
+      try {
+        const caller = makeCaller(wiring);
+        await assert.rejects(
+          () =>
+            caller.ritual.runById({
+              workspaceId: PILOT_WORKSPACE,
+              ritualId: DEAL_PILOT_SOURCE_RITUAL_ID,
+            }),
+          /manifest Ritual key and package binding/,
+        );
+      } finally {
+        await wiring.close();
+      }
+    });
     await assert.rejects(
       () =>
         caller.ritual.runById({

@@ -105,6 +105,7 @@ import {
   DrizzleWorkspaceDefinitionStore,
   DrizzlePackageStore,
   DrizzleMemoryStore,
+  ensureLearningAgentGovernance,
   InMemoryCanonicalIdentityStore,
   schema,
   type CanonicalIdentityStore,
@@ -147,12 +148,25 @@ const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
 const EGRESS_AGENT = DEAL_PILOT_SOURCING_AGENT_ID;
 const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
-const EGRESS_ROLE_PERMISSION = "b0000000-0000-4000-a000-0000000000c2";
+const EGRESS_ROLE_PERMISSION = "b0000000-0000-4000-a000-0000000000c3";
+export const LEARNING_ROLE = "b0000000-0000-4000-a000-0000000000f2";
+const LEARNING_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c2";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
 // seeded user id — workspace_definitions.created_by is a real FK to `users`,
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
+
+export async function retireSupersededBuiltIns(
+  packageStore: PackageStore,
+  workspaceId: string,
+): Promise<void> {
+  for (const row of await packageStore.listVersions(workspaceId, "helpdesk")) {
+    if (row.state === "available") {
+      await packageStore.setState(row.id, "legacy");
+    }
+  }
+}
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;
@@ -273,6 +287,19 @@ const stageLearningRecommendation: Skill = {
 
 const policies: PolicyFn[] = [
   (i) =>
+    i.phase === "pre" &&
+    typeof i.inputs === "object" &&
+    i.inputs !== null &&
+    (i.inputs as { kind?: unknown }).kind === "help_offer"
+      ? {
+          policyId: "pol-help-offer-approval",
+          phase: "pre",
+          effect: "require_approval",
+          reason: "Help Offers remain drafts until a human approves them",
+        }
+      : null,
+  (i) =>
+    i.phase === "pre" &&
     typeof i.inputs === "object" &&
     i.inputs !== null &&
     (i.inputs as { kind?: unknown }).kind === "learning_recommendation"
@@ -377,6 +404,8 @@ export interface ModePorts {
    *  outside prod. `buildWiring()` awaits this before the server serves traffic. */
   verifyRlsPosture?: () => Promise<void>;
   bootstrapModuleRuntime?: () => Promise<void>;
+  /** Persistent-mode boot provisioning + verification for the attributable Learning Agent grant. */
+  ensureLearningGovernance?: () => Promise<void>;
 }
 
 /**
@@ -489,6 +518,14 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
         })
         .onConflictDoNothing();
     },
+    ensureLearningGovernance: () =>
+      ensureLearningAgentGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+        agentId: LEARNING_AGENT,
+        roleId: LEARNING_ROLE,
+        permissionId: LEARNING_SIGNAL_PERMISSION,
+      }),
   };
 }
 
@@ -575,6 +612,7 @@ export async function buildWiring(): Promise<Wiring> {
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
+  await modePorts.ensureLearningGovernance?.();
   const {
     roles,
     agents,
@@ -599,6 +637,20 @@ export async function buildWiring(): Promise<Wiring> {
     memory,
     closeDb,
   } = modePorts;
+  // Kernel policies are deployment-invariant safety rules. Persistent mode also
+  // evaluates workspace policies from Postgres; it must not replace these rules.
+  const staticPolicyStore = new InMemoryPolicyStore(policies);
+  const effectivePolicyStore: PolicyStore = url
+    ? {
+        async evaluate(input) {
+          const [staticResults, persistedResults] = await Promise.all([
+            staticPolicyStore.evaluate(input),
+            policyStore.evaluate(input),
+          ]);
+          return [...staticResults, ...persistedResults];
+        },
+      }
+    : policyStore;
 
   // ModelProvider registry/router — resolves tool-kit modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
@@ -686,6 +738,11 @@ export async function buildWiring(): Promise<Wiring> {
   });
   await modePorts.bootstrapModuleRuntime?.();
 
+  // Helpdesk is now a nested Relationship sub-module. Preserve historical
+  // installation rows and data, but remove the retired standalone Module from
+  // installed navigation before seeding the replacement.
+  await retireSupersededBuiltIns(packageStore, PILOT_WORKSPACE);
+
   // Seed built-in workspace-definition packages as available+installed.
   // Idempotent: checks existing rows before inserting so a restart doesn't duplicate.
   const existing = await packageStore.list(PILOT_WORKSPACE, { limit: 100, offset: 0 });
@@ -746,7 +803,7 @@ export async function buildWiring(): Promise<Wiring> {
 
   const pipeline = new UniversalActionPipeline({
     authority: { roles, agents, ephemeral, nowISO: "" },
-    policies: policyStore,
+    policies: effectivePolicyStore,
     skills: skillRegistry,
     ledger,
     events,
@@ -797,7 +854,7 @@ export async function buildWiring(): Promise<Wiring> {
     roles,
     agents,
     ephemeral,
-    policies: policyStore,
+    policies: effectivePolicyStore,
     ledger,
     events,
     persistent: Boolean(url),

@@ -18,12 +18,40 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
-## OPEN 2026-07-16 — repository baseline lint and web typecheck are red before TASK-002
+## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
+The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
+Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
+`~/Documents/Bridge`, and a registered/installed manifest could enumerate ancestor metadata through
+`packages.files`. The root builder now rejects empty/dot segments, resolves against the canonical
+Bridge File root, and verifies the result is a strict descendant. Module manifests reject dot-segment
+display names at intake, and the router surfaces a bounded `BAD_REQUEST`. Core and API regressions
+cover the manifest and both Organization/Module traversal vectors.
+
+## RESOLVED 2026-07-16 — TASK-001 release startup could block Tauri setup for 20 seconds
+The TASK-001/TASK-003 merge created windows synchronously to prevent Tauri's zero-window exit race,
+but also moved the API sidecar's bounded `/health` wait onto the synchronous `setup()` thread. A slow
+or failed API could therefore leave the desktop shell unresponsive for the full 20-second budget.
+Sidecar spawn/port resolution remains synchronous so the correct URL is injected before web code
+loads; health monitoring now runs on a named detached thread, allowing window creation and the event
+loop to start immediately. A Rust regression proves the monitor returns control within one second.
+
+## RESOLVED 2026-07-16 — TASK-001 API clean build omitted the JobPilot project reference
+TASK-001 added direct `@bridge/jobpilot` imports to `apps/api/src/router.ts`, but `apps/api/tsconfig.json`
+did not reference `tools/jobpilot`. A clean dependency-ordered API build therefore failed with TS2307
+before JobPilot declarations existed; the secondary `err is unknown` diagnostic was a consequence of
+the unresolved imported error class. Added the missing composite-project reference and reran the
+integrated TASK-001 build/test matrix.
+
+---
+
+## OPEN 2026-07-16 — repository baseline lint is red; TASK-001 resolved the web typecheck defect
 `pnpm lint` fails because `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
-`react-hooks/exhaustive-deps` without the rule being registered. `pnpm typecheck` fails because
-`apps/web/src/app/pages/IntelligencePage.tsx:87,89` renders `Link` without importing it. The same
-baseline run passed all existing tests and the production build. Attach to TASK-017; resolve when
-both commands pass without weakening checks.
+`react-hooks/exhaustive-deps` without the rule being registered. TASK-001 added the missing
+`IntelligencePage.tsx` `Link` import; clean integrated web typecheck now passes. The lint failure remains
+attached to TASK-017 and must be resolved without weakening checks.
+
+## RESOLVED 2026-07-16 — concurrent persistent Learning governance provisioning could fail API boot
+TASK-002 initially provisioned the Learning Agent's type-wide Signal Role grant and attributable user grant with check-then-insert writes. Concurrent API replicas could both observe a missing grant and race into the same unique index, crashing one boot. FIX: both inserts now use conflict-safe writes while retaining post-write verification; the pglite regression provisions twice concurrently and once sequentially, then verifies Agent Role, capability scope, Role grant, and principal authority.
 
 ---
 
@@ -31,7 +59,7 @@ both commands pass without weakening checks.
 Commons now signs canonical content, its explicit SHA-256 pin, every exact dependency content pin, and publication ordering time; verifies provenance, deterministic dependency-closure scan evidence, trusted publisher key, requested identity, signed risk floor, and hashes at publish/fetch/install; rejects unsigned, tampered, untrusted, hash-mismatched, unresolved/substituted, privacy-bearing, and concurrent-conflict input; and attaches an installed capability only beneath its declared owning Module Agent. Clean desktop and 375px local prototype evidence is in `outputs/2026-07-16-task004-commons-task005-glue.md`. Attached to TASK-004.
 
 ## RESOLVED 2026-07-16 — Ritual execution trusted a caller-supplied actor and discarded creation ownership
-`ritual.create` now persists exactly one owning Agent. `ritual.runById` checks workspace membership, derives Agent identity and Plane from the stored definition, rejects caller mismatch and missing/ambiguous legacy ownership, and records that actor on proposals/Runs. Module-key execution is package-scoped and server-confirmed before the UI exposes Run. DB migration `0013_uneven_dragon_lord.sql` backfills only unambiguous legacy rows and aligns procedure-name Skill allowlists with `text[]`. Attached to blocked TASK-005 gate glue; full demo certification remains open.
+`ritual.create` now checks membership and persists exactly one owning Agent. `ritual.runById` checks workspace membership, derives Agent identity and Plane from the stored definition, rejects caller mismatch and missing/ambiguous legacy ownership, and records that actor on proposals/Runs. Legacy direct `ritual.run` is membership-gated and cannot select another actor. Module-key execution is package-scoped and server-confirmed before the UI exposes Run; direct runtime UUIDs cannot bypass that binding. DB migration `0013_uneven_dragon_lord.sql` backfills only unambiguous legacy rows and aligns procedure-name Skill allowlists with `text[]`. Attached to blocked TASK-005 gate glue; full demo certification remains open.
 
 ## RESOLVED 2026-07-16 — clean `@bridge/api` build omitted the JobPilot project reference
 `apps/api/src/router.ts` imports `@bridge/jobpilot`, but `apps/api/tsconfig.json` referenced DealPilot,
@@ -57,14 +85,14 @@ Existing association views rely partly on local generated/static fallback and th
 ## RESOLVED 2026-07-14 — sensor coverage gate was calibrated above Node 24.15's measured aggregate
 `@bridge/sensors`' six tests all passed, but its test command failed because Batch 9 set `--test-coverage-lines=39` from a reported 39.38% measurement while the repository-pinned Node 24.15.0 reports 38.59%. The package imports the `@bridge/core` barrel, so Node's coverage aggregate includes unrelated core files and can move when core or Node's coverage accounting changes; no sensor implementation coverage regressed and the Egg/Commons priority branch changes no platform source. Reproduced both in the serial full gate and the isolated sensor test. FIX: recalibrated the ratchet 39→38, at/below the current measured aggregate, exactly following ADR-082's existing downstream-floor rule. The isolated sensor suite is the failing test and must pass after the one-line configuration correction.
 
-## OPEN 2026-07-14 — USER REPORT: onboarding remains blueprint-centric and exposes unexplained kernel vocabulary/questions
-The live flow asks users to choose a domain, what Bridge should “watch or do first,” a vocabulary override, a view style, and an Organization name, then previews “Entities” and “Views” and submits a governed “proposal.” The code explicitly tells users that Bridge calls tracked work an “Initiative” by default (`apps/web/src/app/onboarding/questions.ts`) even though the user cannot understand that term or why several questions are being asked. Several answers have weak or misleading causal explanations: `profession` is captured but only reserved for future smart mapping; `watch_first` claims to seed first views but today only influences stage fields/calendar capability; `view_style` selects one initial renderer rather than learning a preference; the spirit-animal choice is cosmetic despite being mixed into setup. This is the old adaptive-blueprint questionnaire, not EG1’s trust-first onboarding ceremony (permission rows, proof-by-capture, performed first value, live Module proposals, single next action). Source requirement: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`. Resolve only after EG1-aligned copy/flow is live-tested with every user-visible question showing an immediate, understandable consequence and no unexplained kernel vocabulary.
+## RESOLVED 2026-07-16 — USER REPORT: onboarding remains blueprint-centric and exposes unexplained kernel vocabulary/questions
+The live flow previously asked blueprint questions without a trust ceremony, exposed unexplained internal vocabulary, and did not state each answer's immediate consequence. FIX: Onboarding now opens with honest live desktop permission states and an explicit bounded foreground-app proof; every question renders separate Why and Consequence copy; user-facing internal vocabulary was removed; preview copy describes the proposed starting information/layout; role-model learning produces a cited recommendation that stays pending until the user approves it. Verified through the real Tauri shell, a full 375px completion with no horizontal overflow, and web/API regressions. Source requirement: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`.
 
 ## OPEN 2026-07-14 — USER REPORT: desktop companion cannot be dragged and does not follow macOS Spaces/screens or display changes
-`apps/desktop/src-tauri/src/overlay.rs` anchors one undecorated overlay window per monitor at app launch; `OverlayApp.tsx` has no `startDragging`/drag-region behavior, so the user cannot reposition it. The shell has no monitor hot-plug reconciliation, stores no chosen position, and does not use the already-planned `tauri-nspanel` `NonActivatingPanel` + `FullScreenAuxiliary`/join-all-Spaces behavior, so the companion does not follow virtual desktops/fullscreen transitions. Static duplication across launch-time monitors is not the requested “moves with me” behavior and can produce multiple companions on extended displays. Source requirement: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`; root plan: Egg EG0 + `docs/raw/desktop-companion-agent-roadmap-2026-07.md`. Resolve with real-device evidence across drag, app relaunch, Space switch, fullscreen app, monitor attach/detach, and extended-display transitions.
+The implementation gap is closed in code: `OverlayApp.tsx` uses an OS drag region and saves on pointer-up; `overlay.rs` atomically persists/reconciles positions, polls display topology, creates/removes overlay instances, and re-anchors off-screen windows. On macOS, inspected `tauri-nspanel` 2.1.0 commit `a3122e8` converts each overlay to `AvatarPanel` with non-activating, join-all-Spaces, and fullscreen-auxiliary policy. Repeated real `tauri dev` launches on macOS 26.5.1 logged the live `AvatarPanel`; the panel remained visible at floating layer 3 while the main window occupied another Space and throughout menu, keyboard, and pointer fullscreen transitions. Accessibility exposed the Avatar drag handle and accepted interaction without making Bridge frontmost. Current permission probes pass (`AXIsProcessTrusted=true`, screen-capture preflight true, System Events UI scripting true). 27 Rust tests cover geometry, collapsed-position normalization, persistence serialization, topology changes, and attach/detach create/remove plans. Evidence: `outputs/2026-07-16-task-003-macos-avatar.md`. Keep OPEN until the original real-device matrix is physically performed: CoreGraphics and AppKit report exactly one active built-in display, so a reliable physical drag→relaunch and external-display attach/detach/reposition/move pass remain unavailable.
 
 ## OPEN 2026-07-14 — USER REPORT: native close/minimize controls are outside the Bridge sidebar instead of integrated into it
-The main Tauri window is created with default native decorations in `apps/desktop/src-tauri/src/lib.rs`, while `apps/web/src/app/Layout.tsx` begins the sidebar with the Organization switcher and exposes no desktop window-control strip. This makes macOS traffic-light controls part of external titlebar chrome, contrary to the supplied reference where close/minimize/zoom sit inside the sidebar header. Requires a custom-titlebar treatment that preserves drag regions, keyboard/window behavior, accessibility, and browser-client compatibility. Source requirement + reference image: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`.
+The code gap is closed: macOS now uses Tauri's overlay title bar with hidden title and a draggable Sidebar titlebar lane, placing the real AppKit close/minimize/zoom controls inside the supplied-reference Sidebar layout. The earlier duplicate HTML buttons and Rust proxy commands were removed. Browser/Windows/Linux render no extra controls and keep native decorations. Live macOS Accessibility identified one standard Bridge window with enabled `close button`, `full screen button`, and `minimize button` elements in the Sidebar lane. Trusted pointer actions operated minimize, fullscreen, and close; Command-Control-F operated fullscreen by keyboard; `AXPress` operated close. Every transition left the Avatar present. Evidence: `outputs/2026-07-16-task-003-macos-avatar.md`. Keep OPEN until the exact physical pass includes an actual VoiceOver operator together with physical drag and the external-display matrix.
 
 ## RESOLVED 2026-07-16 — USER REPORT: Intelligence tabs violated the standard table/page toolbar rule; Workflows label regressed from Automations
 The obsolete Intelligence route and its Tools/Workflows/standalone-Skills tabs are no longer registered. Installed Modules are first-class nav items. DealPilot and JobPilot Pages use `StandardToolbar`, keep table headers available for honest zero-record states, and expose the standard pointer/keyboard column menu; working 3-dots entries open Module Detail rather than rendering inert rows.
@@ -1026,8 +1054,8 @@ FIX (ADR-024): added `"location"` to `ColumnKind` in `packages/tables/src/types.
 ## RESOLVED 2026-07-16 — Pinned Projects/Tools no longer surfaced anywhere after shell IA v2 (ADR-029)
 Removed the still-live Calendar and Resources “Pin to sidebar” affordances now that the canonical Sidebar is installed-Module-driven. Legacy Tool pages/routes are not registered, so no visible action writes a pin that the shell cannot display.
 
-## OPEN 2026-07-07 — No manual re-entry point for onboarding after nav refactor (ADR-029)
-The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. OnboardingDialog still auto-opens when no active blueprint exists, but a user with an active blueprint has no way to re-run onboarding/setup. Needs a home (likely Settings → Organization).
+## RESOLVED 2026-07-16 — No manual re-entry point for onboarding after nav refactor (ADR-029)
+Settings → Learning now exposes “Re-enter onboarding.” The dialog returns to the trust ceremony; “Start over” clears only draft answers and does not delete the active Organization. Verified at 375px and covered by the onboarding UI contract regression.
 
 ## OPEN 2026-07-07 — No per-Initiative resource scoping in the API (Control Panel shows Organization-wide rows only)
 `/initiative/:id/control-panel` (ControlPanelPage.tsx) can only enumerate workspace-scoped resources (`packages.list`, `integration.list`, `google.list`) — there is no API concept binding a Module/Integration/Automation/Assistant to one initiative, and no `ritual.list`/`agent.list` read procedures at all (pre-existing gaps). The panel honestly labels Scope "Organization-wide" and renders note rows; real per-Initiative configuration needs kernel + router support.

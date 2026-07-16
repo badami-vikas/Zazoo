@@ -25,6 +25,15 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-16 — TASK-002 onboarding/Learning Agent test fixtures** (`platform/apps/api/test/security-hardening.test.ts`,
+  `platform/packages/db/test/local-store.test.ts`, `platform/apps/web/test/onboarding-learning.test.mjs`).
+  **Reason:** deterministic governance, scheduling, citation, Memory-lineage, and responsive UI tests cannot
+  depend on private onboarding answers, a shared production workspace, or mutable external user records.
+  **Real elements they stand in for:** a user's role-model answers, Learning Memories, Agent/Role grants,
+  reflection schedule, trust-check observation, and governed recommendation decision.
+  **Removal condition:** retain for isolated regression coverage; replace prototype/evaluation evidence with
+  user-approved local-only onboarding sessions when a repeatable device-test harness is available.
+
 - **2026-07-16 — package manifest parser fixtures** (`platform/packages/core/test/package-manifest.test.ts`).
   **Reason:** deterministic parser validation needs malformed and internally linked manifests that cannot be
   registered in a live package store without contaminating shared installation state.

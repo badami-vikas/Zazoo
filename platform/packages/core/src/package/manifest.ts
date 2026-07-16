@@ -212,6 +212,9 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   if (!isPlainObject(raw)) fail("package.module must be an object");
 
   const displayName = requiredString(raw.displayName ?? raw.display_name, "package.module.display_name");
+  if (displayName.trim() === "." || displayName.trim() === "..") {
+    fail("package.module.display_name cannot be a relative path segment");
+  }
   const route = requiredString(raw.route, "package.module.route");
   if (!route.startsWith("/")) fail("package.module.route must start with /");
 

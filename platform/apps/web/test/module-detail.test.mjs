@@ -28,7 +28,7 @@ const RISK_LABELS = {
 };
 
 /** Mirrored from built-in-packages.ts */
-const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "helpdesk", "calendar"];
+const BUILT_IN_PACKAGE_NAMES = ["deal-pilot", "job-pilot", "relationship", "calendar"];
 
 // ---------------------------------------------------------------------------
 // PanelControl state logic (mirrored from usePanelControl, no React)
@@ -118,7 +118,7 @@ test("Nav module filter: only installed Module manifests appear", () => {
   const packages = [
     { packageName: "deal-pilot", state: "available", status: "installed", manifest: { module: {} } },
     { packageName: "job-pilot", state: "available", status: "pending_review", manifest: { module: {} } },
-    { packageName: "helpdesk", state: "available", status: "installed", manifest: { module: {} } },
+    { packageName: "relationship", state: "available", status: "installed", manifest: { module: {} } },
     { packageName: "calendar", state: "deprecated", status: "installed", manifest: { module: {} } },
     {
       packageName: "calendar-skill",
@@ -138,7 +138,7 @@ test("Nav module filter: only installed Module manifests appear", () => {
   assert.equal(navModules.length, 2);
   assert.deepEqual(
     navModules.map((m) => m.packageName),
-    ["deal-pilot", "helpdesk"]
+    ["deal-pilot", "relationship"]
   );
 });
 
@@ -152,9 +152,19 @@ test("Module Detail route uses packageName as route param", () => {
 });
 
 test("Commons discovery stays Module-scoped and does not resurrect an Intelligence route", () => {
-  const routedSurfaces = ["home", "module/:moduleId", "dealpilot", "jobpilot", "helpdesk", "calendar/google"];
+  const routedSurfaces = ["home", "module/:moduleId", "module/relationship/helpdesk", "dealpilot", "jobpilot", "calendar/google"];
   assert.equal(routedSurfaces.includes("intelligence"), false);
   assert.equal(routedSurfaces.includes("marketplace"), false);
+});
+
+test("Relationship routes stay Module-scoped while deprecated standalone routes remain removed", () => {
+  const source = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
+  assert.match(source, /path: "module\/relationship\/signals\/:signalId"/);
+  assert.match(source, /path: "module\/relationship\/people\/:recordId"/);
+  assert.match(source, /path: "module\/relationship\/communities\/:recordId"/);
+  assert.match(source, /path: "module\/relationship\/helpdesk"/);
+  assert.doesNotMatch(source, /path: "(?:helpdesk|signals)(?:\/|")/);
+  assert.doesNotMatch(source, /IntelligencePage|KnowledgeBasePage|Marketplace/);
 });
 
 test("only installed available Commons packages attach beneath their declared Module Agent", () => {

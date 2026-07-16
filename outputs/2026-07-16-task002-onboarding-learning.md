@@ -1,34 +1,28 @@
-# TASK-002 — onboarding and controlled learning
+# TASK-002 — trust-first onboarding and controlled learning
 
 ## Delivered
-- Every onboarding question explains why it is asked and what changes.
-- Public-role-model input is optional and paired with the behavior the user admires.
-- Learning checks a bounded Wikipedia source, cites it, separates documented context from interpretation, and proposes a recommendation as a pending-review Signal.
-- Direct onboarding preferences persist as private Local Plane Memory.
-- The day-7 qualities reflection is scheduled and can be snoozed, paused, resumed, or skipped.
-- Settings exposes onboarding re-entry plus preference inspect, correct, and delete controls. Start over clears only draft answers.
+- Onboarding opens with an honest desktop trust ceremony: current Accessibility and screen-recording states, no implied microphone capture, and a user-triggered one-observation foreground-app check that blinks the Avatar, saves an inspectable private Local Plane Memory, and stops the provider.
+- Every question shows separate **Why** and **Consequence** copy. The flow no longer explains itself with internal kernel vocabulary.
+- Public-role-model input is optional and paired with the behavior the user admires. Learning checks only the fixed Wikipedia API origin, refuses off-origin redirects, cites the result, separates source fact from user interpretation, and drafts one Signal recommendation.
+- Recommendation approval uses the governed `action.decide` path with server-resolved human attribution; the Learning Agent never approves or executes it.
+- Persistent startup idempotently provisions and verifies the Learning Agent, its Role, `signal:write` capability scope, type-wide Role grant, and matching attributable user grant. Concurrent provisioning is conflict-safe.
+- Direct onboarding preferences and trust captures persist as private Local Plane Memory with explicit provenance.
+- The day-7 qualities reflection is scheduled when the profile is saved even if role-model learning is skipped, and can be snoozed, paused, skipped, or scheduled again.
+- Settings exposes onboarding re-entry plus trust/preference inspect, correct, and delete controls. Start over clears only draft answers.
 - Memory deletion removes the complete correction lineage.
 
 ## Verification
 - Changed-file ESLint: pass.
-- API role-model/approval/Memory control regression: pass.
-- DB Memory forget-lineage regression: test passes; isolated package command remains red only because its aggregate coverage is 51.52% against 54%.
-- Full API suite: pass.
-- Full production build: pass.
-- Changed source lint and final focused API/DB regressions: pass.
-- Web typecheck reaches only the pre-existing missing `Link` import in `IntelligencePage.tsx`.
-- Full lint reaches only the pre-existing `ZazooAvatar.tsx` unregistered-rule failure.
-- Full test reaches the already-open `@bridge/sensors` aggregate coverage-floor defect (all seven sensor tests pass; 35.26% measured vs 38% floor).
-- Baseline full tests and production build passed before edits; final full verification follows in the task session.
-
-## Still open
-- Live desktop and 375px prototype evidence.
-- Browser automation is unavailable in this session because the browser MCP requires interactive OAuth; live viewport proof remains open.
-- Full onboarding ceremony permission/live-value beat.
-- General research remains blocked on the SSRF-hardened research client and runtime taint propagation.
-- Persistent production governance must provision the Learning Agent Signal grant; zero-infrastructure mode is wired now.
+- API role-model research, governed approval, schedule lifecycle, trust Memory, correction, and deletion regressions: pass.
+- Persistent pglite governance regression, including concurrent and repeated provisioning: pass.
+- Full API, core, web, affected DB, and desktop Rust suites: pass.
+- Web production build and desktop `cargo check`: pass.
+- Real 375px Chrome path: trust copy, every adaptive question, preview, cited Indra Nooyi recommendation, governed approval, Learning Settings, pause/reschedule/snooze/skip, and no horizontal overflow: pass.
+- Real native Tauri path: this branch's uniquely named binary launched against a fresh API; the trust ceremony rendered current macOS states (`Accessibility: Not granted`, screen recording unavailable) with the bounded live-check explanation.
+- macOS denied synthetic Accessibility input, so the native live-check button was not machine-clicked. Its complete sensor start → one observation → drain → Memory → blink → provider stop choreography is covered by the web source-contract, API trust-Memory regression, and 19 passing desktop Rust tests; no permission bypass was attempted.
+- Clean integrated web typecheck passes after TASK-001 added the missing `IntelligencePage.tsx` `Link` import.
 
 ## Files
 - [TASKS](../docs/TASKS.md)
-- [Learning wiki](../docs/wiki/learning-agent.md)
-- [ADR-095](../docs/raw/decisions-log.md)
+- [BUGS](../docs/BUGS.md)
+- [Dummy-data ledger](../docs/dummy.md)

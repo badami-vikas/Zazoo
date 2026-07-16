@@ -50,6 +50,8 @@ There is no separate progress narrative. Report task deltas only: status change,
 
 The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → TASK-005. TASK-005 is the gate: do not resume broad vocabulary migration, repo cleanup, or later Modules until the combined Avatar + Commons path is usable and tested.
 
+AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now in dependency-aware waves. TASK-006/007/008 may execute in parallel with the remaining gate work; TASK-009–015 may plan now but implementation still waits for their named dependencies. No task closes without its exact Prototype test and all prerequisite evidence.
+
 ## TASK-001 — Coherent actionable shell prototype
 - Status: done
 - Priority: P0
@@ -57,22 +59,22 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.
 - Prototype test: On desktop and 375px, open two installed Modules from the left nav; inspect their Agent-owned Skills, Automations, Integrations, Files, and standard table toolbar/context menu; resize/collapse/extend both panels; confirm no visible Tools, Knowledge, Workflows, Projects, or inert interactive rows.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §2–§5; docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB2/VOCAB6; docs/raw/relationship-module-plan-2026-07.md RM0; docs/raw/brd-dealpilot-2026-07.md; docs/raw/brd-jobpilot-2026-07.md
-- Evidence: RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, and pinned legacy surfaces; broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks
+- Evidence: RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, pinned legacy surfaces, the clean-build JobPilot project-reference gap, Module File-root traversal, and synchronous sidecar health-wait regression; broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks
 - Requests: R-019; R-020; R-021; R-023; user shell/module/table directives 2026-07-14–15
 - Approval: AP-020, AP-021, and AP-027 applied
 - Dependencies: none
-- Verification: 2026-07-16 exact Prototype test passed at 1280×720 and emulated 375×812 against isolated API/web processes; Tauri launched and remained alive against the same API-backed Vite client.
+- Verification: 2026-07-16 exact Prototype test passed at 1280×720 and emulated 375×812 against isolated API/web processes; Tauri launched and remained alive against the same API-backed Vite client. Independent integration review then closed and re-reviewed the File-root traversal and startup-stall defects with core 350/350, full API 103/103, and desktop Rust 28/28 plus clean builds/typechecks and Clippy.
 
 ## TASK-002 — Trust-first onboarding and behavioral learning prototype
-- Status: in_progress
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.
 - Prototype test: A new user completes Onboarding without internal vocabulary, sees why/consequence copy for every question, supplies an admired public figure, receives a cited Learning recommendation that requires approval, can re-enter/reset Onboarding, and can skip/snooze/pause/inspect/correct/delete learned preferences; the day-7 qualities prompt is schedulable.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md AV1/EG3; docs/raw/bridge-foundational-agents-onboarding-2026-07.md; docs/raw/learning-agent-roadmap-2026-07.md
-- Evidence: BUGS 2026-07-14 blueprint-centric onboarding; BUGS onboarding re-entry; BUGS Radix Dialog warning; 2026-07-16 API/Memory regression evidence in outputs/2026-07-16-task002-onboarding-learning.md
+- Evidence: BUGS 2026-07-14 blueprint-centric onboarding (resolved 2026-07-16); BUGS onboarding re-entry (resolved 2026-07-16); BUGS Radix Dialog warning remains cosmetic and non-blocking; 2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md
 - Requests: R-028; R-029; R-030; role-model and behavioral-learning directive 2026-07-14
-- Approval: AP-020 applied
+- Approval: AP-020 and AP-028 applied
 - Dependencies: none
 
 ## TASK-003 — Movable cross-screen Avatar desktop prototype
@@ -82,11 +84,11 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome
+- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md` (live NSPanel, single-display Space/fullscreen, pointer/keyboard/Accessibility controls, and deterministic topology evidence — physical drag/relaunch, VoiceOver, and extended-display matrix still unavailable)
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
 - Approval: AP-020 applied
 - Dependencies: none
-- Unblock: In a local macOS session, implement and verify join-all-Spaces/fullscreen non-activating panel behavior, runtime display hot-plug reconciliation, and the supplied-reference Sidebar chrome across the full prototype test.
+- Unblock: Implementation is complete. Perform a human physical drag→save→relaunch, an actual VoiceOver control pass, and the external-display attach/detach/reposition/cross-display matrix. Space/fullscreen plus pointer/keyboard/Accessibility control paths now pass on the single-display host.
 
 ## TASK-004 — Commons install and trust prototype
 - Status: done
@@ -115,7 +117,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Unblock: complete TASK-003 physical macOS evidence and run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
 
 ## TASK-006 — DealPilot ETA core prototype
-- Status: ready
+- Status: in_progress
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.
@@ -123,11 +125,11 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/brd-dealpilot-2026-07.md; docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1
 - Evidence: user DealPilot corrections 2026-07-14–15
 - Requests: DealPilot requirements 2026-07-14–15
-- Approval: AP-023 applied
+- Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-001
 
 ## TASK-007 — Agent, Skill, and child-Run orchestration
-- Status: ready
+- Status: in_progress
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.
@@ -135,11 +137,11 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3; docs/raw/bridge-foundational-agents-onboarding-2026-07.md
 - Evidence: BUGS standalone Skills/non-Agent invocation; specialist-agent overfit review
 - Requests: R-019; R-028; R-029; agent redesign directive 2026-07-15
-- Approval: AP-021 and AP-023 applied
+- Approval: AP-021, AP-023, and AP-029 applied
 - Dependencies: TASK-001
 
 ## TASK-008 — Relationship Module consolidation
-- Status: ready
+- Status: in_progress
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.
@@ -147,7 +149,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/relationship-module-plan-2026-07.md RM0–RM6; docs/raw/ui-architecture-rules-2026-07.md
 - Evidence: BUGS Knowledge/Relationship IA; BUGS no actionable cross-Module graph
 - Requests: Relationship alignment directive 2026-07-14
-- Approval: AP-020 and AP-021 applied
+- Approval: AP-020, AP-021, and AP-029 applied
 - Dependencies: TASK-001
 
 ## TASK-009 — Actionable Second Brain graph
@@ -159,7 +161,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §5c; docs/raw/relationship-module-plan-2026-07.md RM6
 - Evidence: BUGS 2026-07-14 no Second Brain graph
 - Requests: Second Brain directive 2026-07-14
-- Approval: AP-021 applied
+- Approval: AP-021 and AP-029 applied
 - Dependencies: TASK-008
 
 ## TASK-010 — Platform red-flag correction feedback
@@ -171,7 +173,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §5d; docs/raw/agent-goal-skill-orchestration-plan-2026-07.md
 - Evidence: user feedback-mechanism correction 2026-07-15
 - Requests: red-flag directive 2026-07-15
-- Approval: AP-023 applied
+- Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-001; TASK-007
 
 ## TASK-011 — JobPilot culture-research slice
@@ -183,7 +185,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/brd-jobpilot-2026-07.md; docs/raw/jobpilot-module-plan-2026-07.md JP3B
 - Evidence: BCG application workspace live-evidence gap
 - Requests: JobPilot culture-research directive 2026-07-15
-- Approval: AP-023 applied
+- Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-007
 
 ## TASK-012 — Complete vocabulary migration
@@ -195,7 +197,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB0–VOCAB6; docs/glossary.md
 - Evidence: BUGS deprecated dummy-prefix rule; BUGS API error strings; BUGS package.yaml filename mismatch; BUGS Initiative-scoped API legacy; deprecated Tools/Knowledge/Workflows evidence attached to TASK-001
 - Requests: R-020; vocabulary/glossary directives 2026-07-14
-- Approval: AP-020 applied
+- Approval: AP-020 and AP-029 applied
 - Dependencies: TASK-005
 
 ## TASK-013 — Repository and manifest cleanup
@@ -207,7 +209,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2; docs/dummy.md
 - Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict
 - Requests: cleanup directives 2026-07-14
-- Approval: archive/deletion substep requires a dedicated approval before destructive removal
+- Approval: AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal
 - Dependencies: TASK-005; TASK-012
 
 ## TASK-014 — Full standard Module UI rollout
@@ -219,7 +221,7 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit
 - Evidence: BUGS map view is not a map; BUGS pin persistence only local; BUGS Initiative resource scoping; existing partial table implementation
 - Requests: table/actionability directives 2026-07-14–15
-- Approval: AP-010/AP-011 and AP-021 applied
+- Approval: AP-010/AP-011, AP-021, and AP-029 applied
 - Dependencies: TASK-001; TASK-006; TASK-008
 
 ## TASK-015 — End-to-end runtime taint tracking
@@ -229,9 +231,9 @@ The next build sequence is TASK-001 → TASK-002 → TASK-003 → TASK-004 → T
 - Outcome: Trust labels propagate monotonically across retrieval, prompts, models, Skills, Actions, Events, Results, Files, storage, serialization, caches, queues, retries, and governed declassification.
 - Prototype test: A tainted source traverses an Agent/Skill/Automation path without losing or weakening its label; unknown labels fail closed; sink traces explain the decision; deterministic or Human-approved declassification is audited.
 - Scope: docs/raw/learning-agent-roadmap-2026-07.md RT0–RT4; docs/wiki/roadmap.md
-- Evidence: root gap recorded ADR-087
+- Evidence: root gap recorded ADR-088
 - Requests: runtime taint directive 2026-07-14
-- Approval: AP-020 applied
+- Approval: AP-020 and AP-029 applied
 - Dependencies: TASK-007; TASK-012
 
 ## TASK-016 — Database and migration correctness backlog

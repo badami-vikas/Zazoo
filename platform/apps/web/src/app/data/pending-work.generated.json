@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T18:46:07.604Z",
+  "generatedAt": "2026-07-16T19:56:41.548Z",
   "items": [
     {
       "id": "TASK-001",
@@ -17,7 +17,7 @@
         "docs/raw/brd-jobpilot-2026-07.md"
       ],
       "evidence": [
-        "RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, and pinned legacy surfaces",
+        "RESOLVED TASK-001 portions of BUGS deprecated Tools/dead Modules, standalone Skills, asymmetric panels, Knowledge shell IA, Intelligence toolbar/Workflows, hardcoded Modules, pinned legacy surfaces, the clean-build JobPilot project-reference gap, Module File-root traversal, and synchronous sidecar health-wait regression",
         "broader Agent invocation, Relationship storage, Run/lifecycle, and server-copy tails remain attached to their owning follow-up tasks"
       ],
       "requests": [
@@ -32,7 +32,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 53,
+      "sourceLine": 55,
       "rank": 1
     },
     {
@@ -49,7 +49,9 @@
       ],
       "evidence": [
         "BUGS 2026-07-14 companion mobility",
-        "BUGS 2026-07-14 desktop chrome"
+        "BUGS 2026-07-14 desktop chrome",
+        "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
+        "`outputs/2026-07-16-task-003-macos-avatar.md` (live NSPanel, single-display Space/fullscreen, pointer/keyboard/Accessibility controls, and deterministic topology evidence — physical drag/relaunch, VoiceOver, and extended-display matrix still unavailable)"
       ],
       "requests": [
         "R-001",
@@ -62,7 +64,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 78,
+      "sourceLine": 80,
       "rank": 2
     },
     {
@@ -93,7 +95,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 91,
+      "sourceLine": 93,
       "rank": 3
     },
     {
@@ -125,7 +127,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 103,
+      "sourceLine": 105,
       "rank": 4
     },
     {
@@ -147,7 +149,7 @@
       "requests": [
         "cleanup directives 2026-07-14"
       ],
-      "approval": "archive/deletion substep requires a dedicated approval before destructive removal",
+      "approval": "AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal",
       "dependencies": [
         "TASK-005",
         "TASK-012"
@@ -155,7 +157,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 201,
+      "sourceLine": 203,
       "rank": 5
     },
     {
@@ -181,14 +183,14 @@
         "R-020",
         "vocabulary/glossary directives 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020 and AP-029 applied",
       "dependencies": [
         "TASK-005"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 189,
+      "sourceLine": 191,
       "rank": 6
     },
     {
@@ -209,7 +211,7 @@
       "requests": [
         "red-flag directive 2026-07-15"
       ],
-      "approval": "AP-023 applied",
+      "approval": "AP-023 and AP-029 applied",
       "dependencies": [
         "TASK-001",
         "TASK-007"
@@ -217,13 +219,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 165,
+      "sourceLine": 167,
       "rank": 7
     },
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -239,20 +241,20 @@
       "requests": [
         "Relationship alignment directive 2026-07-14"
       ],
-      "approval": "AP-020 and AP-021 applied",
+      "approval": "AP-020, AP-021, and AP-029 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 141,
+      "sourceLine": 143,
       "rank": 8
     },
     {
       "id": "TASK-007",
       "title": "TASK-007 — Agent, Skill, and child-Run orchestration",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.",
@@ -271,14 +273,14 @@
         "R-029",
         "agent redesign directive 2026-07-15"
       ],
-      "approval": "AP-021 and AP-023 applied",
+      "approval": "AP-021, AP-023, and AP-029 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 129,
+      "sourceLine": 131,
       "rank": 9
     },
     {
@@ -301,7 +303,7 @@
       "requests": [
         "table/actionability directives 2026-07-14–15"
       ],
-      "approval": "AP-010/AP-011 and AP-021 applied",
+      "approval": "AP-010/AP-011, AP-021, and AP-029 applied",
       "dependencies": [
         "TASK-001",
         "TASK-006",
@@ -310,7 +312,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 213,
+      "sourceLine": 215,
       "rank": 10
     },
     {
@@ -326,12 +328,12 @@
         "docs/wiki/roadmap.md"
       ],
       "evidence": [
-        "root gap recorded ADR-087"
+        "root gap recorded ADR-088"
       ],
       "requests": [
         "runtime taint directive 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020 and AP-029 applied",
       "dependencies": [
         "TASK-007",
         "TASK-012"
@@ -339,7 +341,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 225,
+      "sourceLine": 227,
       "rank": 11
     },
     {
@@ -368,7 +370,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 237,
+      "sourceLine": 239,
       "rank": 12
     },
     {
@@ -400,13 +402,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 249,
+      "sourceLine": 251,
       "rank": 13
     },
     {
       "id": "TASK-006",
       "title": "TASK-006 — DealPilot ETA core prototype",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "DealPilot supports ETA work through only Deals, Sources, and Theses as default Pages, with correct many-to-many relations, secure Source credential projection, Record Detail, rights/spend gates, and thesis→source→deal discovery.",
@@ -421,14 +423,14 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023 applied",
+      "approval": "AP-023 and AP-029 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 117,
+      "sourceLine": 119,
       "rank": 14
     },
     {
@@ -449,14 +451,14 @@
       "requests": [
         "JobPilot culture-research directive 2026-07-15"
       ],
-      "approval": "AP-023 applied",
+      "approval": "AP-023 and AP-029 applied",
       "dependencies": [
         "TASK-007"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
+      "sourceLine": 179,
       "rank": 15
     },
     {
@@ -477,20 +479,20 @@
       "requests": [
         "Second Brain directive 2026-07-14"
       ],
-      "approval": "AP-021 applied",
+      "approval": "AP-021 and AP-029 applied",
       "dependencies": [
         "TASK-008"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
+      "sourceLine": 155,
       "rank": 16
     },
     {
       "id": "TASK-002",
       "title": "TASK-002 — Trust-first onboarding and behavioral learning prototype",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.",
@@ -501,10 +503,10 @@
         "docs/raw/learning-agent-roadmap-2026-07.md"
       ],
       "evidence": [
-        "BUGS 2026-07-14 blueprint-centric onboarding",
-        "BUGS onboarding re-entry",
-        "BUGS Radix Dialog warning",
-        "2026-07-16 API/Memory regression evidence in outputs/2026-07-16-task002-onboarding-learning.md"
+        "BUGS 2026-07-14 blueprint-centric onboarding (resolved 2026-07-16)",
+        "BUGS onboarding re-entry (resolved 2026-07-16)",
+        "BUGS Radix Dialog warning remains cosmetic and non-blocking",
+        "2026-07-16 API/Memory/persistent-authority regressions plus native Tauri and exact 375px prototype evidence in outputs/2026-07-16-task002-onboarding-learning.md"
       ],
       "requests": [
         "R-028",
@@ -512,12 +514,12 @@
         "R-030",
         "role-model and behavioral-learning directive 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020 and AP-028 applied",
       "dependencies": [],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 66,
+      "sourceLine": 68,
       "rank": 17
     },
     {
@@ -548,7 +550,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 285,
+      "sourceLine": 287,
       "rank": 18
     },
     {
@@ -576,7 +578,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 261,
+      "sourceLine": 263,
       "rank": 19
     },
     {
@@ -603,7 +605,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 273,
+      "sourceLine": 275,
       "rank": 20
     }
   ]

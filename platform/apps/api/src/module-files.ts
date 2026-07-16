@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export interface ModuleFileInventoryItem {
   path: string;
@@ -8,20 +8,33 @@ export interface ModuleFileInventoryItem {
   modifiedAt: string;
 }
 
-export function safePathSegment(value: string): string {
+export class ModuleFilesPathError extends Error {
+  constructor(label: string) {
+    super(`${label} cannot address a path outside the Bridge File root`);
+    this.name = "ModuleFilesPathError";
+  }
+}
+
+function safePathSegment(value: string, label: string): string {
   const segment = value.trim().replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-");
-  if (segment === "." || segment === "..") return segment.replaceAll(".", "-");
-  return segment || "Unnamed";
+  if (!segment || segment === "." || segment === "..") {
+    throw new ModuleFilesPathError(label);
+  }
+  return segment;
 }
 
 export function moduleFilesRoot(organizationName: string, moduleName: string): string {
-  return join(
-    homedir(),
-    "Documents",
-    "Bridge",
-    safePathSegment(organizationName),
-    safePathSegment(moduleName),
+  const bridgeRoot = resolve(homedir(), "Documents", "Bridge");
+  const root = resolve(
+    bridgeRoot,
+    safePathSegment(organizationName, "Organization name"),
+    safePathSegment(moduleName, "Module name"),
   );
+  const descendant = relative(bridgeRoot, root);
+  if (!descendant || descendant === ".." || descendant.startsWith(`..${sep}`) || isAbsolute(descendant)) {
+    throw new ModuleFilesPathError("Module File root");
+  }
+  return root;
 }
 
 export async function listModuleFiles(

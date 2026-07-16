@@ -5,6 +5,8 @@
 interface Window {
   /** Set by the shell's window init script — marks "running inside Tauri". */
   __BRIDGE_DESKTOP__?: boolean;
+  /** Rust target OS, used for platform-safe shell chrome. */
+  __BRIDGE_DESKTOP_PLATFORM__?: "macos" | "windows" | "linux" | string;
   /** Sidecar API base URL (e.g. "http://127.0.0.1:49321"), injected before
    * any app module evaluates. See apps/desktop src-tauri/src/lib.rs. */
   __BRIDGE_API_URL__?: string;

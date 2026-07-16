@@ -5,6 +5,7 @@
  */
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import type { AppRouter } from "@bridge/api";
+import { supabase } from "./supabase";
 
 /**
  * API URL resolution order (R-001 offline desktop):
@@ -19,8 +20,22 @@ const API_URL =
   import.meta.env.VITE_API_URL ||
   "http://localhost:4000";
 
+export async function trpcAuthorizationHeaders(): Promise<Record<string, string>> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    throw new Error(`Could not read the authenticated Supabase session: ${error.message}`);
+  }
+  const token = data.session?.access_token;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 export const trpc = createTRPCClient<AppRouter>({
-  links: [httpBatchLink({ url: `${API_URL}/trpc` })],
+  links: [
+    httpBatchLink({
+      url: `${API_URL}/trpc`,
+      headers: trpcAuthorizationHeaders,
+    }),
+  ],
 });
 
 // Real pilot identity — this app is single-tenant until Phase 5 (see decisions-log.md

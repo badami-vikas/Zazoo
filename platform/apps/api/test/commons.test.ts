@@ -496,13 +496,13 @@ test("commons.publishBuiltins: publishes BUILT_IN_PACKAGES to the mock registry"
     const caller = await makeCaller(wiring);
     const result = await caller.commons.publishBuiltins();
 
-    assert.equal(result.published.length + result.skipped.length, 5);
+    assert.equal(result.published.length + result.skipped.length, 4);
     assert.equal(result.skipped.length, 0); // fresh registry, nothing pre-published
 
     // Second call: all should be skipped as duplicate
     const repeat = await caller.commons.publishBuiltins();
     assert.equal(repeat.published.length, 0);
-    assert.equal(repeat.skipped.length, 5);
+    assert.equal(repeat.skipped.length, 4);
   } finally {
     await wiring.close();
   }

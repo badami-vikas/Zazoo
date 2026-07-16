@@ -55,20 +55,25 @@ export function routeHelpRequest(request: HelpRequestInput, candidates: HelpResp
   const routes: HelpRoute[] = [];
   for (const candidate of candidates) {
     const matchedTopics: string[] = [];
-    let matchedTokenCount = 0;
+    const matchedRequestTokens = new Set<string>();
+    const seenTopics = new Set<string>();
     for (const topic of candidate.topics) {
       const topicTokens = tokenize(topic);
       const hits = [...topicTokens].filter((t) => requestTokens.has(t));
       if (hits.length > 0) {
-        matchedTopics.push(topic);
-        matchedTokenCount += hits.length;
+        const topicKey = topic.trim().toLowerCase();
+        if (!seenTopics.has(topicKey)) {
+          seenTopics.add(topicKey);
+          matchedTopics.push(topic);
+        }
+        for (const token of hits) matchedRequestTokens.add(token);
       }
     }
     if (matchedTopics.length === 0) continue;
     routes.push({
       personId: candidate.personId,
       displayName: candidate.displayName,
-      score: Math.min(1, matchedTokenCount / requestTokens.size),
+      score: matchedRequestTokens.size / requestTokens.size,
       matchedTopics,
     });
   }
@@ -87,6 +92,12 @@ export interface HelpOfferDraft {
   kind: "help_offer";
   requestSubject: string;
   routedTo: string; // personId
+  routeEvidence: {
+    displayName: string;
+    score: number;
+    matchedTopics: string[];
+    topicSource: "caller_supplied";
+  };
   draftBody: string;
 }
 
@@ -98,6 +109,12 @@ export function draftHelpOffer(request: HelpRequestInput, route: HelpRoute, draf
     kind: "help_offer",
     requestSubject: request.subject,
     routedTo: route.personId,
+    routeEvidence: {
+      displayName: route.displayName,
+      score: route.score,
+      matchedTopics: [...route.matchedTopics],
+      topicSource: "caller_supplied",
+    },
     draftBody,
   };
 }

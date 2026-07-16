@@ -26,6 +26,10 @@ export function resolveModuleRitualRuntimeId(packageName: string, manifestRitual
     : undefined;
 }
 
+export function isModuleRuntimeRitualId(ritualId: string): boolean {
+  return ritualId === DEAL_PILOT_SOURCE_RITUAL_ID;
+}
+
 export function resolveModuleAgentRuntimeId(packageName: string, manifestAgentId: string): string | undefined {
   return packageName === "deal-pilot" && manifestAgentId === "sourcing-agent"
     ? DEAL_PILOT_SOURCING_AGENT_ID
@@ -37,7 +41,7 @@ const INSPECTED_COMMIT = "5775e5b9cf63938e9f2a8220e63b36e1122eac80";
 const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "docs/raw/dealpilot-module-plan-2026-07.md",
   "job-pilot": "docs/raw/jobpilot-module-plan-2026-07.md",
-  helpdesk: "docs/raw/helpdesk-plan.md",
+  relationship: "docs/raw/relationship-module-plan-2026-07.md",
   calendar: "docs/raw/calendar-module-plan-2026-07.md",
 };
 
@@ -72,6 +76,19 @@ const writeAll = (resourceType: string) => ({
   egress: false,
 });
 
+const readPrivate = (resourceType: string) => ({
+  resourceType,
+  action: "read" as const,
+  dataScope: "private" as const,
+  egress: false,
+});
+
+const writePrivate = (resourceType: string) => ({
+  resourceType,
+  action: "write" as const,
+  dataScope: "private" as const,
+  egress: false,
+});
 function capability(
   id: string,
   name: string,
@@ -158,27 +175,87 @@ const jobPilotCapabilities = [
   ),
 ];
 
-const helpdeskCapabilities = [
-  capability("helpdesk.requests", "Help Requests database and views", "view", [readAll("record"), writeAll("record")]),
-  capability("helpdesk.route-request", "Route a Help Request", "skill", [readAll("record"), writeAll("relation")]),
+const relationshipCapabilities = [
+  capability("relationship.page.signals", "Signals", "view", [
+    readPrivate("signal"),
+    writePrivate("signal"),
+    readPrivate("person"),
+    readPrivate("community"),
+  ]),
+  capability("relationship.page.people", "People", "view", [
+    readPrivate("person"),
+    writePrivate("person"),
+  ]),
+  capability("relationship.page.communities", "Communities", "view", [
+    readPrivate("community"),
+    writePrivate("community"),
+  ]),
+  capability("relationship.submodule.helpdesk", "Helpdesk", "view", [
+    readPrivate("touchpoint"),
+    writePrivate("touchpoint"),
+  ]),
+  capability("relationship.skill.timeline-synthesis", "Relationship timeline synthesis", "skill", [
+    readPrivate("signal"),
+    readPrivate("person"),
+    readPrivate("community"),
+  ]),
+  capability("relationship.skill.safe-action", "Safe relationship action proposal", "skill", [
+    writePrivate("signal"),
+  ]),
+  capability("relationship.skill.help-routing", "Help request capability routing", "skill", [
+    readPrivate("person"),
+    readPrivate("community"),
+    writePrivate("touchpoint"),
+  ]),
   capability(
-    "helpdesk.routing-agent",
-    "Help Request routing Agent",
+    "relationship.agent.steward",
+    "Relationship Steward",
     "agent",
-    [readAll("record"), writeAll("relation")],
-    [],
-    [{ manifestId: "helpdesk.route-request", versionRange: "0.2.0" }],
-  ),
-  capability(
-    "helpdesk.route-intake",
-    "Help Request intake routing",
-    "workflow",
-    [readAll("record"), writeAll("relation")],
+    [
+      readPrivate("signal"),
+      readPrivate("person"),
+      readPrivate("community"),
+      writePrivate("signal"),
+    ],
     [],
     [
-      { manifestId: "helpdesk.routing-agent", versionRange: "0.2.0" },
-      { manifestId: "helpdesk.route-request", versionRange: "0.2.0" },
+      { manifestId: "relationship.skill.timeline-synthesis", versionRange: "0.2.0" },
+      { manifestId: "relationship.skill.safe-action", versionRange: "0.2.0" },
     ],
+  ),
+  capability(
+    "relationship.agent.community-steward",
+    "Community Steward",
+    "agent",
+    [
+      readPrivate("person"),
+      readPrivate("community"),
+      writePrivate("touchpoint"),
+    ],
+    [],
+    [{ manifestId: "relationship.skill.help-routing", versionRange: "0.2.0" }],
+  ),
+  capability(
+    "relationship.automation.meeting-prep",
+    "Pre-meeting relationship review",
+    "workflow",
+    [readPrivate("person"), writePrivate("signal")],
+    [],
+    [
+      { manifestId: "relationship.agent.steward", versionRange: "0.2.0" },
+    ],
+  ),
+  capability(
+    "relationship.integration.google-sources",
+    "Google relationship sources",
+    "integration",
+    [{
+      resourceType: "external:fetch",
+      action: "read",
+      dataScope: "private",
+      egress: true,
+    }],
+    [{ id: "google-gmail" }, { id: "google-calendar" }],
   ),
 ];
 
@@ -329,41 +406,73 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
     },
   },
   {
-    computedRisk: "operational",
+    computedRisk: "external",
     manifest: {
-      name: "helpdesk",
+      name: "relationship",
       version: "0.2.0",
       kind: "workspace_definition",
-      summary: "Help Request intake and governed relationship routing.",
-      description: "Captures real Help Requests and routes them through permitted relationship evidence.",
+      summary: "Signals, People, Communities, and governed relationship continuity.",
+      description:
+        "One Relationship Module over shared Record, Relation, and Event contracts. Private relationship Memory stays Module-associated; Helpdesk is a nested sub-module.",
       lineageManifestId: null,
       dependencies: [],
-      capabilities: helpdeskCapabilities,
-      contextProviders: [],
+      capabilities: relationshipCapabilities,
+      contextProviders: [
+        { kind: "email", required: false },
+        { kind: "calendar", required: false },
+        { kind: "capture", required: false },
+      ],
       workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
-        displayName: "Helpdesk",
-        route: "/helpdesk",
-        pages: [{
-          id: "requests",
-          name: "Help Requests",
-          route: "/helpdesk",
-          databaseId: "helpdesk.requests",
-          capabilityId: "helpdesk.requests",
-        }],
-        agents: [{
-          id: "routing-agent",
-          name: "Help Request routing Agent",
-          capabilityId: "helpdesk.routing-agent",
-          skillIds: ["helpdesk.route-request"],
-        }],
+        displayName: "Relationship",
+        route: "/module/relationship",
+        pages: [
+          {
+            id: "signals",
+            name: "Signals",
+            route: "/module/relationship/signals",
+            databaseId: "relationship.signals",
+            capabilityId: "relationship.page.signals",
+          },
+          {
+            id: "people",
+            name: "People",
+            route: "/module/relationship/people",
+            databaseId: "relationship.people",
+            capabilityId: "relationship.page.people",
+          },
+          {
+            id: "communities",
+            name: "Communities",
+            route: "/module/relationship/communities",
+            databaseId: "relationship.communities",
+            capabilityId: "relationship.page.communities",
+          },
+        ],
+        agents: [
+          {
+            id: "steward",
+            name: "Relationship Steward",
+            capabilityId: "relationship.agent.steward",
+            skillIds: [
+              "relationship.skill.timeline-synthesis",
+              "relationship.skill.safe-action",
+            ],
+          },
+          {
+            id: "community-steward",
+            name: "Community Steward",
+            capabilityId: "relationship.agent.community-steward",
+            skillIds: ["relationship.skill.help-routing"],
+          },
+        ],
         automations: [{
-          id: "route-intake",
-          name: "Help Request intake routing",
-          capabilityId: "helpdesk.route-intake",
-          agentId: "routing-agent",
-          trigger: "Help Request submitted",
-          procedure: "helpdesk.route",
+          id: "meeting-prep",
+          name: "Pre-meeting relationship review",
+          capabilityId: "relationship.automation.meeting-prep",
+          agentId: "steward",
+          trigger: "Upcoming meeting Event",
+          procedure: "relationship.prepareMeeting",
         }],
       },
     },
@@ -435,7 +544,10 @@ const interviewCalendarAvailability: BuiltInPackage = {
 };
 
 export const COMMONS_BUILT_IN_PACKAGES: readonly CommonsBuiltInPackage[] = [
-  ...BUILT_IN_PACKAGES.map((pkg) => ({
+  // Relationship's current full capability union forms the lethal trifecta.
+  // It remains a local built-in Module but cannot enter Commons until split
+  // into independently safe generalized artifacts.
+  ...BUILT_IN_PACKAGES.filter((pkg) => pkg.manifest.name !== "relationship").map((pkg) => ({
     ...pkg,
     commons: {
       provenance: provenance(builtInSourceRef(pkg.manifest.name)),

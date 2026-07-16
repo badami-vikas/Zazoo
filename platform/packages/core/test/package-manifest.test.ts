@@ -160,6 +160,26 @@ test("parsePackageManifest: rejects a Commons need without an attributable Modul
   );
 });
 
+test("parsePackageManifest: rejects a Module display name that traverses the File root", () => {
+  for (const displayName of [" . ", " .. "]) {
+    assert.throws(
+      () =>
+        parsePackageManifest(
+          rawManifest({
+            module: {
+              display_name: displayName,
+              route: "/dummy",
+              pages: [],
+              agents: [],
+              automations: [],
+            },
+          }),
+        ),
+      /display_name cannot be a relative path segment/,
+    );
+  }
+});
+
 test("parsePackageManifest: rejects a Module Skill not owned by a declared capability", () => {
   assert.throws(
     () =>
