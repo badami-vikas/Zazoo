@@ -8,6 +8,7 @@ import { hasStoredPrefs, loadAvatarPrefs, computeGrowthStage, type AvatarPrefs, 
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
 import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
+import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
@@ -185,6 +186,14 @@ export default function Layout() {
           onMouseDown={(e) => rail.startDrag(e, "left")}
           label={railExpanded ? "Drag to collapse sidebar" : "Drag to expand sidebar"}
         />
+
+        {/* Desktop window chrome (TASK-003) — cross-platform close/minimize/zoom
+            buttons shown only when running under Tauri. On macOS the native title
+            bar traffic lights are already present; these provide a supplemental
+            in-sidebar affordance. The full "traffic lights replace the title bar"
+            UX requires removing decorations(false) on the main window and applying
+            macOS-specific CSS — flagged as a local macOS session blocker. */}
+        <DesktopWindowChrome expanded={railExpanded} />
 
         {/* Organization switcher — h-14 matches center Header and right panel headers. */}
         <div

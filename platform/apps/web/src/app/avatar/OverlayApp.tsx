@@ -18,6 +18,18 @@
  * The WINDOW resizes with the state (Rust `overlay_resize` command keeps the
  * bottom-right corner pinned) — the panel is real OS chrome, not a div
  * overflowing a fixed window.
+ *
+ * **Drag (TASK-003)**: The collapsed avatar has a drag handle at its top with
+ * `data-tauri-drag-region`. Tauri routes that attribute to the OS window-move
+ * primitive (works on all platforms, no macOS-only dep). On drag end
+ * (pointerup), `overlay_save_position` persists the physical window position;
+ * `overlay_get_position` is called on mount to confirm the Rust-side restore
+ * succeeded.
+ *
+ * **macOS Spaces / fullscreen (NOT implemented — local macOS session required)**
+ * See overlay.rs module doc for the three specific macOS blockers
+ * (tauri-nspanel, NSWindowCollectionBehaviorCanJoinAllSpaces,
+ * NSWindowCollectionBehaviorFullScreenAuxiliary).
  */
 import { useEffect, useRef, useState } from "react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
@@ -97,6 +109,9 @@ export function OverlayApp() {
   const [chatSending, setChatSending] = useState(false);
   const [chatChainDepth, setChatChainDepth] = useState(0);
 
+  // Drag state — ref (not state) to avoid a re-render mid-drag.
+  const dragActiveRef = useRef(false);
+
   const expanded = panel !== "none";
 
   // Derived companion state (the machine's read model).
@@ -127,6 +142,33 @@ export function OverlayApp() {
       if (blinkTimeout.current) clearTimeout(blinkTimeout.current);
     };
   }, []);
+
+  // On mount: ask Rust to confirm the restored position is valid. This is
+  // informational only — the actual restoration happens in Rust during window
+  // creation (create_overlay_windows → reconcile_saved_position). We log here
+  // so the pattern is visible for future position-dependent JS state.
+  useEffect(() => {
+    tauriInvoke("overlay_get_position").then((pos) => {
+      if (pos) {
+        // Position was reconciled and restored by Rust; nothing more to do.
+      }
+    });
+  }, []);
+
+  // Drag end handler — attached once per pointerdown on the drag handle.
+  // Saves the window's new physical position after the OS drag completes.
+  function handleDragHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0) return;
+    dragActiveRef.current = true;
+    const onUp = () => {
+      if (dragActiveRef.current) {
+        dragActiveRef.current = false;
+        void tauriInvoke("overlay_save_position");
+      }
+      document.removeEventListener("pointerup", onUp);
+    };
+    document.addEventListener("pointerup", onUp, { once: true });
+  }
 
   // Window chrome follows the state machine. The right-click menu takes
   // priority over everything else — it's a modal-ish overlay on top of
@@ -407,21 +449,71 @@ export function OverlayApp() {
               </div>
             </>
           )}
-          <button
-            type="button"
-            onClick={openStatusPanel}
-            aria-label={`${name}, ${label}`}
-            title={label}
-            className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
-            style={{
-              animation:
-                status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
-            }}
-          >
-            <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
-              <Creature animal={prefs.animal} status={status} blinking={blinking} reducedMotion={false} />
-            </div>
-          </button>
+          {/* Avatar button + drag handle wrapper.
+           *
+           * Layout: the outer div stacks the drag handle ABOVE the avatar button
+           * so the two hit areas are non-overlapping — the drag handle is for
+           * moving the window; the button is for opening the status panel.
+           *
+           * `data-tauri-drag-region` on the drag handle tells Tauri to initiate
+           * an OS-level window move when the user presses on it. This is the
+           * cross-platform-safe drag primitive (works on macOS, Windows, Linux).
+           * The `pointerdown` handler saves the position when the drag ends.
+           *
+           * The handle is hidden while a panel is expanded — the window is
+           * larger then and the user is interacting with content, not dragging.
+           */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }}>
+            {!expanded && (
+              <div
+                data-tauri-drag-region
+                onPointerDown={handleDragHandlePointerDown}
+                role="button"
+                tabIndex={0}
+                aria-label={`Drag to move ${name}`}
+                title="Drag to move"
+                style={{
+                  width: 56,
+                  height: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "grab",
+                  borderRadius: "4px 4px 0 0",
+                  // Subtle visual affordance: three dots visible on hover via CSS.
+                }}
+                className="companion-drag-handle"
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "block",
+                    width: 20,
+                    height: 3,
+                    borderRadius: 2,
+                    backgroundColor: "rgba(0,0,0,0.20)",
+                    transition: "background-color 0.15s",
+                  }}
+                  className="companion-drag-indicator"
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={openStatusPanel}
+              aria-label={`${name}, ${label}`}
+              title={label}
+              className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
+              style={{
+                animation:
+                  status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
+              }}
+            >
+              <div className="w-11 h-11" role="img" aria-label={`Avatar state: ${label}`}>
+                <Creature animal={prefs.animal} status={status} blinking={blinking} reducedMotion={false} />
+              </div>
+            </button>
+          </div>
         </div>
       )}
 
@@ -435,6 +527,10 @@ export function OverlayApp() {
           50% { transform: scale(1.04); }
         }
         html, body, #overlay-root { background: transparent !important; }
+        .companion-drag-handle:hover .companion-drag-indicator {
+          background-color: rgba(0,0,0,0.40) !important;
+        }
+        .companion-drag-handle:active { cursor: grabbing !important; }
       `}</style>
     </div>
   );

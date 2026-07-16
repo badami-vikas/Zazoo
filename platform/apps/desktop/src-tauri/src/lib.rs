@@ -31,7 +31,49 @@ mod overlay;
 mod providers;
 mod sensor_bridge;
 
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+// ---------------------------------------------------------------------------
+// Main-window chrome commands (TASK-003) — cross-platform-safe.
+// Called by the sidebar header window control buttons that appear when running
+// under Tauri. These coexist with the native title bar controls on
+// Windows/Linux. On macOS, the full "traffic lights in sidebar" experience
+// (remove title bar, `data-tauri-drag-region` on the sidebar header, native
+// NSWindowButton positions) requires removing `decorations(false)` from the
+// main window builder AND adding platform-specific CSS — flagged as a local
+// macOS session blocker in the TASK-003 output.
+// ---------------------------------------------------------------------------
+
+/// Close the main Bridge window (sidebar "×" button).
+#[tauri::command]
+fn close_main_window(app: AppHandle) -> Result<(), String> {
+    let win = app
+        .get_webview_window(overlay::MAIN_LABEL)
+        .ok_or("main window not found")?;
+    win.close().map_err(|e| e.to_string())
+}
+
+/// Minimize the main Bridge window (sidebar "–" button).
+#[tauri::command]
+fn minimize_main_window(app: AppHandle) -> Result<(), String> {
+    let win = app
+        .get_webview_window(overlay::MAIN_LABEL)
+        .ok_or("main window not found")?;
+    win.minimize().map_err(|e| e.to_string())
+}
+
+/// Toggle maximize / restore the main Bridge window (sidebar "⬜" button).
+#[tauri::command]
+fn toggle_zoom_main_window(app: AppHandle) -> Result<(), String> {
+    let win = app
+        .get_webview_window(overlay::MAIN_LABEL)
+        .ok_or("main window not found")?;
+    if win.is_maximized().unwrap_or(false) {
+        win.unmaximize().map_err(|e| e.to_string())
+    } else {
+        win.maximize().map_err(|e| e.to_string())
+    }
+}
 
 /// Init script injected into BOTH webviews before any app code runs, so the
 /// tRPC client module can read it at import time. `__BRIDGE_DESKTOP__` is the
@@ -82,10 +124,15 @@ pub fn run() {
             sensor_bridge::capture_screenshot_on_demand,
             overlay::overlay_resize,
             overlay::overlay_hide,
+            overlay::overlay_save_position,
+            overlay::overlay_get_position,
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
-            providers::accessibility::ax_permission_status
+            providers::accessibility::ax_permission_status,
+            close_main_window,
+            minimize_main_window,
+            toggle_zoom_main_window,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
