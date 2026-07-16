@@ -34,6 +34,8 @@ import { SkillDetail } from "./pages/SkillDetail";
 import { ToolsPage } from "./pages/ToolsPage";
 import { ControlPanelPage } from "./pages/ControlPanelPage";
 import { DataEngine } from "./components/DataEngine";
+// TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
+import { ModuleDetailPage } from "./pages/ModuleDetailPage";
 
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
@@ -50,6 +52,11 @@ export const router = createBrowserRouter([
       { index: true, Component: HomePage },
       { path: "home", Component: HomePage },
       { path: "dealpilot", Component: DealPilotPage },
+
+      // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
+      // Route param = packageName (e.g. "deal-pilot", "job-pilot"). Every
+      // installed Module in the left nav links here.
+      { path: "module/:moduleId", Component: ModuleDetailPage },
 
       // Ported prototype surface (2026-07-07): the prototype mounted the
       // network DataEngine at "/" — here it lives at /network so HomePage
