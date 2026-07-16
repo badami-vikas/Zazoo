@@ -2,7 +2,11 @@
 title: "TASK-007 Agent, Skill, and Child-Run Orchestration — Implementation Handoff"
 date: 2026-07-16
 task: TASK-007
-status: complete
+status: complete_committed_pushed_reconciled
+commits:
+  - "5723337 — feat(TASK-007): Agent, Skill, and child-Run orchestration (AGS0-AGS3)"
+  - "59faf0b — Merge origin/main into TASK-007 branch (reconcile with TASK-001-005/PR#15)"
+branch: manishsbhoopalam8498-task-007-agent-orchestration (pushed to origin, NOT merged to main)
 blockers:
   - No dedicated UI surface yet (Agent Detail Tasks/child-Run listing) — deferred behind TASK-001's UI shell work; this slice validates core/API/tests only
   - ensureInternalStrategistGovernance/ensureGovernanceAgentGovernance/ensureCapabilityBuilderGovernance and the new Drizzle Goal/Task/SkillManifest/ChildAgentRun stores are tested against a REAL pglite instance (packages/db/test/*) but NOT against a real Postgres — no live Postgres is available in this sandbox; mirrors the existing buildPersistentPorts test pattern (DUMMY_POSTGRES_URL, never connected)
@@ -11,7 +15,29 @@ blockers:
 resolved_since_last_report:
   - Full live Skill catalog is now fail-closed by default with NO allowlist (TIME_BOXED_LEGACY_SKILLS/legacyUngovernedSkills removed entirely) — every real call site is either a registered SkillManifest, structurally agent-floor-exempt, or the one permanent KERNEL_PASSTHROUGH_SKILL reserved constant (see below)
   - Goal/Task/SkillManifest/ChildAgentRun are now restart-durable in persistent mode via real Drizzle stores + migration 0012 (packages/db/src/goal-task-store.ts, skill-manifest-store.ts, child-agent-run-store.ts) — no longer in-memory-only in either mode
+  - Branch committed (5723337) and reconciled with origin/main via merge commit (59faf0b) — zero remaining conflicts (verified via `git merge-tree`), pushed to origin. NOT merged to main.
 ---
+
+## Reconciliation with origin/main (commit + push, this round)
+
+The coordinator authorized commit/push and asked TASK-007 to reconcile with `origin/main`, which had since absorbed PR #15 (TASK-001–005) plus a further "Save uncommitted changes" commit (`1e0d652`). Merged `origin/main` into this branch (`git merge origin/main`, no rebase — preserves already-pushed history). 3 files conflicted, all resolved as functionally-identical duplicate-pattern merges (no logic change on either side):
+
+- **`platform/apps/api/src/wiring.ts`** (5 conflict hunks): combined import lists; combined `EGRESS_AGENT`/`LEARNING_ROLE`/`LEARNING_SIGNAL_PERMISSION` constants; combined `ModePorts`'s governance-seed hook fields (`ensure*Governance` × 3 + `ensureSkillManifestCatalog` + `ensureLearningGovernance`); combined `buildPersistentPorts`'s return object and `buildWiring`'s boot-time await sequence.
+- **`platform/packages/db/src/governance-stores.ts`**: TASK-005's `ensureLearningAgentGovernance` was a standalone duplicate of the exact same idempotent seeding logic my `ensureFoundationalAgentGovernance` shared helper already implements — reconciled it onto that shared helper as a 4th named wrapper (`displayName: "Learning Agent"`, matching values), rather than keeping two copies of the same algorithm. `LearningAgentGovernanceConfig` kept as an exported type alias for backward compatibility.
+- **`platform/packages/db/src/index.ts`**: combined re-exports.
+- **`platform/apps/api/src/router.ts`** auto-merged with no conflict.
+
+Post-reconciliation validation (full, not partial):
+- `npx turbo run build`: 20/20 packages clean.
+- `npx turbo run typecheck` (core/db/api/integrations-google/web): clean — the previously-flagged pre-existing `apps/web/IntelligencePage.tsx` typecheck failure is now FIXED by origin/main's own changes (confirmed not something I fixed).
+- Full test suites, run directly per package: **core 398/398**, **db 86/86**, **api 127/127**, **integrations-google 35/35**, **web 36/36**, plus neighbor packages **dealpilot 57/57**, **jobpilot 93/93**, **helpdesk 7/7** — **839/839 passing, 0 failures**.
+- `eslint` on all 4 resolved-conflict files: 0 errors.
+- `git merge-tree $(git merge-base HEAD origin/main) HEAD origin/main`: empty output — zero remaining conflicts against current `origin/main`.
+
+Committed as `5723337` (the TASK-007 feature commit) + `59faf0b` (the reconciliation merge commit), both with the required Co-authored-by trailer. Pushed to `origin/manishsbhoopalam8498-task-007-agent-orchestration`. **Not merged to main** — left for the coordinator/a human to review and merge.
+
+---
+
 
 ## Final closure pass — full fail-closed catalog migration + restart-durable persistence (continuation, later same day)
 
