@@ -33,10 +33,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Package, PenTool, Cable, Bot, Repeat, Sparkles } from "lucide-react";
+import { Package, PenTool, Cable, Bot, Repeat, Sparkles, Globe } from "lucide-react";
 import { Header } from "../components/shared/Header";
 
-type IntelligenceSection = "packages" | "tools" | "integrations" | "agents" | "workflows" | "skills";
+type IntelligenceSection = "packages" | "tools" | "integrations" | "agents" | "workflows" | "skills" | "commons";
 
 // UI copy uses the primitive name "Modules" for the capability registry rows; the backing
 // identifiers/procedures (`packages.list`, section id "packages") are unchanged.
@@ -47,6 +47,7 @@ const SECTIONS: { id: IntelligenceSection; label: string; icon: typeof Package }
   { id: "agents", label: "Agents", icon: Bot },
   { id: "workflows", label: "Workflows", icon: Repeat },
   { id: "skills", label: "Skills", icon: Sparkles },
+  { id: "commons", label: "Registry", icon: Globe },
 ];
 
 // Maps package name → route + display metadata. Only packages in packages.list
@@ -220,6 +221,114 @@ function PackagesSection() {
   );
 }
 
+type CommonsListResult = Awaited<ReturnType<typeof trpc.commons.list.query>>;
+
+/**
+ * Registry tab — browse packages published to the Universal Commons (CM0 wire).
+ * Shows name/version/kind/summary for each listed entry. "Install" opens a
+ * governed flow: calls commons.installPropose to register the manifest, then
+ * packages.install for risk-assessment + approval routing.
+ * If the Commons service is not running, an honest offline state is shown.
+ */
+function CommonsSection() {
+  const [result, setResult] = useState<CommonsListResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishMsg, setPublishMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    trpc.commons.list
+      .query({ limit: 50 })
+      .then(setResult)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  async function handlePublishBuiltins() {
+    setPublishing(true);
+    setPublishMsg(null);
+    try {
+      const res = await trpc.commons.publishBuiltins.mutate();
+      setPublishMsg(
+        `Published: ${res.published.join(", ") || "none"} · Skipped (already in registry): ${res.skipped.join(", ") || "none"}`,
+      );
+      // Refresh the list
+      const updated = await trpc.commons.list.query({ limit: 50 });
+      setResult(updated);
+    } catch (e) {
+      setPublishMsg(`Error: ${String(e)}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          Universal Commons — browse and install capability packages from the registry.
+        </div>
+        <button
+          onClick={handlePublishBuiltins}
+          disabled={publishing}
+          className="text-xs border rounded px-2 py-1 hover:bg-muted disabled:opacity-50"
+        >
+          {publishing ? "Publishing…" : "Publish built-ins"}
+        </button>
+      </div>
+
+      {publishMsg && (
+        <div className="text-xs text-muted-foreground border rounded p-2 break-words">{publishMsg}</div>
+      )}
+
+      {error && (
+        <div className="p-4 border border-destructive/30 rounded-md text-sm text-muted-foreground">
+          <p className="font-medium text-destructive">Commons registry unreachable</p>
+          <p className="mt-1">
+            The Commons service at <code>localhost:4780</code> is not running. Start it with{" "}
+            <code>pnpm --filter @bridge/commons dev</code> or set <code>COMMONS_URL</code>.
+          </p>
+          <p className="mt-1 text-xs break-words">{error}</p>
+        </div>
+      )}
+
+      {!error && result === null && (
+        <div className="text-sm text-muted-foreground">Loading registry…</div>
+      )}
+
+      {!error && result !== null && result.items.length === 0 && (
+        <div className="p-4 border rounded-md text-sm text-muted-foreground">
+          No packages in the registry yet. Click <strong>Publish built-ins</strong> to seed it with the
+          built-in workspace packages (DealPilot, JobPilot, Helpdesk, Calendar).
+        </div>
+      )}
+
+      {!error && result !== null && result.items.length > 0 && (
+        <ul className="divide-y border rounded-md">
+          {result.items.map((pkg) => (
+            <li key={`${pkg.name}@${pkg.latestVersion}`} className="p-3 text-sm flex items-start justify-between gap-3">
+              <div>
+                <span className="font-medium">{pkg.name}</span>
+                <span className="text-muted-foreground"> · v{pkg.latestVersion}</span>
+                {pkg.summary && <p className="text-xs text-muted-foreground mt-0.5">{pkg.summary}</p>}
+                {pkg.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {pkg.tags.map((t) => (
+                      <span key={t} className="border rounded px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <span className="border rounded px-1.5 py-0.5 text-xs text-muted-foreground shrink-0">{pkg.kind}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function IntelligencePage() {
   const [section, setSection] = useState<IntelligenceSection>("packages");
 
@@ -253,6 +362,7 @@ export function IntelligencePage() {
           </div>
         )}
         {section === "skills" && <NotWiredYet label="capability.list" note="registered skills" />}
+        {section === "commons" && <CommonsSection />}
       </div>
     </div>
   );

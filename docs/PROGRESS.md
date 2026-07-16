@@ -55,9 +55,15 @@ Source requirements: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-inte
 ## NOW — Batch 1: Avatar + Commons PROTOTYPE → `docs/raw/egg-commons-feature-roadmap-2026-07.md` (legacy filename; Avatar foundation/onboarding + CM0–CM1) · UI rules: `docs/raw/ui-architecture-rules-2026-07.md`
 
 - [ ] **UI-RULES-1 — FIRST TASK NEXT RUN (AP-011): align apps/web to the UI architecture rules** → `docs/raw/ui-architecture-rules-2026-07.md` §Alignment audit — toggle-pages, landing-section + sections layout, lists, sub-module nav, Form view, Control Panel → 3-dots, Files section + `~/Documents/Bridge/<Organization>/` tree
+  - [x] 2026-07-14 — inventory + toggle/list/sub-module target map → `docs/raw/ui-architecture-alignment-audit-2026-07.md`
+  - [x] 2026-07-14 — retired the dead toolbar Control Panel slot; moved the legacy Initiative Control Panel to page 3-dots; added page/view query deep links
+  - [x] 2026-07-15 — Form registered as a standard DataView with metadata-driven typed fields and an insert-hook contract
+  - [ ] Remaining — bind Form direct-insert/process-parity handlers · route-backed seed toggles · sub-module nav · three-page section alignment · File tree/index/watcher/CoS grouping (macOS validation explicitly deferred)
 - [ ] AV0 — Avatar shell foundation: crates + hotkey + keychain/CSP posture; draggable/multi-Space overlay → roadmap legacy §EG0
 - [ ] AV1 — Onboarding (not staged lifecycle ceremony): OnboardingProfile → CoS prompt, permission theater, governed live-demo beat, Avatar ready state → roadmap legacy §EG1
-- [ ] CM0 — wire the Commons registry (`CommonsRegistry` port + HTTP client exist; `commons.*` tRPC/app consumption is absent — biggest gap) → §CM0
+- [ ] CM0 — complete Commons registry wiring and acceptance evidence → §CM0
+  - [x] 2026-07-15 — `CommonsRegistry` wired into API composition; `commons.list/get/getVersion/installPropose/publishBuiltins` tRPC + Registry browser surface
+  - [ ] Remaining — browser evidence for install flow · Learning Agent similarity reads · slice-wide eval/provenance/cost gates
 - [ ] CM1 — supply-chain trust (signing, content-hash pins, publisher verify, 8-point scan) — BEFORE any corpus ingest → §CM1
 - [ ] **DP0–DP1 follow-on — ETA Deal/Source/Thesis cluster**: only three default Pages; every row gets Record Detail; standard capability inventory; many-to-many Relations; conditional Relationship/Task columns; Source Link + secure virtual User ID/Password + Last checked + Spend cap/spend + rights gate; thesis→Source→Deal discovery and explained fit → `docs/raw/dealpilot-module-plan-2026-07.md` §5–§6
 - [ ] **AGS0–AGS3 — Internal Strategist + portable Skills + child Runs**: permanent fifth Agent; Goal/Task-first Skill resolver; Agent defaults as preferences; bounded child Agent Run inheritance/depth/budget/taint/audit; migrate DealPilot/JobPilot specialist catalogs → `docs/raw/agent-goal-skill-orchestration-plan-2026-07.md`
@@ -71,6 +77,10 @@ Source requirements: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-inte
 ### Ad hoc user delivery — pending-work manager (2026-07-15)
 - [x] `/pending-work` aggregates unchecked roadmap tasks, OPEN/IN PROGRESS bugs, partially fulfilled requests, and proposed approvals into one source-linked queue. Rank by drag/arrows, edit inline, add local work, filter/search, and reversibly archive/restore with undo. Source rescan runs before web dev/build; local-plane edits persist without rewriting historical source records. Verified by six web data tests, production build, and real-browser edit/rank/archive/undo plus visual QA. Whole-web typecheck passed before a concurrent unrelated `EditableField.tsx` edit introduced an unused `@ts-expect-error`; that foreign work was preserved. Output: `outputs/2026-07-15-pending-work-manager.md`.
 - [x] Task Manager follow-up: Calendar destination renamed to Task Manager; pending work allocated over a rolling 12-day window; resizable/hidden columns, double-click editing, and right-click/row-menu database actions added. Google Calendar remains at `/calendar/google`.
+
+### User-directed parallel domain foundations (2026-07-15; no batch reorder, no slice marked DONE)
+- JobPilot JP1 partial — JSON Resume contract, deterministic multi-source master-profile compile/dedupe, NeedsHuman conflicts, human-approval guard. Real-document ingestion/eval + UI remain.
+- DealPilot DP0 partial — canonical Deal shell/stages, deterministic transitions, Summary/Profile/Documents/Activity projections, table/board metadata. Persistent store/API + browser shell remain.
 
 ## Batch 2 — Repo cleanup: duplicates + deprecated data → `docs/raw/repo-restructure-egg-commons-2026-07.md`
 
@@ -130,6 +140,7 @@ Full per-batch detail lives in the `AP-0xx` rows of `docs/APPROVALS.md`, the dat
 **UI architecture canon (AP-011, 2026-07-13):** `docs/raw/ui-architecture-rules-2026-07.md` (wiki `docs/wiki/ui-architecture.md`) — binds all page/nav/view work; UI-RULES-1 alignment audit = Batch 1 first task.
 **Canon governance:** `docs/APPROVALS.md` (propose→approve ledger for locked-doc/plan-status/DONE changes) · `docs/dummy.md` (unavoidable-dummy ledger).
 **Domain plans/BRDs (raw/):** `vocabulary-code-migration-plan-2026-07-14` (VOCAB0–VOCAB6) · `egg-commons-feature-roadmap-2026-07` (legacy filename; Avatar+Commons) · `relationship-module-plan-2026-07` · `brd-dealpilot-2026-07` + `dealpilot-module-plan-2026-07` · `brd-jobpilot-2026-07` + `jobpilot-module-plan-2026-07` · `agent-goal-skill-orchestration-plan-2026-07` (AGS0–AGS3) · `learning-agent-roadmap-2026-07` (RT0–RT4 + LA0–LA6) · `governance-agent-roadmap-2026-07` · `builder-agent-roadmap-2026-07` · remaining plans in `docs/INDEX.md`.
+**Avatar plan:** `zazoo-companion-avatar-roadmap-2026-07` (ADR-086; v0 shipped at `/zazoo.html`; overlay integration remains in the Avatar+Commons prototype gate; platform rename proposal AP-022 remains unapproved).
 **Tools:** `Tools/recon/EXPANSION.md` (Phase 2–4 + estimators) · `Tools/Job/*` (DealPilot/JobPilot specs, feed P2/P6).
 **Repo restructure:** `docs/raw/repo-restructure-egg-commons-2026-07.md` (legacy filename) — VOCAB0 guard/inventory → duplicate cleanup → Module boundary → tool convergence. Prototype archive still needs separate sign-off because PII/deploy source.
 **Older checkbox plans:** `docs/superpowers/plans/2026-06-18-searcherinsights-profile-scraper.md` (open) · `2026-06-20-camera-tool.md` (⚠ predates no-dummy-data pivot — re-spec before executing).

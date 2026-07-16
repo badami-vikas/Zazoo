@@ -43,7 +43,8 @@ function hasRelationColumn(columns: ColumnSpec[]): boolean {
  * Always-eligible kinds for any table-backed spec, plus the conditional ones
  * this spec's columns actually support. Order matches the canonical morph
  * order registry.ts documents (table, kanban, card/gallery, then conditional
- * calendar/map/graph).
+ * calendar/map/graph, then form last — it is an input surface, not a display
+ * format, but is always eligible per the UI architecture spec AP-011).
  */
 export function computeEligibleKinds(spec: TableSpec, isRelationship = false): ViewConfig["kind"][] {
   if (isRelationship) {
@@ -59,5 +60,8 @@ export function computeEligibleKinds(spec: TableSpec, isRelationship = false): V
   if (hasDateColumn(spec.columns)) kinds.push("calendar");
   if (hasLocationColumn(spec.columns)) kinds.push("map");
   if (hasRelationColumn(spec.columns)) kinds.push("network");
+  // Form is always offered for any table-backed entity spec — it is the standard
+  // new-row input surface (UI architecture canon AP-011, "Form view").
+  kinds.push("form");
   return kinds;
 }

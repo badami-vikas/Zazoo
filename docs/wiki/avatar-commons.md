@@ -8,6 +8,8 @@ Minimal Avatar shell + installed Modules on one side; signed Commons capability 
 
 **Later Avatar rhythm:** pointing input · brief/commitments · background File/Result lane · day-7 qualities Q + respectful periodic reflection with why/skip/snooze/pause/inspect/correct/delete · audio/screen sensors · voice/proactive suggestions.
 
-**Commons CM0–CM5:** wire registry → supply-chain trust first → marketplace website → corpus ingest → eval/version propagation → Bridge Cloud-hosted registry. Commons holds generalized capability patterns only, never personal Memory.
+**Commons CM0–CM5:** wire registry → supply-chain trust first → marketplace website → corpus ingest → eval/version propagation → Bridge Cloud-hosted registry. Commons holds generalized capability patterns only, never personal Memory. CM0 partial landed 2026-07-15: API composition + list/get/version/install-propose/publish-builtins + Registry browser. Learning similarity, browser evidence, and full exit gates remain.
 
 Confirmed prototype gate: Avatar foundation + Onboarding + CM0 + CM1. Legacy EG0/EG1 ids remain in source until code/docs migration removes them together.
+
+UI alignment partial 2026-07-15: Form is a registered standard DataView with typed metadata fields and an insert-hook seam. Direct-insert/process-parity bindings remain. macOS validation deferred.

@@ -22,7 +22,7 @@ import { MODULE_ROUTES } from "./lib/moduleRoutes";
  * render "inactive" (muted + lock icon) until enough is connected to be
  * useful, but are always clickable, never a dead end. Settings is
  * PLATFORM-wide admin only; per-Initiative admin lives at
- * /initiative/:id/control-panel (the small slider icon on each nav item).
+ * /initiative/:id/control-panel (the Initiative page's 3-dots menu).
  *
  * Initiative nav items merge TWO real sources, deduped by id:
  *   - trpc `graph.listInitiatives` (DB-backed kernel rows)

@@ -54,7 +54,10 @@ export interface SortSpec {
 // A view is data: persisted, swappable, never a hardcoded branch of a component.
 export interface ViewConfig {
   id: string;
-  kind: "table" | "gallery" | "kanban" | "calendar" | "map" | "network";
+  /** "form" = standard new-row input view (direct insert, same enrichment process as
+   * any other DB write — docs/wiki/ui-architecture.md "Form view"). Always eligible
+   * for any table-backed spec; submission calls the caller-supplied `onInsert` hook. */
+  kind: "table" | "gallery" | "kanban" | "calendar" | "map" | "network" | "form";
   sorts: SortSpec[];
   rowFilters: RowFilter[];
   filterMatch: "all" | "any";

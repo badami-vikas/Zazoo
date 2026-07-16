@@ -49,9 +49,14 @@ export interface DataViewsProps {
    * normal entity), used to build the switcher tabs. Defaults to every
    * registered kind (minus the relationship restriction, if applicable). */
   availableKinds?: ViewConfig["kind"][];
+  /** Forwarded to FormView: called when the user submits a new-row form.
+   * The caller routes the draft through action.propose for governed insert +
+   * Learning Agent enrichment (same process every other DB write goes through).
+   * Omitting this disables the Form view's submit button without hiding the form. */
+  onInsert?: (draft: Partial<DataRow>) => void | Promise<void>;
 }
 
-export function DataViews({ spec, view, data, onViewChange, isRelationship = false, availableKinds }: DataViewsProps) {
+export function DataViews({ spec, view, data, onViewChange, isRelationship = false, availableKinds, onInsert }: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [filterDraft, setFilterDraft] = useState("");
 
@@ -147,7 +152,7 @@ export function DataViews({ spec, view, data, onViewChange, isRelationship = fal
         </div>
       </div>
 
-      <ViewComponent spec={visibleSpec} view={view} data={data} onViewChange={onViewChange} />
+      <ViewComponent spec={visibleSpec} view={view} data={data} onViewChange={onViewChange} onInsert={onInsert} />
     </div>
   );
 }

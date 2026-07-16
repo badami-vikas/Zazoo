@@ -2,6 +2,14 @@
 
 > This append-only file preserves defect detail and resolution evidence. It is not an execution queue. Every open defect must be attached to exactly one canonical item in [`docs/TASKS.md`](TASKS.md); matching defects share that task when they share an outcome/exit test.
 
+- **RESOLVED 2026-07-13 — Baseline web typecheck failed after Chief-of-Staff `direct_reply` routing was added.**
+  `platform/apps/web/src/app/components/shared/AgentPanel.tsx:218` and
+  `platform/apps/web/src/app/pages/ChiefOfStaffPage.tsx:84` access `classification.route` without first narrowing
+  the routing union to `kind === "route"`; `pnpm typecheck` fails with TS2339 on clean `origin/main` (`db9a842`).
+  Fixed with shared, exhaustive `getRoutingDecisionDisplay()` handling used by both render paths; executable
+  behavior tests cover `route`, `clarify`, and `direct_reply`. Verified: focused tests 3/3, web typecheck, full
+  platform typecheck 38/38, full platform tests 38/38, focused ESLint, and two-stage independent review.
+
 Cross-session ledger of bugs / gaps / abnormalities. Persist across sessions. Agents:
 spot something off → add row here, do NOT wait for user ask. Fix → mark RESOLVED + date.
 Full rationale of decisions → [../raw/decisions-log.md](../raw/decisions-log.md).
@@ -1007,3 +1015,6 @@ The "Set up workspace…" sidebar button was removed with the shell IA v2 nav. O
 
 ## OPEN 2026-07-14 — @bridge/db test suite heavier after RLS migration 0008 (flakes under concurrent full-build load)
 `packages/db/migrations/0008_rls_as_code.sql` makes every `createLocalDb()`→`migrate()` apply RLS policies across 37 tables, so db test setup is materially heavier. During a full `turbo run typecheck test build --force` run CONCURRENTLY with 3 other subagent builds (machine thrash), the db test process once hit `'Promise resolution is still pending but the event loop has already resolved'` (~16.5s) and failed. Re-run alone under normal load: 53/53 green, and the batch-close full build (run alone) was also green → resource-starvation flakiness, not a logic defect. CI runners are dedicated (resemble the clean run). Watch: if it recurs on CI, cap db test concurrency (`--test-concurrency=1`) or split the migration cost. Low priority.
+
+## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
+Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.

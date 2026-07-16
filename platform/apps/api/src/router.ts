@@ -72,12 +72,15 @@ import {
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
+  type CommonsListQuery,
+  type CommonsPackageDetail,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import { scoreThesisFit, type ThesisProfile } from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
+import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
@@ -2436,6 +2439,168 @@ export const appRouter = t.router({
       const forked = rollbackFromHistory({ currentAvailable, rollbackTarget });
       const created = await ctx.wiring.packageStore.create(forked);
       return { installation: created };
+    }),
+  }),
+
+  // ---------------------------------------------------------------------------
+  // CM0 — Universal Commons registry tRPC surface (egg-commons-feature-roadmap
+  // §CM0). Wires the CommonsRegistry port (wiring.commonsRegistry, backed by
+  // HttpCommonsClient → services/commons :4780) as tRPC procedures so the web
+  // app can browse, fetch, and initiate governed installs from the registry
+  // without importing HTTP client code directly.
+  //
+  // Governance notes:
+  //  - list/get/getVersion are read queries, no auth guard needed (same policy
+  //    as every other .query in this router).
+  //  - installPropose is a mutation → requireAuthOnMutation applies (SEC-1).
+  //    It fetches from the registry (PKG-2 verify-on-install via HttpCommonsClient),
+  //    registers the manifest in the workspace package store (state=private), and
+  //    returns the installationId. The caller then calls `packages.install` for the
+  //    full governed proposal → pipeline → approval flow — no logic duplication.
+  //  - publishBuiltins is a mutation → same auth gate. Pushes the four built-in
+  //    workspace-definition packages to the running Commons service. Idempotent:
+  //    already-published versions are skipped, not failed.
+  //  - ALL mutations still go through requireAuthOnMutation (pipe middleware) and
+  //    withPilotWorkspaceGuard (error translation).
+  // ---------------------------------------------------------------------------
+
+  commons: t.router({
+    /** Browse the registry — filterable by kind and/or tag, paginated. */
+    list: procedure
+      .input(
+        z.object({
+          kind: z.enum(["workspace_definition", "skill", "workflow", "agent", "tool", "view", "integration_bundle"]).optional(),
+          tag: z.string().optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+          offset: z.number().int().min(0).optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        const query: CommonsListQuery = {};
+        if (input.kind !== undefined) query.kind = input.kind;
+        if (input.tag !== undefined) query.tag = input.tag;
+        if (input.limit !== undefined) query.limit = input.limit;
+        if (input.offset !== undefined) query.offset = input.offset;
+        return ctx.wiring.commonsRegistry.listAvailable(query);
+      }),
+
+    /** Package detail (latest + version history) for one package by name. */
+    get: procedure
+      .input(z.object({ name: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        const detail: CommonsPackageDetail | null = await ctx.wiring.commonsRegistry.get(input.name);
+        if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: `commons: package "${input.name}" not found` });
+        return detail;
+      }),
+
+    /** One exact published version's full entry. */
+    getVersion: procedure
+      .input(z.object({ name: z.string().min(1), version: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        const entry = await ctx.wiring.commonsRegistry.getVersion(input.name, input.version);
+        if (!entry) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `commons: ${input.name}@${input.version} not found` });
+        }
+        return entry;
+      }),
+
+    /**
+     * Install-from-Commons Step 1: fetch a package from the registry (PKG-2
+     * verify-on-install happens inside HttpCommonsClient.get/getVersion), validate
+     * its manifest, and register it in the workspace package store as a private
+     * installation. Returns the installationId so the caller can then drive the
+     * governed install flow via `packages.install(installationId, todayKey)`.
+     *
+     * Separating fetch+register from install keeps the governed proposal logic
+     * inside the existing `packages.install` handler — no duplication.
+     */
+    installPropose: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          name: z.string().min(1),
+          /** Omit to install the latest version. */
+          version: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+
+        // Fetch from registry — HttpCommonsClient verifies the publisher signature (PKG-2).
+        const entry = input.version
+          ? await ctx.wiring.commonsRegistry.getVersion(input.name, input.version)
+          : await ctx.wiring.commonsRegistry.get(input.name).then((d) => d?.latest ?? null);
+
+        if (!entry) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: input.version
+              ? `commons: ${input.name}@${input.version} not found`
+              : `commons: package "${input.name}" not found`,
+          });
+        }
+
+        // Re-validate the manifest at this seam (same guard packages.register uses).
+        let manifest;
+        try {
+          manifest = parsePackageManifest({ package: entry.manifest });
+        } catch (err) {
+          if (err instanceof PackageManifestValidationError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `commons manifest invalid: ${err.message}` });
+          }
+          throw err;
+        }
+
+        // Register as a private installation — same as packages.register, but the
+        // manifest source is the verified Commons entry, not a user-supplied object.
+        const created = await ctx.wiring.packageStore.create({
+          workspaceId: input.workspaceId,
+          packageName: manifest.name,
+          packageVersion: manifest.version,
+          manifest,
+          computedRisk: "informational", // packages.install recomputes over the full closure
+          state: "private",
+          status: "pending_review",
+          lineageManifestId: manifest.lineageManifestId,
+        });
+
+        return { installation: created };
+      }),
+
+    /**
+     * Publish the four built-in workspace-definition packages to the running
+     * Commons service. Idempotent: already-published versions are skipped.
+     * This is the runtime equivalent of `pnpm --filter @bridge/api publish-builtins`.
+     * Requires authentication (mutation guard) to prevent arbitrary callers from
+     * flooding the registry.
+     */
+    publishBuiltins: procedure.mutation(async ({ ctx }) => {
+      const published: string[] = [];
+      const skipped: string[] = [];
+      const failed: { name: string; reason: string }[] = [];
+
+      for (const { manifest } of BUILT_IN_PACKAGES) {
+        try {
+          await ctx.wiring.commonsRegistry.publish(manifest, ["built-in", manifest.kind]);
+          published.push(`${manifest.name}@${manifest.version}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (message.includes("already published")) {
+            skipped.push(`${manifest.name}@${manifest.version}`);
+          } else {
+            failed.push({ name: manifest.name, reason: message });
+          }
+        }
+      }
+
+      if (failed.length > 0) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `commons.publishBuiltins: ${failed.length} failure(s) — ${failed.map((f) => `${f.name}: ${f.reason}`).join("; ")}`,
+        });
+      }
+
+      return { published, skipped };
     }),
   }),
 

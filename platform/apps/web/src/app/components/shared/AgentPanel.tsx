@@ -27,6 +27,7 @@ import { Input } from "../ui/input";
 import { Badge } from "../ui/badge";
 import { AvatarIcon } from "../../avatar/AvatarOverlay";
 import { loadAvatarPrefs } from "../../avatar/avatar-store";
+import { getRoutingDecisionDisplay } from "../../lib/routing-decision-display";
 
 type ConverseResult = Awaited<ReturnType<typeof trpc.chiefOfStaff.converse.mutate>>;
 
@@ -196,8 +197,9 @@ export function AgentPanel() {
       </div>
 
       <div className="flex-1 overflow-auto space-y-3 p-4">
-        {turns.map((t, i) => (
-          <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
+        {turns.map((t, i) => {
+          const decisionDisplay = t.decision ? getRoutingDecisionDisplay(t.decision) : null;
+          return <div key={i} className={t.role === "user" ? "text-right" : "text-left"}>
             {t.role === "assistant" && t.agent && t.agent !== "chief_of_staff" && (
               <div className="text-xs font-medium mb-0.5" style={{ color: "var(--color-steel)" }}>
                 {AGENT_LABELS[t.agent] ?? t.agent}
@@ -212,15 +214,15 @@ export function AgentPanel() {
             >
               {t.text}
             </div>
-            {t.decision && (
+            {decisionDisplay && (
               <div className="mt-1 flex flex-wrap gap-1 justify-start">
-                <Badge variant="outline">{t.decision.kind}</Badge>
-                {t.decision.kind === "route" && <Badge variant="secondary">{t.decision.route}</Badge>}
+                <Badge variant="outline">{decisionDisplay.kindLabel}</Badge>
+                {decisionDisplay.routeLabel && <Badge variant="secondary">{decisionDisplay.routeLabel}</Badge>}
                 {t.proposalId && <Badge variant="outline">proposal pending in Approvals</Badge>}
               </div>
             )}
           </div>
-        ))}
+        })}
       </div>
 
       {error && <div className="px-4 pb-2 text-xs text-red-600 break-words">{error}</div>}

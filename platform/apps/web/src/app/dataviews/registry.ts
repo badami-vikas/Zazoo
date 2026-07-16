@@ -20,6 +20,7 @@ import { CalendarView } from "./views/CalendarView.js";
 import { GalleryView } from "./views/GalleryView.js";
 import { GraphView } from "./views/GraphView.js";
 import { MapView } from "./views/MapView.js";
+import { FormView } from "./views/FormView.js";
 
 /** Exactly @bridge/tables' ViewConfig["kind"] — the data-view grammar. Dashboard/
  * chatbot/canvas (the blueprint's non-tabular views, see packages/core/src/
@@ -33,12 +34,18 @@ export const VIEW_COMPONENT_REGISTRY: Record<ViewConfig["kind"], ComponentType<D
   gallery: GalleryView,
   map: MapView, // no map-rendering library in this repo — honest grouped-by-location list fallback (ADR-023, docs/BUGS.md)
   network: GraphView,
+  /** Form view (UI architecture canon, AP-011): first-class standard view that collects
+   * a new row; submission = direct insert through the caller-supplied onInsert hook,
+   * which routes through action.propose / Learning Agent enrichment like every other
+   * DB write. Always eligible for any table-backed spec (eligibility.ts). */
+  form: FormView,
 };
 
 /** Registered kinds, in the canonical morph order the vision doc lists
  * ("table (morphable: calendar/kanban/map/graph/card)") — used to render the
- * view-switcher tabs in blueprint-declared order rather than object-key order. */
-export const REGISTERED_VIEW_KINDS: ViewConfig["kind"][] = ["table", "kanban", "calendar", "gallery", "map", "network"];
+ * view-switcher tabs in blueprint-declared order rather than object-key order.
+ * "form" appears last: it is an input surface, not a data display format. */
+export const REGISTERED_VIEW_KINDS: ViewConfig["kind"][] = ["table", "kanban", "calendar", "gallery", "map", "network", "form"];
 
 export function isRegisteredViewKind(kind: string): kind is ViewConfig["kind"] {
   return kind in VIEW_COMPONENT_REGISTRY;
