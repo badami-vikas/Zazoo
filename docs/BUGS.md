@@ -18,6 +18,13 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## OPEN 2026-07-16 — repository baseline lint and web typecheck are red before TASK-002
+`pnpm lint` fails because `apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
+`react-hooks/exhaustive-deps` without the rule being registered. `pnpm typecheck` fails because
+`apps/web/src/app/pages/IntelligencePage.tsx:87,89` renders `Link` without importing it. The same
+baseline run passed all existing tests and the production build. Attach to TASK-017; resolve when
+both commands pass without weakening checks.
+
 ---
 
 ## OPEN 2026-07-14 — USER REPORT: deprecated Tools remain visible and Module rows are dead ends

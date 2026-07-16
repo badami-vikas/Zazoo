@@ -9,7 +9,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { PILOT_WORKSPACE, type Wiring } from "./wiring.js";
+import { LEARNING_AGENT, PILOT_WORKSPACE, type Wiring } from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -74,6 +74,7 @@ import {
   type PackageInstallationRow,
   type CommonsListQuery,
   type CommonsPackageDetail,
+  uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
@@ -145,6 +146,49 @@ const requireAuthOnMutation = t.middleware(async ({ ctx, type, next }) => {
 });
 
 const procedure = t.procedure.use(requireAuthOnMutation).use(withPilotWorkspaceGuard);
+
+type LearningMemoryContent =
+  | { kind: "onboarding_preference"; figure: string; admiredFor: string }
+  | { kind: "reflection_schedule"; dueAt: string; status: "scheduled" | "snoozed" | "paused" | "skipped" };
+
+function parseLearningMemory(content: string): LearningMemoryContent | null {
+  try {
+    const parsed = JSON.parse(content) as LearningMemoryContent;
+    return parsed?.kind === "onboarding_preference" || parsed?.kind === "reflection_schedule" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function researchPublicFigure(figure: string): Promise<{ title: string; extract: string; url: string }> {
+  const params = new URLSearchParams({
+    action: "query",
+    generator: "search",
+    gsrsearch: figure,
+    gsrlimit: "1",
+    prop: "extracts|info",
+    exintro: "1",
+    explaintext: "1",
+    inprop: "url",
+    format: "json",
+    origin: "*",
+  });
+  const response = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+    headers: { "user-agent": "Bridge/0.1 onboarding-research" },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) throw new TRPCError({ code: "BAD_GATEWAY", message: "Public-source research is unavailable." });
+  const body = (await response.json()) as {
+    query?: { pages?: Record<string, { title?: string; extract?: string }> };
+  };
+  const page = Object.values(body.query?.pages ?? {})[0];
+  if (!page?.title || !page.extract) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `No unambiguous public source found for "${figure}".` });
+  }
+  const article = encodeURIComponent(page.title.replaceAll(" ", "_"));
+  const url = new URL(`/wiki/${article}`, "https://en.wikipedia.org").toString();
+  return { title: page.title, extract: page.extract.slice(0, 4_000), url };
+}
 
 /** Strip `undefined` so exactOptionalPropertyTypes is satisfied at the seam. */
 function cleanOnBehalfOf(
@@ -1249,6 +1293,152 @@ export const appRouter = t.router({
         await ctx.wiring.onboardingProfileStore.save(row);
         return { profile: row };
       }),
+
+    learningState: procedure
+        .input(z.object({ workspaceId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          const rows = await ctx.wiring.memoryStore.retrieve(
+            { limit: 100 },
+            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
+          );
+          return {
+            memories: rows
+              .map((row) => ({ row, value: parseLearningMemory(row.content) }))
+              .filter((item): item is typeof item & { value: LearningMemoryContent } => item.value !== null),
+          };
+        }),
+
+    recommendFromRoleModel: procedure
+        .input(
+          z.object({
+            workspaceId: z.string().min(1),
+            figure: z.string().trim().min(2).max(120),
+            admiredFor: z.string().trim().min(2).max(500),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          const source = await researchPublicFigure(input.figure);
+          const recommendation = {
+            kind: "learning_recommendation" as const,
+            title: `Practice ${input.admiredFor} deliberately`,
+            summary:
+              `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
+              "your preparation or communication. Review the outcome before repeating it.",
+            documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
+            interpretation:
+              `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
+            citation: { label: source.title, url: source.url },
+            cadence: "weekly",
+            stopCondition: "Pause or remove it whenever it stops being useful.",
+          };
+          const proposal = await ctx.wiring.pipeline.propose(
+            {
+              workspaceId: input.workspaceId,
+              actor: { type: "agent", id: LEARNING_AGENT },
+              onBehalfOf: { type: "user", id: ctx.identity.id },
+              action: "write",
+              resourceType: "signal",
+              inputs: recommendation,
+              skill: "stageLearningRecommendation",
+              trustOrigin: "untrusted_external",
+            },
+            ctx.run,
+          );
+          const existing = await ctx.wiring.memoryStore.retrieve(
+            { limit: 100 },
+            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
+          );
+          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
+            await ctx.wiring.memoryStore.write({
+              id: uuidv7(),
+              workspaceId: input.workspaceId,
+              type: "preference",
+              scope: "private",
+              content: JSON.stringify({ kind: "onboarding_preference", figure: input.figure, admiredFor: input.admiredFor }),
+              confidence: 1,
+              trustOrigin: "user_content",
+              plane: "local",
+              createdBy: ctx.identity.id,
+              ownerUserId: ctx.wiring.pilotUserId,
+            });
+          }
+          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "reflection_schedule")) {
+            const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString();
+            await ctx.wiring.memoryStore.write({
+              id: uuidv7(),
+              workspaceId: input.workspaceId,
+              type: "procedural",
+              scope: "private",
+              content: JSON.stringify({ kind: "reflection_schedule", dueAt, status: "scheduled" }),
+              confidence: 1,
+              trustOrigin: "operator",
+              plane: "local",
+              createdBy: "learning",
+              ownerUserId: ctx.wiring.pilotUserId,
+            });
+          }
+          return { recommendation, proposal };
+        }),
+
+    correctMemory: procedure
+        .input(z.object({ workspaceId: z.string().min(1), memoryId: z.string().uuid(), content: z.string().trim().min(1).max(500) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          const auth = { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId };
+          const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
+          const value = current && parseLearningMemory(current.content);
+          if (!current || value?.kind !== "onboarding_preference") throw new TRPCError({ code: "NOT_FOUND" });
+          return ctx.wiring.memoryStore.supersede(input.memoryId, {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({ ...value, admiredFor: input.content }),
+            trustOrigin: "user_content",
+            createdBy: ctx.identity.id,
+          });
+        }),
+
+    forgetMemory: procedure
+        .input(z.object({ workspaceId: z.string().min(1), memoryId: z.string().uuid() }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          return {
+            forgotten: await ctx.wiring.memoryStore.forget(input.memoryId, {
+              workspaceId: input.workspaceId,
+              userId: ctx.wiring.pilotUserId,
+            }),
+          };
+        }),
+
+    setReflection: procedure
+        .input(
+          z.object({
+            workspaceId: z.string().min(1),
+            memoryId: z.string().uuid(),
+            action: z.enum(["snooze", "pause", "resume", "skip"]),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          const auth = { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId };
+          const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
+          const value = current && parseLearningMemory(current.content);
+          if (!current || value?.kind !== "reflection_schedule") throw new TRPCError({ code: "NOT_FOUND" });
+          const status = input.action === "resume" ? "scheduled" : input.action === "snooze" ? "snoozed" : input.action === "pause" ? "paused" : "skipped";
+          const dueAt = input.action === "snooze"
+            ? new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString()
+            : input.action === "resume"
+              ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000).toISOString()
+              : value.dueAt;
+          return ctx.wiring.memoryStore.supersede(input.memoryId, {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({ ...value, dueAt, status }),
+            trustOrigin: "user_content",
+            createdBy: ctx.identity.id,
+          });
+        }),
 
     /** DUMMY — see router-level doc comment above. Any 6-digit code passes. */
     verifyPhoneOtp: procedure

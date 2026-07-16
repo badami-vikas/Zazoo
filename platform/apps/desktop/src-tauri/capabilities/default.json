@@ -1,7 +1,7 @@
 {
   "$schema": "gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main Bridge window + the floating companion (overlay) window. Deliberately minimal: core only — the sensor_bridge commands are gated behind explicit user permission grants (deny OS permissions → Bridge still fully useful, per the graceful-degradation rule).",
-  "windows": ["main", "overlay"],
+  "description": "Default capability for the main Bridge window and every floating companion overlay window. Deliberately minimal: core only — the sensor_bridge commands are gated behind explicit user permission grants (deny OS permissions → Bridge still fully useful, per the graceful-degradation rule).",
+  "windows": ["main", "overlay*"],
   "permissions": ["core:default"]
 }

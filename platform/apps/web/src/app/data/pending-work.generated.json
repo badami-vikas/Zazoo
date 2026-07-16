@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-07-16T06:50:16.941Z",
+  "generatedAt": "2026-07-16T09:46:07.538Z",
   "items": [
     {
       "id": "TASK-001",
       "title": "TASK-001 — Coherent actionable shell prototype",
-      "status": "pending",
+      "status": "blocked",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A small, consistent shell where installed Modules are actionable, deprecated surfaces are absent, table controls are predictable, and both side panels behave alike.",
@@ -35,7 +35,7 @@
       ],
       "approval": "AP-020 and AP-021 applied",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 53,
@@ -44,7 +44,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "pending",
+      "status": "blocked",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -65,10 +65,10 @@
       ],
       "approval": "AP-020 applied",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 77,
+      "sourceLine": 78,
       "rank": 2
     },
     {
@@ -98,7 +98,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 89,
+      "sourceLine": 91,
       "rank": 3
     },
     {
@@ -130,7 +130,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 101,
+      "sourceLine": 103,
       "rank": 4
     },
     {
@@ -160,7 +160,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 197,
+      "sourceLine": 199,
       "rank": 5
     },
     {
@@ -193,7 +193,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 185,
+      "sourceLine": 187,
       "rank": 6
     },
     {
@@ -222,7 +222,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 161,
+      "sourceLine": 163,
       "rank": 7
     },
     {
@@ -251,7 +251,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 137,
+      "sourceLine": 139,
       "rank": 8
     },
     {
@@ -283,7 +283,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 125,
+      "sourceLine": 127,
       "rank": 9
     },
     {
@@ -315,7 +315,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 209,
+      "sourceLine": 211,
       "rank": 10
     },
     {
@@ -344,7 +344,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 221,
+      "sourceLine": 223,
       "rank": 11
     },
     {
@@ -373,7 +373,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 233,
+      "sourceLine": 235,
       "rank": 12
     },
     {
@@ -393,7 +393,8 @@
         "BUGS caller-supplied Helpdesk topics",
         "BUGS Node vm browser leak",
         "BUGS empty globals.css",
-        "BUGS client-only pin persistence"
+        "BUGS client-only pin persistence",
+        "BUGS 2026-07-16 baseline lint/typecheck failures"
       ],
       "requests": [],
       "approval": "none",
@@ -403,7 +404,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 245,
+      "sourceLine": 247,
       "rank": 13
     },
     {
@@ -431,7 +432,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 113,
+      "sourceLine": 115,
       "rank": 14
     },
     {
@@ -459,7 +460,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 173,
+      "sourceLine": 175,
       "rank": 15
     },
     {
@@ -487,13 +488,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 149,
+      "sourceLine": 151,
       "rank": 16
     },
     {
       "id": "TASK-002",
       "title": "TASK-002 — Trust-first onboarding and behavioral learning prototype",
-      "status": "pending",
+      "status": "in-progress",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "One comprehensible Onboarding flow that explains why each question matters, learns progressively under user control, and produces an immediately useful governed recommendation.",
@@ -506,7 +507,8 @@
       "evidence": [
         "BUGS 2026-07-14 blueprint-centric onboarding",
         "BUGS onboarding re-entry",
-        "BUGS Radix Dialog warning"
+        "BUGS Radix Dialog warning",
+        "2026-07-16 API/Memory regression evidence in outputs/2026-07-16-task002-onboarding-learning.md"
       ],
       "requests": [
         "R-028",
@@ -516,10 +518,10 @@
       ],
       "approval": "AP-020 applied",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 65,
+      "sourceLine": 66,
       "rank": 17
     },
     {
@@ -550,7 +552,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 281,
+      "sourceLine": 283,
       "rank": 18
     },
     {
@@ -578,7 +580,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 257,
+      "sourceLine": 259,
       "rank": 19
     },
     {
@@ -605,7 +607,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 269,
+      "sourceLine": 271,
       "rank": 20
     }
   ]

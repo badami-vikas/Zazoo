@@ -1,5 +1,9 @@
 # Change Log
 
+- **2026-07-16** — **TASK-002 trust-first onboarding and controlled learning (in_progress)**: added plain-language why/consequence copy, optional admired-public-figure input, fixed-host cited research, approval-gated Learning recommendation Signals, private Local Plane preference Memory, day-7 reflection scheduling, onboarding re-entry/start-over, and Settings controls for snooze/pause/resume/skip/inspect/correct/delete. Added Memory lineage deletion and API/DB regression coverage. Live desktop/375px proof remains.
+
+- **2026-07-16** — **TASK-001 coherent shell prototype (in_progress, blockers remain)**: created `PanelControl.tsx` shared hook+components (§5b symmetric collapse/expand/resize/keyboard/ARIA for both shell panels); created `ModuleDetailPage.tsx` manifest-driven 7-section Module Detail at `/module/:moduleId`; updated `routes.tsx` (new route); refactored `Layout.tsx` (modules from `packages.list` API, removed deprecated nav items, shared `PanelControl`); refactored `AgentPanel.tsx` (shared `PanelControl`); cleaned `IntelligencePage.tsx` (removed Tools/Workflows/standalone Skills sections, SECTIONS now 4 items). All 14 new tests pass; 2 pre-existing test failures (react import in Node env) unchanged. TypeScript compiles clean. Remaining blocker: live viewport checks on desktop + 375px cannot be verified without a running browser session. See `outputs/2026-07-16-task001-module-shell.md`.
+
 - **2026-07-16** — Captured user-provided Task Manager order in `docs/TASKS.md`; generator and UI consume that single ordered source. Status mapping retains blocked/completed records, with in-progress first and completed last. Reduced `docs/PROGRESS.md` to pointer/rules and archived prior detail at `docs/raw/progress-archive-2026-07.md`.
 
 - **2026-07-15** — Renamed the user-facing Calendar destination to Task Manager and added a rolling 12-day schedule for the source-backed pending queue. Added resizable/hidden columns, double-click editing, and right-click/row-menu database actions (delete cell, delete/hide row, duplicate, sort, hide column). Google Calendar projection remains available at `/calendar/google`.
@@ -1557,3 +1561,18 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Replaced the 67-row union of roadmap checkboxes, bug headings, partial requests, and proposed approvals with 20 canonical tasks in `docs/TASKS.md`; every task now carries outcome, falsifiable prototype test, plan scope, evidence, requests, approval gate, dependencies, status, priority, and horizon.
 - Made TASK-001→TASK-005 the non-skippable shell→Onboarding→Avatar→Commons→combined-demo path. Reclassified PROGRESS as historical and BUGS/requests/APPROVALS as evidence/audit ledgers rather than competing queues.
 - Changed Task Manager generation to consume TASKS only and added a parser contract proving multiple references reconcile into one task. Durable outcome: `outputs/2026-07-15-task-system-reconciliation.md`.
+- 2026-07-16 — TASK-001 correction: Module nav now requires both available version state and installed status; removed fabricated static Agent/Skill bindings and inert lifecycle buttons from Module Detail. Agent-owned Skills remain an honest blocked state until attributable runtime ownership is exposed.
+
+# 2026-07-16 — TASK-003 drag + position-persistence + window chrome (platform-neutral)
+- Added `overlay_save_position`, `overlay_get_position` Tauri commands to `overlay.rs`; positions persist to `{app_data_dir}/bridge/overlay_positions.json` (atomic temp→rename write).
+- Added `reconcile_saved_position` + `is_on_screen` helpers: on launch, saved position validated against current monitor topology; off-screen positions fall back to bottom-right anchor.
+- Updated `create_one_overlay_window` to restore saved drag position at startup.
+- Extended capabilities JSON with the supported `overlay*` glob so all monitor overlay windows receive core IPC access.
+- Added drag handle div with `data-tauri-drag-region` to `OverlayApp.tsx`; saves position on pointerup. Collapsed state only — drag handle hidden when panel is expanded.
+- Added `DesktopWindowChrome` component: close/minimize/zoom buttons in sidebar header, visible only under Tauri. `close_main_window`, `minimize_main_window`, `toggle_zoom_main_window` Rust commands registered in `lib.rs`.
+- Added 10 unit tests to `overlay::tests` (geometry, label naming, JSON roundtrip); 18/18 desktop-library tests pass.
+- Zero new TypeScript errors introduced; pre-existing errors unaffected.
+- **macOS-only blockers** (not implemented, flagged for local macOS session): `tauri-nspanel` (NonActivatingPanel + FullScreenAuxiliary + join-all-Spaces), macOS Spaces persistence, macOS fullscreen overlay, traffic-lights-in-sidebar title-bar removal.
+- TASK-003 remains `in_progress` — prototype test requires live macOS desktop verification.
+- Durable outcome: `outputs/2026-07-16-task-003-avatar-drag-persistence.md`.
+- TASK-003 moved to `blocked` with a named local-macOS unblock condition; no later roadmap task was started.

@@ -39,6 +39,8 @@ export interface OnboardingQuestion {
   kind: QuestionKind;
   prompt: string;
   helpText?: string;
+  /** Plain-language reason for asking and the immediate user-visible effect. */
+  consequence: string;
   options?: QuestionOption[];
   placeholder?: string;
 }
@@ -54,6 +56,7 @@ const Q_PROFESSION: OnboardingQuestion = {
   kind: "text",
   prompt: "What's your role or profession?",
   helpText: "E.g. 'Sales lead at a SaaS startup', 'Independent investor', 'Customer support manager'",
+  consequence: "Why we ask: this helps Bridge make relevant suggestions instead of generic ones. You can change it later.",
   placeholder: "e.g. Sales lead at a SaaS startup",
 };
 
@@ -62,6 +65,7 @@ const Q_DOMAIN: OnboardingQuestion = {
   kind: "single_select",
   prompt: "What's the main kind of work you want Bridge to organize?",
   helpText: "This decides which entities your Organization starts with.",
+  consequence: "Why we ask: your answer chooses the first useful area Bridge prepares for you. Nothing is added until you approve the preview.",
   options: [
     { value: "sales_deals", label: "Deals / sales pipeline" },
     { value: "job_search", label: "Job search" },
@@ -75,6 +79,7 @@ const Q_WATCH_FIRST: OnboardingQuestion = {
   kind: "multi_select",
   prompt: "What should Bridge watch or do first?",
   helpText: "You can change this later — this just seeds your first views.",
+  consequence: "Why we ask: this decides what Bridge should surface first. It does not grant permission to act.",
   options: [
     { value: "track_stage", label: "Track stage/status changes" },
     { value: "surface_signals", label: "Surface signals that need a response" },
@@ -88,6 +93,7 @@ const Q_VOCAB: OnboardingQuestion = {
   kind: "text",
   prompt: "What do you call the thing you're tracking? (e.g. \"Deal\", \"Candidate\", \"Case\")",
   helpText: "Bridge calls this an Initiative by default — your own word for it is what you'll see everywhere.",
+  consequence: "Why we ask: Bridge will use your familiar term in the setup you review next.",
   placeholder: "e.g. Deal",
 };
 
@@ -95,6 +101,7 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
   id: "view_style",
   kind: "single_select",
   prompt: "How do you like to see your work — a list, or a board?",
+  consequence: "Why we ask: this chooses your starting layout. You can switch layouts whenever you want.",
   options: [
     { value: "table", label: "List / table" },
     { value: "kanban", label: "Board (kanban)" },
@@ -106,6 +113,7 @@ const Q_NAME: OnboardingQuestion = {
   kind: "text",
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
+  consequence: "Why we ask: this is the name shown in your sidebar and can be changed later.",
 };
 
 /** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
@@ -120,7 +128,26 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
   kind: "single_select",
   prompt: "Pick your avatar's spirit animal.",
   helpText: "Purely cosmetic — you can change this later in Settings.",
+  consequence: "Why we ask: this only changes how your avatar looks. It never changes permissions, authority, or communication style.",
   options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
+};
+
+const Q_ROLE_MODEL: OnboardingQuestion = {
+  id: "role_model",
+  kind: "text",
+  prompt: "Is there a public figure whose way of working you admire?",
+  helpText: "Use a full name so the Learning Agent can find the right person. You can skip this.",
+  consequence: "Why we ask: Bridge will research public sources and suggest one relevant habit with citations. The suggestion still needs your approval.",
+  placeholder: "e.g. Indra Nooyi",
+};
+
+const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
+  id: "role_model_why",
+  kind: "text",
+  prompt: "What do you admire about how they work?",
+  helpText: "Describe a behavior or quality, not a blanket endorsement of the person.",
+  consequence: "Why we ask: this keeps the recommendation tied to what matters to you instead of copying someone else's whole approach.",
+  placeholder: "e.g. They prepare carefully and communicate decisions clearly",
 };
 
 /**
@@ -146,6 +173,8 @@ const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.profession === undefined) return Q_PROFESSION;
   if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
+  if (answers.role_model === undefined) return Q_ROLE_MODEL;
+  if (answers.role_model && answers.role_model_why === undefined) return Q_ROLE_MODEL_WHY;
   if (answers.domain === undefined) return Q_DOMAIN;
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
   if (answers.domain !== "relationships" && answers.vocab_name === undefined) return Q_VOCAB;
@@ -159,7 +188,7 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
  * view_style + workspace_name = 7. Used only as the denominator for
  * egg-growth progress, never for branching logic itself (that stays in
  * `nextQuestion`). */
-export const MAX_QUESTIONS = 7;
+export const MAX_QUESTIONS = 9;
 
 /** How many questions have been answered so far — the egg's "questions
  * answered" progress input (spec section 4, Stage 1-2: egg grows with real

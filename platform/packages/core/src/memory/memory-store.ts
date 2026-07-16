@@ -103,6 +103,9 @@ export interface MemoryStore {
   get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null>;
   /** List current Memories the caller is authorized to read, newest first. */
   retrieve(query: MemoryQuery, authScope: MemoryAuthScope): Promise<MemoryEntry[]>;
+  /** Permanently forget a Memory the caller may read. Personal-data deletion is
+   * the deliberate exception to append-only correction history. */
+  forget(id: string, authScope: MemoryAuthScope): Promise<boolean>;
 }
 
 /**
@@ -136,8 +139,12 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    if (!this.entries.some((e) => e.id === id)) {
+    const current = this.entries.find((e) => e.id === id);
+    if (!current) {
       throw new Error(`memory store: cannot supersede unknown id ${id}`);
+    }
+    if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
+      throw new Error("memory store: a correction cannot change workspace or owner");
     }
     return this.#insert(next, id);
   }
@@ -160,6 +167,28 @@ export class InMemoryMemoryStore implements MemoryStore {
     const offset = query.offset ?? 0;
     const limit = query.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map((e) => ({ ...e }));
+  }
+
+  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+    const target = this.entries.find((e) => e.id === id && memoryVisible(e, authScope));
+    if (!target) return false;
+    const lineage = new Set([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const entry of this.entries) {
+        if (lineage.has(entry.id) || !memoryVisible(entry, authScope) || entry.ownerUserId !== target.ownerUserId) continue;
+        if ((entry.supersedesId && lineage.has(entry.supersedesId)) ||
+            [...lineage].some((lineageId) => this.entries.find((candidate) => candidate.id === lineageId)?.supersedesId === entry.id)) {
+          lineage.add(entry.id);
+          changed = true;
+        }
+      }
+    }
+    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+      if (lineage.has(this.entries[index]!.id)) this.entries.splice(index, 1);
+    }
+    return true;
   }
 
   #insert(entry: MemoryWrite, supersedesId: string | null): MemoryEntry {

@@ -1,47 +1,25 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Target, Plus, Settings, Brain, BookOpen, Lock, Check, PanelLeftClose, ListChecks } from "lucide-react";
+import { Home, Package, Plus, Settings, Check, ListChecks } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
 import { hasStoredPrefs, loadAvatarPrefs, computeGrowthStage, type AvatarPrefs, type GrowthStage } from "./avatar/avatar-store";
 import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
-import { useInitiatives, getInitiatives, createInitiative } from "./data/initiatives";
-import { MODULE_ROUTES } from "./lib/moduleRoutes";
+import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
+import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
 
 /**
- * Shell IA v2 (requests.md R-017..R-020, ADR-029 — supersedes ADR-023's
- * six-container chrome): the primary nav is Apple-Notes-minimal —
+ * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
+ * first-class left-nav items, sourced from packages.list (not hardcoded).
+ * Each Module links to /module/:packageName (manifest-driven Module Detail).
+ * Deprecated surfaces (Knowledge, Intelligence, standalone Tools, Workflows,
+ * Projects) are removed from primary nav. Settings moves to its own section.
  *
- *   Home → each Initiative (first-class nav items) → "+ New" → ─── → Settings
- *
- * No intermediate "Initiatives" index page; no pinned Projects/Tools sections.
- * Knowledge/Intelligence/Calendar (ADR-033's onboarding-spec progressive
- * capability model) ARE in primary nav, below the fold — Knowledge/Calendar
- * render "inactive" (muted + lock icon) until enough is connected to be
- * useful, but are always clickable, never a dead end. Settings is
- * PLATFORM-wide admin only; per-Initiative admin lives at
- * /initiative/:id/control-panel (the Initiative page's 3-dots menu).
- *
- * Initiative nav items merge TWO real sources, deduped by id:
- *   - trpc `graph.listInitiatives` (DB-backed kernel rows)
- *   - the local useInitiatives store (user-created from the Work surface,
- *     localStorage — real user data, not seeded)
- * Honest empty state when both are empty.
- *
- * Visual language (Track C2, 2026-07-09): prototype icon-rail skin applied to
- * ADR-029 IA. 76px collapsed rail, icon + label stacked + centered,
- * active left-stripe indicator, workspace avatar at top, bottom section pinned.
- * SlidersHorizontal removed from rail — control panels reachable from detail
- * pages; icon kept imported here would be dead code, so import removed too.
- *
- * Expand/collapse (2026-07-10, user correction): the rail is genuinely
- * collapsible now — a NEW feature, not ported from the prototype (whose own
- * Sidebar.tsx explicitly declares itself fixed-width, "not a user toggle").
- * Collapsed = the original 76px icon-only design; expanded = 220px with
- * full labels beside icons. `railExpanded`/`setRailExpandedPersisted`,
- * `navItemClass`/`navLabelClass` below switch layout for every row.
+ * Panel behaviour: usePanelControl (§5b) — left sidebar and right AgentPanel
+ * share the same collapse/expand/resize/keyboard/ARIA contract via the shared
+ * PanelControl component.
  */
 export default function Layout() {
   const location = useLocation();
@@ -52,124 +30,69 @@ export default function Layout() {
   const [workspaceName, setWorkspaceName] = useState<string | undefined>(undefined);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
-  // Rail expand/collapse (user correction 2026-07-10 — a real toggle, not a
-  // port of the prototype, which is deliberately fixed-width). Persisted
-  // client-side same as other UI chrome prefs (pins.ts/AgentPanel's collapse
-  // key) — a display preference, not workspace state. Default EXPANDED
-  // (user correction 2026-07-10, matching the reference deployment's actual
-  // default — only an explicit prior "0" collapses it).
-  const [railExpanded, setRailExpanded] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("bridge.rail.expanded.v1") !== "0";
-  });
-  function setRailExpandedPersisted(next: boolean) {
-    setRailExpanded(next);
-    try {
-      window.localStorage.setItem("bridge.rail.expanded.v1", next ? "1" : "0");
-    } catch {
-      // Cosmetic preference only — safe no-op if storage is unavailable.
-    }
-  }
-  // Live drag feedback width, px — only set while a drag is in progress
-  // (null = not dragging, render the fixed COLLAPSED/EXPANDED width instead).
-  // Snaps to the nearer fixed state on release rather than persisting an
-  // arbitrary width — two clean states, dragged like a slider between them
-  // (user ask: "dragging allows collapse and expansion").
-  const [railDragWidth, setRailDragWidth] = useState<number | null>(null);
+
+  // TASK-001 §5b: left rail uses the shared usePanelControl hook, sharing the
+  // same two-fixed-state snap semantics as before but via the canonical hook.
   const RAIL_COLLAPSED = 76;
   const RAIL_EXPANDED = 220;
-  const RAIL_SNAP_MIDPOINT = (RAIL_COLLAPSED + RAIL_EXPANDED) / 2;
-
-  function startRailDrag(e: React.MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = railExpanded ? RAIL_EXPANDED : RAIL_COLLAPSED;
-    function onMove(ev: MouseEvent) {
-      const next = Math.min(RAIL_EXPANDED, Math.max(RAIL_COLLAPSED, startWidth + (ev.clientX - startX)));
-      setRailDragWidth(next);
-    }
-    function onUp(ev: MouseEvent) {
-      const finalWidth = Math.min(RAIL_EXPANDED, Math.max(RAIL_COLLAPSED, startWidth + (ev.clientX - startX)));
-      setRailDragWidth(null);
-      setRailExpandedPersisted(finalWidth >= RAIL_SNAP_MIDPOINT);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+  const rail = usePanelControl({
+    defaultWidth: RAIL_EXPANDED,
+    minWidth: RAIL_COLLAPSED,
+    maxWidth: RAIL_EXPANDED,
+    storageKeyWidth: "bridge.rail.width.v2",
+    storageKeyCollapsed: "bridge.rail.collapsed.v2",
+    snap: true,
+    snapMidpoint: (RAIL_COLLAPSED + RAIL_EXPANDED) / 2,
+  });
+  // Alias for readability — "expanded" means NOT collapsed.
+  const railExpanded = !rail.collapsed;
+  function setRailExpandedPersisted(next: boolean) {
+    rail.setCollapsedPersisted(!next);
   }
-  const [remoteInitiatives, setRemoteInitiatives] = useState<{ id: string; title: string }[] | null>(null);
-  const [connectedSourceCount, setConnectedSourceCount] = useState(0);
-  const [calendarConnected, setCalendarConnected] = useState(false);
-  // Growth stage: memory count not yet fetchable via tRPC (no /memory endpoint
-  // today) — defaults to 0 until that surface ships. Capability count ≈
-  // connected integration count, which Layout already fetches below. This gives
-  // a live stage the moment integrations connect; memory count wires in later.
+
+  // TASK-001 VOCAB6: installed modules from packages.list (real API, not
+  // hardcoded). Only `available` state modules appear in the nav.
+  const [installedModules, setInstalledModules] = useState<
+    { packageName: string; displayName: string }[] | null
+  >(null);
+
+  // Pretty display names for known packages (mirrors built-in-packages.ts).
+  const DISPLAY_NAMES: Record<string, string> = {
+    "deal-pilot": "DealPilot",
+    "job-pilot": "JobPilot",
+    helpdesk: "Helpdesk",
+    calendar: "Calendar",
+  };
+
   const [growthStage, setGrowthStage] = useState<GrowthStage>("egg");
-  const localInitiatives = useInitiatives();
 
-  // Progressive-capability gating (ADR-033's onboarding spec: Knowledge/
-  // Calendar are visible in nav from day one, but read "inactive" until
-  // enough is connected to be useful — never a dead end, just an honest
-  // locked state). Knowledge's threshold ("connect any 2 sources") is real
-  // integration.list rows + Google being connected; Calendar's is Google
-  // specifically, since it's the only calendar source wired today.
+  // TASK-001 VOCAB6: load installed modules from packages.list for the nav.
+  // Only `available` state packages appear. Fetched once per mount.
   useEffect(() => {
-    trpc.integration.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 200, offset: 0 })
+    trpc.packages.list
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((res) => {
-        setConnectedSourceCount((prev) => {
-          const next = prev + res.total;
-          // Recompute growth stage: memoryCount=0 until /memory tRPC ships;
-          // capabilityCount ≈ integration count (best proxy available today).
-          setGrowthStage(computeGrowthStage(0, next));
-          return next;
-        });
+        const available = res.items
+          .filter((p) => p.state === "available" && p.status === "installed")
+          .map((p) => ({
+            packageName: p.packageName,
+            displayName: DISPLAY_NAMES[p.packageName] ?? p.packageName,
+          }));
+        setInstalledModules(available);
+        // Recompute growth stage from module count (proxy for capability count).
+        setGrowthStage(computeGrowthStage(0, available.length));
       })
       .catch(() => {
-        // Honest no-op: an unreachable API just keeps Knowledge/Calendar
-        // showing their locked state rather than guessing they're connected.
-      });
-    trpc.google.list
-      .query()
-      .then((info) => {
-        if (info.connection.connected) {
-          setConnectedSourceCount((prev) => {
-            const next = prev + 1;
-            setGrowthStage(computeGrowthStage(0, next));
-            return next;
-          });
-          setCalendarConnected(true);
-        }
-      })
-      .catch(() => {
-        // Same honest no-op as above.
+        // Honest no-op: API unreachable → empty modules list.
+        setInstalledModules([]);
       });
   }, []);
 
-  // Calendar auto-seeds its own Initiative entry (user correction 2026-07-10:
-  // "user should never see 'No Initiatives'"). It's pre-installed
-  // (built-in-packages.ts seeds it unconditionally on every API boot) —
-  // unlike DealPilot/JobPilot/Helpdesk, which the user opts into via "+ New",
-  // Calendar's Initiative should just be there from the start. Same
-  // dedupe-by-packageName guard NewModuleDialog.tsx already uses, so this is
-  // idempotent and never creates a duplicate on remount.
   useEffect(() => {
-    const already = getInitiatives().some((i) => i.packageName === "calendar");
-    if (!already) {
-      const calendar = MODULE_ROUTES.calendar;
-      if (calendar) {
-        createInitiative({ name: calendar.label, goal: calendar.desc, list: "Work", moduleTo: calendar.to, packageName: "calendar" });
-      }
-    }
+    const openOnboarding = () => setOnboardingOpen(true);
+    window.addEventListener("bridge:open-onboarding", openOnboarding);
+    return () => window.removeEventListener("bridge:open-onboarding", openOnboarding);
   }, []);
-
-  useEffect(() => {
-    trpc.graph.listInitiatives
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })
-      .then((res) => setRemoteInitiatives(res.items.map((i) => ({ id: i.id, title: i.title }))))
-      .catch(() => setRemoteInitiatives([])); // honest no-op: API unreachable → local-only list
-  }, [location.pathname]);
 
   useEffect(() => {
     trpc.workspace.blueprint.get
@@ -208,25 +131,12 @@ export default function Layout() {
       });
   }, []);
 
-  // Merge kernel + local initiative lists, kernel first, deduped by id. Local
-  // items carry an optional moduleTo (set by NewModuleDialog) so an Initiative
-  // created from a Module links straight to its real surface, not a generic
-  // /initiative/:id detail page that has no data for it.
-  const localItems = localInitiatives.map((i) => ({ id: i.id, title: i.name, moduleTo: i.moduleTo }));
-  const remoteItems = (remoteInitiatives ?? []).map((i) => ({ ...i, moduleTo: undefined as string | undefined }));
-  const seen = new Set(remoteItems.map((i) => i.id));
-  const initiatives = [...remoteItems, ...localItems.filter((i) => !seen.has(i.id))];
-
   function isActive(to: string): boolean {
     return location.pathname === to || location.pathname.startsWith(`${to}/`);
   }
 
-  // Rail nav item — TWO layouts sharing one active-state treatment (user
-  // correction 2026-07-10: added a real expand/collapse toggle; the
-  // prototype's rail is fixed-width by design, so this is new work, not a
-  // port). Collapsed: icon + short label stacked/centered (original 76px
-  // design). Expanded: icon + full label in a row, left-aligned, room for
-  // real names instead of 9px truncated labels.
+  // Rail nav item — TWO layouts sharing one active-state treatment.
+  // Collapsed: icon + short label stacked/centered. Expanded: icon + full label in a row.
   function navItemClass(active: boolean): string {
     const layout = railExpanded ? "flex-row items-center gap-2.5 px-2.5 py-2" : "flex-col items-center gap-0.5 py-2";
     return `relative flex ${layout} rounded-lg w-full no-underline transition-colors cursor-pointer ${
@@ -236,86 +146,62 @@ export default function Layout() {
     }`;
   }
 
-  // Label span for a nav item — collapsed shows the original tiny centered
-  // caption; expanded shows a normal-size left-aligned label with room for
-  // the full name (no 60px truncation clamp).
   function navLabelClass(extra = ""): string {
     return railExpanded ? `text-sm font-medium leading-none truncate ${extra}` : `text-[9px] font-medium leading-none ${extra}`;
   }
 
-  // Left-side active indicator stripe — same height/style as prototype rail.
   function ActiveBar() {
     return <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-[var(--color-steel)]" />;
   }
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
-  const intelligenceActive = isActive("/intelligence");
-  const knowledgeActive = isActive("/knowledge-base");
   const pendingWorkActive = isActive("/pending-work");
-  const knowledgeUnlocked = connectedSourceCount >= 2;
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
-      {/* Desktop/tablet sidebar — hidden below sm, replaced by the fixed bottom bar.
-          Rail visual language (Track C2): collapsed = 76px icon rail, icon +
-          short label stacked + centered, active left-stripe, workspace avatar at
-          top, bottom-section pinned. ADR-029 IA (routing/items) preserved exactly.
-          Expand/collapse toggle added 2026-07-10 (user correction — see
-          `railExpanded`/`setRailExpandedPersisted` above); width transitions between
-          the original 76px and 220px, same active-stripe/icon language either
-          way — only the layout direction + label size change. */}
+      {/* Desktop/tablet sidebar — hidden below sm; uses shared PanelControl
+          semantics (§5b, TASK-001): same snap/collapse/resize/ARIA contract as
+          the right AgentPanel via the usePanelControl hook above. */}
       <nav
-        className={`hidden sm:flex shrink-0 border-r flex-col relative ${railDragWidth === null ? "transition-[width] duration-150" : ""} ${
+        id="panel-left"
+        aria-label="Module navigation"
+        className={`hidden sm:flex shrink-0 border-r flex-col relative ${rail.dragWidth === null ? "transition-[width] duration-150" : ""} ${
           !railExpanded ? "cursor-pointer" : ""
         }`}
         style={{
-          width: railDragWidth ?? (railExpanded ? RAIL_EXPANDED : RAIL_COLLAPSED),
+          width: rail.dragWidth ?? (railExpanded ? RAIL_EXPANDED : RAIL_COLLAPSED),
           backgroundColor: "var(--color-background)",
           borderColor: "var(--color-border)",
         }}
         onClick={(e) => {
-          // Click-anywhere-to-expand when collapsed (user ask). React's
-          // synthetic events bubble to this handler even from a clicked
-          // Link/button (their own onClick/href still fires independently),
-          // so `e.target === e.currentTarget` is too strict — it excludes
-          // every click that landed in the gaps BETWEEN nav items too (those
-          // hit an inner wrapper div, never the <nav> itself). Correct
-          // check: did the click land on or inside a real interactive
-          // element? If not, it's empty background — expand.
           if (!railExpanded && !(e.target as HTMLElement).closest("a, button")) {
             setRailExpandedPersisted(true);
           }
         }}
+        onKeyDown={(e) => {
+          // §5b: Escape key returns expanded → collapsed.
+          if (e.key === "Escape" && railExpanded) {
+            setRailExpandedPersisted(false);
+          }
+        }}
       >
-        {/* Resize handle — right edge, hover shows a resize cursor; drag
-            live-follows the mouse (railDragWidth) and snaps to the nearer of
-            the two fixed states on release (startRailDrag above). */}
-        <div
-          onMouseDown={startRailDrag}
-          className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 group"
-          title={railExpanded ? "Drag to collapse" : "Drag to expand"}
-        >
-          <div className="w-px h-full mx-auto bg-transparent group-hover:bg-[var(--color-steel-light)] transition-colors" />
-        </div>
+        {/* Resize handle — shared ResizeHandle component (§5b). */}
+        <ResizeHandle
+          side="left"
+          onMouseDown={(e) => rail.startDrag(e, "left")}
+          label={railExpanded ? "Drag to collapse sidebar" : "Drag to expand sidebar"}
+        />
 
-        {/* Organization switcher — Notion-style: click the workspace avatar to
-            open a flyout listing every workspace `workspace.list` returns for
-            this identity (real data, not fabricated — today that's exactly
-            one row, the pilot workspace). Switching to a DIFFERENT workspace
-            is intentionally not wired yet (app is single-tenant by
-            construction — PILOT_WORKSPACE baked into ~17 files + a backend
-            guard test); a non-active row is shown but disabled with an
-            honest reason rather than silently doing nothing. Settings
-            deliberately NOT included here (user correction 2026-07-10) —
-            this menu is workspace switching only; Settings keeps its own
-            dedicated rail icon below.
-            h-14 (not h-16) — user correction 2026-07-10: this row must align
-            with the center Header.tsx and right AgentPanel.tsx headers,
-            both h-14. All three "top row" strips across the 3-column layout
-            (left rail org box / center page header / right chat panel
-            header) now share one height, so they read as a single aligned
-            row instead of three misaligned strips. */}
+        {/* Desktop window chrome (TASK-003) — cross-platform close/minimize/zoom
+            buttons shown only when running under Tauri. On macOS the native title
+            bar traffic lights are already present; these provide a supplemental
+            in-sidebar affordance. The full "traffic lights replace the title bar"
+            UX requires removing decorations(false) on the main window and applying
+            macOS-specific CSS — flagged as a local macOS session blocker. */}
+        <DesktopWindowChrome expanded={railExpanded} />
+
+        {/* Organization switcher — h-14 matches center Header and right panel headers. */}
         <div
           className={`h-14 flex items-center border-b shrink-0 relative ${railExpanded ? "justify-start px-3" : "justify-center"}`}
           style={{ borderColor: "var(--color-border)" }}
@@ -325,6 +211,7 @@ export default function Layout() {
             onClick={() => setOrgMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={orgMenuOpen}
+            aria-label={`Organization: ${workspaceName || "Bridge"}`}
             className={`flex rounded-lg hover:bg-[var(--color-surface)] transition-colors ${
               railExpanded ? "flex-row items-center gap-2.5 py-1.5 px-1.5 w-full" : "flex-col items-center gap-0.5 py-1.5 px-1"
             }`}
@@ -341,22 +228,13 @@ export default function Layout() {
             </span>
           </button>
 
-          {/* Collapse toggle — sits next to the org name (user ask
-              2026-07-10), not buried at the bottom of the rail. Only shown
-              expanded; when collapsed, the whole rail is itself the expand
-              control (onClick handler above + drag handle). */}
+          {/* Collapse toggle — shared CollapseToggleButton (§5b). */}
           {railExpanded && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRailExpandedPersisted(false);
-              }}
-              className="ml-auto p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors shrink-0"
-              title="Collapse sidebar"
-            >
-              <PanelLeftClose className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
-            </button>
+            <CollapseToggleButton
+              side="left"
+              collapsed={false}
+              onClick={() => setRailExpandedPersisted(false)}
+            />
           )}
 
           {orgMenuOpen && (
@@ -400,7 +278,9 @@ export default function Layout() {
           )}
         </div>
 
-        {/* Top nav — Home + dynamic Initiatives + New, icon+label stacked. */}
+        {/* Top nav — Home + installed Modules (VOCAB6) + "+New", icon+label stacked.
+            Modules are sourced from packages.list (not hardcoded). Each links to
+            /module/:packageName (manifest-driven Module Detail, §4b). */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-0.5 px-1.5 pt-3">
           <Link to="/" className={navItemClass(homeActive)} title="Home">
             {homeActive && <ActiveBar />}
@@ -408,81 +288,61 @@ export default function Layout() {
             <span className={navLabelClass()}>Home</span>
           </Link>
 
-          {/* Initiatives — first-class nav items (ADR-029). Each shows a Target icon +
-              truncated title label; the control-panel slider is reachable from the
-              initiative detail page, not exposed in the narrow rail. */}
-          {initiatives.map((i) => {
-            const controlPanelBase = `/initiative/${encodeURIComponent(i.id)}`;
-            const to = i.moduleTo ?? controlPanelBase;
-            const active = isActive(to);
-            return (
-              <Link
-                key={i.id}
-                to={to}
-                className={navItemClass(active)}
-                title={i.title}
-              >
-                {active && <ActiveBar />}
-                <Target className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-                <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{i.title}</span>
-              </Link>
-            );
-          })}
-          {remoteInitiatives !== null && initiatives.length === 0 && (
-            <div className="py-1.5 text-[9px] text-center" style={{ color: "var(--color-warm-gray)" }}>
-              No Initiatives
+          {/* Installed Modules — from packages.list (real API, §5c). */}
+          {installedModules === null ? (
+            // Loading state: show a subtle indicator rather than a spinner in the nav.
+            <div
+              className="py-1.5 px-2 text-[9px]"
+              style={{ color: "var(--color-warm-gray)" }}
+              role="status"
+              aria-label="Loading installed modules"
+            >
+              {railExpanded ? "Loading modules…" : "…"}
             </div>
+          ) : installedModules.length === 0 ? (
+            <div className="py-1.5 text-[9px] text-center" style={{ color: "var(--color-warm-gray)" }}>
+              {railExpanded ? "No modules installed" : "—"}
+            </div>
+          ) : (
+            installedModules.map((mod) => {
+              const to = `/module/${mod.packageName}`;
+              const active = isActive(to);
+              return (
+                <Link
+                  key={mod.packageName}
+                  to={to}
+                  className={navItemClass(active)}
+                  title={mod.displayName}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {active && <ActiveBar />}
+                  <Package className="w-5 h-5 shrink-0" style={{ color: active ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+                  <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>{mod.displayName}</span>
+                </Link>
+              );
+            })
           )}
 
-          {/* "+ New" — ALWAYS below all initiatives. */}
+          {/* "+New" — ALWAYS below all modules. */}
           <button
             type="button"
             className={navItemClass(false)}
             onClick={() => setNewOpen(true)}
-            title="New Initiative"
+            title="New module or record"
+            aria-label="Create new module or record"
           >
             <Plus className="w-5 h-5 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>New</span>
           </button>
         </div>
 
-        {/* Bottom section — Knowledge/Intelligence/Settings, separated by a
-            border. Knowledge shows an overlaid lock icon when not yet
-            unlocked (ADR-033 progressive capability model). Calendar
-            deliberately NOT pinned here (user correction 2026-07-10) — it's
-            a Module like DealPilot/JobPilot/Helpdesk now (built-in-
-            packages.ts), reachable via Intelligence → Modules or by
-            creating it as an Initiative from "+ New", same as the others;
-            it doesn't get a dedicated rail slot any more than they do. */}
+        {/* Bottom section — Settings + Pending work.
+            TASK-001 VOCAB6: Knowledge and Intelligence removed from primary nav
+            (deprecated surfaces: Tools, Knowledge, Workflows, Projects). */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <Link
-            to="/knowledge-base"
-            className={navItemClass(knowledgeActive)}
-            title={knowledgeUnlocked ? "Knowledge" : "Knowledge — connect 2+ sources to unlock"}
-          >
-            {knowledgeActive && <ActiveBar />}
-            <div className="relative shrink-0">
-              <BookOpen
-                className="w-5 h-5"
-                style={{ color: knowledgeActive ? "var(--color-steel)" : "var(--color-warm-gray)" }}
-              />
-              {!knowledgeUnlocked && (
-                <Lock
-                  className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5"
-                  style={{ color: "var(--color-warm-gray)" }}
-                />
-              )}
-            </div>
-            <span className={navLabelClass(knowledgeUnlocked ? "" : "opacity-60")}>Knowledge</span>
-          </Link>
-          <Link to="/intelligence" className={navItemClass(intelligenceActive)} title="Intelligence">
-            {intelligenceActive && <ActiveBar />}
-            <Brain className="w-5 h-5 shrink-0" style={{ color: intelligenceActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Intelligence</span>
-          </Link>
           <Link to="/settings" className={navItemClass(settingsActive)} title="Settings">
             {settingsActive && <ActiveBar />}
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />

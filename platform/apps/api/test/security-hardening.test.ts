@@ -63,6 +63,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
       animal: "otter",
       verificationMethod: null,
     });
+
     assert.equal(viaNull.profile.verificationMethod, null);
 
     const viaPhone = await caller.onboarding.saveProfile({
@@ -75,6 +76,68 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
   } finally {
     await wiring.close();
   }
+});
+
+test("onboarding role-model learning is cited, approval-gated, controllable, and forgettable", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({
+          query: {
+            pages: {
+              "1": {
+                title: "Test Fixture Leader",
+                extract: "Test Fixture Leader is documented for public work. This is source context.",
+                fullurl: "https://en.wikipedia.org/wiki/Test_Fixture_Leader",
+              },
+            },
+          },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      const wiring = await buildWiring();
+      try {
+        const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+        const result = await caller.onboarding.recommendFromRoleModel({
+          workspaceId: PILOT_WORKSPACE,
+          figure: "Test Fixture Leader",
+          admiredFor: "clear preparation",
+        });
+        assert.equal(result.recommendation.citation.url, "https://en.wikipedia.org/wiki/Test_Fixture_Leader");
+        assert.equal(result.proposal.status, "pending_review", JSON.stringify(result.proposal));
+        assert.ok(result.proposal.policyResults.some((policy) => policy.effect === "require_approval"));
+
+        let state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        const preference = state.memories.find((item) => item.value.kind === "onboarding_preference");
+        const reflection = state.memories.find((item) => item.value.kind === "reflection_schedule");
+        assert.ok(preference);
+        assert.ok(reflection);
+
+        await caller.onboarding.correctMemory({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: preference.row.id,
+          content: "careful preparation",
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        const corrected = state.memories.find((item) => item.value.kind === "onboarding_preference");
+        assert.ok(corrected?.value.kind === "onboarding_preference");
+        assert.equal(corrected.value.admiredFor, "careful preparation");
+
+        await caller.onboarding.setReflection({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: reflection.row.id,
+          action: "pause",
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        assert.ok(state.memories.some((item) => item.value.kind === "reflection_schedule" && item.value.status === "paused"));
+
+        await caller.onboarding.forgetMemory({
+          workspaceId: PILOT_WORKSPACE,
+          memoryId: corrected.row.id,
+        });
+        state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+        assert.equal(state.memories.some((item) => item.value.kind === "onboarding_preference"), false);
+      } finally {
+        globalThis.fetch = originalFetch;
+        await wiring.close();
+      }
 });
 
 test("onboarding.verifyPhoneOtp: a passing code is labeled verificationSource:'dummy', never a real verification", async () => {

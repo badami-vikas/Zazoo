@@ -128,6 +128,31 @@ test("memories: supersede is append-only — prior row retained, excluded by def
     assert.equal(withHistory.length, 2);
     const superseder = withHistory.find((m) => m.content === "v2");
     assert.equal(superseder?.supersedesId, original.id);
+    await assert.rejects(
+      store.supersede(original.id, mem({
+        id: "e0000000-0000-4000-8000-000000000003",
+        workspaceId: ws.id,
+        scope: "private",
+        ownerUserId: USER_B,
+      })),
+      /cannot change workspace or owner/,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("memories: forget removes the complete correction lineage", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_forget" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const first = await store.write(mem({ id: "f0000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "first" }));
+    const corrected = await store.supersede(first.id, mem({ id: "f0000000-0000-4000-8000-000000000002", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "corrected" }));
+
+    assert.equal(await store.forget(corrected.id, { workspaceId: ws.id, userId: USER_A }), true);
+    assert.deepEqual(await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A }), []);
   } finally {
     await close();
   }
