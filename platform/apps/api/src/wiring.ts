@@ -51,6 +51,7 @@ import {
   InProcessRitualExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
+  KERNEL_PASSTHROUGH_SKILL,
   stageCapture,
   InMemoryCapabilityStore,
   InMemoryAutoActivationBudgetStore,
@@ -62,6 +63,9 @@ import {
   type MemoryStore,
   InMemoryEvalStore,
   InMemoryPolicyParamStore,
+  InMemoryGoalTaskStore,
+  InMemorySkillManifestRegistry,
+  InMemoryChildAgentRunStore,
   EchoModelProvider,
   type ModelProvider,
   type AgentQuery,
@@ -84,6 +88,10 @@ import {
   type OnboardingProfileStore,
   type EvalStore,
   type PolicyParamStore,
+  type GoalTaskStore,
+  type SkillManifestRegistry,
+  type ChildAgentRunStore,
+  type SkillManifest,
 } from "@bridge/core";
 import { HttpCommonsClient, commonsUrlFromEnv } from "./commons-client.js";
 import type { CommonsRegistry } from "@bridge/core";
@@ -103,7 +111,14 @@ import {
   DrizzleWorkspaceDefinitionStore,
   DrizzlePackageStore,
   DrizzleMemoryStore,
+  DrizzleGoalTaskStore,
+  DrizzleSkillManifestRegistry,
+  DrizzleChildAgentRunStore,
+  seedSkillManifests,
   InMemoryCanonicalIdentityStore,
+  ensureInternalStrategistGovernance,
+  ensureGovernanceAgentGovernance,
+  ensureCapabilityBuilderGovernance,
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
@@ -118,6 +133,10 @@ import {
   IntakeService,
   MissingGoogleGatewayFactory,
   oauthConfigFromEnv,
+  SKILL_SOURCE_GMAIL,
+  SKILL_SOURCE_CALENDAR,
+  SKILL_LIST_CALENDAR,
+  SKILL_STAGE,
   type GoogleGatewayFactory,
   type GoogleOAuthConfig,
   type ToolManifest,
@@ -137,8 +156,35 @@ import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
-const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
+export const EGRESS_AGENT = "b0000000-0000-4000-a000-0000000000e1";
 const INTAKE_AGENT = "b0000000-0000-4000-a000-0000000000e2";
+// AGS0 (TASK-007) — Internal Strategist's physical governed-pipeline identity
+// (the id `AgentQuery`/the ledger key off of). Distinct from the chat-routing
+// `FoundationalAgentId` string "internal_strategist" (@bridge/core's agents.ts)
+// the same way LEARNING_AGENT above is distinct from "learning" — @mention
+// routing and pipeline authority are two different identity spaces that
+// happen to share a display name.
+export const INTERNAL_STRATEGIST_AGENT = "b0000000-0000-4000-a000-0000000000d3";
+// TASK-007 (AGS3 closure) — the remaining two of the five permanent
+// foundational Agents (docs/raw/agent-goal-skill-orchestration-plan-2026-07.md
+// responsibility_map) get REAL physical governed-pipeline identities too, not
+// only prompt-level personas — otherwise a Task could never actually be
+// assigned to Governance or Capability Builder (resolveSkillForTask requires
+// Task.assignedAgentId to be a real, capability-scoped Agent id). Chief of
+// Staff deliberately has NO physical identity here — per docs/glossary.md
+// "Its routing role is a product composition, not an architectural
+// requirement" — it never itself invokes a governed Skill as an actor.
+export const GOVERNANCE_AGENT = "b0000000-0000-4000-a000-0000000000d4";
+export const CAPABILITY_BUILDER_AGENT = "b0000000-0000-4000-a000-0000000000d5";
+// TASK-007 persistent-mode governance seed ids (ensureInternalStrategistGovernance)
+// — mirror LEARNING_ROLE/LEARNING_SIGNAL_PERMISSION's id-space convention for
+// the coordinator's parallel ensureLearningAgentGovernance.
+export const INTERNAL_STRATEGIST_ROLE = "b0000000-0000-4000-a000-0000000000f3";
+const INTERNAL_STRATEGIST_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c3";
+export const GOVERNANCE_ROLE = "b0000000-0000-4000-a000-0000000000f4";
+const GOVERNANCE_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c4";
+export const CAPABILITY_BUILDER_ROLE = "b0000000-0000-4000-a000-0000000000f5";
+const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c5";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
 // seeded user id — workspace_definitions.created_by is a real FK to `users`,
 // so an arbitrary placeholder caller id would violate that constraint.
@@ -218,6 +264,20 @@ export interface Wiring {
    * verification method, connected sources. In-memory in both modes for now (see
    * onboarding-profile.ts's header comment for scope vs. the general Memory/Knowledge gap). */
   onboardingProfileStore: OnboardingProfileStore;
+  /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
+   * default in both modes for dev/test (mirrors every other in-memory port's
+   * dependency-free default); `buildPersistentPorts` binds the real,
+   * restart-durable `DrizzleGoalTaskStore` instead. */
+  goalTasks: GoalTaskStore;
+  /** AGS1 (TASK-007) — registered governed Skill manifests (`resolveSkillForTask`'s
+   * candidate catalog). In-memory default; `buildPersistentPorts` binds the real
+   * `DrizzleSkillManifestRegistry` (backed by `skill_manifests`, seeded from the
+   * SAME code-declared `GOVERNED_SKILL_MANIFEST_CATALOG` via `ensureSkillManifestCatalog`). */
+  skillManifests: SkillManifestRegistry;
+  /** AGS2 (TASK-007) — bounded child Agent Runs a parent Agent has spawned.
+   * In-memory default; `buildPersistentPorts` binds the real, restart-durable
+   * `DrizzleChildAgentRunStore` instead. */
+  childAgentRuns: ChildAgentRunStore;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
   /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
@@ -247,8 +307,11 @@ export interface Wiring {
 }
 
 /** A first skill: stage an entity mutation (echo inputs as the proposed change). */
+/** The kernel's reserved passthrough — see @bridge/core's `KERNEL_PASSTHROUGH_SKILL`
+ * doc comment (pipeline.ts) for exactly why this is permanently exempt from the
+ * AGS1 gate rather than a Skill catalog entry. `name` MUST equal that constant. */
 const stageMutation: Skill = {
-  name: "stageMutation",
+  name: KERNEL_PASSTHROUGH_SKILL,
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -260,6 +323,245 @@ const stageLearningRecommendation: Skill = {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
 };
+
+/**
+ * AGS1 (TASK-007) demo governed Skill — Internal Strategist's (or, per the
+ * SAME manifest, Learning's) analytical-synthesis output. Registered with a
+ * `SkillManifest` below (`AGENT_ORCHESTRATION_SKILL_MANIFEST`), so — like
+ * every other governed skill in this catalog after the fail-closed-by-default
+ * migration — this skill may ONLY be invoked by an Agent actor resolved via a
+ * real Goal/Task assignment; see pipeline.ts's `PipelineDeps.skillManifests`
+ * doc comment for the two narrow, principled (never a maintained allowlist)
+ * exemptions from that rule.
+ */
+const stageStrategicRecommendation: Skill = {
+  name: "stageStrategicRecommendation",
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+/** AGS1 Goal/Task types this demo manifest matches — kept as named constants
+ * so the seeded Task in `agentOrchestration` procedures and this manifest
+ * cannot silently drift apart. */
+export const RELATIONSHIP_LEARNING_GOAL_TYPE = "relationship.learning";
+export const SYNTHESIZE_RECOMMENDATION_TASK_TYPE = "synthesize_recommendation";
+
+export const AGENT_ORCHESTRATION_SKILL_MANIFEST = {
+  skillId: "stageStrategicRecommendation",
+  version: "1.0.0",
+  goalTypes: [RELATIONSHIP_LEARNING_GOAL_TYPE],
+  taskTypes: [SYNTHESIZE_RECOMMENDATION_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  // Preferences ONLY (AGS1) — resolveSkillForTask never reads this field; the
+  // Task's assignedAgentId is what actually authorizes an eligible Agent.
+  defaultAgents: ["learning", "internal_strategist"],
+} as const;
+
+/**
+ * AGS1 real-catalog migration (TASK-007 closure) — `stageLearningRecommendation`
+ * (used only by `chiefOfStaff.recommendFromRoleModel`, always invoked with
+ * `actor: {type:"agent", id: LEARNING_AGENT}` already — see router.ts) is
+ * migrated onto a real governed manifest rather than left in the legacy
+ * allowlist below. This changes NO runtime behavior (the call site was already
+ * agent-actor-only, so it already always drafted/`pending_review`) — it only
+ * ADDS the requirement that the call site supply a real `goalTaskRef`, which
+ * `chiefOfStaff.recommendFromRoleModel` now provisions inline (one bounded
+ * Task per recommendation request).
+ */
+export const LEARNING_ROLE_MODEL_GOAL_TYPE = "learning.role_model_recommendation";
+export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
+
+export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
+  skillId: "stageLearningRecommendation",
+  version: "1.0.0",
+  goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
+  taskTypes: [PRODUCE_RECOMMENDATION_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+} as const;
+
+/**
+ * AGS1 real-catalog migration (TASK-007 closure) — Help Offer drafting was
+ * previously staged via the generic `stageMutation` kernel passthrough
+ * (resourceType `"signal"`, action `"write"`, a Human actor) — the ONE
+ * `stageMutation` call site whose (action, resourceType) is NOT agent-floor-
+ * protected (every other `stageMutation` call targets `action:"approve"`/
+ * `"execute"` on the protected `"skill"` resourceType and is therefore
+ * structurally exempt from the AGS1 gate — see pipeline.ts's
+ * `PipelineDeps.skillManifests` doc comment; no manifest needed there, and
+ * giving `stageMutation` itself a manifest would incorrectly gate those
+ * agent-floor-protected human-approval sites too). This ONE site gets its OWN
+ * dedicated Skill + manifest instead of overloading `stageMutation`.
+ */
+const stageHelpdeskAnswer: Skill = {
+  name: "helpdesk.stageAnswer",
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+export const HELPDESK_ROUTING_GOAL_TYPE = "helpdesk.routing";
+export const DRAFT_HELP_OFFER_TASK_TYPE = "draft_help_offer";
+export const HELPDESK_ANSWER_SKILL_MANIFEST = {
+  skillId: "helpdesk.stageAnswer",
+  version: "1.0.0",
+  goalTypes: [HELPDESK_ROUTING_GOAL_TYPE],
+  taskTypes: [DRAFT_HELP_OFFER_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+} as const;
+
+/**
+ * AGS1 real-catalog migration (TASK-007 closure) — DealPilot's "Source" fetch
+ * was previously a synchronous, immediately-applied Human action. Migrated
+ * onto the EGRESS_AGENT identity (already the cloud/egress actor every Google
+ * external:fetch flow uses) — matches this platform's own plane-gate
+ * philosophy ("local agents REQUEST data; a cloud agent SOURCES it",
+ * authority.ts's `planeGate` doc comment) rather than a raw Human external
+ * fetch. The frontend (`apps/web/src/app/data/api.ts`'s `apiDealPilotSource`)
+ * already branches on `pending_review`/`applied`/`rejected` and reads
+ * `output.proposedOutput` regardless of status (the Skill still RUNS and
+ * returns its output before any human decides) — no frontend change was
+ * needed; DealPilot's separate `dealpilot.commit` step (quarantine → human
+ * "Add") is independent of ledger-approval status already, so the visible
+ * feature behavior is unchanged even though the ledger row now always drafts.
+ */
+export const DEALPILOT_SOURCING_GOAL_TYPE = "dealpilot.sourcing";
+export const SOURCE_CANDIDATES_TASK_TYPE = "source_candidates";
+export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
+  skillId: "dealpilot.source",
+  version: "1.0.0",
+  goalTypes: [DEALPILOT_SOURCING_GOAL_TYPE],
+  taskTypes: [SOURCE_CANDIDATES_TASK_TYPE],
+  permissions: ["external:fetch:read"],
+  plane: "cloud",
+  dataScopes: ["public"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+} as const;
+
+/**
+ * AGS1 real-catalog migration (TASK-007 closure) — the camera-capture tool
+ * (`apps/web/src/app/components/tools/camera/CameraCaptures.tsx`) previously
+ * called the generic `action.propose` endpoint directly from the client with
+ * a raw `actor:{type:"user"}` + `skill:"stageCapture"`. Migrated behind a
+ * dedicated `capture.stage` procedure (mirrors `chiefOfStaff.
+ * recommendFromRoleModel`'s inline Goal/Task provisioning) so the SERVER,
+ * never the client, decides the invoking Agent — a capture is modeled as
+ * Learning "observing authorized evidence" (its stated mandate), reviewed
+ * before becoming a committed Touchpoint, consistent with every other
+ * governed Skill's draft-then-approve shape.
+ */
+export const RELATIONSHIP_CAPTURE_GOAL_TYPE = "relationship.capture";
+export const STAGE_CAPTURE_TASK_TYPE = "stage_capture";
+export const STAGE_CAPTURE_SKILL_MANIFEST = {
+  skillId: "stageCapture",
+  version: "1.0.0",
+  goalTypes: [RELATIONSHIP_CAPTURE_GOAL_TYPE],
+  taskTypes: [STAGE_CAPTURE_TASK_TYPE],
+  permissions: ["touchpoint:write", "signal:write"],
+  plane: "local",
+  dataScopes: ["all", "private"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+} as const;
+
+/**
+ * AGS1 real-catalog migration (TASK-007 closure) — the 8 `google.*` skills
+ * (`@bridge/integrations-google`) were already Agent-actor-only at every call
+ * site (`EGRESS_AGENT`/`INTAKE_AGENT`, never Human/Automation-direct), so
+ * AGS1's core "no direct non-Agent invocation" concern was already satisfied
+ * structurally — what was missing was a registered manifest + `goalTaskRef`.
+ * `IntakeService`/`GoogleService`/`EgressExecutor` (`@bridge/integrations-
+ * google`) gained an optional `goalTasks?: GoalTaskStore` dependency; each
+ * method that proposes one of these skills provisions (find-or-create) ONE
+ * durable Goal for the workspace + one bounded Task per call, assigned to
+ * whichever physical identity already invokes it. Same manifest shape
+ * (`permissions`/`plane`/`dataScopes`) mirrors what each call site's own
+ * `pipeline.propose` request already declares.
+ */
+export const GOOGLE_SYNC_GOAL_TYPE = "google.sync";
+export const GOOGLE_SOURCE_TASK_TYPE = "source_google_data";
+export const GOOGLE_STAGE_TASK_TYPE = "stage_google_data";
+
+function googleSkillManifest(skillId: string, taskType: string, plane: "local" | "cloud", permissions: readonly string[]): {
+  skillId: string;
+  version: string;
+  goalTypes: readonly string[];
+  taskTypes: readonly string[];
+  permissions: readonly string[];
+  plane: "local" | "cloud";
+  dataScopes: readonly ("all" | "public" | "private")[];
+  riskBand: "informational" | "advisory" | "transformational" | "operational" | "external";
+  evalVersion: string;
+  defaultAgents: readonly string[];
+} {
+  return {
+    skillId,
+    version: "1.0.0",
+    goalTypes: [GOOGLE_SYNC_GOAL_TYPE],
+    taskTypes: [taskType],
+    permissions,
+    plane,
+    dataScopes: ["public", "private", "all"],
+    riskBand: "advisory",
+    evalVersion: "1.0.0",
+    defaultAgents: ["learning"],
+  };
+}
+
+/**
+ * NOTE: `SKILL_COMPOSE_EMAIL`/`SKILL_COMPOSE_EVENT`/`SKILL_COMPOSE_UPDATE_EVENT`/
+ * `SKILL_COMPOSE_DELETE_EVENT` are deliberately NOT registered here — every
+ * call site (`GoogleService.proposeSend`) targets `resourceType:"external:send"`,
+ * which `isAgentFloorDenied` already, unconditionally denies for ANY agent
+ * (agent-floor.ts) — they are structurally exempt from the AGS1 gate (see
+ * pipeline.ts's `PipelineDeps.skillManifests` doc comment) and registering a
+ * manifest for them would be actively wrong (it would force an Agent+Task
+ * requirement onto an action no Agent could ever perform, at which point the
+ * ONLY actor that could invoke it — a Human — would ALSO be rejected once a
+ * manifest exists, since a governed Skill requires an Agent actor). Human-
+ * initiated compose/send stays exactly as designed: a Human proposes the
+ * draft, `external:send`'s hard agent-floor + `pol-external-approval` policy
+ * gate the actual send.
+ */
+export const GOOGLE_SKILL_MANIFESTS = [
+  googleSkillManifest(SKILL_SOURCE_GMAIL, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
+  googleSkillManifest(SKILL_SOURCE_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
+  googleSkillManifest(SKILL_LIST_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
+  googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["touchpoint:write", "signal:write"]),
+];
+
+/**
+ * The FULL registered governed Skill manifest catalog — the single source of
+ * truth both `buildInMemoryPorts` (registers these synchronously into an
+ * `InMemorySkillManifestRegistry`) and `buildPersistentPorts` (idempotently
+ * seeds these into `skill_manifests` via `seedSkillManifests`, then
+ * `refresh()`es a `DrizzleSkillManifestRegistry` from that table) resolve
+ * against — one list, two durability backends, never drift between them.
+ */
+export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
+  AGENT_ORCHESTRATION_SKILL_MANIFEST,
+  LEARNING_RECOMMENDATION_SKILL_MANIFEST,
+  HELPDESK_ANSWER_SKILL_MANIFEST,
+  DEALPILOT_SOURCE_SKILL_MANIFEST,
+  STAGE_CAPTURE_SKILL_MANIFEST,
+  ...GOOGLE_SKILL_MANIFESTS,
+];
 
 const policies: PolicyFn[] = [
   (i) =>
@@ -298,6 +600,44 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   agents.assumed.set(LEARNING_AGENT, "role-learning");
   agents.scope.set(LEARNING_AGENT, ["signal:write"]);
   roles.roleGrants.set("role-learning", [
+    { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+  ]);
+
+  // Internal Strategist (AGS0/AGS1, TASK-007) — local, analysis/synthesis only.
+  // Shares "signal:write" with Learning so the SAME governed Skill
+  // (stageStrategicRecommendation) can resolve for either, depending only on
+  // which Agent a Task is actually assigned to (AGS1 acceptance: "same Skill
+  // can be selected for two eligible Agents assigned to same Task").
+  agents.assumed.set(INTERNAL_STRATEGIST_AGENT, "role-internal-strategist");
+  agents.scope.set(INTERNAL_STRATEGIST_AGENT, ["signal:write"]);
+  roles.roleGrants.set("role-internal-strategist", [
+    { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+  ]);
+
+  // Governance (AGS3, TASK-007) — reviews/explains/audits only; the
+  // deterministic kernel (agent-floor + resolveAuthority), never this Agent's
+  // own opinion, decides authority. Its capability scope is deliberately the
+  // SAME narrow shape as Learning/Internal Strategist (signal:write, for
+  // writing inspectable risk-assessment/audit-summary Signals) — it holds NO
+  // broader scope, and agent-floor's non-removable protected-resource DENY
+  // (policy/policy_param/skill/agent/role/permission/ledger/delegation) still
+  // applies to it exactly as to any other agent; Governance's real authority
+  // to actually enact anything routes through the separate, Human-decided
+  // capability.approve/action.decide surfaces, never through this scope.
+  agents.assumed.set(GOVERNANCE_AGENT, "role-governance");
+  agents.scope.set(GOVERNANCE_AGENT, ["signal:write"]);
+  roles.roleGrants.set("role-governance", [
+    { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+  ]);
+
+  // Capability Builder (AGS3, TASK-007) — drafts only; every output still
+  // routes through the governed pipeline (draft, propose, approve, execute)
+  // and this Agent can never activate its own output (capability.approve is
+  // itself agent-floor-protected — see agent-floor.ts). Same minimal
+  // signal:write scope for the same reason as Governance above.
+  agents.assumed.set(CAPABILITY_BUILDER_AGENT, "role-capability-builder");
+  agents.scope.set(CAPABILITY_BUILDER_AGENT, ["signal:write"]);
+  roles.roleGrants.set("role-capability-builder", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
   ]);
 
@@ -357,6 +697,18 @@ export interface ModePorts {
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
   packageStore: PackageStore;
   memoryStore: MemoryStore;
+  /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
+   * default (dev/test); `buildPersistentPorts` binds the real, restart-durable
+   * `DrizzleGoalTaskStore` instead. */
+  goalTasks: GoalTaskStore;
+  /** AGS1 (TASK-007) — registered governed Skill manifests (`resolveSkillForTask`'s
+   * candidate catalog). In-memory default; `buildPersistentPorts` binds the real
+   * `DrizzleSkillManifestRegistry`, seeded via `ensureSkillManifestCatalog`. */
+  skillManifests: SkillManifestRegistry;
+  /** AGS2 (TASK-007) — bounded child Agent Runs a parent Agent has spawned.
+   * In-memory default; `buildPersistentPorts` binds the real, restart-durable
+   * `DrizzleChildAgentRunStore` instead. */
+  childAgentRuns: ChildAgentRunStore;
   /** ModelProviders this mode registers (echo double in-memory; Ollama/Anthropic persistent). */
   modelProviders: ModelProvider[];
   memory?: Wiring["memory"];
@@ -365,6 +717,25 @@ export interface ModePorts {
    *  bypass RLS (superuser / BYPASSRLS) in production; self-gates to a no-op
    *  outside prod. `buildWiring()` awaits this before the server serves traffic. */
   verifyRlsPosture?: () => Promise<void>;
+  /**
+   * TASK-007 (AGS0/AGS1/AGS3) — persistent-mode only. Idempotently provisions
+   * each foundational Agent's real governance rows (role/agent/grants) before
+   * the server serves traffic, mirroring `verifyRlsPosture`'s "awaited once at
+   * boot" shape. In-memory mode seeds the equivalent via `seedGovernance`
+   * instead — these hooks are no-ops (absent) there.
+   */
+  ensureInternalStrategistGovernance?: () => Promise<void>;
+  ensureGovernanceAgentGovernance?: () => Promise<void>;
+  ensureCapabilityBuilderGovernance?: () => Promise<void>;
+  /**
+   * TASK-007 (AGS1) — persistent-mode only. Idempotently seeds the code-declared
+   * `GOVERNED_SKILL_MANIFEST_CATALOG` into `skill_manifests`, then refreshes the
+   * `DrizzleSkillManifestRegistry`'s read cache, before the server serves traffic —
+   * mirrors the `ensure*Governance` hooks' "awaited once at boot" shape. In-memory
+   * mode registers the identical catalog synchronously instead; this hook is a
+   * no-op (absent) there.
+   */
+  ensureSkillManifestCatalog?: () => Promise<void>;
 }
 
 /**
@@ -387,6 +758,13 @@ export interface ModePorts {
 export function buildPersistentPorts(env: { url: string }): ModePorts {
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db);
+  // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
+  // once DATABASE_URL is set. `skillManifestRegistry`'s `refresh()` is awaited
+  // inside `ensureSkillManifestCatalog` below (called once at boot, before the
+  // server serves traffic), not here — constructing it here just binds the db.
+  const goalTaskStore = new DrizzleGoalTaskStore(db);
+  const skillManifestRegistry = new DrizzleSkillManifestRegistry(db);
+  const childAgentRunStore = new DrizzleChildAgentRunStore(db);
 
   console.warn(
     "[wiring] DATABASE_URL is set, but the ledger residency guarantee (\"ledger MUST " +
@@ -427,6 +805,11 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     // longer in-memory-only once DATABASE_URL is set.
     packageStore: new DrizzlePackageStore(db),
     memoryStore: new DrizzleMemoryStore(db),
+    // TASK-007 — real, restart-durable bindings (see the field's doc comment
+    // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
+    goalTasks: goalTaskStore,
+    skillManifests: skillManifestRegistry,
+    childAgentRuns: childAgentRunStore,
     // Real providers in persistent mode: Ollama is always registered (local plane,
     // dev-default per CLAUDE.md); Anthropic/Groq only when their keys are configured —
     // no fake fallback, same fail-closed posture as the Google gateway.
@@ -437,6 +820,34 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     ],
     closeDb: close,
     verifyRlsPosture: () => assertRlsPosture(db, { env: process.env }),
+    ensureInternalStrategistGovernance: () =>
+      ensureInternalStrategistGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+        agentId: INTERNAL_STRATEGIST_AGENT,
+        roleId: INTERNAL_STRATEGIST_ROLE,
+        permissionId: INTERNAL_STRATEGIST_SIGNAL_PERMISSION,
+      }),
+    ensureGovernanceAgentGovernance: () =>
+      ensureGovernanceAgentGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+        agentId: GOVERNANCE_AGENT,
+        roleId: GOVERNANCE_ROLE,
+        permissionId: GOVERNANCE_SIGNAL_PERMISSION,
+      }),
+    ensureCapabilityBuilderGovernance: () =>
+      ensureCapabilityBuilderGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+        agentId: CAPABILITY_BUILDER_AGENT,
+        roleId: CAPABILITY_BUILDER_ROLE,
+        permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
+      }),
+    ensureSkillManifestCatalog: async () => {
+      await seedSkillManifests(db, GOVERNED_SKILL_MANIFEST_CATALOG);
+      await skillManifestRegistry.refresh();
+    },
   };
 }
 
@@ -481,6 +892,17 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     // for zero-infra dev/test) — persistent mode uses the real DrizzlePackageStore.
     packageStore: new InMemoryPackageStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
+    // TASK-007 — dependency-free in-memory default (dev/test). The SAME
+    // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
+    // seeds into `skill_manifests` is registered here synchronously — one
+    // source of truth for what's governed, two durability backends.
+    goalTasks: new InMemoryGoalTaskStore(),
+    skillManifests: (() => {
+      const registry = new InMemorySkillManifestRegistry();
+      for (const m of GOVERNED_SKILL_MANIFEST_CATALOG) registry.register(m);
+      return registry;
+    })(),
+    childAgentRuns: new InMemoryChildAgentRunStore(),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
     modelProviders: [new EchoModelProvider()],
@@ -494,7 +916,9 @@ export async function buildWiring(): Promise<Wiring> {
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
     .register(stageCapture)
-    .register(stageLearningRecommendation);
+    .register(stageLearningRecommendation)
+    .register(stageStrategicRecommendation)
+    .register(stageHelpdeskAnswer);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -523,6 +947,18 @@ export async function buildWiring(): Promise<Wiring> {
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
+  // TASK-007 (AGS0/AGS1/AGS3) — persistent-mode only. Provisions each
+  // foundational Agent's real governance rows before any request can resolve
+  // a Skill for it. No-op (absent) in in-memory mode, where `seedGovernance`
+  // already covers it synchronously below.
+  await modePorts.ensureInternalStrategistGovernance?.();
+  await modePorts.ensureGovernanceAgentGovernance?.();
+  await modePorts.ensureCapabilityBuilderGovernance?.();
+  // TASK-007 (AGS1) — persistent-mode only. Seeds the code-declared governed
+  // Skill manifest catalog into `skill_manifests` and refreshes the registry's
+  // read cache. No-op (absent) in in-memory mode, where the catalog was
+  // already registered synchronously inside `buildInMemoryPorts`.
+  await modePorts.ensureSkillManifestCatalog?.();
   const {
     roles,
     agents,
@@ -543,6 +979,9 @@ export async function buildWiring(): Promise<Wiring> {
     workspaceDefinitionStore,
     packageStore,
     memoryStore,
+    goalTasks,
+    skillManifests,
+    childAgentRuns,
     modelProviders,
     memory,
     closeDb,
@@ -666,10 +1105,12 @@ export async function buildWiring(): Promise<Wiring> {
     ledger,
     events,
     variance,
+    skillManifests,
+    goalTasks,
   });
 
   // Google integration surface.
-  const intake = new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph });
+  const intake = new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph, goalTasks });
   const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
   const egress = new EgressExecutor({ ledger, gateways, graph: localPlane.graph });
   const selfEmails = (process.env.BRIDGE_SELF_EMAILS ?? "")
@@ -684,6 +1125,7 @@ export async function buildWiring(): Promise<Wiring> {
     secrets: localPlane.secrets,
     identities: { workspaceId: PILOT_WORKSPACE, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: PILOT_USER },
     selfEmails,
+    goalTasks,
   });
 
   // EVAL-3 + VAR-1 substrate — in-memory both modes (no Drizzle binding yet).
@@ -745,6 +1187,9 @@ export async function buildWiring(): Promise<Wiring> {
     credentialBroker,
     commonsRegistry,
     onboardingProfileStore,
+    goalTasks,
+    skillManifests,
+    childAgentRuns,
     memoryStore,
     evalStore,
     policyParams,

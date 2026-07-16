@@ -74,9 +74,14 @@ export interface GrantRule {
   dataScope?: import("./data-scope.js").DataScope;
 }
 
-/** Context for ephemeral grants — minted per ritual/initiative run, expiring. */
+/** Context for ephemeral grants — minted per ritual/initiative run, expiring.
+ * `child_agent_run` (AGS2) is a bounded delegated Run created by a parent
+ * Agent — see child-agent-run.ts. It reuses this same context shape (id =
+ * the child run id, runId = the parent run id) purely for ledger/audit
+ * attribution; a child run's authority is bounded by construction
+ * (`deriveChildAgentRun`'s intersection), not by an ephemeral-grant lookup. */
 export interface RunContext {
-  type: "initiative" | "community" | "ritual";
+  type: "initiative" | "community" | "ritual" | "child_agent_run";
   id: string;
   runId?: string;
 }
@@ -114,6 +119,16 @@ export interface ActionRequest {
    * ledger row so a proposal ingested from untrusted content is auditable as
    * such. Absent = not ingested from a tagged source (kernel-authored). */
   trustOrigin?: TrustOrigin;
+  /**
+   * AGS1 — binds this request to the typed Goal/Task pair the invoking Agent
+   * was assigned, so `pipeline.propose` can resolve Skill eligibility from
+   * the Goal/Task contract rather than the Agent's identity alone (see
+   * skill-manifest.ts's `resolveSkillForTask`). Required only for skills that
+   * have a registered `SkillManifest`; omitted for the existing ungoverned/
+   * interim skill catalog, so this is purely additive — no existing caller's
+   * behavior changes by this field's presence.
+   */
+  goalTaskRef?: { goalId: string; taskId: string };
 }
 
 export type PolicyPhase = "pre" | "runtime" | "post";

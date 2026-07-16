@@ -12,6 +12,11 @@ export {
   DrizzleAgentStore,
   DrizzleEphemeralStore,
   DrizzlePolicyStore,
+  ensureInternalStrategistGovernance,
+  ensureGovernanceAgentGovernance,
+  ensureCapabilityBuilderGovernance,
+  type InternalStrategistGovernanceConfig,
+  type FoundationalAgentGovernanceConfig,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
 export {
@@ -47,6 +52,9 @@ export {
 } from "./workspace-definition-store.js";
 export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";
+export { DrizzleGoalTaskStore } from "./goal-task-store.js";
+export { DrizzleSkillManifestRegistry, seedSkillManifests } from "./skill-manifest-store.js";
+export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";

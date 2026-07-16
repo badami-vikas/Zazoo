@@ -12,7 +12,10 @@
  * append-only — a decision is a NEW row referencing the proposal, never an update.
  */
 import { agentFloorDeny, resolveAuthority, type AuthorityDeps } from "./authority.js";
+import { isAgentFloorDenied } from "./agent-floor.js";
 import { evaluateTaintedEgress } from "./policy/taint-egress.js";
+import type { GoalTaskStore } from "./goal-task.js";
+import { resolveSkillForTask, type SkillManifestRegistry } from "./skill-manifest.js";
 import type {
   EventBus,
   LedgerStore,
@@ -39,7 +42,66 @@ export interface PipelineDeps {
   ledger: LedgerStore;
   events: EventBus;
   variance: VarianceAdjuster;
+  /**
+   * AGS1 — the Goal/Task-bound Skill manifest catalog. Optional and additive:
+   * when omitted entirely, `propose()` behaves EXACTLY as before AGS1 existed
+   * (no embedding is forced to opt in). Once configured, EVERY skill
+   * invocation must EITHER resolve through a registered manifest OR target a
+   * resourceType/action combination that is ALREADY, structurally,
+   * agent-floor-denied (`isAgentFloorDenied` — policy/policy_param/skill/
+   * agent/role/permission/ledger/delegation writes/executes/archives/
+   * approvals) — there is no silent "unregistered skill just passes through"
+   * path once this field is set, and no maintained allowlist either: the ONE
+   * exemption is DERIVED from the pre-existing, non-removable agent-floor
+   * invariant, not a separate list this module or any caller maintains. The
+   * reasoning: if NO Agent could ever perform this (action, resourceType)
+   * combination regardless of any grant (agent-floor already denies it
+   * unconditionally), then requiring an Agent+Task to perform it is
+   * nonsensical — the action is definitionally a Human-only governance
+   * decision (e.g. `capability.approve`, `blueprint.activate`,
+   * `packages.install` all propose `action:"approve"`/`"execute"` on
+   * resourceType `"skill"`, which agent-floor already forbids ANY agent from
+   * touching). Everything else — any skill on a NON-floor-protected
+   * resourceType/action — must have a real manifest or is rejected, EXCEPT
+   * the one reserved `KERNEL_PASSTHROUGH_SKILL` name (see its own doc
+   * comment) — not a maintained allowlist, a single permanent kernel
+   * reservation, the same shape as `Action`'s own `"approve"` being reserved
+   * and never client-proposable.
+   */
+  skillManifests?: SkillManifestRegistry;
+  /** Loads the Goal/Task a governed request claims via `req.goalTaskRef`.
+   * Required (alongside `skillManifests`) only for requests naming a skill
+   * that HAS a registered manifest. */
+  goalTasks?: GoalTaskStore;
 }
+
+/**
+ * The ONE reserved skill name that is NEVER "a Skill" in the AGS1 governed
+ * sense, and is therefore permanently exempt from the AGS1 gate — not a
+ * time-boxed allowlist entry, a single, permanent kernel reservation, exactly
+ * like how `Action`'s `"approve"` is reserved and never client-proposable
+ * (types.ts's comment on `Action`).
+ *
+ * WHY this exists at all: `ActionRequest.skill` is a mandatory field on every
+ * `propose()` call, including calls that are pure Human-authored mutations
+ * already fully gated by the ordinary authority/policy layers (Layers 0-2 of
+ * `resolveAuthority`) and that have NO bounded Agent capability behind them
+ * at all — e.g. a Human sharing/exporting their OWN touchpoint, or any other
+ * mutation not yet bound to a dedicated named Skill. Forcing these through an
+ * Agent+Task would misrepresent a Human's own already-authorized action as a
+ * delegated Agent capability, and — since `resolveSkillForTask` requires an
+ * Agent actor — would make such actions IMPOSSIBLE to perform at all (no
+ * Agent could take their place; the Human's OWN grant is the real, and only,
+ * authority check). `KERNEL_PASSTHROUGH_SKILL`'s registered implementation is
+ * a provably pure echo (`{ proposedOutput: inputs, diff: { to: inputs } }`,
+ * see `apps/api/src/wiring.ts`'s `stageMutation` — the ONE object this
+ * constant is required to name) — it carries no Agent-specific logic
+ * whatsoever, which is what makes it kernel plumbing rather than a Skill
+ * catalog entry. Every OTHER skill name — including every other use this
+ * repository has ever made of "stageMutation"-shaped drafting — is expected
+ * to carry a real, bounded capability and a real manifest.
+ */
+export const KERNEL_PASSTHROUGH_SKILL = "stageMutation";
 
 /**
  * Thrown by `decide()` when a proposal has already been resolved (a referencing
@@ -178,6 +240,87 @@ export class UniversalActionPipeline {
       const allowed = await authority.agents.allowedSkills(req.actor.id);
       if (allowed.length > 0 && !allowed.includes(req.skill)) {
         return this.#reject(req, auth, pre, `skill "${req.skill}" not in agent allow-list`, ctx);
+      }
+    }
+
+    // 3b) AGS1 governed-skill gate. Fails closed by DEFAULT for every skill:
+    // a skill invocation must EITHER resolve through a registered SkillManifest
+    // (the branch below) OR target a resourceType/action combination that is
+    // ALREADY, structurally, agent-floor-denied, OR be the ONE reserved
+    // `KERNEL_PASSTHROUGH_SKILL` name — see PipelineDeps' `skillManifests` doc
+    // comment for why both (and only those) are principled exemptions rather
+    // than a maintained allowlist. Only engages when `skillManifests` is
+    // configured at all (omitted entirely in @bridge/core's own test
+    // harnesses and any other embedding that hasn't opted into AGS1
+    // governance yet — see PipelineDeps.skillManifests).
+    if (this.#deps.skillManifests) {
+      const manifests = this.#deps.skillManifests.forSkill(req.skill);
+      const structurallyExempt = isAgentFloorDenied(req.action, req.resourceType) || req.skill === KERNEL_PASSTHROUGH_SKILL;
+      if (manifests.length === 0 && !structurallyExempt) {
+        return this.#reject(
+          req,
+          auth,
+          pre,
+          `skill "${req.skill}" has no registered SkillManifest and (${req.action}, ${req.resourceType}) is not agent-floor-protected — fails closed (AGS1)`,
+          ctx,
+        );
+      }
+      if (manifests.length > 0) {
+        // Fail closed: a governed Skill may ONLY be invoked by an Agent Run —
+        // never directly by a Human or an Automation actor (BUGS.md 2026-07-14
+        // "Skills are a standalone toggle and runtime allows non-Agent invocation").
+        if (req.actor.type !== "agent") {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" may only be invoked by an eligible Agent Run — direct ${req.actor.type} invocation is not permitted`,
+            ctx,
+          );
+        }
+        if (!req.goalTaskRef || !this.#deps.goalTasks) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" requires a resolved Goal/Task assignment (goalTaskRef)`,
+            ctx,
+          );
+        }
+        const goal = await this.#deps.goalTasks.getGoal(req.goalTaskRef.goalId);
+        const task = await this.#deps.goalTasks.getTask(req.goalTaskRef.taskId);
+        if (!goal || !task || task.goalId !== goal.id) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}": unknown or mismatched Goal/Task (${req.goalTaskRef.goalId}/${req.goalTaskRef.taskId})`,
+            ctx,
+          );
+        }
+        const agentScope = await authority.agents.capabilityScope(req.actor.id);
+        const agentDataScope = await authority.agents.dataScope(req.actor.id);
+        const resolution = await resolveSkillForTask(manifests, {
+          goal,
+          task,
+          agent: {
+            id: req.actor.id,
+            capabilityScope: agentScope,
+            plane: req.actor.plane ?? "local",
+            dataScope: agentDataScope,
+          },
+          skillId: req.skill,
+          ...(req.dataScope ? { requestedDataScope: req.dataScope } : {}),
+        });
+        if (!resolution.ok) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" resolution failed: ${resolution.reason ?? "ineligible"} — ${resolution.detail ?? "no eligible manifest"}`,
+            ctx,
+          );
+        }
       }
     }
 

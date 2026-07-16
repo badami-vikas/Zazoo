@@ -1,0 +1,156 @@
+/**
+ * Goal/Task primitives (docs/raw/agent-goal-skill-orchestration-plan-2026-07.md
+ * AGS1, docs/glossary.md). A Goal is a durable intended outcome used to
+ * classify and prioritize related Tasks and eligible Skills; a Task is a
+ * bounded unit of work toward a Goal, assigned to exactly one Agent. Skills
+ * bind PRIMARILY to Goal/Task type pairs (see skill-manifest.ts's
+ * `resolveSkillForTask`) — an Agent's manifest-declared default access is a
+ * preference, never ownership, so a Task's `assignedAgentId` is what actually
+ * authorizes an eligible Agent to use a matching governed Skill, not the
+ * Agent's identity alone.
+ *
+ * Kept deliberately minimal and store-agnostic (an in-memory port here, same
+ * pattern as `RitualRegistry`/`AgentQuery` in ports.ts) — a Drizzle-backed
+ * store is a follow-up slice once this primitive has a settled shape, mirroring
+ * how `WorkspaceDefinitionStore`/DealPilot's thesis store started in-memory in
+ * `apps/api/wiring.ts` before any dedicated schema landed.
+ */
+
+/** An open string identifier, e.g. "relationship.learning", "dealpilot.diligence".
+ * Kept as a plain string (not a closed enum) because Goal/Task types are a
+ * per-Module vocabulary that Modules and Commons packages extend over time —
+ * mirrors `ResourceType`'s pattern of being closed at the kernel-governance
+ * layer but Goal/Task types are intentionally open, like `Skill.name`. */
+export type GoalType = string;
+export type TaskType = string;
+
+export type TaskStatus = "open" | "in_progress" | "done" | "blocked" | "cancelled";
+
+export interface Goal {
+  id: string;
+  workspaceId: string;
+  type: GoalType;
+  title: string;
+  createdAt: string;
+}
+
+export interface Task {
+  id: string;
+  workspaceId: string;
+  goalId: string;
+  type: TaskType;
+  /**
+   * The Agent this Task is currently assigned to. This is the ONLY thing that
+   * authorizes an eligible Agent to invoke a matching governed Skill for this
+   * Task — a Skill manifest's `defaultAgents` is a preference surfaced to the
+   * UI/assignment flow, never a bypass (AGS1 deny_rules: "default Agent access
+   * never overrides Goal/Task mismatch"). May be any registered Agent id,
+   * including a non-default one, which is exactly the scenario TASK-007's
+   * prototype test exercises.
+   */
+  assignedAgentId: string;
+  status: TaskStatus;
+  createdAt: string;
+}
+
+export interface CreateGoalInput {
+  id?: string;
+  workspaceId: string;
+  type: GoalType;
+  title: string;
+}
+
+export interface CreateTaskInput {
+  id?: string;
+  workspaceId: string;
+  goalId: string;
+  type: TaskType;
+  assignedAgentId: string;
+  status?: TaskStatus;
+}
+
+/** Minimal determinism seam this store needs — mirrors `RunCtx`'s `ids`/`clock`
+ * without requiring a full RunCtx (Goal/Task CRUD is not itself a pipeline
+ * mutation; it is the data the pipeline later resolves Skills against). */
+export interface GoalTaskIdClock {
+  nextId(): string;
+  nowISO(): string;
+}
+
+export interface GoalTaskStore {
+  createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal>;
+  getGoal(id: string): Promise<Goal | null>;
+  listGoals(workspaceId: string): Promise<Goal[]>;
+  createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task>;
+  getTask(id: string): Promise<Task | null>;
+  listTasksByGoal(goalId: string): Promise<Task[]>;
+  /** Reassign a Task to a different Agent — the ONLY way eligibility for a
+   * governed Skill changes for that Task; never mutated implicitly. */
+  reassignTask(id: string, assignedAgentId: string): Promise<Task>;
+  updateTaskStatus(id: string, status: TaskStatus): Promise<Task>;
+}
+
+/** In-memory implementation — dev/test default, same shape as every other
+ * `InMemory*Store` in memory/stores.ts. */
+export class InMemoryGoalTaskStore implements GoalTaskStore {
+  readonly goals = new Map<string, Goal>();
+  readonly tasks = new Map<string, Task>();
+
+  async createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal> {
+    const goal: Goal = {
+      id: input.id ?? seam.nextId(),
+      workspaceId: input.workspaceId,
+      type: input.type,
+      title: input.title,
+      createdAt: seam.nowISO(),
+    };
+    this.goals.set(goal.id, goal);
+    return goal;
+  }
+
+  async getGoal(id: string): Promise<Goal | null> {
+    return this.goals.get(id) ?? null;
+  }
+
+  async listGoals(workspaceId: string): Promise<Goal[]> {
+    return [...this.goals.values()].filter((g) => g.workspaceId === workspaceId);
+  }
+
+  async createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task> {
+    const task: Task = {
+      id: input.id ?? seam.nextId(),
+      workspaceId: input.workspaceId,
+      goalId: input.goalId,
+      type: input.type,
+      assignedAgentId: input.assignedAgentId,
+      status: input.status ?? "open",
+      createdAt: seam.nowISO(),
+    };
+    this.tasks.set(task.id, task);
+    return task;
+  }
+
+  async getTask(id: string): Promise<Task | null> {
+    return this.tasks.get(id) ?? null;
+  }
+
+  async listTasksByGoal(goalId: string): Promise<Task[]> {
+    return [...this.tasks.values()].filter((t) => t.goalId === goalId);
+  }
+
+  async reassignTask(id: string, assignedAgentId: string): Promise<Task> {
+    const existing = this.tasks.get(id);
+    if (!existing) throw new Error(`goal-task: unknown task ${id}`);
+    const updated: Task = { ...existing, assignedAgentId };
+    this.tasks.set(id, updated);
+    return updated;
+  }
+
+  async updateTaskStatus(id: string, status: TaskStatus): Promise<Task> {
+    const existing = this.tasks.get(id);
+    if (!existing) throw new Error(`goal-task: unknown task ${id}`);
+    const updated: Task = { ...existing, status };
+    this.tasks.set(id, updated);
+    return updated;
+  }
+}

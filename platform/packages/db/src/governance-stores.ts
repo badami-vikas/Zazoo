@@ -24,6 +24,7 @@ import {
   permissions,
   policies,
   rolePermissions,
+  roles,
   workspaceMembers,
 } from "./schema.js";
 
@@ -86,6 +87,224 @@ export function parseAllowedSkills(raw: unknown): string[] {
     throw new Error(`Invalid agents.allowed_skills jsonb: ${result.error.message}`);
   }
   return result.data;
+}
+
+/**
+ * TASK-007 (AGS0/AGS3) persistent-mode governance seeding shared shape for a
+ * foundational Agent — mirrors the SAME idempotent provisioning idiom as the
+ * coordinator's `ensureLearningAgentGovernance` (a parallel foundational-Agent
+ * governance-seed function landing alongside these; all reconcile onto the
+ * same pattern rather than diverging actor-binding mechanisms). Persistent
+ * mode cannot rely on the in-memory `seedGovernance` dev seed: each of these
+ * Agents needs an attributable assumed Role + capability scope, real DB rows,
+ * before it can resolve any governed Skill in production.
+ */
+export interface FoundationalAgentGovernanceConfig {
+  workspaceId: string;
+  userId: string;
+  agentId: string;
+  roleId: string;
+  permissionId: string;
+}
+export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
+
+interface FoundationalAgentGovernanceMeta {
+  displayName: string;
+  roleDescription: string;
+  agentGoal: string;
+  /** Human-readable name used only in the thrown verification-failure message. */
+  verificationLabel: string;
+}
+
+/**
+ * Idempotently provisions and verifies a foundational Agent's persistent
+ * `signal:write` authority (the permission every Goal/Task-bound Skill
+ * manifest these Agents can be assigned in `apps/api/src/wiring.ts` declares).
+ * Safe to call on every boot (`onConflictDoUpdate`/`onConflictDoNothing`
+ * throughout) — never mutates an unrelated row, never widens scope beyond
+ * `signal:write`. Shared by `ensureInternalStrategistGovernance`,
+ * `ensureGovernanceAgentGovernance`, and `ensureCapabilityBuilderGovernance`
+ * below — one seeding algorithm, three named call sites (matching how the
+ * coordinator's own `ensureLearningAgentGovernance` is a distinct named
+ * function per Agent, not a single generic one, for wiring.ts symmetry).
+ */
+async function ensureFoundationalAgentGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+  meta: FoundationalAgentGovernanceMeta,
+): Promise<void> {
+  await db
+    .insert(roles)
+    .values({
+      id: config.roleId,
+      workspaceId: config.workspaceId,
+      name: meta.displayName,
+      kind: "agent",
+      description: meta.roleDescription,
+    })
+    .onConflictDoUpdate({
+      target: roles.id,
+      set: {
+        workspaceId: config.workspaceId,
+        name: meta.displayName,
+        kind: "agent",
+        description: meta.roleDescription,
+      },
+    });
+
+  await db
+    .insert(agents)
+    .values({
+      id: config.agentId,
+      workspaceId: config.workspaceId,
+      name: meta.displayName,
+      ownerUserId: config.userId,
+      assumesRoleId: config.roleId,
+      goal: meta.agentGoal,
+      capabilityScope: { resources: ["signal:write"], dataScope: "public" },
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: agents.id,
+      set: {
+        workspaceId: config.workspaceId,
+        name: meta.displayName,
+        ownerUserId: config.userId,
+        assumesRoleId: config.roleId,
+        goal: meta.agentGoal,
+        capabilityScope: { resources: ["signal:write"], dataScope: "public" },
+        status: "active",
+      },
+    });
+
+  const roleGrant = await db
+    .select({ id: rolePermissions.id })
+    .from(rolePermissions)
+    .where(
+      and(
+        eq(rolePermissions.roleId, config.roleId),
+        eq(rolePermissions.resourceType, "signal"),
+        eq(rolePermissions.action, "write"),
+        eq(rolePermissions.effect, "allow"),
+        isNull(rolePermissions.resourceId),
+      ),
+    )
+    .limit(1);
+  if (!roleGrant[0]) {
+    await db
+      .insert(rolePermissions)
+      .values({
+        roleId: config.roleId,
+        resourceType: "signal",
+        resourceId: null,
+        action: "write",
+        effect: "allow",
+      })
+      .onConflictDoNothing();
+  }
+
+  const principalGrant = await db
+    .select({ id: permissions.id })
+    .from(permissions)
+    .where(
+      and(
+        eq(permissions.workspaceId, config.workspaceId),
+        eq(permissions.actorType, "user"),
+        eq(permissions.actorId, config.userId),
+        eq(permissions.resourceType, "signal"),
+        eq(permissions.action, "write"),
+        eq(permissions.effect, "allow"),
+        isNull(permissions.resourceId),
+        isNull(permissions.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!principalGrant[0]) {
+    await db
+      .insert(permissions)
+      .values({
+        id: config.permissionId,
+        workspaceId: config.workspaceId,
+        actorType: "user",
+        actorId: config.userId,
+        resourceType: "signal",
+        resourceId: null,
+        action: "write",
+        effect: "allow",
+        grantedBy: config.userId,
+      })
+      .onConflictDoNothing();
+  }
+
+  const agentStore = new DrizzleAgentStore(db);
+  const roleStore = new DrizzleRoleStore(db);
+  const [assumedRole, scope, roleGrants, principalGrants] = await Promise.all([
+    agentStore.assumedRole(config.agentId),
+    agentStore.capabilityScope(config.agentId),
+    roleStore.grantsForRole(config.roleId),
+    roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
+  ]);
+  const hasSignalWrite = (grant: GrantRule) =>
+    grant.resourceType === "signal" &&
+    grant.resourceId === null &&
+    grant.action === "write" &&
+    grant.effect === "allow";
+  if (
+    assumedRole !== config.roleId ||
+    !scope.includes("signal:write") ||
+    !roleGrants.some(hasSignalWrite) ||
+    !principalGrants.some(hasSignalWrite)
+  ) {
+    throw new Error(`Persistent ${meta.verificationLabel} governance provisioning failed verification`);
+  }
+}
+
+export async function ensureInternalStrategistGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensureFoundationalAgentGovernance(db, config, {
+    displayName: "Internal Strategist",
+    roleDescription: "May draft inspectable analytical-synthesis Signal recommendations; never approves or executes them.",
+    agentGoal: "Produce evidenced analytical synthesis and recommendations from cited Human/Learning data, without executing Actions.",
+    verificationLabel: "Internal Strategist",
+  });
+}
+
+/** AGS3 (TASK-007 closure) — Governance's persistent-mode authority. Its REAL
+ * authority to approve/enact anything routes through the separate, Human-
+ * decided `capability.approve`/`action.decide` surfaces (agent-floor-protected,
+ * unaffected by this scope) — this `signal:write` grant is only for writing
+ * inspectable risk-assessment/audit-summary Signals when Governance is
+ * assigned a Task for that. */
+export async function ensureGovernanceAgentGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensureFoundationalAgentGovernance(db, config, {
+    displayName: "Governance",
+    roleDescription: "May draft inspectable risk-assessment/audit-summary Signals; never approves or executes them (agent-floor unaffected).",
+    agentGoal: "Explain policy, assess risk, and summarize audit/compliance findings as inspectable Signals — the deterministic kernel, not this Agent's opinion, decides authority.",
+    verificationLabel: "Governance",
+  });
+}
+
+/** AGS3 (TASK-007 closure) — Capability Builder's persistent-mode authority.
+ * Every capability-change output still routes through the governed
+ * `capability_manifests`/`capability.approve` pipeline (agent-floor-protected,
+ * this Agent can never activate its own output) — this `signal:write` grant
+ * is only for writing inspectable draft-summary Signals when it is assigned a
+ * Task for that. */
+export async function ensureCapabilityBuilderGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensureFoundationalAgentGovernance(db, config, {
+    displayName: "Capability Builder",
+    roleDescription: "May draft inspectable capability-change summary Signals; every real change still routes through capability.approve and this Agent can never activate its own output.",
+    agentGoal: "Draft and test proposed capability changes as inspectable Signals — never ships or activates output without a separate, Human-decided approval.",
+    verificationLabel: "Capability Builder",
+  });
 }
 
 function asGrant(row: {

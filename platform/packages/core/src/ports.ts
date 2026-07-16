@@ -209,6 +209,19 @@ export interface RitualStepDef {
   inputs?: Record<string, unknown>;
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
+  /**
+   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Ritual's
+   * (Automation's) declared Agent is fulfilling, threaded unchanged into
+   * `pipeline.propose`'s `goalTaskRef`. This is the SAME Goal/Task resolver
+   * contract every other governed Skill invocation uses — an Automation does
+   * not get a second, parallel actor-binding mechanism; a step whose `skill`
+   * has a registered SkillManifest still resolves through
+   * `resolveSkillForTask` exactly as a direct Agent call would, and still
+   * fails closed without a valid `goalTaskRef` naming a Task assigned to the
+   * ritual's declared Agent. Absent for steps that target an ungoverned
+   * (no-manifest) skill — unaffected, same as any other caller.
+   */
+  goalTaskRef?: { goalId: string; taskId: string };
 }
 
 /** A ritual definition resolved from the registry (P2: rituals are config rows). */

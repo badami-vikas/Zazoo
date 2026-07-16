@@ -22,6 +22,9 @@ export interface RitualStep {
   inputs: unknown;
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
+  /** AGS1/TASK-007 — see `RitualStepDef.goalTaskRef`'s doc comment (ports.ts).
+   * Threaded unchanged into this step's `pipeline.propose` call. */
+  goalTaskRef?: { goalId: string; taskId: string };
 }
 
 export interface RitualRunRequest {
@@ -120,6 +123,7 @@ export class InProcessRitualExecutor implements RitualExecutor {
       // Run-time params shallow-merge over the step's static config inputs.
       inputs: req.params ? { ...(s.inputs ?? {}), ...req.params } : (s.inputs ?? {}),
       ...(s.dataScope ? { dataScope: s.dataScope } : {}),
+      ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
     }));
     const runId = ctx.ids.next();
     return this.#execute(runId, req.workspaceId, def.id, req.actor, req.onBehalfOf, steps, req.seed, ctx);
@@ -153,6 +157,7 @@ export class InProcessRitualExecutor implements RitualExecutor {
           ...(step.dataScope ? { dataScope: step.dataScope } : {}),
           context: { type: "ritual", id: ritualId, runId },
           ...(seed ? { seed } : {}),
+          ...(step.goalTaskRef ? { goalTaskRef: step.goalTaskRef } : {}),
         },
         ctx,
       );
