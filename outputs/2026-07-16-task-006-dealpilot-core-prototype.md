@@ -1,5 +1,9 @@
 # TASK-006 DealPilot core prototype handoff
 
+Recertified 2026-07-17 on pushed branch head `8331705` against `origin/main`
+`1e0d652`. Canonical TASK status remains `in_progress` because the explicit exit-test
+blockers below are unresolved.
+
 ## Outcome
 
 Implemented the DP0-DP1 prototype slice:
@@ -34,7 +38,7 @@ Implemented the DP0-DP1 prototype slice:
 ## Verification
 
 - `@bridge/dealpilot`: build passed; 63 tests passed; 83.44% line coverage.
-- `@bridge/api`: build and full test suite passed; 65.58% line coverage.
+- `@bridge/api`: build and full test suite passed; 65.57% line coverage.
 - `@bridge/web`: 40 tests passed; production build and typecheck passed.
 - `@bridge/core`: build passed; 350 tests passed.
 - `@bridge/db`: build passed; 66 tests passed.
