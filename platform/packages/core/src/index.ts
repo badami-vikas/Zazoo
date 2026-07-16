@@ -34,6 +34,8 @@ export {
   UniversalActionPipeline,
   AlreadyResolvedError,
   AgentFloorDeniedError,
+  NotPendingProposalError,
+  type ProposeOptions,
   type PipelineDeps,
 } from "./pipeline.js";
 export {

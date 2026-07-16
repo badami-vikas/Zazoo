@@ -64,8 +64,17 @@ Current UI canon/code exposes Skills beside Agents. Runtime permits Human/Automa
 ## RESOLVED 2026-07-16 — USER REPORT: left Sidebar and right Chat Panel controls behaved differently
 `Layout.tsx` and `AgentPanel.tsx` now share `PanelControl` collapse/expand/extend state, mirrored inner-edge resize handles, persisted widths, keyboard resizing, Escape collapse, explicit collapsed-state expand controls, and ARIA labels. Live 1280px evidence preserved 252px/318px extended widths across collapse→76px/51px→reopen; 375px exposes both panels through Module and Chat overlays.
 
-## OPEN 2026-07-14 — USER REPORT: global Knowledge surface conflicts with Module-owned Memory and Relationship IA
-Live routes still host a global index surface for People/Communities and older occurrence views. User requires retained data to stay associated with originating Modules; Relationship primary toggles must be Signals/People/Communities. Resolve by removing visible Knowledge routes/copy; wiring real People/Communities reads under Relationship; implementing Signal as Event storage with ≥1 Person/Community participant Relation, surfaced reason, and safe Action; migrating standalone deep links without an alias; updating Memory retrieval across Modules. Source: same requirement; plan: Relationship RM0 + VOCAB4–VOCAB6. **TASK-001 visible-shell portion resolved 2026-07-16:** Knowledge is absent from live nav/routes and the 1280px/375px denylist. Relationship storage/query migration remains open under TASK-008.
+## RESOLVED 2026-07-16 — USER REPORT: global Knowledge surface conflicted with Module-owned Memory and Relationship IA
+Relationship is one installed Module with deep-linked Signals/People/Communities Pages, permission-pruned Person/Community participant Relations, source Event evidence, and a governed safe Action. The standalone Knowledge, Signals, and Helpdesk routes/pages were removed; Helpdesk is nested under Relationship; desktop and 375px evidence traversed the exact canonical path without a global Knowledge surface. Broader cross-Module Second Brain behavior remains a separate TASK-009 outcome.
+
+## RESOLVED 2026-07-16 — Relationship Approvals trusted browser-selected Agent identity and local success-shaped fallbacks
+The Relationship Signal/Tool capture paths could construct Agent identity in the browser, read local proposal fixtures, and treat failed persistence as successful review. FIX: public proposal input can no longer select an Agent; `action.proposeOutreachDraft` binds the persistent server-owned Outreach Agent to the authenticated user; Approvals reads and resolves through authenticated Action Pipeline procedures; pending projection excludes rejection/execution-audit rows; local aliases reconcile against server resolution; failed capture mutations remain visible and actionable. Concurrent Outreach retries converge on a server-derived proposal UUID.
+
+## RESOLVED 2026-07-16 — public Helpdesk retries could duplicate writes or lose the only recovery credential
+Public ticket creation and submitter replies now use client operation UUIDs plus deterministic server-side ticket/message UUIDs. Reusing an operation with different input fails explicitly; ticket + initial message writes are transactional. Recovery credentials are 192-bit client-generated values stored only as SHA-256 hashes, omitted from internal DTOs/logs, and legacy plaintext values migrate on first use. Pending operations persist before network submission when browser storage is available; if reply-key persistence or Clipboard access fails, the key remains selectable in the page. Inputs are bounded and the public procedures use the sensitive rate-limit bucket.
+
+## OPEN 2026-07-16 — approved external effects have no durable retry executor
+`action.decide` now preserves the append-only Human decision, returns `effectsStatus: failed`, and appends inspectable execution-failure evidence when a post-decision provider side effect fails. It does not yet enqueue or expose an idempotent retry for that approved effect, so recovery remains operator-driven. Resolve under TASK-017 with a durable retry record/worker or explicit retry procedure that reuses the original approval, effect idempotency key, authority context, and audit chain without creating a second review decision.
 
 ## OPEN 2026-07-14 — USER REPORT: no actionable cross-Module Second Brain graph
 Existing association views rely partly on local generated/static fallback and there is no global cross-Module graph query/surface. Build Second Brain below installed Modules from real permitted Records/Relations/Events/Files/Agents with Module/type/time/Person/Community filters, provenance/evidence/backlinks, source navigation, governed Actions, Plane/authority pruning, virtualization threshold, and accessible list fallback. No fabricated graph data. Source: same requirement; plan: UI §5c + Relationship RM6.
@@ -909,11 +918,12 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
 
 ---
 
-- **IN PROGRESS — Identity client-asserted on `propose`.** API trusts request-body actor
-  for non-decide paths. `decide` now uses server `ctx.identity` (pinned pilot user). Full
-  fix = Supabase JWT verify → real per-user identity + bind human actor on propose +
-  constrain client-chosen agent actors. Decider pin closes approve-spoof now. See
-  decisions-log 2026-06-22 (identity).
+- **IN PROGRESS — Runtime identity is still pilot-pinned outside the closed Action proposal boundary.**
+  `action.propose` now binds Human requests to authenticated `ctx.identity` and rejects
+  browser-selected Agent actors; Outreach drafts use a server-owned Agent attributable to
+  that identity. `action.decide`, pending reads, and resolution reads enforce workspace
+  membership. The broader runtime still needs Supabase JWT verification and real per-user
+  identity instead of the pilot identity. See decisions-log 2026-06-22 (identity).
 
 - **RESOLVED (2026-07-04) — Denied approval attempts not audited.** `pipeline.decide()`
   ([core/src/pipeline.ts:157-181](../../platform/packages/core/src/pipeline.ts)) now fetches

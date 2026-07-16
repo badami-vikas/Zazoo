@@ -12,10 +12,9 @@ import {
   pendingApprovals, delegations, vetoReasons,
   type LedgerEntry, type Decision,
 } from '../data/governance';
-import { useActionQueue, resolveAction } from '../data/actionQueue';
-import { loadLedger, recordDecisionAppend, type LedgerSource } from '../data/ledger';
+import { bindProposal, getActions, useActionQueue, resolveAction } from '../data/actionQueue';
+import { loadPendingApprovals, proposeToLedger, recordDecisionAppend, type LedgerSource } from '../data/ledger';
 import { materializeApprovedCapture } from '../data/toolCaptures';
-import { API_ENABLED } from '../data/api';
 
 // crude line-diff for the drawer — marks removed (prior-only) and added (proposed-only) lines
 function lineDiff(prior: string | null | undefined, proposed: string) {
@@ -73,16 +72,38 @@ function Provenance({ e }: { e: LedgerEntry }) {
 }
 
 export function ApprovalsPage() {
-  // Live queue = signal-proposed actions (local draft store) + pending rows from the Supabase ledger.
+  // Live queue = any offline drafts plus authenticated pending Action Pipeline proposals.
   const queued = useActionQueue();
   const [live, setLive] = useState<LedgerEntry[]>(pendingApprovals);
   const [source, setSource] = useState<LedgerSource>('local');
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    loadLedger().then(({ pending, source }) => { if (alive) { setLive(pending); setSource(source); } });
+    loadPendingApprovals().then(({ pending, source, error }) => {
+      if (alive) {
+        if (source === 'api' && !error) {
+          const pendingIds = new Set(pending.map(entry => entry.id));
+          for (const draft of getActions()) {
+            if (draft.proposalId && !pendingIds.has(draft.proposalId)) resolveAction(draft.id);
+          }
+        }
+        setLive(pending);
+        setSource(source);
+        setLoadError(error ?? null);
+      }
+    });
     return () => { alive = false; };
   }, []);
-  const queue = useMemo(() => [...queued, ...live], [queued, live]);
+  const queue = useMemo(() => {
+    const remoteIds = new Set(live.map(entry => entry.id));
+    const remoteSourceIds = new Set(live.flatMap(entry => entry.sourceId ? [entry.sourceId] : []));
+    const unreconciledLocal = queued.filter(
+      entry =>
+        !remoteSourceIds.has(entry.id) &&
+        !(entry.proposalId && remoteIds.has(entry.proposalId)),
+    );
+    return [...unreconciledLocal, ...live];
+  }, [queued, live]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Keep a valid selection as drafts arrive / items resolve.
   useEffect(() => {
@@ -95,6 +116,8 @@ export function ApprovalsPage() {
   const [search, setSearch] = useState('');
   const [insightsOpen, setInsightsOpen] = useState(true);
   const [resolved, setResolved] = useState<{ id: string; decision: Decision; reason?: string } | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   const visibleQueue = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -104,25 +127,91 @@ export function ApprovalsPage() {
   const selected = useMemo(() => queue.find(e => e.id === selectedId) ?? null, [queue, selectedId]);
   const diff = useMemo(() => (selected ? lineDiff(selected.prior, editing ? draft : selected.proposed) : []), [selected, editing, draft]);
 
-  const advance = (id: string, decision: Decision, reason?: string) => {
+  const advance = async (id: string, decision: Decision, reason?: string) => {
+    if (!decision || resolvingId) return;
     const entry = queue.find(e => e.id === id) ?? null;
-    setResolved({ id, decision, reason });
-    setTimeout(() => {
-      if (queued.some(e => e.id === id)) {
-        resolveAction(id);                                   // signal-proposed → local draft store
-      } else {
-        setLive(q => q.filter(e => e.id !== id));            // live ledger row → optimistic drop
-        // append-only: record the decision as a NEW ledger row (the table has no UPDATE policy).
-        // Routes through the governed pipeline when the API is enabled, else direct-Supabase append.
-        if (entry && (API_ENABLED || source === 'supabase')) recordDecisionAppend(entry, decision, reason);
-        // On APPROVE of a tool capture, materialize the Person into the grid (draft-then-approve).
-        if (entry) materializeApprovedCapture(entry, decision);
+    if (!entry) return;
+
+    setResolvingId(id);
+    setDecisionError(null);
+    const isLocalDraft = queued.some(e => e.id === id);
+    let proposalEntry = entry;
+    let previouslyResolvedDecision: Exclude<Decision, null> | null = null;
+    if (isLocalDraft) {
+      let proposalId = entry.proposalId;
+      if (!proposalId) {
+        const staged = await proposeToLedger(entry);
+        proposalId = staged?.proposalId;
+        if (staged?.status === 'resolved') previouslyResolvedDecision = staged.decision;
       }
-      // selection is re-pointed by the queue effect above
-      setResolved(null);
-      setEditing(false);
-      setVetoOpen(false);
-    }, 650);
+      if (!proposalId) {
+        setDecisionError('This offline draft could not be migrated to the Action Pipeline. It remains pending locally.');
+        setResolvingId(null);
+        return;
+      }
+      if (!entry.proposalId && !previouslyResolvedDecision) bindProposal(id, proposalId);
+      proposalEntry = {
+        ...entry,
+        id: proposalId,
+        sourceId: entry.id,
+        proposalOutput: {
+          text: entry.proposed,
+          sourceId: entry.id,
+          runId: entry.runId ?? null,
+          display: {
+            action: entry.action,
+            actor: "Outreach Agent",
+            actorKind: "agent",
+            onBehalfOf: "You",
+            resource: entry.resource,
+            policy: "Agent-authored relationship drafts require Human approval",
+            channel: entry.channel,
+            prior: entry.prior ?? null,
+            trace: entry.trace,
+          },
+        },
+      };
+    }
+    const result = previouslyResolvedDecision
+      ? {
+          recorded: true,
+          decision: previouslyResolvedDecision,
+          execution: 'unconfirmed' as const,
+        }
+      : await recordDecisionAppend(
+          proposalEntry,
+          decision,
+          reason,
+          editing ? draft : undefined,
+        );
+    if (!result.recorded) {
+      setDecisionError('The decision was not recorded. The proposal remains pending; retry when the API is available.');
+      setResolvingId(null);
+      return;
+    }
+
+    const recordedDecision = result.decision ?? decision;
+    if (result.execution === 'failed') {
+      setDecisionError(`Decision recorded, but its approved effect failed: ${result.executionError ?? 'unknown execution error'}`);
+    } else if (result.execution === 'unconfirmed') {
+      setDecisionError('Decision recorded, but effect completion could not be confirmed. Inspect the Execution Ledger before retrying.');
+    }
+    setResolved({ id, decision: recordedDecision, reason: recordedDecision === decision ? reason : undefined });
+    await new Promise(resolve => window.setTimeout(resolve, 650));
+    const localAlias = queued.find(
+      item =>
+        item.id === id ||
+        item.proposalId === proposalEntry.id ||
+        item.id === entry.sourceId,
+    );
+    if (localAlias) resolveAction(localAlias.id);
+    setLive(items => items.filter(item => item.id !== proposalEntry.id));
+    const materializationEntry = entry.sourceId ? { ...entry, id: entry.sourceId } : entry;
+    await materializeApprovedCapture(materializationEntry, recordedDecision);
+    setResolved(null);
+    setResolvingId(null);
+    setEditing(false);
+    setVetoOpen(false);
   };
 
   const startEdit = () => {
@@ -148,9 +237,14 @@ export function ApprovalsPage() {
         expanded={insightsOpen}
         metrics={[
           { id: 'awaiting', label: 'Awaiting review', value: String(queue.length), hint: 'every outbound or sensitive agent action pauses here' },
-          { id: 'source', label: 'Ledger source', value: source === 'supabase' ? 'Supabase' : 'Local', hint: 'append-only' },
+          { id: 'source', label: 'Ledger source', value: source === 'api' ? 'Action Pipeline' : source === 'supabase' ? 'Supabase' : 'Unavailable', hint: 'append-only' },
         ]}
       />
+      {loadError && (
+        <div role="alert" className="mx-4 mt-3 rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
+          Approvals could not be loaded: {loadError}
+        </div>
+      )}
 
       {queue.length === 0 ? (
         // Empty state — reinforces governed-by-default, not idle
@@ -294,7 +388,7 @@ export function ApprovalsPage() {
                         <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--danger)' }}>Why are you vetoing? <span className="font-normal normal-case" style={{ color: 'var(--color-navy-mid)' }}>(optional)</span></div>
                         <div className="flex flex-wrap gap-2 mb-3">
                           {vetoReasons.map(r => (
-                            <button key={r} onClick={() => advance(selected.id, 'vetoed', r)} className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white', color: 'var(--color-navy-mid)' }}>
+                            <button key={r} disabled={resolvingId === selected.id} onClick={() => void advance(selected.id, 'vetoed', r)} className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors disabled:opacity-50" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white', color: 'var(--color-navy-mid)' }}>
                               {r}
                             </button>
                           ))}
@@ -311,25 +405,28 @@ export function ApprovalsPage() {
                 {/* Actions */}
                 <div className="flex items-center gap-3 sticky bottom-0 py-4 -mb-8" style={{ background: 'linear-gradient(to top, var(--color-background) 70%, transparent)' }}>
                   <button
-                    onClick={() => advance(selected.id, editing ? 'edited_approved' : 'approved')}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm transition-transform active:scale-95"
+                    disabled={resolvingId === selected.id}
+                    onClick={() => void advance(selected.id, editing ? 'edited_approved' : 'approved')}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white shadow-sm transition-transform active:scale-95 disabled:opacity-50"
                     style={{ backgroundColor: 'var(--success)' }}
                   >
                     <Check className="w-4 h-4" /> {editing ? 'Approve edit' : 'Approve'}
                   </button>
                   {!editing && (
-                    <button onClick={startEdit} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border transition-colors" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy)', backgroundColor: 'white' }}>
+                    <button disabled={resolvingId === selected.id} onClick={startEdit} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border transition-colors disabled:opacity-50" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy)', backgroundColor: 'white' }}>
                       <PencilLine className="w-4 h-4" /> Edit then approve
                     </button>
                   )}
                   <button
+                    disabled={resolvingId === selected.id}
                     onClick={() => setVetoOpen(v => !v)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border transition-colors ml-auto"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border transition-colors ml-auto disabled:opacity-50"
                     style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))', color: 'var(--danger)', backgroundColor: vetoOpen ? 'color-mix(in srgb, var(--danger) 8%, transparent)' : 'white' }}
                   >
                     <X className="w-4 h-4" /> Veto
                   </button>
                 </div>
+                {decisionError && <p role="alert" className="text-sm text-red-700">{decisionError}</p>}
 
                 {/* resolution toast */}
                 <AnimatePresence>

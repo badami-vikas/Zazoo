@@ -38,6 +38,13 @@ export function resolveAction(id: string) {
   emit();
 }
 
+/** Bind an offline draft to the one remote proposal created for it. */
+export function bindProposal(id: string, proposalId: string) {
+  if (!queue.some(entry => entry.id === id)) return;
+  queue = queue.map(entry => entry.id === id ? { ...entry, proposalId } : entry);
+  emit();
+}
+
 export function clearActions() {
   queue = [];
   emit();

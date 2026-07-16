@@ -28,10 +28,16 @@ export function HomePage() {
 
   const act = async (s: Signal) => {
     const entry = proposeFromSignal(s, 0);
-    const live = await proposeToLedger(entry);
-    if (!live) proposeAction(entry);
+    const staged = await proposeToLedger(entry);
+    if (!staged) proposeAction(entry);
     setProposed(prev => ({ ...prev, [s.id]: s.actions[0].label }));
-    setToast(live ? `"${s.actions[0].label}" drafted to Approvals — recorded in the live ledger` : `"${s.actions[0].label}" drafted — sent to Approvals for your review`);
+    setToast(
+      !staged
+        ? `"${s.actions[0].label}" saved locally — reconnect the API before it can be reviewed`
+        : staged.status === 'resolved'
+          ? `"${s.actions[0].label}" was already reviewed (${staged.decision.replace('_', ' ')})`
+          : `"${s.actions[0].label}" drafted to Approvals through the Action Pipeline`,
+    );
     window.setTimeout(() => setToast(null), 2800);
   };
 

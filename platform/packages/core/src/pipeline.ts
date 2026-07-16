@@ -41,6 +41,11 @@ export interface PipelineDeps {
   variance: VarianceAdjuster;
 }
 
+export interface ProposeOptions {
+  /** Server-owned stable ID for an idempotent proposal. Never expose this to untrusted callers. */
+  proposalId?: string;
+}
+
 /**
  * Thrown by `decide()` when a proposal has already been resolved (a referencing
  * decision row already exists) — including the race where the DB-level partial
@@ -72,6 +77,13 @@ export class AgentFloorDeniedError extends Error {
   constructor(public readonly reason: string) {
     super(`decide: ${reason}`);
     this.name = "AgentFloorDeniedError";
+  }
+}
+
+export class NotPendingProposalError extends Error {
+  constructor(public readonly proposalId: string) {
+    super(`decide: ledger entry ${proposalId} is an audit row, not a pending proposal`);
+    this.name = "NotPendingProposalError";
   }
 }
 
@@ -107,9 +119,8 @@ function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] 
   const out: PostCommitPolicyResult[] = [];
   for (const r of results) {
     if (r.effect === "block" || r.effect === "require_approval") {
-      // eslint-disable-next-line no-console -- post-commit block/require_approval is a
-      // policy-authoring bug: the action is already committed, so this MUST be
-      // surfaced (not silently dropped) even though it cannot be honored here.
+      // A post-commit block/require_approval is a policy-authoring bug: the action is
+      // already committed, so this must be surfaced even though it cannot be honored.
       console.warn(
         `policy(post): effect "${r.effect}" from policy "${r.policyId}" (${r.reason}) cannot be enforced post-commit — ignored`,
       );
@@ -128,7 +139,7 @@ export class UniversalActionPipeline {
   }
 
   /** Phase 1: authority → pre-policy → skill → runtime-policy → review gate. */
-  async propose(req: ActionRequest, ctx: RunCtx): Promise<Proposal> {
+  async propose(req: ActionRequest, ctx: RunCtx, options: ProposeOptions = {}): Promise<Proposal> {
     const { authority, policies, skills, ledger } = this.#deps;
 
     // The turn's effective provenance (PI-2). req.trustOrigin (tagged at the ingest
@@ -214,7 +225,7 @@ export class UniversalActionPipeline {
 
     // 5) Review gate — append ledger row, status by approval requirement.
     if (requiresApproval(req.actor.type, all)) {
-      const entry = await this.#appendLedger(req, output, all, null, ctx);
+      const entry = await this.#appendLedger(req, output, all, null, ctx, options.proposalId);
       return {
         id: entry.id,
         status: "pending_review",
@@ -226,7 +237,7 @@ export class UniversalActionPipeline {
     }
 
     // Auto-approve path (human + allow policies): commit immediately.
-    const entry = await this.#appendLedger(req, output, all, "auto", ctx);
+    const entry = await this.#appendLedger(req, output, all, "auto", ctx, options.proposalId);
     await this.#commit(entry, ctx);
     return {
       id: entry.id,
@@ -243,7 +254,7 @@ export class UniversalActionPipeline {
   async listPending(
     workspaceId: string,
     opts: { limit: number; offset: number },
-  ): Promise<{ items: Proposal[]; total: number }> {
+  ): Promise<{ items: Array<Proposal & { createdAt: string }>; total: number }> {
     const { ledger } = this.#deps;
     const { items, total } = await ledger.listPending(workspaceId, opts);
     return {
@@ -253,6 +264,11 @@ export class UniversalActionPipeline {
         request: this.#requestFromEntry(entry),
         authority: { allowed: true, reason: "pending review", basis: "principal", dataScope: entry.dataScope ?? "private" },
         policyResults: entry.policyResults,
+        output: {
+          proposedOutput: entry.proposedOutput,
+          ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
+        },
+        createdAt: entry.createdAt,
       })),
       total,
     };
@@ -270,11 +286,22 @@ export class UniversalActionPipeline {
     decider: Actor,
     ctx: RunCtx,
     editedOutput?: unknown,
+    decisionReason?: string,
   ): Promise<Proposal> {
     const { ledger } = this.#deps;
 
     const original = await ledger.get(proposalId);
     if (!original) throw new Error(`decide: no ledger entry ${proposalId}`);
+    if (
+      original.refLedgerId !== undefined ||
+      original.userDecision !== null ||
+      (typeof original.diff === "object" &&
+        original.diff !== null &&
+        !Array.isArray(original.diff) &&
+        "rejected" in original.diff)
+    ) {
+      throw new NotPendingProposalError(proposalId);
+    }
 
     // Gate the approver. `approve` on the ledger is agent-floor-protected: agents may
     // never approve/veto/edit a proposal. Humans pass the floor (the inbox is theirs).
@@ -300,9 +327,6 @@ export class UniversalActionPipeline {
       throw new AgentFloorDeniedError(floor);
     }
 
-    if (original.userDecision !== null) {
-      throw new AlreadyResolvedError(proposalId, original.userDecision);
-    }
     // Append-only: resolution is the existence of a referencing decision row. This
     // check narrows the race window but is NOT itself atomic — two concurrent
     // decide() calls can both pass it (TOCTOU). The real guarantee is downstream:
@@ -335,7 +359,17 @@ export class UniversalActionPipeline {
       inputs: original.inputs,
       proposedOutput: committedOutput,
       userDecision: decision,
-      diff: decision === "edit" ? { from: original.proposedOutput, to: editedOutput } : original.diff,
+      diff:
+        decision === "edit"
+          ? { from: original.proposedOutput, to: editedOutput }
+          : decision === "veto" && decisionReason
+            ? {
+                ...(typeof original.diff === "object" && original.diff !== null && !Array.isArray(original.diff)
+                  ? original.diff
+                  : {}),
+                reviewReason: decisionReason,
+              }
+            : original.diff,
       policyResults: original.policyResults,
       refLedgerId: original.id,
       ...(original.seed ? { seed: original.seed } : {}),
@@ -420,9 +454,10 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     decision: LedgerEntry["userDecision"],
     ctx: RunCtx,
+    proposalId?: string,
   ): Promise<LedgerEntry> {
     const entry: LedgerEntry = {
-      id: ctx.ids.next(),
+      id: proposalId ?? ctx.ids.next(),
       workspaceId: req.workspaceId,
       actorType: req.actor.type,
       actorId: req.actor.id,

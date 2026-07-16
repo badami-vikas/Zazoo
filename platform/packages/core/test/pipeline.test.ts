@@ -116,6 +116,23 @@ test("agents always draft-then-approve even when authorized", async () => {
   assert.equal(h.ledger.entries[0]!.userDecision, null);
 });
 
+test("a server-owned idempotency key can supply the persisted proposal id", async () => {
+  const h = harness();
+  h.agents.assumed.set("agent-1", "role-writer");
+  h.agents.scope.set("agent-1", ["person:write"]);
+  h.roles.roleGrants.set("role-writer", [
+    { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
+  ]);
+  const proposalId = "30000000-0000-4000-8000-000000000099";
+  const proposal = await h.pipeline.propose(
+    req({ actor: { type: "agent", id: "agent-1" } }),
+    freshCtx(),
+    { proposalId },
+  );
+  assert.equal(proposal.id, proposalId);
+  assert.equal(h.ledger.entries[0]?.id, proposalId);
+});
+
 test("agent-floor DENY wins over an explicit allow grant", async () => {
   const h = harness();
   h.agents.assumed.set("agent-1", "role-admin");

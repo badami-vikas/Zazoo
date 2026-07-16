@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T17:27:46.730Z",
+  "generatedAt": "2026-07-16T22:20:23.926Z",
   "items": [
     {
       "id": "TASK-001",
@@ -225,7 +225,7 @@
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -235,8 +235,10 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "BUGS Knowledge/Relationship IA",
-        "BUGS no actionable cross-Module graph"
+        "RESOLVED BUGS Knowledge/Relationship IA",
+        "`outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
+        "desktop + 375px live evidence",
+        "permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"
@@ -245,7 +247,7 @@
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 141,
@@ -391,6 +393,7 @@
         "BUGS Node vm browser leak",
         "BUGS empty globals.css",
         "BUGS client-only pin persistence",
+        "BUGS post-decision effect retry",
         "BUGS 2026-07-16 baseline lint/typecheck failures",
         "BUGS 2026-07-15 sensor coverage floor"
       ],

@@ -100,10 +100,10 @@ export interface LedgerStore {
    */
   decisionFor(proposalId: string): Promise<LedgerEntry | null>;
   /**
-   * Pending proposals awaiting a human decision (`userDecision IS NULL`) — a decision
-   * row always has `userDecision` set (approve/veto/edit/auto), so this predicate alone
-   * distinguishes proposals from the decisions that resolve them, no separate `status`
-   * column needed. Ordered newest-first; paginated by the caller (offset/limit).
+   * Root proposals awaiting a human decision: `userDecision IS NULL`,
+   * `refLedgerId IS NULL`, and no resolving row references the proposal. Null-decision
+   * audit rows may also carry `refLedgerId`, so neither predicate alone is sufficient.
+   * Ordered newest-first; paginated by the caller (offset/limit).
    */
   listPending(workspaceId: string, opts: { limit: number; offset: number }): Promise<{ items: LedgerEntry[]; total: number }>;
 }

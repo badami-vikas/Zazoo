@@ -90,147 +90,187 @@ export function parseAllowedSkills(raw: unknown): string[] {
 }
 
 export interface LearningAgentGovernanceConfig {
-    workspaceId: string;
-    userId: string;
-    agentId: string;
-    roleId: string;
-    permissionId: string;
-  }
+  workspaceId: string;
+  userId: string;
+  agentId: string;
+  roleId: string;
+  permissionId: string;
+}
 
-  /**
-   * Idempotently provisions and verifies the persistent Learning Agent authority
-   * used by onboarding. Persistent mode cannot rely on the in-memory seed:
-   * the Agent must have an attributable assumed Role + capability scope, and the
-   * user it acts for must independently hold the same Signal write authority.
-   */
-export async function ensureLearningAgentGovernance(
-    db: Database,
-    config: LearningAgentGovernanceConfig,
-  ): Promise<void> {
-    await db
-      .insert(roles)
-      .values({
-        id: config.roleId,
+export type OutreachAgentGovernanceConfig = LearningAgentGovernanceConfig;
+
+interface PersistentAgentGovernanceConfig extends LearningAgentGovernanceConfig {
+  name: string;
+  description: string;
+  goal: string;
+  resourceType: GrantRule["resourceType"];
+  action: GrantRule["action"];
+  capabilityToken: string;
+}
+
+async function ensurePersistentAgentGovernance(
+  db: Database,
+  config: PersistentAgentGovernanceConfig,
+): Promise<void> {
+  await db
+    .insert(roles)
+    .values({
+      id: config.roleId,
+      workspaceId: config.workspaceId,
+      name: config.name,
+      kind: "agent",
+      description: config.description,
+    })
+    .onConflictDoUpdate({
+      target: roles.id,
+      set: {
         workspaceId: config.workspaceId,
-        name: "Learning Agent",
+        name: config.name,
         kind: "agent",
-        description: "May draft inspectable Signal recommendations; never approves or executes them.",
-      })
-      .onConflictDoUpdate({
-        target: roles.id,
-        set: {
-          workspaceId: config.workspaceId,
-          name: "Learning Agent",
-          kind: "agent",
-          description: "May draft inspectable Signal recommendations; never approves or executes them.",
-        },
-      });
+        description: config.description,
+      },
+    });
 
-    await db
-      .insert(agents)
-      .values({
-        id: config.agentId,
+  await db
+    .insert(agents)
+    .values({
+      id: config.agentId,
+      workspaceId: config.workspaceId,
+      name: config.name,
+      ownerUserId: config.userId,
+      assumesRoleId: config.roleId,
+      goal: config.goal,
+      capabilityScope: { resources: [config.capabilityToken], dataScope: "public" },
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: agents.id,
+      set: {
         workspaceId: config.workspaceId,
-        name: "Learning Agent",
+        name: config.name,
         ownerUserId: config.userId,
         assumesRoleId: config.roleId,
-        goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
-        capabilityScope: { resources: ["signal:write"], dataScope: "public" },
+        goal: config.goal,
+        capabilityScope: { resources: [config.capabilityToken], dataScope: "public" },
         status: "active",
+      },
+    });
+
+  const roleGrant = await db
+    .select({ id: rolePermissions.id })
+    .from(rolePermissions)
+    .where(
+      and(
+        eq(rolePermissions.roleId, config.roleId),
+        eq(rolePermissions.resourceType, config.resourceType),
+        eq(rolePermissions.action, config.action),
+        eq(rolePermissions.effect, "allow"),
+        isNull(rolePermissions.resourceId),
+      ),
+    )
+    .limit(1);
+  if (!roleGrant[0]) {
+    await db
+      .insert(rolePermissions)
+      .values({
+        roleId: config.roleId,
+        resourceType: config.resourceType,
+        resourceId: null,
+        action: config.action,
+        effect: "allow",
       })
-      .onConflictDoUpdate({
-        target: agents.id,
-        set: {
-          workspaceId: config.workspaceId,
-          name: "Learning Agent",
-          ownerUserId: config.userId,
-          assumesRoleId: config.roleId,
-          goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
-          capabilityScope: { resources: ["signal:write"], dataScope: "public" },
-          status: "active",
-        },
-      });
-
-    const roleGrant = await db
-      .select({ id: rolePermissions.id })
-      .from(rolePermissions)
-      .where(
-        and(
-          eq(rolePermissions.roleId, config.roleId),
-          eq(rolePermissions.resourceType, "signal"),
-          eq(rolePermissions.action, "write"),
-          eq(rolePermissions.effect, "allow"),
-          isNull(rolePermissions.resourceId),
-        ),
-      )
-      .limit(1);
-    if (!roleGrant[0]) {
-      await db
-        .insert(rolePermissions)
-        .values({
-          roleId: config.roleId,
-          resourceType: "signal",
-          resourceId: null,
-          action: "write",
-          effect: "allow",
-        })
-        .onConflictDoNothing();
-    }
-
-    const principalGrant = await db
-      .select({ id: permissions.id })
-      .from(permissions)
-      .where(
-        and(
-          eq(permissions.workspaceId, config.workspaceId),
-          eq(permissions.actorType, "user"),
-          eq(permissions.actorId, config.userId),
-          eq(permissions.resourceType, "signal"),
-          eq(permissions.action, "write"),
-          eq(permissions.effect, "allow"),
-          isNull(permissions.resourceId),
-          isNull(permissions.revokedAt),
-        ),
-      )
-      .limit(1);
-    if (!principalGrant[0]) {
-      await db
-        .insert(permissions)
-        .values({
-          id: config.permissionId,
-          workspaceId: config.workspaceId,
-          actorType: "user",
-          actorId: config.userId,
-          resourceType: "signal",
-          resourceId: null,
-          action: "write",
-          effect: "allow",
-          grantedBy: config.userId,
-        })
-        .onConflictDoNothing();
-    }
-
-    const agentStore = new DrizzleAgentStore(db);
-    const roleStore = new DrizzleRoleStore(db);
-    const [assumedRole, scope, roleGrants, principalGrants] = await Promise.all([
-      agentStore.assumedRole(config.agentId),
-      agentStore.capabilityScope(config.agentId),
-      roleStore.grantsForRole(config.roleId),
-      roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
-    ]);
-    const hasSignalWrite = (grant: GrantRule) =>
-      grant.resourceType === "signal" &&
-      grant.resourceId === null &&
-      grant.action === "write" &&
-      grant.effect === "allow";
-    if (
-      assumedRole !== config.roleId ||
-      !scope.includes("signal:write") ||
-      !roleGrants.some(hasSignalWrite) ||
-      !principalGrants.some(hasSignalWrite)
-    ) {
-      throw new Error("Persistent Learning Agent governance provisioning failed verification");
+      .onConflictDoNothing();
   }
+
+  const principalGrant = await db
+    .select({ id: permissions.id })
+    .from(permissions)
+    .where(
+      and(
+        eq(permissions.workspaceId, config.workspaceId),
+        eq(permissions.actorType, "user"),
+        eq(permissions.actorId, config.userId),
+        eq(permissions.resourceType, config.resourceType),
+        eq(permissions.action, config.action),
+        eq(permissions.effect, "allow"),
+        isNull(permissions.resourceId),
+        isNull(permissions.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!principalGrant[0]) {
+    await db
+      .insert(permissions)
+      .values({
+        id: config.permissionId,
+        workspaceId: config.workspaceId,
+        actorType: "user",
+        actorId: config.userId,
+        resourceType: config.resourceType,
+        resourceId: null,
+        action: config.action,
+        effect: "allow",
+        grantedBy: config.userId,
+      })
+      .onConflictDoNothing();
+  }
+
+  const agentStore = new DrizzleAgentStore(db);
+  const roleStore = new DrizzleRoleStore(db);
+  const [assumedRole, scope, roleGrants, principalGrants] = await Promise.all([
+    agentStore.assumedRole(config.agentId),
+    agentStore.capabilityScope(config.agentId),
+    roleStore.grantsForRole(config.roleId),
+    roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
+  ]);
+  const hasGrant = (grant: GrantRule) =>
+    grant.resourceType === config.resourceType &&
+    grant.resourceId === null &&
+    grant.action === config.action &&
+    grant.effect === "allow";
+  if (
+    assumedRole !== config.roleId ||
+    !scope.includes(config.capabilityToken) ||
+    !roleGrants.some(hasGrant) ||
+    !principalGrants.some(hasGrant)
+  ) {
+    throw new Error(`Persistent ${config.name} governance provisioning failed verification`);
+  }
+}
+
+/**
+ * Idempotently provisions and verifies the persistent Learning Agent authority
+ * used by onboarding.
+ */
+export async function ensureLearningAgentGovernance(
+  db: Database,
+  config: LearningAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Learning Agent",
+    description: "May draft inspectable Signal recommendations; never approves or executes them.",
+    goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+  });
+}
+
+/** Provision the server-owned Outreach Agent used for relationship drafts. */
+export async function ensureOutreachAgentGovernance(
+  db: Database,
+  config: OutreachAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Outreach Agent",
+    description: "May draft relationship Touchpoints; never approves or sends them.",
+    goal: "Produce inspectable relationship Touchpoint drafts for Human review.",
+    resourceType: "touchpoint",
+    action: "write",
+    capabilityToken: "touchpoint:write",
+  });
 }
 
 function asGrant(row: {

@@ -60,6 +60,7 @@ test("buildPersistentPorts: binds canonical identity to the REAL DrizzleCanonica
         "this is the lie this fix actually closes (was InMemoryCanonicalIdentityStore unconditionally)",
     );
     assert.equal(ports.memory, undefined, "persistent mode must not expose in-memory-only governance stores");
+    assert.equal(typeof ports.ensureOutreachGovernance, "function");
   } finally {
     void ports.closeDb();
   }

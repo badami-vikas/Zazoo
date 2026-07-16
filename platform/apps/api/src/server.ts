@@ -48,6 +48,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "onboarding.verifyPhoneOtp",
   "google.syncGmail",
   "dealpilot.source",
+  "helpdesk.public.",
 ] as const;
 
 export interface RateLimitConfig {
@@ -75,7 +76,7 @@ export function rateLimitConfig(): RateLimitConfig {
 
 /** Path (no query string) → which limit bucket it falls in. A request lands in the
  * `sensitive` bucket if its path contains any sensitive procedure name. */
-function rateLimitBucket(url: string): "sensitive" | "global" {
+export function rateLimitBucket(url: string): "sensitive" | "global" {
   const path = url.split("?")[0] ?? url;
   return RATE_LIMIT_SENSITIVE_PATHS.some((p) => path.includes(p)) ? "sensitive" : "global";
 }
@@ -111,10 +112,16 @@ const HEALTH_PROBE_ID = "00000000-0000-0000-0000-000000000000";
 export const LOG_REDACT_PATHS: string[] = [
   "req.body.phone",
   "req.body.code",
+  "req.body.accessToken",
+  "req.body.json.accessToken",
+  "req.body.*.json.accessToken",
   "req.headers.authorization",
   'req.headers["authorization"]',
   "body.phone",
   "body.code",
+  "body.accessToken",
+  "body.json.accessToken",
+  "body.*.json.accessToken",
   "headers.authorization",
   'headers["authorization"]',
 ];
@@ -210,6 +217,7 @@ export async function buildServer() {
     trpcOptions: {
       router: appRouter,
       createContext,
+      allowMethodOverride: true,
       onError({ path, error }) {
         app.log.error({ path, msg: error.message }, "trpc error");
       },

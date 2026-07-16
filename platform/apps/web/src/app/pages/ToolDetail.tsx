@@ -17,7 +17,7 @@ function ToolCapturesPanel({ color, toolId }: { color: string; toolId: string })
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, 'added' | 'dismissed'>>({});
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -28,17 +28,33 @@ function ToolCapturesPanel({ color, toolId }: { color: string; toolId: string })
 
   async function onAdd(c: ToolCapture) {
     setBusy(c.id);
-    const ok = await adoptCapture(c);
+    const outcome = await adoptCapture(c);
     setBusy(null);
-    setDone(d => ({ ...d, [c.id]: 'added' }));
-    setNote(ok ? `Added ${c.person.name || 'capture'} — sent to Approvals for review` : `Routed ${c.person.name || 'capture'} (local) — review in Approvals`);
+    if (outcome) {
+      setDone(d => ({ ...d, [c.id]: outcome === 'vetoed' ? 'dismissed' : 'added' }));
+      setNote({
+        text:
+          outcome === 'pending'
+            ? `Added ${c.person.name || 'capture'} — sent to Approvals for review`
+            : outcome === 'approved'
+              ? `${c.person.name || 'Capture'} was already approved and has been reconciled`
+              : `${c.person.name || 'Capture'} was already vetoed and has been removed`,
+        error: false,
+      });
+    } else {
+      setNote({ text: `${c.person.name || 'Capture'} could not be reconciled with Approvals. It remains pending; retry when the API and storage are available.`, error: true });
+    }
     setTimeout(() => setNote(null), 3600);
   }
   async function onDismiss(c: ToolCapture) {
     setBusy(c.id);
-    await dismissCapture(c);
+    const ok = await dismissCapture(c);
     setBusy(null);
-    setDone(d => ({ ...d, [c.id]: 'dismissed' }));
+    if (ok) {
+      setDone(d => ({ ...d, [c.id]: 'dismissed' }));
+    } else {
+      setNote({ text: `${c.person.name || 'Capture'} could not be dismissed. It remains pending; retry when storage is available.`, error: true });
+    }
   }
 
   const visible = captures.filter(c => !done[c.id]);
@@ -51,7 +67,7 @@ function ToolCapturesPanel({ color, toolId }: { color: string; toolId: string })
           {visible.length}
         </span>
         <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
-          {source === 'supabase' ? 'tool_captures · live' : 'demo · local'}
+          {source === 'supabase' ? 'tool_captures · live' : 'offline · local'}
         </span>
       </h2>
 
@@ -63,7 +79,16 @@ function ToolCapturesPanel({ color, toolId }: { color: string; toolId: string })
       </div>
 
       {note && (
-        <div className="mb-3 px-3 py-2 rounded-lg text-xs font-medium" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)', color: 'var(--success)' }}>{note}</div>
+        <div
+          role={note.error ? 'alert' : 'status'}
+          className="mb-3 px-3 py-2 rounded-lg text-xs font-medium"
+          style={{
+            backgroundColor: `color-mix(in srgb, var(--${note.error ? 'danger' : 'success'}) 12%, transparent)`,
+            color: `var(--${note.error ? 'danger' : 'success'})`,
+          }}
+        >
+          {note.text}
+        </div>
       )}
 
       {loading ? (

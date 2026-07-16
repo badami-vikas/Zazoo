@@ -104,6 +104,7 @@ import {
   DrizzlePackageStore,
   DrizzleMemoryStore,
   ensureLearningAgentGovernance,
+  ensureOutreachAgentGovernance,
   InMemoryCanonicalIdentityStore,
   type CanonicalIdentityStore,
 } from "@bridge/db";
@@ -136,7 +137,9 @@ import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
 // other workspaceId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
 // — full multi-tenancy is out of scope for this pass).
 export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
-const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
+export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
+export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
+const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
 export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
 export const LEARNING_ROLE = "b0000000-0000-4000-a000-0000000000f2";
 const LEARNING_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c2";
@@ -394,6 +397,8 @@ export interface ModePorts {
   verifyRlsPosture?: () => Promise<void>;
   /** Persistent-mode boot provisioning + verification for the attributable Learning Agent grant. */
   ensureLearningGovernance?: () => Promise<void>;
+  /** Persistent-mode boot provisioning + verification for the server-owned Outreach Agent. */
+  ensureOutreachGovernance?: () => Promise<void>;
 }
 
 /**
@@ -473,6 +478,14 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
         agentId: LEARNING_AGENT,
         roleId: LEARNING_ROLE,
         permissionId: LEARNING_SIGNAL_PERMISSION,
+      }),
+    ensureOutreachGovernance: () =>
+      ensureOutreachAgentGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+        agentId: OUTREACH_AGENT,
+        roleId: OUTREACH_ROLE,
+        permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
       }),
   };
 }
@@ -561,6 +574,7 @@ export async function buildWiring(): Promise<Wiring> {
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
   await modePorts.ensureLearningGovernance?.();
+  await modePorts.ensureOutreachGovernance?.();
   const {
     roles,
     agents,

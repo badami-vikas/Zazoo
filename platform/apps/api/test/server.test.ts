@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SignJWT } from "jose";
-import { corsOriginConfig, rateLimitConfig, assertProductionEnv, buildServer } from "../src/server.js";
+import { corsOriginConfig, rateLimitBucket, rateLimitConfig, assertProductionEnv, buildServer } from "../src/server.js";
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prior: Record<string, string | undefined> = {};
@@ -171,6 +171,22 @@ test("SEC-1: a query is NOT gated by the mutation auth check (reads still open u
   );
 });
 
+test("tRPC accepts POST-overridden queries so credentials stay out of request URLs", async () => {
+  const app = await buildServer();
+  try {
+    const res = await app.inject({
+      method: "POST",
+      url: "/trpc/health",
+      headers: { "content-type": "application/json" },
+      payload: { json: null },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.match(res.body, /"ok":true/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("SEC-2: a burst against a sensitive procedure trips the rate limiter (429)", async () => {
   // Tighten the sensitive cap to 3 so the burst is fast + deterministic. No verifier is
   // configured, so the auth gate lets these tokenless mutations through to tRPC (they
@@ -194,6 +210,7 @@ test("SEC-2: a burst against a sensitive procedure trips the rate limiter (429)"
             headers: { "content-type": "application/json" },
             payload: {},
           });
+
           statuses.push(res.statusCode);
         }
         assert.ok(!statuses.slice(0, 3).includes(429), `first 3 should be under the cap, got ${statuses}`);
@@ -204,6 +221,12 @@ test("SEC-2: a burst against a sensitive procedure trips the rate limiter (429)"
       }
     },
   );
+});
+
+test("public Helpdesk create/read/reply paths use the tight sensitive rate bucket", () => {
+  assert.equal(rateLimitBucket("/trpc/helpdesk.public.createTicket"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/helpdesk.public.getThread?batch=1"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/helpdesk.public.reply"), "sensitive");
 });
 
 test("SEC-2: rateLimitConfig honors env overrides and falls back to safe defaults", () => {

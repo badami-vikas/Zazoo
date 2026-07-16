@@ -85,6 +85,7 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
   );
 
   useEffect(() => {
+    let active = true;
     setRows(null);
     setError(null);
     const request =
@@ -111,7 +112,16 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
                 source: record.source,
               })),
             );
-    request.then(setRows).catch((cause) => setError(String(cause)));
+    request
+      .then((nextRows) => {
+        if (active) setRows(nextRows);
+      })
+      .catch((cause) => {
+        if (active) setError(String(cause));
+      });
+    return () => {
+      active = false;
+    };
   }, [kind]);
 
   const filtered = useMemo(() => {

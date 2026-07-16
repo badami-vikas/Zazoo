@@ -33,6 +33,7 @@ export const trpc = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
       url: `${API_URL}/trpc`,
+      methodOverride: "POST",
       headers: trpcAuthorizationHeaders,
     }),
   ],

@@ -25,6 +25,19 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-16 — TASK-008 Relationship trust-boundary test fixtures** (`platform/packages/core/test/ledger-pending.test.ts`,
+  `platform/packages/core/test/pipeline.test.ts`, `platform/packages/db/test/helpdesk-store.test.ts`,
+  `platform/packages/db/test/ledger-store.test.ts`, `platform/packages/db/test/local-store.test.ts`,
+  `platform/apps/api/test/router-decide.test.ts`, `platform/apps/api/test/graph-people-communities.test.ts`,
+  `platform/apps/api/test/server.test.ts`, `platform/apps/web/test/relationship-module.test.mjs`).
+  **Reason:** deterministic tenant-pruning, append-only resolution, Agent attribution, provider-failure,
+  Helpdesk credential, idempotency, rate-classification, and retry tests cannot mutate a shared workspace
+  or depend on private People, Communities, Signals, tickets, and external providers.
+  **Real elements they stand in for:** authenticated workspace actors, Relationship Records/Relations/Events,
+  Outreach proposals and decisions, public Help Requests/replies, recovery credentials, and provider outcomes.
+  **Removal condition:** retain as isolated regression fixtures; keep prototype evidence on user-approved local
+  data and replace provider doubles with sandbox integration evidence when durable effect retry lands.
+
 - **2026-07-16 — TASK-002 onboarding/Learning Agent test fixtures** (`platform/apps/api/test/security-hardening.test.ts`,
   `platform/packages/db/test/local-store.test.ts`, `platform/apps/web/test/onboarding-learning.test.mjs`).
   **Reason:** deterministic governance, scheduling, citation, Memory-lineage, and responsive UI tests cannot

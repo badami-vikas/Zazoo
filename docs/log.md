@@ -1591,3 +1591,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - TASK-003 stays blocked under its exact exit test because this host has only a built-in display and denies Accessibility automation. Physical remainder: drag→relaunch, Space/fullscreen transitions, external-display attach/detach/reposition/move, and native-control interaction.
 - ADR-096 records the NSPanel/native-AppKit decision. Durable outcome: `outputs/2026-07-16-task-003-macos-avatar.md`.
 - Certification retry after permissions changed: `AXIsProcessTrusted`, screen-capture preflight, and System Events UI scripting all pass. PID-scoped live checks reverified all-Spaces and fullscreen presence, pointer minimize/fullscreen/close, keyboard fullscreen, and Accessibility `AXPress` close; the Avatar remained visible throughout. CoreGraphics/AppKit still report exactly one active built-in display, so physical drag→relaunch, actual VoiceOver, and the extended-display matrix remain blocked.
+
+# 2026-07-16 — TASK-008 Relationship Module consolidation complete
+- Integrated one installed Relationship Module with Signals/People/Communities, nested Helpdesk, permission-pruned participant/source-Event evidence, and governed Signal Actions.
+- Hardened Approvals around authenticated server-owned Agent attribution, append-only pending/resolution projection, stable proposal IDs, honest effect/persistence failure states, and persistent Outreach governance.
+- Made public Helpdesk bounded, rate-limited, token-hashed, transaction-safe, and retry-idempotent with recoverable client operation state.
+- Recorded AP-030, ADR-099, resolved Relationship trust/IA evidence, retained durable effect retry under TASK-017, and marked TASK-008 done from its desktop/375px plus affected-package evidence.
+- Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.

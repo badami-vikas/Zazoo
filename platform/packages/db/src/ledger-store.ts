@@ -16,7 +16,8 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, notExists, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
   type DataScope,
@@ -147,7 +148,24 @@ export class DrizzleLedgerStore implements LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
-    const where = and(eq(ledger.workspaceId, workspaceId), isNull(ledger.userDecision));
+    const resolvingRows = alias(ledger, "resolving_rows");
+    const where = and(
+      eq(ledger.workspaceId, workspaceId),
+      isNull(ledger.userDecision),
+      isNull(ledger.refLedgerId),
+      sql`${ledger.diff}->>'rejected' is null`,
+      notExists(
+        this.#db
+          .select({ id: resolvingRows.id })
+          .from(resolvingRows)
+          .where(
+            and(
+              eq(resolvingRows.refLedgerId, ledger.id),
+              isNotNull(resolvingRows.userDecision),
+            ),
+          ),
+      ),
+    );
     const [rows, totalRows] = await Promise.all([
       this.#db.select().from(ledger).where(where).orderBy(desc(ledger.createdAt)).limit(opts.limit).offset(opts.offset),
       this.#db.select({ value: count() }).from(ledger).where(where),

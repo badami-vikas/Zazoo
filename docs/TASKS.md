@@ -139,13 +139,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-001
 
 ## TASK-008 — Relationship Module consolidation
-- Status: in_progress
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.
 - Prototype test: Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.
 - Scope: docs/raw/relationship-module-plan-2026-07.md RM0–RM6; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: BUGS Knowledge/Relationship IA; BUGS no actionable cross-Module graph
+- Evidence: RESOLVED BUGS Knowledge/Relationship IA; `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009.
 - Requests: Relationship alignment directive 2026-07-14
 - Approval: AP-020, AP-021, and AP-029 applied
 - Dependencies: TASK-001
@@ -253,7 +253,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
 - Prototype test: Package state survives restart; install proposals use the right resource type; Helpdesk topics are derived/validated; browser bundle excludes Node-only sandbox code; web styling loads; persisted pins use governed storage.
 - Scope: docs/BUGS.md detailed runtime evidence
-- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
+- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
 - Requests: none
 - Approval: none
 - Dependencies: TASK-012

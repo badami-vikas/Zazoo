@@ -6,10 +6,11 @@
  * all governance lives in the pipeline, not here.
  */
 import { initTRPC, TRPCError } from "@trpc/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { LEARNING_AGENT, PILOT_WORKSPACE, type Wiring } from "./wiring.js";
+import { LEARNING_AGENT, OUTREACH_AGENT, PILOT_WORKSPACE, type Wiring } from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -23,6 +24,7 @@ import type {
 import {
   AgentFloorDeniedError,
   AlreadyResolvedError,
+  NotPendingProposalError,
   buildAgentCapability,
   validateRitualWithinAgents,
   computeRisk,
@@ -69,6 +71,7 @@ import {
   type WhyBetterCard,
   type CapabilityHealthRecord,
   type PendingProposalRecord,
+  type Proposal,
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
@@ -86,6 +89,22 @@ import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
+type OutreachDraftResult =
+  | Proposal
+  | {
+      id: string;
+      status: "already_resolved";
+      decision: "approve" | "veto" | "edit" | "auto";
+    };
+const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
+
+function stableOutreachProposalId(key: string): string {
+  const hex = createHash("sha256").update(key).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
 
 /**
  * Translate `NonPilotWorkspaceError` → `TRPCError({code:"FORBIDDEN"})` in ONE place
@@ -350,6 +369,23 @@ const decideInput = z.object({
   proposalId: z.string().min(1),
   decision: z.enum(["approve", "veto", "edit"]),
   editedOutput: z.unknown().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+
+const outreachDraftInput = z.object({
+  workspaceId: z.string().min(1),
+  sourceId: z.string().trim().min(1).max(500),
+  label: z.string().trim().min(1).max(200),
+  resource: z.string().trim().min(1).max(500),
+  proposed: z.string().trim().min(1).max(20_000),
+  channel: z.string().trim().min(1).max(100).optional(),
+  prior: z.string().max(20_000).nullable().optional(),
+  runId: z.string().trim().min(1).max(500).optional(),
+  trace: z.object({
+    signals: z.array(z.string().trim().min(1).max(500)).max(50),
+    context: z.string().trim().min(1).max(5_000),
+    reasoning: z.string().trim().min(1).max(5_000),
+  }),
 });
 
 const ritualStep = z.object({
@@ -696,21 +732,21 @@ export const appRouter = t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
     propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request
-      // body. An agent actor keeps its requested service identity but always drafts and
-      // still requires a human approval downstream (agent-floor + require_approval).
-      const actor =
-        input.actor.type === "agent"
-          ? {
-              type: "agent" as ActorType,
-              id: input.actor.id,
-              ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-            }
-          : {
-              type: ctx.identity.type,
-              id: ctx.identity.id,
-              ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-            };
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type === "agent") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Agent proposals must enter through the server-owned Agent runtime",
+        });
+      }
+      // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request.
+      // Agent services invoke the pipeline behind server-owned runtime boundaries rather
+      // than allowing a browser to choose an Agent id.
+      const actor = {
+        type: ctx.identity.type,
+        id: ctx.identity.id,
+        ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+      };
       return ctx.wiring.pipeline.propose(
         {
           workspaceId: input.workspaceId,
@@ -728,6 +764,125 @@ export const appRouter = t.router({
         ctx.run,
       );
     }),
+
+    /** A constrained browser request for the server-owned Outreach Agent to draft
+     * one relationship Touchpoint. The caller controls the content, never Agent
+     * identity, Skill, governed resource/action, or approval policy. */
+    proposeOutreachDraft: authenticatedProcedure
+      .input(outreachDraftInput)
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        if (ctx.identity.type !== "user") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only a user can request an Outreach Agent draft",
+          });
+        }
+
+        const idempotencyKey = `${input.workspaceId}:${ctx.identity.id}:${input.sourceId}`;
+        const proposalId = stableOutreachProposalId(idempotencyKey);
+        const active = outreachDraftsInFlight.get(idempotencyKey);
+        if (active) return active;
+
+        const operation = (async (): Promise<OutreachDraftResult> => {
+          let offset = 0;
+          while (true) {
+            const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+              limit: 200,
+              offset,
+            });
+            const existing = pending.items.find((proposal) => {
+              const inputs = proposal.request.inputs;
+              return (
+                typeof inputs === "object" &&
+                inputs !== null &&
+                "sourceId" in inputs &&
+                inputs.sourceId === input.sourceId &&
+                proposal.request.actor.type === "agent" &&
+                proposal.request.actor.id === OUTREACH_AGENT &&
+                proposal.request.onBehalfOf?.type === "user" &&
+                proposal.request.onBehalfOf.id === ctx.identity.id
+              );
+            });
+            if (existing) return existing;
+            offset += pending.items.length;
+            if (pending.items.length === 0 || offset >= pending.total) break;
+          }
+
+          try {
+            return await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: "agent", id: OUTREACH_AGENT },
+                onBehalfOf: { type: "user", id: ctx.identity.id },
+                action: "write",
+                resourceType: "touchpoint",
+                inputs: {
+                  text: input.proposed,
+                  sourceId: input.sourceId,
+                  runId: input.runId ?? null,
+                  display: {
+                    action: input.label,
+                    actor: "Outreach Agent",
+                    actorKind: "agent",
+                    onBehalfOf: "You",
+                    resource: input.resource,
+                    policy: "Agent-authored relationship drafts require Human approval",
+                    channel: input.channel,
+                    prior: input.prior ?? null,
+                    trace: input.trace,
+                  },
+                },
+                skill: "stageMutation",
+                dataScope: "public",
+                ...(input.runId
+                  ? { context: { type: "ritual", id: input.runId, runId: input.runId } }
+                  : {}),
+                seed: input.sourceId,
+                trustOrigin: "user_content",
+              },
+              ctx.run,
+              { proposalId },
+            );
+          } catch (cause) {
+            // The ledger primary key is the cross-process idempotency gate. A loser
+            // of the insert race returns the winner's pending proposal.
+            let offset = 0;
+            while (true) {
+              const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+                limit: 200,
+                offset,
+              });
+              const winner = pending.items.find((proposal) => proposal.id === proposalId);
+              if (winner) return winner;
+              offset += pending.items.length;
+              if (pending.items.length === 0 || offset >= pending.total) break;
+            }
+            const existing = await ctx.wiring.ledger.get(proposalId);
+            if (existing) {
+              const decision = await ctx.wiring.ledger.decisionFor(proposalId);
+              const terminalDecision = decision?.userDecision ?? existing.userDecision;
+              if (terminalDecision !== null) {
+                return {
+                  id: proposalId,
+                  status: "already_resolved" as const,
+                  decision: terminalDecision,
+                };
+              }
+            }
+            throw cause;
+          }
+        })();
+        outreachDraftsInFlight.set(idempotencyKey, operation);
+        try {
+          return await operation;
+        } finally {
+          if (outreachDraftsInFlight.get(idempotencyKey) === operation) {
+            outreachDraftsInFlight.delete(idempotencyKey);
+          }
+        }
+      }),
 
     /**
      * Pending proposals awaiting a human decision — backs the Approvals inbox
@@ -755,6 +910,29 @@ export const appRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
+    /** Read the append-only resolution state for idempotent review reconciliation. */
+    resolution: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        assertPilotWorkspace(proposal.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (decision) {
+          return { status: "resolved" as const, decision: decision.userDecision };
+        }
+        const rejected =
+          typeof proposal.diff === "object" &&
+          proposal.diff !== null &&
+          !Array.isArray(proposal.diff) &&
+          "rejected" in proposal.diff;
+        if (proposal.refLedgerId !== undefined || proposal.userDecision !== null || rejected) {
+          return { status: "terminal" as const, decision: proposal.userDecision };
+        }
+        return { status: "pending" as const, decision: null };
+      }),
+
     /** Resolve a pending proposal: approve | veto | edit. */
     decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
@@ -771,12 +949,16 @@ export const appRouter = t.router({
           ctx.identity,
           ctx.run,
           input.editedOutput,
+          input.reason,
         );
       } catch (err) {
         // Double-approve / already-resolved (including the persistent ledger's
         // partial-unique-index race guard) → 409, not a generic 500.
         if (err instanceof AlreadyResolvedError) {
           throw new TRPCError({ code: "CONFLICT", message: err.message });
+        }
+        if (err instanceof NotPendingProposalError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         // Agent-floor DENY at the review gate (an agent attempted to approve) → 403,
         // matching the IntegrationFloorScopeError → FORBIDDEN pattern above.
@@ -788,8 +970,54 @@ export const appRouter = t.router({
       // Post-approval Google side effects (no-op for unrelated proposals):
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
-      const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
-      return { ...resolved, effects };
+      try {
+        const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
+        return { ...resolved, effects, effectsStatus: "confirmed" as const };
+      } catch (cause) {
+        const effectsError = cause instanceof Error ? cause.message : String(cause);
+        let effectsAuditId: string | undefined;
+        try {
+          const auditId = ctx.run.ids.next();
+          await ctx.wiring.ledger.append({
+            id: auditId,
+            workspaceId: resolved.request.workspaceId,
+            actorType: resolved.request.actor.type,
+            actorId: resolved.request.actor.id,
+            action: resolved.request.action,
+            resourceType: resolved.request.resourceType,
+            ...(resolved.request.resourceId ? { resourceId: resolved.request.resourceId } : {}),
+            inputs: {
+              originalProposalId: input.proposalId,
+              display: {
+                actor: `${resolved.request.actor.type} · ${resolved.request.actor.id}`,
+                resource: `${resolved.request.resourceType}${resolved.request.resourceId ? ` · ${resolved.request.resourceId}` : ""}`,
+                policy: "Post-decision effect failed",
+              },
+            },
+            proposedOutput: {
+              text: `Approved effect failed: ${effectsError}`,
+              executed: false,
+              error: effectsError,
+            },
+            userDecision: "auto",
+            policyResults: [],
+            diff: { executionFailed: effectsError },
+            createdAt: ctx.run.clock.nowISO(),
+          });
+          effectsAuditId = auditId;
+        } catch (auditCause) {
+          // An irreversible decision plus a failed effect must stay visible even when
+          // the failure-audit append also fails.
+          console.error("action.decide: failed to append post-decision effect audit", auditCause);
+        }
+        return {
+          ...resolved,
+          effects: { materialized: false, sent: false },
+          effectsStatus: "failed" as const,
+          effectsError,
+          ...(effectsAuditId ? { effectsAuditId } : {}),
+        };
+      }
     }),
   }),
 
@@ -1974,10 +2202,12 @@ export const appRouter = t.router({
         .input(
           z.object({
             workspaceId: z.string().min(1),
-            subject: z.string().min(1),
-            submitterEmail: z.string().email(),
-            submitterName: z.string().optional(),
-            body: z.string().min(1),
+            subject: z.string().trim().min(1).max(200),
+            submitterEmail: z.string().trim().email().max(320),
+            submitterName: z.string().trim().max(120).optional(),
+            body: z.string().trim().min(1).max(10_000),
+            operationId: z.string().uuid(),
+            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -1987,13 +2217,15 @@ export const appRouter = t.router({
             subject: input.subject,
             submitterEmail: input.submitterEmail,
             body: input.body,
+            operationId: input.operationId,
+            accessToken: input.accessToken,
             ...(input.submitterName ? { submitterName: input.submitterName } : {}),
           });
           return { ticket, message };
         }),
 
       getThread: publicProcedure
-        .input(z.object({ accessToken: z.string().min(1) }))
+        .input(z.object({ accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/) }))
         .query(async ({ input, ctx }) => {
           const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
           if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
@@ -2001,9 +2233,19 @@ export const appRouter = t.router({
         }),
 
       reply: publicProcedure
-        .input(z.object({ accessToken: z.string().min(1), body: z.string().min(1) }))
+        .input(
+          z.object({
+            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+            body: z.string().trim().min(1).max(10_000),
+            operationId: z.string().uuid(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
-          const message = await ctx.wiring.helpdeskStore.replyByToken(input.accessToken, input.body);
+          const message = await ctx.wiring.helpdeskStore.replyByToken(
+            input.accessToken,
+            input.body,
+            input.operationId,
+          );
           if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
           return message;
         }),
@@ -2037,7 +2279,7 @@ export const appRouter = t.router({
         z.object({
           workspaceId: z.string().min(1),
           ticketId: z.string().uuid(),
-          body: z.string().min(1),
+          body: z.string().trim().min(1).max(10_000),
           status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
         }),
       )

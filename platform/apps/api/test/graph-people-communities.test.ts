@@ -205,13 +205,38 @@ test("nested Helpdesk keeps token access public while its inbox requires authent
   const wiring = await buildWiring();
   try {
     const caller = await makeAnonymousVerifiedCaller(wiring);
-    const created = await caller.helpdesk.public.createTicket({
+    const createInput = {
       workspaceId: PILOT_WORKSPACE,
       subject: "Public Help Request",
       submitterEmail: "public-help-request@example.com",
       body: "Please route this request.",
-    });
+      operationId: "10000000-0000-4000-8000-000000000011",
+      accessToken: "test_fixture_public_token_0000000000000001",
+    };
+    const created = await caller.helpdesk.public.createTicket(createInput);
+    const retried = await caller.helpdesk.public.createTicket(createInput);
+    assert.equal(retried.ticket.id, created.ticket.id);
+    assert.equal(retried.message.id, created.message.id);
+    await assert.rejects(() =>
+      caller.helpdesk.public.createTicket({
+        ...createInput,
+        subject: "Oversized request",
+        body: "x".repeat(10_001),
+      }),
+    );
     assert.ok(created.ticket.accessToken);
+    const replyInput = {
+      accessToken: created.ticket.accessToken,
+      body: "One idempotent public reply.",
+      operationId: "10000000-0000-4000-8000-000000000012",
+    };
+    const reply = await caller.helpdesk.public.reply(replyInput);
+    const retriedReply = await caller.helpdesk.public.reply(replyInput);
+    assert.equal(retriedReply.id, reply.id);
+    assert.equal(
+      (await caller.helpdesk.public.getThread({ accessToken: created.ticket.accessToken })).messages.length,
+      2,
+    );
 
     await assert.rejects(
       () => caller.helpdesk.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
