@@ -6,7 +6,7 @@ status: in_progress
 blockers:
   - Live viewport checks (desktop + 375px) not verifiable without browser session
   - packages.list must return available packages for nav to populate (requires running API)
-  - No real agent.list API — Chief of Staff binding is static until agents API ships
+  - No real agent.list API or manifest Agent ownership — Agents/Skills remain an honest empty state
 ---
 
 ## What was delivered
@@ -34,7 +34,7 @@ blockers:
 Each `/module/:moduleId` page renders:
 1. **Overview** — packageName + description + risk tier badge + computed risk
 2. **Pages/Databases** — `manifest.capabilities` as module surfaces
-3. **Agents + Skills** — static Chief of Staff → `<packageName>.surface` capability
+3. **Agents + Skills** — honest empty state until attributable runtime ownership is available
 4. **Automations** — honest empty state (backend not wired)
 5. **Integrations** — `manifest.connectors` list
 6. **Files / Results** — honest empty state (backend not wired)
@@ -74,5 +74,5 @@ IntelligencePage: removed Tools tab, Workflows tab, standalone Skills tab. Route
 
 1. **Live viewport** — desktop + 375px checks require a running browser. Cannot simulate here.
 2. **packages.list data** — nav modules only populate when the API returns `state === "available"` packages. Requires running API server + seeded DB.
-3. **agents.list API** — AgentCard in ModuleDetailPage uses `MODULE_AGENTS` static map. Replace when real API ships.
+3. **Agent ownership API/manifest** — the UI does not invent ownership; Agent-owned Skills remain hidden until the runtime exposes attributable bindings.
 4. **Automations/Files backends** — sections show honest empty states; backend not yet wired.

@@ -3,10 +3,9 @@
  * PanelControl logic (§4b, §5b).
  *
  * Tests are pure-logic (no DOM/React runtime), exercising:
- *   1. MODULE_AGENTS map — every built-in package has an agent binding
- *   2. RISK_LABELS — every risk tier has a display label
- *   3. PanelControl state logic — collapsed persists, width clamping, drag direction
- *   4. Nav modules filter — only "available" packages are shown in the nav
+ *   1. RISK_LABELS — every risk tier has a display label
+ *   2. PanelControl state logic — collapsed persists, width clamping, drag direction
+ *   3. Nav modules filter — only installed, available packages are shown
  *
  * Run with: node --test test/module-detail.test.mjs
  */
@@ -17,14 +16,6 @@ import test from "node:test";
 // Inline the logic under test so this file has no import dependency on React
 // or the browser environment. Tests validate the algorithms, not the JSX.
 // ---------------------------------------------------------------------------
-
-/** Mirrored from ModuleDetailPage.tsx */
-const MODULE_AGENTS = {
-  "deal-pilot": [{ id: "cos", name: "Chief of Staff", role: "Routes deal-related requests; invokes sourcing and thesis-scoring capabilities.", capabilityIds: ["deal-pilot.surface"] }],
-  "job-pilot": [{ id: "cos", name: "Chief of Staff", role: "Routes job-search requests; invokes application pipeline capabilities.", capabilityIds: ["job-pilot.surface"] }],
-  helpdesk: [{ id: "cos", name: "Chief of Staff", role: "Routes support requests; invokes ticket-triage and routing capabilities.", capabilityIds: ["helpdesk.surface"] }],
-  calendar: [{ id: "cos", name: "Chief of Staff", role: "Routes scheduling requests; invokes calendar-event capabilities with governed egress.", capabilityIds: ["calendar.surface"] }],
-};
 
 /** Mirrored from ModuleDetailPage.tsx */
 const RISK_LABELS = {
@@ -64,29 +55,6 @@ function continuousWidth(startWidth, dx, min, max) {
 // Tests
 // ---------------------------------------------------------------------------
 
-test("MODULE_AGENTS contains all four built-in package names", () => {
-  for (const name of BUILT_IN_PACKAGE_NAMES) {
-    assert.ok(name in MODULE_AGENTS, `Missing agent binding for "${name}"`);
-  }
-});
-
-test("Each built-in module has exactly one agent (Chief of Staff)", () => {
-  for (const [pkg, agents] of Object.entries(MODULE_AGENTS)) {
-    assert.equal(agents.length, 1, `${pkg} should have exactly 1 agent`);
-    assert.equal(agents[0].id, "cos", `${pkg}'s agent should be 'cos'`);
-  }
-});
-
-test("Agent capabilityIds matches <packageName>.surface pattern", () => {
-  for (const [pkg, agents] of Object.entries(MODULE_AGENTS)) {
-    const expected = `${pkg}.surface`;
-    assert.ok(
-      agents[0].capabilityIds.includes(expected),
-      `${pkg}'s agent should declare capability "${expected}"`
-    );
-  }
-});
-
 test("RISK_LABELS covers all risk tiers from built-in-packages.ts", () => {
   // built-in packages use: advisory, operational, external
   for (const tier of ["advisory", "operational", "external"]) {
@@ -118,7 +86,7 @@ test("PanelControl snap: exactly at midpoint expands (boundary inclusive)", () =
   assert.deepEqual(result, { collapsed: false, width: 220 });
 });
 
-test("PanelControl right panel: drag left (positive dx) grows width", () => {
+test("PanelControl right panel: drag left (negative client delta) grows width", () => {
   // Right panel: dragging LEFT (startX > ev.clientX) means dx < 0 → startWidth - dx > startWidth
   const startWidth = 286;
   const dx = -20; // dragged 20px left
@@ -126,7 +94,7 @@ test("PanelControl right panel: drag left (positive dx) grows width", () => {
   assert.equal(result, 306, "right panel drag left by 20px should grow by 20px");
 });
 
-test("PanelControl right panel: drag right (negative dx) shrinks width", () => {
+test("PanelControl right panel: drag right (positive client delta) shrinks width", () => {
   const startWidth = 286;
   const dx = 20; // dragged 20px right
   const result = continuousWidth(startWidth, dx, 260, 520);
@@ -142,12 +110,12 @@ test("PanelControl right panel: drag respects minimum width", () => {
 
 test("Nav module filter: only available packages appear", () => {
   const packages = [
-    { packageName: "deal-pilot", state: "available" },
-    { packageName: "job-pilot", state: "draft" },
-    { packageName: "helpdesk", state: "available" },
-    { packageName: "calendar", state: "deprecated" },
+    { packageName: "deal-pilot", state: "available", status: "installed" },
+    { packageName: "job-pilot", state: "available", status: "pending_review" },
+    { packageName: "helpdesk", state: "available", status: "installed" },
+    { packageName: "calendar", state: "deprecated", status: "installed" },
   ];
-  const navModules = packages.filter((p) => p.state === "available");
+  const navModules = packages.filter((p) => p.state === "available" && p.status === "installed");
   assert.equal(navModules.length, 2);
   assert.deepEqual(
     navModules.map((m) => m.packageName),

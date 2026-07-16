@@ -24,8 +24,6 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router";
 import {
   Package,
-  ChevronDown,
-  ChevronRight,
   Bot,
   Zap,
   Cable,
@@ -36,61 +34,11 @@ import {
   AlertCircle,
   Loader,
   ExternalLink,
-  Sparkles,
-  Shield,
   Activity,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
-
-// Built-in agent definitions for each module (manifest-driven — only the agents
-// whose skill catalogue includes the module's capabilities are shown here).
-// When a real agents API ships, this map is replaced by a runtime query.
-// Until then: honest agent→capability binding, no invented agents.
-const MODULE_AGENTS: Record<
-  string,
-  {
-    id: string;
-    name: string;
-    role: string;
-    // capability IDs this agent is authorised to invoke
-    capabilityIds: string[];
-  }[]
-> = {
-  "deal-pilot": [
-    {
-      id: "cos",
-      name: "Chief of Staff",
-      role: "Routes deal-related requests; invokes sourcing and thesis-scoring capabilities.",
-      capabilityIds: ["deal-pilot.surface"],
-    },
-  ],
-  "job-pilot": [
-    {
-      id: "cos",
-      name: "Chief of Staff",
-      role: "Routes job-search requests; invokes application pipeline capabilities.",
-      capabilityIds: ["job-pilot.surface"],
-    },
-  ],
-  helpdesk: [
-    {
-      id: "cos",
-      name: "Chief of Staff",
-      role: "Routes support requests; invokes ticket-triage and routing capabilities.",
-      capabilityIds: ["helpdesk.surface"],
-    },
-  ],
-  calendar: [
-    {
-      id: "cos",
-      name: "Chief of Staff",
-      role: "Routes scheduling requests; invokes calendar-event capabilities with governed egress.",
-      capabilityIds: ["calendar.surface"],
-    },
-  ],
-};
 
 // Human-readable risk labels
 const RISK_LABELS: Record<string, string> = {
@@ -147,108 +95,6 @@ function StatusBadge({ value }: { value: string }) {
   );
 }
 
-/** Expandable Agent card — expands to show its declared Skills. */
-function AgentCard({
-  agent,
-  capabilities,
-}: {
-  agent: { id: string; name: string; role: string; capabilityIds: string[] };
-  capabilities: NonNullable<PackageRow["manifest"]>["capabilities"];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const myCapabilities = capabilities.filter((c) => agent.capabilityIds.includes(c.id));
-  const ChevronIcon = expanded ? ChevronDown : ChevronRight;
-
-  return (
-    <div
-      className="border rounded-lg overflow-hidden"
-      style={{ borderColor: "var(--color-border)" }}
-    >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={`agent-skills-${agent.id}`}
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 p-3 text-left hover:bg-[var(--color-surface)] transition-colors"
-      >
-        <ChevronIcon className="w-4 h-4 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-        <Bot className="w-4 h-4 shrink-0" style={{ color: "var(--color-steel)" }} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-            {agent.name}
-          </p>
-          <p className="text-xs truncate" style={{ color: "var(--color-warm-gray)" }}>
-            {agent.role}
-          </p>
-        </div>
-        <span
-          className="text-xs shrink-0"
-          style={{ color: "var(--color-warm-gray)" }}
-        >
-          {myCapabilities.length} skill{myCapabilities.length !== 1 ? "s" : ""}
-        </span>
-      </button>
-
-      {expanded && (
-        <div
-          id={`agent-skills-${agent.id}`}
-          className="border-t px-3 pb-3 pt-2 space-y-2"
-          style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
-        >
-          <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: "var(--color-warm-gray)" }}>
-            Declared Skills
-          </p>
-          {myCapabilities.length === 0 ? (
-            <EmptyState message="No skills declared for this agent in the current module version." />
-          ) : (
-            myCapabilities.map((cap) => (
-              <div
-                key={cap.id}
-                className="rounded-md border p-2.5"
-                style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
-              >
-                <div className="flex items-start gap-2">
-                  <Sparkles className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: "var(--color-steel)" }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium" style={{ color: "var(--color-navy)" }}>
-                      {cap.name}
-                    </p>
-                    <p className="text-xs mt-0.5" style={{ color: "var(--color-warm-gray)" }}>
-                      Type: {cap.capabilityType} · Origin: {cap.origin}
-                    </p>
-                    {cap.permissions.length > 0 && (
-                      <div className="mt-1.5 space-y-1">
-                        <p className="text-xs font-medium" style={{ color: "var(--color-warm-gray)" }}>
-                          Permissions:
-                        </p>
-                        {cap.permissions.map((p, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center gap-1.5 text-xs"
-                            style={{ color: "var(--color-navy-mid)" }}
-                          >
-                            <Shield className="w-3 h-3 shrink-0" style={{ color: "var(--color-warm-gray)" }} />
-                            <span>
-                              {p.action} · {p.resourceType} · {p.dataScope}
-                              {p.egress && (
-                                <span className="ml-1 text-orange-600 font-medium">egress</span>
-                              )}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Overview section — module identity, risk, and status. */
 function OverviewSection({ pkg }: { pkg: PackageRow }) {
   const manifest = pkg.manifest;
@@ -295,7 +141,8 @@ function OverviewSection({ pkg }: { pkg: PackageRow }) {
             {RISK_LABELS[pkg.computedRisk] ?? pkg.computedRisk}
           </span>
           <span>
-            <span className="font-medium">Origin</span> built-in
+            <span className="font-medium">Origin</span>{" "}
+            {manifest?.capabilities.map((capability) => capability.origin).filter((value, index, values) => values.indexOf(value) === index).join(", ") || "not declared"}
           </span>
         </div>
       </div>
@@ -349,25 +196,13 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
 
 /** Agents section — each with Skills nested underneath. */
 function AgentsSection({ pkg }: { pkg: PackageRow }) {
-  const manifest = pkg.manifest;
-  const capabilities = manifest?.capabilities ?? [];
-  const agents = MODULE_AGENTS[pkg.packageName] ?? [];
-
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
-      {agents.length === 0 ? (
-        <EmptyState
-          message={`No Agents declared for ${pkg.packageName} yet.`}
-          hint="When Agents are assigned to this Module their Skills will appear here. Only an attributable Agent may invoke a Skill."
-        />
-      ) : (
-        <div className="space-y-2">
-          {agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} capabilities={capabilities} />
-          ))}
-        </div>
-      )}
+      <EmptyState
+        message={`No attributable Agent bindings are declared for ${pkg.packageName} v${pkg.packageVersion}.`}
+        hint="Skills remain hidden until the runtime exposes their consuming Agent. Only an attributable allowed Agent may invoke a Skill."
+      />
     </section>
   );
 }
@@ -473,15 +308,9 @@ function SettingsSection({ pkg }: { pkg: PackageRow }) {
               Revert to a previous version of this module. Requires approval.
             </p>
           </div>
-          <button
-            type="button"
-            disabled
-            className="text-xs border rounded px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
-            title="Rollback requires a governance approval — not yet wired"
-          >
-            Rollback…
-          </button>
+          <span className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            Unavailable until version history is connected
+          </span>
         </div>
         <div className="p-3 flex items-center justify-between gap-3">
           <div>
@@ -493,15 +322,9 @@ function SettingsSection({ pkg }: { pkg: PackageRow }) {
               Both require authority.
             </p>
           </div>
-          <button
-            type="button"
-            disabled
-            className="text-xs border rounded px-2.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
-            title="Archive / Uninstall requires a governance approval — not yet wired"
-          >
-            Archive…
-          </button>
+          <span className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            Unavailable until governed lifecycle Actions are connected
+          </span>
         </div>
       </div>
     </section>
@@ -524,7 +347,7 @@ export function ModuleDetailPage() {
         // Find the package whose packageName matches the route param.
         // The moduleId in the URL IS the packageName (e.g. "deal-pilot").
         const found = result.items.find(
-          (p) => p.packageName === moduleId && p.state === "available"
+          (p) => p.packageName === moduleId && p.state === "available" && p.status === "installed"
         );
         setPkg(found ?? null);
         setLoading(false);

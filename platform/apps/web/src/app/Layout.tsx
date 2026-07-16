@@ -72,7 +72,7 @@ export default function Layout() {
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
-          .filter((p) => p.state === "available")
+          .filter((p) => p.state === "available" && p.status === "installed")
           .map((p) => ({
             packageName: p.packageName,
             displayName: DISPLAY_NAMES[p.packageName] ?? p.packageName,
@@ -276,7 +276,12 @@ export default function Layout() {
           {/* Installed Modules — from packages.list (real API, §5c). */}
           {installedModules === null ? (
             // Loading state: show a subtle indicator rather than a spinner in the nav.
-            <div className="py-1.5 px-2 text-[9px]" style={{ color: "var(--color-warm-gray)" }}>
+            <div
+              className="py-1.5 px-2 text-[9px]"
+              style={{ color: "var(--color-warm-gray)" }}
+              role="status"
+              aria-label="Loading installed modules"
+            >
               {railExpanded ? "Loading modules…" : "…"}
             </div>
           ) : installedModules.length === 0 ? (
