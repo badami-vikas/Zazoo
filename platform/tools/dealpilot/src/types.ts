@@ -21,10 +21,11 @@ export interface DealProfile {
   [field: string]: unknown;
 }
 
-export type TriageState = "green" | "yellow" | "red";
+/** Domain evaluation band. This is Thesis fit, not platform Red Flag feedback. */
+export type ThesisFitBand = "strong_fit" | "needs_review" | "weak_fit";
 
 export interface ThesisFitResult {
   score: number; // 0..1
-  triage: TriageState;
+  band: ThesisFitBand;
   reasons: string[];
 }

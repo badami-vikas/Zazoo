@@ -58,6 +58,22 @@ export const router = createBrowserRouter([
           </InstalledModuleBoundary>
         ),
       },
+      {
+        path: "dealpilot/:page",
+        element: (
+          <InstalledModuleBoundary packageName="deal-pilot">
+            <DealPilotPage />
+          </InstalledModuleBoundary>
+        ),
+      },
+      {
+        path: "dealpilot/:page/:recordId",
+        element: (
+          <InstalledModuleBoundary packageName="deal-pilot">
+            <DealPilotPage />
+          </InstalledModuleBoundary>
+        ),
+      },
 
       // TASK-001 / VOCAB6: manifest-driven Module Detail surface (§4b).
       // Route param = packageName (e.g. "deal-pilot", "job-pilot"). Every

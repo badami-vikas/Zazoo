@@ -184,23 +184,31 @@ export class GoogleApiGateway implements GoogleGateway {
     );
 
     const threads: GmailThread[] = [];
+    let incomplete = false;
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i]!;
       const ref = refs[i]!;
       if (result.status === "rejected") {
         console.error(`google: fetchThreads(${ref.id}) failed after retries — skipping this thread for this sync`, result.reason);
+        incomplete = true;
         continue;
       }
       const full = result.value;
       const messages: GmailMessage[] = (full.data.messages ?? []).map((msg) => {
         const headers = msg.payload?.headers ?? undefined;
         const from = parseAddresses(headerOf(headers, "From"))[0] ?? { email: "unknown" };
+        const internalDateMs = Number(msg.internalDate);
+        const receivedAt =
+          Number.isFinite(internalDateMs) && internalDateMs > 0
+            ? new Date(internalDateMs).toISOString()
+            : undefined;
         return {
           messageId: msg.id ?? "",
           from,
           to: parseAddresses(headerOf(headers, "To")),
           cc: parseAddresses(headerOf(headers, "Cc")),
-          date: headerOf(headers, "Date") ?? new Date(Number(msg.internalDate ?? 0)).toISOString(),
+          ...(receivedAt ? { receivedAt } : {}),
+          date: headerOf(headers, "Date") ?? receivedAt ?? "",
           subject: headerOf(headers, "Subject") ?? "",
           bodyText: extractPlainText(msg.payload as GmailPayloadPart | undefined) || (msg.snippet ?? ""),
         };
@@ -219,6 +227,7 @@ export class GoogleApiGateway implements GoogleGateway {
     return {
       threads,
       ...(list.data.nextPageToken ? { nextPageToken: list.data.nextPageToken } : {}),
+      ...(incomplete ? { incomplete: true } : {}),
     };
   }
 

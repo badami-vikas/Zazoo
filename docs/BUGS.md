@@ -667,6 +667,11 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      ever attempts to pass one — see `All fixes.md` Phase 3 item 11a and decisions-log
      2026-07-05 for the full reasoning. **Still open:** per-workspace data isolation in the
      backing stores themselves (Phase 5, full multi-tenancy, pilot-recruitment-driven).
+     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys now include
+     workspace identity, DealPilot procedures require authenticated membership in verifying or
+     persistent mode, and Record/capture writes no longer collide across workspaces. The store,
+     capture index, and Source credential vault are still process-local and startup says so;
+     durable Local Plane persistence/keychain adapters remain the explicit TASK-006 blocker.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates
@@ -1102,3 +1107,23 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 
 ## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
+
+## RESOLVED 2026-07-17 — DealPilot discovery could omit Sources, Relations, alerts, and spend
+TASK-006 merge review found four coupled integrity gaps: Thesis discovery stopped at 200 Sources;
+approving Source-to-Thesis after Deals existed did not backfill Deal-to-Thesis Relations; Source
+spend charged only successfully parsed alerts; and Gmail discovery could repeatedly ingest or skip
+messages by advancing one-page checkpoints. Discovery now paginates every Source, backfills existing
+Deals idempotently, charges every attempted message, dedupes stable Gmail message IDs per Source,
+filters each thread message to approved senders against provider receipt time with an overlap window,
+caps provider pages per run with resumable continuation/repeated-token rejection, propagates partial
+body-fetch failures, carries the first scan's checkpoint across long continuations, resets failed
+saved tokens to a head scan, retains scan-wide token history to reject cross-run cycles, acknowledges
+message IDs only after captures/spend persist, and advances
+`lastCheckedAt` only after a complete scan. Google/DealPilot/API regressions cover each boundary.
+
+## OPEN 2026-07-17 — Full ESLint fails on an unregistered React Hooks suppression
+`apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
+`react-hooks/exhaustive-deps`, but the repository ESLint configuration does not register that rule,
+so `pnpm exec eslint . --quiet` fails before evaluating the suppression. TASK-006 changed-file lint
+passes and this Avatar file is outside its blast radius. Fix by registering the existing React Hooks
+plugin/rule or removing the stale suppression after verifying the effect dependencies.

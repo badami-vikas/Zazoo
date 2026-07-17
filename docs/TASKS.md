@@ -124,6 +124,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Prototype test: Add a Thesis and observe governed Source discovery; add a Source and observe Deal discovery; inspect each Record Detail; reveal/copy a vault-backed Source credential only after Human re-authentication; verify conditional Relationship and Task columns.
 - Scope: docs/raw/brd-dealpilot-2026-07.md; docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1
 - Evidence: user DealPilot corrections 2026-07-14–15
+- Implementation evidence: [TASK-006 output](../outputs/2026-07-16-task-006-dealpilot-core-prototype.md); DealPilot 72, Google 35, focused API 8, web 49, core 421, and DB 107 tests; builds/typechecks; changed-file lint; no-dummy; final cursor/backlog/partial-provider/transactional-ack/continuation-reset/token-cycle regressions. Status stays `in_progress` pending durable Local Plane Records/vault, live Google + re-auth evidence, and desktop/375px proof.
 - Requests: DealPilot requirements 2026-07-14–15
 - Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-001

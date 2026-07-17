@@ -1,15 +1,17 @@
 /**
  * no-crm-vocab — flags CRM/sales-pipeline vocabulary in identifiers, KERNEL SCOPE ONLY.
  *
- * CLAUDE.md vocabulary rule: "Person / Relationship / Memory / Community /
- * Initiative / Ritual / Touchpoint / Signal. NEVER Lead / Deal / Pipeline / Contact."
+ * CLAUDE.md vocabulary rule: domain labels such as Deal are allowed as Module
+ * Record types, but never become Engine primitives.
  *
  * Scope (2026-07-06 vision pivot — docs/wiki/vision.md, ADR-011 in
  * docs/raw/decisions-log.md): vocabulary is two-scoped. KERNEL scope (packages/*,
- * apps/api) keeps this ban. WORKSPACE scope (compiled products under tools/*, the
+ * apps/api) keeps this ban by default. WORKSPACE scope (compiled products under tools/*, the
  * generated-workspace UI under apps/web) may use domain vocabulary — e.g.
  * tools/dealpilot's "Deal" identifiers are DealPilot's own compiled-product
- * vocabulary, not a violation. The scoping lives HERE (in the rule, via
+ * vocabulary, not a violation. Module-scoped API identifiers are explicitly
+ * allowlisted below so the monolithic API composition root does not turn "Deal"
+ * into a generic Engine primitive. The scoping lives HERE (in the rule, via
  * `context.filename`) rather than in eslint.config.js's `files` globs, so the rule
  * stays self-contained and correct regardless of how it's wired into any given
  * flat-config file list.
@@ -43,9 +45,24 @@ const DEAL_TOKEN = /(?:^|[_])[Dd]eal(?:[A-Z_]|$)|(?<=[a-z])Deal(?=[A-Z]|$)|^Deal
 
 /** Identifiers where "Deal" is part of the approved "DealPilot" product name, not the CRM word. */
 const DEALPILOT_ALLOW = /deal ?pilot/i;
+const DEALPILOT_DOMAIN_IDENTIFIERS = new Set([
+  "createDeal",
+  "discoverDeals",
+  "existingDeals",
+  "updateDeal",
+]);
 
-function containsBannedDeal(name) {
+function isDealPilotApiIdentifier(filename, name) {
+  const normalized = filename.replace(/\\/g, "/");
+  return (
+    /(?:^|\/)apps\/api\/src\/(?:router|wiring)\.ts$/.test(normalized) &&
+    DEALPILOT_DOMAIN_IDENTIFIERS.has(name)
+  );
+}
+
+function containsBannedDeal(filename, name) {
   if (DEALPILOT_ALLOW.test(name)) return false;
+  if (isDealPilotApiIdentifier(filename, name)) return false;
   // Split PascalCase/camelCase into tokens and check for an exact "deal" token.
   const tokens = name
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
@@ -76,12 +93,12 @@ export const noCrmVocab = {
     type: "problem",
     docs: {
       description:
-        "Disallow CRM/sales vocabulary (Deal) in identifiers per CLAUDE.md's vocabulary rule. See file header for the 'Pipeline'/'Lead'/'Contact' scoping tradeoff.",
+        "Keep Deal out of generic Engine identifiers while allowing explicit DealPilot Module Record APIs.",
     },
     schema: [],
     messages: {
       bannedVocab:
-        "'{{name}}' uses banned CRM vocabulary ('Deal'). Bridge AI vocabulary is Person / Relationship / Memory / Community / Initiative / Ritual / Touchpoint / Signal — never Lead / Deal / Pipeline / Contact. Rename using the approved vocabulary (e.g. Candidate/Opportunity/Listing/Initiative), or if this is the DealPilot product name, keep 'DealPilot'/'dealpilot' verbatim (already allowlisted).",
+        "'{{name}}' makes Deal look like generic Engine vocabulary. Keep Deal inside an explicit DealPilot Module Record API or use the canonical Engine vocabulary.",
     },
   },
   create(context) {
@@ -92,7 +109,7 @@ export const noCrmVocab = {
     }
     function check(node, name) {
       if (!name) return;
-      if (containsBannedDeal(name)) {
+      if (containsBannedDeal(filename, name)) {
         context.report({ node, messageId: "bannedVocab", data: { name } });
       }
     }

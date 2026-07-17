@@ -21,6 +21,7 @@
  * context creation instead of a normal auth failure.
  */
 import { TRPCError } from "@trpc/server";
+import { decodeJwt } from "jose";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
@@ -40,6 +41,9 @@ export interface ApiContext {
    * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
    * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
   verifying: boolean;
+  /** Server-derived auth_time from the already-verified bearer. Credential
+   * reveal/copy accepts it only while it remains within the recent-auth window. */
+  reauthenticatedAt?: number;
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -49,6 +53,30 @@ interface CreateContextArgs {
 
 function headerValue(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
+}
+
+function verifiedReauthenticationAt(payload: ReturnType<typeof decodeJwt>): number | undefined {
+  const candidates: number[] = [];
+  if (typeof payload.auth_time === "number" && Number.isFinite(payload.auth_time)) {
+    candidates.push(payload.auth_time);
+  }
+  if (Array.isArray(payload.amr)) {
+    for (const entry of payload.amr) {
+      if (
+        typeof entry === "object" &&
+        entry !== null &&
+        "method" in entry &&
+        entry.method === "password" &&
+        "timestamp" in entry &&
+        typeof entry.timestamp === "number" &&
+        Number.isFinite(entry.timestamp)
+      ) {
+        candidates.push(entry.timestamp);
+      }
+    }
+  }
+  const latest = Math.max(...candidates);
+  return Number.isFinite(latest) ? latest * 1_000 : undefined;
 }
 
 export function makeContextFactory(wiring: Wiring) {
@@ -76,7 +104,13 @@ export function makeContextFactory(wiring: Wiring) {
     // gate must still reject it. Derived from the SAME parser resolve() uses, so the two
     // never drift.
     const verifying = identityResolver.verifying;
-    const authenticated = verifying && bearerToken(authHeader) !== null;
+    const token = bearerToken(authHeader);
+    const authenticated = verifying && token !== null;
+    let reauthenticatedAt: number | undefined;
+    if (authenticated && token) {
+      const payload = decodeJwt(token);
+      reauthenticatedAt = verifiedReauthenticationAt(payload);
+    }
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
     return {
       wiring,
@@ -84,6 +118,7 @@ export function makeContextFactory(wiring: Wiring) {
       identity,
       authenticated,
       verifying,
+      ...(reauthenticatedAt != null ? { reauthenticatedAt } : {}),
     };
   };
 }

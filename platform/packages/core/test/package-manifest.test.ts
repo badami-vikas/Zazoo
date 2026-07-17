@@ -111,6 +111,8 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
           agent_id: "operator",
           trigger: "Manual",
           procedure: "dummy.intake",
+          ritual_id: "dummy.intake.ritual",
+          run_route: "/dummy/records",
         }],
         commons_needs: [{
           id: "calendar-availability",
@@ -127,6 +129,7 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
   assert.equal(parsed.module?.displayName, "Dummy");
   assert.deepEqual(parsed.module?.agents[0]?.skillIds, ["dummy.skill"]);
   assert.equal(parsed.module?.automations[0]?.agentId, "operator");
+  assert.equal(parsed.module?.automations[0]?.runRoute, "/dummy/records");
   assert.equal(parsed.module?.commonsNeeds?.[0]?.agentId, "operator");
 });
 

@@ -100,7 +100,9 @@ test("fetchThreads maps Gmail headers, body fallback, participants, pagination, 
     { name: "test_fixture_ Carol", email: "test_fixture_carol@example.com" },
   ]);
   assert.equal(result.threads[0]?.messages[0]?.bodyText, "test_fixture_ plain body");
+  assert.equal(result.threads[0]?.messages[0]?.receivedAt, new Date(1751500000000).toISOString());
   assert.equal(result.threads[1]?.messages[0]?.bodyText, "test_fixture_ fallback snippet");
+  assert.equal(result.incomplete, undefined);
 });
 
 test("fetchEvents maps Calendar API items with defaults, bounded window, attendees, and pagination", async () => {

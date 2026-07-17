@@ -1,4 +1,4 @@
-import type { SourceConnector, SourceQuery } from "@bridge/sourcing";
+import type { CaptureEnvelope, SourceConnector, SourceQuery } from "@bridge/sourcing";
 import { createApiClientConnector, createEmailAlertConnector } from "@bridge/sourcing";
 import type { GoogleGatewayFactory } from "@bridge/integrations-google";
 
@@ -105,18 +105,204 @@ export function parseBizBuySellAlert(message: { subject: string; body: string })
  * this connector never owns OAuth or calls Gmail directly. `query` defaults to BizBuySell's known
  * alert sender addresses; callers can narrow further (e.g. a per-tenant label).
  */
+type AlertMessage = { id?: string; subject: string; body: string };
+
+export type AlertMessageFetcher = ((
+  sourceQuery: SourceQuery,
+) => Promise<AlertMessage[]>) & {
+  lastFetchComplete?(sourceId: string): boolean;
+  lastCheckpointAt?(sourceId: string): string | undefined;
+  acknowledge?(sourceId: string): void;
+  discard?(sourceId: string): void;
+};
+
+const BIZBUYSELL_ALERT_SENDERS = new Set([
+  "alerts@bizbuysell.com",
+  "noreply@bizbuysell.com",
+  "savedsearch@bizbuysell.com",
+]);
+const GMAIL_CURSOR_OVERLAP_MS = 24 * 60 * 60 * 1_000;
+const MAX_GMAIL_PAGES_PER_RUN = 5;
+
 export function createGmailFetchMessages(
   gateways: GoogleGatewayFactory,
   integrationId: string,
   query = "from:(alerts@bizbuysell.com OR noreply@bizbuysell.com OR savedsearch@bizbuysell.com)",
-): (sourceQuery: SourceQuery) => Promise<Array<{ subject: string; body: string }>> {
-  return async () => {
+): AlertMessageFetcher {
+  interface Continuation {
+    cursorKey: string;
+    pageToken?: string;
+    checkpointAt?: string;
+    visitedPageTokens?: string[];
+  }
+  interface PendingFetch {
+    seenIds: Set<string>;
+    continuation: Continuation | null;
+  }
+
+  const seenMessageIdsBySource = new Map<string, Set<string>>();
+  const lastFetchCompleteBySource = new Map<string, boolean>();
+  const lastCheckpointAtBySource = new Map<string, string>();
+  const continuationBySource = new Map<string, Continuation>();
+  const pendingBySource = new Map<string, PendingFetch>();
+  const fetcher: AlertMessageFetcher = async (sourceQuery) => {
+    const sourceId = sourceQuery.hints.sourceId ?? "default";
+    if (pendingBySource.has(sourceId)) {
+      throw new Error(`Gmail fetch for Source "${sourceId}" must be acknowledged or discarded before retry`);
+    }
     const gateway = await gateways.forIntegration(integrationId);
-    const { threads } = await gateway.fetchThreads({ query });
-    return threads.flatMap((thread) =>
-      thread.messages.map((message) => ({ subject: message.subject || thread.subject, body: message.bodyText })),
+    const requestedMax = Number(sourceQuery.hints.maxResults);
+    const maxResults =
+      Number.isInteger(requestedMax) && requestedMax > 0
+        ? Math.min(requestedMax, 100)
+        : 25;
+    const cursorKey = sourceQuery.hints.after ?? "";
+    const cursorAt = Date.parse(cursorKey);
+    const scanAfter = Number.isFinite(cursorAt)
+      ? cursorAt - GMAIL_CURSOR_OVERLAP_MS
+      : Number.NaN;
+    const effectiveQuery = Number.isFinite(scanAfter)
+      ? `${query} after:${Math.floor(scanAfter / 1_000)}`
+      : query;
+    const seen = seenMessageIdsBySource.get(sourceId) ?? new Set<string>();
+    const stagedSeen = new Set<string>();
+    const unseen: AlertMessage[] = [];
+    const committedContinuation = continuationBySource.get(sourceId);
+    const continuationMatches = committedContinuation?.cursorKey === cursorKey;
+    const checkpointAt = continuationMatches
+      ? committedContinuation?.checkpointAt ?? sourceQuery.hints.scanStartedAt
+      : sourceQuery.hints.scanStartedAt;
+    const continuationFor = (token?: string): Continuation => ({
+      cursorKey,
+      ...(token ? { pageToken: token } : {}),
+      ...(checkpointAt ? { checkpointAt } : {}),
+    });
+    let pageToken =
+      continuationMatches
+        ? committedContinuation.pageToken
+        : undefined;
+    let nextContinuation: Continuation | null = null;
+    let firstIncompletePage: Continuation | null = null;
+    const visitedPageTokens = new Set<string>(
+      continuationMatches ? committedContinuation?.visitedPageTokens ?? [] : [],
     );
+    let pagesFetched = 0;
+    let complete = true;
+    try {
+      do {
+        const currentPageToken = pageToken;
+        const pageKey = currentPageToken ?? "__first_page__";
+        if (visitedPageTokens.has(pageKey)) {
+          throw new Error("Gmail pagination returned a repeated page token");
+        }
+        visitedPageTokens.add(pageKey);
+        const result = await gateway.fetchThreads({
+          query: effectiveQuery,
+          maxResults,
+          ...(currentPageToken ? { pageToken: currentPageToken } : {}),
+        });
+        pagesFetched += 1;
+        if (result.incomplete && !firstIncompletePage) {
+          complete = false;
+          firstIncompletePage = continuationFor(currentPageToken);
+        }
+        let moreEligibleMessages = false;
+        for (const thread of result.threads) {
+          for (const message of thread.messages) {
+            if (!BIZBUYSELL_ALERT_SENDERS.has(message.from.email.toLowerCase())) continue;
+            const id = message.messageId || `${thread.threadId}:${message.date}:${message.subject}`;
+            if (seen.has(id) || stagedSeen.has(id)) continue;
+            const receivedAt = Date.parse(message.receivedAt ?? "");
+            if (Number.isFinite(scanAfter) && Number.isFinite(receivedAt) && receivedAt <= scanAfter) {
+              stagedSeen.add(id);
+              continue;
+            }
+            if (Number.isFinite(cursorAt) && !Number.isFinite(receivedAt) && !firstIncompletePage) {
+              complete = false;
+              firstIncompletePage = continuationFor(currentPageToken);
+            }
+            if (unseen.length >= maxResults) {
+              moreEligibleMessages = true;
+              break;
+            }
+            stagedSeen.add(id);
+            unseen.push({
+              id,
+              subject: message.subject || thread.subject,
+              body: message.bodyText,
+            });
+          }
+          if (moreEligibleMessages) break;
+        }
+        if (moreEligibleMessages) {
+          complete = false;
+          nextContinuation = firstIncompletePage ?? continuationFor(currentPageToken);
+          break;
+        }
+        if (!result.nextPageToken) {
+          if (firstIncompletePage) {
+            complete = false;
+            nextContinuation = firstIncompletePage;
+          }
+          break;
+        }
+        if (visitedPageTokens.has(result.nextPageToken)) {
+          throw new Error("Gmail pagination returned a repeated page token");
+        }
+        if (unseen.length >= maxResults) {
+          complete = false;
+          nextContinuation = firstIncompletePage ?? continuationFor(result.nextPageToken);
+          break;
+        }
+        if (pagesFetched >= MAX_GMAIL_PAGES_PER_RUN) {
+          complete = false;
+          nextContinuation = firstIncompletePage ?? continuationFor(result.nextPageToken);
+          break;
+        }
+        pageToken = result.nextPageToken;
+      } while (true);
+      let pendingContinuation = complete ? null : nextContinuation;
+      if (pendingContinuation) {
+        const persistedVisited = new Set(visitedPageTokens);
+        persistedVisited.delete(pendingContinuation.pageToken ?? "__first_page__");
+        pendingContinuation = {
+          ...pendingContinuation,
+          visitedPageTokens: [...persistedVisited],
+        };
+      }
+      pendingBySource.set(sourceId, {
+        seenIds: stagedSeen,
+        continuation: pendingContinuation,
+      });
+      lastFetchCompleteBySource.set(sourceId, complete);
+      if (checkpointAt) lastCheckpointAtBySource.set(sourceId, checkpointAt);
+      return unseen;
+    } catch (error) {
+      pendingBySource.delete(sourceId);
+      lastFetchCompleteBySource.set(sourceId, false);
+      if (continuationMatches) continuationBySource.delete(sourceId);
+      throw error;
+    }
   };
+  fetcher.lastFetchComplete = (sourceId) => lastFetchCompleteBySource.get(sourceId) ?? false;
+  fetcher.lastCheckpointAt = (sourceId) => lastCheckpointAtBySource.get(sourceId);
+  fetcher.acknowledge = (sourceId) => {
+    const pending = pendingBySource.get(sourceId);
+    if (!pending) return;
+    const seen = seenMessageIdsBySource.get(sourceId) ?? new Set<string>();
+    for (const id of pending.seenIds) seen.add(id);
+    seenMessageIdsBySource.set(sourceId, seen);
+    if (pending.continuation) {
+      continuationBySource.set(sourceId, pending.continuation);
+    } else {
+      continuationBySource.delete(sourceId);
+    }
+    pendingBySource.delete(sourceId);
+  };
+  fetcher.discard = (sourceId) => {
+    pendingBySource.delete(sourceId);
+  };
+  return fetcher;
 }
 
 /**
@@ -179,42 +365,65 @@ export function parseBizBuySellAlertBatch(
   return { results, summary: { attempted, parsed, parseRate: attempted === 0 ? 1 : parsed / attempted } };
 }
 
+export interface BizBuySellAlertConnector extends SourceConnector {
+  fetchWithSummary(query: SourceQuery): Promise<{
+    envelopes: CaptureEnvelope[];
+    summary: ParseBatchSummary & { complete: boolean; checkpointAt?: string };
+  }>;
+  acknowledge(query: SourceQuery): void;
+  discard(query: SourceQuery): void;
+}
+
 export function createBizBuySellAlertConnector(
-  fetchMessages: (query: SourceQuery) => Promise<Array<{ subject: string; body: string }>>,
+  fetchMessages: AlertMessageFetcher,
   parse: (message: { subject: string; body: string }) => Record<string, unknown> | null = parseBizBuySellAlert,
-): SourceConnector {
-  // createEmailAlertConnector (owned by @bridge/sourcing) calls `parse` once per message and has
-  // no batch concept of its own, so batch-rate tracking is layered on here: each `fetch()` call
-  // gets its own tallying `parse` wrapper, reset per batch, that still returns exactly what the
-  // underlying connector shape expects (a payload or null per message).
-  let batchTally = { attempted: 0, parsed: 0 };
-
-  const wrappedParse = (message: { subject: string; body: string }): Record<string, unknown> | null => {
-    const payload = parse(message);
-    batchTally.attempted += 1;
-    if (payload) batchTally.parsed += 1;
-    return payload;
+): BizBuySellAlertConnector {
+  const costPerMessage = 0.5;
+  const sourceId = (query: SourceQuery) => query.hints.sourceId ?? "default";
+  const acknowledge = (query: SourceQuery) => fetchMessages.acknowledge?.(sourceId(query));
+  const discard = (query: SourceQuery) => fetchMessages.discard?.(sourceId(query));
+  const fetchWithSummary = async (query: SourceQuery) => {
+    const batchTally = { attempted: 0, parsed: 0 };
+    const connector = createEmailAlertConnector({
+      id: "bizbuysell-alerts",
+      fetchMessages,
+      parse(message) {
+        const payload = parse(message);
+        batchTally.attempted += 1;
+        if (payload) batchTally.parsed += 1;
+        return payload;
+      },
+      costPerMessage,
+    });
+    let envelopes: CaptureEnvelope[];
+    try {
+      envelopes = await connector.fetch(query);
+    } catch (error) {
+      discard(query);
+      throw error;
+    }
+    const checkpointAt = fetchMessages.lastCheckpointAt?.(sourceId(query));
+    const summary = {
+      ...batchTally,
+      parseRate: batchTally.attempted === 0 ? 1 : batchTally.parsed / batchTally.attempted,
+      complete: fetchMessages.lastFetchComplete?.(sourceId(query)) ?? true,
+      ...(checkpointAt ? { checkpointAt } : {}),
+    };
+    warnIfLowParseRate(summary.attempted, summary.parsed);
+    return { envelopes, summary };
   };
-
-  const fetchMessagesWithTally: typeof fetchMessages = async (query) => {
-    batchTally = { attempted: 0, parsed: 0 };
-    return fetchMessages(query);
-  };
-
-  const connector = createEmailAlertConnector({
-    id: "bizbuysell-alerts",
-    fetchMessages: fetchMessagesWithTally,
-    parse: wrappedParse,
-    costPerMessage: 0.5,
-  });
-
   return {
-    ...connector,
+    id: "bizbuysell-alerts",
+    tier: "email",
+    estimateCost: () => costPerMessage,
     async fetch(query) {
-      const envelopes = await connector.fetch(query);
-      warnIfLowParseRate(batchTally.attempted, batchTally.parsed);
-      return envelopes;
+      const batch = await fetchWithSummary(query);
+      acknowledge(query);
+      return batch.envelopes;
     },
+    fetchWithSummary,
+    acknowledge,
+    discard,
   };
 }
 

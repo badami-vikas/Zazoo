@@ -3,8 +3,8 @@ import { defaultViewConfig } from "@bridge/tables";
 import type { DealStage } from "./deal.js";
 import { PIPELINE_STAGES, TERMINAL_STAGES } from "./deal.js";
 
-// RYG triage feed as a table view (docs/raw/dealpilot-architecture-requirement.md S4: "Triage UI
-// reads a materialized per-tenant feed view"). Columns-as-data on @bridge/tables — the same
+// Thesis-fit feed as a domain evaluation view. Fit bands are not platform Red Flag feedback.
+// Columns-as-data on @bridge/tables — the same
 // engine the prototype's People/Communities tables use — so DealPilot gets kanban/list/gallery
 // views for free instead of a bespoke triage UI.
 
@@ -29,14 +29,19 @@ export const dealsTableSpec: TableSpec = {
     { id: "askPrice", label: "Ask Price", kind: "number" },
     { id: "sde", label: "SDE", kind: "number" },
     { id: "revenue", label: "Revenue", kind: "number" },
-    { id: "triage", label: "Triage", kind: "select", options: ["green", "yellow", "red"] },
+    {
+      id: "thesisFitBand",
+      label: "Thesis fit band",
+      kind: "select",
+      options: ["strong_fit", "needs_review", "weak_fit"],
+    },
     { id: "thesisFit", label: "Thesis Fit", kind: "number", editable: false },
   ],
 };
 
-/** RYG triage kanban — existing view, groups deals by triage colour. */
+/** Domain evaluation board, grouped independently of platform Red Flag feedback. */
 export function dealsKanbanView(): ViewConfig {
-  return { ...defaultViewConfig("dealpilot.deals.kanban", "kanban"), groupBy: "triage" };
+  return { ...defaultViewConfig("dealpilot.deals.kanban", "kanban"), groupBy: "thesisFitBand" };
 }
 
 /** Stage board — groups deals by pipeline stage for a pipeline progress view. */

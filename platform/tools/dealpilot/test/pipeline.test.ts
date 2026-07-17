@@ -20,7 +20,7 @@ test("processDealCandidate: new deal (no existing match) sources, records facts,
   const result = await processDealCandidate(query, [connector], ledger, facts, "deal_1", [], thesis);
 
   assert.equal(result.dedupedAgainst, null);
-  assert.equal(result.fit.triage, "green");
+  assert.equal(result.fit.band, "strong_fit");
   assert.equal(facts.livingProfile("deal_1").industry?.value, "HVAC");
 });
 

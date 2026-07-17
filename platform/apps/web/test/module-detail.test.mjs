@@ -217,6 +217,8 @@ test("Module Automation Run delegates to server-owned ritual execution and exist
   assert.match(source, /modulePackageName:\s*pkg\.packageName/);
   assert.match(source, /automation\.ritualId/);
   assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
+  assert.match(source, /automation\.runRoute/);
+  assert.match(source, /to=\{automation\.runRoute\}/);
   assert.match(source, /Runtime binding pending/);
   assert.doesNotMatch(source, /actor:\s*\{/);
   assert.match(source, /to="\/approvals"/);

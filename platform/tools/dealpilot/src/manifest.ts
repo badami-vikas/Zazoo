@@ -9,10 +9,14 @@ import { parseToolManifest, type ExternalToolManifest } from "@bridge/tool-kit";
 export const dealPilotManifest: ExternalToolManifest = parseToolManifest({
   id: "dealpilot",
   name: "DealPilot",
-  version: "0.0.1",
+  version: "0.1.0",
   kind: "external",
   runModes: ["account_bound"],
-  surfaces: [{ route: "/dealpilot", nav: "Work", icon: "briefcase" }],
+  surfaces: [
+    { route: "/dealpilot/deals", nav: "Modules", icon: "briefcase" },
+    { route: "/dealpilot/sources", icon: "database" },
+    { route: "/dealpilot/theses", icon: "target" },
+  ],
   composes: ["company-sourcing", "people-sourcing", "recorder"],
   capabilities: [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "public", accountBoundOnly: true },

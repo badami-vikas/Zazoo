@@ -270,6 +270,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   const automations: ModuleAutomationBinding[] = automationsRaw.map((automation, index) => {
     if (!isPlainObject(automation)) fail(`package.module.automations[${index}] must be an object`);
     const ritualId = automation.ritualId ?? automation.ritual_id;
+    const runRoute = automation.runRoute ?? automation.run_route;
     const binding: ModuleAutomationBinding = {
       id: requiredString(automation.id, `package.module.automations[${index}].id`),
       name: requiredString(automation.name, `package.module.automations[${index}].name`),
@@ -283,12 +284,18 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       ...(ritualId !== undefined
         ? { ritualId: requiredString(ritualId, `package.module.automations[${index}].ritual_id`) }
         : {}),
+      ...(runRoute !== undefined
+        ? { runRoute: requiredString(runRoute, `package.module.automations[${index}].run_route`) }
+        : {}),
     };
     if (capabilityById.get(binding.capabilityId)?.capabilityType !== "workflow") {
       fail(`package.module.automations[${index}].capability_id must reference a workflow capability`);
     }
     if (!agentIds.has(binding.agentId)) {
       fail(`package.module.automations[${index}].agent_id must reference a declared module agent`);
+    }
+    if (binding.runRoute && !binding.runRoute.startsWith("/")) {
+      fail(`package.module.automations[${index}].run_route must start with /`);
     }
     return binding;
   });
