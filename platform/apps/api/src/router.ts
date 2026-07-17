@@ -2008,7 +2008,13 @@ export const appRouter = t.router({
         return { items, total: visible.length, hasMore: input.offset + items.length < visible.length };
       }),
 
-    /** Read the append-only resolution state for idempotent review reconciliation. */
+    /** Read the append-only resolution state for idempotent review reconciliation.
+     * TASK-010 review round-4 item 2 (closing a gap a fresh independent review
+     * found): a PRIVATE proposal's resolution state/decision must be exactly as
+     * invisible to a non-owner as `listPending`/`decide` already make it —
+     * otherwise a member could infer a private red-flag correction's existence
+     * and eventual approve/veto decision just by guessing/observing its
+     * proposalId, even though they could never see or resolve it themselves. */
     resolution: authenticatedProcedure
       .input(z.object({ proposalId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
@@ -2016,6 +2022,9 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        if (isPrivateProposalInputs(proposal.inputs) && proposal.onBehalfOfId !== ctx.identity.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        }
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };

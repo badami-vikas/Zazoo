@@ -997,9 +997,32 @@ test("PRIVATE PROPOSALS (review round-4 item 2): a red-flag proposal is invisibl
       "a non-owning member must never be able to decide a private proposal, even though they pass the ordinary membership gate",
     );
 
+    // review round-4 item 2 (closing a gap a fresh independent review found):
+    // a non-owner must not be able to observe a private proposal's
+    // resolution state either — action.resolution must be exactly as gated
+    // as listPending/decide, not merely omitted from the list.
+    await assert.rejects(
+      () => other.action.resolution({ proposalId: value.proposalId! }),
+      (err: unknown) => err instanceof TRPCError && err.code === "NOT_FOUND",
+      "a non-owning member must not be able to query a private proposal's resolution state",
+    );
+    const ownersResolutionBefore = await owner.action.resolution({ proposalId: value.proposalId! });
+    assert.equal(ownersResolutionBefore.status, "pending", "the owner must still be able to read their OWN private proposal's resolution state");
+
     // The owner CAN decide their own private proposal.
     const resolved = await owner.action.decide({ proposalId: value.proposalId!, decision: "approve" });
     assert.equal(resolved.status, "applied");
+
+    // Even AFTER approval, a non-owner must still be unable to observe the
+    // decision via resolution() — the leak the fresh review found was
+    // specifically post-decision (status "resolved", decision "approve").
+    await assert.rejects(
+      () => other.action.resolution({ proposalId: value.proposalId! }),
+      (err: unknown) => err instanceof TRPCError && err.code === "NOT_FOUND",
+    );
+    const ownersResolutionAfter = await owner.action.resolution({ proposalId: value.proposalId! });
+    assert.equal(ownersResolutionAfter.status, "resolved");
+    assert.equal(ownersResolutionAfter.decision, "approve");
   } finally {
     await wiring.close();
   }

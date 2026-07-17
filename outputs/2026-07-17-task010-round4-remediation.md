@@ -59,13 +59,20 @@ be enacted`, `REVOCATION: revokeCorrection undoes...permanently prevents re-enac
 member could see and resolve ANY proposal, including a red flag's private correction.
 
 **Now**: the red-flag proposal's `inputs` carries `visibility: "private"`. `isPrivateProposalInputs`/
-`isProposalVisibleTo` (router.ts) gate both:
+`isProposalVisibleTo` (router.ts) gate all three read/decide surfaces:
 - `action.listPending` loops through the pipeline's own pages (mirroring the existing
   `proposeOutreachDraft` accumulate-until-exhausted idiom) and filters out any private proposal not
   raised `onBehalfOf` the caller, before slicing to the requested page — `total`/`hasMore` describe
   the caller's actually-visible set.
 - `action.decide` rejects `FORBIDDEN` if the target proposal is private and the caller isn't its
   `onBehalfOfId`.
+- `action.resolution` rejects `NOT_FOUND` (never confirming existence to a non-owner, mirroring
+  `MemoryStore.get`'s own "indistinguishable from not found" convention) under the same condition —
+  **a fresh independent review of this round's own commit caught this specific endpoint missing
+  the gate** (it only had `assertMembership`, so any team member could query a private proposal's
+  resolution state/eventual decision by proposalId even though they could never see or decide it
+  via the other two surfaces): fixed same day, before reporting, with new assertions in the
+  `PRIVATE PROPOSALS` test covering both the pre- and post-decision cases.
 - Every OTHER (non-private) proposal shape is completely unaffected — team-visible semantics
   unchanged.
 
@@ -303,3 +310,18 @@ unchanged). `check:no-dummy-runtime` clean.
 - A pre-existing, unrelated dummy-data instance was discovered along the way — `docs/dummy.md` now
   tracks it (see that file for detail); not fixed here (out of TASK-010's scope, and the page it
   affects is currently unrouted/unreachable).
+
+## Fresh independent review of this round's own commit
+
+A background code-review agent independently verified all 11 items and all 3 self-found bugs by
+executing the code — building the monorepo, running every affected suite, and for the items most
+worth skepticism (4, 5, 7, and all 3 "bugs found while implementing"), genuinely reverting the exact
+fix, confirming the corresponding test fails on the old code, then restoring. 13 of 14 checked
+claims held up exactly as described. It found ONE real gap: `action.resolution` (unlike
+`listPending`/`decide`) had no `isProposalVisibleTo` ownership check, so a non-owner member could
+observe a private red-flag proposal's resolution state and eventual approve/veto decision by
+proposalId even though they could never see or decide it through the other two surfaces — an
+information-disclosure regression against item 2's own stated goal. Fixed the same day (see item 2
+above), with new pre- and post-decision assertions added to the `PRIVATE PROPOSALS` test, and the
+full suite re-verified clean (api 203/203, including the now-34-test `red-flag.test.ts`).
+
