@@ -110,6 +110,10 @@ export type OutreachAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type FoundationalAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
 export type RuntimeAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
+export interface PrincipalGovernanceConfig {
+  workspaceId: string;
+  userId: string;
+}
 
 interface PersistentAgentGovernanceConfig extends LearningAgentGovernanceConfig {
   name: string;
@@ -276,6 +280,86 @@ async function ensurePersistentAgentGovernance(
     !grants.every((expected) => principalGrants.some((actual) => hasGrant(actual, expected)))
   ) {
     throw new Error(`Persistent ${config.name} governance provisioning failed verification`);
+  }
+}
+
+/** Provision the Human permissions used by DealPilot's governed discovery and
+ * quarantine-commit paths without widening any Agent role. */
+export async function ensureDealPilotPrincipalGovernance(
+  db: Database,
+  config: PrincipalGovernanceConfig,
+): Promise<void> {
+  const grants = [
+    { resourceType: "tool" as const, action: "read" as const },
+    { resourceType: "tool" as const, action: "write" as const },
+  ];
+  for (const grant of grants) {
+    const existing = await db
+      .select({ id: permissions.id })
+      .from(permissions)
+      .where(
+        and(
+          eq(permissions.workspaceId, config.workspaceId),
+          eq(permissions.actorType, "user"),
+          eq(permissions.actorId, config.userId),
+          eq(permissions.resourceType, grant.resourceType),
+          eq(permissions.action, grant.action),
+          eq(permissions.effect, "allow"),
+          isNull(permissions.resourceId),
+          isNull(permissions.revokedAt),
+        ),
+      )
+      .limit(1);
+    if (!existing[0]) {
+      const id = stableGovernanceId(
+        `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+      );
+      await db
+        .insert(permissions)
+        .values({
+          id,
+          workspaceId: config.workspaceId,
+          actorType: "user",
+          actorId: config.userId,
+          resourceType: grant.resourceType,
+          resourceId: null,
+          action: grant.action,
+          effect: "allow",
+          grantedBy: config.userId,
+        })
+        .onConflictDoUpdate({
+          target: permissions.id,
+          set: {
+            workspaceId: config.workspaceId,
+            actorType: "user",
+            actorId: config.userId,
+            resourceType: grant.resourceType,
+            resourceId: null,
+            action: grant.action,
+            effect: "allow",
+            grantedBy: config.userId,
+            revokedAt: null,
+          },
+        });
+    }
+  }
+
+  const direct = await new DrizzleRoleStore(db).directGrants(
+    config.workspaceId,
+    { type: "user", id: config.userId },
+  );
+  if (
+    !grants.every((expected) =>
+      direct.some(
+        (actual) =>
+          actual.resourceType === expected.resourceType &&
+          actual.resourceId === null &&
+          actual.action === expected.action &&
+          actual.effect === "allow",
+      ),
+    )
+  ) {
+    throw new Error("Persistent DealPilot principal governance provisioning failed verification");
   }
 }
 

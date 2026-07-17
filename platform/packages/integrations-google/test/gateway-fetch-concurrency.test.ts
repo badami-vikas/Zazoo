@@ -171,6 +171,7 @@ test("fetchThreads skips a thread that fails every retry attempt instead of abor
     result.threads.map((th) => th.threadId).sort(),
     ["test_fixture_thread_ok_1", "test_fixture_thread_ok_2"],
   );
+  assert.equal(result.incomplete, true, "a skipped thread marks the page incomplete so callers retain their cursor");
 
   googleapisMock.restore();
 });

@@ -47,7 +47,7 @@ export function serverHostConfig(): string {
  * a mutation that spends real work/quota (`action.propose`, `blueprint.propose`), a
  * brute-forceable verification stub (`onboarding.verifyPhoneOtp`), and outbound-network
  * procedures that can be turned into a cost-amplification / SSRF lever
- * (`google.syncGmail`, `dealpilot.source`, governed Automation Runs). Matched as substrings of the request path so
+ * (`google.syncGmail`, `dealpilot.discoverDeals`, governed Automation Runs). Matched as substrings of the request path so
  * a batched tRPC call (comma-joined procedure names in the URL) is caught if it contains
  * ANY sensitive procedure — fail-tight. */
 const RATE_LIMIT_SENSITIVE_PATHS = [
@@ -55,7 +55,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "blueprint.propose",
   "onboarding.verifyPhoneOtp",
   "google.syncGmail",
-  "dealpilot.source",
+  "dealpilot.discoverDeals",
   "ritual.runById",
   "helpdesk.public.",
 ] as const;

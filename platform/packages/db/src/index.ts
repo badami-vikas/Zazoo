@@ -19,10 +19,12 @@ export {
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
+  ensureDealPilotPrincipalGovernance,
   type InternalStrategistGovernanceConfig,
   type FoundationalAgentGovernanceConfig,
   type LearningAgentGovernanceConfig,
   type OutreachAgentGovernanceConfig,
+  type PrincipalGovernanceConfig,
 } from "./governance-stores.js";
 export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
 export {

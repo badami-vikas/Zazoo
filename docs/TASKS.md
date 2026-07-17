@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-`TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
+`TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034).
 
 ## Operating standard
 
@@ -124,6 +124,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Prototype test: Add a Thesis and observe governed Source discovery; add a Source and observe Deal discovery; inspect each Record Detail; reveal/copy a vault-backed Source credential only after Human re-authentication; verify conditional Relationship and Task columns.
 - Scope: docs/raw/brd-dealpilot-2026-07.md; docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1
 - Evidence: user DealPilot corrections 2026-07-14–15
+- Implementation evidence: [TASK-006 output](../outputs/2026-07-16-task-006-dealpilot-core-prototype.md); DealPilot 72, Google 35, focused API 8, web 49, core 421, and DB 107 tests; builds/typechecks; changed-file lint; no-dummy; final cursor/backlog/partial-provider/transactional-ack/continuation-reset/token-cycle regressions. Status stays `in_progress` pending durable Local Plane Records/vault, live Google + re-auth evidence, and desktop/375px proof.
 - Requests: DealPilot requirements 2026-07-14–15
 - Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-001
@@ -216,13 +217,25 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Status: ready
 - Priority: P2
 - Horizon: Convergence
-- Outcome: Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype.
-- Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states.
-- Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit
-- Evidence: BUGS map view is not a map; BUGS pin persistence only local; BUGS Initiative resource scoping; existing partial table implementation
-- Requests: table/actionability directives 2026-07-14–15
-- Approval: AP-010/AP-011, AP-021, and AP-029 applied
+- Outcome: Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.
+- Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName="calendar"`, and the `tools.ts`/`moduleRoutes.ts` "calendar" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) gated on its Relations, confirmed distinct from the separate Second Brain cross-Module graph surface; a Task Manager Queue Page renders Tree view over its self-referential Task type.
+- Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit; docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)
+- Evidence: BUGS map view is not a map; BUGS pin persistence only local; BUGS Initiative resource scoping; existing partial table implementation; BUGS 2026-07-17 `/calendar` route resolves to Task Manager instead of Calendar (routes.tsx:87) and Calendar modeled as an installed Module/Tool in 3+ places instead of a View kind; BUGS 2026-07-17 four independent, non-shared calendar renderers (DataEngine.tsx, CalendarPage.tsx, dataviews/CalendarView.tsx, InitiativeDetail.tsx/WorkPage.tsx local hardcodes); BUGS 2026-07-17 GraphView.tsx is a table-with-banner placeholder, not a real node/edge renderer; BUGS 2026-07-17 `ViewConfig["kind"]` code says `network`, glossary canon says `graph` — vocabulary mismatch
+- Requests: table/actionability directives 2026-07-14–15; R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)
+- Approval: AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call and the Graph-view-vs-Second-Brain distinction
 - Dependencies: TASK-001; TASK-006; TASK-008
+
+## TASK-021 — Task Manager Module
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: One installable Task Manager Module owning the single governed execution queue per workspace as ONE self-referential, dot-path-leveled Task type (no separate Goal/Initiative/Outcome Record types — `is_goal` is a field, not a type), with full tree restructuring (promote/insert-ancestor-above/re-parent) as governed proposals, exit-test verification with reopenable done/archived/parked status, planning Playbooks as draft-then-approve proposals, no-default agent-task routing owned by Chief of Staff, confidence-graduated reschedule and routing approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.
+- Prototype test: In a real workspace, create a goal-flagged Task (`is_goal=true`) with outcomes[] and a 3-level Task tree under it (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; promoting `1.1.1` to a new root (path recomputes, old ancestor untouched) and inserting a new ancestor above an existing branch both round-trip as approved proposals with correct path recomputation; an agent-assigned Task routes to whichever eligible Agent owns its required Skill (Chief of Staff resolves, no default — Capability Builder only when genuinely a capability/code Task) and an ambiguous Task escalates to explicit Human assignment; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; a done Task is reopened to pending after its outcome target changes; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.
+- Scope: docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6; docs/raw/brd-taskmanager-2026-07.md; docs/raw/initiatives-taskade-research.md (verdicts bind); docs/raw/ui-architecture-rules-2026-07.md
+- Evidence: docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025), live at `/task-manager` with a working Status column (verified 2026-07-17); user's game-designs repo independently converged on the identical format (2026-07-16 report); BUGS.md 2026-07-17 pre-existing `@bridge/core` build break (unrelated, blocks a from-scratch worktree preview, not this Module's scope)
+- Requests: R-035; R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014); R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)
+- Approval: AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); ADR-106 records the Goal-collapse vocabulary call (supersedes ADR-105's two-Database call), ADR-107 records the no-default CoS-owned routing call (renumbered chain: this session's original AP-030/AP-031/ADR-099 → AP-033/034/ADR-105 during merge-integration → AP-035/ADR-106/ADR-107 for the further collapse and routing revision)
+- Dependencies: TASK-001; TASK-012 (VOCAB2 tree migration); TASK-014 (standard Module UI); TASK-004 line for TM6 only; TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)
 
 ## TASK-015 — End-to-end runtime taint tracking
 - Status: ready

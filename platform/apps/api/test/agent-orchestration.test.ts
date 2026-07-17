@@ -168,6 +168,25 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
       skill: "stageStrategicRecommendation",
       goalTaskRef: { goalId: goal.id, taskId: task.id },
     });
+
+    test("action.propose handles null inputs without crashing policy evaluation", async () => {
+      const wiring = await buildWiring();
+      try {
+        const caller = await makeCaller(wiring);
+        const proposal = await caller.action.propose({
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "person",
+          inputs: null,
+          skill: "stageMutation",
+        });
+        assert.equal(proposal.status, "applied");
+        assert.equal(proposal.output?.proposedOutput, null);
+      } finally {
+        await wiring.close();
+      }
+    });
     assert.equal(proposal.status, "rejected");
     assert.match(proposal.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
   } finally {
@@ -292,7 +311,7 @@ test("Agent-backed routes reject non-members before provisioning Tasks", async (
       /not a member/,
     );
     await assert.rejects(
-      () => outsider.dealpilot.source({ workspaceId: PILOT_WORKSPACE }),
+      () => outsider.dealpilot.discoverDeals({ workspaceId: PILOT_WORKSPACE, sourceId: "source-1" }),
       /not a member/,
     );
     await assert.rejects(() => outsider.google.syncGmail(), /not a member/);

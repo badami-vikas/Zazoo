@@ -18,7 +18,7 @@ test("projectSummary: empty FactStore returns isEmpty=true with no economics", (
   assert.equal(result.dealId, "deal_1");
   assert.equal(result.isEmpty, true);
   assert.equal(result.stage, "sourced");
-  assert.equal(result.triage, undefined);
+  assert.equal(result.thesisFitBand, undefined);
   assert.equal(result.thesisFitScore, undefined);
   assert.deepEqual(result.keyEconomics, {});
   assert.deepEqual(result.flags, []);
@@ -51,13 +51,13 @@ test("projectSummary: impliedMultiple is absent when sde is zero", () => {
   assert.equal(result.keyEconomics.impliedMultiple, undefined);
 });
 
-test("projectSummary: reads triage and thesisFitScore from facts when present", () => {
+test("projectSummary: reads domain thesisFitBand and thesisFitScore when present", () => {
   const facts = createFactStore();
-  facts.append({ entityId: "deal_4", field: "triage", value: "green", confidence: 1, provenance: "ai_inferred" });
+  facts.append({ entityId: "deal_4", field: "thesisFitBand", value: "strong_fit", confidence: 1, provenance: "ai_inferred" });
   facts.append({ entityId: "deal_4", field: "thesisFitScore", value: 0.85, confidence: 1, provenance: "ai_inferred" });
 
   const result = projectSummary("deal_4", { stage: "diligence" }, facts);
-  assert.equal(result.triage, "green");
+  assert.equal(result.thesisFitBand, "strong_fit");
   assert.equal(result.thesisFitScore, 0.85);
 });
 

@@ -385,16 +385,28 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
                     Trigger: {automation.trigger} · Agent: {agents.get(automation.agentId)?.name ?? automation.agentId}
                   </p>
                 </div>
-                {automation.ritualId && runtimeAutomationIds.has(automation.id) ? <button
-                  type="button"
-                  onClick={() => void runAutomation(automation.id, automation.ritualId!)}
-                  disabled={runState?.status === "running"}
-                  className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
-                  style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
-                >
-                  {runState?.status === "running" ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                  {runState?.status === "running" ? "Running…" : "Run"}
-                </button> : (
+                {automation.ritualId && runtimeAutomationIds.has(automation.id) ? (
+                  automation.runRoute ? (
+                    <Link
+                      to={automation.runRoute}
+                      className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                    >
+                      Open context
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void runAutomation(automation.id, automation.ritualId!)}
+                      disabled={runState?.status === "running"}
+                      className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
+                      style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                    >
+                      {runState?.status === "running" ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                      {runState?.status === "running" ? "Running…" : "Run"}
+                    </button>
+                  )
+                ) : (
                   <span className="rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
                     Runtime binding pending
                   </span>

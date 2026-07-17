@@ -78,6 +78,7 @@ import {
   type RitualRunRecorder,
   type RoleQuery,
   type Skill,
+  type SkillOutput,
   type ToolRegistry,
   type CapabilityStore,
   type AutoActivationBudgetStore,
@@ -134,6 +135,7 @@ import {
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
+  ensureDealPilotPrincipalGovernance,
   InMemoryCanonicalIdentityStore,
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
@@ -160,9 +162,21 @@ import {
   type GoogleOAuthConfig,
   type ToolManifest,
 } from "@bridge/integrations-google";
-import { createInMemoryCaptureStore, createToolSourceSkill, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
+import { createInMemoryCaptureStore, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
 import { createFactStore, type FactStore } from "@bridge/facts";
-import { createBizBuySellAlertConnector, createGmailFetchMessages, type ThesisProfile } from "@bridge/dealpilot";
+import {
+  HumanReauthentication,
+  InMemoryCredentialAuditSink,
+  InMemoryDealPilotStore,
+  InMemorySourceCredentialVault,
+  SourceCredentialService,
+  assertSourceDiscoveryAllowed,
+  createBizBuySellAlertConnector,
+  createGmailFetchMessages,
+  type DealPilotBindings,
+  type DealPilotRecord,
+  type DealPilotStore,
+} from "@bridge/dealpilot";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
 import {
@@ -335,10 +349,16 @@ export interface Wiring {
     facts: FactStore;
     materializer: ToolIntakeMaterializer;
     integrationId: string;
+    store: DealPilotStore;
+    /** Compatibility read index for the legacy candidate list endpoint. */
     candidateIds: string[];
-    /** Current pilot thesis (in-memory, session-lifetime — no thesis-management UI yet). */
-    thesis: ThesisProfile;
-    setThesis(next: ThesisProfile): void;
+    credentials: SourceCredentialService;
+    credentialVault: InMemorySourceCredentialVault;
+    credentialAudit: InMemoryCredentialAuditSink;
+    captureSources: Map<string, string>;
+    committedCaptureIds: Set<string>;
+    committingCaptureIds: Set<string>;
+    bindings: DealPilotBindings;
   };
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
   memory?: {
@@ -830,6 +850,18 @@ const policies: PolicyFn[] = [
     i.phase === "pre" &&
     typeof i.inputs === "object" &&
     i.inputs !== null &&
+    (i.inputs as { kind?: unknown }).kind === "thesis_source_discovery"
+      ? {
+          policyId: "pol-dealpilot-source-discovery-approval",
+          phase: "pre",
+          effect: "require_approval",
+          reason: "Attaching discovered Sources to a Thesis requires Human review",
+        }
+      : null,
+  (i) =>
+    i.phase === "pre" &&
+    typeof i.inputs === "object" &&
+    i.inputs !== null &&
     (i.inputs as { kind?: unknown }).kind === "help_offer"
       ? {
           policyId: "pol-help-offer-approval",
@@ -978,6 +1010,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -1056,6 +1090,7 @@ export interface ModePorts {
   ensureOutreachGovernance?: () => Promise<void>;
   ensureEgressGovernance?: () => Promise<void>;
   ensureIntakeGovernance?: () => Promise<void>;
+  ensureDealPilotPrincipalGovernance?: () => Promise<void>;
 }
 
 /**
@@ -1155,6 +1190,11 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
         agentId: INTAKE_AGENT,
         roleId: INTAKE_ROLE,
         permissionId: INTAKE_PRINCIPAL_PERMISSION,
+      }),
+    ensureDealPilotPrincipalGovernance: () =>
+      ensureDealPilotPrincipalGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
       }),
     ensureInternalStrategistGovernance: () =>
       ensureInternalStrategistGovernance(db, {
@@ -1372,40 +1412,201 @@ export async function buildWiring(): Promise<Wiring> {
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
   const dealPilotFacts: FactStore = createFactStore();
-  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
-  skillRegistry.register(
-    createToolSourceSkill({
-      toolId: "dealpilot",
-      captures: dealPilotCaptures,
-      connector: createBizBuySellAlertConnector(createGmailFetchMessages(gateways, dealPilotIntegrationId)),
-    }),
+  const dealPilotStore = new InMemoryDealPilotStore();
+  const dealPilotCredentialVault = new InMemorySourceCredentialVault();
+  const dealPilotCredentialAudit = new InMemoryCredentialAuditSink();
+  const dealPilotCredentials = new SourceCredentialService(
+    dealPilotCredentialVault,
+    new HumanReauthentication(),
+    dealPilotCredentialAudit,
   );
+  if (url) {
+    console.warn(
+      "DealPilot DP0 prototype: Records and Source credential-vault references are process-local until the approved Local Plane persistence/keychain adapters land; restart discards them.",
+    );
+  }
+  const dealPilotCaptureSources = new Map<string, string>();
+  const dealPilotCommittedCaptureIds = new Set<string>();
+  const dealPilotCommittingCaptureIds = new Set<string>();
   const dealPilotCandidateIds: string[] = [];
-  // Basic thesis storage (in-memory, session-lifetime — mirrors dealPilotCandidateIds).
-  // Full thesis-management UI is a separate, larger future item; this is just get/set state
-  // so `dealpilot.list`'s fit-scoring has something other than a hardcoded stand-in.
-  let dealPilotThesis: ThesisProfile = { industries: [], geo: [] };
+  const dealPilotBindings: DealPilotBindings = {
+    relationshipAuthorized: false,
+    tasksAuthorized: true,
+  };
+  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
+  const dealPilotSourceConnector = createBizBuySellAlertConnector(
+    createGmailFetchMessages(gateways, dealPilotIntegrationId),
+  );
+  const dealPilotDiscoveryLocks = new Map<string, Promise<SkillOutput>>();
+  skillRegistry.register({
+    name: "dealpilot.source",
+    async run(inputs, ctx) {
+      const request = inputs as { workspaceId?: unknown; sourceId?: unknown };
+      if (typeof request.workspaceId !== "string" || typeof request.sourceId !== "string") {
+        throw new Error("DealPilot Source discovery requires workspaceId and sourceId");
+      }
+      const lockKey = `${request.workspaceId}:${request.sourceId}`;
+      const active = dealPilotDiscoveryLocks.get(lockKey);
+      if (active) return active;
+      const operation = (async (): Promise<SkillOutput> => {
+        const source = await dealPilotStore.get("source", request.workspaceId as string, request.sourceId as string);
+        if (!source || source.kind !== "source") throw new Error("DealPilot Source Record not found");
+        const discoveryStartedAt = ctx.clock.nowISO();
+        const baseQuery = {
+          kind: "company" as const,
+          hints: {
+            sourceId: source.id,
+            ...(source.lastCheckedAt ? { after: source.lastCheckedAt } : {}),
+          },
+        };
+        const estimate = dealPilotSourceConnector.estimateCost(baseQuery);
+        assertSourceDiscoveryAllowed(source, estimate);
+        const hostname = new URL(source.link).hostname.toLowerCase();
+        if (
+          source.connectionType !== "email_alert" ||
+          (hostname !== "bizbuysell.com" && !hostname.endsWith(".bizbuysell.com"))
+        ) {
+          throw new Error("This prototype supports Deal discovery only for an authorized BizBuySell email-alert Source");
+        }
+        const remaining = source.spendCap - source.spendToDate;
+        const maxResults = Math.max(1, Math.floor(remaining / estimate));
+        const query = {
+          kind: "company" as const,
+          hints: {
+            sourceId: source.id,
+            maxResults: String(maxResults),
+            scanStartedAt: discoveryStartedAt,
+            ...(source.lastCheckedAt ? { after: source.lastCheckedAt } : {}),
+          },
+        };
+        let batch;
+        try {
+          batch = await dealPilotSourceConnector.fetchWithSummary(query);
+        } catch (error) {
+          await dealPilotStore.updateSource(source.id, source.workspaceId, { health: "degraded" });
+          throw error;
+        }
+
+        try {
+          const actualSpend = batch.summary.attempted * estimate;
+          if (actualSpend > remaining) {
+            await dealPilotStore.updateSource(source.id, source.workspaceId, { health: "paused" });
+            throw new Error("Source connector exceeded its bounded fetch budget");
+          }
+          let droppedForBudget = 0;
+          const captureIds: string[] = [];
+          const sample: Record<string, unknown>[] = [];
+          let capturedSpend = 0;
+          for (const envelope of batch.envelopes) {
+            if (capturedSpend + envelope.costUnits > actualSpend) {
+              droppedForBudget += 1;
+              continue;
+            }
+            capturedSpend += envelope.costUnits;
+            const captureId = ctx.ids.next();
+            await dealPilotCaptures.put({
+              ...envelope,
+              captureId,
+              toolId: "dealpilot",
+              trustOrigin: envelope.trustOrigin ?? "untrusted_external",
+            });
+            dealPilotCaptureSources.set(captureId, source.id);
+            captureIds.push(captureId);
+            if (sample.length < 3) sample.push(envelope.payload);
+          }
+          await dealPilotStore.updateSource(source.id, source.workspaceId, {
+            ...(batch.summary.complete
+              ? { lastCheckedAt: batch.summary.checkpointAt ?? discoveryStartedAt }
+              : {}),
+            spendToDate: source.spendToDate + actualSpend,
+            health:
+              droppedForBudget > 0
+                ? "paused"
+                : batch.summary.complete
+                  ? "ready"
+                  : "degraded",
+          });
+          dealPilotSourceConnector.acknowledge(query);
+          return {
+            proposedOutput: {
+              toolId: "dealpilot",
+              count: captureIds.length,
+              captureIds,
+              sample,
+              attempted: batch.summary.attempted,
+              parsed: batch.summary.parsed,
+              scanComplete: batch.summary.complete,
+              droppedForBudget,
+              spend: {
+                estimated: estimate,
+                actual: actualSpend,
+                cap: source.spendCap,
+                exceeded: false,
+              },
+            },
+            diff: { quarantined: captureIds.length, droppedForBudget },
+          };
+        } catch (error) {
+          dealPilotSourceConnector.discard(query);
+          throw error;
+        }
+      })();
+      dealPilotDiscoveryLocks.set(lockKey, operation);
+      try {
+        return await operation;
+      } finally {
+        if (dealPilotDiscoveryLocks.get(lockKey) === operation) {
+          dealPilotDiscoveryLocks.delete(lockKey);
+        }
+      }
+    },
+  });
+  let dealPilotCommitQueue = Promise.resolve();
   const dealPilotMaterializer = new ToolIntakeMaterializer({
     captures: dealPilotCaptures,
     commit: async (capture) => {
+      const waitForPriorCommit = dealPilotCommitQueue;
+      let releaseNextCommit: () => void = () => {};
+      dealPilotCommitQueue = new Promise<void>((resolve) => {
+        releaseNextCommit = resolve;
+      });
+      await waitForPriorCommit;
+      try {
       // Dedupe-on-commit: reuse `@bridge/company-sourcing`'s matchCompany (same helper
       // `processDealCandidate` uses) so two captures of the same company merge into one
       // candidate instead of piling up duplicate rows. A "strong" match merges facts into
       // the existing candidate; anything weaker commits as its own new candidate.
-      const existingDealPilotCandidates: DedupeCandidate[] = dealPilotCandidateIds.map((id) => {
-        const profile = dealPilotFacts.livingProfile(id);
-        return {
-          id,
-          name: String(profile.name?.value ?? id),
-          domain: profile.domain?.value as string | undefined,
-          industry: profile.industry?.value as string | undefined,
-        };
-      });
+      const existingRecords: DealPilotRecord[] = [];
+      let recordOffset = 0;
+      while (true) {
+        const page = await dealPilotStore.list("deals", PILOT_WORKSPACE, {
+          limit: 200,
+          offset: recordOffset,
+        });
+        existingRecords.push(...page.items);
+        if (!page.hasMore || page.items.length === 0) break;
+        recordOffset += page.items.length;
+      }
+      const existingDealPilotCandidates: DedupeCandidate[] = existingRecords
+        .filter((record) => record.kind === "deal")
+        .map((record) => {
+          const profile = dealPilotFacts.livingProfile(record.id);
+          const domain = profile.domain?.value;
+          const industry = profile.industry?.value;
+          return {
+            id: record.id,
+            name: record.company,
+            ...(typeof domain === "string" ? { domain } : {}),
+            ...(typeof industry === "string" ? { industry } : {}),
+          };
+        });
+      const captureDomain = capture.payload.domain;
+      const captureIndustry = capture.payload.industry;
       const candidateForMatch: DedupeCandidate = {
         id: capture.captureId,
         name: String(capture.payload.name ?? capture.captureId),
-        domain: capture.payload.domain as string | undefined,
-        industry: capture.payload.industry as string | undefined,
+        ...(typeof captureDomain === "string" ? { domain: captureDomain } : {}),
+        ...(typeof captureIndustry === "string" ? { industry: captureIndustry } : {}),
       };
       const match = matchCompany(candidateForMatch, existingDealPilotCandidates);
       const candidateId = match.tier === "strong" ? match.targetId : capture.captureId;
@@ -1413,7 +1614,52 @@ export async function buildWiring(): Promise<Wiring> {
       for (const [field, value] of Object.entries(capture.payload)) {
         dealPilotFacts.append({ entityId: candidateId, field, value, provenance: "listing", confidence: capture.confidence });
       }
-      if (candidateId === capture.captureId) dealPilotCandidateIds.push(candidateId);
+      if (candidateId === capture.captureId) {
+        await dealPilotStore.createDeal({
+          id: candidateId,
+          workspaceId: PILOT_WORKSPACE,
+          company: String(capture.payload.name ?? candidateId),
+          ...(typeof capture.payload.revenue === "number" ? { revenue: capture.payload.revenue } : {}),
+          ...(typeof capture.payload.sde === "number" ? { sde: capture.payload.sde } : {}),
+          ...(typeof capture.payload.askPrice === "number" ? { askingPrice: capture.payload.askPrice } : {}),
+        });
+        dealPilotCandidateIds.push(candidateId);
+      } else {
+        await dealPilotStore.updateDeal(candidateId, PILOT_WORKSPACE, {
+          company: String(capture.payload.name ?? candidateId),
+          ...(typeof capture.payload.revenue === "number" ? { revenue: capture.payload.revenue } : {}),
+          ...(typeof capture.payload.sde === "number" ? { sde: capture.payload.sde } : {}),
+          ...(typeof capture.payload.askPrice === "number" ? { askingPrice: capture.payload.askPrice } : {}),
+        });
+      }
+      const sourceId = dealPilotCaptureSources.get(capture.captureId);
+      if (sourceId) {
+        await dealPilotStore.link({
+          workspaceId: PILOT_WORKSPACE,
+          kind: "deal_source",
+          fromId: candidateId,
+          toId: sourceId,
+          confidence: capture.confidence,
+          provenance: capture.sourceToolId,
+          evidenceRefs: [capture.captureId],
+        });
+        const sourceRelations = await dealPilotStore.relations(PILOT_WORKSPACE, sourceId);
+        for (const relation of sourceRelations.filter((row) => row.kind === "source_thesis")) {
+          await dealPilotStore.link({
+            workspaceId: PILOT_WORKSPACE,
+            kind: "deal_thesis",
+            fromId: candidateId,
+            toId: relation.toId,
+            confidence: Math.min(capture.confidence, relation.confidence),
+            provenance: `source:${sourceId}`,
+            evidenceRefs: [capture.captureId, relation.id],
+          });
+        }
+      }
+      dealPilotCommittedCaptureIds.add(capture.captureId);
+      } finally {
+        releaseNextCommit();
+      }
     },
   });
 
@@ -1437,6 +1683,7 @@ export async function buildWiring(): Promise<Wiring> {
   await modePorts.ensureCapabilityBuilderGovernance?.();
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
+  await modePorts.ensureDealPilotPrincipalGovernance?.();
   // Refresh the persistent manifest registry before constructing the pipeline.
   // In-memory mode registers the same catalog synchronously in its port factory.
   await modePorts.ensureSkillManifestCatalog?.();
@@ -1614,13 +1861,15 @@ export async function buildWiring(): Promise<Wiring> {
       facts: dealPilotFacts,
       materializer: dealPilotMaterializer,
       integrationId: dealPilotIntegrationId,
+      store: dealPilotStore,
       candidateIds: dealPilotCandidateIds,
-      get thesis() {
-        return dealPilotThesis;
-      },
-      setThesis(next: ThesisProfile) {
-        dealPilotThesis = next;
-      },
+      credentials: dealPilotCredentials,
+      credentialVault: dealPilotCredentialVault,
+      credentialAudit: dealPilotCredentialAudit,
+      captureSources: dealPilotCaptureSources,
+      committedCaptureIds: dealPilotCommittedCaptureIds,
+      committingCaptureIds: dealPilotCommittingCaptureIds,
+      bindings: dealPilotBindings,
     },
     ritualRegistry,
     workspaceStore,

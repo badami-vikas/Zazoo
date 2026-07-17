@@ -667,6 +667,11 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      ever attempts to pass one — see `All fixes.md` Phase 3 item 11a and decisions-log
      2026-07-05 for the full reasoning. **Still open:** per-workspace data isolation in the
      backing stores themselves (Phase 5, full multi-tenancy, pilot-recruitment-driven).
+     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys now include
+     workspace identity, DealPilot procedures require authenticated membership in verifying or
+     persistent mode, and Record/capture writes no longer collide across workspaces. The store,
+     capture index, and Source credential vault are still process-local and startup says so;
+     durable Local Plane persistence/keychain adapters remain the explicit TASK-006 blocker.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates
@@ -1102,3 +1107,38 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 
 ## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
+
+## RESOLVED 2026-07-17 — DealPilot discovery could omit Sources, Relations, alerts, and spend
+TASK-006 merge review found four coupled integrity gaps: Thesis discovery stopped at 200 Sources;
+approving Source-to-Thesis after Deals existed did not backfill Deal-to-Thesis Relations; Source
+spend charged only successfully parsed alerts; and Gmail discovery could repeatedly ingest or skip
+messages by advancing one-page checkpoints. Discovery now paginates every Source, backfills existing
+Deals idempotently, charges every attempted message, dedupes stable Gmail message IDs per Source,
+filters each thread message to approved senders against provider receipt time with an overlap window,
+caps provider pages per run with resumable continuation/repeated-token rejection, propagates partial
+body-fetch failures, carries the first scan's checkpoint across long continuations, resets failed
+saved tokens to a head scan, retains scan-wide token history to reject cross-run cycles, acknowledges
+message IDs only after captures/spend persist, and advances
+`lastCheckedAt` only after a complete scan. Google/DealPilot/API regressions cover each boundary.
+
+## OPEN 2026-07-17 — Full ESLint fails on an unregistered React Hooks suppression
+`apps/web/src/app/avatar/zazoo/ZazooAvatar.tsx:214` disables
+`react-hooks/exhaustive-deps`, but the repository ESLint configuration does not register that rule,
+so `pnpm exec eslint . --quiet` fails before evaluating the suppression. TASK-006 changed-file lint
+passes and this Avatar file is outside its blast radius. Fix by registering the existing React Hooks
+plugin/rule or removing the stale suppression after verifying the effect dependencies.
+
+## OPEN 2026-07-17 — @bridge/core build broken on main: InMemoryAgentStore no longer satisfies AgentQuery
+`platform/packages/core/src/memory/stores.ts:59` — `InMemoryAgentStore` fails `tsc -b` against the `AgentQuery` interface (missing `workspaceId`, `isActive`); six test files (`capture-pipeline`, `conformance`, `pipeline-ags1`, `pipeline`, `postcommit-effect-types`, `redteam-egress`) also fail to typecheck against it, and `pipeline-ags1.test.ts` additionally references now-missing `workspaces`/`statuses` properties. Reproduced via `pnpm turbo run build --filter=@bridge/core` on a clean worktree checked out at `1f69633` (post TASK-007 orchestration merge, ADR-104). Blocks `platform-web` from starting in any fresh worktree/checkout — the web app fails at Vite import-analysis on `@bridge/core` because `dist/` was never produced. Root cause looks like the TASK-007 orchestration work (`goal-task.ts`/`skill-manifest.ts`) widened `AgentQuery` without updating the in-memory test double. Fix belongs with whoever owns TASK-007 follow-up; out of scope for the Task Manager docs work that surfaced it.
+
+## OPEN 2026-07-17 — Calendar is modeled as an installed Module/Tool, not a View kind; `/calendar` route misroutes to Task Manager
+`platform/apps/web/src/app/routes.tsx:87` — `{ path: "calendar", Component: TaskManagerPage }` sends `/calendar` to the Task Manager task-ledger page, not to any calendar surface; the real calendar UI lives at a second route, `/calendar/google` (`routes.tsx:89-95`), gated by `InstalledModuleBoundary packageName="calendar"` — i.e. Calendar is coded as an installed capability package, matching `docs/wiki/calendar.md`/`docs/raw/calendar-module-plan-2026-07.md`'s "one pinnable Tool + one primary global-nav item" framing. Further evidence of Calendar-as-Module: `moduleRoutes.ts:19` (`MODULE_ROUTES.calendar = { to: "/calendar", label: "Task Manager" }`), `data/tools.ts:121-131` (a `tools` catalog row `id:'calendar', name:'Task Manager'`), `IntelligencePage.tsx:216` (lists Calendar as a peer built-in package alongside DealPilot/JobPilot/Helpdesk). Target state per `docs/raw/brd-dataengine-views-2026-07.md`: Calendar is `kind: "calendar"` in the View Grammar, available on any Page with a date column, no dedicated route/Module/nav identity; Google Calendar is a plain Integration. Fix belongs to TASK-014.
+
+## OPEN 2026-07-17 — Four independent, non-shared calendar renderers exist
+`DataEngine.tsx` (~lines 1139-1284, inline month grid, hand-rolled date parsing), `CalendarPage.tsx` (Month/Week/Day/Agenda, in-house date-fns, Google-Calendar-specific data source only), `dataviews/views/CalendarView.tsx` (generic, gated on a date-kind column, source-agnostic — the correct one going forward), and local hardcoded `{id:'calendar'}` view entries in `InitiativeDetail.tsx:59` and `WorkPage.tsx:43` — none share rendering code. Fix belongs to TASK-014: consolidate onto `dataviews/views/CalendarView.tsx` via the `dataviews/registry.ts` View Grammar.
+
+## OPEN 2026-07-17 — GraphView is a table-with-a-banner placeholder, not a real node/edge renderer
+`dataviews/views/GraphView.tsx` renders `TableView` with a "graph rendering isn't built yet" banner. The eligibility rule is correct (`dataviews/eligibility.ts` gates a `network` kind on a relation-kind column, and restricts relationship-shaped Pages to `["table","network"]`), and there is confirmed to be no separate relationship-graph table anywhere (`RELATIONSHIP_NODE_TYPES = ["edge"]` in `WorkspacePage.tsx`) — the gap is purely the renderer. `DataEngine.tsx`'s "Network" view (~lines 1285-1363) is also not a real graph — it clusters rows by a field (company/communityType) into cards with no edges. Fix belongs to TASK-014.
+
+## OPEN 2026-07-17 — `ViewConfig["kind"]` code says `network`, canonical glossary says `graph`
+`platform/packages/tables/src/types.ts:60` types the View kind as `"network"`; `docs/glossary.md`'s View definition names it `"graph"` (*"table, cards, board, calendar, map, graph, or form"*). Per the standing vocabulary rule (glossary wins, AP-020 lineage), the code identifier should rename to `graph`. Fix belongs to TASK-014.

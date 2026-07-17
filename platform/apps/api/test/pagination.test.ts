@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { createLocalDb, schema } from "@bridge/db";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 import { getIntegrationStore } from "../src/social/integration-service.js";
 
 // `integration.list` now rejects any workspaceId that isn't PILOT_WORKSPACE (interim
@@ -92,7 +92,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "test_fixture_pagination_user" },
+    identity: { type: "user", id: PILOT_USER },
     authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
     verifying: false,
   });

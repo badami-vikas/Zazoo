@@ -173,7 +173,10 @@ test("Relationship private reads accept a verified bearer through the real API c
   delete process.env.SUPABASE_URL;
   const wiring = await buildWiring();
   try {
-    const token = await new SignJWT({})
+    const passwordAuthenticatedAt = Math.floor(Date.now() / 1_000);
+    const token = await new SignJWT({
+      amr: [{ method: "password", timestamp: passwordAuthenticatedAt }],
+    })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(PILOT_USER)
       .setIssuedAt()
@@ -184,6 +187,7 @@ test("Relationship private reads accept a verified bearer through the real API c
     });
     assert.equal(context.authenticated, true);
     assert.deepEqual(context.identity, { type: "user", id: PILOT_USER });
+    assert.equal(context.reauthenticatedAt, passwordAuthenticatedAt * 1_000);
 
     const caller = appRouter.createCaller(context);
     const page = await caller.graph.listPeople({

@@ -69,6 +69,8 @@ export interface ModuleAutomationBinding {
   procedure: string;
   /** Persisted Ritual definition backing the governed Run action. */
   ritualId?: string;
+  /** Context route used when the Automation requires a specific Record input. */
+  runRoute?: string;
 }
 
 export interface ModuleCapabilityNeed {

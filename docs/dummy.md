@@ -99,7 +99,8 @@ its real data source exists, and an empty state would hide the thing being revie
   user-approved, local-only labeled real-document corpus when JP1 ingestion is exercised.
 
 - **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/tools/dealpilot/test/deal.test.ts`,
-  `projections.test.ts`, `table.test.ts`).
+  `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`;
+  `platform/apps/api/test/dealpilot-core.test.ts`).
   **Reason:** deterministic stage/projection tests need stable synthetic Deal shells, facts, flags, documents,
   and activity events; repository tests cannot depend on private live deal data.
   **Real element they stand in for:** Deal records and append-only facts from the governed sourcing pipeline.

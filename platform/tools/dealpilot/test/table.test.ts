@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { dealsTableSpec, dealsKanbanView, dealsStageBoardView } from "../src/table.js";
 import { PIPELINE_STAGES } from "../src/deal.js";
 
-test("dealsTableSpec: declares the triage column with green/yellow/red options", () => {
-  const triageCol = dealsTableSpec.columns.find((c) => c.id === "triage");
-  assert.deepEqual(triageCol?.options, ["green", "yellow", "red"]);
+test("dealsTableSpec: declares explicit domain thesis-fit bands", () => {
+  const fitBandColumn = dealsTableSpec.columns.find((column) => column.id === "thesisFitBand");
+  assert.deepEqual(fitBandColumn?.options, ["strong_fit", "needs_review", "weak_fit"]);
 });
 
-test("dealsKanbanView: groups by triage, kind kanban", () => {
+test("dealsKanbanView: groups by thesis-fit band, kind kanban", () => {
   const view = dealsKanbanView();
   assert.equal(view.kind, "kanban");
-  assert.equal(view.groupBy, "triage");
+  assert.equal(view.groupBy, "thesisFitBand");
 });
 
 test("dealsTableSpec: declares a stage column with all pipeline stages plus portfolio and passed", () => {

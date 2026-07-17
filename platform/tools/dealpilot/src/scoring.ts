@@ -50,6 +50,6 @@ export function scoreThesisFit(profile: DealProfile, thesis: ThesisProfile): The
   }
 
   const score = possible === 0 ? 0 : points / possible;
-  const triage = score >= 0.75 ? "green" : score >= 0.4 ? "yellow" : "red";
-  return { score, triage, reasons };
+  const band = score >= 0.75 ? "strong_fit" : score >= 0.4 ? "needs_review" : "weak_fit";
+  return { score, band, reasons };
 }
