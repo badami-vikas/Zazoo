@@ -55,3 +55,9 @@ All explicit product and engineering requirements from Vikas, recorded verbatim 
 ---
 
 *This file is maintained by the assistant. Every explicit requirement goes here before work starts. Status: Open → In Progress → Done → Resolved.*
+
+## R-039 — Graph view cross-module scope; Second Brain collapse (2026-07-17)
+
+> "I want even normal graphs to be allowed to be cross module scoped, so technically no difference between second brain and relationship graphs except the underlying data. Once done, commit, push and merge to main"
+
+Verbatim. Mapped to TASK-014 (Graph renderer + scope selector) and TASK-009 (Second Brain, now converged). AP-037, ADR-110.

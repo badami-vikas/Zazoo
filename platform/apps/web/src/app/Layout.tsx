@@ -160,7 +160,7 @@ export default function Layout() {
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
-  const pendingWorkActive = isActive("/pending-work");
+  const pendingWorkActive = isActive("/task-manager") || isActive("/pending-work") || isActive("/calendar");
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
@@ -361,10 +361,10 @@ export default function Layout() {
             <Settings className="w-5 h-5 shrink-0" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Settings</span>
           </Link>
-          <Link to="/pending-work" className={navItemClass(pendingWorkActive)} title="Pending work">
+          <Link to="/task-manager" className={navItemClass(pendingWorkActive)} title="Task Manager">
             {pendingWorkActive && <ActiveBar />}
             <ListChecks className="w-5 h-5 shrink-0" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
-            <span className={navLabelClass()}>Pending work</span>
+            <span className={navLabelClass()}>Task Manager</span>
           </Link>
 
         </div>
@@ -429,13 +429,13 @@ export default function Layout() {
                 New module or record
               </button>
               <Link
-                to="/pending-work"
+                to="/task-manager"
                 onClick={() => setMobileModulesOpen(false)}
                 className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
                 style={{ color: "var(--color-navy)" }}
               >
                 <ListChecks className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
-                Pending work
+                Task Manager
               </Link>
             </div>
           </nav>

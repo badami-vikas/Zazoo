@@ -21,6 +21,7 @@ import {
   type GrowthStage,
   type SpiritAnimal,
 } from "./avatar-store";
+import { ZazooCompact } from "./zazoo/ZazooCompact";
 
 export interface AvatarOverlayProps {
   animal: SpiritAnimal;
@@ -254,18 +255,11 @@ export function Creature({
 }
 
 /**
- * Small fixed-size avatar badge for chrome slots that need an identity icon but
- * not the full overlay (e.g. the AI chat panel header) — same live status/animal
- * as the overlay, just rendered compact with no popover/blink wiring.
+ * Small fixed-size avatar badge — always Zazoo (the companion identity),
+ * used in chrome slots like the chat panel header.
  */
-export function AvatarIcon({ animal, size = 24 }: { animal: SpiritAnimal; size?: number }) {
-  const status = useAvatarStatus();
-  const reducedMotion = usePrefersReducedMotion();
-  return (
-    <div style={{ width: size, height: size }} className="shrink-0 rounded-md overflow-hidden">
-      <Creature animal={animal} status={status} blinking={false} reducedMotion={reducedMotion} />
-    </div>
-  );
+export function AvatarIcon({ animal: _animal, size = 24 }: { animal: SpiritAnimal; size?: number }) {
+  return <ZazooCompact size={size} />;
 }
 
 export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage = "creature" }: AvatarOverlayProps) {
@@ -398,8 +392,9 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
       )}
 
       {hovering && !open && (
-        <div className="absolute bottom-[72px] right-0 whitespace-nowrap rounded-[var(--radius-button)] bg-[var(--color-navy)] text-[var(--color-background)] text-xs px-2 py-1">
-          {label}
+        <div className="absolute bottom-[72px] right-0 rounded-[var(--radius-card)] border border-border bg-background shadow-lg p-3 flex flex-col items-center gap-1.5" style={{ minWidth: 80 }}>
+          <ZazooCompact size={48} />
+          <span className="text-[11px] font-medium text-center" style={{ color: "var(--color-navy-mid)" }}>{label}</span>
         </div>
       )}
 
@@ -413,27 +408,16 @@ export function AvatarOverlay({ animal, avatarName, workspaceName, growthStage =
           animation: reducedMotion || status !== "idle" ? undefined : "bridge-avatar-breathe 3.2s ease-in-out infinite",
         }}
       >
-        {/* Growth stage visual:
-            egg     → dormant egg SVG (creature hasn't hatched yet in the overlay sense)
-            creature → normal Creature SVG (default)
-            mature  → Creature at 10% larger scale (richer presence) */}
-        {growthStage === "egg" ? (
-          <div className="w-11 h-11" role="img" aria-label="Avatar: egg stage">
-            <svg viewBox="0 0 64 64" width="100%" height="100%" role="presentation" aria-hidden="true">
-              <ellipse cx="32" cy="38" rx="18" ry="24" fill="var(--color-background)" stroke="var(--color-amber-soft)" strokeWidth="2" />
-              <ellipse cx="32" cy="38" rx="22" ry="28" fill="var(--color-amber-soft)" opacity="0.12" />
-            </svg>
-          </div>
-        ) : (
-          <div
-            className="flex items-center justify-center"
-            style={growthStage === "mature" ? { width: "2.875rem", height: "2.875rem", transform: "scale(1.1)" } : { width: "2.75rem", height: "2.75rem" }}
-            role="img"
-            aria-label={`Avatar state: ${label}`}
-          >
-            <Creature animal={animal} status={status} blinking={blinking} reducedMotion={reducedMotion} />
-          </div>
-        )}
+        {/* Growth stage visual: always Zazoo (the companion).
+            egg/creature → normal size; mature → 10% larger (richer presence). */}
+        <div
+          className="flex items-center justify-center"
+          style={growthStage === "mature" ? { width: "2.875rem", height: "2.875rem", transform: "scale(1.1)" } : { width: "2.75rem", height: "2.75rem" }}
+          role="img"
+          aria-label={`Zazoo — ${label}`}
+        >
+          <ZazooCompact size={44} />
+        </div>
       </button>
 
       {/* ARIA live region — announces state changes without visual noise. */}

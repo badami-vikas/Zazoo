@@ -16,7 +16,7 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull, notExists, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
@@ -37,7 +37,6 @@ const UNIQUE_VIOLATION = "23505";
  * translation to THIS constraint specifically, not any other unique violation a
  * future column might introduce on this table. */
 const REF_LEDGER_UNIQUE_INDEX = "ledger_ref_ledger_id_resolved_uq";
-
 function isRefLedgerUniqueViolation(err: unknown): boolean {
   // drizzle-orm ≥0.45 no longer throws the driver error directly — it wraps it in a
   // `DrizzleQueryError` and hangs the real Postgres error (which carries `.code` /
@@ -57,8 +56,13 @@ function isRefLedgerUniqueViolation(err: unknown): boolean {
 }
 
 function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
+  const appendSequence = row.appendSequence;
+  if (!Number.isSafeInteger(appendSequence) || appendSequence <= 0) {
+    throw new Error(`Ledger row ${row.id} cannot be assigned a safe append sequence`);
+  }
   return {
     id: row.id,
+    appendSequence,
     workspaceId: row.workspaceId,
     actorType: row.actorType as LedgerEntry["actorType"],
     actorId: row.actorId,
@@ -82,38 +86,138 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
+function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
+  if (!privateOwnerUserId) return undefined;
+  return or(
+    ne(ledger.resourceType, "relation"),
+    and(
+      eq(ledger.resourceType, "relation"),
+      or(
+        and(
+          eq(ledger.onBehalfOfType, "user"),
+          eq(ledger.onBehalfOfId, privateOwnerUserId),
+        ),
+        and(
+          or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
+          eq(ledger.actorType, "user"),
+          eq(ledger.actorId, privateOwnerUserId),
+        ),
+      ),
+    ),
+  );
+}
+
 export class DrizzleLedgerStore implements LedgerStore {
-  #db: Database;
-  constructor(db: Database) {
+  readonly #db: Database;
+  readonly #defaultWorkspaceId: string | null;
+  readonly #activeWorkspaceId: string | null;
+
+  constructor(
+    db: Database,
+    options: {
+      defaultWorkspaceId?: string;
+      activeWorkspaceId?: string;
+    } = {},
+  ) {
     this.#db = db;
+    this.#defaultWorkspaceId = options.defaultWorkspaceId ?? null;
+    this.#activeWorkspaceId = options.activeWorkspaceId ?? null;
+  }
+
+  async #withWorkspace<T>(
+    workspaceId: string,
+    operation: (store: DrizzleLedgerStore) => Promise<T>,
+  ): Promise<T> {
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`,
+      );
+      return operation(
+        new DrizzleLedgerStore(tx, {
+          defaultWorkspaceId: workspaceId,
+          activeWorkspaceId: workspaceId,
+        }),
+      );
+    });
+  }
+
+  #assertActiveWorkspace(workspaceId: string): void {
+    if (
+      this.#activeWorkspaceId &&
+      this.#activeWorkspaceId !== workspaceId
+    ) {
+      throw new Error("Ledger operation crossed its workspace context");
+    }
+  }
+
+  async ensureAppendSequenceFloor(floor: number): Promise<void> {
+    if (!Number.isSafeInteger(floor) || floor < 0) {
+      throw new Error("Ledger append sequence floor must be a non-negative integer");
+    }
+    if (floor === 0) return;
+    await this.#db.execute(sql`
+      SELECT setval(
+        'ledger_append_sequence_seq',
+        GREATEST(
+          (SELECT last_value FROM ledger_append_sequence_seq),
+          ${floor}
+        ),
+        true
+      )
+    `);
   }
 
   async append(entry: LedgerEntry): Promise<LedgerEntry> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(entry.workspaceId, (store) =>
+        store.append(entry),
+      );
+    }
+    this.#assertActiveWorkspace(entry.workspaceId);
+    if (
+      entry.userDecision !== null &&
+      entry.userDecision !== "auto" &&
+      !entry.refLedgerId
+    ) {
+      throw new Error("Resolving ledger decisions require refLedgerId");
+    }
     try {
-      await this.#db.insert(ledger).values({
-        id: entry.id,
-        workspaceId: entry.workspaceId,
-        actorType: entry.actorType,
-        actorId: entry.actorId,
-        ...(entry.onBehalfOfType ? { onBehalfOfType: entry.onBehalfOfType } : {}),
-        ...(entry.onBehalfOfId ? { onBehalfOfId: entry.onBehalfOfId } : {}),
-        ...(entry.delegationId ? { delegationId: entry.delegationId } : {}),
-        action: entry.action,
-        resourceType: entry.resourceType,
-        ...(entry.resourceId ? { resourceId: entry.resourceId } : {}),
-        inputs: entry.inputs,
-        proposedOutput: entry.proposedOutput ?? null,
-        userDecision: entry.userDecision,
-        diff: entry.diff ?? null,
-        policyResults: entry.policyResults,
-        ...(entry.refLedgerId ? { refLedgerId: entry.refLedgerId } : {}),
-        ...(entry.seed ? { seed: entry.seed } : {}),
-        ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
-        ...(entry.context ? { context: entry.context } : {}),
-        ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
-        createdAt: new Date(entry.createdAt),
-      });
-      return entry;
+      if (
+        entry.refLedgerId &&
+        entry.userDecision !== null &&
+        (await this.decisionFor(entry.refLedgerId))
+      ) {
+        throw new AlreadyResolvedError(entry.refLedgerId);
+      }
+      const rows = await this.#db
+        .insert(ledger)
+        .values({
+          id: entry.id,
+          workspaceId: entry.workspaceId,
+          actorType: entry.actorType,
+          actorId: entry.actorId,
+          ...(entry.onBehalfOfType ? { onBehalfOfType: entry.onBehalfOfType } : {}),
+          ...(entry.onBehalfOfId ? { onBehalfOfId: entry.onBehalfOfId } : {}),
+          ...(entry.delegationId ? { delegationId: entry.delegationId } : {}),
+          action: entry.action,
+          resourceType: entry.resourceType,
+          ...(entry.resourceId ? { resourceId: entry.resourceId } : {}),
+          inputs: entry.inputs,
+          proposedOutput: entry.proposedOutput ?? null,
+          userDecision: entry.userDecision,
+          diff: entry.diff ?? null,
+          policyResults: entry.policyResults,
+          ...(entry.refLedgerId ? { refLedgerId: entry.refLedgerId } : {}),
+          ...(entry.seed ? { seed: entry.seed } : {}),
+          ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
+          ...(entry.context ? { context: entry.context } : {}),
+          ...(entry.trustOrigin ? { trustOrigin: entry.trustOrigin } : {}),
+          createdAt: new Date(entry.createdAt),
+        })
+        .returning();
+      const persisted = rows[0];
+      if (!persisted) throw new Error("Ledger append returned no row");
+      return unpack(persisted);
     } catch (err) {
       if (isRefLedgerUniqueViolation(err)) {
         throw new AlreadyResolvedError(entry.refLedgerId ?? "(unknown)");
@@ -123,14 +227,26 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async get(id: string): Promise<LedgerEntry | null> {
+    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
+      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+        store.get(id),
+      );
+    }
     const rows = await this.#db.select().from(ledger).where(eq(ledger.id, id)).limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
   }
 
   async decisionFor(proposalId: string): Promise<LedgerEntry | null> {
-    // Decision rows carry a real ref_ledger_id column and a non-null user_decision
-    // (see migrations/0003_ledger_ref_column.sql). This SELECT is a fast, indexed
+    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
+      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+        store.decisionFor(proposalId),
+      );
+    }
+    // Decision rows carry a real ref_ledger_id column and a non-null user_decision.
+    // Migration 0015 backfills the narrowly verified legacy shape once; runtime
+    // resolution never infers authority from caller-controlled JSON inputs.
+    // This SELECT is a fast, indexed
     // pre-check for the pipeline's early-exit path; it is NOT itself the atomicity
     // guarantee — the partial unique index on (ref_ledger_id) WHERE user_decision
     // IS NOT NULL is, enforced by Postgres regardless of any race between this
@@ -138,7 +254,17 @@ export class DrizzleLedgerStore implements LedgerStore {
     const rows = await this.#db
       .select()
       .from(ledger)
-      .where(and(eq(ledger.refLedgerId, proposalId), isNotNull(ledger.userDecision)))
+      .where(
+        and(
+          isNotNull(ledger.userDecision),
+          eq(ledger.refLedgerId, proposalId),
+        ),
+      )
+      .orderBy(
+        sql`${ledger.appendSequence} ASC NULLS LAST`,
+        ledger.createdAt,
+        ledger.id,
+      )
       .limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
@@ -146,14 +272,21 @@ export class DrizzleLedgerStore implements LedgerStore {
 
   async listPending(
     workspaceId: string,
-    opts: { limit: number; offset: number },
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(workspaceId, (store) =>
+        store.listPending(workspaceId, opts),
+      );
+    }
+    this.#assertActiveWorkspace(workspaceId);
     const resolvingRows = alias(ledger, "resolving_rows");
     const where = and(
       eq(ledger.workspaceId, workspaceId),
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
+      privateRelationOwnerScope(opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -168,6 +301,37 @@ export class DrizzleLedgerStore implements LedgerStore {
     );
     const [rows, totalRows] = await Promise.all([
       this.#db.select().from(ledger).where(where).orderBy(desc(ledger.createdAt)).limit(opts.limit).offset(opts.offset),
+      this.#db.select({ value: count() }).from(ledger).where(where),
+    ]);
+    return { items: rows.map(unpack), total: Number(totalRows[0]?.value ?? 0) };
+  }
+
+  async listHistory(
+    workspaceId: string,
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
+  ): Promise<{ items: LedgerEntry[]; total: number }> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(workspaceId, (store) =>
+        store.listHistory(workspaceId, opts),
+      );
+    }
+    this.#assertActiveWorkspace(workspaceId);
+    const where = and(
+      eq(ledger.workspaceId, workspaceId),
+      privateRelationOwnerScope(opts.privateOwnerUserId),
+    );
+    const [rows, totalRows] = await Promise.all([
+      this.#db
+        .select()
+        .from(ledger)
+        .where(where)
+        .orderBy(
+          sql`${ledger.appendSequence} DESC NULLS LAST`,
+          desc(ledger.createdAt),
+          desc(ledger.id),
+        )
+        .limit(opts.limit)
+        .offset(opts.offset),
       this.#db.select({ value: count() }).from(ledger).where(where),
     ]);
     return { items: rows.map(unpack), total: Number(totalRows[0]?.value ?? 0) };

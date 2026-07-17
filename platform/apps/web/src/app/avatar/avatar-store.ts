@@ -52,7 +52,6 @@ export const SPIRIT_ANIMALS: { value: SpiritAnimal; label: string }[] = [
   { value: "butterfly", label: "Butterfly" },
   { value: "dolphin", label: "Dolphin" },
   { value: "owl", label: "Owl" },
-  { value: "turtle", label: "Turtle" },
   { value: "peacock", label: "Peacock" },
   { value: "elephant", label: "Elephant" },
   { value: "eagle", label: "Eagle" },

@@ -21,6 +21,7 @@ export type ActorType = "user" | "team" | "agent";
 export type ResourceType =
   | "person"
   | "community"
+  | "relation"
   | "initiative"
   | "touchpoint"
   | "ritual"
@@ -218,6 +219,8 @@ export type Decision = "approve" | "veto" | "edit";
 /** Append-only audit row (mirrors SCHEMA.ledger). */
 export interface LedgerEntry {
   id: string;
+  /** Store-assigned append order; database-generated for the persistent ledger. */
+  appendSequence?: number;
   workspaceId: string;
   actorType: ActorType;
   actorId: string;

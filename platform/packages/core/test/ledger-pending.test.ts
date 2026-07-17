@@ -20,7 +20,7 @@ function row(overrides: Partial<LedgerEntry> & { id: string }): LedgerEntry {
 test("in-memory ledger lists only unresolved root proposals", async () => {
   const ledger = new InMemoryLedger();
   const proposal = await ledger.append(row({ id: "test_fixture_proposal" }));
-  await ledger.append(
+  const deniedAudit = await ledger.append(
     row({
       id: "test_fixture_denied_audit",
       refLedgerId: proposal.id,
@@ -29,6 +29,8 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
       diff: { rejected: "agent floor" },
     }),
   );
+  assert.equal(proposal.appendSequence, 1);
+  assert.equal(deniedAudit.appendSequence, 2);
   await ledger.append(
     row({
       id: "test_fixture_rejected_audit",
@@ -54,4 +56,38 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
     items: [],
     total: 0,
   });
+});
+
+test("in-memory ledger resumes append order and owner-filters Relation history", async () => {
+  const ledger = new InMemoryLedger(40);
+  const ownRelation = await ledger.append(
+    row({
+      id: "test_fixture_own_relation",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      resourceType: "relation",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_relation",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      resourceType: "relation",
+    }),
+  );
+  const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
+
+  assert.equal(ownRelation.appendSequence, 41);
+  assert.equal(sharedSignal.appendSequence, 43);
+  const history = await ledger.listHistory("test_fixture_workspace", {
+    limit: 10,
+    offset: 0,
+    privateOwnerUserId: "test_fixture_owner",
+  });
+  assert.equal(history.total, 2);
+  assert.deepEqual(
+    history.items.map((entry) => entry.id),
+    ["test_fixture_shared_signal", "test_fixture_own_relation"],
+  );
 });

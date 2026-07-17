@@ -140,6 +140,10 @@ test("action approvals reject authenticated users outside the proposal workspace
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );
     await assert.rejects(
+      () => nonMemberCaller.action.listHistory({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+    await assert.rejects(
       () => nonMemberCaller.action.decide({ proposalId: proposed.id, decision: "approve" }),
       (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
     );

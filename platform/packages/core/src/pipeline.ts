@@ -406,7 +406,7 @@ export class UniversalActionPipeline {
    * passthrough to the ledger's `listPending` (see `LedgerStore.listPending` doc). */
   async listPending(
     workspaceId: string,
-    opts: { limit: number; offset: number },
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: Array<Proposal & { createdAt: string }>; total: number }> {
     const { ledger } = this.#deps;
     const { items, total } = await ledger.listPending(workspaceId, opts);
