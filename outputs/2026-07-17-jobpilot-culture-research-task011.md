@@ -2,7 +2,7 @@
 title: TASK-011 — JobPilot Culture-Research Slice (JP3B)
 date: 2026-07-17
 task: TASK-011
-status: implemented (remediated after SEVEN rounds of independent/coordinator security review), pending coordinator ledger reconciliation
+status: implemented (remediated after NINE rounds of independent/coordinator security review), migration items 1-2 blocked on origin/main RM4/TASK-010 sequencing
 ---
 
 # TASK-011 — JobPilot culture-research slice (JP3B)
@@ -947,3 +947,98 @@ flow) legitimately write. This blocks making `ledger` itself Drizzle-backed unde
 currently survive a `BRIDGE_LOCAL_DIR` restart, though the culture-fetch intent, Goal/Task binding,
 and child-Run status/budget/lease all do. Recommend a dedicated migration (new constraint allowing
 `'auto'`) once RM4/TASK-010's migration numbering is available.
+
+## 2026-07-19 coordinator distributed-defects RE-review round 2 — 9 more findings, fixed (items 3–9;
+migration items 1–2 remain blocked on external sequencing, see below)
+
+The coordinator's prior "disclosed follow-up, out of scope" position on the
+`ledger_user_decision_check` gap was explicitly reversed this round ("a direct TASK-011 blocker, not
+out-of-scope") alongside 8 further hardening findings. Instruction: implement every non-migration
+fix now, then sync `origin/main` and use the next-free migration number for the ledger constraint —
+`origin/main` was re-checked at the end of this round and is **still at `87043d4`** (unchanged;
+migrations still end at `0014`), so RM4's `0015` and TASK-010's next number have not landed yet.
+Items 1–2 (the migration itself, and binding `ledger` to the same durable DB under
+`BRIDGE_LOCAL_DIR`) remain genuinely blocked on that external landing — allocating a number now
+would risk a direct collision with either. Items 3–9 are complete, tested, and independently
+re-verifiable on this branch.
+
+3. **Cancellation-fenced CAS** — `DurableCultureFetchStore.transition`'s `fence` now accepts
+   `requireCancelNotRequested: true`; when set, the CAS predicate atomically requires
+   `cancelRequested === false` at COMMIT time (checked on both the initial load and the
+   conflict-retry reload), closing the TOCTOU window between `materializeCultureSourceFetch`'s
+   plain-read `finalCheck` and the actual "fetched"/"failed" write. A new
+   `CultureFetchCancelledRaceError` distinguishes this from a stale-lease refusal.
+4. **Tagged transition ownership** — `attemptFencedTerminalTransition` now returns
+   `{ committed: boolean; record }` instead of a bare record. Every one of `materializeCultureSourceFetch`'s
+   5 terminal-write call sites now gates its own `completeChildAgentRun`/`failChildAgentRun`/
+   `cancelChildAgentRun` call strictly on `committed === true` — a stale/losing worker's refused
+   write can no longer race a separate, independent child-Run CAS into a false "completed"/"failed"
+   outcome. A worker whose "fetched"/"failed" write is refused specifically due to a cancellation
+   race (not a stale lease) now correctly self-resolves to "cancelled" instead.
+5. **Generic child cancellation integration** — `agentOrchestration.childRun.cancel` (the SAME
+   endpoint Governance/Human uses for every other child Run) now detects when the target child Run
+   IS a culture-research fetch and routes through `cancelCultureSourceFetch`'s own durable
+   cancel-flag + abort mechanism FIRST, returning the real, converged child-Run state afterward —
+   never racing it with a bare `cancelChildAgentRun` status flip that would leave the underlying
+   socket running unaware.
+6. **Source proposal prebinding** — `cultureResearch.propose` now preallocates the proposal's id and
+   durably binds it to the intent record via `attachProposal` BEFORE `pipeline.propose` is ever
+   called (using `pipeline.propose`'s existing `options.proposalId` support). This structurally
+   eliminates the "approvable orphan" window (a real, pending_review ledger row bearing an unbound
+   id) rather than merely arguing it is inert. `action.decide` also gained a fail-closed backstop
+   (`assertCultureProposalBindingValid`): any culture-research/synthesis-shaped ledger row lacking a
+   matching durable binding is rejected before a decision resolves it.
+7. **Synthesis pointer prebinding** — `cultureResearch.synthesize` applies the SAME preallocation
+   pattern: `recordProposal` runs BEFORE `pipeline.propose`. Since a doomed attempt (grounding
+   failure, or a `#reject`-path rejection whose real ledger row bears a different auto-id) would
+   otherwise permanently poison the first-write-wins pointer for that `parentRunId`, added a
+   `releaseIfMatching` compensation (releases the pointer on a failed/rejected propose) AND a
+   self-heal check (a genuine crash between `recordProposal` and `propose` completing leaves a dead
+   pointer with no matching ledger row — detected and released before a fresh attempt).
+8. **Artifact retention/privacy, structurally** — found the actual gap: `synthesize`'s `inputs`
+   (which `pipeline.propose` persists VERBATIM into the immutable ledger row) embedded the FULL
+   `CultureArtifactRef[]`, including every fetched artifact's raw content, forever bypassing this
+   slice's own expiry/purge mechanism. `jobpilot.synthesizeCultureProfile` is now a factory
+   (`createSynthesizeCultureProfileSkill`) that resolves its own artifacts internally from
+   `childAgentRuns`/`fetchStore` by `(workspaceId, parentRunId)` — `inputs` now carries only
+   `workspaceId`/`parentRunId`/`claims`/`skippedSources`, never artifact bodies. Also found and fixed
+   the web client's `deriveFullArtifactFactClaim` (renamed `deriveBoundedArtifactFactClaim`), which
+   forwarded an ENTIRE fetched artifact as `claimText` — now capped at
+   `MAX_DERIVED_CLAIM_SNIPPET_LENGTH` (320 chars), still a genuine verbatim substring.
+9. **Taint + expired UX** — `ActionRequest.trustOrigin: 'untrusted_external'` is now explicit on
+   both the research-fetch and synthesis proposals, threaded through the persisted ledger row and
+   surfaced in `synthesisResult`'s response. Web UI: a new `isArtifactUsable` check (purged-content OR
+   past-`expiresAt`) means a `"fetched"` status is NEVER treated as usable evidence once expired —
+   the per-source list shows an explicit "expired" state instead of a plain success checkmark,
+   `synthesize`'s eligible-artifact filter excludes expired sources, the "Synthesize evidence" button
+   disables when every fetched source has expired, and a "Start new research run" action appears to
+   re-fetch permitted sources.
+
+### New tests this round
+
+`jobpilot-culture-research.test.ts` [api] (+9): cancellation-fenced-CAS unit test, tagged-ownership
+regression, forged-proposal decide-backstop test (research + synthesis shapes, plus a legitimate
+control), generic-cancel-endpoint routing test, prebinding-crash-safety test (grounding failure does
+not poison the pointer), dead-pointer self-heal test, ledger-row-never-embeds-raw-content test,
+trustOrigin threading test. `culture-research-client.test.mjs` [web] (+5): bounded-quote-length test,
+4 `isArtifactUsable` unit tests (null, purged, expired, usable).
+
+### Verification
+
+`@bridge/core` 430/430, `@bridge/db` 112/112, `@bridge/net-guard` 24/24, `@bridge/jobpilot` 124/124,
+`@bridge/api` 229/229 (full suite), `@bridge/web` 61/61 + clean build/typecheck, full monorepo build
+21/21, eslint clean (same 2 pre-existing, unrelated issues in `ZazooAvatar.tsx`/`determinism.ts` —
+confirmed untouched by this branch's diff), no-dummy-runtime clean.
+
+`origin/main` re-checked at end of round: still `87043d4` (unchanged) — no new commits to merge.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped) this round.
+
+**Remaining blockers (items 1–2, migration-sequencing, per explicit coordinator instruction)**:
+1. `ledger_user_decision_check` (migration 0004) still does not permit `userDecision: "auto"` —
+   blocked on RM4's `0015` and TASK-010's next migration number landing on `origin/main` (both still
+   absent as of this round's final sync).
+2. `ledger` therefore still cannot be bound to the same durable `BRIDGE_LOCAL_DIR` DB as
+   `goalTasks`/`childAgentRuns` — depends on item 1 landing first.
+

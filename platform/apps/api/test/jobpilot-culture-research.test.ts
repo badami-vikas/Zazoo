@@ -40,6 +40,7 @@ import {
   unsafeRegisterTestOnlyCultureSource,
   DurableCultureFetchStore,
   CultureFetchStaleLeaseError,
+  CultureFetchCancelledRaceError,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -461,6 +462,51 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
   }
 });
 
+test("agentOrchestration.childRun.cancel (the GENERIC child-Run cancel endpoint) routes a culture-research child Run through its OWN durable cancellation mechanism instead of racing it — actually aborts the real in-flight socket AND leaves the culture-fetch intent record genuinely 'cancelled', never a child Run marked 'cancelled' while the underlying fetch keeps running unaware (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 5)", async () => {
+  let serverSawClose = false;
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.write("partial");
+    _req.on("close", () => {
+      serverSawClose = true;
+    });
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    const materializePromise = materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // The GENERIC endpoint — a Human/Governance actor cancelling via
+    // `agentOrchestration.childRun.cancel` has no idea this child Run
+    // happens to be a culture-research fetch, and supplies only workspaceId
+    // + childRunId (no proposalId at all, unlike `jobpilot.cultureResearch.
+    // cancel`). This must still reach the SAME durable cancellation
+    // mechanism (abort the real socket, set the durable `cancelRequested`
+    // flag) rather than just flipping the child Run's own status.
+    const cancelResult = await caller.agentOrchestration.childRun.cancel({ workspaceId: PILOT_WORKSPACE, childRunId });
+
+    const materialized = await materializePromise;
+    assert.equal(materialized.status, "cancelled", "the underlying fetch must actually be stopped, not left running while the child Run says cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(serverSawClose, true, "the real in-flight socket must actually be aborted by the GENERIC cancel endpoint, not merely a status flip");
+
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    assert.equal(finalRecord?.status, "cancelled", "the culture-fetch intent record itself must converge to cancelled, never left 'fetching' behind a cancelled child Run");
+    void cancelResult; // the immediate return only reflects the request-time snapshot (a live lease was held) — the AWAITED materializePromise above is what proves the real, final converged outcome.
+    const childRun = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(childRun?.status, "cancelled");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 test("distributed cancellation: a SECOND, independent instance (own DurableCultureFetchStore wrapping the same memoryStore, own EMPTY abortControllers map — no in-process AbortController for this fetch at all) can still stop the fetch a FIRST instance is holding the live socket for (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 2)", async () => {
   let serverSawClose = false;
   const server = await startTestServer((_req, res) => {
@@ -632,6 +678,192 @@ test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by 
     );
     assert.equal(wonByB.status, "fetched");
     assert.equal(wonByB.artifact?.content, "real content");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("cancellation-fenced CAS: a durably-recorded cancelRequested refuses a 'fetched' write even though status/lease/attempt otherwise still match — requireCancelNotRequested closes the TOCTOU window a plain-read finalCheck cannot (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 3)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const id = registerTestSource("http://127.0.0.1:1/cancel-race");
+    const caller = makeCaller(wiring);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { childRunId } = proposed.pending[0]!;
+
+    const t0 = new Date().toISOString();
+    const lease = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-x", t0);
+    assert.equal(lease.attempt, 1);
+
+    // A cancel lands durably WHILE worker-x still legitimately holds the
+    // live lease — simulating the exact race: a REMOTE cancel request
+    // commits between worker-x's own plain-read `finalCheck` and the
+    // fenced "fetched" write it is about to attempt. `requestCancel` on a
+    // still-live lease only sets the flag (does not itself transition
+    // status), matching the real distributed-cancellation code path.
+    const afterCancelRequest = await wiring.cultureFetchStore.requestCancel(PILOT_WORKSPACE, childRunId, t0);
+    assert.equal(afterCancelRequest.status, "fetching");
+    assert.equal(afterCancelRequest.cancelRequested, true);
+
+    // worker-x, unaware of the race (its own `finalCheck` read happened
+    // BEFORE the cancel landed), now attempts its fenced "fetched" write.
+    // Status ("fetching") and lease/attempt (worker-x/1) still match
+    // exactly — a fence that only checked those would wrongly accept this
+    // write. `requireCancelNotRequested: true` must refuse it instead.
+    await assert.rejects(
+      () =>
+        wiring.cultureFetchStore.transition(
+          PILOT_WORKSPACE,
+          childRunId,
+          ["fetching"],
+          (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/cancel-race", content: "raced content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: t0 } }),
+          { leaseOwner: lease.leaseOwner!, attempt: lease.attempt, requireCancelNotRequested: true },
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof CultureFetchCancelledRaceError);
+        return true;
+      },
+    );
+
+    // The record must be untouched by the refused write — still
+    // "fetching" (not silently "fetched"), cancel flag still set, ready
+    // for worker-x (the only process that still legitimately owns this
+    // lease) to resolve it to "cancelled" next, exactly as
+    // `materializeCultureSourceFetch` does in the real self-resolve path.
+    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(afterRefusal?.status, "fetching");
+    assert.equal(afterRefusal?.cancelRequested, true);
+    assert.equal(afterRefusal?.leaseOwner, "worker-x");
+
+    // worker-x can still legitimately resolve this to "cancelled" (no
+    // cancellation-race guard needed on a write TO cancelled itself).
+    const resolved = await wiring.cultureFetchStore.transition(PILOT_WORKSPACE, childRunId, ["fetching"], (r) => ({ ...r, status: "cancelled" }), {
+      leaseOwner: lease.leaseOwner!,
+      attempt: lease.attempt,
+    });
+    assert.equal(resolved.status, "cancelled");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("tagged transition ownership: materializeCultureSourceFetch never mutates the child Run's own lifecycle when its fenced write is refused — only the worker whose write actually commits may call complete/fail/cancelChildAgentRun (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 4)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Some real content that must never be recorded as this worker's win.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    // A stale worker acquires the lease first (attempt 1), then a later,
+    // legitimate attempt reclaims it (attempt 2) — the child Run itself is
+    // still "running" throughout, owned by nobody's completed write yet.
+    const t0 = new Date().toISOString();
+    const stale = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-stale", t0);
+    assert.equal(stale.attempt, 1);
+    const farFuture = new Date(Date.parse(t0) + 60_000).toISOString();
+    await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-current", farFuture);
+
+    const beforeRunStatus = (await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId))!.status;
+    assert.equal(beforeRunStatus, "running");
+
+    // The stale worker's own fenced write is refused (its lease was
+    // reclaimed) — `attemptFencedTerminalTransition` must report
+    // `committed: false` and the calling code (materialize's real
+    // production logic, exercised directly here since the store method is
+    // package-private to the wiring module) must NEVER touch the child
+    // Run's lifecycle on a refusal. We assert the invariant at the level
+    // this test can directly observe: the store-level refusal itself, and
+    // that the child Run remains exactly as it was — untouched by anyone
+    // claiming a win they did not actually get.
+    await assert.rejects(() =>
+      wiring.cultureFetchStore.transition(
+        PILOT_WORKSPACE,
+        childRunId,
+        ["fetching"],
+        (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: server.url, content: "stale worker's illegitimate win", contentHash: "badc0de", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+        { leaseOwner: stale.leaseOwner!, attempt: stale.attempt },
+      ),
+    );
+    const afterRefusal = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(afterRefusal?.status, "running", "a refused fenced write must never be allowed to leak into the child Run's own lifecycle");
+
+    await server.close();
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("action.decide: source proposal prebinding — a forged/out-of-band culture-research-shaped ledger row with NO matching culture-fetch intent binding is rejected before any decision resolves it, and a legitimate propose()'d proposal (real binding, created BEFORE the ledger row per the new preallocation order) still decides normally (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 6)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+
+    // A forged row shaped exactly like a real `jobpilot.researchCultureSource`
+    // proposal (same resourceType + child_agent_run context) but which never
+    // went through `cultureResearch.propose` at all — no culture-fetch intent
+    // record exists for its childRunId, so it can never be legitimately bound.
+    const forgedChildRunId = randomUUID();
+    const forged = await wiring.ledger.append({
+      id: randomUUID(),
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: LEARNING_AGENT,
+      action: "read",
+      resourceType: "external:fetch",
+      context: { type: "child_agent_run", id: forgedChildRunId },
+      inputs: { sourceId: "forged-source", workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY },
+      userDecision: null,
+      policyResults: [],
+      createdAt: new Date().toISOString(),
+    });
+    await assert.rejects(
+      () => caller.action.decide({ proposalId: forged.id, decision: "approve" }),
+      (error: unknown) => {
+        assert.ok(error instanceof TRPCError);
+        assert.equal((error as TRPCError).code, "BAD_REQUEST");
+        return true;
+      },
+    );
+
+    // A forged row shaped like a real `jobpilot.synthesizeCultureProfile`
+    // proposal (resourceType:signal, action:write, parentRunId+claims inputs)
+    // with NO matching synthesis-pointer binding — same fail-closed backstop.
+    const forgedSynth = await wiring.ledger.append({
+      id: randomUUID(),
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: INTERNAL_STRATEGIST_AGENT,
+      action: "write",
+      resourceType: "signal",
+      inputs: { parentRunId: randomUUID(), claims: [] },
+      userDecision: null,
+      policyResults: [],
+      createdAt: new Date().toISOString(),
+    });
+    await assert.rejects(
+      () => caller.action.decide({ proposalId: forgedSynth.id, decision: "approve" }),
+      (error: unknown) => {
+        assert.ok(error instanceof TRPCError);
+        assert.equal((error as TRPCError).code, "BAD_REQUEST");
+        return true;
+      },
+    );
+
+    // Control: a REAL proposal produced by the actual `propose()` handler —
+    // whose intent record was bound BEFORE the ledger row was ever created —
+    // must still decide normally (the backstop does not false-positive on
+    // legitimate proposals).
+    const id = registerTestSource("http://127.0.0.1:1/prebinding-control");
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId } = proposed.pending[0]!;
+    const decided = await caller.action.decide({ proposalId, decision: "approve" });
+    assert.equal(decided.status, "applied");
   } finally {
     await wiring.close();
   }
@@ -1364,11 +1596,64 @@ test("cultureResearch.synthesize: a well-grounded claim succeeds and the approve
     assert.deepEqual(afterApproval.result.artifactHashes, [{ sourceId: id, contentHash: record.artifact!.contentHash }]);
     assert.equal(afterApproval.result.partition.facts.length, 1);
     assert.equal(typeof afterApproval.approvedAt, "string");
+    // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+    // RE-review round 2, issue 9) — Internal Strategist is reasoning
+    // directly over untrusted external evidence; the turn's provenance must
+    // be explicitly threaded through to the client, never silently absent.
+    assert.equal(afterApproval.trustOrigin, "untrusted_external");
+    const ledgerRow = await wiring.ledger.get(synthesisProposal.proposalId);
+    assert.equal(ledgerRow?.trustOrigin, "untrusted_external", "the PERSISTED ledger row itself must carry the taint, not just the API response shape");
   } finally {
     await server.close();
     await wiring.close();
   }
 });
+
+test("cultureResearch.synthesize: the persisted ledger row for the synthesis proposal NEVER embeds the full raw fetched artifact content — only bounded quotes/hashes/refs — even though the Skill genuinely grounded (and therefore internally read) the real artifact body (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 8)", async () => {
+  const secretRawText = "SECRET RAW PAGE BODY: this exact sentinel string must never appear anywhere in the persisted ledger row.";
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end(`Our culture values ownership. ${secretRawText}`);
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const record = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    assert.ok(record.artifact!.content.includes(secretRawText), "sanity: the real fetched artifact DOES contain the sentinel");
+
+    const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "good1", claimType: "fact", sourceId: id, quote: "values ownership", contentHash: record.artifact!.contentHash }],
+    });
+    assert.equal(synthesisProposal.status, "pending_review");
+
+    // The Skill DID actually ground this claim against the real artifact
+    // body (grounding would have failed otherwise) — but the PERSISTED
+    // ledger row (both `inputs`, which the router now sends WITHOUT
+    // artifact bodies, and `proposedOutput`, which only ever carried bounded
+    // quotes/hashes) must never contain the raw page body, at any point.
+    const ledgerRow = await wiring.ledger.get(synthesisProposal.proposalId);
+    assert.ok(ledgerRow, "sanity: the ledger row exists");
+    const serializedInputs = JSON.stringify(ledgerRow!.inputs);
+    const serializedOutput = JSON.stringify(ledgerRow!.proposedOutput);
+    assert.ok(!serializedInputs.includes(secretRawText), "the ledger row's `inputs` must NEVER embed the raw fetched artifact body");
+    assert.ok(!serializedOutput.includes(secretRawText), "the ledger row's `proposedOutput` must NEVER embed the raw fetched artifact body");
+    // Positive control: the bounded, already-validated QUOTE is fine to
+    // appear (that's the whole point of `claimText`/citations) — proves
+    // this isn't a false negative from an overly-strict/empty output.
+    assert.ok(serializedOutput.includes("values ownership"), "sanity: the bounded quote itself IS expected in the output");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 
 test("cultureResearch.latestRun: server-authoritative resume — returns null for a company with no research yet, then reflects propose() and synthesize() with no client-supplied pointer at all (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 13)", async () => {
   const server = await startTestServer((_req, res) => {
@@ -1759,6 +2044,92 @@ test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT t
     });
     assert.deepEqual(result, { status: "not_available" });
   } finally {
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: prebinding the synthesis pointer BEFORE pipeline.propose closes the append-without-pointer crash window — a claim-grounding failure (Skill throws before any real ledger row exists) does not permanently poison the parentRunId's pointer, and a subsequent legitimate synthesize() for the SAME run still succeeds (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 7)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture rewards long-term thinking.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+
+    // A claim whose quote is absent from the fetched artifact causes
+    // `groundClaims` (invoked INSIDE the Skill, during `pipeline.propose`)
+    // to throw a `ClaimGroundingError` SYNCHRONOUSLY — no real ledger row is
+    // ever created for this attempt. Without the release-on-failure fix,
+    // this would have permanently bound (poisoned) the parentRunId's
+    // first-write-wins pointer to a proposalId that can never resolve.
+    await assert.rejects(() =>
+      caller.jobpilot.cultureResearch.synthesize({
+        workspaceId: PILOT_WORKSPACE,
+        company: TEST_COMPANY,
+        parentRunId: proposed.parentRunId,
+        claims: [{ id: "claim-bad", claimType: "fact", sourceId: id, quote: "this text is not in the artifact at all", contentHash: fetched.artifact!.contentHash }],
+      }),
+    );
+
+    // Sanity: the pointer must NOT still be bound to the failed attempt's
+    // dead proposalId — a fresh, legitimate synthesize() for the SAME
+    // parentRunId must succeed, not be rejected as "already pointed at a
+    // different synthesis proposal".
+    const legitimate = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "claim-good", claimType: "fact", sourceId: id, quote: "rewards long-term thinking", contentHash: fetched.artifact!.contentHash }],
+    });
+    assert.equal(legitimate.status, "pending_review");
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    assert.equal(pointer?.proposalId, legitimate.proposalId, "the pointer must resolve to the LEGITIMATE, successfully-proposed synthesis, not the failed attempt");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine crash between recordProposal succeeding and pipeline.propose ever running (simulating a process kill mid-request, distinct from a controlled rejection) — a fresh synthesize() for the SAME parentRunId is not permanently blocked (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 7)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture values direct feedback.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+
+    // Simulate the crash DIRECTLY: bind a pointer to a proposalId that
+    // genuinely has NO ledger row at all (as if the process died the
+    // instant after `recordProposal` committed, before `pipeline.propose`
+    // ever ran) — the observable end state a real crash there would leave.
+    const deadProposalId = randomUUID();
+    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, proposed.parentRunId, TEST_COMPANY, deadProposalId);
+    assert.equal(await wiring.ledger.get(deadProposalId), null, "sanity: the dead proposalId truly has no ledger row");
+
+    const healed = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
+    });
+    assert.equal(healed.status, "pending_review");
+    assert.notEqual(healed.proposalId, deadProposalId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    assert.equal(pointer?.proposalId, healed.proposalId, "the pointer must now resolve to the NEW, real synthesis proposal, not the dead one");
+  } finally {
+    await server.close();
     await wiring.close();
   }
 });

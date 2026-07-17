@@ -11,7 +11,8 @@ import {
   loadStoredCultureResearchState,
   saveStoredCultureResearchState,
   clearStoredCultureResearchState,
-  deriveFullArtifactFactClaim,
+  deriveBoundedArtifactFactClaim,
+  isArtifactUsable,
   type StoredCultureResearchState,
 } from '../data/culture-research-client';
 import { EditableField } from '../components/shared/EditableField';
@@ -280,7 +281,7 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
  *
  * Claim authoring here is intentionally minimal for this pass: once a source
  * is fetched, its ENTIRE real content is submitted as one grounded "fact"
- * claim (`deriveFullArtifactFactClaim`) — never fabricated text. A richer
+ * claim (`deriveBoundedArtifactFactClaim`) — never fabricated text. A richer
  * human-excerpt-picker or LLM-assisted theme/opinion/contradiction extraction
  * is tracked as future work; the honest result today is a `facts` bucket
  * populated with real cited claims and other buckets empty (a true empty
@@ -483,15 +484,23 @@ function CultureResearchSection() {
     if (!pointer) return;
     const fetchedEntries = pointer.pending
       .map((p) => ({ p, status: statuses[p.proposalId] }))
-      .filter((x): x is { p: (typeof pointer.pending)[number]; status: CultureFetchStatusResult & { status: 'fetched' } } => x.status?.status === 'fetched' && !!x.status.artifact);
+      .filter(
+        (x): x is { p: (typeof pointer.pending)[number]; status: CultureFetchStatusResult & { status: 'fetched' } } =>
+          x.status?.status === 'fetched' && isArtifactUsable(x.status.artifact),
+      );
     if (fetchedEntries.length === 0) {
-      setError('At least one source must be approved and fetched before synthesis.');
+      const anyExpired = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && !isArtifactUsable(statuses[p.proposalId]!.artifact));
+      setError(
+        anyExpired
+          ? 'Every previously fetched source has expired — start a new research run before synthesizing.'
+          : 'At least one source must be approved and fetched before synthesis.',
+      );
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const claims = fetchedEntries.map(({ p, status }) => deriveFullArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
+      const claims = fetchedEntries.map(({ p, status }) => deriveBoundedArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
       const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ workspaceId, company, parentRunId: pointer.parentRunId, claims });
       persistPointer({ ...pointer, synthesisProposalId: synth.proposalId });
       reconcileFromServer();
@@ -573,27 +582,65 @@ function CultureResearchSection() {
         <div className="space-y-2">
           {pointer.pending.map((p) => {
             const status = statuses[p.proposalId];
+            // TASK-011 remediation (2026-07-19 coordinator distributed-
+            // defects RE-review round 2, issue 9) — a "fetched" status whose
+            // artifact is no longer usable (expired/purged) must NEVER be
+            // rendered as a plain fetched-success checkmark — that would be
+            // showing fetched success for content that is, in truth, gone.
+            const fetchedButExpired = status?.status === 'fetched' && !isArtifactUsable(status.artifact);
             return (
               <div key={p.proposalId} className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
                 <div>
                   <span className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>{p.sourceLabel}</span>
-                  <span className="ml-2 text-xs" style={{ color: 'var(--color-warm-gray)' }}>{status?.status ?? 'pending'}</span>
+                  <span className="ml-2 text-xs" style={{ color: 'var(--color-warm-gray)' }}>
+                    {fetchedButExpired ? 'expired' : status?.status ?? 'pending'}
+                  </span>
                 </div>
                 {(!status || status.status === 'pending') && (
                   <button onClick={() => approveAndFetch(p)} disabled={busy} className="rounded-md px-3 py-1 text-xs font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--success)' }}>
                     Approve &amp; fetch
                   </button>
                 )}
-                {status?.status === 'fetched' && <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--success)' }} />}
+                {status?.status === 'fetched' && !fetchedButExpired && <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--success)' }} />}
+                {fetchedButExpired && <AlertTriangle className="h-4 w-4" style={{ color: '#8A5A00' }} />}
                 {status?.status === 'failed' && <XCircle className="h-4 w-4" style={{ color: 'var(--danger)' }} />}
               </div>
             );
           })}
-          {!pointer.synthesisProposalId && (
-            <button onClick={synthesize} disabled={busy} className="mt-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}>
-              Synthesize evidence
-            </button>
-          )}
+          {(() => {
+            const anyUsable = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched' && isArtifactUsable(statuses[p.proposalId]!.artifact));
+            const anyFetched = pointer.pending.some((p) => statuses[p.proposalId]?.status === 'fetched');
+            const allFetchedExpired = anyFetched && !anyUsable;
+            return (
+              <>
+                {allFetchedExpired && (
+                  <p className="mt-2 text-xs" style={{ color: '#8A5A00' }}>
+                    Every fetched source has expired — its raw content has been purged and can no longer ground a synthesis. Start a new research run to re-fetch permitted sources.
+                  </p>
+                )}
+                {!pointer.synthesisProposalId && (
+                  <button
+                    onClick={synthesize}
+                    disabled={busy || allFetchedExpired}
+                    className="mt-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: 'var(--color-steel)' }}
+                  >
+                    Synthesize evidence
+                  </button>
+                )}
+                {allFetchedExpired && (
+                  <button
+                    onClick={startResearch}
+                    disabled={busy}
+                    className="mt-2 ml-2 rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                    style={{ borderColor: 'var(--color-steel)', color: 'var(--color-steel)' }}
+                  >
+                    {busy ? 'Starting…' : 'Start new research run'}
+                  </button>
+                )}
+              </>
+            );
+          })()}
           {pointer.synthesisProposalId && (
             <button onClick={approveSynthesis} disabled={busy} className="mt-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}>
               Approve synthesis

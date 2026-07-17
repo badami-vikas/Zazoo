@@ -928,6 +928,30 @@ export class CultureFetchStaleLeaseError extends Error {
 }
 
 /**
+ * Thrown when a fenced terminal transition to "fetched" or "failed" finds
+ * `cancelRequested` is ALREADY true at COMMIT time — TASK-011 remediation
+ * (2026-07-19 coordinator distributed-defects RE-review round 2, issue 3).
+ * `materializeCultureSourceFetch`'s own `finalCheck` (a plain read of
+ * `cancelRequested` right before declaring success) is NOT atomic with the
+ * transition's CAS write: a cancel can land in the gap between that read
+ * and this call. Folding `cancelRequested === false` INTO the CAS predicate
+ * itself (checked atomically alongside the lease fence, and re-checked
+ * against the reloaded record on every lost race) closes that TOCTOU
+ * window completely — a "fetched"/"failed" write can never durably commit
+ * over a cancellation that raced it, however narrow the window. */
+export class CultureFetchCancelledRaceError extends Error {
+  constructor(
+    public readonly childRunId: string,
+    public readonly currentRecord: CultureFetchIntentRecord,
+  ) {
+    super(
+      `culture-fetch intent for child Run ${childRunId}: a cancellation was durably requested before this terminal write could commit — refusing to overwrite it with "${currentRecord.status === "fetching" ? "a non-cancel outcome" : currentRecord.status}"`,
+    );
+    this.name = "CultureFetchCancelledRaceError";
+  }
+}
+
+/**
  * Durable adapter over `MemoryStore` for culture-fetch intent records.
  * `subjectElementId` is repurposed as this store's lookup key (`childRunId`)
  * — `MemoryStore` has no arbitrary-field query, but `retrieve({
@@ -1106,7 +1130,7 @@ export class DurableCultureFetchStore {
     childRunId: string,
     fromStatuses: readonly CultureFetchStatus[],
     mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
-    fence?: { leaseOwner: string; attempt: number },
+    fence?: { leaseOwner: string; attempt: number; requireCancelNotRequested?: boolean },
   ): Promise<CultureFetchIntentRecord> {
     const existing = await this.#loadRow(workspaceId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
@@ -1116,6 +1140,17 @@ export class DurableCultureFetchStore {
     if (fence && (existing.record.leaseOwner !== fence.leaseOwner || existing.record.attempt !== fence.attempt)) {
       throw new CultureFetchStaleLeaseError(childRunId, fence.leaseOwner, fence.attempt, existing.record);
     }
+    // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+    // RE-review round 2, issue 3) — fold `cancelRequested === false` INTO
+    // the SAME atomic CAS predicate as the lease fence, not a separate
+    // earlier read. `materializeCultureSourceFetch`'s own `finalCheck` (a
+    // plain read right before this call) cannot be atomic with the write
+    // that follows it — a cancel landing in that gap must still be able to
+    // block this commit, which is only possible if the check happens HERE,
+    // at commit time, not before.
+    if (fence?.requireCancelNotRequested && existing.record.cancelRequested) {
+      throw new CultureFetchCancelledRaceError(childRunId, existing.record);
+    }
     const next: CultureFetchIntentRecord = { ...mutate(existing.record), updatedAt: new Date().toISOString() };
     try {
       await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
@@ -1123,11 +1158,14 @@ export class DurableCultureFetchStore {
       if (e instanceof MemoryConflictError) {
         const reloaded = await this.#loadRow(workspaceId, childRunId);
         // A lost race here means SOMEONE ELSE'S write won — re-derive the
-        // MOST SPECIFIC error against the fresh state: a fence mismatch is
-        // more informative than a generic terminal error when a fence was
-        // supplied and no longer matches.
+        // MOST SPECIFIC error against the fresh state: a fence mismatch or
+        // a cancellation race is more informative than a generic terminal
+        // error when either condition no longer holds.
         if (fence && reloaded && (reloaded.record.leaseOwner !== fence.leaseOwner || reloaded.record.attempt !== fence.attempt)) {
           throw new CultureFetchStaleLeaseError(childRunId, fence.leaseOwner, fence.attempt, reloaded.record);
+        }
+        if (fence?.requireCancelNotRequested && reloaded?.record.cancelRequested) {
+          throw new CultureFetchCancelledRaceError(childRunId, reloaded.record);
         }
         throw new CultureFetchAlreadyTerminalError(childRunId, reloaded?.record.status ?? existing.record.status);
       }
@@ -1424,6 +1462,37 @@ export class DurableCultureSynthesisPointerStore {
     }
     return parsed.kind === "culture_synthesis_pointer" ? parsed : null;
   }
+
+  /**
+   * Compensates a `recordProposal` call whose corresponding `pipeline.propose`
+   * never actually produced a usable ledger proposal (e.g. the Skill threw
+   * synchronously — a claim-grounding failure — before any ledger append, or
+   * `propose` returned a `#reject`-path rejection whose real ledger row bears
+   * a DIFFERENT, auto-generated id). Without this, preallocating the pointer
+   * BEFORE `propose` (issue 7's fix for the append-without-pointer crash
+   * window) would let one failed synthesis attempt permanently poison the
+   * first-write-wins pointer for that parentRunId, blocking every future
+   * legitimate retry. Only releases the row if it STILL points to exactly
+   * the id this caller itself just bound — never a different (later, or
+   * concurrently-won) pointer — so a genuine race winner is never disturbed.
+   */
+  async releaseIfMatching(workspaceId: string, parentRunId: string, proposalId: string): Promise<void> {
+    const rows = await this.#memory.retrieve(
+      { subjectElementId: parentRunId, includeSuperseded: false, limit: 1 },
+      this.#authScope(workspaceId),
+    );
+    const row = rows[0];
+    if (!row) return;
+    let parsed: CultureSynthesisPointerRecord;
+    try {
+      parsed = JSON.parse(row.content) as CultureSynthesisPointerRecord;
+    } catch {
+      return;
+    }
+    if (parsed.kind === "culture_synthesis_pointer" && parsed.proposalId === proposalId) {
+      await this.#memory.forget(row.id, this.#authScope(workspaceId));
+    }
+  }
 }
 
 /**
@@ -1552,28 +1621,41 @@ export class DurableCultureLatestRunPointerStore {
 }
 
 /**
- * Attempts a LEASE-FENCED terminal transition (see `DurableCultureFetchStore.transition`'s
- * `fence` param) — TASK-011 remediation (2026-07-19 coordinator
- * distributed-defects RE-review, issue 1). If the fence no longer matches
- * (a concurrent cancel, OR — critically — a DIFFERENT attempt that reclaimed
- * this lease after this caller's own lease silently expired, already
- * resolved or is now the sole legitimate owner of the record), this caller
- * has NO authority to write a terminal outcome: return the CURRENT record
- * instead of throwing, exactly as the already-terminal case is already
- * handled. Rethrows any other, genuinely unexpected error.
+ * Attempts a LEASE-FENCED (and, when requested, cancellation-fenced)
+ * terminal transition (see `DurableCultureFetchStore.transition`'s `fence`
+ * param) — TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 1; hardened again round 2, issues 3/4). If the fence no
+ * longer matches (a concurrent cancel, OR — critically — a DIFFERENT
+ * attempt that reclaimed this lease after this caller's own lease silently
+ * expired, already resolved, or a cancellation raced the commit), this
+ * caller has NO authority to write a terminal outcome OR to touch the
+ * child Run's own lifecycle.
+ *
+ * Returns `{ committed, record }` rather than the record alone — TASK-011
+ * remediation (round 2, issue 4): a caller that only inspected "is the
+ * returned record non-null" could not tell whether IT won the CAS or was
+ * merely observing a DIFFERENT winner's result, and would go on to call
+ * `completeChildAgentRun`/`failChildAgentRun`/`cancelChildAgentRun`
+ * regardless — a genuinely possible race where a STALE loser's child-Run
+ * lifecycle call could still win the CHILD RUN's own (separate) CAS before
+ * the true winner gets to it, leaving the child Run "completed" even
+ * though the real winning intent transition had not yet happened (or could
+ * still fail). Every caller MUST gate its own child-Run lifecycle call on
+ * `committed === true`.
  */
 async function attemptFencedTerminalTransition(
   fetchStore: DurableCultureFetchStore,
   workspaceId: string,
   childRunId: string,
   mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
-  fence: { leaseOwner: string; attempt: number },
-): Promise<CultureFetchIntentRecord | null> {
+  fence: { leaseOwner: string; attempt: number; requireCancelNotRequested?: boolean },
+): Promise<{ committed: boolean; record: CultureFetchIntentRecord | null }> {
   try {
-    return await fetchStore.transition(workspaceId, childRunId, ["fetching"], mutate, fence);
+    const record = await fetchStore.transition(workspaceId, childRunId, ["fetching"], mutate, fence);
+    return { committed: true, record };
   } catch (e) {
-    if (e instanceof CultureFetchAlreadyTerminalError || e instanceof CultureFetchStaleLeaseError) {
-      return fetchStore.get(workspaceId, childRunId);
+    if (e instanceof CultureFetchAlreadyTerminalError || e instanceof CultureFetchStaleLeaseError || e instanceof CultureFetchCancelledRaceError) {
+      return { committed: false, record: await fetchStore.get(workspaceId, childRunId) };
     }
     throw e;
   }
@@ -1832,7 +1914,7 @@ export async function materializeCultureSourceFetch(
       // concurrent cancel/reclaim having already resolved this record —
       // that outcome must win; return it rather than throwing a "rejected"
       // error that would mask it.
-      if (afterViolation) return afterViolation;
+      if (afterViolation.record) return afterViolation.record;
       throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
     }
     // TASK-011 remediation (2026-07-18, fifth review) — re-check the
@@ -1890,32 +1972,79 @@ export async function materializeCultureSourceFetch(
       // instant between our last poll tick and here) WHILE the fetch was
       // completing — check the authoritative flag one final time before
       // ever declaring "fetched"; a race that let the bytes arrive anyway
-      // must still result in "cancelled", discarding the artifact.
+      // must still result in "cancelled", discarding the artifact. This
+      // `finalCheck` is a fast-path optimism only — the ACTUAL guarantee
+      // against a cancel racing the commit is `requireCancelNotRequested`
+      // on the fenced "fetched" transition below, which re-checks
+      // `cancelRequested` atomically at commit time, closing the gap this
+      // plain read cannot.
       const finalCheck = await deps.fetchStore.get(workspaceId, childRunId);
       if (finalCheck?.cancelRequested) {
-        const current = await attemptFencedTerminalTransition(
+        const { committed, record: current } = await attemptFencedTerminalTransition(
           deps.fetchStore,
           workspaceId,
           childRunId,
           (r) => ({ ...r, status: "cancelled" }),
           { leaseOwner, attempt: fetching.attempt },
         );
-        await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-          if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
-        });
+        // TASK-011 remediation (round 2, issue 4) — only the worker that
+        // ACTUALLY committed this transition may touch the child Run's own
+        // lifecycle; a refused (stale) attempt must never call
+        // `cancelChildAgentRun` — the true winner (whoever that is) owns
+        // that responsibility instead.
+        if (committed) {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+          });
+        }
         if (current) return current;
       }
-      const fetched = await attemptFencedTerminalTransition(
+      const fetchedResult = await attemptFencedTerminalTransition(
         deps.fetchStore,
         workspaceId,
         childRunId,
         (r) => ({ ...r, status: "fetched", artifact }),
-        { leaseOwner, attempt: fetching.attempt },
+        // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+        // RE-review round 2, issue 3) — the CAS itself refuses to commit
+        // "fetched" if `cancelRequested` is true at commit time, closing
+        // the TOCTOU window between `finalCheck` (above) and this write.
+        { leaseOwner, attempt: fetching.attempt, requireCancelNotRequested: true },
       );
-      await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-        if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
-      });
-      if (fetched) return fetched;
+      if (fetchedResult.committed) {
+        await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+          if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+        });
+        if (fetchedResult.record) return fetchedResult.record;
+      }
+      // The "fetched" write was refused. Two distinct reasons look
+      // identical from the caller's perspective but need DIFFERENT
+      // handling:
+      //  (a) a cancellation raced the commit (`CultureFetchCancelledRaceError`)
+      //      — THIS worker still holds the live lease (its own
+      //      `leaseOwner`/`attempt` still match the returned record), so it
+      //      is the ONLY one who can legitimately transition the record to
+      //      "cancelled" now — no one else will ever do it.
+      //  (b) the lease itself was reclaimed by a genuinely different,
+      //      later attempt (`CultureFetchStaleLeaseError`) — this worker
+      //      has no authority over the record at all anymore; the owning
+      //      attempt (whichever process that is) is responsible for its
+      //      own terminal write.
+      if (fetchedResult.record?.status === "fetching" && fetchedResult.record.leaseOwner === leaseOwner && fetchedResult.record.attempt === fetching.attempt) {
+        const { committed: cancelCommitted, record: cancelledRecord } = await attemptFencedTerminalTransition(
+          deps.fetchStore,
+          workspaceId,
+          childRunId,
+          (r) => ({ ...r, status: "cancelled" }),
+          { leaseOwner, attempt: fetching.attempt },
+        );
+        if (cancelCommitted) {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+          });
+        }
+        if (cancelledRecord) return cancelledRecord;
+      }
+      if (fetchedResult.record) return fetchedResult.record;
       // The fenced write was refused (a concurrent cancel/reclaim already
       // resolved this record) — `attemptFencedTerminalTransition` already
       // fell back to `get()`, so a null here means the record itself is
@@ -1938,20 +2067,22 @@ export async function materializeCultureSourceFetch(
         // do it now, ourselves, rather than leaving an inconsistent "aborted
         // but still fetching" state.
         if (current?.cancelRequested) {
-          const cancelled = await attemptFencedTerminalTransition(
+          const { committed, record: cancelled } = await attemptFencedTerminalTransition(
             deps.fetchStore,
             workspaceId,
             childRunId,
             (r) => ({ ...r, status: "cancelled" }),
             { leaseOwner, attempt: fetching.attempt },
           );
-          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
-          });
+          if (committed) {
+            await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+              if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+            });
+          }
           if (cancelled) return cancelled;
         }
       }
-      const failed = await attemptFencedTerminalTransition(
+      const failedResult = await attemptFencedTerminalTransition(
         deps.fetchStore,
         workspaceId,
         childRunId,
@@ -1960,19 +2091,45 @@ export async function materializeCultureSourceFetch(
           status: "failed",
           error: error instanceof Error ? error.message : String(error),
         }),
-        { leaseOwner, attempt: fetching.attempt },
+        // Same cancellation-race guard as "fetched" above — a cancel that
+        // raced this failure must still win, never be overwritten with "failed".
+        { leaseOwner, attempt: fetching.attempt, requireCancelNotRequested: true },
       );
-      // `failed` may be null (fence refused — a concurrent cancel/reclaim
-      // already resolved the record terminally) — that outcome is correct
-      // and does not need surfacing as a bug; only the ORIGINAL fetch error
-      // below is what callers need to see when this write DID win.
-      void failed;
-      await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-        // The child Run may already be terminal (e.g. concurrently cancelled) —
-        // that is itself a legitimate terminal state, not a reason to mask the
-        // original fetch failure below. Surface any OTHER failure.
-        if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
-      });
+      // `failedResult.committed` may be false (fence/cancellation-race
+      // refused — a concurrent cancel/reclaim already resolved the record
+      // terminally) — that outcome is correct and does not need surfacing
+      // as a bug; only the ORIGINAL fetch error below is what callers need
+      // to see when this write DID win. Only the winner may touch the
+      // child Run's own lifecycle.
+      if (failedResult.committed) {
+        await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+          // The child Run may already be terminal (e.g. concurrently cancelled) —
+          // that is itself a legitimate terminal state, not a reason to mask the
+          // original fetch failure below. Surface any OTHER failure.
+          if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+        });
+      } else if (
+        failedResult.record?.status === "fetching" &&
+        failedResult.record.leaseOwner === leaseOwner &&
+        failedResult.record.attempt === fetching.attempt
+      ) {
+        // Same reasoning as the "fetched" branch above — this worker still
+        // holds the live lease (a cancellation raced the "failed" commit,
+        // not a lease reclaim), so it is the only one who can legitimately
+        // transition the record to "cancelled" now.
+        const { committed: cancelCommitted } = await attemptFencedTerminalTransition(
+          deps.fetchStore,
+          workspaceId,
+          childRunId,
+          (r) => ({ ...r, status: "cancelled" }),
+          { leaseOwner, attempt: fetching.attempt },
+        );
+        if (cancelCommitted) {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+          });
+        }
+      }
       throw error;
     }
   } finally {
@@ -2046,13 +2203,16 @@ export async function cancelCultureSourceFetch(
 }
 
 export interface SynthesizeCultureProfileInput {
+  /** Needed to independently re-resolve this run's own fetched artifacts
+   * from the durable stores below — TASK-011 remediation (2026-07-19
+   * coordinator distributed-defects RE-review round 2, issue 8). */
+  workspaceId: string;
   /** The EXACT parent Agent Run this synthesis is scoped to — TASK-011
-   * remediation (2026-07-18 final review, issue 6). The router resolves
+   * remediation (2026-07-18 final review, issue 6). The Skill resolves
    * `artifacts`/`skippedSources` from this run's own fetched intent records
    * ONLY, never pooled across historical/concurrent runs for the company. */
   parentRunId: string;
   claims: GroundedClaimInput[];
-  artifacts: CultureArtifactRef[];
   skippedSources: CultureSkippedSource[];
 }
 
@@ -2088,35 +2248,69 @@ export class ClaimGroundingError extends Error {
  * remediation (2026-07-18, issue 6): the output embeds `parentRunId` and
  * each grounded artifact's real hash, so the persisted ledger row can be
  * independently verified against exactly the run/artifacts it claims.
+ *
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review round 2, issue 8) — a FACTORY, not a plain object: this Skill
+ * now resolves the run's fetched artifacts ITSELF, directly from the durable
+ * `childAgentRuns`/`fetchStore` (the SAME stores the router's own pre-checks
+ * read), rather than trusting full `CultureArtifactRef[]` (including raw
+ * fetched page bodies) passed in via `inputs`. `req.inputs` is exactly what
+ * `pipeline.propose` persists VERBATIM into the immutable ledger row — so
+ * the previous design durably embedded every fetched artifact's FULL raw
+ * content into every synthesis proposal's ledger entry, forever, bypassing
+ * this slice's own artifact-expiry/purge mechanism entirely (an expired
+ * artifact's raw body was purged from `cultureFetchStore` but remained
+ * fully readable, unexpired, inside the ledger row). `inputs` now carries
+ * only `workspaceId`/`parentRunId`/`claims`/`skippedSources` — no artifact
+ * bodies at all; the Skill independently re-derives (and re-validates,
+ * including expiry) the artifacts it grounds against, exactly mirroring the
+ * checks the router performs for its own earlier fail-fast validation.
  */
-const synthesizeCultureProfile: Skill = {
-  name: "jobpilot.synthesizeCultureProfile",
-  async run(inputs) {
-    const input = inputs as SynthesizeCultureProfileInput;
-    const artifactsBySourceId = new Map(input.artifacts.map((a) => [a.sourceId, a]));
-    const grounded = groundClaims(input.claims, artifactsBySourceId);
-    if (!grounded.ok) {
-      throw new ClaimGroundingError(grounded.failures);
-    }
-    for (const item of grounded.evidence) {
-      const check = assertNoFabricatedAffinityOrInsiderClaim(item.claimText);
-      if (!check.clean) {
-        throw new Error(
-          `jobpilot.synthesizeCultureProfile: claim "${item.id}" failed the fabrication/insider-claim guard: ${check.violations.join(", ")}`,
-        );
+export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: ChildAgentRunStore; fetchStore: DurableCultureFetchStore }): Skill {
+  return {
+    name: "jobpilot.synthesizeCultureProfile",
+    async run(inputs, ctx) {
+      const input = inputs as SynthesizeCultureProfileInput;
+      const nowISO = ctx.clock.nowISO();
+      const childRuns = await deps.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+      const intentRecords = (
+        await Promise.all(childRuns.map((childRun) => deps.fetchStore.get(input.workspaceId, childRun.id)))
+      ).filter((r): r is NonNullable<typeof r> => r != null);
+      // Last-write-wins per sourceId would silently mask a duplicate — this
+      // Skill fails closed instead, exactly like the router's own
+      // (independent, non-authoritative) pre-check.
+      const bySourceId = new Map<string, CultureArtifactRef>();
+      for (const r of intentRecords) {
+        if (r.status !== "fetched" || !r.artifact || isArtifactExpired(r.artifact, nowISO)) continue;
+        if (bySourceId.has(r.sourceId)) {
+          throw new Error(`jobpilot.synthesizeCultureProfile: duplicate fetched artifact for source "${r.sourceId}" under parent Run "${input.parentRunId}"`);
+        }
+        bySourceId.set(r.sourceId, r.artifact);
       }
-    }
-    const partition = partitionCultureEvidence(grounded.evidence);
-    const disclosure = buildSourceDisclosure(grounded.evidence, input.skippedSources);
-    const output: SynthesizeCultureProfileOutput = {
-      parentRunId: input.parentRunId,
-      artifactHashes: input.artifacts.map((a) => ({ sourceId: a.sourceId, contentHash: a.contentHash })),
-      partition,
-      disclosure,
-    };
-    return { proposedOutput: output, diff: { to: output } };
-  },
-};
+      const grounded = groundClaims(input.claims, bySourceId);
+      if (!grounded.ok) {
+        throw new ClaimGroundingError(grounded.failures);
+      }
+      for (const item of grounded.evidence) {
+        const check = assertNoFabricatedAffinityOrInsiderClaim(item.claimText);
+        if (!check.clean) {
+          throw new Error(
+            `jobpilot.synthesizeCultureProfile: claim "${item.id}" failed the fabrication/insider-claim guard: ${check.violations.join(", ")}`,
+          );
+        }
+      }
+      const partition = partitionCultureEvidence(grounded.evidence);
+      const disclosure = buildSourceDisclosure(grounded.evidence, input.skippedSources);
+      const output: SynthesizeCultureProfileOutput = {
+        parentRunId: input.parentRunId,
+        artifactHashes: [...bySourceId.entries()].map(([sourceId, a]) => ({ sourceId, contentHash: a.contentHash })),
+        partition,
+        disclosure,
+      };
+      return { proposedOutput: output, diff: { to: output } };
+    },
+  };
+}
 
 export const JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
@@ -2956,8 +3150,7 @@ export async function buildWiring(): Promise<Wiring> {
     .register(stageStrategicRecommendation)
     .register(stageHelpdeskAnswer)
     .register(stageOutreachDraft)
-    .register(createResearchCultureSourceSkill())
-    .register(synthesizeCultureProfile);
+    .register(createResearchCultureSourceSkill());
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -2996,6 +3189,14 @@ export async function buildWiring(): Promise<Wiring> {
   const cultureSynthesisPointerStore = new DurableCultureSynthesisPointerStore(modePorts.memoryStore);
   const cultureLatestRunPointerStore = new DurableCultureLatestRunPointerStore(modePorts.memoryStore);
   const cultureFetchAbortControllers = new Map<string, AbortController>();
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // RE-review round 2, issue 8) — registered HERE (not at `skillRegistry`'s
+  // initial construction above) because this Skill needs
+  // `modePorts.childAgentRuns`/`cultureFetchStore` to resolve its own
+  // fetched artifacts internally, rather than trusting full raw content
+  // passed in via `inputs` (see `createSynthesizeCultureProfileSkill`'s doc
+  // comment for why).
+  skillRegistry.register(createSynthesizeCultureProfileSkill({ childAgentRuns: modePorts.childAgentRuns, fetchStore: cultureFetchStore }));
   const {
     roles,
     agents,

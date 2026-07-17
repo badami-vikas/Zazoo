@@ -1284,6 +1284,46 @@ const synthesizeCultureProfileOutputSchema = z.object({
   }),
 });
 
+/**
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects RE-review
+ * round 2, issue 6) — the generic `action.decide` fail-closed backstop: a
+ * ledger row that is SHAPED like a culture-research or culture-synthesis
+ * proposal (by its distinctive `resourceType`/`context`/`inputs`
+ * combination — the ONLY code paths in this router that produce these exact
+ * shapes are `jobpilot.cultureResearch.propose`/`.synthesize` themselves)
+ * must have a durable binding that agrees with the ledger row's OWN id
+ * before a human decision may resolve it. Since propose() now preallocates
+ * and binds BEFORE ever creating a real ledger row (see the `propose`
+ * handler above), a legitimate proposal ALWAYS satisfies this; a proposal
+ * that fails it can only be a corrupted/forged/out-of-band row that never
+ * went through the real propose() path — reject it rather than letting
+ * `pipeline.decide` (which has no knowledge of this binding at all) resolve
+ * it anyway.
+ */
+async function assertCultureProposalBindingValid(wiring: Wiring, original: LedgerEntry): Promise<void> {
+  if (original.resourceType === "external:fetch" && original.context?.type === "child_agent_run") {
+    const childRunId = original.context.id;
+    const record = await wiring.cultureFetchStore.get(original.workspaceId, childRunId);
+    if (!record || record.proposalId !== original.id) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `culture-research proposal "${original.id}" lacks a valid durable binding to its culture-fetch intent record — refusing to decide`,
+      });
+    }
+    return;
+  }
+  const inputs = original.inputs as { parentRunId?: unknown; claims?: unknown } | null;
+  if (original.resourceType === "signal" && original.action === "write" && typeof inputs?.parentRunId === "string" && Array.isArray(inputs.claims)) {
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(original.workspaceId, inputs.parentRunId);
+    if (!pointer || pointer.proposalId !== original.id) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `culture-synthesis proposal "${original.id}" lacks a valid durable binding to its synthesis pointer record — refusing to decide`,
+      });
+    }
+  }
+}
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -1506,6 +1546,11 @@ export const appRouter = t.router({
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
+      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+      // RE-review round 2, issue 6) — fail-closed backstop BEFORE any
+      // decision is resolved: a proposal shaped like a culture-research/
+      // synthesis output must carry a valid durable binding.
+      await assertCultureProposalBindingValid(ctx.wiring, original);
       let resolved;
       try {
         const original = await ctx.wiring.ledger.get(input.proposalId);
@@ -3331,6 +3376,25 @@ export const appRouter = t.router({
               actorId: LEARNING_AGENT,
             });
 
+            // TASK-011 remediation (2026-07-19 coordinator distributed-
+            // defects RE-review round 2, issue 6) — PREALLOCATE the
+            // proposal's id and durably BIND it to the intent record BEFORE
+            // any real ledger proposal can exist bearing that id. This
+            // eliminates the "approvable orphan" crash window entirely
+            // (rather than merely arguing a post-hoc window is inert): the
+            // ONLY way `pipeline.propose` can produce an approvable
+            // (`pending_review`) or auto-applied ledger row is via
+            // `#appendLedger`, which honors `options.proposalId` — so by
+            // construction, a real ledger row can only ever bear an id this
+            // intent record was ALREADY bound to before propose() was even
+            // called. `pipeline.propose`'s own internal rejection path
+            // (`#reject`) always mints its OWN fresh id and never reaches
+            // `pending_review`/`applied`, so a rejection leaves this bound
+            // id permanently pointing at nothing — inert dead weight, never
+            // approvable, never visible in `action.listPending`.
+            const proposalId = ctx.run.ids.next();
+            await ctx.wiring.cultureFetchStore.attachProposal(input.workspaceId, childRun.id, proposalId);
+
             // PURE — no network access. Proposing this is genuinely side-effect-free.
             const proposal = await ctx.wiring.pipeline.propose(
               {
@@ -3344,37 +3408,21 @@ export const appRouter = t.router({
                 inputs: { sourceId: source.id, workspaceId: input.workspaceId, company: input.company },
                 goalTaskRef: { goalId: researchGoalTask.goalId, taskId: researchGoalTask.taskId },
                 context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
+                // TASK-011 remediation (2026-07-19 coordinator distributed-
+                // defects RE-review round 2, issue 9) — this Run's whole
+                // purpose is to fetch UNTRUSTED external content (a company's
+                // own public page, never operator/user-authored) — tag the
+                // turn's provenance accordingly (PI-1) so it is threaded
+                // through the persisted ledger row and any downstream taint
+                // checks, never defaulting to an implicit "trusted" origin.
+                trustOrigin: "untrusted_external",
               },
               ctx.run,
+              { proposalId },
             );
             if (proposal.status === "rejected") {
               throw new TRPCError({ code: "BAD_REQUEST", message: proposal.rejectionReason ?? "culture-research proposal was rejected" });
             }
-
-            // TASK-011 remediation (2026-07-19 coordinator distributed-
-            // defects RE-review, issue 5) — a crash BETWEEN `pipeline.propose`
-            // succeeding (above) and this `attachProposal` call would leave
-            // a real, ledger-persisted proposal whose durable intent record
-            // never learns its id. Analysis of why this cannot become an
-            // "approvable orphan" (the property issue 5 requires), rather
-            // than a full preallocated-id redesign (which would need a
-            // pipeline.propose signature change — out of scope this round):
-            // (a) the CALLER never receives this specific proposalId either
-            // (the whole HTTP response that would have carried it never
-            // completes), so no client can ever present it to
-            // `materialize`/`cancel`/`status`; (b) even if it were somehow
-            // obtained out-of-band and approved via `action.decide`, EVERY
-            // one of those procedures resolves the record via
-            // `getByProposal(workspaceId, proposalId, childRunId)`, which
-            // requires the intent's OWN `proposalId` field to already equal
-            // the caller-supplied one — since it durably stays `null`
-            // forever for this specific childRunId, the match can never
-            // succeed, so the orphaned proposal can NEVER cause a real
-            // fetch or any other effect. It is inert, not exploitable — a
-            // resource-cleanliness gap (an unused child Run + intent record
-            // linger, invisible to `latestRun`'s `pending` list since that
-            // filters on `r.proposalId` truthiness), not a security one.
-            await ctx.wiring.cultureFetchStore.attachProposal(input.workspaceId, childRun.id, proposal.id);
             pending.push({ proposalId: proposal.id, childRunId: childRun.id, sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel });
           }
 
@@ -3568,6 +3616,45 @@ export const appRouter = t.router({
 
           const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
           const synthesisGoalTask = await provisionCultureSynthesisTask(ctx.wiring, input.workspaceId);
+
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review round 2, issue 7) — self-heal a STALE pointer before
+          // preallocating a new one. Preallocating the pointer before
+          // `propose` (below) closes the "append-without-pointer orphan"
+          // window, but introduces its mirror: a genuine process crash
+          // strictly BETWEEN `recordProposal` succeeding and `propose` ever
+          // creating a real ledger row would otherwise leave a dead pointer
+          // that permanently blocks every future synthesis attempt for this
+          // parentRunId (recordProposal is first-write-wins and would keep
+          // refusing to rebind it). Detect this specific case — a pointer
+          // whose proposalId does NOT resolve to any real ledger row at
+          // all — and release it before this attempt's own preallocation. A
+          // pointer whose proposalId DOES resolve (however that proposal was
+          // ultimately decided) is left untouched here; that case is a live,
+          // real synthesis and is not this function's concern.
+          const existingPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, input.parentRunId);
+          if (existingPointer && !(await ctx.wiring.ledger.get(existingPointer.proposalId))) {
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, existingPointer.proposalId).catch(() => {});
+          }
+
+          // PREALLOCATE the proposal id and durably record the (parentRunId
+          // -> proposalId) pointer BEFORE any real ledger proposal can exist
+          // bearing that id — the same preallocation pattern as the research
+          // `propose` handler (issue 6). This closes the "append-without-
+          // pointer orphan" crash window structurally rather than relying
+          // solely on `synthesisResult`'s own self-repair (which still
+          // requires a client-supplied proposalId and remains as defense in
+          // depth for any pointer later lost/corrupted). `recordProposal` is
+          // first-write-wins (`writeIfAbsent`): a losing concurrent
+          // `synthesize` call for the SAME parentRunId now fails BEFORE ever
+          // creating a real ledger proposal at all, rather than after.
+          const proposalId = ctx.run.ids.next();
+          try {
+            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.workspaceId, input.parentRunId, input.company, proposalId);
+          } catch (error) {
+            throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : String(error) });
+          }
+
           let synthesisProposal;
           try {
             synthesisProposal = await ctx.wiring.pipeline.propose(
@@ -3579,27 +3666,46 @@ export const appRouter = t.router({
                 resourceType: "signal" as ResourceType,
                 skill: "jobpilot.synthesizeCultureProfile",
                 dataScope: "all" as DataScope,
-                inputs: { parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], artifacts: fetchedArtifacts, skippedSources },
+                // TASK-011 remediation (2026-07-19 coordinator distributed-
+                // defects RE-review round 2, issue 8) — NO artifact bodies
+                // here. `req.inputs` is persisted VERBATIM into the
+                // immutable ledger row by `pipeline.propose`; the Skill
+                // resolves its own artifacts internally (see
+                // `createSynthesizeCultureProfileSkill`) so the ledger never
+                // durably retains full raw fetched content.
+                inputs: { workspaceId: input.workspaceId, parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], skippedSources },
                 goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
+                // TASK-011 remediation (2026-07-19 coordinator distributed-
+                // defects RE-review round 2, issue 9) — Internal Strategist
+                // is reasoning DIRECTLY over untrusted external evidence
+                // (the fetched artifacts) here, even though the claims
+                // themselves are grounded/validated — the turn's provenance
+                // (PI-1) must reflect that, threaded through the persisted
+                // ledger row, `action.decide`, and `synthesisResult`'s own
+                // response (never silently defaulting to a trusted origin
+                // just because the OUTPUT happens to be schema-validated).
+                trustOrigin: "untrusted_external",
               },
               ctx.run,
+              { proposalId },
             );
           } catch (error) {
+            // The Skill threw synchronously (e.g. a claim-grounding failure)
+            // BEFORE any real ledger row was ever created — release OUR OWN
+            // preallocated pointer binding (never a different, concurrently-
+            // won one) so a legitimate retry for this parentRunId is not
+            // permanently blocked by a doomed attempt.
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
           }
           if (synthesisProposal.status === "rejected") {
+            // `#reject`'s ledger row bears its OWN auto-generated id, never
+            // OUR preallocated one — release it the same way, for the same
+            // reason (an authority/policy rejection must not permanently
+            // consume the pointer for this parentRunId either).
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
           }
-          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
-          // review, issue 13) — record the durable (parentRunId → proposalId)
-          // pointer so `latestRun` can resolve synthesis state for a client
-          // with no local pointer at all (cleared storage, new device).
-          await ctx.wiring.cultureSynthesisPointerStore.recordProposal(
-            input.workspaceId,
-            input.parentRunId,
-            input.company,
-            synthesisProposal.id,
-          );
           return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
         }),
 
@@ -3743,7 +3849,7 @@ export const appRouter = t.router({
               // fight over who owns it.
             });
           }
-          return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result };
+          return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result, trustOrigin: proposal.trustOrigin ?? null };
         }),
     }),
   }),
@@ -5545,12 +5651,59 @@ export const appRouter = t.router({
 
       /** Governance/Human may stop any child Run within policy. The acting
        * identity is SERVER-RESOLVED (`ctx.identity`), never client-asserted —
-       * same rule every mutation in this router follows. */
+       * same rule every mutation in this router follows.
+       *
+       * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+       * RE-review round 2, issue 5) — a culture-research fetch's cancellation
+       * is NOT just a child-Run status flip: it has its OWN durable
+       * cancellation mechanism (`DurableCultureFetchStore.requestCancel` +
+       * the in-flight `AbortController`) that actually stops the real
+       * outbound socket, cross-instance-safe via the durable
+       * `cancelRequested` flag `materializeCultureSourceFetch`'s own poll
+       * loop watches. Calling `cancelChildAgentRun` directly here (as this
+       * generic endpoint used to, unconditionally) would race that
+       * mechanism: the child Run could be marked "cancelled" while the
+       * underlying fetch keeps running, unaware, eventually landing
+       * "fetched"/"failed" against an already-terminal child Run — a
+       * fetched/cancelled mismatch this endpoint must not create. Route
+       * THROUGH the registered per-operation cancellation for any child Run
+       * that IS a culture-research fetch; only fall back to the generic
+       * child-Run-only transition for every other (non-culture) child Run.
+       */
       cancel: authenticatedProcedure
         .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const cultureFetchRecord = await ctx.wiring.cultureFetchStore.get(input.workspaceId, input.childRunId);
+        if (cultureFetchRecord && cultureFetchRecord.proposalId) {
+          await cancelCultureSourceFetch(
+            {
+              childAgentRuns: ctx.wiring.childAgentRuns,
+              ledger: ctx.wiring.ledger,
+              fetchStore: ctx.wiring.cultureFetchStore,
+              abortControllers: ctx.wiring.cultureFetchAbortControllers,
+            },
+            input.workspaceId,
+            cultureFetchRecord.proposalId,
+            input.childRunId,
+            { type: ctx.identity.type, id: ctx.identity.id },
+            ctx.run,
+          );
+          // `cancelCultureSourceFetch` already transitions the child Run
+          // itself (via its own fenced/lease-aware path) whenever its own
+          // durable write actually commits. Whether that happened just now,
+          // already happened earlier, or the fetch had already reached a
+          // DIFFERENT terminal outcome (fetched/failed) before this request
+          // arrived, the child Run's CURRENT, authoritative record is always
+          // the correct thing to return here — never a stale optimistic
+          // "cancelled" that might not match what the fetch actually
+          // resolved to (no fetched/cancelled mismatch is swallowed; the
+          // caller sees the real converged state).
+          const current = await ctx.wiring.childAgentRuns.get(input.workspaceId, input.childRunId);
+          if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "unknown child Run" });
+          return current;
+        }
         return cancelChildAgentRun(
           { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
           input.workspaceId,
