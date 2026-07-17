@@ -15,11 +15,13 @@ export {
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureRelationshipUserGovernance,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   type InternalStrategistGovernanceConfig,
+  type RelationshipUserGovernanceConfig,
   type FoundationalAgentGovernanceConfig,
   type LearningAgentGovernanceConfig,
   type OutreachAgentGovernanceConfig,
@@ -45,11 +47,18 @@ export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./work
 export {
   DrizzleGraphStore,
   type CommunityRecord,
+  type MaterializeSignalEvidenceInput,
+  type NodeTypeOwner,
   type PageOpts,
   type Page,
   type PersonRecord,
+  type RelationRecord,
+  type RelationVisibility,
   type SignalDetail,
+  type SignalEvidenceAnchor,
   type SignalParticipant,
+  type SignalParticipantRelationInput,
+  type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
 export {

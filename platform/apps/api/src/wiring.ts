@@ -126,6 +126,7 @@ import {
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureRelationshipUserGovernance,
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
@@ -769,6 +770,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -832,6 +835,7 @@ export interface ModePorts {
   ensureInternalStrategistGovernance?: () => Promise<void>;
   ensureGovernanceAgentGovernance?: () => Promise<void>;
   ensureCapabilityBuilderGovernance?: () => Promise<void>;
+  ensureRelationshipUserGovernance?: () => Promise<void>;
   /**
    * TASK-007 (AGS1) — persistent-mode only. Idempotently seeds the code-declared
    * `GOVERNED_SKILL_MANIFEST_CATALOG` into `skill_manifests`, then refreshes the
@@ -971,6 +975,11 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
         roleId: CAPABILITY_BUILDER_ROLE,
         permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
       }),
+    ensureRelationshipUserGovernance: () =>
+      ensureRelationshipUserGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+      }),
     ensureSkillManifestCatalog: async () => {
       await seedSkillManifests(db, GOVERNED_SKILL_MANIFEST_CATALOG);
       await skillManifestRegistry.refresh();
@@ -1010,13 +1019,16 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
   const { db: localDb, close: closeLocalDb } = await createLocalDb(
     env.localDir ? { dataDir: env.localDir } : {},
   );
+  const graphStore = new DrizzleGraphStore(localDb);
+  const relationDecisionSequenceFloor =
+    await graphStore.getMaxRelationDecisionSequence();
 
   return {
     roles: mRoles,
     agents: mAgents,
     ephemeral: mEphemeral,
     policyStore: new InMemoryPolicyStore(policies),
-    ledger: new InMemoryLedger(),
+    ledger: new InMemoryLedger(relationDecisionSequenceFloor),
     // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
     // ritual.create (validated ritual ⊆ agent) and persist here for the session.
     ritualRegistry: new InMemoryRitualRegistry(),
@@ -1025,7 +1037,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     canonical: new InMemoryCanonicalIdentityStore(),
     dealPilotCaptures: createInMemoryCaptureStore(),
     workspaceStore: new DrizzleWorkspaceStore(localDb),
-    graphStore: new DrizzleGraphStore(localDb),
+    graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
     resourcesStore: new DrizzleResourcesStore(localDb),
@@ -1224,6 +1236,7 @@ export async function buildWiring(): Promise<Wiring> {
   await modePorts.ensureInternalStrategistGovernance?.();
   await modePorts.ensureGovernanceAgentGovernance?.();
   await modePorts.ensureCapabilityBuilderGovernance?.();
+  await modePorts.ensureRelationshipUserGovernance?.();
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   // Refresh the persistent manifest registry before constructing the pipeline.

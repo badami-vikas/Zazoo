@@ -7,7 +7,7 @@
  * RLS still enforces tenancy + visibility at the DB; these resolvers are the
  * in-tenant capability layer. They compose — neither replaces the other.
  */
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
@@ -110,6 +110,10 @@ export type OutreachAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type FoundationalAgentGovernanceConfig = LearningAgentGovernanceConfig;
 export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
 export type RuntimeAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
+export interface RelationshipUserGovernanceConfig {
+  workspaceId: string;
+  userId: string;
+}
 
 interface PersistentAgentGovernanceConfig extends LearningAgentGovernanceConfig {
   name: string;
@@ -277,6 +281,55 @@ async function ensurePersistentAgentGovernance(
   ) {
     throw new Error(`Persistent ${config.name} governance provisioning failed verification`);
   }
+}
+
+/** Idempotently grants only the Human principal the Relationship Relation surface. */
+export async function ensureRelationshipUserGovernance(
+  db: Database,
+  config: RelationshipUserGovernanceConfig,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`
+      SELECT
+        set_config('app.workspace_id', ${config.workspaceId}, true),
+        set_config('app.user_id', ${config.userId}, true)
+    `);
+    for (const action of ["read", "write"] as const) {
+      await tx
+        .insert(permissions)
+        .values({
+          id: stableGovernanceId(
+            `principal:${config.workspaceId}:${config.userId}:relation:${action}`,
+          ),
+          workspaceId: config.workspaceId,
+          actorType: "user",
+          actorId: config.userId,
+          resourceType: "relation",
+          resourceId: null,
+          action,
+          effect: "allow",
+          grantedBy: config.userId,
+        })
+        .onConflictDoNothing();
+    }
+    const direct = await new DrizzleRoleStore(tx).directGrants(
+      config.workspaceId,
+      { type: "user", id: config.userId },
+    );
+    for (const action of ["read", "write"] as const) {
+      if (
+        !direct.some(
+          (grant) =>
+            grant.resourceType === "relation" &&
+            grant.resourceId === null &&
+            grant.action === action &&
+            grant.effect === "allow",
+        )
+      ) {
+        throw new Error(`Persistent Relationship Relation ${action} grant provisioning failed`);
+      }
+    }
+  });
 }
 
 /**

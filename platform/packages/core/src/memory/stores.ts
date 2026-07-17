@@ -166,8 +166,20 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+function ledgerEntryVisibleToPrivateOwner(
+  entry: LedgerEntry,
+  privateOwnerUserId: string | undefined,
+): boolean {
+  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
+  if (entry.onBehalfOfType === "user") {
+    return entry.onBehalfOfId === privateOwnerUserId;
+  }
+  return entry.actorType === "user" && entry.actorId === privateOwnerUserId;
+}
+
 export class InMemoryLedger implements LedgerStore {
   readonly entries: LedgerEntry[] = [];
+  #lastAppendSequence: number;
   /**
    * Tracks proposal ids that already have a resolving (non-null userDecision)
    * decision row, so `append()` can check-and-mark atomically. `append()` is
@@ -182,6 +194,13 @@ export class InMemoryLedger implements LedgerStore {
    * closes it for Postgres/pglite.
    */
   readonly #resolved = new Set<string>();
+
+  constructor(initialAppendSequence = 0) {
+    if (!Number.isSafeInteger(initialAppendSequence) || initialAppendSequence < 0) {
+      throw new Error("ledger: initial append sequence must be a non-negative safe integer");
+    }
+    this.#lastAppendSequence = initialAppendSequence;
+  }
 
   async append(entry: LedgerEntry): Promise<LedgerEntry> {
     // Append-only: enforce no duplicate id, never overwrite.
@@ -198,8 +217,9 @@ export class InMemoryLedger implements LedgerStore {
       }
       this.#resolved.add(entry.refLedgerId);
     }
-    this.entries.push(entry);
-    return entry;
+    const persisted = { ...entry, appendSequence: ++this.#lastAppendSequence };
+    this.entries.push(persisted);
+    return persisted;
   }
   async get(id: string): Promise<LedgerEntry | null> {
     return this.entries.find((e) => e.id === id) ?? null;
@@ -209,7 +229,7 @@ export class InMemoryLedger implements LedgerStore {
   }
   async listPending(
     workspaceId: string,
-    opts: { limit: number; offset: number },
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const pending = this.entries
       .filter(
@@ -223,10 +243,28 @@ export class InMemoryLedger implements LedgerStore {
             !Array.isArray(entry.diff) &&
             "rejected" in entry.diff
           ) &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId) &&
           !this.#resolved.has(entry.id),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return { items: pending.slice(opts.offset, opts.offset + opts.limit), total: pending.length };
+  }
+
+  async listHistory(
+    workspaceId: string,
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
+  ): Promise<{ items: LedgerEntry[]; total: number }> {
+    const items = this.entries
+      .filter(
+        (entry) =>
+          entry.workspaceId === workspaceId &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId),
+      )
+      .sort((left, right) => (right.appendSequence ?? 0) - (left.appendSequence ?? 0));
+    return {
+      items: items.slice(opts.offset, opts.offset + opts.limit),
+      total: items.length,
+    };
   }
 }
 

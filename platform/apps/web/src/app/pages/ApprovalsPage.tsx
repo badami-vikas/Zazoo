@@ -237,7 +237,7 @@ export function ApprovalsPage() {
         expanded={insightsOpen}
         metrics={[
           { id: 'awaiting', label: 'Awaiting review', value: String(queue.length), hint: 'every outbound or sensitive agent action pauses here' },
-          { id: 'source', label: 'Ledger source', value: source === 'api' ? 'Action Pipeline' : source === 'supabase' ? 'Supabase' : 'Unavailable', hint: 'append-only' },
+          { id: 'source', label: 'Ledger source', value: source === 'api' ? 'Action Pipeline' : 'Unavailable', hint: 'append-only' },
         ]}
       />
       {loadError && (

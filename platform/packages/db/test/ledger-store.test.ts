@@ -13,6 +13,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AlreadyResolvedError, type LedgerEntry } from "@bridge/core";
+import { eq, sql } from "drizzle-orm";
 import { createLocalDb, DrizzleLedgerStore, schema } from "../src/index.js";
 
 const NIL_ACTOR = "00000000-0000-0000-0000-00000000dead"; // test_fixture_ actor id, no FK on ledger.actor_id
@@ -207,8 +208,211 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       createdAt: "2026-07-05T00:00:00.000Z",
     });
 
+    test("ledger: pending Relation projection is owner-scoped without hiding shared proposal types", async () => {
+      const { db, close } = await createLocalDb();
+      try {
+        const [ws] = await db
+          .insert(schema.workspaces)
+          .values({ name: "test_fixture_relation_pending_owner_scope" })
+          .returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        const ownerId = "50000000-0000-4000-8000-000000000001";
+        const otherId = "50000000-0000-4000-8000-000000000002";
+        const store = new DrizzleLedgerStore(db);
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000001",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: ownerId,
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:02.000Z",
+        });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000002",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: ownerId,
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:01.000Z",
+        });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000003",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          action: "write",
+          resourceType: "signal",
+          inputs: {},
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:00.000Z",
+        });
+
+        const owner = await store.listPending(ws.id, {
+          limit: 10,
+          offset: 0,
+          privateOwnerUserId: ownerId,
+        });
+        assert.equal(owner.total, 3);
+        const other = await store.listPending(ws.id, {
+          limit: 10,
+          offset: 0,
+          privateOwnerUserId: otherId,
+        });
+        assert.equal(other.total, 1);
+        assert.deepEqual(other.items.map((entry) => entry.resourceType), ["signal"]);
+
+        const ownerHistory = await store.listHistory(ws.id, {
+          limit: 10,
+          offset: 0,
+          privateOwnerUserId: ownerId,
+        });
+        assert.equal(ownerHistory.total, 3);
+        assert.equal(ownerHistory.items[0]?.resourceType, "signal");
+        const otherHistory = await store.listHistory(ws.id, {
+          limit: 10,
+          offset: 0,
+          privateOwnerUserId: otherId,
+        });
+        assert.equal(otherHistory.total, 1);
+        assert.deepEqual(
+          otherHistory.items.map((entry) => entry.resourceType),
+          ["signal"],
+        );
+      } finally {
+        await close();
+      }
+    });
+
+    test("ledger: historical proposal references stay resolved and cannot be approved again", async () => {
+      const { db, close } = await createLocalDb();
+      try {
+        const [ws] = await db
+          .insert(schema.workspaces)
+          .values({ name: "test_fixture_legacy_ledger_resolution" })
+          .returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        const store = new DrizzleLedgerStore(db);
+        const legacyKeys = ["proposalId", "proposal_id"] as const;
+
+        for (const [index, legacyKey] of legacyKeys.entries()) {
+          const proposalId =
+            index === 0
+              ? "6a000000-0000-4000-8000-0000000000a1"
+              : "6b000000-0000-4000-8000-0000000000b2";
+          const decisionId = `62000000-0000-4000-8000-00000000000${index + 1}`;
+          const retryId = `63000000-0000-4000-8000-00000000000${index + 1}`;
+          await store.append({
+            id: proposalId,
+            workspaceId: ws.id,
+            actorType: "user",
+            actorId: NIL_ACTOR,
+            action: "write",
+            resourceType: "relation",
+            inputs: { kind: "relationship_signal_evidence" },
+            userDecision: null,
+            policyResults: [],
+            createdAt: `2026-07-05T00:00:0${index}.000Z`,
+          });
+          await db.insert(schema.ledger).values({
+            id: decisionId,
+            workspaceId: ws.id,
+            actorType: "user",
+            actorId: NIL_ACTOR,
+            action: "write",
+            resourceType: "relation",
+            inputs: { [legacyKey]: proposalId.toUpperCase() },
+            userDecision: "approve",
+            policyResults: [],
+            createdAt: new Date(`2026-07-05T00:00:1${index}.000Z`),
+          });
+          await db
+            .update(schema.ledger)
+            .set({ appendSequence: sql`NULL` })
+            .where(eq(schema.ledger.id, decisionId));
+
+          const resolved = await store.decisionFor(proposalId);
+          assert.equal(resolved?.id, decisionId);
+          assert.equal(resolved?.refLedgerId, proposalId);
+          assert.ok((resolved?.appendSequence ?? 0) > 0);
+          const history = await store.listHistory(ws.id, { limit: 50, offset: 0 });
+          assert.equal(
+            history.items.find((entry) => entry.id === decisionId)?.refLedgerId,
+            undefined,
+            "history preserves whether a proposal reference came from legacy inputs",
+          );
+          await assert.rejects(
+            () =>
+              store.append(
+                decisionRow({
+                  id: retryId,
+                  workspaceId: ws.id,
+                  refLedgerId: proposalId,
+                  resourceType: "relation",
+                }),
+              ),
+            AlreadyResolvedError,
+          );
+        }
+
+        assert.deepEqual(await store.listPending(ws.id, { limit: 50, offset: 0 }), {
+          items: [],
+          total: 0,
+        });
+      } finally {
+        await close();
+      }
+    });
+
+    test("ledger: domain proposalId input does not turn a root proposal into a decision row", async () => {
+      const { db, close } = await createLocalDb();
+      try {
+        const [ws] = await db
+          .insert(schema.workspaces)
+          .values({ name: "test_fixture_domain_proposal_id" })
+          .returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        const store = new DrizzleLedgerStore(db);
+        const root = await store.append({
+          id: "64000000-0000-4000-8000-000000000001",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: NIL_ACTOR,
+          action: "write",
+          resourceType: "signal",
+          inputs: { proposalId: "65000000-0000-4000-8000-000000000001" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-05T00:00:00.000Z",
+        });
+
+        assert.equal(root.refLedgerId, undefined);
+        assert.equal((await store.get(root.id))?.refLedgerId, undefined);
+        assert.deepEqual(
+          (await store.listPending(ws.id, { limit: 50, offset: 0 })).items.map(
+            (entry) => entry.id,
+          ),
+          [root.id],
+        );
+      } finally {
+        await close();
+      }
+    });
+
     const read = await store.get(written.id);
     assert.ok(read);
+    assert.ok((written.appendSequence ?? 0) > 0);
+    assert.equal(read!.appendSequence, written.appendSequence);
     assert.equal(read!.seed, "test_fixture_seed-1");
     assert.equal(read!.dataScope, "private");
     assert.deepEqual(read!.context, context);

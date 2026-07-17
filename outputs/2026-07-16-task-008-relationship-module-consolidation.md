@@ -1,6 +1,6 @@
 # TASK-008 — Relationship Module consolidation
 
-Date: 2026-07-16
+Date: 2026-07-17
 
 ## Outcome
 
@@ -127,3 +127,56 @@ Affected core, DB, API, and web suites; platform build/typecheck; web production
 ## Post-integration audit correction
 
 After the hardened slice reached `main`, audit commit `db2b19c` proved that the branch-only RM4 Relation persistence/materialization contract had not been integrated. TASK-008 is therefore reopened until that schema/store/materializer/API/test slice lands without overwriting the hardened UI, Approvals, or public Helpdesk. TASK-009 still owns the cross-Module graph; TASK-017 owns durable retry of failed approved external effects.
+
+## RM4 Relation persistence/materialization completion
+
+The missing RM4 contract is implemented without replacing the hardened Relationship shell, public Helpdesk, Approvals surface, or TASK-007 orchestration:
+
+- Relations now carry bounded evidence references, confidence, observed/valid time, confirmation, visibility, source, source Module, owner, and decision provenance.
+- Person, Community, Signal, and source Event node types map to the Relationship Module.
+- Semantic uniqueness is workspace- and owner-scoped. Materialization is atomic, retry-idempotent, and monotonic by database append sequence: reconciling an older approved proposal cannot overwrite newer approved Relation state, including after a file-backed Local Plane restart. A transaction-scoped advisory lock closes the previously absent-participant race without requiring write access to Signal rows.
+- `DrizzleGraphStore` exposes owner-scoped `upsertRelation`, approved Signal-evidence materialization, bounded visibility/endpoint/evidence-pruned reads, and node-type ownership. Signal reads prefer the viewer's approved source Event and owner Relation over newer unapproved Events or ownerless legacy rows.
+- The authenticated `relationship` API stages only the bounded Signal-evidence proposal shape, always forces Human review, hides private Relation proposals from other workspace members, persists sanitized edits, validates the exact append-only decision boundary, materializes approved/edited decisions, and reconciles resolved proposals.
+- Generic public `action.propose` does not accept `resourceType: relation`. Browser database roles have no direct `edges`, `ledger`, or ledger-sequence privileges. Execution Ledger history now uses an authenticated, workspace-scoped API with a disclosed 500-row newest-first window that preserves private Relation owner isolation.
+- Migration `0015_task008_relation_contract` follows post-release migration 0014, preserves legacy `created_at` as `observed_at`, safely suspends forced RLS only for its transactional legacy backfill, keeps legacy ownerless rows workspace-visible, and installs Relation constraints/RLS. Legacy ledger rows remain nullable and receive a deterministic read-time sequence while the new sequence starts above their reserved range, avoiding a historical-ledger rewrite and unique-index lock. The generated snapshot and schema declaration match; Drizzle generation reports no drift.
+
+Primary implementation files:
+
+- `platform/packages/db/src/schema.ts`
+- `platform/packages/db/src/graph-store.ts`
+- `platform/packages/db/src/ledger-store.ts`
+- `platform/packages/db/src/governance-stores.ts`
+- `platform/packages/db/migrations/0015_task008_relation_contract.sql`
+- `platform/packages/core/src/{ports,memory/stores}.ts`
+- `platform/apps/api/src/relationship-materializer.ts`
+- `platform/apps/api/src/router.ts`
+- `platform/apps/api/src/wiring.ts`
+- `platform/apps/web/src/app/data/ledger.ts`
+- `platform/apps/web/src/app/data/governance.ts`
+- `platform/apps/web/src/app/components/ExecutionLedger.tsx`
+
+Verification:
+
+- Core: 422 tests passed.
+- DB: 114 tests passed, including forced-RLS migration, owner precedence, exact Event binding, evidence pruning, and atomic/idempotent materialization.
+- API: 163 tests passed, including authenticated owner-filtered ledger history and Local Plane restart ordering.
+- Web: 43 tests passed; typecheck and production build passed.
+- Desktop: `cargo check` and 28 Rust tests passed.
+- Migration 0015 fresh-apply compatibility and schema no-drift checks passed.
+- Changed-file lint and the runtime dummy-data check passed.
+- Independent review found one high-confidence nullable-sequence schema mismatch. The declaration/snapshot were corrected, a fresh Drizzle generation became a no-op, and the focused migration/ledger suite plus API typecheck passed afterward.
+- Final whitespace and conflict-marker checks passed.
+
+The feature base has a pre-existing TASK-007 compile blocker: `AgentQuery` requires `workspaceId` and `isActive`, while `InMemoryAgentStore` lacks those methods/maps. Cross-package TypeScript gates and the full suites pass with that isolated compatibility shim, which is not included in this TASK-008 change. Full lint is also blocked by the pre-existing missing `react-hooks/exhaustive-deps` rule in `ZazooAvatar.tsx`; TASK-008 changed-file lint is separate.
+
+`origin/main` was fetched at `f20f611` before delivery and is nine commits ahead of this feature base. Per the no-merge directive, main was not merged or rebased. A synthetic merge-tree check identifies content conflicts in `platform/apps/api/src/router.ts`, `platform/apps/api/src/wiring.ts`, `platform/packages/db/src/governance-stores.ts`, and `platform/packages/db/test/local-store.test.ts`; the other overlapping files auto-merge.
+
+### Proposed shared-ledger updates
+
+Coordinator should:
+
+- attach this RM4 evidence to TASK-008 and mark the missing Relation contract resolved after merge;
+- record the pre-existing TASK-007 `InMemoryAgentStore` compile blocker against its existing canonical task/evidence rather than creating a duplicate work row;
+- append the schema/API/materialization summary to `docs/log.md`;
+- record the monotonic decision-provenance rationale in `docs/raw/decisions-log.md`;
+- regenerate structural CODEMAPS after integration.

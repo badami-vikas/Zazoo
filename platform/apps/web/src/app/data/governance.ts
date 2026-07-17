@@ -35,7 +35,7 @@ export interface LedgerEntry {
   delegationId?: string | null;
   runId?: string | null;
   action: string;        // verb, e.g. "Send intro email"
-  resourceType: 'person' | 'initiative' | 'community' | 'ritual' | 'signal' | 'external' | 'memory' | 'help';
+  resourceType: 'person' | 'initiative' | 'community' | 'relation' | 'ritual' | 'signal' | 'external' | 'memory' | 'help';
   resource: string;      // target label, e.g. "Priya Anand"
   policy: string;        // the policy that forced review (policies.name)
   decision: Decision;    // null === pending (awaiting review)
@@ -48,8 +48,8 @@ export interface LedgerEntry {
 }
 
 // ── PENDING (F2 Approvals inbox) — ledger rows where decision IS NULL ─────────────
-// Empty by design: real pending approvals come from loadLedger() (Supabase). This local fallback
-// only kicks in when Supabase is unreachable, and an honest empty state beats fabricated rows.
+// Empty by design: real pending approvals come from the authenticated Action Pipeline. This local
+// fallback only appears when the API is unavailable, and an honest empty state beats fabricated rows.
 export const pendingApprovals: LedgerEntry[] = [];
 
 // ── HISTORY (F3 Execution Ledger) — append-only, decisions already made ───────────

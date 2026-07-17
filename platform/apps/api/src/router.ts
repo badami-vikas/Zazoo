@@ -11,6 +11,13 @@ import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
 import {
+  isRelationshipSignalEvidence,
+  materializeApprovedRelationshipProposal,
+  proposalFromResolvedRelationshipLedger,
+  relationshipOwnerFromLedger,
+  relationshipSignalEvidencePayloadSchema,
+} from "./relationship-materializer.js";
+import {
   LEARNING_AGENT,
   OUTREACH_AGENT,
   EGRESS_AGENT,
@@ -135,7 +142,6 @@ function stableProposalId(key: string): string {
   const value = hex.join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
-
 function stableOutreachProposalId(key: string): string {
   return stableProposalId(key);
 }
@@ -511,6 +517,25 @@ const decideInput = z.object({
   editedOutput: z.unknown().optional(),
   reason: z.string().trim().min(1).max(500).optional(),
 });
+
+const relationshipNodeTypeEnum = z.enum(["person", "community", "signal", "event"]);
+const relationshipSignalEvidenceInput = relationshipSignalEvidencePayloadSchema
+  .omit({ kind: true })
+  .extend({
+    workspaceId: z.string().uuid().transform((value) => value.toLowerCase()),
+  });
+
+function assertRelationshipProposalOwner(
+  proposal: LedgerEntry,
+  identity: { type: ActorType; id: string },
+): void {
+  if (
+    proposal.resourceType === "relation" &&
+    (identity.type !== "user" || relationshipOwnerFromLedger(proposal) !== identity.id)
+  ) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+  }
+}
 
 const outreachDraftInput = z.object({
   workspaceId: z.string().min(1),
@@ -1294,7 +1319,36 @@ export const appRouter = t.router({
         const { items, total } = await ctx.wiring.pipeline.listPending(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
+          privateOwnerUserId: ctx.identity.id,
         });
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    /** Bounded Execution Ledger history through the authenticated server seam.
+     * Relation rows retain owner isolation after direct browser table access is revoked. */
+    listHistory: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          limit: z.number().int().min(1).max(100).default(100),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(
+          ctx.wiring.workspaceStore,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        const { items, total } = await ctx.wiring.ledger.listHistory(
+          input.workspaceId,
+          {
+            limit: input.limit,
+            offset: input.offset,
+            privateOwnerUserId: ctx.identity.id,
+          },
+        );
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
@@ -1306,6 +1360,7 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        assertRelationshipProposalOwner(proposal, ctx.identity);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -1329,14 +1384,90 @@ export const appRouter = t.router({
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
-      let resolved;
+      assertRelationshipProposalOwner(original, ctx.identity);
+      let committedEditedOutput = input.editedOutput;
+      if (
+        input.decision === "edit" &&
+        original.resourceType === "relation" &&
+        isRelationshipSignalEvidence(original.inputs)
+      ) {
+        const originalPayload = relationshipSignalEvidencePayloadSchema.safeParse(original.inputs);
+        const editedPayload = relationshipSignalEvidencePayloadSchema.safeParse(input.editedOutput);
+        if (!originalPayload.success || !editedPayload.success) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "edited Relationship output must satisfy the Signal evidence Relation contract",
+          });
+        }
+        if (
+          editedPayload.data.signalId !== originalPayload.data.signalId ||
+          editedPayload.data.sourceEventId !== originalPayload.data.sourceEventId
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "a Relationship review edit cannot retarget the Signal or source Event",
+          });
+        }
+        committedEditedOutput = editedPayload.data;
+        const ownerUserId = relationshipOwnerFromLedger(original);
+        if (!ownerUserId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "edited Relationship output requires a user-owned proposal",
+          });
+        }
+        const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
+          original.workspaceId,
+          ownerUserId,
+          editedPayload.data.signalId,
+          editedPayload.data.sourceEventId,
+        );
+        if (
+          !detail?.sourceEvent ||
+          detail.sourceEvent.id !== editedPayload.data.sourceEventId ||
+          !editedPayload.data.participants.some(
+            (participant) =>
+              participant.recordType === detail.signal.subjectType &&
+              participant.recordId === detail.signal.subjectId,
+          )
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "edited Relationship output must retain its accessible Signal subject and source Event",
+          });
+        }
+        const editedParticipantRecords = await Promise.all(
+          editedPayload.data.participants.map((participant) =>
+            participant.recordType === "person"
+              ? ctx.wiring.graphStore.getPerson(
+                  original.workspaceId,
+                  ownerUserId,
+                  participant.recordId,
+                )
+              : ctx.wiring.graphStore.getCommunity(
+                  original.workspaceId,
+                  ownerUserId,
+                  participant.recordId,
+                ),
+          ),
+        );
+        if (editedParticipantRecords.some((record) => record === null)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "edited Relationship output contains an inaccessible participant",
+          });
+        }
+      }
+      let resolved: Proposal;
+      let postDecisionPipelineError: unknown;
+      let relationshipDecision: LedgerEntry | null = null;
       try {
         resolved = await ctx.wiring.pipeline.decide(
           input.proposalId,
           input.decision,
           ctx.identity,
           ctx.run,
-          input.editedOutput,
+          committedEditedOutput,
           input.reason,
         );
       } catch (err) {
@@ -1353,12 +1484,35 @@ export const appRouter = t.router({
         if (err instanceof AgentFloorDeniedError) {
           throw new TRPCError({ code: "FORBIDDEN", message: err.message });
         }
-        throw err;
+        const persistedDecision =
+          original.resourceType === "relation" &&
+          isRelationshipSignalEvidence(original.inputs)
+            ? await ctx.wiring.ledger.decisionFor(input.proposalId)
+            : null;
+        if (
+          persistedDecision?.userDecision !== "approve" &&
+          persistedDecision?.userDecision !== "edit"
+        ) {
+          throw err;
+        }
+        resolved = proposalFromResolvedRelationshipLedger(original, persistedDecision);
+        relationshipDecision = persistedDecision;
+        postDecisionPipelineError = err;
       }
       // Post-approval Google side effects (no-op for unrelated proposals):
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
+      let relationshipMaterialization: Awaited<
+        ReturnType<typeof materializeApprovedRelationshipProposal>
+      > = null;
       try {
+        const persistedRelationshipDecision =
+          original.resourceType === "relation" &&
+          isRelationshipSignalEvidence(original.inputs) &&
+          input.decision !== "veto"
+            ? relationshipDecision ??
+              await ctx.wiring.ledger.decisionFor(input.proposalId)
+            : null;
         const packageInstallationId = packageInstallIdFromProposal(original);
         const packageInstallation =
           packageInstallationId && input.decision !== "veto"
@@ -1368,15 +1522,47 @@ export const appRouter = t.router({
                 packageInstallationId,
               )
             : undefined;
+        relationshipMaterialization =
+          input.decision === "veto"
+            ? null
+            : await materializeApprovedRelationshipProposal(
+                ctx.wiring.graphStore,
+                persistedRelationshipDecision
+                  ? proposalFromResolvedRelationshipLedger(
+                      original,
+                      persistedRelationshipDecision,
+                    )
+                  : resolved,
+                persistedRelationshipDecision,
+              );
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
+        if (postDecisionPipelineError) throw postDecisionPipelineError;
         return {
           ...resolved,
           effects,
           effectsStatus: "confirmed" as const,
           ...(packageInstallation ? { packageInstallation } : {}),
+          ...(relationshipMaterialization
+            ? {
+                relationshipMaterialization: {
+                  status: "confirmed" as const,
+                  relationCount: 1 + relationshipMaterialization.participants.length,
+                },
+              }
+            : {}),
         };
       } catch (cause) {
-        const effectsError = cause instanceof Error ? cause.message : String(cause);
+        const causeMessage = cause instanceof Error ? cause.message : String(cause);
+        const pipelineMessage =
+          postDecisionPipelineError instanceof Error
+            ? postDecisionPipelineError.message
+            : postDecisionPipelineError
+              ? String(postDecisionPipelineError)
+              : null;
+        const effectsError =
+          pipelineMessage && cause !== postDecisionPipelineError
+            ? `Post-decision pipeline failed: ${pipelineMessage}; subsequent approved effect failed: ${causeMessage}`
+            : causeMessage;
         let effectsAuditId: string | undefined;
         try {
           const auditId = ctx.run.ids.next();
@@ -1418,6 +1604,24 @@ export const appRouter = t.router({
           effectsStatus: "failed" as const,
           effectsError,
           ...(effectsAuditId ? { effectsAuditId } : {}),
+          ...(relationshipMaterialization
+            ? {
+                relationshipMaterialization: {
+                  status: "confirmed" as const,
+                  relationCount: 1 + relationshipMaterialization.participants.length,
+                },
+              }
+            : original.resourceType === "relation" &&
+                isRelationshipSignalEvidence(original.inputs) &&
+                input.decision !== "veto"
+              ? {
+                  relationshipMaterialization: {
+                    status: "failed" as const,
+                    error: effectsError,
+                    reconcileable: true,
+                  },
+                }
+              : {}),
         };
       }
     }),
@@ -1781,6 +1985,163 @@ export const appRouter = t.router({
         ctx.run,
       );
     }),
+  }),
+
+  /**
+   * Dedicated Relation surface. Public callers can only stage Signal evidence
+   * proposals here; owner, provenance, source Module, and approval behavior are
+   * all assigned by the server and materialized only after a Human decision.
+   */
+  relationship: t.router({
+    nodeTypeOwner: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().uuid(), nodeType: relationshipNodeTypeEnum }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.getNodeTypeOwner(input.nodeType);
+      }),
+
+    listRelations: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          nodeType: relationshipNodeTypeEnum,
+          nodeId: z.string().uuid(),
+          limit: z.number().int().min(1).max(100).default(50),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.graphStore.listRelations(
+          input.workspaceId,
+          ctx.identity.id,
+          { nodeType: input.nodeType, nodeId: input.nodeId },
+          { limit: input.limit, offset: input.offset },
+        );
+        return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    proposeSignalEvidence: authenticatedProcedure
+      .input(relationshipSignalEvidenceInput)
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        if (ctx.identity.type !== "user") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Relationship evidence proposals require a Human user principal",
+          });
+        }
+        const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
+          input.workspaceId,
+          ctx.identity.id,
+          input.signalId,
+          input.sourceEventId,
+        );
+        if (!detail) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
+        }
+        const participantRecords = await Promise.all(
+          input.participants.map((participant) =>
+            participant.recordType === "person"
+              ? ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, participant.recordId)
+              : ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, participant.recordId),
+          ),
+        );
+        if (participantRecords.some((record) => record === null)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "every participant must be an accessible Relationship Record",
+          });
+        }
+        if (
+          !input.participants.some(
+            (participant) =>
+              participant.recordType === detail.signal.subjectType &&
+              participant.recordId === detail.signal.subjectId,
+          )
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Relationship evidence participants must include the Signal subject",
+          });
+        }
+
+        const proposal = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
+            action: "write",
+            resourceType: "relation",
+            inputs: {
+              kind: "relationship_signal_evidence",
+              signalId: input.signalId,
+              sourceEventId: input.sourceEventId,
+              visibility: input.visibility,
+              userConfirmed: input.userConfirmed,
+              participants: input.participants,
+            },
+            skill: "stageMutation",
+            dataScope: "private",
+            seed: input.sourceEventId,
+          },
+          ctx.run,
+          { requireHumanReview: true },
+        );
+        return {
+          proposal,
+          materialization:
+            proposal.status === "pending_review"
+              ? { status: "pending_approval" as const }
+              : { status: "rejected" as const },
+        };
+      }),
+
+    reconcileApproved: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const original = await ctx.wiring.ledger.get(input.proposalId);
+        if (
+          !original ||
+          original.workspaceId !== input.workspaceId ||
+          original.resourceType !== "relation" ||
+          !isRelationshipSignalEvidence(original.inputs)
+        ) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Relationship proposal not found" });
+        }
+        const ownerUserId = relationshipOwnerFromLedger(original);
+        if (!ownerUserId || ownerUserId !== ctx.identity.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Relationship proposal not found" });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (!decision || (decision.userDecision !== "approve" && decision.userDecision !== "edit")) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Relationship proposal has no approved resolution to reconcile",
+          });
+        }
+        try {
+          const materialization = await materializeApprovedRelationshipProposal(
+            ctx.wiring.graphStore,
+            proposalFromResolvedRelationshipLedger(original, decision),
+            decision,
+          );
+          if (!materialization) {
+            throw new Error("approved proposal did not produce Relationship materialization");
+          }
+          return { status: "confirmed" as const, ...materialization };
+        } catch (cause) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          });
+        }
+      }),
   }),
 
   /**

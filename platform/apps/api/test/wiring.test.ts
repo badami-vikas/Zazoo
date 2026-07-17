@@ -7,8 +7,11 @@
  * instead of silently pretending to be real.
  */
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore } from "@bridge/db";
+import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore, createLocalDb, schema } from "@bridge/db";
 import { InMemoryLedger, InMemoryRoleStore, InMemoryGoalTaskStore, InMemorySkillManifestRegistry, InMemoryChildAgentRunStore } from "@bridge/core";
 import { buildInMemoryPorts, buildPersistentPorts, GOVERNED_SKILL_MANIFEST_CATALOG } from "../src/wiring.js";
 
@@ -46,6 +49,60 @@ test("buildInMemoryPorts: returns a fully in-memory, seeded port set with no DB 
     // Workspace CRUD is a real DrizzleWorkspaceStore even in in-memory mode (bound to
     // the LOCAL pglite plane, not a governance in-memory port).
     assert.equal(typeof ports.workspaceStore.createWorkspace, "function");
+  } finally {
+    await ports.closeDb();
+  }
+});
+
+test("buildInMemoryPorts: resumes Relation decision ordering above persisted local materialization", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-relation-sequence-floor-"));
+  const seeded = await createLocalDb({ dataDir: dir });
+  let workspaceId = "";
+  let userId = "";
+  try {
+    const [workspace] = await seeded.db
+      .insert(schema.workspaces)
+      .values({ name: "test_fixture_relation_sequence_workspace" })
+      .returning({ id: schema.workspaces.id });
+    const [user] = await seeded.db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relation_sequence@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(workspace);
+    assert.ok(user);
+    workspaceId = workspace.id;
+    userId = user.id;
+    await seeded.db.insert(schema.edges).values({
+      workspaceId,
+      ownerUserId: userId,
+      srcType: "signal",
+      srcId: "52000000-0000-4000-8000-000000000001",
+      dstType: "event",
+      dstId: "52000000-0000-4000-8000-000000000002",
+      edgeType: "source_event",
+      decisionLedgerId: "52000000-0000-4000-8000-000000000003",
+      decisionSequence: 41,
+      decisionAt: new Date("2026-07-17T00:00:00.000Z"),
+    });
+  } finally {
+    await seeded.close();
+  }
+
+  const ports = await buildInMemoryPorts({ localDir: dir });
+  try {
+    const entry = await ports.ledger.append({
+      id: "52000000-0000-4000-8000-000000000004",
+      workspaceId,
+      actorType: "user",
+      actorId: userId,
+      action: "read",
+      resourceType: "signal",
+      inputs: {},
+      userDecision: null,
+      policyResults: [],
+      createdAt: "2026-07-17T00:00:01.000Z",
+    });
+    assert.equal(entry.appendSequence, 42);
   } finally {
     await ports.closeDb();
   }
