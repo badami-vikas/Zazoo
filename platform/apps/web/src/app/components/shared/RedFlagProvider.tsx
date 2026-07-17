@@ -70,6 +70,13 @@ interface RedFlagContextValue {
   enactCorrection(flagId: string): Promise<RedFlagMemory>;
   revokeCorrection(flagId: string): Promise<RedFlagMemory>;
   retryLearning(flagId: string): Promise<RedFlagMemory>;
+  /** review round-6 (independent-review follow-up on item 11) — a failed
+   * INITIAL load (rows still null, error true) previously had no recovery
+   * path short of a full component remount: `create()` stayed permanently
+   * disabled and the button's tooltip kept saying "loading…" even though
+   * nothing was actually in flight anymore. Exposes the SAME `refresh()`
+   * this provider already uses internally so a caller can retry on demand. */
+  retryLoad(): void;
 }
 
 const RedFlagContext = createContext<RedFlagContextValue | null>(null);
@@ -199,6 +206,7 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
         const { memory } = await trpc.redFlag.retryLearning.mutate({ workspaceId: PILOT_WORKSPACE, flagId, operationId: crypto.randomUUID() });
         return applyLocally(memory);
       },
+      retryLoad: refresh,
     }),
     [byKey, rows, error, refresh],
   );

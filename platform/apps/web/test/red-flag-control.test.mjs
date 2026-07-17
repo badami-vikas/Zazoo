@@ -108,11 +108,16 @@ test("RedFlagProvider (review round-5 item 11): loading/error are distinct from 
   assert.match(source, /if \(generationRef\.current !== generation\) return;/);
   // create() must refuse to run before the FIRST successful load.
   assert.match(source, /if \(rows === null\) \{\s*\n\s*throw new Error/, "create must reject while the batched scope query has never yet succeeded");
+  // review round-6 (independent-review follow-up): a failed initial load
+  // must expose a way to retry it — otherwise `error: true` + `rows: null`
+  // is a permanent dead end with no in-app recovery.
+  assert.match(source, /retryLoad: refresh/, "retryLoad must be exposed on the context so a failed initial load can be retried");
 });
 
-test("RedFlagControl (review round-5 item 11): the flag glyph is disabled while unflagged AND the provider is still loading, and surfaces a create() failure inline", async () => {
+test("RedFlagControl (review round-5 item 11): the flag glyph is disabled while unflagged AND the provider is still loading (but re-enabled once a load genuinely FAILS, so it isn't stuck forever), and surfaces a create() failure inline", async () => {
   const source = await readFile(redFlagControlUrl, "utf8");
-  assert.match(source, /disabled=\{busy \|\| \(!current && ctx\.loading\)\}/);
+  assert.match(source, /disabled=\{busy \|\| \(!current && ctx\.loading && !ctx\.error\)\}/, "a genuinely FAILED initial load (ctx.error) must re-enable the button rather than disabling it forever");
+  assert.match(source, /ctx\.retryLoad\(\)/, "review round-6 (independent-review follow-up on item 11): a failed initial load must expose a way to retry it, not just an inert 'loading' label forever");
   assert.match(source, /createError/);
   assert.match(source, /role="alert"/);
 });

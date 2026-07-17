@@ -188,11 +188,21 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
   async function handleGlyphActivate(event: React.MouseEvent | React.KeyboardEvent) {
     event.stopPropagation();
     if (!current) {
+      // review round-6 (independent-review follow-up on item 11): a FAILED
+      // initial load (loading still true because rows never landed, AND
+      // error true) is NOT the same as "still in flight" — the button stays
+      // enabled in this state specifically so a click retries the load
+      // instead of being silently inert forever.
+      if (ctx.loading && ctx.error) {
+        ctx.retryLoad();
+        return;
+      }
       // Never flagged before — one click records it and turns it red immediately.
       // review round-5 item 11: disabled (see the button's `disabled` prop
-      // below) while `ctx.loading`, so this should rarely fire during the
-      // initial load — still guarded here too in case a click was already
-      // in flight when loading started (e.g. a fast scope change).
+      // below) while `ctx.loading` (and not yet errored), so this should
+      // rarely fire during the initial load — still guarded here too in
+      // case a click was already in flight when loading started (e.g. a
+      // fast scope change).
       setBusy(true);
       setCreateError(null);
       try {
@@ -296,7 +306,9 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     : current
       ? 'Previously flagged, now cleared — inspect or reopen'
       : ctx.loading
-        ? 'Flag this value as incorrect (loading current status…)'
+        ? ctx.error
+          ? 'Could not load current flag status — click to retry'
+          : 'Flag this value as incorrect (loading current status…)'
         : 'Flag this value as incorrect';
 
   return (
@@ -316,7 +328,7 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
         type="button"
         aria-label={label}
         aria-pressed={isOpen}
-        disabled={busy || (!current && ctx.loading)}
+        disabled={busy || (!current && ctx.loading && !ctx.error)}
         onClick={handleGlyphActivate}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
