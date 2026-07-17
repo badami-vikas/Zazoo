@@ -506,3 +506,56 @@ static data block (nor the `CultureClaim`/`CultureSkippedSource`/`CultureClaimTy
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped) — see the updated proposed-changes list above.
+
+## Fifth review — 2 more issues found and fixed (round 4's own new code)
+
+A FIFTH, read-only independent review (of the round-4 commit `1c19602`) confirmed the 7 fixes
+above were genuine and found no defects in points 2, 3, 5, 6, or 7 (verified DAG cycle detection
+via manual trace on multiple cyclic/diamond graphs; redirect-origin/downgrade/header-stripping
+logic including multi-hop; `agent.create`'s workspace/active binding introduces no
+privilege-escalation path; `synthesize`'s `parentRunId` scoping is workspace/company cross-checked
+and not forgeable; the web UI's disclosure gating and localStorage usage — confirmed it stores
+only ids and every rendered claim is sourced from a live API response). It found 2 genuine High
+issues in points 1 and 4's own new code:
+
+1. **Cancellation during the reservation window did not actually abort the in-flight fetch (High)**
+   — `materializeCultureSourceFetch` registered its `AbortController` in `abortControllers` only
+   AFTER `reserveChildRunAction` resolved. A `cancelCultureSourceFetch` call landing during that
+   `await` found nothing to abort (a silent no-op on the network side), flipped the durable record
+   to `"cancelled"`, and then `materialize` went on to create its controller too late and complete
+   the REAL fetch anyway — the record read `"cancelled"` but the request still went out and
+   finished, violating "cancel guarantees the fetch never starts." Empirically reproduced by the
+   reviewer against the built code with a delayed `childAgentRuns.get`. **Fixed** by registering the
+   `AbortController` immediately after the "pending"→"fetching" CAS succeeds, with no intervening
+   `await`, and re-checking `abortController.signal.aborted` right after `reserveChildRunAction`
+   resolves (before ever calling `guardedFetch`) — closing the exact gap the reviewer found. Also
+   fixed an adjacent inconsistency surfaced while writing the regression test: the
+   reservation-violation branch previously always threw, even when the "violation" was itself a
+   symptom of a concurrent cancel already having resolved the record terminally — it now returns
+   the current terminal record instead of masking it with a "rejected" error. New deterministic
+   regression test (`jobpilot-culture-research.test.ts`) reproduces the exact race via a delayed
+   `childAgentRuns.get` proxy and asserts the server never receives the request.
+2. **`ChildRunAlreadyTerminalError` was not thrown by the actual racing CAS boundary (High)** —
+   `recordChildAgentRunTransition`'s own `get()`-based pre-check threw the new typed error, but the
+   REAL atomic compare-and-set is `ChildAgentRunStore.updateStatus`, whose mismatch branch — in
+   BOTH `InMemoryChildAgentRunStore` and the production `DrizzleChildAgentRunStore` — still threw a
+   plain, generic `Error`. Two genuinely concurrent transitions on the same run both pass the
+   pre-check (reading "running" before either writes); the LOSER's conflict is detected inside
+   `updateStatus` itself, which threw the untyped error — every `instanceof
+   ChildRunAlreadyTerminalError` swallow-guard introduced across this remediation cycle would
+   incorrectly rethrow a genuine, expected race, and inside `materializeCultureSourceFetch`'s catch
+   block this could mask the original fetch-failure error. Empirically reproduced by the reviewer
+   firing `cancelChildAgentRun`/`completeChildAgentRun` concurrently at the same run. **Fixed**:
+   `InMemoryChildAgentRunStore.updateStatus` now throws `ChildRunAlreadyTerminalError` directly from
+   its CAS-mismatch branch; `DrizzleChildAgentRunStore.updateStatus` performs one follow-up read on
+   a failed UPDATE to distinguish "unknown run" from a genuine CAS mismatch and throws the same
+   typed error with the row's real current status. Existing regression test extended to assert the
+   typed error end-to-end.
+
+Re-verified after both fixes: `@bridge/core` 429/429, `@bridge/db` 107/107, `@bridge/api` 30/30 in
+`jobpilot-culture-research.test.ts` + `agent-eligibility.test.ts` (1 new regression test), full
+monorepo build 21/21, eslint clean (same 2 pre-existing, unrelated issues confirmed via
+`git stash`), no-dummy-runtime clean.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped).

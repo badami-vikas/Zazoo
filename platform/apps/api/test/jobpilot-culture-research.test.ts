@@ -425,6 +425,71 @@ test("cancelCultureSourceFetch aborts a real in-flight fetch and leaves the fina
   }
 });
 
+test("cancel landing during the reservation window (before the AbortController is registered) still guarantees the request never completes (TASK-011 remediation, 2026-07-18 fresh review) — deterministic reproduction via a delayed childAgentRuns.get", async () => {
+  let serverGotFullRequest = false;
+  const server = await startTestServer((_req, res) => {
+    serverGotFullRequest = true;
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("should never be fully received if cancel truly beats materialize");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    // Widen the window between the "pending"->"fetching" CAS transition and
+    // `reserveChildRunAction` resolving — `reserveChildRunAction` calls
+    // `store.get(...)` first — by delaying ONLY that call for this run. This
+    // deterministically reproduces the race the fix closes: previously the
+    // AbortController was registered AFTER `reserveChildRunAction` resolved,
+    // so a `cancelCultureSourceFetch` landing during this delay found
+    // nothing to abort and the real fetch ran to completion regardless.
+    const delayedChildAgentRuns: typeof wiring.childAgentRuns = {
+      ...wiring.childAgentRuns,
+      get: async (workspaceId: string, id: string) => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return wiring.childAgentRuns.get(workspaceId, id);
+      },
+    };
+
+    const materializePromise = materializeCultureSourceFetch(
+      { childAgentRuns: delayedChildAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore, abortControllers: wiring.cultureFetchAbortControllers },
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+    // Fire cancel almost immediately — well within the artificially widened
+    // `reserveChildRunAction` window, before the (fixed) code registers the
+    // AbortController.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const cancelled = await cancelCultureSourceFetch(
+      cultureFetchDeps(wiring),
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      { type: "user", id: PILOT_USER },
+      makeRun(),
+    );
+    assert.equal(cancelled.status, "cancelled");
+
+    const materialized = await materializePromise;
+    assert.equal(materialized.status, "cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(serverGotFullRequest, false, "the real network fetch must never complete once cancel has landed, even during the reservation window");
+
+    const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    assert.equal(finalRecord?.status, "cancelled");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 test("cancelCultureSourceFetch on an already fetched record is a no-op that preserves the artifact", async () => {
   let requestCount = 0;
   const server = await startTestServer((_req, res) => {

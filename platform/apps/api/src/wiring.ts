@@ -1040,6 +1040,25 @@ export async function materializeCultureSourceFetch(
     throw error;
   }
 
+  // TASK-011 remediation (2026-07-18 fresh review) — register the
+  // AbortController IMMEDIATELY after the "fetching" CAS succeeds, with NO
+  // intervening `await`, and BEFORE `reserveChildRunAction` (a genuine
+  // suspension point). Previously this registration happened AFTER
+  // `reserveChildRunAction` resolved, leaving a real window where
+  // `cancelCultureSourceFetch` could run concurrently, find nothing in
+  // `abortControllers` to abort (a silent no-op on the network side), flip
+  // the durable record to "cancelled", and then have THIS call go on to
+  // create its controller too late and perform the real network fetch to
+  // completion anyway — the record ends up "cancelled" but the request still
+  // went out and completed, defeating "cancel guarantees the fetch never
+  // starts." Registering here means a cancel landing during the
+  // reservation await aborts a signal that is then already-aborted by the
+  // time `guardedFetch` is called, which rejects immediately without ever
+  // connecting (same guarantee as `guardedFetch`'s own "cancel-before-fetch"
+  // behavior).
+  const abortController = new AbortController();
+  deps.abortControllers.set(childRunId, abortController);
+
   const violation = await reserveChildRunAction(
     deps.childAgentRuns,
     workspaceId,
@@ -1049,16 +1068,36 @@ export async function materializeCultureSourceFetch(
     ctx.clock.nowISO(),
   );
   if (violation) {
-    await deps.fetchStore
-      .transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }))
-      .catch((e) => {
-        if (!(e instanceof CultureFetchAlreadyTerminalError)) throw e;
-      });
+    deps.abortControllers.delete(childRunId);
+    try {
+      await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }));
+    } catch (e) {
+      if (e instanceof CultureFetchAlreadyTerminalError) {
+        // The violation (e.g. "run-not-active") can itself be a SYMPTOM of a
+        // concurrent cancel having already resolved this record terminally
+        // (`reserveChildRunAction` reads the child Run's live status, which
+        // cancel's own `cancelChildAgentRun` call may have already flipped)
+        // — that terminal state (e.g. "cancelled") is the real outcome and
+        // must win; return it rather than throwing a "rejected" error that
+        // would mask it.
+        const current = await deps.fetchStore.get(workspaceId, childRunId);
+        if (current) return current;
+      } else {
+        throw e;
+      }
+    }
     throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
   }
-
-  const abortController = new AbortController();
-  deps.abortControllers.set(childRunId, abortController);
+  // A cancel landing during the reservation await above already aborted
+  // `abortController.signal` (it found the entry this time) — re-check the
+  // durable record before ever calling `guardedFetch`, so an already-lost
+  // race short-circuits here instead of relying solely on `guardedFetch`
+  // rejecting an aborted signal (defense in depth; both close the same gap).
+  if (abortController.signal.aborted) {
+    deps.abortControllers.delete(childRunId);
+    const current = await deps.fetchStore.get(workspaceId, childRunId);
+    if (current) return current;
+  }
 
   try {
     const result = await guardedFetch(fetching.canonicalUrl, {

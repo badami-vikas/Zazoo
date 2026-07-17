@@ -14,7 +14,7 @@
  */
 import { and, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { ChildRunBudgetExceededError } from "@bridge/core";
+import { ChildRunBudgetExceededError, ChildRunAlreadyTerminalError } from "@bridge/core";
 import type { ChildAgentRun, ChildAgentRunStatus, ChildAgentRunStore, DataScope, Plane, ReviewMode, TrustOrigin } from "@bridge/core";
 import type { Database } from "./client.js";
 import { childAgentRuns } from "./schema.js";
@@ -141,7 +141,23 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
         ),
       )
       .returning();
-    if (!updated) throw new Error(`child_agent_runs: unknown run ${id} or invalid state transition`);
+    if (!updated) {
+      // TASK-011 remediation (2026-07-18 fresh review) — the UPDATE's WHERE
+      // clause can miss for two different reasons (unknown run vs. a real
+      // CAS mismatch); distinguish them with one follow-up read so a genuine
+      // race throws the SAME typed `ChildRunAlreadyTerminalError` the
+      // in-memory store throws, not a generic Error. Callers throughout
+      // apps/api specifically catch `instanceof ChildRunAlreadyTerminalError`
+      // to swallow ONLY an expected already-terminal race — before this fix,
+      // the real CAS-mismatch path here threw a plain Error that such
+      // callers would incorrectly rethrow as an unexpected failure.
+      const [current] = await this.#db
+        .select()
+        .from(childAgentRuns)
+        .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)));
+      if (!current) throw new Error(`child_agent_runs: unknown run ${id}`);
+      throw new ChildRunAlreadyTerminalError(id, current.status as ChildAgentRunStatus);
+    }
     return unpack(updated);
   }
 

@@ -337,9 +337,17 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
       throw new Error(`child-agent-run: unknown run ${id}`);
     }
     if (existing.status !== expectedStatus) {
-      throw new Error(
-        `child-agent-run: run ${id} is "${existing.status}", expected "${expectedStatus}"`,
-      );
+      // TASK-011 remediation (2026-07-18 fresh review) — throw the TYPED
+      // error here too (this IS the real atomic compare-and-set boundary;
+      // `recordChildAgentRunTransition`'s own earlier `get()`-based check is
+      // a fast-path optimization, not the actual race guard). Two genuinely
+      // concurrent transitions on the SAME run both read "running" before
+      // either writes; the LOSER's mismatch is detected HERE, not in the
+      // caller's pre-check — so this is the branch that must throw
+      // `ChildRunAlreadyTerminalError` for every `instanceof` check
+      // throughout apps/api to actually swallow the expected race instead of
+      // incorrectly rethrowing a generic Error.
+      throw new ChildRunAlreadyTerminalError(id, existing.status);
     }
     const updated: ChildAgentRun = { ...existing, status };
     this.runs.set(id, updated);
