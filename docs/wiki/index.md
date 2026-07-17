@@ -21,7 +21,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [commons](commons.md) — Universal Commons: signed generalized Module/capability registry; privacy gate rejects personal Memory; separate from Bridge Cloud.
 - [module-evolution](module-evolution.md) — AI-led governed Module creation/evolution, Component Registry, evaluations, and proposal loop; current Avatar/Onboarding canon wins over historical language inside.
 - [foundational-agents](foundational-agents.md) — historical agent/onboarding design; current canon = 4 Agents (CoS, Learning, Governance, Capability Builder), Communications Skill, one Onboarding flow, one Avatar. VOCAB1 removes old code/payload names.
-- [calendar](calendar.md) — Calendar Module = time-axis projection over Events and Records; provider implementations stay behind ports.
+- [calendar](calendar.md) — Calendar Module = time-axis projection over Events and Records; provider implementations stay behind ports. **SUPERSEDED IN PART 2026-07-17 (ADR-108, TASK-014)**: "pinnable Tool + global-nav item" framing is target-corrected — Calendar becomes purely a View kind (`docs/raw/brd-dataengine-views-2026-07.md`), no Module/route/nav identity; Google Calendar is a plain Integration. This page not yet rewritten — TASK-014 executes the correction.
 - [helpdesk](helpdesk.md) — Relationship sub-module: capability routing over graph → governed Help Request Records.
 - [taskmanager](taskmanager.md) — **2026-07-16, proposed (TASK-021)**: Task Manager Module — single governed execution queue + Goal→Outcome→Initiative→Task graph; agent-first ledger (`tasks.md` = projection, DB = truth); exit tests; planning Playbooks draft-then-approve; guard Automations; TM0–TM6; game-designs = certifying instance.
 - [schema](schema.md) — data model, two-tier, governance tables.
@@ -29,7 +29,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [stack](stack.md) — tech, libs, model provider.
 - [oss](oss.md) — open-source picks, build-not-buy, licenses.
 - [competitive](competitive.md) — rivals, easy-adds, avoid, moat.
-- [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task.
+- [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task. Full View Grammar (8 kinds, eligibility rules, feature list per kind) → [../raw/brd-dataengine-views-2026-07.md](../raw/brd-dataengine-views-2026-07.md) — **2026-07-17, TASK-014 scope**.
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Engine/Governance/Learning/Builder/Human ownership.
