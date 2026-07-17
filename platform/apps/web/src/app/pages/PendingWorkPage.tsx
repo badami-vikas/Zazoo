@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
+import { CollapsibleInsights } from '../components/shared/CollapsibleInsights';
 import {
   PENDING_WORK_GENERATED_AT,
   PENDING_WORK_SOURCE,
@@ -36,6 +37,7 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
   const taskState = useTaskManagerState();
   const [search, setSearch] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(true);
   const [sourceFilter, setSourceFilter] = useState<PendingWorkSource | 'all'>('all');
   const [showArchived, setShowArchived] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -149,6 +151,8 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
     <div className="h-full min-h-0 flex flex-col bg-white" onClick={() => contextMenu && setContextMenu(null)}>
       <Header tabs={[{ id: 'pending-work', label: taskView ? 'Task Manager' : 'Pending work', icon: ListChecks }]} activeTab="pending-work" onTabChange={() => {}} />
       <StandardToolbar
+        insightsExpanded={insightsOpen}
+        onToggleInsights={() => setInsightsOpen((o) => !o)}
         view="ranked" views={[{ id: 'ranked', label: 'Ranked list', icon: ListChecks }]}
         onViewChange={() => {}} search={search} onSearchChange={setSearch}
         onFilterClick={() => setFilterOpen((open) => !open)}
@@ -183,11 +187,14 @@ export function PendingWorkPage({ taskView = false }: { taskView?: boolean }) {
         )}
       />
 
-      <div className="px-5 py-3 border-b flex flex-wrap gap-x-6 gap-y-1 items-center text-sm" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
-        <span className="font-semibold text-[var(--color-navy)]">{activeCount} pending</span>
-        <span className="text-muted-foreground">{allItems.filter((item) => item.sourceType === 'task' && !item.archived).length} canonical tasks</span>
-        <span className="ml-auto text-xs text-muted-foreground">{taskView ? 'Planning window: today + 11 days' : `Source scan ${new Date(PENDING_WORK_GENERATED_AT).toLocaleString()}`}</span>
-      </div>
+      <CollapsibleInsights
+        expanded={insightsOpen}
+        metrics={[
+          { id: 'active', label: 'Active', value: String(activeCount) },
+          { id: 'canonical', label: 'Canonical tasks', value: String(allItems.filter((item) => item.sourceType === 'task' && !item.archived).length) },
+          { id: 'archived', label: 'Archived', value: String(archivedCount), hint: taskView ? 'Planning window: today + 11 days' : `Scanned ${new Date(PENDING_WORK_GENERATED_AT).toLocaleDateString()}` },
+        ]}
+      />
 
       {adding && (
         <div className="px-5 py-3 border-b flex items-center gap-2 bg-blue-50/40" style={{ borderColor: 'var(--color-border)' }}>

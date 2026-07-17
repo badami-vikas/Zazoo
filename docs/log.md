@@ -1633,3 +1633,13 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - `docs/TASKS.md` TASK-014 (Full standard Module UI rollout) rewritten to explicitly name every deliverable this surfaces: View Grammar consolidation onto the existing `dataviews/registry.ts` system (currently wired only to `/workspace`), Calendar de-modularization, real Graph renderer, `network`→`graph` vocabulary rename (glossary already says "graph"), `tree` kind promotion (introduced by the Task Manager Module).
 - ADR-108 records the architectural call. No code changed in this pass — TASK-014 executes the consolidation.
 - Durable outcome: `outputs/2026-07-17-dataengine-views-brd.md`.
+
+# 2026-07-17 — Graph view scope selector; Second Brain collapses into Graph view at full scope (R-039, AP-037, ADR-110)
+
+- `docs/raw/brd-dataengine-views-2026-07.md`: §1 updated (Graph view is the one exception to single-DB default); §3 graph kind rewritten (scope_selector: single_database / multi_database / full); §4 rewritten from "Second Brain is not a View kind" to "Second Brain IS the Graph view at full scope"; §7 relationship_people_page example updated; §8 TASK-014 scope line updated.
+- `docs/TASKS.md`: TASK-009 Outcome/Prototype-test updated (Second Brain converged into TASK-014 Graph renderer); TASK-014 Prototype-test + Approval updated.
+- `docs/wiki/ui-architecture.md`: Second Brain section updated; View Grammar paragraph updated.
+- `docs/wiki/index.md`: ui-architecture pointer updated.
+- `docs/raw/decisions-log.md`: ADR-109 appended.
+- `docs/APPROVALS.md`: AP-037 added.
+- `docs/requests.md`: R-039 added.
