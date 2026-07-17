@@ -129,6 +129,21 @@ export interface MemoryStore {
    * concurrent calls within one process) MUST use this, not `supersede`.
    */
   compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
+  /**
+   * Cross-instance-safe FIRST-INSERT-WINS write, keyed by `entry.subjectElementId`
+   * (TASK-011 remediation, 2026-07-19 coordinator distributed-defects
+   * re-review — a genuine TOCTOU `compareAndSupersede` cannot close, since it
+   * only guards updates to an EXISTING known row, not "is this the first
+   * writer for a not-yet-existing key"). Atomically checks whether a current
+   * (non-superseded) row already exists for `(entry.workspaceId,
+   * entry.subjectElementId)`; if so, returns that EXISTING row unchanged
+   * (idempotent create — never a second "current" row for the same key). If
+   * not, inserts `entry` and returns it. Two callers racing to create the
+   * FIRST row for the same key can never both win — exactly one insert
+   * happens, mirroring `compareAndSupersede`'s guarantee but for the
+   * creation case rather than the transition case.
+   */
+  writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry>;
   /** Fetch one Memory, authority-scoped — returns null if the caller may not
    * read it (indistinguishable from "not found", by design). */
   get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null>;
@@ -200,6 +215,20 @@ export class InMemoryMemoryStore implements MemoryStore {
       throw new MemoryConflictError(id);
     }
     return this.#insert(next, id);
+  }
+
+  async writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry> {
+    // Same synchronous check-then-write guarantee as `compareAndSupersede`
+    // above (no `await` between the "does a current row already exist"
+    // check and the insert) — sufficient for this process-only adapter.
+    const superseded = new Set(
+      this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null),
+    );
+    const existing = this.entries.find(
+      (e) => e.workspaceId === entry.workspaceId && e.subjectElementId === entry.subjectElementId && !superseded.has(e.id),
+    );
+    if (existing) return { ...existing };
+    return this.#insert(entry, null);
   }
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {

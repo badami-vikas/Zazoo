@@ -668,6 +668,12 @@ const CULTURE_FETCH_LEASE_MS = 30_000;
  * The process-local `AbortController` map is an optimization only; this poll
  * is what makes cancellation authoritative across instances. */
 const CULTURE_CANCEL_POLL_MS = 400;
+/** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review) — bounds `DurableCultureFetchStore.requestCancel`'s CAS-retry
+ * loop. Two or three retries is enough to converge against any realistic
+ * concurrent lease-reclaim race; this cap only guards against pathological,
+ * sustained contention turning into an infinite loop. */
+const CULTURE_CANCEL_CAS_MAX_RETRIES = 5;
 /** How long a fetched artifact's raw content is retained before it is
  * considered stale/expired for synthesis grounding — issue 8 (external
  * trust/retention). Bounded, not indefinite. */
@@ -965,15 +971,21 @@ export class DurableCultureFetchStore {
 
   /** Creates the durable intent record BEFORE any ledger proposal exists —
    * idempotent: a retry for a childRunId that already has a record returns
-   * the EXISTING record unchanged (never duplicates or silently overwrites). */
+   * the EXISTING record unchanged (never duplicates or silently overwrites).
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — uses `MemoryStore.writeIfAbsent` (a real cross-instance
+   * lock keyed by `(workspaceId, childRunId)`), NOT a plain `write()`: an
+   * independent reviewer proved a plain `write()` here cannot detect a
+   * concurrent creator racing the SAME childRunId (it has no uniqueness
+   * constraint to conflict against), so two racers could both insert a
+   * "current" row, breaking the idempotent-create contract this doc comment
+   * has always promised. */
   async create(
     input: Omit<
       CultureFetchIntentRecord,
       "kind" | "proposalId" | "status" | "artifact" | "error" | "createdAt" | "updatedAt" | "cancelRequested" | "leaseOwner" | "leaseExpiresAt" | "attempt"
     >,
   ): Promise<CultureFetchIntentRecord> {
-    const existing = await this.#loadRow(input.workspaceId, input.childRunId);
-    if (existing) return existing.record;
     const now = new Date().toISOString();
     const record: CultureFetchIntentRecord = {
       ...input,
@@ -987,19 +999,8 @@ export class DurableCultureFetchStore {
       createdAt: now,
       updatedAt: now,
     };
-    try {
-      await this.#memory.write(this.#buildWrite(record));
-    } catch (e) {
-      // A concurrent creator may have already inserted the FIRST row for
-      // this childRunId (raced this same `create` call from another
-      // instance) — `write()` uses a fresh random memory-row id, so it
-      // cannot itself conflict; reload and return whatever now exists,
-      // matching the documented idempotent-create contract.
-      const raced = await this.#loadRow(input.workspaceId, input.childRunId);
-      if (raced) return raced.record;
-      throw e;
-    }
-    return record;
+    const stored = await this.#memory.writeIfAbsent(this.#buildWrite(record));
+    return JSON.parse(stored.content) as CultureFetchIntentRecord;
   }
 
   /** Attaches the ledger `proposalId` once `pipeline.propose()` returns it —
@@ -1127,28 +1128,51 @@ export class DurableCultureFetchStore {
    * WORKER holding that lease (in this process or a different one) is
    * responsible for polling this flag and aborting its own socket; see
    * `materializeCultureSourceFetch`'s poll loop. Refuses to rewrite an
-   * already-terminal record (no-op, returns it unchanged). */
+   * already-terminal record (no-op, returns it unchanged).
+   *
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — this is now a bounded CAS-retry loop, not a single
+   * best-effort attempt. An independent reviewer found: if `requestCancel`
+   * computes its decision (immediate-cancel vs flag-only) against a
+   * snapshot that a CONCURRENT `acquireLease` reclaim then invalidates (the
+   * lease was expired/orphaned when read here, but a recovering worker wins
+   * the race to reclaim it first), the OLD single-attempt version's
+   * `MemoryConflictError` handler just returned the winner's record — a
+   * FRESH `fetching` record with `cancelRequested` still false, inherited
+   * unmodified from the pre-cancel snapshot — silently dropping the cancel
+   * request entirely. Now: on a lost race, RELOAD and RECOMPUTE the decision
+   * against the new current record and retry, up to
+   * `CULTURE_CANCEL_CAS_MAX_RETRIES` times — exactly the retry-on-conflict
+   * pattern the rest of this store's design already relies on elsewhere. */
   async requestCancel(workspaceId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord> {
-    const existing = await this.#loadRow(workspaceId, childRunId);
+    let existing = await this.#loadRow(workspaceId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
-    const record = existing.record;
-    if (record.status === "fetched" || record.status === "failed" || record.status === "cancelled") {
-      return record; // terminal — cancellation of a resolved source is a no-op
-    }
-    const leaseLive = record.status === "fetching" && record.leaseExpiresAt != null && Date.parse(record.leaseExpiresAt) > Date.parse(nowISO);
-    const next: CultureFetchIntentRecord = leaseLive
-      ? { ...record, cancelRequested: true, updatedAt: nowISO }
-      : { ...record, status: "cancelled", cancelRequested: true, updatedAt: nowISO };
-    try {
-      await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
-    } catch (e) {
-      if (e instanceof MemoryConflictError) {
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
-        if (reloaded) return reloaded.record; // whatever the winner produced — cancellation is best-effort idempotent
+    for (let attempt = 0; attempt < CULTURE_CANCEL_CAS_MAX_RETRIES; attempt++) {
+      const record = existing.record;
+      if (record.status === "fetched" || record.status === "failed" || record.status === "cancelled") {
+        return record; // terminal — cancellation of a resolved source is a no-op
       }
-      throw e;
+      const leaseLive = record.status === "fetching" && record.leaseExpiresAt != null && Date.parse(record.leaseExpiresAt) > Date.parse(nowISO);
+      const next: CultureFetchIntentRecord = leaseLive
+        ? { ...record, cancelRequested: true, updatedAt: nowISO }
+        : { ...record, status: "cancelled", cancelRequested: true, updatedAt: nowISO };
+      try {
+        await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
+        return next;
+      } catch (e) {
+        if (!(e instanceof MemoryConflictError)) throw e;
+        // Lost the race — RELOAD and RECOMPUTE against the new current
+        // record (it may now be terminal, or have a freshly-reclaimed
+        // live lease, or already carry cancelRequested from a racing
+        // cancel) rather than trusting whatever the winner produced.
+        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        if (!reloaded) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
+        existing = reloaded;
+      }
     }
-    return next;
+    // Pathological, sustained contention — surface rather than silently
+    // dropping the cancel request after exhausting retries.
+    throw new Error(`DurableCultureFetchStore: requestCancel could not win the CAS for child Run ${childRunId} after ${CULTURE_CANCEL_CAS_MAX_RETRIES} attempts`);
   }
 
   /**
@@ -1221,15 +1245,20 @@ export class DurableCultureSynthesisPointerStore {
    * already-pointed parentRunId is rejected — a parent Run has at most one
    * live synthesis proposal in this slice's flow; re-synthesizing the same
    * run is not a supported path yet, so silently overwriting the pointer
-   * would let a stale client resume the WRONG proposal. */
+   * would let a stale client resume the WRONG proposal.
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — uses `MemoryStore.writeIfAbsent` (cross-instance-safe,
+   * keyed by `(workspaceId, parentRunId)`), NOT a plain read-then-write: an
+   * independent reviewer proved the original read-then-write here was a
+   * genuine TOCTOU — two ordinary concurrent `synthesize` calls for the SAME
+   * parentRunId (e.g. a user double-submitting, or two open tabs) could both
+   * observe "nothing exists yet" and both insert a "current" pointer row,
+   * silently orphaning one of the two synthesis proposals from the
+   * server-authoritative resume flow. `writeIfAbsent` guarantees exactly one
+   * insert wins; the loser's proposal is still a REAL, valid ledger entry
+   * (nothing here corrupts it) — it is simply not the one `latestRun`
+   * resolves, matching the documented "at most one live pointer" invariant. */
   async recordProposal(workspaceId: string, parentRunId: string, company: string, proposalId: string): Promise<void> {
-    const existing = await this.getForParentRun(workspaceId, parentRunId);
-    if (existing) {
-      if (existing.proposalId !== proposalId) {
-        throw new Error(`DurableCultureSynthesisPointerStore: parent Run ${parentRunId} is already pointed at a different synthesis proposal`);
-      }
-      return;
-    }
     const record: CultureSynthesisPointerRecord = {
       kind: "culture_synthesis_pointer",
       parentRunId,
@@ -1238,7 +1267,7 @@ export class DurableCultureSynthesisPointerStore {
       proposalId,
       createdAt: new Date().toISOString(),
     };
-    await this.#memory.write({
+    const stored = await this.#memory.writeIfAbsent({
       id: randomUUID(),
       workspaceId,
       type: "episodic",
@@ -1252,6 +1281,14 @@ export class DurableCultureSynthesisPointerStore {
       plane: "local",
       createdBy: "internal_strategist",
     });
+    const won = JSON.parse(stored.content) as CultureSynthesisPointerRecord;
+    if (won.proposalId !== proposalId) {
+      // A concurrent caller's write won the race for this parentRunId — the
+      // CALLER's own proposal is still real and durable in the ledger, just
+      // not the one the pointer resolves to. Fail closed rather than
+      // silently pretending this call's proposal is now the resolvable one.
+      throw new Error(`DurableCultureSynthesisPointerStore: parent Run ${parentRunId} is already pointed at a different synthesis proposal`);
+    }
   }
 
   async getForParentRun(workspaceId: string, parentRunId: string): Promise<CultureSynthesisPointerRecord | null> {

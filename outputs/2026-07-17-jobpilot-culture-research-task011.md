@@ -755,3 +755,61 @@ conflict with RM4's `0015` or TASK-010's next-in-line migration.
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped).
+
+## Eighth review — 4 findings against the round-7 redesign itself (3 real, 1 overclaimed test)
+
+An independent adversarial re-review of `8c56c22` (the round-7 durable-worker redesign) found:
+
+1. **`DurableCultureSynthesisPointerStore.recordProposal` was a reintroduced TOCTOU (Medium)** —
+   every OTHER mutation in round 7 was converted to `MemoryStore.compareAndSupersede`
+   specifically so two racing writers can never both produce a "current" row, but this method
+   still did a plain read (`getForParentRun`) then a plain `write()` if nothing existed. Two
+   ordinary concurrent `synthesize` calls for the SAME `parentRunId` (e.g. a double-submit, or
+   two open tabs) could both observe "nothing yet" and both insert a "current" pointer row,
+   contradicting the store's own "at most one live pointer" invariant and silently orphaning one
+   proposal from the server-authoritative resume flow this whole round was built to guarantee.
+2. **`DurableCultureFetchStore.create` had the same latent gap (Low)** — the reviewer noted the
+   code's OWN comment already admitted the catch-and-reload mechanism could never actually
+   observe a race, since a plain `write()` never conflicts on a duplicate `subjectElementId`. Not
+   reachable today (the sole call site always uses a freshly-generated `childRunId`), but the
+   same pattern as #1 and worth closing defensively.
+3. **`requestCancel`'s conflict handler didn't retry (Medium)** — its single-attempt
+   `MemoryConflictError` catch just returned whatever a concurrent `acquireLease` reclaim
+   produced, WITHOUT re-attempting the cancellation against the new state. Concrete race: a
+   cancel arrives at the same moment a recovering worker reclaims an orphaned lease; the reclaim
+   wins the CAS, and the cancel's conflict handler silently accepted the fresh `fetching` record
+   (with `cancelRequested` still false) as final — dropping the user's cancel request entirely.
+4. **The new cross-instance CAS test overclaimed what it proves (Low, documentation)** — the
+   reviewer empirically demonstrated `@electric-sql/pglite` fully serializes `db.transaction()`
+   calls at the connection level, so the concurrency test would pass identically even with
+   `pg_advisory_xact_lock` deleted from the implementation. The test genuinely proves the
+   check-then-insert SQL logic is race-correct, but not that the advisory lock itself is what
+   provides safety against genuinely separate Postgres connections (the real production
+   topology) — the comment claiming a "faithful proof of the cross-instance guarantee" was
+   corrected to state this honestly.
+
+**Fixed**: added `MemoryStore.writeIfAbsent(entry)` — a genuine cross-instance-safe
+first-insert-wins primitive (`InMemoryMemoryStore`: synchronous check-then-write;
+`DrizzleMemoryStore`: `pg_advisory_xact_lock(hashtext(workspaceId + ':' + subjectElementId))`
+inside a transaction, a DIFFERENT lock namespace than `compareAndSupersede`'s row-id-keyed lock).
+`DurableCultureFetchStore.create` and `DurableCultureSynthesisPointerStore.recordProposal` now
+both use it — two concurrent callers racing the same key can never both win; the loser gets back
+the winner's row (idempotent create) or a clear "already pointed at a different proposal" error
+(pointer race). `requestCancel` is now a bounded CAS-retry loop (`CULTURE_CANCEL_CAS_MAX_RETRIES
+= 5`): on a lost race it reloads and RECOMPUTES the cancel decision against the new current
+record (which may now be terminal, or carry a freshly-reclaimed live lease) rather than accepting
+whatever the winner produced. The overclaiming test comment was corrected to state plainly what
+it does and does not prove.
+
+New tests: `memory-store.test.ts` (+2: `writeIfAbsent` concurrent-race and idempotent-sequential),
+`jobpilot-culture-research.test.ts` (+2: concurrent `DurableCultureFetchStore.create` for the
+same childRunId, concurrent `DurableCultureSynthesisPointerStore.recordProposal` for the same
+parentRunId with different proposalIds).
+
+Re-verified: `@bridge/core` 430/430, `@bridge/db` 111/111, `@bridge/net-guard` 24/24,
+`@bridge/jobpilot` 120/120, `@bridge/api` 210/210 (the previously-flaky timing test passed
+cleanly in this run too), `@bridge/web` 55/55 + clean build/typecheck, full monorepo build
+21/21, eslint clean (same 2 pre-existing unrelated issues), no-dummy-runtime clean.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped).

@@ -1151,6 +1151,66 @@ test("cultureResearch.latestRun: two research runs for the same company — the 
   }
 });
 
+test("DurableCultureFetchStore.create: two CONCURRENT calls for the SAME childRunId never fork a duplicate current row (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review — an independent reviewer found the original plain write() here could not detect a racing creator for the same key; now backed by MemoryStore.writeIfAbsent)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const childRunId = "30000000-0000-4000-8000-000000000001";
+    const baseInput = {
+      childRunId,
+      parentRunId: "30000000-0000-4000-8000-000000000002",
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      sourceId: "test-fixture-race-source",
+      sourceType: "company_official_page" as const,
+      sourceLabel: "test_fixture race source",
+      canonicalUrl: "http://127.0.0.1:1/race",
+      allowedRedirectOrigins: ["http://127.0.0.1:1"],
+      policySnapshot: { registryVersion: "v-a", eligibility: "permitted" as const },
+      goalId: "goal-race",
+      taskId: "task-race",
+      skill: "jobpilot.researchCultureSource" as const,
+      action: "read" as const,
+      actorId: LEARNING_AGENT,
+    };
+    const [resultA, resultB] = await Promise.all([
+      wiring.cultureFetchStore.create({ ...baseInput }),
+      wiring.cultureFetchStore.create({ ...baseInput }),
+    ]);
+    assert.equal(resultA.createdAt, resultB.createdAt, "both calls must agree on the SAME winning record");
+
+    const finalRecord = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    assert.ok(finalRecord);
+    assert.equal(finalRecord!.createdAt, resultA.createdAt);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("DurableCultureSynthesisPointerStore.recordProposal: two CONCURRENT calls for the SAME parentRunId with DIFFERENT proposalIds — exactly one wins the pointer, the other fails closed rather than silently overwriting (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const parentRunId = "30000000-0000-4000-8000-000000000003";
+    const proposalIdA = "30000000-0000-4000-8000-0000000000a1";
+    const proposalIdB = "30000000-0000-4000-8000-0000000000b1";
+    const [resultA, resultB] = await Promise.allSettled([
+      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, parentRunId, TEST_COMPANY, proposalIdA),
+      wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, parentRunId, TEST_COMPANY, proposalIdB),
+    ]);
+    const outcomes = [resultA, resultB];
+    const fulfilled = outcomes.filter((r) => r.status === "fulfilled");
+    const rejected = outcomes.filter((r) => r.status === "rejected");
+    assert.equal(fulfilled.length, 1, "exactly one of the two racing proposalIds must win the pointer");
+    assert.equal(rejected.length, 1, "the loser must fail closed, never silently overwrite");
+    assert.match((rejected[0] as PromiseRejectedResult).reason.message, /already pointed at a different synthesis proposal/);
+
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, parentRunId);
+    assert.ok(pointer);
+    assert.ok(pointer!.proposalId === proposalIdA || pointer!.proposalId === proposalIdB);
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("cultureResearch.synthesize: a parentRunId from another company is rejected with BAD_REQUEST", async () => {
   const serverA = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "text/plain" });

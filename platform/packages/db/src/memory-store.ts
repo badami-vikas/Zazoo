@@ -127,6 +127,45 @@ export class DrizzleMemoryStore implements MemoryStore {
     });
   }
 
+  /**
+   * Cross-instance-safe first-insert-wins write, keyed by
+   * `(workspaceId, subjectElementId)` — TASK-011 remediation (2026-07-19
+   * coordinator distributed-defects RE-review). `compareAndSupersede` above
+   * only guards races against an EXISTING known row id; it cannot close the
+   * "two callers both creating the FIRST row for a not-yet-existing key"
+   * race (an independent reviewer found this exact gap in
+   * `DurableCultureFetchStore.create`/`DurableCultureSynthesisPointerStore.recordProposal`).
+   * Locks on `hashtext(workspaceId || ':' || subjectElementId)` — a
+   * DIFFERENT lock namespace/key shape than `compareAndSupersede`'s
+   * `hashtext(id)` (keyed by row id, not subject key), so the two methods'
+   * locks never collide with each other for the same logical entity.
+   */
+  async writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry> {
+    const subjectElementId = entry.subjectElementId;
+    if (!subjectElementId) {
+      throw new Error("memory store: writeIfAbsent requires entry.subjectElementId as its dedup key");
+    }
+    const lockKey = `${entry.workspaceId}:${subjectElementId}`;
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      const existingRows = await tx
+        .select()
+        .from(memories)
+        .where(
+          and(
+            eq(memories.workspaceId, entry.workspaceId),
+            eq(memories.subjectElementId, subjectElementId),
+            sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`,
+          ),
+        )
+        .orderBy(desc(memories.createdAt))
+        .limit(1);
+      const existing = existingRows[0];
+      if (existing) return unpack(existing);
+      return this.#insert(tx, entry, null);
+    });
+  }
+
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
     const rows = await this.#db
       .select()

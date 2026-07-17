@@ -166,19 +166,32 @@ test("memories: forget removes the complete correction lineage", async () => {
 // concurrently (SQLite-derived single-process storage engine — verified
 // empirically: a second `createLocalDb` pointed at the same dir can even
 // abort the WASM runtime) — so a literal "two separate pglite processes
-// sharing one file" test is not constructible on this backend, and would
-// itself be testing unsupported/unsafe behavior, not this store's logic.
-// What IS safely testable, and is the actual property that matters, is
-// whether `pg_advisory_xact_lock` + the check-then-insert sequence
-// genuinely serializes two CONCURRENT transactions and lets exactly one
-// win — advisory locks are a real, connection-agnostic Postgres server-side
-// primitive that behaves identically whether the two transactions come from
-// the same process or two genuinely separate ones talking to a real
-// deployed Postgres server (which is exactly how the Drizzle adapter would
-// run in production). Firing two real, concurrent `compareAndSupersede`
-// transactions against ONE pglite instance and asserting exactly one
-// succeeds is therefore a faithful, honest proof of the cross-instance
-// guarantee this mechanism provides — not a same-process approximation of it.
+// sharing one file" test is not constructible on this backend.
+//
+// HONEST LIMITATION (found by a 2026-07-19 RE-review, and worth stating
+// plainly rather than overclaiming): `@electric-sql/pglite` also fully
+// SERIALIZES concurrent `db.transaction()` calls at the driver/connection
+// level — a second `.transaction()` call's first statement does not even
+// begin until the first one has committed (verified empirically: an
+// artificial in-transaction delay in one call reliably blocks the other's
+// first query until the delayed one commits). That means the test below
+// would pass IDENTICALLY even if `pg_advisory_xact_lock` were deleted from
+// `compareAndSupersede` entirely — pglite's own single-connection execution
+// model, not the advisory lock, is what prevents interleaving here. This
+// test therefore proves the check-then-insert SQL LOGIC is race-correct
+// (exactly one of two racing "supersede the same id" attempts wins, the
+// loser gets a typed conflict, and no fork is ever produced) — a real and
+// necessary property — but it does NOT, and cannot on this backend, prove
+// the advisory lock itself is what provides safety against two GENUINELY
+// separate Postgres connections (the real production topology, where
+// `db.transaction()` calls from different connections interleave freely
+// without an explicit lock). That guarantee rests on `pg_advisory_xact_lock`
+// being a well-documented, connection-agnostic Postgres server-side
+// primitive — verified by code inspection (acquired first, inside the same
+// transaction as the check+insert, in `memory-store.ts`), not by this test.
+// A real regression here would require a genuine multi-connection Postgres
+// (not available in this sandbox); tracked as a gap, not silently assumed
+// away.
 // ---------------------------------------------------------------------------
 
 test("memories: compareAndSupersede lets exactly ONE of two concurrent writers targeting the SAME id win — the other gets MemoryConflictError, never a forked current state", async () => {
@@ -227,6 +240,54 @@ test("memories: compareAndSupersede rejects re-superseding an already-superseded
         return true;
       },
     );
+  } finally {
+    await close();
+  }
+});
+
+test("memories: writeIfAbsent lets exactly ONE of two concurrent first-inserts for the SAME (workspaceId, subjectElementId) win — the other gets back the WINNER's row, never a second current row (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review — an independent reviewer found compareAndSupersede alone cannot close this race, since it only guards updates against an EXISTING known row id, not the first creation of a new keyed row)", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_write_if_absent_race" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const subjectElementId = "20000000-0000-4000-8000-000000000001";
+
+    const [resultA, resultB] = await Promise.all([
+      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a1", workspaceId: ws.id, subjectElementId, content: "from-A" })),
+      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a2", workspaceId: ws.id, subjectElementId, content: "from-B" })),
+    ]);
+
+    // Both calls must resolve to the SAME winning row (never two distinct
+    // "current" rows for one key) — one of the callers gets back its own
+    // freshly-inserted row, the other gets back the WINNER's row instead of
+    // its own proposed content.
+    assert.equal(resultA.id, resultB.id);
+    assert.ok(resultA.content === "from-A" || resultA.content === "from-B");
+
+    const current = await store.retrieve({ subjectElementId }, { workspaceId: ws.id, userId: null });
+    assert.equal(current.length, 1, "exactly one current row must exist for this subjectElementId — no fork from the race");
+    assert.equal(current[0]!.id, resultA.id);
+  } finally {
+    await close();
+  }
+});
+
+test("memories: writeIfAbsent is idempotent for sequential calls with the SAME subjectElementId — a retry never duplicates", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_write_if_absent_seq" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const subjectElementId = "20000000-0000-4000-8000-000000000002";
+
+    const first = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b1", workspaceId: ws.id, subjectElementId, content: "first" }));
+    const retry = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b2", workspaceId: ws.id, subjectElementId, content: "second-should-be-ignored" }));
+
+    assert.equal(retry.id, first.id);
+    assert.equal(retry.content, "first");
+    const current = await store.retrieve({ subjectElementId }, { workspaceId: ws.id, userId: null });
+    assert.equal(current.length, 1);
   } finally {
     await close();
   }
