@@ -123,18 +123,44 @@ export function planCultureSources(candidates: readonly CultureSourceCandidate[]
  * these — never blended, never silently promoted from opinion to fact. */
 export type CultureClaimType = "fact" | "opinion" | "theme" | "contradiction" | "inference";
 
+/** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 10) — a distinct provenance marker for THEME/INFERENCE/
+ * CONTRADICTION evidence, which is Internal-Strategist-DERIVED (never a
+ * real fetched page) — using a real `CultureSourceType` value (e.g.
+ * `"company_official_page"`) with an empty `sourceUrl` for these rows
+ * looked exactly like a genuine, citable fetched source with a missing
+ * link, rather than what it actually is: internally synthesized text about
+ * OTHER, already-cited claims. `CultureEvidence.sourceType` accepts this
+ * ADDITIONALLY to the real fetchable catalog — it is never looked up in
+ * `CULTURE_SOURCE_CATALOG`/`classifyCultureSource` (those remain closed
+ * over real fetchable types only). */
+export const DERIVED_SYNTHESIS_SOURCE_TYPE = "internal_derived_synthesis" as const;
+
 export interface CultureEvidence {
   id: string;
   claimType: CultureClaimType;
   claimText: string;
   sourceLabel: string;
   sourceUrl: string;
-  sourceType: CultureSourceType;
+  sourceType: CultureSourceType | typeof DERIVED_SYNTHESIS_SOURCE_TYPE;
   /** ISO date the evidence was actually retrieved — JP3B exit: "every surfaced culture claim
-   * opens its Source and retrieval date." */
+   * opens its Source and retrieval date." For theme/inference/contradiction rows (Internal-
+   * Strategist-derived, not independently fetched), this is deterministically the MOST RECENT
+   * `retrievedAt` among the claim's real, transitively-grounded root artifacts — never wall-clock
+   * time — so re-running the identical synthesis over identical inputs always reproduces identical
+   * output (TASK-011 remediation, 2026-07-19 RE-review, issue 10). */
   retrievedAt: string;
-  /** Who said it, when available (e.g. a named reviewer + role/location). `null` is the honest
-   * default — never fabricated to make a claim look more attributed than it is. */
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review, issue 11) — ALWAYS `null`. Previously accepted arbitrary
+   * caller-supplied text (`GroundedClaimInput.authorContext`) and rendered
+   * it verbatim as if it were verified "who said it" attribution metadata
+   * — a genuine fabrication vector (any caller of `synthesize` could claim
+   * an invented named reviewer for any claim). This slice's actual Tier-1
+   * sources (official pages, public blog/press) carry no server-extracted
+   * per-claim author metadata to derive this from honestly, so the field
+   * is retained on the type (for a future source that DOES carry real,
+   * server-extracted authorship) but is no longer settable from ANY caller
+   * input — `groundClaims` never assigns anything but `null` here. */
   authorContext: string | null;
   /** True ONLY for Internal-Strategist-authored synthesis, never for anything sourced verbatim —
    * an inference must never be presented as a fact (BRD agents.Internal_Strategist invariant). */
@@ -201,6 +227,13 @@ export function buildSourceDisclosure(
   const seen = new Set<string>();
   const used: Array<CultureSourceDisclosure["used"][number]> = [];
   for (const item of usedEvidence) {
+    // TASK-011 remediation (2026-07-19 RE-review, issue 10) — derived
+    // (theme/inference/contradiction) evidence carries
+    // `DERIVED_SYNTHESIS_SOURCE_TYPE`, not a real fetchable source; it must
+    // never appear in the "sources actually used" disclosure — only
+    // genuine fact/opinion evidence that cites a real fetched artifact is a
+    // "source".
+    if (item.sourceType === DERIVED_SYNTHESIS_SOURCE_TYPE) continue;
     const key = `${item.sourceType}:${item.sourceUrl}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -298,6 +331,19 @@ export interface GroundedClaimInput {
   /** Required for `fact`/`opinion` — must equal the cited artifact's REAL
    * content hash, or the claim is rejected as stale/mismatched. */
   contentHash?: string;
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review, issue 11) — REMOVED as a caller-suppliable field.
+   * `groundClaims` never reads this even if a caller sends it (see
+   * `CultureEvidence.authorContext`'s doc comment for why: no server-owned
+   * per-claim author metadata exists for this slice's Tier-1 sources, and
+   * accepting arbitrary caller text here was a genuine fabrication vector
+   * — any caller of `synthesize` could claim an invented named reviewer
+   * for any claim, rendered verbatim as if verified). Kept as a no-op,
+   * always-ignored field on the type rather than a breaking removal, so
+   * older/foreign caller payloads that still send it fail closed via
+   * simply having it discarded, not via a schema rejection that could
+   * itself become a new caller-observable surface to probe.
+   */
   authorContext?: string | null;
   /** Required (non-empty) for `theme`/`inference` — ids of OTHER claims in
    * this same batch that substantiate the theme/inference. */
@@ -314,6 +360,7 @@ export type ClaimGroundingFailureReason =
   | "quote-not-found-in-artifact"
   | "content-hash-mismatch"
   | "empty-supporting-set"
+  | "insufficient-contradiction-roots"
   | "dangling-reference"
   | "self-reference"
   | "reference-cycle"
@@ -475,15 +522,22 @@ export function groundClaims(
         sourceUrl: artifact.sourceUrl,
         sourceType: artifact.sourceType,
         retrievedAt: artifact.retrievedAt,
-        authorContext: claim.authorContext ?? null,
+        // TASK-011 remediation (2026-07-19 RE-review, issue 11) — NEVER the
+        // caller's `authorContext`; see this field's doc comment on
+        // `CultureEvidence` for why.
+        authorContext: null,
         agentInference: false,
       };
       evidence.push(item);
       evidenceById.set(claim.id, item);
     } else if (claim.claimType === "theme" || claim.claimType === "inference") {
-      const supporting = claim.supportingClaimIds ?? [];
+      // TASK-011 remediation (2026-07-19 RE-review, issue 10) — dedupe
+      // BEFORE validating/counting: a caller padding `supportingClaimIds`
+      // with repeats of the SAME id must not be able to satisfy a minimum
+      // "support" requirement by repetition alone.
+      const supporting = Array.from(new Set(claim.supportingClaimIds ?? []));
       if (supporting.length === 0) {
-        failures.push({ claimId: claim.id, reason: "empty-supporting-set", detail: "theme/inference claims require at least one supporting claim id" });
+        failures.push({ claimId: claim.id, reason: "empty-supporting-set", detail: "theme/inference claims require at least one DISTINCT supporting claim id" });
         continue;
       }
       if (supporting.includes(claim.id)) {
@@ -515,24 +569,41 @@ export function groundClaims(
         claim.claimType === "theme"
           ? `Recurring theme across ${supporting.length} supporting claim(s): ${supportingTexts.map((t) => `"${t}"`).join(" — ")}`
           : `Inference drawn from ${supporting.length} supporting claim(s): ${supportingTexts.map((t) => `"${t}"`).join(" — ")}. This is Internal Strategist's structural inference from the pattern above, not independently verified as fact.`;
+      // TASK-011 remediation (2026-07-19 RE-review, issue 10) — deterministic
+      // "retrieved at": the MOST RECENT `retrievedAt` among this claim's
+      // (already-built, since we're iterating in topological postOrder)
+      // supporting evidence — a pure function of the real input data, never
+      // wall-clock time, so re-running the identical synthesis over
+      // identical inputs always reproduces byte-identical output.
+      const derivedRetrievedAt = supporting.reduce((max, sid) => {
+        const t = evidenceById.get(sid)?.retrievedAt;
+        return t && Date.parse(t) > Date.parse(max) ? t : max;
+      }, new Date(0).toISOString());
       const item: CultureEvidence = {
         id: claim.id,
         claimType: claim.claimType,
         claimText,
         sourceLabel: "synthesis of cited claims",
-        sourceUrl: "",
-        sourceType: "company_official_page",
-        retrievedAt: new Date().toISOString(),
-        authorContext: claim.authorContext ?? null,
+        // TASK-011 remediation (2026-07-19 RE-review, issue 10) — a distinct
+        // internal provenance kind + a clearly non-navigable sentinel URL,
+        // never a real fetchable `CultureSourceType`/empty string that could
+        // be mistaken for a genuine (if broken) citation link.
+        sourceUrl: "internal:derived-synthesis",
+        sourceType: DERIVED_SYNTHESIS_SOURCE_TYPE,
+        retrievedAt: derivedRetrievedAt,
+        authorContext: null,
         agentInference: claim.claimType === "inference",
       };
       evidence.push(item);
       evidenceById.set(claim.id, item);
     } else {
-      // contradiction
-      const refs = claim.contradicts ?? [];
-      if (refs.length === 0) {
-        failures.push({ claimId: claim.id, reason: "empty-supporting-set", detail: "contradiction claims require at least one contradicted claim id" });
+      // contradiction — TASK-011 remediation (2026-07-19 RE-review, issue
+      // 10): requires at least TWO DISTINCT conflicting grounded roots — a
+      // single referenced claim has nothing to conflict WITH, so `>= 1` (the
+      // prior check) was never a meaningful "contradiction" at all.
+      const refs = Array.from(new Set(claim.contradicts ?? []));
+      if (refs.length < 2) {
+        failures.push({ claimId: claim.id, reason: "insufficient-contradiction-roots", detail: "contradiction claims require at least TWO DISTINCT contradicted claim ids — a single reference has nothing to conflict with" });
         continue;
       }
       if (refs.includes(claim.id)) {
@@ -556,15 +627,21 @@ export function groundClaims(
       // conflicting claims via a fixed template; never caller-authored text.
       const contradictedTexts = refs.map((rid) => evidenceById.get(rid)?.claimText ?? "");
       const claimText = `Conflicting accounts: ${contradictedTexts.map((t) => `"${t}"`).join(" — versus — ")}`;
+      // TASK-011 remediation (2026-07-19 RE-review, issue 10) — same
+      // deterministic-timestamp derivation as theme/inference above.
+      const derivedRetrievedAt = refs.reduce((max, rid) => {
+        const t = evidenceById.get(rid)?.retrievedAt;
+        return t && Date.parse(t) > Date.parse(max) ? t : max;
+      }, new Date(0).toISOString());
       const item: CultureEvidence = {
         id: claim.id,
         claimType: "contradiction",
         claimText,
         sourceLabel: "synthesis of cited claims",
-        sourceUrl: "",
-        sourceType: "company_official_page",
-        retrievedAt: new Date().toISOString(),
-        authorContext: claim.authorContext ?? null,
+        sourceUrl: "internal:derived-synthesis",
+        sourceType: DERIVED_SYNTHESIS_SOURCE_TYPE,
+        retrievedAt: derivedRetrievedAt,
+        authorContext: null,
         agentInference: false,
         contradicts: refs,
       };

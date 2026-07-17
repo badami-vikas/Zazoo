@@ -240,12 +240,83 @@ test("groundClaims accepts a contradiction referencing real claim ids and reject
   const ok = groundClaims(claims, artifacts);
   assert.equal(ok.ok, true);
 
+  // TASK-011 remediation (2026-07-19 RE-review, issue 10) — a contradiction
+  // now requires at least TWO DISTINCT contradicted ids; both forged here,
+  // so the "at least 2 real" gate is satisfied by count but both refs
+  // dangle.
   const forged = groundClaims(
-    [{ id: "c2", claimType: "contradiction", quote: "forged", contradicts: ["nonexistent-claim"] }],
+    [{ id: "c2", claimType: "contradiction", quote: "forged", contradicts: ["nonexistent-claim-1", "nonexistent-claim-2"] }],
     artifacts,
   );
   assert.equal(forged.ok, false);
   assert.equal(forged.failures[0]?.reason, "dangling-reference");
+});
+
+test("groundClaims rejects a contradiction with fewer than TWO DISTINCT contradicted ids — a single (or a duplicated) reference has nothing to conflict with (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 10)", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "great culture.", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h" },
+    { id: "c1", claimType: "contradiction", quote: "x", contradicts: ["a"] },
+  ];
+  const single = groundClaims(claims, artifacts);
+  assert.equal(single.ok, false);
+  assert.equal(single.failures[0]?.reason, "insufficient-contradiction-roots");
+
+  // Padding with a DUPLICATE of the same id must not satisfy the minimum —
+  // it is still only ONE distinct conflicting position.
+  const duplicated = groundClaims(
+    [
+      { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h" },
+      { id: "c2", claimType: "contradiction", quote: "x", contradicts: ["a", "a"] },
+    ],
+    artifacts,
+  );
+  assert.equal(duplicated.ok, false);
+  assert.equal(duplicated.failures[0]?.reason, "insufficient-contradiction-roots");
+});
+
+test("groundClaims: duplicate supporting-claim ids do not satisfy the theme/inference minimum-support requirement by repetition alone (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 10)", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "great culture.", contentHash: "h" })]]);
+  // A single real supporting claim, repeated, must be treated as exactly
+  // ONE distinct supporting claim — it still grounds successfully (theme/
+  // inference only requires >= 1 DISTINCT support), but the dedupe must
+  // not let the caller "count" it twice in the rendered text.
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h" },
+    { id: "t1", claimType: "theme", quote: "x", supportingClaimIds: ["a", "a", "a"] },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  const theme = result.evidence.find((e) => e.id === "t1")!;
+  assert.match(theme.claimText, /Recurring theme across 1 supporting claim\(s\)/);
+});
+
+test("groundClaims: derived (theme/inference/contradiction) evidence carries a distinct provenance kind and a non-navigable sentinel URL, never a real CultureSourceType with an empty URL (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 10)", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "great culture. also: toxic culture.", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h" },
+    { id: "b", claimType: "opinion", sourceId: "src1", quote: "toxic culture", contentHash: "h" },
+    { id: "t1", claimType: "theme", quote: "x", supportingClaimIds: ["a"] },
+    { id: "c1", claimType: "contradiction", quote: "y", contradicts: ["a", "b"] },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  const theme = result.evidence.find((e) => e.id === "t1")!;
+  const contradiction = result.evidence.find((e) => e.id === "c1")!;
+  assert.equal(theme.sourceType, "internal_derived_synthesis");
+  assert.notEqual(theme.sourceUrl, "");
+  assert.equal(contradiction.sourceType, "internal_derived_synthesis");
+  assert.notEqual(contradiction.sourceUrl, "");
+});
+
+test("groundClaims: authorContext is ALWAYS null on every produced evidence row, regardless of any caller-supplied value — never a fabrication vector for attributed quotes (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 11)", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "great culture.", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h", authorContext: "Jane Doe, invented VP of HR" },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  assert.equal(result.evidence[0]!.authorContext, null);
 });
 
 // ---------------------------------------------------------------------------

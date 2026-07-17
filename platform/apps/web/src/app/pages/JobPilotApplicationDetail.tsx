@@ -1,5 +1,5 @@
 import { TRPCClientError } from '@trpc/client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   AlertTriangle, ArrowLeft, Bot, BriefcaseBusiness, Check, CheckCircle2, ChevronDown,
@@ -321,15 +321,14 @@ function CultureResearchSection() {
   // unconditionally (including with `null`, clearing a stale/foreign
   // pointer) once it resolves, so clearing storage or switching devices
   // still surfaces real pending/completed research.
-  useEffect(() => {
+  //
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // RE-review, issue 12) — factored into a reusable callback so the SAME
+  // server-authoritative reconciliation also runs on window focus (a
+  // SECOND device/tab approving a decision must become visible here
+  // without a full page reload) and can be reused after a mutation.
+  const reconcileFromServer = useCallback(() => {
     let cancelled = false;
-    trpc.jobpilot.cultureResearch.sources
-      .query({ workspaceId, company })
-      .then((s) => { if (!cancelled) setSources(s); })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
-    if (typeof window !== 'undefined') {
-      setPointer(loadStoredCultureResearchState(window.localStorage, workspaceId, company));
-    }
     trpc.jobpilot.cultureResearch.latestRun
       .query({ workspaceId, company })
       .then((serverRun) => {
@@ -352,10 +351,40 @@ function CultureResearchSection() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setHydrated(true); });
     return () => { cancelled = true; };
+    // Deliberately stable-identity: `workspaceId`/`company` are constant for
+    // this component instance (PILOT_WORKSPACE and BCG_APPLICATION.company
+    // never change), so omitting them from the deps array is safe.
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    trpc.jobpilot.cultureResearch.sources
+      .query({ workspaceId, company })
+      .then((s) => { if (!cancelled) setSources(s); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    if (typeof window !== 'undefined') {
+      setPointer(loadStoredCultureResearchState(window.localStorage, workspaceId, company));
+    }
+    const cancelReconcile = reconcileFromServer();
+    return () => { cancelled = true; cancelReconcile(); };
     // Deliberately mount-only: `workspaceId`/`company` are constant for this
     // component instance (PILOT_WORKSPACE and BCG_APPLICATION.company never
     // change), so omitting them from the deps array is safe.
   }, []);
+
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // RE-review, issue 12) — re-reconcile against the server whenever this
+  // tab/window regains focus, so a decision approved from a SECOND device
+  // or tab becomes visible here without requiring a manual reload. Only
+  // wired after the initial mount hydration has already completed, and
+  // gated on `hydrated` so a focus event during the very first load doesn't
+  // race the mount effect's own reconciliation.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hydrated) return;
+    const onFocus = () => { reconcileFromServer(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [hydrated, reconcileFromServer]);
 
   // Re-fetch live state whenever the pointer changes (including on initial
   // hydration) — every claim/citation/hash/disclosure the user sees comes
@@ -419,6 +448,10 @@ function CultureResearchSection() {
     try {
       const proposed = await trpc.jobpilot.cultureResearch.propose.mutate({ workspaceId, company, sourceIds: permittedIds });
       persistPointer({ parentRunId: proposed.parentRunId, pending: proposed.pending });
+      // TASK-011 remediation (2026-07-19 RE-review, issue 12) — refetch the
+      // server-authoritative pointer after every mutation, not only the
+      // client's own optimistic update from this call's response.
+      reconcileFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -438,6 +471,7 @@ function CultureResearchSection() {
       }
       const record = await trpc.jobpilot.cultureResearch.materialize.mutate({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
       setStatuses((prev) => ({ ...prev, [p.proposalId]: record }));
+      reconcileFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -460,6 +494,7 @@ function CultureResearchSection() {
       const claims = fetchedEntries.map(({ p, status }) => deriveFullArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
       const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ workspaceId, company, parentRunId: pointer.parentRunId, claims });
       persistPointer({ ...pointer, synthesisProposalId: synth.proposalId });
+      reconcileFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -480,6 +515,7 @@ function CultureResearchSection() {
       }
       const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
       setResult(r);
+      reconcileFromServer();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -499,6 +535,19 @@ function CultureResearchSection() {
         <div className="mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--danger)', backgroundColor: '#FCEEEE', color: 'var(--danger)' }}>
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          RE-review, issue 12) — a DISTINCT loading state while the mount
+          effect is still reconciling against the server-authoritative
+          `latestRun` query. Before this, the section rendered nothing at
+          all during that window — indistinguishable from "no research has
+          ever been run" (the empty state below), which could flash
+          misleadingly before the real state resolves. */}
+      {!hydrated && (
+        <div className="rounded-lg border p-4 text-center text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
+          Loading culture research status…
         </div>
       )}
 

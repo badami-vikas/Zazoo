@@ -105,7 +105,19 @@ export class DrizzleMemoryStore implements MemoryStore {
    */
   async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
     return this.#db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${id}))`);
+      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+      // RE-review, issue 9) — canonicalize the UUID INSIDE SQL (`::uuid::text`)
+      // BEFORE deriving the lock key. Postgres UUID text input is
+      // case-insensitive (and tolerant of some formatting variants), but
+      // `hashtext()` operates on the RAW TEXT — two callers referencing the
+      // identical row via a differently-cased alias of the SAME UUID (e.g.
+      // uppercase vs lowercase hex) would otherwise hash to DIFFERENT lock
+      // keys and acquire DIFFERENT advisory locks, silently defeating the
+      // mutual exclusion this method exists to provide. Casting through
+      // `::uuid` first normalizes to Postgres's own canonical (lowercase,
+      // hyphenated) text form, so every alias of the same UUID always
+      // derives the identical lock key.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext((${id}::uuid)::text))`);
       const current = await tx
         .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
         .from(memories)
@@ -135,7 +147,9 @@ export class DrizzleMemoryStore implements MemoryStore {
    * "two callers both creating the FIRST row for a not-yet-existing key"
    * race (an independent reviewer found this exact gap in
    * `DurableCultureFetchStore.create`/`DurableCultureSynthesisPointerStore.recordProposal`).
-   * Locks on `hashtext(workspaceId || ':' || subjectElementId)` — a
+   * Locks on `hashtext(workspaceId || ':' || subjectElementId)` (each UUID
+   * component individually canonicalized via `::uuid::text` first — issue 9,
+   * same alias-collision rationale as `compareAndSupersede` above) — a
    * DIFFERENT lock namespace/key shape than `compareAndSupersede`'s
    * `hashtext(id)` (keyed by row id, not subject key), so the two methods'
    * locks never collide with each other for the same logical entity.
@@ -145,9 +159,11 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (!subjectElementId) {
       throw new Error("memory store: writeIfAbsent requires entry.subjectElementId as its dedup key");
     }
-    const lockKey = `${entry.workspaceId}:${subjectElementId}`;
+    const workspaceId = entry.workspaceId;
     return this.#db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext((${workspaceId}::uuid)::text || ':' || (${subjectElementId}::uuid)::text))`,
+      );
       const existingRows = await tx
         .select()
         .from(memories)

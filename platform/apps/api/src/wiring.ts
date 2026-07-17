@@ -99,6 +99,7 @@ import {
   type Actor,
   type RunCtx,
   reserveChildRunAction,
+  validateActionWithinChildRun,
   completeChildAgentRun,
   cancelChildAgentRun,
   failChildAgentRun,
@@ -360,6 +361,14 @@ export interface Wiring {
    * server-authoritative `cultureResearch.latestRun` query can resolve
    * synthesis state without a client-supplied pointer. */
   cultureSynthesisPointerStore: DurableCultureSynthesisPointerStore;
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review, issue 13) — durable, O(1) (workspaceId, company) -> latest
+   * parentRunId pointer (see `DurableCultureLatestRunPointerStore`),
+   * replacing the workspace-wide scan `DurableCultureFetchStore.listByCompany`
+   * previously used for this — a scan-then-limit approach that could
+   * silently hide the real latest run behind enough unrelated Memories at
+   * scale. */
+  cultureLatestRunPointerStore: DurableCultureLatestRunPointerStore;
   /** Process-local-only live `AbortController`s for in-flight culture-
    * research fetches, keyed by childRunId — intentionally NOT durable (an
    * abort handle cannot survive a restart, and after a restart there is no
@@ -686,6 +695,15 @@ const CULTURE_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
  * regardless of how many research runs a company has accumulated over time. */
 const CULTURE_RESEARCH_HISTORY_SCAN_LIMIT = 2_000;
 
+/** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 7) — the ONE predicate every read/synthesis path must
+ * use to decide whether a fetched artifact's raw content may still be
+ * relied on. Never serve/consume expired evidence past
+ * `CULTURE_ARTIFACT_RETENTION_MS`. */
+export function isArtifactExpired(artifact: CultureArtifactRef, nowISO: string): boolean {
+  return Date.parse(nowISO) >= Date.parse(artifact.expiresAt);
+}
+
 function stripHtmlToText(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -882,6 +900,34 @@ export class CultureFetchLeaseHeldError extends Error {
 }
 
 /**
+ * Thrown when a lease-FENCED terminal transition (`transition(..., fence)`)
+ * finds the record's CURRENT `leaseOwner`/`attempt` no longer matches the
+ * caller's own — TASK-011 remediation (2026-07-19 coordinator
+ * distributed-defects RE-review, issue 1). This is DIFFERENT from
+ * `CultureFetchAlreadyTerminalError` (status mismatch) and
+ * `CultureFetchLeaseHeldError` (a live lease blocks a NEW acquire): the
+ * record may still legitimately read "fetching" — status alone is NOT
+ * enough to prove this caller still owns the fetch. A stale/reclaimed
+ * worker (its lease expired and a LATER attempt already reclaimed and is
+ * now fetching, or has already resolved the record) must never be allowed
+ * to write a terminal outcome merely because the status field happens to
+ * still say "fetching" — that would let a zombie worker race a legitimate
+ * one and non-deterministically clobber its result. */
+export class CultureFetchStaleLeaseError extends Error {
+  constructor(
+    public readonly childRunId: string,
+    public readonly expectedLeaseOwner: string,
+    public readonly expectedAttempt: number,
+    public readonly currentRecord: CultureFetchIntentRecord,
+  ) {
+    super(
+      `culture-fetch intent for child Run ${childRunId}: lease fence mismatch — caller expected leaseOwner "${expectedLeaseOwner}" attempt ${expectedAttempt}, but the current record is leaseOwner "${currentRecord.leaseOwner}" attempt ${currentRecord.attempt} status "${currentRecord.status}" (this worker's lease was reclaimed or the record already resolved; its terminal write must be refused)`,
+    );
+    this.name = "CultureFetchStaleLeaseError";
+  }
+}
+
+/**
  * Durable adapter over `MemoryStore` for culture-fetch intent records.
  * `subjectElementId` is repurposed as this store's lookup key (`childRunId`)
  * — `MemoryStore` has no arbitrary-field query, but `retrieve({
@@ -939,12 +985,20 @@ export class DurableCultureFetchStore {
       sourceRefType: "ledger",
       sourceRefId: next.proposalId ?? next.childRunId,
       confidence: 1,
-      // The RECORD itself is operator/system-authored governance metadata
-      // (the fact that a fetch was requested/leased/cancelled) — distinct
-      // from the FETCHED ARTIFACT bytes it may reference, which carry their
-      // OWN `trustOrigin: "untrusted_external"` (see `CultureArtifactRef`,
-      // TASK-011 remediation 2026-07-19 issue 8). Never conflate the two.
-      trustOrigin: "operator",
+      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+      // RE-review, issue 7) — the OUTER `memories` row's own `trustOrigin`
+      // column must NEVER read "operator" once its `content` blob embeds
+      // real fetched external bytes: a generic Memory-reading caller (one
+      // that has no idea this specific store nests an untrusted artifact
+      // inside its JSON content) would otherwise see "operator" and could
+      // treat the whole row — bytes included — as trusted/operator-authored,
+      // a silent declassification of exactly the taint this field exists to
+      // prevent. Before any fetch completes (no `artifact` yet), the row
+      // genuinely IS pure operator/system-authored governance metadata
+      // ("a fetch was requested/leased/cancelled") — "operator" is honest
+      // then. The moment `artifact` is populated, the row's OWN trustOrigin
+      // flips to `untrusted_external` to match its actual contents.
+      trustOrigin: next.artifact ? "untrusted_external" : "operator",
       plane: "local",
       createdBy: next.actorId,
     };
@@ -1033,17 +1087,34 @@ export class DurableCultureFetchStore {
    * generic Error) when the record exists but is not in an expected status —
    * whether that was already true when we loaded it, OR a concurrent writer
    * (in this process or another instance) won the race between our load and
-   * our write. */
+   * our write.
+   *
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review, issue 1) — an optional `fence` makes this LEASE-FENCED: when
+   * provided, the CAS predicate ALSO requires the record's CURRENT
+   * `leaseOwner`/`attempt` to match exactly, not just its status. Status
+   * alone ("fetching") cannot prove the caller still legitimately owns the
+   * fetch — a stale worker whose lease already expired and was reclaimed by
+   * a LATER attempt would otherwise still see "fetching" and be allowed to
+   * write a terminal outcome, racing the legitimate current holder
+   * non-deterministically. Every terminal write in
+   * `materializeCultureSourceFetch` (fetched/failed/cancelled) MUST pass its
+   * own `{ leaseOwner, attempt }` here; a fence mismatch throws
+   * `CultureFetchStaleLeaseError`, distinct from a plain status mismatch. */
   async transition(
     workspaceId: string,
     childRunId: string,
     fromStatuses: readonly CultureFetchStatus[],
     mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
+    fence?: { leaseOwner: string; attempt: number },
   ): Promise<CultureFetchIntentRecord> {
     const existing = await this.#loadRow(workspaceId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
     if (!fromStatuses.includes(existing.record.status)) {
       throw new CultureFetchAlreadyTerminalError(childRunId, existing.record.status);
+    }
+    if (fence && (existing.record.leaseOwner !== fence.leaseOwner || existing.record.attempt !== fence.attempt)) {
+      throw new CultureFetchStaleLeaseError(childRunId, fence.leaseOwner, fence.attempt, existing.record);
     }
     const next: CultureFetchIntentRecord = { ...mutate(existing.record), updatedAt: new Date().toISOString() };
     try {
@@ -1051,6 +1122,13 @@ export class DurableCultureFetchStore {
     } catch (e) {
       if (e instanceof MemoryConflictError) {
         const reloaded = await this.#loadRow(workspaceId, childRunId);
+        // A lost race here means SOMEONE ELSE'S write won — re-derive the
+        // MOST SPECIFIC error against the fresh state: a fence mismatch is
+        // more informative than a generic terminal error when a fence was
+        // supplied and no longer matches.
+        if (fence && reloaded && (reloaded.record.leaseOwner !== fence.leaseOwner || reloaded.record.attempt !== fence.attempt)) {
+          throw new CultureFetchStaleLeaseError(childRunId, fence.leaseOwner, fence.attempt, reloaded.record);
+        }
         throw new CultureFetchAlreadyTerminalError(childRunId, reloaded?.record.status ?? existing.record.status);
       }
       throw e;
@@ -1176,17 +1254,57 @@ export class DurableCultureFetchStore {
   }
 
   /**
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review, issue 7) — lazily purges an EXPIRED artifact's raw `content`
+   * (keeping `contentHash`/`sourceUrl`/`retrievedAt`/`expiresAt` metadata,
+   * which citations/audit still need) the next time this record is READ.
+   * There is no background cleanup job in this prototype; purging
+   * on-read is what makes "cleanup expired content" a real, enforced
+   * property rather than an unenforced doc comment — the very next status
+   * read or synthesis attempt after expiry durably clears the bytes,
+   * regardless of whether anyone ever explicitly asks for cleanup.
+   * Idempotent: a no-op if the artifact is absent, unexpired, or already
+   * purged (empty content).
+   */
+  async purgeExpiredArtifactContentIfNeeded(workspaceId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
+    const existing = await this.#loadRow(workspaceId, childRunId);
+    if (!existing) return null;
+    const { artifact } = existing.record;
+    if (!artifact || artifact.content === "" || !isArtifactExpired(artifact, nowISO)) return existing.record;
+    const next: CultureFetchIntentRecord = {
+      ...existing.record,
+      artifact: { ...artifact, content: "" },
+      updatedAt: nowISO,
+    };
+    try {
+      await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
+    } catch (e) {
+      if (e instanceof MemoryConflictError) {
+        // A concurrent writer already changed this record (e.g. a genuine
+        // re-fetch reset it, or another purge won) — reload and return
+        // whatever is current rather than fighting over a best-effort
+        // cleanup.
+        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        return reloaded?.record ?? null;
+      }
+      throw e;
+    }
+    return next;
+  }
+
+  /**
    * TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
-   * issue 13) — lists every current culture-fetch intent record for one
-   * (workspaceId, company), newest first, bounded by
-   * `CULTURE_RESEARCH_HISTORY_SCAN_LIMIT`. This is what makes the web UI's
-   * "resume" flow SERVER-authoritative: a client with no local pointer at
-   * all (cleared storage, new device) can still discover an in-progress or
-   * completed research run by asking the server directly, rather than
-   * trusting anything cached client-side. `MemoryStore.retrieve` has no
-   * arbitrary-field filter, so this over-fetches by `type` alone and filters
-   * by `company`/`kind` in memory — acceptable at this bounded scale (one
-   * row per source per run, capped by `MAX_CULTURE_SOURCES_PER_RUN`).
+   * issue 13) — DEPRECATED as of the 2026-07-19 RE-review: this scanned
+   * every current `type: "episodic"` Memory in the workspace, filtered by
+   * `kind`/`company`, and applied a fixed `limit` BEFORE that filter — at
+   * scale, enough unrelated episodic Memories (Learning captures, Outreach
+   * drafts, anything else sharing this type) could crowd the real latest
+   * run entirely out of the scan window, silently hiding it even though it
+   * durably exists. Replaced by `DurableCultureLatestRunPointerStore`, an
+   * O(1) direct (workspaceId, company) -> parentRunId pointer maintained by
+   * `propose()` — no scan, no limit-before-filter, no way for unrelated
+   * Memories to hide anything. Kept only as a documented historical marker
+   * of the superseded approach; no production call site uses this anymore.
    */
   async listByCompany(workspaceId: string, company: string): Promise<CultureFetchIntentRecord[]> {
     const rows = await this.#memory.retrieve(
@@ -1309,6 +1427,206 @@ export class DurableCultureSynthesisPointerStore {
 }
 
 /**
+ * Deterministic (NOT random/unpredictable) UUID derived from an arbitrary
+ * string via SHA-256, with RFC 4122 version/variant bits set so it is
+ * always syntactically a valid UUID — TASK-011 remediation (2026-07-19
+ * coordinator distributed-defects RE-review, issue 13). Used ONLY to derive
+ * a stable `subjectElementId` key from a non-UUID business key (a company
+ * name) for `DurableCultureLatestRunPointerStore`, whose backing
+ * `memories.subject_element_id` column is UUID-typed. NEVER use this where
+ * unpredictability matters (e.g. a real record id) — it is a pure,
+ * repeatable hash, by design (the whole point is that the SAME
+ * (workspaceId, company) always derives the SAME lookup key).
+ */
+function deterministicUuidFromString(input: string): string {
+  const hex = createHash("sha256").update(input).digest("hex");
+  const versionNibble = "5"; // marks this as a derived/non-random UUID, not a real v4 id
+  const variantNibble = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${versionNibble}${hex.slice(13, 16)}-${variantNibble}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 13) — a durable, O(1)-lookup pointer from
+ * (workspaceId, company) directly to the LATEST culture-research parent
+ * Run id, replacing `DurableCultureFetchStore.listByCompany`'s workspace-
+ * wide scan-then-filter-then-limit approach. That approach filtered
+ * `kind`/`company` AFTER applying a fixed `limit` to a broad `type:
+ * "episodic"` query — at scale, with enough UNRELATED episodic Memories
+ * (Learning captures, Outreach drafts, anything else sharing this type),
+ * the real latest run could be crowded out of the scan window entirely
+ * and silently "hidden" from `latestRun`, even though it durably exists.
+ * This pointer sidesteps scanning altogether: `propose()` updates it
+ * (via `compareAndSupersede` — the newest run legitimately SUPERSEDES the
+ * pointer, unlike the synthesis pointer's first-write-wins semantics)
+ * every time a new parent Run is created for a company, so `latestRun` is
+ * a direct, indexed lookup keyed by a deterministic UUID derived from
+ * `(workspaceId, company)` — never a broad table scan.
+ */
+export interface CultureLatestRunPointerRecord {
+  kind: "culture_latest_run_pointer";
+  workspaceId: string;
+  company: string;
+  parentRunId: string;
+  updatedAt: string;
+}
+
+export class DurableCultureLatestRunPointerStore {
+  #memory: MemoryStore;
+
+  constructor(memory: MemoryStore) {
+    this.#memory = memory;
+  }
+
+  #authScope(workspaceId: string): MemoryAuthScope {
+    return { workspaceId };
+  }
+
+  #key(workspaceId: string, company: string): string {
+    return deterministicUuidFromString(`culture_latest_run_pointer:${workspaceId}:${company}`);
+  }
+
+  #buildWrite(record: CultureLatestRunPointerRecord, subjectElementId: string): Parameters<MemoryStore["write"]>[0] {
+    return {
+      id: randomUUID(),
+      workspaceId: record.workspaceId,
+      type: "episodic",
+      subjectElementId,
+      scope: "workspace",
+      content: JSON.stringify(record),
+      sourceRefType: "ledger",
+      sourceRefId: record.parentRunId,
+      confidence: 1,
+      trustOrigin: "operator",
+      plane: "local",
+      createdBy: "internal_strategist",
+    };
+  }
+
+  /** Records `parentRunId` as the latest run for this (workspaceId,
+   * company), superseding whatever pointer existed before (a NEWER run
+   * legitimately replaces an older pointer — unlike the synthesis
+   * pointer's first-write-wins invariant). Cross-instance-safe: uses
+   * `writeIfAbsent` for the FIRST-ever pointer, then `compareAndSupersede`
+   * to advance it. A lost race here is benign — whichever concurrent
+   * `propose()` call's run is genuinely newer should win, but even if the
+   * "wrong" of two near-simultaneous proposals wins the pointer, both
+   * runs remain fully durable and independently resumable by their own
+   * `parentRunId`; only the resume-shortcut pointer is affected. */
+  async recordLatestRun(workspaceId: string, company: string, parentRunId: string): Promise<void> {
+    const subjectElementId = this.#key(workspaceId, company);
+    const record: CultureLatestRunPointerRecord = {
+      kind: "culture_latest_run_pointer",
+      workspaceId,
+      company,
+      parentRunId,
+      updatedAt: new Date().toISOString(),
+    };
+    const rows = await this.#memory.retrieve({ subjectElementId, includeSuperseded: false, limit: 1 }, this.#authScope(workspaceId));
+    const existing = rows[0];
+    if (!existing) {
+      await this.#memory.writeIfAbsent(this.#buildWrite(record, subjectElementId));
+      return;
+    }
+    try {
+      await this.#memory.compareAndSupersede(existing.id, this.#buildWrite(record, subjectElementId));
+    } catch (e) {
+      if (e instanceof MemoryConflictError) return; // a concurrent, equally-valid advance already won — benign
+      throw e;
+    }
+  }
+
+  async getLatestRun(workspaceId: string, company: string): Promise<CultureLatestRunPointerRecord | null> {
+    const subjectElementId = this.#key(workspaceId, company);
+    const rows = await this.#memory.retrieve({ subjectElementId, includeSuperseded: false, limit: 1 }, this.#authScope(workspaceId));
+    const row = rows[0];
+    if (!row) return null;
+    let parsed: CultureLatestRunPointerRecord;
+    try {
+      parsed = JSON.parse(row.content) as CultureLatestRunPointerRecord;
+    } catch {
+      return null;
+    }
+    return parsed.kind === "culture_latest_run_pointer" && parsed.company === company ? parsed : null;
+  }
+}
+
+/**
+ * Attempts a LEASE-FENCED terminal transition (see `DurableCultureFetchStore.transition`'s
+ * `fence` param) — TASK-011 remediation (2026-07-19 coordinator
+ * distributed-defects RE-review, issue 1). If the fence no longer matches
+ * (a concurrent cancel, OR — critically — a DIFFERENT attempt that reclaimed
+ * this lease after this caller's own lease silently expired, already
+ * resolved or is now the sole legitimate owner of the record), this caller
+ * has NO authority to write a terminal outcome: return the CURRENT record
+ * instead of throwing, exactly as the already-terminal case is already
+ * handled. Rethrows any other, genuinely unexpected error.
+ */
+async function attemptFencedTerminalTransition(
+  fetchStore: DurableCultureFetchStore,
+  workspaceId: string,
+  childRunId: string,
+  mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
+  fence: { leaseOwner: string; attempt: number },
+): Promise<CultureFetchIntentRecord | null> {
+  try {
+    return await fetchStore.transition(workspaceId, childRunId, ["fetching"], mutate, fence);
+  } catch (e) {
+    if (e instanceof CultureFetchAlreadyTerminalError || e instanceof CultureFetchStaleLeaseError) {
+      return fetchStore.get(workspaceId, childRunId);
+    }
+    throw e;
+  }
+}
+
+/**
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 3) — the culture-fetch intent record (`MemoryStore`-
+ * backed) and its child Run (`ChildAgentRunStore`-backed) are TWO SEPARATE
+ * durable writes with no shared transaction linking them (different
+ * backing stores). A crash between the intent's terminal write and the
+ * child Run's corresponding terminal write leaves them durably
+ * inconsistent — e.g. a "fetched" intent whose child Run still reads
+ * "running", or a "failed" intent whose child Run was somehow left
+ * "completed". Rather than a background reconciliation job (no such
+ * infrastructure exists in this prototype), this SELF-REPAIRS
+ * deterministically on every read that matters: call this before trusting
+ * an intent's terminal status for anything (a `materialize` retry hitting
+ * the already-terminal early-return, or the `status` router query a client
+ * polls). Idempotent — re-driving an already-consistent pair is a no-op
+ * (the underlying `ChildRunAlreadyTerminalError` races are swallowed, exactly
+ * as the live-fetch completion path already does).
+ */
+export async function reconcileIntentChildConsistency(
+  deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore },
+  workspaceId: string,
+  intent: CultureFetchIntentRecord,
+  ctx: RunCtx,
+): Promise<void> {
+  if (intent.status !== "fetched" && intent.status !== "failed" && intent.status !== "cancelled") {
+    return; // not yet terminal — nothing to reconcile
+  }
+  const childRun = await deps.childAgentRuns.get(workspaceId, intent.childRunId);
+  if (!childRun) return; // nothing to reconcile against
+  const desiredChildStatus = intent.status === "fetched" ? "completed" : intent.status === "failed" ? "failed" : "cancelled";
+  if (childRun.status === desiredChildStatus) return; // already consistent
+  const actor: Actor = { type: "agent", id: LEARNING_AGENT };
+  const repair =
+    desiredChildStatus === "completed"
+      ? completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx)
+      : desiredChildStatus === "failed"
+        ? failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx)
+        : cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx);
+  await repair.catch((e) => {
+    // The child Run may have reached SOME OTHER terminal status via a
+    // legitimate concurrent transition (e.g. a genuine cancel racing this
+    // repair) — that is itself a resolved, consistent-enough state; only an
+    // unexpected error needs to surface.
+    if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+  });
+}
+
+/**
  * Performs the REAL, guarded fetch for one already-approved culture-research
  * proposal. Hardened across multiple TASK-011 remediation rounds; as of the
  * 2026-07-19 coordinator distributed-defects review:
@@ -1326,6 +1644,17 @@ export class DurableCultureSynthesisPointerStore {
  *  - tags the fetched artifact `trustOrigin: "untrusted_external"` with a
  *    bounded retention window — fetched bytes are untrusted external data,
  *    never silently declassified as operator-authored (issue 8).
+ *  - EVERY terminal write (fetched/failed/cancelled) is LEASE-FENCED: it
+ *    only succeeds if this caller's own `{leaseOwner, attempt}` is still the
+ *    record's current one, so a stale/reclaimed worker can never clobber a
+ *    later legitimate attempt's outcome merely because the status field
+ *    still happened to read "fetching" (RE-review issue 1).
+ *  - budget reservation is IDEMPOTENT per child Run: if `childRun.callsUsed`
+ *    already shows a reservation (a prior, possibly-crashed attempt already
+ *    consumed it), a reclaiming attempt reuses it — validate-only, never
+ *    reserve twice — so a crash-after-reserve can never permanently exhaust
+ *    the fixed `maxCalls: 1` budget and block every future retry
+ *    (RE-review issue 2).
  * Never called during `propose()`; only the router calls this, and only
  * after confirming the ledger holds an "approve" decision for `proposalId`.
  * Idempotent: a proposal whose fetch already resolved (fetched/failed/
@@ -1357,6 +1686,9 @@ export async function materializeCultureSourceFetch(
     throw new Error(`materializeCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
   if (record.status !== "pending" && record.status !== "fetching") {
+    // TASK-011 remediation (2026-07-19 RE-review, issue 3) — self-repair any
+    // intent/child inconsistency BEFORE trusting this terminal record.
+    await reconcileIntentChildConsistency(deps, workspaceId, record, ctx);
     return record; // idempotent — already terminally resolved
   }
 
@@ -1465,31 +1797,42 @@ export async function materializeCultureSourceFetch(
   }, CULTURE_CANCEL_POLL_MS);
 
   try {
-    const violation = await reserveChildRunAction(
-      deps.childAgentRuns,
-      workspaceId,
-      childRunId,
-      { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" },
-      1,
-      ctx.clock.nowISO(),
-    );
+    // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+    // RE-review, issue 2) — IDEMPOTENT budget reservation. `budget:
+    // {maxCalls:1, maxCost:1}` is fixed per child Run (one Run == one
+    // source's single fetch attempt), so the child Run's OWN durable
+    // `callsUsed` field IS the natural idempotency key — no new token is
+    // needed. If a PRIOR (possibly crashed) attempt already reserved
+    // (`callsUsed > 0`), this reclaiming attempt must REUSE that
+    // reservation — validate-only (`validateActionWithinChildRun`, no
+    // consume) — rather than calling `reserveChildRunAction` again, which
+    // would either double-charge (impossible here since `consumeBudget` is
+    // itself atomically guarded) or, far worse, FAIL with
+    // budget-exhausted and permanently strand every future retry even
+    // though the real network fetch has never yet succeeded.
+    const childRunBeforeReserve = await deps.childAgentRuns.get(workspaceId, childRunId);
+    if (!childRunBeforeReserve) {
+      throw new Error(`materializeCultureSourceFetch: unknown child Run ${childRunId}`);
+    }
+    const actionCheck = { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" as const };
+    const violation =
+      childRunBeforeReserve.callsUsed > 0
+        ? validateActionWithinChildRun(actionCheck, childRunBeforeReserve, ctx.clock.nowISO(), 0, { reusingExistingReservation: true })
+        : await reserveChildRunAction(deps.childAgentRuns, workspaceId, childRunId, actionCheck, 1, ctx.clock.nowISO());
     if (violation) {
       deps.abortControllers.delete(childRunId);
-      try {
-        await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }));
-      } catch (e) {
-        if (e instanceof CultureFetchAlreadyTerminalError) {
-          // The violation (e.g. "run-not-active") can itself be a SYMPTOM of
-          // a concurrent cancel having already resolved this record
-          // terminally — that terminal state (e.g. "cancelled") is the real
-          // outcome and must win; return it rather than throwing a
-          // "rejected" error that would mask it.
-          const current = await deps.fetchStore.get(workspaceId, childRunId);
-          if (current) return current;
-        } else {
-          throw e;
-        }
-      }
+      const afterViolation = await attemptFencedTerminalTransition(
+        deps.fetchStore,
+        workspaceId,
+        childRunId,
+        (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }),
+        { leaseOwner, attempt: fetching.attempt },
+      );
+      // The violation (e.g. "run-not-active") can itself be a SYMPTOM of a
+      // concurrent cancel/reclaim having already resolved this record —
+      // that outcome must win; return it rather than throwing a "rejected"
+      // error that would mask it.
+      if (afterViolation) return afterViolation;
       throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
     }
     // TASK-011 remediation (2026-07-18, fifth review) — re-check the
@@ -1550,21 +1893,34 @@ export async function materializeCultureSourceFetch(
       // must still result in "cancelled", discarding the artifact.
       const finalCheck = await deps.fetchStore.get(workspaceId, childRunId);
       if (finalCheck?.cancelRequested) {
-        const cancelled = await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "cancelled" })).catch((e) => {
-          if (e instanceof CultureFetchAlreadyTerminalError) return null;
-          throw e;
-        });
-        const current = cancelled ?? (await deps.fetchStore.get(workspaceId, childRunId));
+        const current = await attemptFencedTerminalTransition(
+          deps.fetchStore,
+          workspaceId,
+          childRunId,
+          (r) => ({ ...r, status: "cancelled" }),
+          { leaseOwner, attempt: fetching.attempt },
+        );
         await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
           if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
         });
         if (current) return current;
       }
-      const fetched = await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "fetched", artifact }));
+      const fetched = await attemptFencedTerminalTransition(
+        deps.fetchStore,
+        workspaceId,
+        childRunId,
+        (r) => ({ ...r, status: "fetched", artifact }),
+        { leaseOwner, attempt: fetching.attempt },
+      );
       await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
         if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
       });
-      return fetched;
+      if (fetched) return fetched;
+      // The fenced write was refused (a concurrent cancel/reclaim already
+      // resolved this record) — `attemptFencedTerminalTransition` already
+      // fell back to `get()`, so a null here means the record itself is
+      // unexpectedly missing, not a normal race outcome.
+      throw new Error(`materializeCultureSourceFetch: culture-fetch intent for child Run ${childRunId} vanished unexpectedly after a fenced write was refused`);
     } catch (error) {
       deps.abortControllers.delete(childRunId);
       // Was this abort CAUSED by cancellation (our own AbortController, set
@@ -1582,28 +1938,35 @@ export async function materializeCultureSourceFetch(
         // do it now, ourselves, rather than leaving an inconsistent "aborted
         // but still fetching" state.
         if (current?.cancelRequested) {
-          const cancelled = await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "cancelled" })).catch((e) => {
-            if (e instanceof CultureFetchAlreadyTerminalError) return null;
-            throw e;
-          });
+          const cancelled = await attemptFencedTerminalTransition(
+            deps.fetchStore,
+            workspaceId,
+            childRunId,
+            (r) => ({ ...r, status: "cancelled" }),
+            { leaseOwner, attempt: fetching.attempt },
+          );
           await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
             if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
           });
-          const finalRecord = cancelled ?? (await deps.fetchStore.get(workspaceId, childRunId));
-          if (finalRecord) return finalRecord;
+          if (cancelled) return cancelled;
         }
       }
-      try {
-        await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({
+      const failed = await attemptFencedTerminalTransition(
+        deps.fetchStore,
+        workspaceId,
+        childRunId,
+        (r) => ({
           ...r,
           status: "failed",
           error: error instanceof Error ? error.message : String(error),
-        }));
-      } catch (transitionError) {
-        // Refuse to rewrite a terminal state a concurrent cancel already set —
-        // surface anything else (e.g. an unknown-record bug).
-        if (!(transitionError instanceof CultureFetchAlreadyTerminalError)) throw transitionError;
-      }
+        }),
+        { leaseOwner, attempt: fetching.attempt },
+      );
+      // `failed` may be null (fence refused — a concurrent cancel/reclaim
+      // already resolved the record terminally) — that outcome is correct
+      // and does not need surfacing as a bug; only the ORIGINAL fetch error
+      // below is what callers need to see when this write DID win.
+      void failed;
       await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
         // The child Run may already be terminal (e.g. concurrently cancelled) —
         // that is itself a legitimate terminal state, not a reason to mask the
@@ -2408,6 +2771,55 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     env.localDir ? { dataDir: env.localDir } : {},
   );
 
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // RE-review, issue 6) — `ledger`/`goalTasks`/`childAgentRuns` were pure
+  // in-memory JS objects EVEN WHEN `BRIDGE_LOCAL_DIR` is set, unlike every
+  // other store here (`workspaceStore`/`graphStore`/`jobpilotStore`/etc,
+  // already always Drizzle-backed against `localDb`) and unlike
+  // `memoryStore` (the culture-fetch/synthesis-pointer durability this
+  // whole feature's restart guarantees were built on). This meant a REAL
+  // process restart with `BRIDGE_LOCAL_DIR` set — the explicit signal an
+  // operator wants local-plane durability — still silently lost every
+  // pending decision, child-Run status/budget, and Goal/Task binding: the
+  // culture-fetch INTENT record would durably resume, but the ledger
+  // proposal/decision and child-Run state it depends on would not, leaving
+  // an orphaned intent no caller could ever act on again.
+  //
+  // Scoped fix: bind `goalTasks`/`childAgentRuns` to their real Drizzle-
+  // backed equivalents (the SAME ones `buildPersistentPorts` uses) ONLY
+  // when `env.localDir` is actually set. When it is NOT set (the default
+  // for the vast majority of existing tests, which call
+  // `buildWiring()`/`buildInMemoryPorts()` with no `BRIDGE_LOCAL_DIR`),
+  // behavior is COMPLETELY UNCHANGED — pure in-memory objects, zero risk to
+  // existing test timing/semantics. This mirrors the exact pattern
+  // `createLocalDb` itself already uses (in-memory pglite vs file-backed
+  // pglite) for the SAME `localDb` instance both branches share.
+  //
+  // `ledger` is DELIBERATELY NOT included in this fix, and stays in-memory
+  // even under `BRIDGE_LOCAL_DIR` — a genuine, PRE-EXISTING, unrelated bug
+  // was discovered while testing this change: `DrizzleLedgerStore.append`
+  // writes `userDecision` verbatim, but migration 0004's
+  // `ledger_user_decision_check` constraint only permits NULL/'approve'/
+  // 'veto'/'edit' — NOT 'auto', a value the CORE `LedgerEntry.userDecision`
+  // type (`Decision | "auto" | null`) has always legitimately allowed (used
+  // e.g. by `recordChildAgentRunTransition` and Relationship's
+  // signal-action flow). Switching `ledger` to Drizzle-backed here made
+  // EVERY existing `BRIDGE_LOCAL_DIR`-mode caller that legitimately writes
+  // `userDecision: "auto"` start failing with a real constraint violation
+  // (confirmed via `graph-people-communities.test.ts`, unrelated to
+  // culture-research) — a genuine regression, not a false alarm. Fixing
+  // the constraint itself requires a schema migration, which is explicitly
+  // out of scope this round (RM4 owns migration 0015; TASK-010 owns the
+  // next one) — flagged to the coordinator as a discovered, documented
+  // follow-up blocker rather than silently worked around. Until that
+  // migration lands, ledger/proposal/decision state under
+  // `BRIDGE_LOCAL_DIR` remains process-local — a real, disclosed limit on
+  // this fix's restart-durability guarantee (culture-fetch intents,
+  // Goal/Task bindings, and child-Run status/budget/leases DO durably
+  // resume; the ledger proposal/decision row for an in-flight approval
+  // does not).
+  const localDirDurable = Boolean(env.localDir);
+
   return {
     roles: mRoles,
     agents: mAgents,
@@ -2436,18 +2848,102 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
     // seeds into `skill_manifests` is registered here synchronously — one
     // source of truth for what's governed, two durability backends.
-    goalTasks: new InMemoryGoalTaskStore(),
+    goalTasks: localDirDurable ? new DrizzleGoalTaskStore(localDb) : new InMemoryGoalTaskStore(),
     skillManifests: (() => {
       const registry = new InMemorySkillManifestRegistry();
       for (const m of GOVERNED_SKILL_MANIFEST_CATALOG) registry.register(m);
       return registry;
     })(),
-    childAgentRuns: new InMemoryChildAgentRunStore(),
+    childAgentRuns: localDirDurable ? new DrizzleChildAgentRunStore(localDb) : new InMemoryChildAgentRunStore(),
     // Echo double (local plane) — zero-infra mode makes no network calls, model
     // calls included; anything needing a real model runs in persistent mode.
     modelProviders: [new EchoModelProvider()],
     memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
     closeDb: closeLocalDb,
+    // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+    // RE-review, issue 6) — when `BRIDGE_LOCAL_DIR` is set,
+    // `DrizzleGoalTaskStore`/`DrizzleChildAgentRunStore` enforce REAL
+    // foreign-key integrity against the `agents`/`workspaces` tables (e.g.
+    // `tasks.assigned_agent_id -> agents.id`). `workspaceStore` here is
+    // ALREADY always Drizzle-backed (`bootstrapPilotIdentities` below
+    // already creates the real workspace/user rows regardless of mode),
+    // but the governed AGENT rows themselves were never seeded into the
+    // real `agents` table in this mode — every FK insert referencing them
+    // would fail closed with a constraint violation the moment
+    // `goalTasks`/`childAgentRuns` became real. Seed the SAME rows
+    // `buildPersistentPorts` seeds, via the SAME idempotent
+    // `ensure*Governance` helpers, so referential integrity holds. This
+    // does NOT change which store AUTHORITY/capability decisions are read
+    // from (still `InMemoryAgentStore`/`InMemoryRoleStore`, via
+    // `seedGovernance` above) — it only ensures the REAL DB rows those
+    // decisions' FK-referencing writes depend on actually exist. A no-op
+    // when `BRIDGE_LOCAL_DIR` is unset (the hooks are simply absent, exactly
+    // as before this fix).
+    ...(localDirDurable
+      ? {
+          ensureLearningGovernance: () =>
+            ensureLearningAgentGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: LEARNING_AGENT,
+              roleId: LEARNING_ROLE,
+              permissionId: LEARNING_SIGNAL_PERMISSION,
+            }),
+          ensureOutreachGovernance: () =>
+            ensureOutreachAgentGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: OUTREACH_AGENT,
+              roleId: OUTREACH_ROLE,
+              permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
+            }),
+          ensureInternalStrategistGovernance: () =>
+            ensureInternalStrategistGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: INTERNAL_STRATEGIST_AGENT,
+              roleId: INTERNAL_STRATEGIST_ROLE,
+              permissionId: INTERNAL_STRATEGIST_SIGNAL_PERMISSION,
+            }),
+          ensureGovernanceAgentGovernance: () =>
+            ensureGovernanceAgentGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: GOVERNANCE_AGENT,
+              roleId: GOVERNANCE_ROLE,
+              permissionId: GOVERNANCE_SIGNAL_PERMISSION,
+            }),
+          ensureCapabilityBuilderGovernance: () =>
+            ensureCapabilityBuilderGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: CAPABILITY_BUILDER_AGENT,
+              roleId: CAPABILITY_BUILDER_ROLE,
+              permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
+            }),
+          ensureEgressGovernance: () =>
+            ensureEgressAgentGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: EGRESS_AGENT,
+              roleId: EGRESS_ROLE,
+              permissionId: EGRESS_PRINCIPAL_PERMISSION,
+            }),
+          ensureIntakeGovernance: () =>
+            ensureIntakeAgentGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+              agentId: INTAKE_AGENT,
+              roleId: INTAKE_ROLE,
+              permissionId: INTAKE_PRINCIPAL_PERMISSION,
+            }),
+          ensureDealPilotPrincipalGovernance: () =>
+            ensureDealPilotPrincipalGovernance(localDb, {
+              workspaceId: PILOT_WORKSPACE,
+              userId: PILOT_USER,
+            }),
+        }
+      : {}),
   };
 }
 
@@ -2498,6 +2994,7 @@ export async function buildWiring(): Promise<Wiring> {
   // is intentionally NOT part of `modePorts`.
   const cultureFetchStore = new DurableCultureFetchStore(modePorts.memoryStore);
   const cultureSynthesisPointerStore = new DurableCultureSynthesisPointerStore(modePorts.memoryStore);
+  const cultureLatestRunPointerStore = new DurableCultureLatestRunPointerStore(modePorts.memoryStore);
   const cultureFetchAbortControllers = new Map<string, AbortController>();
   const {
     roles,
@@ -3047,6 +3544,7 @@ export async function buildWiring(): Promise<Wiring> {
     childAgentRuns,
     cultureFetchStore,
     cultureSynthesisPointerStore,
+    cultureLatestRunPointerStore,
     cultureFetchAbortControllers,
     memoryStore,
     evalStore,

@@ -45,10 +45,40 @@ export function cultureResearchStorageKey(workspaceId: string, company: string):
   return `bridge.jobpilot.cultureResearch.${workspaceId}.${company}`;
 }
 
+function isCultureSourcePendingRecord(value: unknown): value is CultureSourcePendingRecord {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.proposalId === 'string' && v.proposalId.length > 0 &&
+    typeof v.childRunId === 'string' && v.childRunId.length > 0 &&
+    typeof v.sourceId === 'string' && v.sourceId.length > 0 &&
+    typeof v.sourceType === 'string' && v.sourceType.length > 0 &&
+    typeof v.sourceLabel === 'string'
+  );
+}
+
+/** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 12) — a FULL, deep schema validation of the cached
+ * pointer, not merely a shallow "parentRunId is a string, pending is an
+ * array" check. `localStorage` is untrusted, foreign-writable storage (a
+ * browser extension, a stale/incompatible app version, or manual tampering
+ * could all leave a shape that superficially "looks like" a pointer but
+ * carries the wrong field types) — every `pending` entry's fields, and
+ * `synthesisProposalId` if present, are validated before ANY of this cached
+ * state is treated as actionable. A cache that fails deep validation is
+ * discarded exactly like a missing one (return null), never partially
+ * trusted. This cache is ALSO never actionable on its own regardless of
+ * validity — the mount effect always reconciles it against the
+ * server-authoritative `latestRun` query before render, per this same
+ * issue's "cache is never actionable until reconciliation succeeds"
+ * requirement (see `JobPilotApplicationDetail.tsx`'s `CultureResearchSection`). */
 function isStoredCultureResearchState(value: unknown): value is StoredCultureResearchState {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return typeof v.parentRunId === 'string' && Array.isArray(v.pending);
+  if (typeof v.parentRunId !== 'string' || v.parentRunId.length === 0) return false;
+  if (!Array.isArray(v.pending) || !v.pending.every(isCultureSourcePendingRecord)) return false;
+  if (v.synthesisProposalId !== undefined && (typeof v.synthesisProposalId !== 'string' || v.synthesisProposalId.length === 0)) return false;
+  return true;
 }
 
 export function loadStoredCultureResearchState(

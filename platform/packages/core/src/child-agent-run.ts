@@ -419,45 +419,92 @@ async function recordChildAgentRunTransition(
     throw new ChildRunAlreadyTerminalError(id, before.status);
   }
   // TASK-011 remediation (2026-07-19 coordinator distributed-defects
-  // review, issue 4) — append the durable audit entry BEFORE ever exposing
-  // the terminal status via `updateStatus`, not after. The PRIOR ordering
-  // (status flip first, audit append second, rollback-to-"running" on audit
-  // failure) let any concurrent reader observe "terminal" via `store.get`
-  // during the window between the flip and either the audit succeeding or
-  // the rollback completing — and if the ROLLBACK itself also failed, a
-  // caller could be left having already acted on a terminal status that
-  // then silently reverted to "running" under it. Recording the audit
-  // entry first means: if `updateStatus` below never runs (this function
-  // throws before reaching it) or loses a CAS race, NO caller ever observes
-  // a terminal status for this attempt at all — the run's real status
-  // never changes, so there is nothing to roll back. The audit entry
-  // records the INTENDED post-transition projection (`{...before, status}`)
-  // rather than a live read-back, since the actual row does not exist yet
-  // at write time — a losing/failed attempt's entry is a truthful record of
-  // "this actor attempted this transition", not a claim about the run's
-  // confirmed final state (which readers must still get from `store.get`).
+  // review, issue 4; hardened again 2026-07-19 coordinator RE-review) —
+  // TWO-PHASE audit, not a single append that projects the target status
+  // before it is confirmed. An independent re-review correctly found the
+  // single-append design left a FALSE terminal-shaped audit row for a
+  // losing racer: BOTH concurrent attempts appended `proposedOutput.status
+  // = <their own target>` before the CAS ever ran, so a reader of the
+  // ledger ALONE (without cross-referencing `store.get()`) could not tell
+  // which attempt actually won — the loser's row looked identical to a
+  // real confirmed completion.
+  //
+  // Phase 1 (BEFORE the CAS): append an ATTEMPT entry that records intent
+  // ONLY — `proposedOutput.status` stays `before.status` ("running"), never
+  // the target — plus `inputs.attemptedStatus` naming what is being
+  // attempted. This preserves the original crash-safety guarantee (if the
+  // process dies before the CAS ever runs, there is still a durable record
+  // that an attempt was made) WITHOUT ever claiming an outcome that may not
+  // have happened.
+  const attemptId = ctx.ids.next();
   await deps.ledger.append({
-    id: ctx.ids.next(),
+    id: attemptId,
     workspaceId: before.workspaceId,
     actorType: actor.type,
     actorId: actor.id,
     action: "archive",
     resourceType: "agent",
     resourceId: before.parentAgentId,
-    inputs: { childRunId: id, event },
-    proposedOutput: { ...before, status },
+    inputs: { childRunId: id, event: `${event}:attempt`, attemptedStatus: status },
+    proposedOutput: { ...before }, // still "running" — an ATTEMPT, not a claimed outcome
     userDecision: "auto",
     policyResults: [],
     context: { type: "child_agent_run", id, runId: before.parentRunId },
     ...(before.taint ? { trustOrigin: before.taint } : {}),
     createdAt: ctx.clock.nowISO(),
   });
-  // The actual, authoritative CAS. If this throws (e.g. a concurrent
-  // transition already won the race since `before` was read), the audit
-  // entry above stands as a truthful "attempted but did not take effect"
-  // record — the run's real status was never exposed as this attempt's
-  // target and needs no rollback.
-  return deps.store.updateStatus(workspaceId, id, "running", status);
+  // Phase 2: the actual, authoritative CAS, followed by an OUTCOME audit
+  // entry that reflects what REALLY happened — `completed` (this attempt's
+  // status projection, now CONFIRMED) on success, or a distinct
+  // `transition_attempt_failed` entry (never claiming the target status)
+  // when a concurrent transition already won. Exactly one child-Run
+  // transition attempt across any number of concurrent racers ends up with
+  // a "confirmed" outcome entry; every loser's outcome entry is explicitly
+  // and unambiguously a failure record, never terminal-shaped.
+  try {
+    const updated = await deps.store.updateStatus(workspaceId, id, "running", status);
+    await deps.ledger.append({
+      id: ctx.ids.next(),
+      workspaceId: before.workspaceId,
+      actorType: actor.type,
+      actorId: actor.id,
+      action: "archive",
+      resourceType: "agent",
+      resourceId: before.parentAgentId,
+      inputs: { childRunId: id, event, attemptRef: attemptId },
+      proposedOutput: { ...updated },
+      userDecision: "auto",
+      policyResults: [],
+      context: { type: "child_agent_run", id, runId: before.parentRunId },
+      ...(before.taint ? { trustOrigin: before.taint } : {}),
+      createdAt: ctx.clock.nowISO(),
+    });
+    return updated;
+  } catch (e) {
+    if (e instanceof ChildRunAlreadyTerminalError) {
+      await deps.ledger.append({
+        id: ctx.ids.next(),
+        workspaceId: before.workspaceId,
+        actorType: actor.type,
+        actorId: actor.id,
+        action: "archive",
+        resourceType: "agent",
+        resourceId: before.parentAgentId,
+        inputs: { childRunId: id, event: "transition_attempt_failed", attemptedStatus: status, attemptRef: attemptId, lostToStatus: e.currentStatus },
+        // Explicitly NEVER `status: status` here — this row must never be
+        // mistaken for a confirmed terminal outcome. It reflects the run's
+        // real current status (whatever the winner set), which this
+        // attempt did NOT cause.
+        proposedOutput: { ...before, status: e.currentStatus },
+        userDecision: "auto",
+        policyResults: [],
+        context: { type: "child_agent_run", id, runId: before.parentRunId },
+        ...(before.taint ? { trustOrigin: before.taint } : {}),
+        createdAt: ctx.clock.nowISO(),
+      });
+    }
+    throw e;
+  }
 }
 
 /**
@@ -542,12 +589,26 @@ function scopeCoversActionToken(scope: readonly string[], action: string, resour
  * `pipeline.propose` — an out-of-bounds step never reaches the pipeline/ledger at
  * all, matching how out-of-scope ritual steps are rejected locally today. Returns
  * `null` when the action is within bounds, else the specific violation.
+ *
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review, issue 2) — `options.reusingExistingReservation` lets a caller
+ * that already legitimately consumed this exact action's budget in an
+ * EARLIER (possibly crashed) attempt skip the budget-exhaustion check when
+ * re-validating a RECLAIMED attempt of the SAME logical action: budget was
+ * deliberately and correctly consumed once already, and `callsUsed >=
+ * maxCalls` is the EXPECTED, correct state at that point — it must not be
+ * misread as "no budget left for this retry". Every OTHER check (run
+ * active, authority/skill/data-scope, deadline) still applies unchanged;
+ * this flag narrows ONLY the budget-exhaustion condition. Default (unset)
+ * preserves the original, strict pre-reservation semantics for every
+ * existing caller.
  */
 export function validateActionWithinChildRun(
   check: ChildRunActionCheck,
   run: ChildAgentRun,
   nowISO: string,
   estimatedCost = 0,
+  options?: { reusingExistingReservation?: boolean },
 ): ChildRunViolation | null {
   if (run.status !== "running") {
     return { reason: "run-not-active", detail: `child run ${run.id} is "${run.status}", not "running"` };
@@ -577,9 +638,10 @@ export function validateActionWithinChildRun(
     };
   }
   if (
-    estimatedCost < 0 ||
-    run.callsUsed >= run.budget.maxCalls ||
-    run.costUsed + estimatedCost > run.budget.maxCost
+    !options?.reusingExistingReservation &&
+    (estimatedCost < 0 ||
+      run.callsUsed >= run.budget.maxCalls ||
+      run.costUsed + estimatedCost > run.budget.maxCost)
   ) {
     return {
       reason: "budget-exhausted",

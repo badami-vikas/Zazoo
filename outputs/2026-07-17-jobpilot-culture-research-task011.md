@@ -823,3 +823,127 @@ test then fails) found **no security vulnerabilities**. It also confirmed the ro
 redirect-origin allowlist, source-policy snapshot pinning, IPv6 hardening, cross-origin header
 allowlist, budget bounds, and deterministic derived-claim text are all untouched and unregressed
 by round 8's changes. Current head: `b4134b8`.
+
+## Tenth review — 13 more production defects (durable-worker redesign, round 2)
+
+A TENTH coordinator review of `0059928` found 13 further production-severity defects, several
+architecturally significant (a real cross-instance concurrency gap, and a genuine gap in
+`BRIDGE_LOCAL_DIR` restart durability). All 13 fixed on this branch.
+
+### The 13 findings, fixed
+
+1. **Lease-fenced terminal CAS** — `DurableCultureFetchStore.transition` gained an optional
+   `fence: {leaseOwner, attempt}` parameter: a terminal write (fetched/failed/cancelled) now
+   REQUIRES the record's current lease owner/attempt to match the caller's own, not status alone.
+   A stale/reclaimed worker whose lease already expired and was reclaimed by a later attempt can no
+   longer clobber the legitimate current holder's outcome merely because status still reads
+   "fetching" — it gets `CultureFetchStaleLeaseError` instead. New `attemptFencedTerminalTransition`
+   helper centralizes the "refused fence → return current record" pattern across all 4 terminal
+   write sites in `materializeCultureSourceFetch`.
+2. **Idempotent budget reservation** — the child Run's own `callsUsed` field is the natural
+   idempotency key (no new token needed): if `callsUsed > 0` already (a prior, possibly-crashed
+   attempt already reserved), a reclaiming attempt now calls `validateActionWithinChildRun` with a
+   new `reusingExistingReservation` option (skips ONLY the budget-exhaustion check, not
+   authority/skill/deadline) instead of `reserveChildRunAction`, so a crash-after-reserve can never
+   permanently exhaust the fixed `maxCalls:1` budget and strand every future retry.
+3. **Intent/child terminal reconciliation** — new `reconcileIntentChildConsistency` self-repairs a
+   fetched/failed/cancelled intent whose child Run is left in a different (or "running") status —
+   called on every `status` read and inside `materializeCultureSourceFetch`'s own already-terminal
+   early return. A crash between the two separate durable writes now self-heals on the next read.
+4. **Child audit correctness** — `recordChildAgentRunTransition` is now genuinely two-phase: a
+   phase-1 "attempt" ledger row records intent WITHOUT ever claiming the target status
+   (`proposedOutput.status` stays "running"), then phase-2 appends either a CONFIRMED outcome row
+   (on CAS success) or an explicit `transition_attempt_failed` row (on a lost race) — a losing
+   racer's audit trail can never again look identical to a real confirmed completion.
+5. **Proposal crash windows** — added a self-repairing check in `synthesisResult`: a valid, approved
+   synthesis result whose durable pointer binding is missing or stale (the "propose succeeded but
+   recordProposal never ran" crash window) is repaired on the next read. For the source-fetch half,
+   analysis (backed by the existing fail-closed `getByProposal` cross-check) proves an orphaned
+   proposal from this same crash window can never become approvable/actionable — it is inert, not
+   exploitable — documented in place rather than requiring a deeper `pipeline.propose` signature
+   change.
+6. **`BRIDGE_LOCAL_DIR` restart durability** — `buildInMemoryPorts` now binds `goalTasks`/
+   `childAgentRuns` to their real Drizzle-backed stores (the SAME ones persistent mode uses) when
+   `BRIDGE_LOCAL_DIR` is set, plus seeds the governed-agent rows those stores' foreign keys require
+   (`ensure*Governance` hooks, previously persistent-mode-only). Scoped so default (no
+   `BRIDGE_LOCAL_DIR`) behavior is completely unchanged. `ledger` deliberately stays in-memory: a
+   REAL, pre-existing, unrelated bug was found while testing this — `DrizzleLedgerStore` writes
+   `userDecision` verbatim, but the `ledger_user_decision_check` constraint (migration 0004) does
+   not permit `'auto'`, a value the core `LedgerEntry` type has always allowed. Fixing that needs a
+   schema migration, explicitly out of scope this round (RM4 owns 0015; TASK-010 owns the next) —
+   flagged as a disclosed follow-up blocker, not silently patched.
+7. **Artifact trust/retention, for real** — found and fixed the actual bug: the OUTER `memories` row
+   (not just the nested `CultureArtifactRef`) was always tagged `trustOrigin: "operator"` even once
+   its content embedded real fetched external bytes — a generic Memory-reading caller could
+   misread the whole row as trusted. Now dynamic: `"untrusted_external"` once `artifact` is
+   populated. Added real expiry enforcement: a new `purgeExpiredArtifactContentIfNeeded` lazily
+   purges expired content (keeping hash/URL/timestamps) on every `status` read, and `synthesize`
+   now excludes expired artifacts from its input entirely (treated as not-fetched).
+8. **Synthesis authenticity** — `synthesize` now rejects empty claims and zero available
+   (unexpired) fetched artifacts BEFORE ever creating a proposal (closing a "first-write pointer
+   poisoned by an empty submission" gap). `synthesisResult` now also verifies the proposal's
+   `actorId` is the REAL Internal Strategist Agent identity, not merely "some agent that wrote a
+   signal".
+9. **Advisory-lock alias canonicalization** — `compareAndSupersede`/`writeIfAbsent` now canonicalize
+   every UUID through `(...)::uuid::text` INSIDE the SQL before hashing for the lock key —
+   uppercase/lowercase aliases of the identical UUID previously hashed to different lock keys,
+   silently bypassing mutual exclusion.
+10. **Derived-claim provenance** — theme/inference/contradiction evidence now carries a distinct
+    `DERIVED_SYNTHESIS_SOURCE_TYPE` ("internal_derived_synthesis") + a non-navigable sentinel URL,
+    never a real fetchable source type with an empty URL. Supporting/contradicting ids are deduped
+    before validation (padding with the SAME id can no longer satisfy a minimum). Contradictions now
+    require at least TWO DISTINCT grounded roots (one reference has nothing to conflict with).
+    Derived claims' `retrievedAt` is now deterministically the MAX of their real supporting
+    evidence's timestamps, never wall-clock time — identical inputs reproduce identical output.
+11. **Attribution fabrication vector closed** — `authorContext` removed entirely as a caller-
+    suppliable field; every produced evidence row's `authorContext` is unconditionally `null` now
+    (this slice's Tier-1 sources carry no server-extracted per-claim author metadata to derive it
+    from honestly, so the safest fix was removing the caller-controlled surface rather than adding
+    a fabrication guard around it).
+12. **UI authority hardened further** — `isStoredCultureResearchState` now performs FULL deep
+    validation of every cached field (not just a shallow shape check); an explicit "Loading…" state
+    now renders during the mount reconciliation window (previously indistinguishable from the empty
+    state); a new `reconcileFromServer` callback re-syncs against `latestRun` on window focus (a
+    second device/tab's approval becomes visible without a reload) and after every mutation.
+13. **`latestRun` query scaling** — replaced the workspace-wide scan-then-limit-then-filter
+    (`listByCompany`, deprecated in place) with a new O(1) `DurableCultureLatestRunPointerStore`:
+    a durable `(workspaceId, company) -> parentRunId` pointer (keyed by a deterministic UUID
+    derived from the business key), updated by `propose()` on every new run. Unrelated Memories can
+    no longer crowd the real latest run out of a bounded scan window at scale.
+
+### New tests this round
+
+`child-agent-run.test.ts` (rewrote 3, all reflecting the two-phase audit model),
+`memory-store.test.ts` (+1, advisory-lock alias canonicalization),
+`culture-research.test.ts` [jobpilot] (+4: distinct-support dedup, contradiction-root minimum,
+derived-provenance kind, authorContext always null),
+`jobpilot-culture-research.test.ts` [api] (+11: lease-fenced stale-worker rejection, idempotent
+crash-after-reserve recovery, intent/child self-repair, artifact-expiry purge-on-read, artifact-
+expiry excluded-from-synthesis, empty-claims rejection, zero-artifacts rejection, actor-identity
+gate, synthesis-pointer self-repair, `BRIDGE_LOCAL_DIR` store-binding class checks,
+`BRIDGE_LOCAL_DIR` real-SQL persistence for Goal/Task/child-Run state, O(1) latestRun
+unrelated-Memories-can't-hide-it at scale),
+`culture-research-client.test.mjs` [web] (+1, deep cache validation rejects malformed shapes).
+
+### Verification
+
+`@bridge/core` 430/430, `@bridge/db` 112/112, `@bridge/net-guard` 24/24, `@bridge/jobpilot` 124/124,
+`@bridge/api` 222/222, `@bridge/web` 56/56 + clean build/typecheck, full monorepo build 21/21,
+eslint clean (same 2 pre-existing, unrelated issues), no-dummy-runtime clean.
+
+Synced with `origin/main`: merged forward to `87043d4` (TASKS.md reorder, Zazoo avatar/Task Manager
+fixes, DataEngine views BRD — all docs/avatar-UI, zero overlap with this branch's files); clean
+merge, no conflicts.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped) — the merge brought forward upstream's OWN
+edits to `TASKS.md`/`APPROVALS.md`/`decisions-log.md`, this branch did not author any changes to them.
+
+**Known, disclosed follow-up (not fixed this round, out of scope)**: `ledger_user_decision_check`
+(migration 0004) does not permit `userDecision: "auto"`, a value the core `LedgerEntry` type has
+long allowed and multiple call sites (child-Run lifecycle audits, Relationship's signal-action
+flow) legitimately write. This blocks making `ledger` itself Drizzle-backed under
+`BRIDGE_LOCAL_DIR` (see item 6 above) — proposal/decision state for an in-flight approval does not
+currently survive a `BRIDGE_LOCAL_DIR` restart, though the culture-fetch intent, Goal/Task binding,
+and child-Run status/budget/lease all do. Recommend a dedicated migration (new constraint allowing
+`'auto'`) once RM4/TASK-010's migration numbering is available.

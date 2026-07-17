@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sql } from "drizzle-orm";
 import type { LedgerEntry, MemoryWrite } from "@bridge/core";
 import { createLocalDb, DrizzleLedgerStore, DrizzleMemoryStore, schema } from "../src/index.js";
 
@@ -288,6 +289,49 @@ test("memories: writeIfAbsent is idempotent for sequential calls with the SAME s
     assert.equal(retry.content, "first");
     const current = await store.retrieve({ subjectElementId }, { workspaceId: ws.id, userId: null });
     assert.equal(current.length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("advisory lock key derivation: an uppercase-hex ALIAS of the same UUID hashes to the IDENTICAL lock key as its canonical lowercase form (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 9) — proves compareAndSupersede/writeIfAbsent canonicalize via ::uuid::text BEFORE hashtext(), so two callers referencing the same row/key via differently-cased UUID aliases can never bypass each other's advisory lock", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const lower = "30000000-0000-4000-8000-0000000000aa";
+    const upper = "30000000-0000-4000-8000-0000000000AA";
+    assert.notEqual(lower, upper, "sanity: these are genuinely different STRINGS");
+
+    // Directly verify, at the SQL level, that the canonicalized hash the
+    // store's compareAndSupersede/writeIfAbsent derive their lock key from
+    // is IDENTICAL for both aliases — this is the exact expression those
+    // methods execute, isolated from any row-lookup fallback that might
+    // independently mask a lock-key mismatch.
+    const lowerHash = await db.execute(sql`SELECT hashtext((${lower}::uuid)::text) AS h`);
+    const upperHash = await db.execute(sql`SELECT hashtext((${upper}::uuid)::text) AS h`);
+    assert.equal((lowerHash as unknown as { rows: { h: number }[] }).rows[0]!.h, (upperHash as unknown as { rows: { h: number }[] }).rows[0]!.h);
+
+    // The UNCANONICALIZED hash (the pre-fix bug) would differ for the two
+    // aliases — confirming this test would actually have CAUGHT the
+    // regression, not merely restated the fix.
+    const lowerRawHash = await db.execute(sql`SELECT hashtext(${lower}) AS h`);
+    const upperRawHash = await db.execute(sql`SELECT hashtext(${upper}) AS h`);
+    assert.notEqual(
+      (lowerRawHash as unknown as { rows: { h: number }[] }).rows[0]!.h,
+      (upperRawHash as unknown as { rows: { h: number }[] }).rows[0]!.h,
+      "sanity: the RAW (uncanonicalized) hash genuinely differs by case — proving canonicalization is what makes the fixed methods agree",
+    );
+
+    // End-to-end: writeIfAbsent with the lowercase alias, then a "would-be
+    // racer" using the UPPERCASE alias for the SAME subjectElementId must
+    // still correctly detect the existing row (case-insensitive row lookup
+    // already worked before this fix; the fix is specifically about the
+    // LOCK key, verified above).
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_lock_alias" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const first = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b1", workspaceId: ws.id, subjectElementId: lower, content: "first" }));
+    const second = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b2", workspaceId: ws.id, subjectElementId: upper, content: "second" }));
+    assert.equal(second.id, first.id, "the uppercase alias must resolve to the SAME existing row as its canonical lowercase form");
   } finally {
     await close();
   }

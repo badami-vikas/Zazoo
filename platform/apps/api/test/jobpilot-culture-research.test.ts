@@ -16,10 +16,15 @@
  */
 import assert from "node:assert/strict";
 import * as http from "node:http";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import { SeededRng, SystemClock, FixedClock, UuidGen, reserveChildRunAction, InMemoryChildAgentRunStore, InMemoryGoalTaskStore, InMemoryLedger, createChildAgentRun, completeChildAgentRun, type RunCtx } from "@bridge/core";
+import { DrizzleGoalTaskStore, DrizzleChildAgentRunStore } from "@bridge/db";
 import { MAX_CULTURE_SOURCES_PER_RUN } from "@bridge/jobpilot";
 import { appRouter } from "../src/router.js";
 import {
@@ -28,10 +33,13 @@ import {
   PILOT_USER,
   PILOT_WORKSPACE,
   buildWiring,
+  buildInMemoryPorts,
   cancelCultureSourceFetch,
   materializeCultureSourceFetch,
+  reconcileIntentChildConsistency,
   unsafeRegisterTestOnlyCultureSource,
   DurableCultureFetchStore,
+  CultureFetchStaleLeaseError,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -566,6 +574,287 @@ test("lease/recovery: requestCancel on an ORPHANED (expired) lease transitions d
     await wiring.close();
   }
 });
+
+test("lease-fenced terminal CAS: a STALE worker (its lease already reclaimed by a later attempt) cannot write a terminal outcome merely because status still reads 'fetching' — its fenced transition is refused with CultureFetchStaleLeaseError, never silently accepted (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 1)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource("http://127.0.0.1:1/lease-fence");
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { childRunId } = proposed.pending[0]!;
+
+    const t0 = new Date().toISOString();
+    const staleWorker = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-a-stale", t0);
+    assert.equal(staleWorker.attempt, 1);
+
+    // Worker A's lease expires; a LATER, legitimate attempt reclaims it.
+    const farFuture = new Date(Date.parse(t0) + 60_000).toISOString();
+    const reclaimingWorker = await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "worker-b-current", farFuture);
+    assert.equal(reclaimingWorker.attempt, 2);
+    assert.equal(reclaimingWorker.leaseOwner, "worker-b-current");
+
+    // Worker A — unaware its lease was ever reclaimed (e.g. it was merely
+    // slow, not actually dead, and finally finishes its stale network call)
+    // — tries to write "fetched" using ITS OWN (now stale) fence. Status is
+    // STILL "fetching" (worker B is currently holding it), so a status-only
+    // CAS would have wrongly accepted this write; the lease fence must
+    // refuse it.
+    await assert.rejects(
+      () =>
+        wiring.cultureFetchStore.transition(
+          PILOT_WORKSPACE,
+          childRunId,
+          ["fetching"],
+          (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "stale content", contentHash: "deadbeef", retrievedAt: t0, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+          { leaseOwner: staleWorker.leaseOwner!, attempt: staleWorker.attempt },
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof CultureFetchStaleLeaseError);
+        return true;
+      },
+    );
+
+    // The record must be COMPLETELY untouched by worker A's refused write —
+    // still "fetching", still owned by worker B.
+    const afterRefusal = await wiring.cultureFetchStore.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(afterRefusal?.status, "fetching");
+    assert.equal(afterRefusal?.leaseOwner, "worker-b-current");
+    assert.equal(afterRefusal?.attempt, 2);
+
+    // Worker B — the legitimate current holder — CAN write the terminal
+    // outcome using its OWN correct fence.
+    const wonByB = await wiring.cultureFetchStore.transition(
+      PILOT_WORKSPACE,
+      childRunId,
+      ["fetching"],
+      (r) => ({ ...r, status: "fetched", artifact: { sourceId: id, sourceType: "company_official_page", sourceLabel: "x", sourceUrl: "http://127.0.0.1:1/lease-fence", content: "real content", contentHash: "cafebabe", retrievedAt: farFuture, trustOrigin: "untrusted_external", expiresAt: farFuture } }),
+      { leaseOwner: reclaimingWorker.leaseOwner!, attempt: reclaimingWorker.attempt },
+    );
+    assert.equal(wonByB.status, "fetched");
+    assert.equal(wonByB.artifact?.content, "real content");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("idempotent budget reservation: a crash AFTER budget was reserved (but before any terminal outcome) does not permanently exhaust the fixed maxCalls:1 budget — a reclaiming attempt reuses the existing reservation instead of re-reserving, and completes the real fetch exactly once (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 2)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Real content after crash recovery.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    // Simulate "worker 1 acquired the lease AND reserved budget, then
+    // crashed" — exactly the window issue 2 describes: acquireLease
+    // succeeds, reserveChildRunAction succeeds (consuming the fixed
+    // maxCalls:1 budget), then the process dies before ever reaching a
+    // terminal fetchStore transition.
+    const t0 = new Date().toISOString();
+    await wiring.cultureFetchStore.acquireLease(PILOT_WORKSPACE, childRunId, "crashed-worker", t0);
+    const reserveViolation = await reserveChildRunAction(
+      wiring.childAgentRuns,
+      PILOT_WORKSPACE,
+      childRunId,
+      { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" },
+      1,
+      t0,
+    );
+    assert.equal(reserveViolation, null, "the simulated crashed worker's own reservation must have succeeded");
+    const childRunAfterCrash = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(childRunAfterCrash?.callsUsed, 1, "budget was consumed by the crashed attempt");
+
+    // A REAL recovery attempt now runs `materializeCultureSourceFetch` with
+    // a clock advanced past the lease TTL (simulating real elapsed time
+    // after the crash) — it must reclaim the lease AND complete the real
+    // fetch, WITHOUT being blocked by "budget-exhausted" (the bug this fix
+    // closes) and WITHOUT double-charging the budget.
+    const farFutureClock = new FixedClock(new Date(Date.parse(t0) + 60_000).toISOString());
+    const recoveredCtx: RunCtx = { clock: farFutureClock, rng: new SeededRng(2), ids: new UuidGen(farFutureClock, new SeededRng(2)) };
+    const recovered = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, recoveredCtx, allowLoopback);
+
+    assert.equal(recovered.status, "fetched", "the reclaiming attempt must complete the real fetch despite the crashed attempt's earlier reservation");
+    assert.equal(recovered.artifact?.content, "Real content after crash recovery.");
+
+    const childRunAfterRecovery = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId);
+    assert.equal(childRunAfterRecovery?.callsUsed, 1, "budget must NEVER be double-charged — still exactly 1 call used, not 2");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("intent/child terminal reconciliation: a fetched intent whose child Run is left 'running' (simulating a crash between the two separate durable writes) self-repairs to 'completed' on the next status read, and a failed intent similarly self-repairs its child Run to 'failed' (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 3)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Reconciliation test content.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+
+    // --- Case 1: fetched intent, child Run still "running" ---
+    const id1 = registerTestSource(server.url);
+    const proposed1 = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id1] });
+    const { proposalId: proposalId1, childRunId: childRunId1 } = proposed1.pending[0]!;
+    await caller.action.decide({ proposalId: proposalId1, decision: "approve" });
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId1, childRunId1, makeRun(1), allowLoopback);
+
+    // Simulate the crash window: the intent is durably "fetched" (already
+    // proven above), but roll the child Run BACK to "running" directly —
+    // exactly the shape of state a crash between the two separate writes
+    // would leave (the fetch itself proves the intent write happened; the
+    // child-Run write is what we're pretending never landed).
+    const childRun1 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    assert.equal(childRun1?.status, "completed", "sanity: the normal happy path already completes the child Run");
+    // Force it back to "running" by writing directly into the in-memory
+    // store's backing map (test-only access) — the durable INTENT stays
+    // "fetched" throughout, simulating the inconsistency this fix targets.
+    (wiring.childAgentRuns as InMemoryChildAgentRunStore).runs.set(childRunId1, { ...childRun1!, status: "running" });
+    const beforeRepair = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    assert.equal(beforeRepair?.status, "running", "sanity: the simulated inconsistency is in place");
+
+    // The NEXT status read (the router's own polled query, exercised here
+    // directly against the reconciliation helper it calls) must self-repair.
+    const intent1 = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId1, childRunId1);
+    await reconcileIntentChildConsistency(wiring, PILOT_WORKSPACE, intent1!, makeRun(2));
+    const repaired1 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId1);
+    assert.equal(repaired1?.status, "completed", "a fetched intent must self-repair its child Run back to completed");
+
+    // --- Case 2: failed intent, child Run left "running" ---
+    const id2 = registerTestSource("http://127.0.0.1:1/reconcile-fail");
+    const proposed2 = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id2] });
+    const { proposalId: proposalId2, childRunId: childRunId2 } = proposed2.pending[0]!;
+    await caller.action.decide({ proposalId: proposalId2, decision: "approve" });
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId2, childRunId2, makeRun(3), allowLoopback).catch(() => {});
+    const intentAfterFail = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId2, childRunId2);
+    assert.equal(intentAfterFail?.status, "failed", "sanity: the unreachable-host fetch really fails");
+    const childRun2 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId2);
+    assert.equal(childRun2?.status, "failed", "sanity: the normal happy path already fails the child Run too");
+    (wiring.childAgentRuns as InMemoryChildAgentRunStore).runs.set(childRunId2, { ...childRun2!, status: "running" });
+
+    await reconcileIntentChildConsistency(wiring, PILOT_WORKSPACE, intentAfterFail!, makeRun(4));
+    const repaired2 = await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId2);
+    assert.equal(repaired2?.status, "failed", "a failed intent must self-repair its child Run back to failed");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("artifact expiry: an EXPIRED artifact's raw content is purged (never served) on the next status read, while its citation metadata (hash/URL/timestamps) is preserved (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 7)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Content that must eventually expire.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+    assert.equal(fetched.status, "fetched");
+    assert.notEqual(fetched.artifact?.content, "");
+
+    // Simulate real elapsed time past the retention window by rewriting the
+    // record's own `expiresAt` directly into the past — this is the exact
+    // durable field `isArtifactExpired` reads; no other mechanism exists to
+    // "wait" for expiry in a test without a real 24h delay.
+    const record = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    assert.ok(record?.artifact);
+    const backdated = { ...record!, artifact: { ...record!.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
+    // Overwrite the durable record directly via the underlying memoryStore
+    // (bypassing lease/status checks — those aren't the concern of THIS
+    // test — to simulate "real elapsed time" without a real 24h wait).
+    const rows = await wiring.memoryStore.retrieve({ subjectElementId: childRunId, includeSuperseded: false, limit: 1 }, { workspaceId: PILOT_WORKSPACE });
+    const row = rows[0]!;
+    await wiring.memoryStore.compareAndSupersede(row.id, { ...row, id: randomUUID(), content: JSON.stringify(backdated) });
+
+    const beforePurge = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    assert.notEqual(beforePurge?.artifact?.content, "", "sanity: content is still present before any purge-triggering read");
+
+    // The router's own `status` query is what triggers the purge on read.
+    const polled = await caller.jobpilot.cultureResearch.status({ workspaceId: PILOT_WORKSPACE, proposalId, childRunId });
+    assert.equal(polled.artifact?.content, "", "expired content must be purged — never served");
+    assert.equal(polled.artifact?.contentHash, fetched.artifact!.contentHash, "citation metadata (hash) must be preserved even after content purge");
+    assert.equal(polled.artifact?.sourceUrl, fetched.artifact!.sourceUrl, "citation metadata (URL) must be preserved even after content purge");
+
+    const afterPurge = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    assert.equal(afterPurge?.artifact?.content, "", "the purge must be DURABLE, not merely reflected in the one response");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("artifact expiry: synthesize treats an EXPIRED artifact as NOT fetched — a claim citing ONLY the expired source is rejected as unknown-source even while a SECOND, unexpired source's claim in the same batch is available to ground normally (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issues 7/8)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture values collaboration and also transparency.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const expiringId = registerTestSource(server.url);
+    const freshId = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [expiringId, freshId] });
+    const expiringPending = proposed.pending.find((p) => p.sourceId === expiringId)!;
+    const freshPending = proposed.pending.find((p) => p.sourceId === freshId)!;
+    await caller.action.decide({ proposalId: expiringPending.proposalId, decision: "approve" });
+    await caller.action.decide({ proposalId: freshPending.proposalId, decision: "approve" });
+    const expiringFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, expiringPending.proposalId, expiringPending.childRunId, makeRun(1), allowLoopback);
+    const freshFetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, freshPending.proposalId, freshPending.childRunId, makeRun(2), allowLoopback);
+    assert.equal(expiringFetched.status, "fetched");
+    assert.equal(freshFetched.status, "fetched");
+
+    // Backdate ONLY the first source's expiresAt into the past.
+    const rows = await wiring.memoryStore.retrieve({ subjectElementId: expiringPending.childRunId, includeSuperseded: false, limit: 1 }, { workspaceId: PILOT_WORKSPACE });
+    const row = rows[0]!;
+    const record = JSON.parse(row.content) as typeof expiringFetched;
+    const backdated = { ...record, artifact: { ...record.artifact!, expiresAt: new Date(Date.now() - 1000).toISOString() } };
+    await wiring.memoryStore.compareAndSupersede(row.id, { ...row, id: randomUUID(), content: JSON.stringify(backdated) });
+
+    // The synthesis overall still succeeds (the fresh source grounds its
+    // own claim), but the claim citing the NOW-expired source must never
+    // silently ground — `synthesize` fails closed for the WHOLE batch
+    // (groundClaims is all-or-nothing), never partially applying only the
+    // valid claim while silently dropping the invalid one.
+    await assert.rejects(
+      () =>
+        caller.jobpilot.cultureResearch.synthesize({
+          workspaceId: PILOT_WORKSPACE,
+          company: TEST_COMPANY,
+          parentRunId: proposed.parentRunId,
+          claims: [
+            { id: "claim-expired", claimType: "fact", sourceId: expiringId, quote: "values collaboration", contentHash: expiringFetched.artifact!.contentHash },
+            { id: "claim-fresh", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.artifact!.contentHash },
+          ],
+        }),
+      /rejected|unknown-source/i,
+    );
+
+    // Proof that the EXPIRED source specifically is what's excluded: a
+    // batch citing ONLY the fresh source succeeds normally.
+    const onlyFresh = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "claim-fresh-only", claimType: "fact", sourceId: freshId, quote: "also transparency", contentHash: freshFetched.artifact!.contentHash }],
+    });
+    assert.equal(onlyFresh.status, "pending_review");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 
 test("cancel landing during the reservation window (before the AbortController is registered) still guarantees the request never completes (TASK-011 remediation, 2026-07-18 fresh review) — deterministic reproduction via a delayed childAgentRuns.get", async () => {
   let serverGotFullRequest = false;
@@ -1151,6 +1440,47 @@ test("cultureResearch.latestRun: two research runs for the same company — the 
   }
 });
 
+test("cultureResearch.latestRun: an O(1) durable pointer lookup — unrelated 'episodic' Memories (simulating Learning captures/Outreach drafts sharing the same Memory `type`) can NEVER hide the real latest run, at any scale, because the lookup no longer scans+limits the workspace's Memories at all (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 13)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("plain content");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+
+    // Flood the SAME workspace with many unrelated `type: "episodic"`
+    // Memories, all created AFTER the real culture-research record — under
+    // the OLD scan-then-limit-then-filter design, a small enough limit
+    // would have let these crowd the real record out of the scan window
+    // entirely, making `latestRun` wrongly return null. The pointer-based
+    // design performs no such scan at all.
+    for (let i = 0; i < 50; i++) {
+      await wiring.memoryStore.write({
+        id: `40000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+        workspaceId: PILOT_WORKSPACE,
+        type: "episodic",
+        scope: "workspace",
+        content: JSON.stringify({ kind: "unrelated_learning_capture", note: `noise-${i}` }),
+        confidence: 1,
+        trustOrigin: "operator",
+        plane: "local",
+        createdBy: "test_fixture_unrelated_writer",
+      });
+    }
+
+    const latest = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    assert.ok(latest, "the real latest run must still be found despite 50 unrelated, more-recently-created Memories sharing the same type");
+    assert.equal(latest!.parentRunId, proposed.parentRunId);
+    assert.equal(latest!.pending.length, 1);
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 test("DurableCultureFetchStore.create: two CONCURRENT calls for the SAME childRunId never fork a duplicate current row (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review — an independent reviewer found the original plain write() here could not detect a racing creator for the same key; now backed by MemoryStore.writeIfAbsent)", async () => {
   const wiring = await buildWiring();
   try {
@@ -1315,6 +1645,300 @@ test("cultureResearch.synthesize: artifacts fetched for a different company are 
   } finally {
     await serverA.close();
     await serverB.close();
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: rejects an EMPTY claims batch before ever creating a proposal — an empty submission can never poison the first-write synthesis pointer for this parentRunId (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 8)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Real content.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+
+    await assert.rejects(
+      () => caller.jobpilot.cultureResearch.synthesize({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, parentRunId: proposed.parentRunId, claims: [] }),
+      /at least one claim/i,
+    );
+
+    // Prove the pointer was never poisoned: a REAL, well-grounded synthesis
+    // for the SAME parentRunId still succeeds afterward.
+    const record = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
+    const real = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "Real content", contentHash: record!.artifact!.contentHash }],
+    });
+    assert.equal(real.status, "pending_review");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: rejects when zero unexpired fetched artifacts exist for this parentRunId, even with non-empty claims — no claim can ground against zero evidence (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 8)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource("http://127.0.0.1:1/never-fetched");
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    // Deliberately never approve/materialize — zero fetched artifacts exist.
+    await assert.rejects(
+      () =>
+        caller.jobpilot.cultureResearch.synthesize({
+          workspaceId: PILOT_WORKSPACE,
+          company: TEST_COMPANY,
+          parentRunId: proposed.parentRunId,
+          claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "anything", contentHash: "deadbeef" }],
+        }),
+      /unexpired fetched artifact/i,
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesisResult: an approved proposal whose actor is NOT the real Internal Strategist Agent identity is rejected as not_available, even if action/resourceType/schema otherwise match (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 8)", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    // A DIFFERENT agent proposes a schema-shaped, action:write/resourceType:signal
+    // payload that would otherwise pass every other synthesisResult gate.
+    const parentRunId = "50000000-0000-4000-8000-000000000001";
+    const forgedOutput = {
+      parentRunId,
+      partition: { facts: [], opinions: [], themes: [], contradictions: [], inferences: [] },
+      disclosure: { used: [], skipped: [] },
+      artifactHashes: [],
+    };
+    const proposal = await wiring.pipeline.propose(
+      {
+        workspaceId: PILOT_WORKSPACE,
+        actor: { type: "agent", id: LEARNING_AGENT }, // NOT Internal Strategist
+        onBehalfOf: { type: "user", id: PILOT_USER },
+        action: "write",
+        resourceType: "signal",
+        skill: "jobpilot.synthesizeCultureProfile",
+        dataScope: "all",
+        inputs: {},
+      },
+      makeRun(),
+    );
+    // Manually stamp the forged output onto the proposal (simulating a
+    // hypothetical bypass) is not directly possible via the public API, so
+    // this test instead proves the ACTOR gate rejects a differently-actored
+    // proposal outright, independent of whether its output could ever be
+    // forged to this shape.
+    await wiring.ledger.append({
+      id: randomUUID(),
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: LEARNING_AGENT,
+      action: "write",
+      resourceType: "signal",
+      inputs: {},
+      proposedOutput: forgedOutput,
+      userDecision: "approve",
+      policyResults: [],
+      refLedgerId: proposal.id,
+      createdAt: new Date().toISOString(),
+    });
+    const result = await caller.jobpilot.cultureResearch.synthesisResult({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      proposalId: proposal.id,
+      parentRunId,
+    });
+    assert.deepEqual(result, { status: "not_available" });
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("BRIDGE_LOCAL_DIR durability: goalTasks/childAgentRuns are bound to their REAL Drizzle-backed stores (never in-memory) when BRIDGE_LOCAL_DIR is set, and remain the original process-only in-memory stores when it is not — TASK-011 remediation (2026-07-19 coordinator distributed-defects RE-review, issue 6)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-culture-research-localdir-test-"));
+  let durablePorts: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
+  let ephemeralPorts: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
+  try {
+    durablePorts = await buildInMemoryPorts({ localDir: dir });
+    assert.ok(durablePorts.goalTasks instanceof DrizzleGoalTaskStore, "goalTasks must be the REAL Drizzle-backed store when BRIDGE_LOCAL_DIR is set");
+    assert.ok(durablePorts.childAgentRuns instanceof DrizzleChildAgentRunStore, "childAgentRuns must be the REAL Drizzle-backed store when BRIDGE_LOCAL_DIR is set");
+    // The ledger is DELIBERATELY still in-memory (see the wiring.ts doc
+    // comment on `buildInMemoryPorts` for why: a pre-existing, unrelated
+    // `ledger_user_decision_check` constraint mismatch with the core
+    // `LedgerEntry.userDecision` type's `"auto"` value blocks this — a
+    // documented, disclosed follow-up blocker, not silently worked around).
+    assert.ok(durablePorts.ledger instanceof InMemoryLedger);
+
+    // Prove the seeded governance hooks are ALSO wired (needed for the
+    // Drizzle stores' own foreign-key integrity against `agents`).
+    assert.equal(typeof durablePorts.ensureLearningGovernance, "function");
+    assert.equal(typeof durablePorts.ensureInternalStrategistGovernance, "function");
+
+    ephemeralPorts = await buildInMemoryPorts({ localDir: undefined });
+    assert.ok(ephemeralPorts.goalTasks instanceof InMemoryGoalTaskStore, "goalTasks must remain the ORIGINAL process-local store when BRIDGE_LOCAL_DIR is unset — zero behavior change for the default (no-BRIDGE_LOCAL_DIR) path this fix must never destabilize");
+    assert.ok(ephemeralPorts.childAgentRuns instanceof InMemoryChildAgentRunStore, "childAgentRuns must remain the ORIGINAL process-local store when BRIDGE_LOCAL_DIR is unset");
+    assert.equal(ephemeralPorts.ensureLearningGovernance, undefined, "the governance-seeding hooks must be ABSENT (not merely no-ops) when BRIDGE_LOCAL_DIR is unset, exactly as before this fix");
+  } finally {
+    if (durablePorts) await durablePorts.closeDb();
+    if (ephemeralPorts) await ephemeralPorts.closeDb();
+  }
+});
+
+test("BRIDGE_LOCAL_DIR restart durability: Goal/Task bindings and child-Run status/budget genuinely persist to REAL on-disk SQL tables, not an in-process cache (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 6). NOTE: a literal close-then-reopen-a-second-wiring restart simulation against the SAME on-disk BRIDGE_LOCAL_DIR hits a PRE-EXISTING, documented, unrelated migration-rerun limitation (see the sibling 'culture fetch intent records survive a fresh DurableCultureFetchStore' test's own doc comment) — this test proves the SAME underlying real-SQL-persistence property that test already established for the culture-fetch intent record, extended to Goal/Task + child-Run state.", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-culture-research-durable-store-test-"));
+  let ports: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
+  try {
+    ports = await buildInMemoryPorts({ localDir: dir });
+    const goalTasks = ports.goalTasks as DrizzleGoalTaskStore;
+    const childAgentRuns = ports.childAgentRuns as DrizzleChildAgentRunStore;
+    const c = makeRun();
+
+    // Seed the real workspace/user + governed LEARNING_AGENT row this
+    // low-level test bypasses by calling `buildInMemoryPorts` directly
+    // instead of the full `buildWiring()` boot sequence — mirrors exactly
+    // what `buildWiring()` itself does before ever touching goalTasks/
+    // childAgentRuns, proving the SAME FK-integrity path this fix relies on.
+    await ports.workspaceStore.bootstrapPilotIdentities({
+      workspaceId: PILOT_WORKSPACE,
+      userId: PILOT_USER,
+      userEmail: "test_fixture_pilot@example.com",
+    });
+    await ports.ensureLearningGovernance?.();
+
+    const goal = await goalTasks.createGoal(
+      { workspaceId: PILOT_WORKSPACE, type: "culture_research", title: "test_fixture restart-durability goal" },
+      { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
+    );
+    const task = await goalTasks.createTask(
+      { workspaceId: PILOT_WORKSPACE, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
+      { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
+    );
+    const parentEnvelope = {
+      runId: c.ids.next(),
+      agentId: LEARNING_AGENT,
+      workspaceId: PILOT_WORKSPACE,
+      authorityScope: ["external:fetch:read"],
+      eligibleSkills: ["jobpilot.researchCultureSource"],
+      dataScope: "public" as const,
+      plane: "cloud" as const,
+      budgetRemaining: { calls: 1, cost: 1 },
+      reviewMode: "approve" as const,
+      childRunPolicy: "allowed" as const,
+      delegationDepth: 0,
+      onBehalfOf: { type: "user" as const, id: PILOT_USER },
+    };
+    const childRun = await createChildAgentRun(
+      { store: childAgentRuns, ledger: ports.ledger },
+      parentEnvelope,
+      {
+        goalId: goal.id,
+        taskId: task.id,
+        delegatedScope: ["external:fetch:read"],
+        selectedSkills: ["jobpilot.researchCultureSource"],
+        budget: { maxCalls: 1, maxCost: 1 },
+        deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
+        stopCondition: "test_fixture restart durability",
+        requestedDataScope: "public",
+        touchesExternalRisk: true,
+      },
+      c,
+    );
+    await childAgentRuns.consumeBudget(PILOT_WORKSPACE, childRun.id, 1, c.clock.nowISO());
+    await completeChildAgentRun({ store: childAgentRuns, ledger: ports.ledger }, PILOT_WORKSPACE, childRun.id, { type: "agent", id: LEARNING_AGENT }, c);
+
+    // Genuinely real SQL round-trips (not an in-process cache): every read
+    // below goes through `DrizzleGoalTaskStore`/`DrizzleChildAgentRunStore`
+    // (confirmed by the sibling class-identity test above) against the
+    // on-disk pglite directory — the SAME real-SQL guarantee the existing
+    // "culture fetch intent records survive a fresh DurableCultureFetchStore"
+    // test already established for the culture-fetch intent record itself.
+    const resumedGoal = await goalTasks.getGoal(PILOT_WORKSPACE, goal.id);
+    assert.ok(resumedGoal);
+    assert.equal(resumedGoal!.title, "test_fixture restart-durability goal");
+    const resumedTask = await goalTasks.getTask(PILOT_WORKSPACE, task.id);
+    assert.ok(resumedTask);
+    assert.equal(resumedTask!.assignedAgentId, LEARNING_AGENT);
+    const resumedChildRun = await childAgentRuns.get(PILOT_WORKSPACE, childRun.id);
+    assert.ok(resumedChildRun);
+    assert.equal(resumedChildRun!.status, "completed");
+    assert.equal(resumedChildRun!.callsUsed, 1);
+  } finally {
+    if (ports) await ports.closeDb();
+  }
+});
+
+test("cultureResearch.synthesisResult: self-repairs a MISSING synthesis-pointer binding (simulating a crash between pipeline.propose succeeding and recordProposal ever running) — a valid, approved synthesis result becomes discoverable via latestRun again after the next read, without ever needing a NEW synthesis (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 5)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture rewards ownership.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+
+    const synthesisProposal = await caller.jobpilot.cultureResearch.synthesize({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      parentRunId: proposed.parentRunId,
+      claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "rewards ownership", contentHash: fetched.artifact!.contentHash }],
+    });
+    await caller.action.decide({ proposalId: synthesisProposal.proposalId, decision: "approve" });
+
+    // Simulate the crash window: DESTROY the pointer that `synthesize()`
+    // already successfully recorded — an honest simulation of "recordProposal
+    // never ran" (the OBSERVABLE end state is identical either way: a
+    // valid, approved synthesis result with no durable pointer to it).
+    const pointerRows = await wiring.memoryStore.retrieve(
+      { subjectElementId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
+      { workspaceId: PILOT_WORKSPACE },
+    );
+    const pointerRow = pointerRows.find((r) => {
+      try {
+        return (JSON.parse(r.content) as { kind?: string }).kind === "culture_synthesis_pointer";
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(pointerRow, "sanity: synthesize() really did create a pointer row");
+    await wiring.memoryStore.forget(pointerRow!.id, { workspaceId: PILOT_WORKSPACE });
+    const destroyedPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    assert.equal(destroyedPointer, null, "sanity: the pointer is genuinely gone before the repair read");
+
+    const beforeRepair = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    assert.equal(beforeRepair?.synthesisProposalId, undefined, "latestRun cannot discover a destroyed pointer before the repair read");
+
+    // Reading the result directly (as `synthesisResult` does) must
+    // self-repair the pointer if it's ever missing/stale.
+    const result = await caller.jobpilot.cultureResearch.synthesisResult({
+      workspaceId: PILOT_WORKSPACE,
+      company: TEST_COMPANY,
+      proposalId: synthesisProposal.proposalId,
+      parentRunId: proposed.parentRunId,
+    });
+    assert.equal(result.status, "available");
+
+    const afterRepairPointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    assert.ok(afterRepairPointer, "the pointer must exist after synthesisResult has read a valid, approved result");
+    assert.equal(afterRepairPointer!.proposalId, synthesisProposal.proposalId);
+
+    const afterRepair = await caller.jobpilot.cultureResearch.latestRun({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY });
+    assert.equal(afterRepair?.synthesisProposalId, synthesisProposal.proposalId, "latestRun must now discover the repaired pointer");
+  } finally {
+    await server.close();
     await wiring.close();
   }
 });

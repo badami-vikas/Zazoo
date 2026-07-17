@@ -30,6 +30,8 @@ import {
   computeSourcePolicyHash,
   materializeCultureSourceFetch,
   cancelCultureSourceFetch,
+  reconcileIntentChildConsistency,
+  isArtifactExpired,
   CULTURE_SOURCE_REGISTRY,
   type SynthesizeCultureProfileOutput,
   type Wiring,
@@ -1253,7 +1255,13 @@ const cultureEvidenceSchema = z.object({
   claimText: z.string(),
   sourceLabel: z.string(),
   sourceUrl: z.string(),
-  sourceType: z.enum(["company_official_page", "public_blog_or_press", "reddit", "google_reviews", "glassdoor"]),
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // RE-review, issue 10) — `internal_derived_synthesis` is the distinct
+  // provenance marker `groundClaims` now assigns to theme/inference/
+  // contradiction evidence (never a real fetchable source type); the
+  // strict output schema must accept it or every synthesis containing a
+  // derived claim would be wrongly rejected as malformed.
+  sourceType: z.enum(["company_official_page", "public_blog_or_press", "reddit", "google_reviews", "glassdoor", "internal_derived_synthesis"]),
   retrievedAt: z.string(),
   authorContext: z.string().nullable(),
   agentInference: z.boolean(),
@@ -3343,9 +3351,38 @@ export const appRouter = t.router({
               throw new TRPCError({ code: "BAD_REQUEST", message: proposal.rejectionReason ?? "culture-research proposal was rejected" });
             }
 
+            // TASK-011 remediation (2026-07-19 coordinator distributed-
+            // defects RE-review, issue 5) — a crash BETWEEN `pipeline.propose`
+            // succeeding (above) and this `attachProposal` call would leave
+            // a real, ledger-persisted proposal whose durable intent record
+            // never learns its id. Analysis of why this cannot become an
+            // "approvable orphan" (the property issue 5 requires), rather
+            // than a full preallocated-id redesign (which would need a
+            // pipeline.propose signature change — out of scope this round):
+            // (a) the CALLER never receives this specific proposalId either
+            // (the whole HTTP response that would have carried it never
+            // completes), so no client can ever present it to
+            // `materialize`/`cancel`/`status`; (b) even if it were somehow
+            // obtained out-of-band and approved via `action.decide`, EVERY
+            // one of those procedures resolves the record via
+            // `getByProposal(workspaceId, proposalId, childRunId)`, which
+            // requires the intent's OWN `proposalId` field to already equal
+            // the caller-supplied one — since it durably stays `null`
+            // forever for this specific childRunId, the match can never
+            // succeed, so the orphaned proposal can NEVER cause a real
+            // fetch or any other effect. It is inert, not exploitable — a
+            // resource-cleanliness gap (an unused child Run + intent record
+            // linger, invisible to `latestRun`'s `pending` list since that
+            // filters on `r.proposalId` truthiness), not a security one.
             await ctx.wiring.cultureFetchStore.attachProposal(input.workspaceId, childRun.id, proposal.id);
             pending.push({ proposalId: proposal.id, childRunId: childRun.id, sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel });
           }
+
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 13) — record this run as the LATEST for this
+          // company via the durable O(1) pointer, replacing the workspace-
+          // wide scan `listByCompany` previously used by `latestRun`.
+          await ctx.wiring.cultureLatestRunPointerStore.recordLatestRun(input.workspaceId, input.company, parentRunId);
 
           return { parentRunId, pending, skipped };
         }),
@@ -3414,7 +3451,18 @@ export const appRouter = t.router({
           if (!record) {
             throw new TRPCError({ code: "NOT_FOUND", message: "unknown culture-research proposal" });
           }
-          return record;
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 3) — self-repair any intent/child terminal
+          // inconsistency on every read a client polls, not only inside
+          // `materialize`'s own retry path.
+          await reconcileIntentChildConsistency(ctx.wiring, input.workspaceId, record, ctx.run);
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 7) — never serve expired evidence: purge an
+          // expired artifact's raw content on this read (idempotent,
+          // metadata-preserving) and return the (possibly just-purged)
+          // current record rather than the pre-purge snapshot.
+          const purged = await ctx.wiring.cultureFetchStore.purgeExpiredArtifactContentIfNeeded(input.workspaceId, input.childRunId, ctx.run.clock.nowISO());
+          return purged ?? record;
         }),
 
       /**
@@ -3441,7 +3489,15 @@ export const appRouter = t.router({
                 quote: z.string().optional(),
                 sourceId: z.string().optional(),
                 contentHash: z.string().optional(),
-                authorContext: z.string().min(1).nullable().optional(),
+                // TASK-011 remediation (2026-07-19 coordinator distributed-
+                // defects RE-review, issue 11) — `authorContext` REMOVED
+                // from the accepted input shape entirely. Accepting
+                // arbitrary caller text here and rendering it verbatim as
+                // "who said it" attribution was a genuine fabrication
+                // vector; this slice's Tier-1 sources carry no
+                // server-extracted per-claim author metadata to derive it
+                // from honestly. `groundClaims` never assigns anything but
+                // `null` to this field now regardless.
                 supportingClaimIds: z.array(z.string()).optional(),
                 contradicts: z.array(z.string()).optional(),
               }),
@@ -3469,14 +3525,40 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: `parent Run "${input.parentRunId}" does not belong to company "${input.company}"` });
           }
           const fetchedIntents = intentRecords.filter((r) => r.status === "fetched" && r.artifact);
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issues 7/8) — an EXPIRED artifact must never be
+          // consumed by a NEW synthesis attempt ("never serve expired
+          // evidence" applies to synthesis input, not just direct reads).
+          // Treat an expired source as NOT fetched for this purpose —
+          // `groundClaims` will then correctly reject any claim citing it
+          // as `unknown-source`, rather than confusingly failing quote
+          // verification against silently-blanked content.
+          const nowISO = ctx.run.clock.nowISO();
+          const unexpiredFetchedIntents = fetchedIntents.filter((r) => !isArtifactExpired(r.artifact!, nowISO));
           const seenSourceIds = new Set<string>();
-          for (const r of fetchedIntents) {
+          for (const r of unexpiredFetchedIntents) {
             if (seenSourceIds.has(r.sourceId)) {
               throw new TRPCError({ code: "BAD_REQUEST", message: `duplicate fetched artifact for source "${r.sourceId}" under this run` });
             }
             seenSourceIds.add(r.sourceId);
           }
-          const fetchedArtifacts = fetchedIntents.map((r) => r.artifact!);
+          const fetchedArtifacts = unexpiredFetchedIntents.map((r) => r.artifact!);
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 8) — reject an EMPTY submission BEFORE ever
+          // calling `pipeline.propose`/recording the synthesis pointer.
+          // Without this, a caller could submit zero claims and/or find
+          // zero unexpired fetched artifacts, and STILL have a synthesis
+          // proposal created and durably pointed to — poisoning the
+          // first-write-wins synthesis pointer for this parentRunId with a
+          // worthless/empty result BEFORE any real fetch has even
+          // completed, permanently blocking a later legitimate synthesis
+          // attempt from ever winning that pointer.
+          if (input.claims.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one claim — an empty submission is rejected before any proposal is created" });
+          }
+          if (fetchedArtifacts.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one unexpired fetched artifact for this parent Run — no claim can ground against zero evidence" });
+          }
           const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
             (s) => s.workspaceId === input.workspaceId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
           ).map((s) => {
@@ -3541,25 +3623,26 @@ export const appRouter = t.router({
         .query(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const records = await ctx.wiring.cultureFetchStore.listByCompany(input.workspaceId, input.company);
-          if (records.length === 0) return null;
-          // Newest parent Run wins — `listByCompany` is already newest-first
-          // by underlying row `createdAt`, but group explicitly rather than
-          // assuming ordering survives across records from different rows.
-          let latestParentRunId = records[0]!.parentRunId;
-          let latestCreatedAt = records[0]!.createdAt;
-          for (const r of records) {
-            if (r.createdAt > latestCreatedAt) {
-              latestCreatedAt = r.createdAt;
-              latestParentRunId = r.parentRunId;
-            }
-          }
-          const pending = records
-            .filter((r) => r.parentRunId === latestParentRunId && r.proposalId)
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 13) — an O(1) durable pointer lookup, NOT a
+          // workspace-wide scan-then-limit-then-filter (the prior
+          // `listByCompany` approach, which could silently hide the real
+          // latest run behind enough unrelated Memories at scale). The
+          // pointer names the exact `parentRunId`; its pending sources are
+          // then resolved via `childAgentRuns.listByParentRun` (already
+          // indexed by workspace+parentRunId) rather than any broad scan.
+          const pointer = await ctx.wiring.cultureLatestRunPointerStore.getLatestRun(input.workspaceId, input.company);
+          if (!pointer) return null;
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, pointer.parentRunId);
+          const intentRecords = (
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+          ).filter((r): r is NonNullable<typeof r> => r != null && r.company === input.company);
+          const pending = intentRecords
+            .filter((r) => r.proposalId)
             .map((r) => ({ proposalId: r.proposalId!, childRunId: r.childRunId, sourceId: r.sourceId, sourceType: r.sourceType, sourceLabel: r.sourceLabel }));
-          const synthesisPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, latestParentRunId);
+          const synthesisPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, pointer.parentRunId);
           return {
-            parentRunId: latestParentRunId,
+            parentRunId: pointer.parentRunId,
             pending,
             ...(synthesisPointer ? { synthesisProposalId: synthesisPointer.proposalId } : {}),
           };
@@ -3599,6 +3682,14 @@ export const appRouter = t.router({
           if (proposal.action !== "write" || proposal.resourceType !== "signal") {
             return { status: "not_available" as const };
           }
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 8) — the ACTOR must be the real Internal
+          // Strategist Agent identity, not merely "some agent that happened
+          // to write a signal". Corroborates the "exact persisted actor
+          // binding" requirement directly from the immutable ledger row.
+          if (proposal.actorType !== "agent" || proposal.actorId !== INTERNAL_STRATEGIST_AGENT) {
+            return { status: "not_available" as const };
+          }
           const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
           if (!decision || decision.userDecision !== "approve") {
             return { status: "not_available" as const };
@@ -3631,6 +3722,26 @@ export const appRouter = t.router({
           const hashesMatch = result.artifactHashes.every((a) => realHashesBySourceId.get(a.sourceId) === a.contentHash);
           if (!hashesMatch) {
             return { status: "not_available" as const };
+          }
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review, issue 5) — self-repair the "propose crashed AFTER the
+          // ledger append succeeded but BEFORE recordProposal ever ran"
+          // window: this proposal is genuinely valid/approved/well-formed
+          // (every check above already passed), so if the durable
+          // synthesis-pointer binding for its parentRunId is missing or
+          // stale, repair it now rather than leaving `latestRun`'s "resume"
+          // flow permanently unable to discover an otherwise-perfectly-good
+          // synthesis result. Idempotent and best-effort: a genuine
+          // concurrent winner for the SAME parentRunId is left alone.
+          const pointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, input.parentRunId);
+          if (!pointer || pointer.proposalId !== input.proposalId) {
+            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.workspaceId, input.parentRunId, input.company, input.proposalId).catch(() => {
+              // Another (also valid) proposal already legitimately holds
+              // the pointer for this parentRunId — that is a real,
+              // resolved outcome, not a bug to surface here; this read
+              // path's job is only to REPAIR a missing binding, never to
+              // fight over who owns it.
+            });
           }
           return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result };
         }),

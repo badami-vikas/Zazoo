@@ -212,20 +212,25 @@ test("cancelChildAgentRun: Governance/Human can stop a running child Run", async
   assert.equal(cancelled.status, "cancelled");
 });
 
-test("cancelChildAgentRun: appends its OWN append-only ledger row carrying parentRunId, the acting actor, and the run's inherited ceilings", async () => {
+test("cancelChildAgentRun: appends its OWN append-only ledger rows (attempt + confirmed outcome) carrying parentRunId, the acting actor, and the run's inherited ceilings (TASK-011 remediation, 2026-07-19 RE-review, issue 4 — two-phase audit: an 'attempt' row recording intent, then a 'confirmed outcome' row once the CAS actually succeeds)", async () => {
   const c = ctx();
   const store = new InMemoryChildAgentRunStore();
   const ledger = new InMemoryLedger();
   const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
   await cancelChildAgentRun({ store, ledger }, "ws-1", run.id, { type: "user", id: "governance-human-1" }, c);
 
-  assert.equal(ledger.entries.length, 1);
-  const entry = ledger.entries[0]!;
-  assert.equal(entry.actorType, "user");
-  assert.equal(entry.actorId, "governance-human-1");
-  assert.equal(entry.action, "archive");
-  assert.deepEqual(entry.context, { type: "child_agent_run", id: run.id, runId: "run-parent-1" });
-  const snapshot = entry.proposedOutput as typeof run;
+  assert.equal(ledger.entries.length, 2, "one 'attempt' row plus one 'confirmed outcome' row");
+  const [attemptEntry, outcomeEntry] = ledger.entries;
+  for (const entry of [attemptEntry!, outcomeEntry!]) {
+    assert.equal(entry.actorType, "user");
+    assert.equal(entry.actorId, "governance-human-1");
+    assert.equal(entry.action, "archive");
+    assert.deepEqual(entry.context, { type: "child_agent_run", id: run.id, runId: "run-parent-1" });
+  }
+  // The FIRST (attempt) row must NEVER claim the target status — only the
+  // CONFIRMED outcome row (written after the real CAS succeeds) may.
+  assert.equal((attemptEntry!.proposedOutput as typeof run).status, "running");
+  const snapshot = outcomeEntry!.proposedOutput as typeof run;
   assert.equal(snapshot.status, "cancelled");
   assert.deepEqual(snapshot.authorityScope, run.authorityScope);
   assert.deepEqual(snapshot.budget, run.budget);
@@ -271,10 +276,14 @@ test("terminal child Run transitions are running-only, and throw the TYPED Child
       return true;
     },
   );
-  assert.equal(ledger.entries.length, 1);
+  // The FIRST (successful) cancel appends its own attempt+confirmed pair;
+  // the SECOND call (complete on an already-terminal run) throws before
+  // ever appending anything (the `before.status !== "running"` guard runs
+  // before phase 1), so no additional entries are added.
+  assert.equal(ledger.entries.length, 2);
 });
 
-test("concurrent terminal transitions: exactly one CAS wins, but BOTH attempts are durably audited (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 4) — the audit entry is appended BEFORE the status CAS runs, so a losing attempt still leaves a truthful record of what was tried, and the winning entry's projected status matches the run's real final status", async () => {
+test("concurrent terminal transitions: exactly one CAS wins; the winner's CONFIRMED outcome entry and the loser's explicit transition_attempt_failed entry are both durably audited and never ambiguous (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review, issue 4) — two-phase audit: an 'attempt' entry recording intent (never claiming the target status) is appended BEFORE the CAS runs, then a SECOND entry records the real, confirmed outcome (or, for a loser, an explicit transition_attempt_failed that also never claims the target status)", async () => {
   const c = ctx();
   const store = new InMemoryChildAgentRunStore();
   const ledger = new InMemoryLedger();
@@ -288,15 +297,36 @@ test("concurrent terminal transitions: exactly one CAS wins, but BOTH attempts a
 
   assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
   assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1);
-  // Both the winning AND the losing attempt are durably logged — the ledger
-  // is a truthful record of every ATTEMPT, not only confirmed state changes.
-  assert.equal(ledger.entries.length, 2);
+  // Each attempt (winner AND loser) writes its OWN "attempt" row plus its
+  // OWN outcome row — 2 attempts × 2 rows = 4 total. The ledger is a
+  // truthful record of every ATTEMPT, not only confirmed state changes.
+  assert.equal(ledger.entries.length, 4);
   const finalStatus = (await store.get("ws-1", run.id))?.status;
-  // Exactly one entry's projected status matches the run's real final
-  // status (the winner); the other recorded an attempt that never took
-  // effect (the loser) — never both, never neither.
-  const matching = ledger.entries.filter((e) => (e.proposedOutput as ChildAgentRun).status === finalStatus);
-  assert.equal(matching.length, 1);
+
+  // The discriminator for "is this a REAL confirmed outcome" is
+  // `inputs.event` (never a plain status match alone, since a
+  // transition_attempt_failed entry's `proposedOutput.status` also
+  // legitimately reflects the winner's real current status — that is
+  // correct, truthful reporting, not a false claim, because its `event`
+  // clearly marks it as a FAILED attempt, not a confirmed transition).
+  const confirmedOutcomeEntries = ledger.entries.filter(
+    (e) => typeof e.inputs === "object" && e.inputs !== null && (e.inputs as { event?: string }).event === "complete" || (e.inputs as { event?: string })?.event === "fail",
+  );
+  assert.equal(confirmedOutcomeEntries.length, 1, "exactly one entry may be a CONFIRMED complete/fail outcome — never both, never neither");
+  assert.equal((confirmedOutcomeEntries[0]!.proposedOutput as ChildAgentRun).status, finalStatus);
+
+  const failedAttemptEntries = ledger.entries.filter(
+    (e) => typeof e.inputs === "object" && e.inputs !== null && (e.inputs as { event?: string }).event === "transition_attempt_failed",
+  );
+  assert.equal(failedAttemptEntries.length, 1, "exactly one entry must explicitly record the LOSING attempt as a failure, never as a confirmed transition");
+
+  const intentOnlyAttemptEntries = ledger.entries.filter(
+    (e) => typeof e.inputs === "object" && e.inputs !== null && String((e.inputs as { event?: string }).event).endsWith(":attempt"),
+  );
+  assert.equal(intentOnlyAttemptEntries.length, 2, "both racers append a phase-1 intent-only attempt row");
+  for (const entry of intentOnlyAttemptEntries) {
+    assert.equal((entry.proposedOutput as ChildAgentRun).status, "running", "a phase-1 attempt row must NEVER claim the target status before the CAS confirms it");
+  }
 });
 
 test("child-run terminal transition: if the audit ledger append fails, the run's status is NEVER exposed as terminal — no caller can observe terminal then see it revert (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 4)", async () => {
@@ -383,7 +413,7 @@ test("a lifecycle audit failure means the transition never happens at all (TASK-
   assert.equal((await store.get("ws-1", run.id))?.status, "running");
 });
 
-test("completeChildAgentRun/failChildAgentRun: every lifecycle transition is its own auditable ledger row, not only actions emitted later", async () => {
+test("completeChildAgentRun/failChildAgentRun: every lifecycle transition is its own auditable ledger row pair (attempt + confirmed outcome), not only actions emitted later", async () => {
   const c = ctx();
   const store = new InMemoryChildAgentRunStore();
   const ledger = new InMemoryLedger();
@@ -397,11 +427,14 @@ test("completeChildAgentRun/failChildAgentRun: every lifecycle transition is its
   const failed = await failChildAgentRun({ store, ledger }, "ws-1", run2.id, parentAgent, c);
   assert.equal(failed.status, "failed");
 
-  assert.equal(ledger.entries.length, 2);
-  assert.equal((ledger.entries[0]!.inputs as { event: string }).event, "complete");
-  assert.equal((ledger.entries[1]!.inputs as { event: string }).event, "fail");
-  // Both rows are independently attributable and auditable — not derived from
-  // any later action the child Run might or might not go on to take.
+  assert.equal(ledger.entries.length, 4);
+  assert.equal((ledger.entries[0]!.inputs as { event: string }).event, "complete:attempt");
+  assert.equal((ledger.entries[1]!.inputs as { event: string }).event, "complete");
+  assert.equal((ledger.entries[2]!.inputs as { event: string }).event, "fail:attempt");
+  assert.equal((ledger.entries[3]!.inputs as { event: string }).event, "fail");
+  // Both CONFIRMED outcome rows are independently attributable and
+  // auditable — not derived from any later action the child Run might or
+  // might not go on to take.
   for (const entry of ledger.entries) {
     assert.equal(entry.actorType, "agent");
     assert.equal(entry.actorId, "internal_strategist");
