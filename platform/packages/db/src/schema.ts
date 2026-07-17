@@ -813,7 +813,13 @@ export const jobpilotApplications = pgTable(
     workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
     jobId: uuid("job_id").notNull().references(() => jobpilotJobs.id),
     stage: text("stage").notNull().default("queued"),
-    flag: text("flag"), // pursue | review | pass (AP-023 — no green/yellow feedback semantics)
+    // pursue | review | pass (AP-023 — no green/yellow feedback semantics). No CHECK
+    // constraint yet and no backfill has run for rows persisted before this rename —
+    // TASK-010 review remediation item 9 defers that to migration 0016+ once TASK-008
+    // RM4's 0015 lands (see @bridge/jobpilot's normalizeLegacyFitFlag for the interim
+    // read-side safety net and outputs/2026-07-17-task010-review-remediation.md for
+    // the exact backfill SQL).
+    flag: text("flag"),
     fitScore: numeric("fit_score"),
     createdAt: now(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

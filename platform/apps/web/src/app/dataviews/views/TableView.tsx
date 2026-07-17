@@ -11,7 +11,8 @@
 import { applyFilters, applySorts } from "@bridge/tables";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table.js";
 import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
-import { isFlaggableValue } from "../eligibility.js";
+import { RedFlagProvider } from "../../components/shared/RedFlagProvider.js";
+import { isFlaggableValue, moduleIdFromDatabaseId } from "../eligibility.js";
 import type { DataViewProps } from "../types.js";
 
 export function TableView({ spec, view, data, onViewChange }: DataViewProps) {
@@ -33,52 +34,57 @@ export function TableView({ spec, view, data, onViewChange }: DataViewProps) {
   }
 
   return (
-    <div className="border rounded-md">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {spec.columns.map((col) => {
-              const sort = view.sorts.find((s) => s.id === col.id);
+    <RedFlagProvider scope={{ moduleId: moduleIdFromDatabaseId(spec.id), databaseId: spec.id }}>
+      <div className="border rounded-md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {spec.columns.map((col) => {
+                const sort = view.sorts.find((s) => s.id === col.id);
+                return (
+                  <TableHead
+                    key={col.id}
+                    className="cursor-pointer select-none"
+                    onClick={() => toggleSort(col.id)}
+                    aria-sort={sort ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    {col.label}
+                    {sort ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+                  </TableHead>
+                );
+              })}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((row, i) => {
+              const recordId = String(row["id"] ?? i);
               return (
-                <TableHead
-                  key={col.id}
-                  className="cursor-pointer select-none"
-                  onClick={() => toggleSort(col.id)}
-                  aria-sort={sort ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-                >
-                  {col.label}
-                  {sort ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
-                </TableHead>
+                <TableRow key={recordId}>
+                  {spec.columns.map((col) => {
+                    const value = row[col.id];
+                    const cell = formatCell(value);
+                    return (
+                      <TableCell key={col.id}>
+                        {isFlaggableValue(value) ? (
+                          <RedFlagControl
+                            anchor={{ kind: "cell", moduleId: moduleIdFromDatabaseId(spec.id), databaseId: spec.id, recordId, fieldId: col.id }}
+                            renderedValue={cell}
+                          >
+                            {cell}
+                          </RedFlagControl>
+                        ) : (
+                          cell
+                        )}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
               );
             })}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((row, i) => {
-            const recordId = String(row["id"] ?? i);
-            return (
-              <TableRow key={recordId}>
-                {spec.columns.map((col) => {
-                  const value = row[col.id];
-                  const cell = formatCell(value);
-                  return (
-                    <TableCell key={col.id}>
-                      {isFlaggableValue(value) ? (
-                        <RedFlagControl anchor={{ moduleId: spec.id, recordId, fieldId: col.id }} renderedValue={cell}>
-                          {cell}
-                        </RedFlagControl>
-                      ) : (
-                        cell
-                      )}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+          </TableBody>
+        </Table>
+      </div>
+    </RedFlagProvider>
   );
 }
 

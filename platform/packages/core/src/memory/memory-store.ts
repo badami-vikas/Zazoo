@@ -76,6 +76,12 @@ export interface MemoryEntry extends MemoryWrite {
 export interface MemoryQuery {
   type?: MemoryType;
   subjectElementId?: string;
+  /** Filter to rows derived from one MemorySourceRefType — e.g. `"feedback"`
+   * to push a "kind of correction" filter into the store's own query instead
+   * of fetching an unbounded page and scanning `content` app-side (TASK-010
+   * review item 6: "dedicated server-side red-flag filtering before
+   * limiting"). */
+  sourceRefType?: MemorySourceRefType;
   /** Include rows that have been superseded by a newer row. Default false —
    * retrieval returns only the CURRENT set of facts. */
   includeSuperseded?: boolean;
@@ -106,6 +112,40 @@ export interface MemoryStore {
   /** Permanently forget a Memory the caller may read. Personal-data deletion is
    * the deliberate exception to append-only correction history. */
   forget(id: string, authScope: MemoryAuthScope): Promise<boolean>;
+  /** The current (non-superseded) row for one (workspaceId, ownerUserId,
+   * lineageKey) lineage, or null if none exists yet. Internal/server-side
+   * lookup backing `casSupersede`'s own compare step — deliberately takes no
+   * `MemoryAuthScope` and is not a general read path; callers needing an
+   * authority-scoped read still go through `get()`/`retrieve()`. CONTRACT:
+   * every `MemoryWrite` passed through `casSupersede` for this lineage MUST
+   * set `subjectElementId` to the SAME `lineageKey` — adapters locate the
+   * lineage by (workspaceId, ownerUserId, subjectElementId), so a caller
+   * that omits or changes it breaks its own lineage's CAS guarantee. */
+  currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null>;
+  /**
+   * Atomic optimistic-concurrency create-or-supersede over one lineage
+   * (workspaceId, ownerUserId, lineageKey). At most one non-superseded row
+   * may exist per lineage at a time — this is the ONLY sanctioned way to
+   * mutate a lineage-tracked Memory when more than one caller could race
+   * (e.g. a red flag's create/clear/reopen/update). Pass
+   * `expectedCurrentId: null` to create the FIRST row for the lineage
+   * (fails/returns null if one already exists); pass the id last read via
+   * `currentForLineage()`/the prior call's result to supersede it
+   * (fails/returns null if someone else already moved the lineage forward
+   * in between — the id is stale). Returns `null` on CAS failure instead of
+   * forking history; the caller must re-read and retry, never blindly force
+   * the write. Implementations MUST provide this atomically via real
+   * database-level concurrency control (a transaction/serializable
+   * isolation, a unique constraint, etc.) — NEVER a process-local lock,
+   * since multiple server processes/connections can race concurrently.
+   */
+  casSupersede(params: {
+    workspaceId: string;
+    ownerUserId: string;
+    lineageKey: string;
+    expectedCurrentId: string | null;
+    next: MemoryWrite;
+  }): Promise<MemoryEntry | null>;
 }
 
 /**
@@ -163,6 +203,7 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (!query.includeSuperseded) rows = rows.filter((e) => !superseded.has(e.id));
     if (query.type) rows = rows.filter((e) => e.type === query.type);
     if (query.subjectElementId) rows = rows.filter((e) => e.subjectElementId === query.subjectElementId);
+    if (query.sourceRefType) rows = rows.filter((e) => e.sourceRefType === query.sourceRefType);
     rows = rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const offset = query.offset ?? 0;
     const limit = query.limit ?? rows.length;
@@ -189,6 +230,60 @@ export class InMemoryMemoryStore implements MemoryStore {
       if (lineage.has(this.entries[index]!.id)) this.entries.splice(index, 1);
     }
     return true;
+  }
+
+  /** Computed the same way `retrieve()`'s superseded-set/emptiness logic
+   * already works: the CONTRACT (documented on the `MemoryStore` interface)
+   * is that a lineage-tracked write always sets `next.subjectElementId` to
+   * the lineage key, so both this in-memory adapter and the Drizzle
+   * adapter (which has no separate lineage column) can locate "the current
+   * row" the same way — by (workspaceId, ownerUserId, subjectElementId)
+   * plus "nothing else supersedes it." */
+  async currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+    return this.#currentForLineageSync(workspaceId, ownerUserId, lineageKey);
+  }
+
+  #currentForLineageSync(workspaceId: string, ownerUserId: string, lineageKey: string): MemoryEntry | null {
+    const superseded = new Set(this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null));
+    const row = this.entries.find(
+      (e) =>
+        e.workspaceId === workspaceId &&
+        e.ownerUserId === ownerUserId &&
+        e.subjectElementId === lineageKey &&
+        !superseded.has(e.id),
+    );
+    return row ? { ...row } : null;
+  }
+
+  /**
+   * No `await` occurs ANYWHERE in this method's body — deliberately, and
+   * critically: `currentForLineage()` (the public, async-signatured method)
+   * is NOT called here, because `await`ing even an already-resolved Promise
+   * still yields to the microtask queue, which would let a second
+   * "concurrent" caller's own read interleave BEFORE the first caller's
+   * write (confirmed by a failing test during development — two
+   * `Promise.all`-raced calls both read stale state and both "won"). Using
+   * the synchronous `#currentForLineageSync` twin instead closes that gap:
+   * exactly the same TOCTOU-closing technique `InMemoryLedger.append()`
+   * already uses (see its doc comment) — two "concurrent" callers each get
+   * their own microtask when this async method first suspends (at its own
+   * call boundary), but since NOTHING inside this method's body yields
+   * control between the compare and the mutate, whichever caller's turn
+   * runs first completes its entire read+write atomically before the
+   * second caller's turn begins, so the in-memory adapter's single JS
+   * event loop gives this the same atomicity a real database transaction
+   * gives the persistent adapter.
+   */
+  async casSupersede(params: {
+    workspaceId: string;
+    ownerUserId: string;
+    lineageKey: string;
+    expectedCurrentId: string | null;
+    next: MemoryWrite;
+  }): Promise<MemoryEntry | null> {
+    const current = this.#currentForLineageSync(params.workspaceId, params.ownerUserId, params.lineageKey);
+    if ((current?.id ?? null) !== params.expectedCurrentId) return null;
+    return this.#insert(params.next, params.expectedCurrentId);
   }
 
   #insert(entry: MemoryWrite, supersedesId: string | null): MemoryEntry {

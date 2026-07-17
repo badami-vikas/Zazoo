@@ -15,6 +15,7 @@ export { compileProfile } from "./master-profile.js";
 export type { ApprovedProfile } from "./profile-approval.js";
 export { approveProfile, isApprovedProfile, assertApprovedProfile } from "./profile-approval.js";
 export type { CandidateProfile, JobProfile, FitRecommendation, FitResult, EvalVerdict, ApplicationStage } from "./types.js";
+export { normalizeLegacyFitFlag } from "./types.js";
 export { scoreJobFit } from "./scoring.js";
 export type { ChangeLogEntry } from "./evaluator.js";
 export { evaluateTailoredMaterials } from "./evaluator.js";

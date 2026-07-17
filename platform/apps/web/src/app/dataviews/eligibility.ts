@@ -80,3 +80,18 @@ export function isFlaggableValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   return true;
 }
+
+/**
+ * TASK-010 review remediation item 5 — the coarser Module identity a
+ * Red Flag's `moduleId` field expects, distinct from the concrete
+ * Database/table identity (`TableSpec.id`, e.g. "jobpilot.jobs"). `TableSpec`
+ * has no separate Module field yet, so this derives it from the
+ * dot-namespaced convention every real `TableSpec.id` already follows
+ * ("jobpilot.jobs" -> "jobpilot"); a spec with no dot (e.g. "people") is its
+ * own Module. NEVER pass `databaseId` itself as `moduleId` — the anchor's
+ * `databaseId` field carries the exact table identity already.
+ */
+export function moduleIdFromDatabaseId(databaseId: string): string {
+  const dot = databaseId.indexOf(".");
+  return dot > 0 ? databaseId.slice(0, dot) : databaseId;
+}

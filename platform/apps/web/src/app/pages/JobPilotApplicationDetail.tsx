@@ -8,6 +8,7 @@ import {
 import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus } from '../data/bcg-application';
 import { EditableField } from '../components/shared/EditableField';
 import { RedFlagControl } from '../components/shared/RedFlagControl';
+import { RedFlagProvider } from '../components/shared/RedFlagProvider';
 import { useLocalEdits } from '../lib/useLocalEdits';
 
 type TabId = 'overview' | 'artifacts' | 'interview' | 'evidence';
@@ -179,7 +180,8 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
   };
 
   return (
-    <div className="min-w-0 rounded-xl border bg-white" style={{ borderColor: 'var(--color-border)' }}>
+    <RedFlagProvider scope={{ moduleId: 'job-pilot', recordId: artifact.id }}>
+      <div className="min-w-0 rounded-xl border bg-white" style={{ borderColor: 'var(--color-border)' }}>
       {/* Header */}
       <div
         className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-start sm:justify-between"
@@ -243,7 +245,7 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
                   return (
                     <li key={j} className="flex gap-2 text-sm leading-6" style={{ color: 'var(--color-navy-mid)' }}>
                       <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />
-                      <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: artifact.id, bulletPath: `s${i}.b${j}` }} renderedValue={bulletValue} className="flex-1">
+                      <RedFlagControl anchor={{ kind: 'bullet', moduleId: 'job-pilot', target: { type: 'record', recordId: artifact.id }, bulletPath: `s${i}.b${j}` }} renderedValue={bulletValue} className="flex-1">
                         <EditableField
                           value={bulletValue}
                           baseValue={bullet}
@@ -261,6 +263,7 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
         ))}
       </div>
     </div>
+    </RedFlagProvider>
   );
 }
 
@@ -352,6 +355,7 @@ export function JobPilotApplicationDetail() {
 
           {/* ── OVERVIEW ── */}
           {tab === 'overview' && (
+            <RedFlagProvider scope={{ moduleId: 'job-pilot', recordId: application.id }}>
             <div className="space-y-5">
               <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
                 <SectionCard title="Fit decision">
@@ -374,7 +378,7 @@ export function JobPilotApplicationDetail() {
                           const strengthValue = overviewEdits.fieldValue(`fit.strength.${i}`, item);
                           return (
                             <li key={i}>
-                              <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: application.id, bulletPath: `fit.strength.${i}` }} renderedValue={strengthValue}>
+                              <RedFlagControl anchor={{ kind: 'bullet', moduleId: 'job-pilot', target: { type: 'record', recordId: application.id }, bulletPath: `fit.strength.${i}` }} renderedValue={strengthValue}>
                                 <EditableField
                                   value={strengthValue}
                                   baseValue={item}
@@ -398,7 +402,7 @@ export function JobPilotApplicationDetail() {
                           const concernValue = overviewEdits.fieldValue(`fit.concern.${i}`, item);
                           return (
                             <li key={i}>
-                              <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: application.id, bulletPath: `fit.concern.${i}` }} renderedValue={concernValue}>
+                              <RedFlagControl anchor={{ kind: 'bullet', moduleId: 'job-pilot', target: { type: 'record', recordId: application.id }, bulletPath: `fit.concern.${i}` }} renderedValue={concernValue}>
                                 <EditableField
                                   value={concernValue}
                                   baseValue={item}
@@ -504,6 +508,7 @@ export function JobPilotApplicationDetail() {
                 </SectionCard>
               </div>
             </div>
+            </RedFlagProvider>
           )}
 
           {/* ── ARTIFACTS ── */}

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scoreJobFit } from "../src/scoring.js";
+import { normalizeLegacyFitFlag } from "../src/types.js";
 import type { CandidateProfile } from "../src/types.js";
 
 const candidate: CandidateProfile = { categories: ["data engineer"], skills: ["sql", "python"], locations: ["remote"], minSalary: 120000 };
@@ -27,4 +28,16 @@ test("scoreJobFit: missing fields don't crash, just aren't counted as matches", 
   const result = scoreJobFit({}, { categories: ["data engineer"], skills: [] });
   assert.equal(result.score, 0);
   assert.equal(result.flag, "pass");
+});
+
+test("normalizeLegacyFitFlag: passes new values through, maps legacy green/yellow/red, rejects everything else (review item 9 — pending migration bridge)", () => {
+  assert.equal(normalizeLegacyFitFlag("pursue"), "pursue");
+  assert.equal(normalizeLegacyFitFlag("review"), "review");
+  assert.equal(normalizeLegacyFitFlag("pass"), "pass");
+  assert.equal(normalizeLegacyFitFlag("green"), "pursue");
+  assert.equal(normalizeLegacyFitFlag("yellow"), "review");
+  assert.equal(normalizeLegacyFitFlag("red"), "pass");
+  assert.equal(normalizeLegacyFitFlag(null), null);
+  assert.equal(normalizeLegacyFitFlag(undefined), null);
+  assert.equal(normalizeLegacyFitFlag("garbage"), null);
 });

@@ -35,6 +35,40 @@ export interface FitResult {
   concerns: string[];
 }
 
+/**
+ * TASK-010 review remediation item 9 — PENDING migration bridge. The
+ * `applications.flag` DB column (schema.ts, plain `text`, no CHECK
+ * constraint) persisted the pre-canon `"green"|"yellow"|"red"` values before
+ * this rename; nothing has backfilled any already-persisted rows yet
+ * (TASK-008 RM4 owns the next schema migration slot, `0015`, and hasn't
+ * landed on `main` — fabricating a migration/snapshot ahead of it would
+ * collide, so the real backfill + `CHECK (flag IN (...))` constraint is
+ * DEFERRED to a migration `0016+` once RM4 lands; see
+ * `outputs/2026-07-17-task010-review-remediation.md` for the exact
+ * backfill SQL this will apply). This normalizer is the interim,
+ * non-schema-changing safety net: any code path reading a PERSISTED `flag`
+ * value back (rather than a freshly computed `scoreJobFit` result) should
+ * call it so a pre-migration legacy row still round-trips as a valid
+ * `FitRecommendation` instead of surfacing a raw `"green"`/`"yellow"`/`"red"`
+ * string to a client.
+ */
+export function normalizeLegacyFitFlag(value: string | null | undefined): FitRecommendation | null {
+  switch (value) {
+    case "pursue":
+    case "review":
+    case "pass":
+      return value;
+    case "green":
+      return "pursue";
+    case "yellow":
+      return "review";
+    case "red":
+      return "pass";
+    default:
+      return null;
+  }
+}
+
 // Deterministic fabrication-guard verdict (architecture doc S4.2 stage 1) — the LLM-judge stage
 // is deliberately not built here, same as scoring.ts: don't spend LLM cost judging materials
 // that fail the cheap deterministic gate first.

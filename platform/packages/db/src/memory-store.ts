@@ -102,6 +102,7 @@ export class DrizzleMemoryStore implements MemoryStore {
     }
     if (query.type) conds.push(eq(memories.type, query.type));
     if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
+    if (query.sourceRefType) conds.push(eq(memories.sourceRefType, query.sourceRefType));
     let q = this.#db
       .select()
       .from(memories)
@@ -132,8 +133,71 @@ export class DrizzleMemoryStore implements MemoryStore {
     return true;
   }
 
-  async #insert(entry: MemoryWrite, supersedesId: string | null): Promise<MemoryEntry> {
-    const [inserted] = await this.#db
+  async currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+    return this.#currentForLineageTx(this.#db, workspaceId, ownerUserId, lineageKey);
+  }
+
+  /**
+   * SERIALIZABLE isolation is the atomicity primitive (a real database
+   * concurrency-control mechanism, never a process-local lock, so this is
+   * correct across any number of app server processes/connections):
+   * PostgreSQL's serializable-snapshot-isolation detects the exact
+   * write-skew this needs to reject — two concurrent transactions both
+   * observing "row X has no child yet" and both then inserting a row whose
+   * `supersedes_id = X` — and aborts one with a `40001` serialization
+   * failure, which is caught below and reported as a CAS-failure `null`
+   * (never silently forking the lineage). pglite (used by every test here)
+   * implements the same real Postgres transaction machinery, so this is
+   * exercised for real in tests, not simulated.
+   */
+  async casSupersede(params: {
+    workspaceId: string;
+    ownerUserId: string;
+    lineageKey: string;
+    expectedCurrentId: string | null;
+    next: MemoryWrite;
+  }): Promise<MemoryEntry | null> {
+    if (params.next.workspaceId !== params.workspaceId || (params.next.ownerUserId ?? null) !== params.ownerUserId) {
+      throw new Error("memory store: casSupersede next.workspaceId/ownerUserId must match the lineage's own");
+    }
+    if (params.next.subjectElementId !== params.lineageKey) {
+      throw new Error("memory store: casSupersede next.subjectElementId must equal lineageKey (adapter contract)");
+    }
+    try {
+      return await this.#db.transaction(
+        async (tx) => {
+          const current = await this.#currentForLineageTx(tx, params.workspaceId, params.ownerUserId, params.lineageKey);
+          if ((current?.id ?? null) !== params.expectedCurrentId) return null;
+          return this.#insert(params.next, params.expectedCurrentId, tx);
+        },
+        { isolationLevel: "serializable" },
+      );
+    } catch (err) {
+      if (isSerializationFailure(err)) return null;
+      throw err;
+    }
+  }
+
+  async #currentForLineageTx(db: DbLike, workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+    const rows = await db
+      .select()
+      .from(memories)
+      .where(
+        and(
+          eq(memories.workspaceId, workspaceId),
+          eq(memories.ownerUserId, ownerUserId),
+          eq(memories.subjectElementId, lineageKey),
+          sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`,
+        ),
+      )
+      .orderBy(desc(memories.createdAt))
+      .limit(1);
+    const row = rows[0];
+    return row ? unpack(row) : null;
+  }
+
+  async #insert(entry: MemoryWrite, supersedesId: string | null, db: DbLike = this.#db): Promise<MemoryEntry> {
+    const [inserted] = await db
       .insert(memories)
       .values({
         id: entry.id,
@@ -156,4 +220,16 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (!inserted) throw new Error("memory store: insert returned no row");
     return unpack(inserted);
   }
+}
+
+/** Structural subset of `Database` a transaction callback's `tx` handle also
+ * satisfies — lets `#insert`/`#currentForLineageTx` run against either the
+ * top-level `Database` or a `casSupersede` transaction's `tx` uniformly. */
+type DbLike = Pick<Database, "select" | "insert">;
+
+/** Postgres SQLSTATE `40001` ("serialization_failure") — thrown by a
+ * SERIALIZABLE transaction that lost a concurrency race. Both the
+ * postgres-js and pglite drivers surface it as `.code` on the thrown error. */
+function isSerializationFailure(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "40001";
 }

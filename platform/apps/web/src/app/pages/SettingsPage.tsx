@@ -58,8 +58,15 @@ function LearningSection() {
   }
   function refreshFlags() {
     trpc.redFlag.listAll
-      .query({ workspaceId: PILOT_WORKSPACE })
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 20 })
       .then(setFlagState)
+      .catch((error) => setMessage(String(error)));
+  }
+  function loadMoreFlags() {
+    if (!flagState?.nextCursor) return;
+    trpc.redFlag.listAll
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 20, cursor: flagState.nextCursor })
+      .then((next) => setFlagState((prev) => (prev ? { flags: [...prev.flags, ...next.flags], nextCursor: next.nextCursor } : next)))
       .catch((error) => setMessage(String(error)));
   }
   useEffect(refresh, []);
@@ -230,8 +237,8 @@ function LearningSection() {
             <div key={row.id} className="rounded-lg border p-3 space-y-1">
               <p className="text-sm">
                 {value.anchor.moduleId}
-                {value.anchor.fieldId ? ` · ${value.anchor.fieldId}` : ""}
-                {value.anchor.bulletPath ? ` · ${value.anchor.bulletPath}` : ""} — “{value.renderedValue}”
+                {value.anchor.kind === "cell" ? ` · ${value.anchor.databaseId} · ${value.anchor.fieldId}` : ` · ${value.anchor.bulletPath}`}
+                {" — \u201c"}{value.renderedValue}{"\u201d"}
               </p>
               {value.reason && <p className="text-xs text-[var(--color-navy-mid)]">Reason: {value.reason}</p>}
               <p className="text-xs text-[var(--color-warm-gray)]">
@@ -247,6 +254,9 @@ function LearningSection() {
               </div>
             </div>
           ))}
+          {flagState?.nextCursor && (
+            <button type="button" onClick={loadMoreFlags} className="text-xs font-semibold px-3 py-2 rounded-lg border">Load more</button>
+          )}
         </div>
       </Card>
     </div>
