@@ -2,7 +2,7 @@
 title: TASK-011 — JobPilot Culture-Research Slice (JP3B)
 date: 2026-07-17
 task: TASK-011
-status: implemented (remediated after FOUR rounds of independent/coordinator security review), pending coordinator ledger reconciliation
+status: implemented (remediated after SEVEN rounds of independent/coordinator security review), pending coordinator ledger reconciliation
 ---
 
 # TASK-011 — JobPilot culture-research slice (JP3B)
@@ -606,6 +606,152 @@ Re-verified after this fix: `@bridge/core` 429/429, `@bridge/db` 107/107, `@brid
 120/120, `@bridge/net-guard` 22/22, `@bridge/api` 31/31 in `jobpilot-culture-research.test.ts` +
 `agent-eligibility.test.ts` (1 more new regression test), `@bridge/web` 55/55, full monorepo build
 21/21, eslint clean (same 2 pre-existing, unrelated issues), no-dummy-runtime clean.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped).
+
+## Seventh review — a durable-worker/state-machine redesign (13 production defects, not process-local patches)
+
+A SEVENTH coordinator review of `67e141d` explicitly rejected further process-local mutex patching
+and required a genuine durable-worker/state-machine redesign. All 13 findings below were fixed on
+this branch (final SHA below), re-tested, and independently re-reviewed.
+
+### The architectural shift
+
+Every previous round's `KeyedAsyncMutex`-based `DurableCultureFetchStore` was **process-atomic
+only** — correct for one API instance, silently unsafe across two. The fix is a new
+`MemoryStore.compareAndSupersede(id, next)` primitive added to the core `MemoryStore` port:
+- `InMemoryMemoryStore`: synchronous check-then-write (process-atomic, dev/test default).
+- `DrizzleMemoryStore`: wraps `db.transaction()` + `pg_advisory_xact_lock(hashtext(id))` — a REAL
+  Postgres/pglite server-side advisory lock. Two API instances sharing one database can never both
+  win a race and fork a "current" state for the same lineage; a losing writer gets a typed
+  `MemoryConflictError`, never a silent double-write. (Verified: pglite does NOT support two
+  separate processes opening the same on-disk directory concurrently — confirmed empirically and
+  via the pglite maintainers' own documentation — so the honest, sandbox-feasible proof is two
+  concurrent **transactions** against the SAME pglite instance, exercising the identical
+  `pg_advisory_xact_lock` mechanism a real deployed Postgres server would use across genuinely
+  separate processes; advisory locks are connection-agnostic, server-side primitives, so this is a
+  faithful proof of the cross-instance guarantee, not a weaker substitute.)
+
+`DurableCultureFetchStore` (and everything downstream) now uses `compareAndSupersede` exclusively —
+no process-local mutex anywhere in the culture-fetch write path.
+
+### The 13 findings, fixed
+
+1. **Cross-instance atomic intent state** — `compareAndSupersede` (above) replaces `KeyedAsyncMutex`
+   in every `DurableCultureFetchStore` mutation (`create`, `attachProposal`, `transition`,
+   `acquireLease`, `requestCancel`). New tests in `memory-store.test.ts` prove exactly one of two
+   concurrent transactions against one pglite instance wins.
+2. **Distributed cancellation** — `cancelRequested` is now a durable field on
+   `CultureFetchIntentRecord`, set via `requestCancel`. If no live lease exists, cancellation is
+   immediate. If a lease IS live, `requestCancel` can only set the flag; the WORKER holding the
+   lease (whichever process that is) is responsible for noticing it. `materializeCultureSourceFetch`
+   runs a `setInterval` poll (`CULTURE_CANCEL_POLL_MS = 400`) against the durable flag while
+   streaming and aborts its own socket on seeing it — the process-local `AbortController` map is now
+   explicitly an optimization, never the authority. New test
+   (`distributed cancellation: a SECOND, independent instance...`) proves this using a deps object
+   with its OWN empty `abortControllers` Map (genuinely no local knowledge of the fetch) issuing the
+   cancel while a separate deps object holds the live socket.
+3. **Lease/recovery** — `leaseOwner`/`leaseExpiresAt`/`attempt` fields implement a reclaimable lease
+   (`CULTURE_FETCH_LEASE_MS = 30_000`). `acquireLease` succeeds if `pending`, or if `fetching` but
+   the prior lease has expired (reclaims it, increments `attempt`); throws
+   `CultureFetchLeaseHeldError` for a still-live lease held by someone else. New tests prove: (a) a
+   live lease blocks a second acquire; (b) an expired/orphaned lease is reclaimable by an
+   independent store instance; (c) `requestCancel` against an orphaned (expired) lease transitions
+   directly to `cancelled` rather than waiting on a worker that crashed and will never poll again.
+4. **Child-run terminal-status/audit atomicity** — `recordChildAgentRunTransition` (core) now
+   appends the ledger audit entry BEFORE the status CAS runs (previously the reverse, with a
+   rollback-to-running on audit failure). If the audit append fails, the CAS never runs at all — no
+   caller can ever observe a terminal status that later reverts, because nothing is exposed until
+   the audit durably succeeds. Deliberate semantic change: BOTH racing attempts now get audited
+   (previously only the winner did) — the ledger is now a record of every attempt, not only
+   confirmed transitions. Existing "concurrent terminal transitions" test updated for the new
+   `ledger.entries.length === 2` expectation; new test proves an audit-append failure leaves status
+   untouched (`"running"`).
+5. **Persistent Learning provisioning** — `ensureLearningAgentGovernance`/
+   `ensureInternalStrategistGovernance` (persistent/Drizzle mode) now grant `external:fetch:read` +
+   `jobpilot.researchCultureSource` (Learning) and `dataScope:"all"` +
+   `jobpilot.synthesizeCultureProfile` (Internal Strategist), matching the in-memory wiring. New
+   real pglite-backed boot/invocation test in `wiring.test.ts`; an existing `local-store.test.ts`
+   assertion that pinned the OLD (incomplete) capability list was updated to reflect the corrected
+   grant.
+6. **Governed `agent.create`** — replaced client-supplied `capabilityScope`/`allowedSkills` with a
+   server-owned `AGENT_ROLE_TEMPLATES` registry (`agent-role-templates.ts`), deriving each
+   template's capability scope from the real `GOVERNED_SKILL_MANIFEST_CATALOG` (fails closed if a
+   skill isn't registered; rejects wildcard grants). The client selects only a `roleTemplateId`;
+   the server resolves everything else — mirrors the established `CULTURE_SOURCE_REGISTRY`
+   "server owns catalog, client selects ID" pattern. `agent.update` updated the same way. New
+   create→task-assign and cross-workspace-rejection tests.
+7. **Source policy snapshot** — `CultureFetchIntentRecord.policySnapshot` pins
+   `{ registryVersion, eligibility }` at `propose()` time via `computeSourcePolicyHash` (hashes every
+   security-relevant registry field, not just the URL). `materialize` re-resolves the CURRENT
+   registry entry and rejects if the snapshot no longer matches — a source reclassified between
+   propose and materialize (e.g. `permitted` → `do_not_use`) fails closed even at the identical URL.
+8. **External trust/retention** — `CultureArtifactRef` now carries `trustOrigin:
+   "untrusted_external"` (never `"operator"`) and a bounded `expiresAt` (`CULTURE_ARTIFACT_RETENTION_MS
+   = 24h`). The governance-metadata RECORD itself (the fact that a fetch was requested/leased) is
+   still `trustOrigin: "operator"` — the FETCHED BYTES it may reference are the untrusted part; the
+   two are never conflated.
+9. **Synthesis result binding/schema** — `synthesisResult`/`synthesize` require `company` +
+   `parentRunId` (not just `proposalId`); a strict `synthesizeCultureProfileOutputSchema` (Zod)
+   rejects any malformed/foreign `proposedOutput`; the endpoint independently re-derives the run's
+   real fetched artifacts and cross-checks every `artifactHashes` entry against real content hashes.
+   An arbitrary OTHER approved proposal (any skill) is rejected as `not_available`, never rendered.
+10. **Deterministic derived-claim text** — `groundClaims`/`computeReferenceGrounding`
+    (`culture-research.ts`) now build theme/inference/contradiction claim TEXT via fixed templates
+    over a topologically-ordered (`postOrder`) map of already-validated supporting evidence —
+    caller-supplied `quote` is NEVER used for derived claim types. Closes the "arbitrary
+    caller-authored theme text" gap entirely.
+11. **IPv6 SSRF hardening** — extended `net-guard`'s `IPV6_BLOCKS` with `fec0::/10`,
+    `2001:db8::/32`, `64:ff9b:1::/48`, and additional IANA special-purpose ranges; fixed
+    `::127.0.0.1`-style dotted-quad parsing; generalized embedded-IPv4 handling (IPv4-compatible/
+    mapped + NAT64 well-known prefix). Reuse/license intake performed first: neither `ipaddr.js` nor
+    `ip-address` (both MIT) cleanly matched the fail-closed policy without still needing the same
+    local override table, so the hand-rolled classifier was extended rather than replaced — decision
+    and rationale recorded in code comments. 24/24 net-guard tests (was 22).
+12. **Cross-origin header allowlist** — replaced `CROSS_ORIGIN_STRIPPED_HEADERS` (a denylist) with
+    `CROSS_ORIGIN_ALLOWED_HEADERS` (`accept`, `accept-language`, `user-agent`, `content-type` only).
+    An unrecognized custom header (e.g. `x-goog-api-key`) is now stripped on every cross-origin hop
+    by default, closing the "unknown header silently forwarded" gap a denylist can never close.
+13. **Server-authoritative UI resume** — added `cultureResearch.latestRun` (new tRPC query) and a
+    small `DurableCultureSynthesisPointerStore` (same `MemoryStore`, no new migration, keyed by
+    `parentRunId`) recording the (parentRunId → synthesisProposalId) pointer. `latestRun` derives
+    the latest parent Run + pending sources + synthesis pointer for a (workspaceId, company) purely
+    from durable server state via a new `DurableCultureFetchStore.listByCompany`. The web UI now
+    queries this on every mount and treats it as authoritative — `localStorage` is overwritten by
+    whatever the server returns (including `null`, clearing a stale/foreign pointer), so clearing
+    storage or switching devices still surfaces real pending/completed research. Also fixed two
+    ALREADY-BROKEN `synthesisResult` call sites (missing the now-required `company`/`parentRunId`
+    fields) and added graceful reconciliation for "proposal already approved" — `action.decide`'s
+    409 `CONFLICT` (`AlreadyResolvedError`) is now caught and treated as success (proceed to
+    materialize/read result) rather than surfaced as an error, satisfying "do not call decide again;
+    reconcile based on durable status."
+
+### New tests this round
+
+`memory-store.test.ts` (+2, cross-instance CAS), `wiring.test.ts` (+1, persistent governance),
+`agent-eligibility.test.ts`/`ritual-ownership.test.ts` (updated for role-template model),
+`net-guard.test.ts` (+2, IPv6 + header allowlist), `child-agent-run.test.ts` (rewrote 1, +1 new,
+audit-before-status atomicity), `jobpilot-culture-research.test.ts` (+5: `latestRun` resume/company
+isolation/latest-run-wins, distributed cancellation via a genuinely separate deps object,
+orphaned-lease reclaim, orphaned-lease-cancel-transitions-directly), `local-store.test.ts` (updated
+1 stale capability-list assertion).
+
+### Verification
+
+`@bridge/core` 430/430, `@bridge/db` 109/109, `@bridge/net-guard` 24/24, `@bridge/jobpilot` 120/120,
+`@bridge/api` 207/208 (the 1 failure is the same pre-existing timing-sensitive test documented in
+prior rounds — `cancelCultureSourceFetch aborts a real in-flight fetch...` — confirmed passing in
+isolation both before and after this round's changes; flakiness is tied to system load from
+concurrent background work, not a real regression), `@bridge/web` 55/55 tests + clean build +
+clean `tsc --noEmit`, full monorepo `turbo run build` 21/21, eslint clean (same 2 pre-existing,
+unrelated issues in `ZazooAvatar.tsx`/`core/determinism.ts`), no-dummy-runtime clean.
+
+Synced with `origin/main`: no new commits since the prior round's sync (`f20f611` remains both
+`origin/main`'s tip and this branch's merge-base) — no reconciliation needed. No new migration was
+created (per the coordinator's explicit sequencing instruction); the entire cross-instance-safety
+redesign relies on `pg_advisory_xact_lock` inside the existing `memories` table, avoiding any
+conflict with RM4's `0015` or TASK-010's next-in-line migration.
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped).

@@ -14,17 +14,18 @@
  * Number()-izes on read, `#insert` stringifies on write.
  */
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
-import type {
-  MemoryAuthScope,
-  MemoryClassification,
-  MemoryEntry,
-  MemoryQuery,
-  MemorySourceRefType,
-  MemoryStore,
-  MemoryType,
-  MemoryWrite,
-  Plane,
-  TrustOrigin,
+import {
+  MemoryConflictError,
+  type MemoryAuthScope,
+  type MemoryClassification,
+  type MemoryEntry,
+  type MemoryQuery,
+  type MemorySourceRefType,
+  type MemoryStore,
+  type MemoryType,
+  type MemoryWrite,
+  type Plane,
+  type TrustOrigin,
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { memories } from "./schema.js";
@@ -69,7 +70,7 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async write(entry: MemoryWrite): Promise<MemoryEntry> {
-    return this.#insert(entry, null);
+    return this.#insert(this.#db, entry, null);
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
@@ -82,7 +83,48 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
       throw new Error("memory store: a correction cannot change workspace or owner");
     }
-    return this.#insert(next, id);
+    return this.#insert(this.#db, next, id);
+  }
+
+  /**
+   * Cross-instance-safe compare-and-supersede — TASK-011 remediation
+   * (2026-07-19 coordinator distributed-defects review, issue 1). `supersede()`
+   * above has NO protection against two concurrent writers (in this process
+   * OR, critically, in a DIFFERENT API instance sharing the same Postgres/
+   * pglite database) both superseding the SAME `id` — both would succeed,
+   * producing two "current" rows for one lineage. This method closes that
+   * gap with a REAL cross-instance mutex: `pg_advisory_xact_lock` is a
+   * server-side Postgres primitive (pglite is real embedded Postgres, so it
+   * works identically there) that serializes EVERY transaction — from any
+   * process, not just this one — that requests the same lock key, and is
+   * automatically released on commit/rollback. No schema migration is
+   * required (this is the deliberate reason to use an advisory lock instead
+   * of e.g. a new UNIQUE index — RM4 owns migration 0015; TASK-010 is
+   * expected to land its own durable CAS contract this method is written to
+   * be compatible with / supersede-able by once merged).
+   */
+  async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${id}))`);
+      const current = await tx
+        .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+        .from(memories)
+        .where(eq(memories.id, id))
+        .limit(1);
+      if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
+      if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
+        throw new Error("memory store: a correction cannot change workspace or owner");
+      }
+      const alreadySuperseded = await tx
+        .select({ id: memories.id })
+        .from(memories)
+        .where(eq(memories.supersedesId, id))
+        .limit(1);
+      if (alreadySuperseded.length > 0) {
+        throw new MemoryConflictError(id);
+      }
+      return this.#insert(tx, next, id);
+    });
   }
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
@@ -132,8 +174,12 @@ export class DrizzleMemoryStore implements MemoryStore {
     return true;
   }
 
-  async #insert(entry: MemoryWrite, supersedesId: string | null): Promise<MemoryEntry> {
-    const [inserted] = await this.#db
+  async #insert(
+    executor: Pick<Database, "insert">,
+    entry: MemoryWrite,
+    supersedesId: string | null,
+  ): Promise<MemoryEntry> {
+    const [inserted] = await executor
       .insert(memories)
       .values({
         id: entry.id,

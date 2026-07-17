@@ -27,12 +27,14 @@ import {
   RESEARCH_CULTURE_SOURCE_TASK_TYPE,
   SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE,
   resolveAuthorizedCultureSource,
+  computeSourcePolicyHash,
   materializeCultureSourceFetch,
   cancelCultureSourceFetch,
   CULTURE_SOURCE_REGISTRY,
   type SynthesizeCultureProfileOutput,
   type Wiring,
 } from "./wiring.js";
+import { resolveAuthorizedAgentRoleTemplate } from "./agent-role-templates.js";
 import type {
   Action,
   ActorType,
@@ -655,19 +657,13 @@ const egressTierEnum = z.enum(["none", "read-graph", "draft-graph", "source-inte
 const agentCreateInput = z.object({
   workspaceId: z.string().min(1),
   name: z.string().min(1),
-  capabilityScope: z.array(z.string()).default([]),
-  allowedSkills: z.array(z.string()).default([]),
-  dataScope: dataScopeEnum.default("public"),
-  egressTier: egressTierEnum.default("none"),
+  roleTemplateId: z.string().min(1),
 });
 
 const agentUpdateInput = z.object({
   agentId: z.string().min(1),
   name: z.string().min(1).optional(),
-  capabilityScope: z.array(z.string()).optional(),
-  allowedSkills: z.array(z.string()).optional(),
-  dataScope: dataScopeEnum.optional(),
-  egressTier: egressTierEnum.optional(),
+  roleTemplateId: z.string().min(1).optional(),
 });
 
 const ritualCreateInput = z.object({
@@ -1240,6 +1236,46 @@ async function materializeDealPilotApproval(wiring: Wiring, proposal: Proposal) 
   return applyThesisSourceDiscovery(wiring.dealpilot.store, validated);
 }
 
+/**
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
+ * issue 9) — a STRICT output schema for `jobpilot.synthesizeCultureProfile`.
+ * `synthesisResult` parses the persisted ledger row's `proposedOutput`
+ * through this before ever rendering it: an arbitrary APPROVED proposal (of
+ * ANY skill) whose output happens to be object-shaped, or a
+ * `jobpilot.researchCultureSource` fetch-intent output, must be REJECTED
+ * (never rendered) rather than blindly cast and served to the client. This
+ * is in addition to, not instead of, cross-validating `resourceType`/
+ * `action`/`parentRunId`/artifact provenance at the call site.
+ */
+const cultureEvidenceSchema = z.object({
+  id: z.string().min(1),
+  claimType: z.enum(["fact", "opinion", "theme", "contradiction", "inference"]),
+  claimText: z.string(),
+  sourceLabel: z.string(),
+  sourceUrl: z.string(),
+  sourceType: z.enum(["company_official_page", "public_blog_or_press", "reddit", "google_reviews", "glassdoor"]),
+  retrievedAt: z.string(),
+  authorContext: z.string().nullable(),
+  agentInference: z.boolean(),
+  contradicts: z.array(z.string()).optional(),
+});
+
+const synthesizeCultureProfileOutputSchema = z.object({
+  parentRunId: z.string().min(1),
+  artifactHashes: z.array(z.object({ sourceId: z.string().min(1), contentHash: z.string().min(1) })),
+  partition: z.object({
+    facts: z.array(cultureEvidenceSchema),
+    opinions: z.array(cultureEvidenceSchema),
+    themes: z.array(cultureEvidenceSchema),
+    contradictions: z.array(cultureEvidenceSchema),
+    inferences: z.array(cultureEvidenceSchema),
+  }),
+  disclosure: z.object({
+    used: z.array(z.object({ sourceLabel: z.string(), sourceUrl: z.string(), sourceType: z.string(), retrievedAt: z.string() })),
+    skipped: z.array(z.object({ sourceLabel: z.string(), sourceType: z.string(), reason: z.string() })),
+  }),
+});
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -1743,9 +1779,10 @@ export const appRouter = t.router({
       }),
   }),
 
-  /** Agent governance — create/update an agent with LAYERED, least-privilege scopes.
-   * Escalating capability (external:send, governance, full-graph, '*') is stripped at
-   * the seam; agents can never be created able to send or approve. */
+  /** Agent governance — create/update an agent from SERVER-OWNED role templates only.
+   * Escalating capability (external:send, governance, full-graph, '*') is still
+   * stripped at the seam as defense in depth; agents can never be created able to
+   * send or approve, nor may callers name arbitrary capability or skill bundles. */
   agent: t.router({
     create: procedure.input(agentCreateInput).mutation(async ({ input, ctx }) => {
       // TASK-011 remediation (2026-07-18 coordinator final review, issue 5) —
@@ -1756,12 +1793,23 @@ export const appRouter = t.router({
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const mem = ctx.wiring.memory;
       if (!mem) throw new Error("agent.create: in-memory governance store required (persistent agent CRUD pending)");
-      const built = buildAgentCapability({ capabilityScope: input.capabilityScope, egressTier: input.egressTier as EgressTier });
+      const template = resolveAuthorizedAgentRoleTemplate(input.workspaceId, input.roleTemplateId);
+      if (!template) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this workspace`,
+        });
+      }
+      const built = buildAgentCapability({
+        capabilityScope: [...template.capabilityScope],
+        egressTier: template.egressTier as EgressTier,
+      });
       const agentId = ctx.run.ids.next();
+      mem.roles.roleGrants.set(template.roleId, [...template.roleGrants]);
       mem.agents.scope.set(agentId, built.scope);
-      mem.agents.tiers.set(agentId, input.dataScope as DataScope);
-      mem.agents.skills.set(agentId, input.allowedSkills);
-      mem.agents.assumed.set(agentId, null);
+      mem.agents.tiers.set(agentId, template.dataScope as DataScope);
+      mem.agents.skills.set(agentId, [...template.allowedSkills]);
+      mem.agents.assumed.set(agentId, template.roleId);
       // TASK-011 remediation (2026-07-18 final review, issue 5) — `AgentQuery`
       // now requires `workspaceId`/`isActive` (added alongside relationship-
       // module trust boundaries; `InMemoryAgentStore`'s own implementation is
@@ -1779,10 +1827,12 @@ export const appRouter = t.router({
       return {
         agentId,
         name: input.name,
+        roleTemplateId: template.id,
         scope: built.scope,
+        allowedSkills: [...template.allowedSkills],
         dropped: built.dropped, // escalating tokens we refused to grant (shown in UI)
-        dataScope: input.dataScope,
-        egressTier: input.egressTier,
+        dataScope: template.dataScope,
+        egressTier: template.egressTier,
         // Non-removable, always-true facts about an in-platform agent:
         floor: { canSend: false, canApprove: false },
       };
@@ -1792,22 +1842,44 @@ export const appRouter = t.router({
       const mem = ctx.wiring.memory;
       if (!mem) throw new Error("agent.update: in-memory governance store required (persistent agent CRUD pending)");
       if (!mem.agents.scope.has(input.agentId)) throw new Error(`agent.update: unknown agent ${input.agentId}`);
+      const workspaceId = await ctx.wiring.agents.workspaceId(input.agentId);
+      if (!workspaceId) throw new Error(`agent.update: agent ${input.agentId} has no workspace binding`);
+      assertPilotWorkspace(workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, workspaceId, ctx.identity.id);
       let dropped: string[] = [];
-      if (input.capabilityScope !== undefined || input.egressTier !== undefined) {
+      let roleTemplateId: string | undefined;
+      let allowedSkills = mem.agents.skills.get(input.agentId) ?? [];
+      let egressTier: EgressTier | undefined;
+      if (input.roleTemplateId !== undefined) {
+        const template = resolveAuthorizedAgentRoleTemplate(workspaceId, input.roleTemplateId);
+        if (!template) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this workspace`,
+          });
+        }
         const built = buildAgentCapability({
-          capabilityScope: input.capabilityScope ?? mem.agents.scope.get(input.agentId) ?? [],
-          egressTier: (input.egressTier ?? "none") as EgressTier,
+          capabilityScope: [...template.capabilityScope],
+          egressTier: template.egressTier as EgressTier,
         });
+        mem.roles.roleGrants.set(template.roleId, [...template.roleGrants]);
+        mem.agents.assumed.set(input.agentId, template.roleId);
         mem.agents.scope.set(input.agentId, built.scope);
+        mem.agents.tiers.set(input.agentId, template.dataScope as DataScope);
+        mem.agents.skills.set(input.agentId, [...template.allowedSkills]);
         dropped = built.dropped;
+        roleTemplateId = template.id;
+        allowedSkills = [...template.allowedSkills];
+        egressTier = template.egressTier as EgressTier;
       }
-      if (input.dataScope !== undefined) mem.agents.tiers.set(input.agentId, input.dataScope as DataScope);
-      if (input.allowedSkills !== undefined) mem.agents.skills.set(input.agentId, input.allowedSkills);
       return {
         agentId: input.agentId,
+        ...(roleTemplateId ? { roleTemplateId } : {}),
         scope: mem.agents.scope.get(input.agentId) ?? [],
+        allowedSkills,
         dropped,
         dataScope: mem.agents.tiers.get(input.agentId) ?? "all",
+        ...(egressTier ? { egressTier } : {}),
         floor: { canSend: false, canApprove: false },
       };
     }),
@@ -3004,8 +3076,8 @@ export const appRouter = t.router({
    * `transition` validates against @bridge/jobpilot's own state machine BEFORE
    * persisting, so an invalid stage jump is rejected here, not silently written.
    */
-  jobpilot: t.router({
-    create: procedure
+    jobpilot: t.router({
+      create: procedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
@@ -3236,6 +3308,14 @@ export const appRouter = t.router({
               sourceLabel: source.sourceLabel,
               canonicalUrl: source.url,
               allowedRedirectOrigins: source.allowedRedirectOrigins,
+              // TASK-011 remediation (2026-07-19, issue 7) — pin the FULL
+              // security-policy snapshot, not just the URL, so materialize
+              // can detect an eligibility/redirect-origin change at the SAME
+              // URL between propose and materialize.
+              policySnapshot: {
+                registryVersion: computeSourcePolicyHash(source),
+                eligibility: classifyCultureSource(source.sourceType).eligibility,
+              },
               goalId: researchGoalTask.goalId,
               taskId: researchGoalTask.taskId,
               skill: "jobpilot.researchCultureSource",
@@ -3428,20 +3508,82 @@ export const appRouter = t.router({
           if (synthesisProposal.status === "rejected") {
             throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
           }
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // review, issue 13) — record the durable (parentRunId → proposalId)
+          // pointer so `latestRun` can resolve synthesis state for a client
+          // with no local pointer at all (cleared storage, new device).
+          await ctx.wiring.cultureSynthesisPointerStore.recordProposal(
+            input.workspaceId,
+            input.parentRunId,
+            input.company,
+            synthesisProposal.id,
+          );
           return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
         }),
 
       /**
+       * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+       * review, issue 13) — the SERVER-AUTHORITATIVE resume query. Returns
+       * the latest culture-research parent Run (and its pending sources +
+       * synthesis proposal id, if any) for one (workspaceId, company),
+       * derived entirely from durable server state via
+       * `DurableCultureFetchStore.listByCompany` +
+       * `DurableCultureSynthesisPointerStore` — NEVER from anything the
+       * client supplies. The web UI calls this on every mount and treats its
+       * result as authoritative; any local `localStorage` pointer is only a
+       * paint-ahead cache, overwritten by whatever this query returns
+       * (including `null`, if the server has no record — e.g. storage from a
+       * stale/foreign workspace). This is what makes "clear storage / change
+       * device, still see pending/completed research" possible.
+       */
+      latestRun: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          const records = await ctx.wiring.cultureFetchStore.listByCompany(input.workspaceId, input.company);
+          if (records.length === 0) return null;
+          // Newest parent Run wins — `listByCompany` is already newest-first
+          // by underlying row `createdAt`, but group explicitly rather than
+          // assuming ordering survives across records from different rows.
+          let latestParentRunId = records[0]!.parentRunId;
+          let latestCreatedAt = records[0]!.createdAt;
+          for (const r of records) {
+            if (r.createdAt > latestCreatedAt) {
+              latestCreatedAt = r.createdAt;
+              latestParentRunId = r.parentRunId;
+            }
+          }
+          const pending = records
+            .filter((r) => r.parentRunId === latestParentRunId && r.proposalId)
+            .map((r) => ({ proposalId: r.proposalId!, childRunId: r.childRunId, sourceId: r.sourceId, sourceType: r.sourceType, sourceLabel: r.sourceLabel }));
+          const synthesisPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, latestParentRunId);
+          return {
+            parentRunId: latestParentRunId,
+            pending,
+            ...(synthesisPointer ? { synthesisProposalId: synthesisPointer.proposalId } : {}),
+          };
+        }),
+
+      /**
        * Reads the PERSISTED, APPROVED synthesis result — TASK-011 remediation
-       * (2026-07-18 final review, issue 7). The web UI polls this instead of
+       * (2026-07-18 final review, issue 7; hardened 2026-07-19 coordinator
+       * distributed-defects review, issue 9). The web UI polls this instead of
        * holding any hand-authored culture data: before a synthesis proposal
        * is approved, this returns `{ status: "not_available" }`, an honest
        * empty state the UI must render as such, never as a placeholder claim.
        * Only an `approve` decision unlocks the real, grounded, cited
-       * partition/disclosure the Skill produced.
+       * partition/disclosure the Skill produced — and only if the proposal
+       * is GENUINELY a `jobpilot.synthesizeCultureProfile` output bound to
+       * the caller's own (workspaceId, company, parentRunId): an arbitrary
+       * OTHER approved proposal (any skill), or a synthesis proposal for a
+       * DIFFERENT run/company, is rejected as `not_available` rather than
+       * rendered — never trust `resourceType`/`action`/a loose shape match
+       * alone; the strict `synthesizeCultureProfileOutputSchema` AND a
+       * re-derivation of the run's real fetched artifacts must both agree.
        */
       synthesisResult: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1) }))
+        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1), proposalId: z.string().min(1), parentRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
@@ -3449,11 +3591,47 @@ export const appRouter = t.router({
           if (!proposal || proposal.workspaceId !== input.workspaceId) {
             return { status: "not_available" as const };
           }
+          // Corroborate the Skill's identity via its declared action/resourceType
+          // (LedgerEntry has no `skill` field of its own) — a proposal from ANY
+          // other skill that happens to also be action:"write"/resourceType:"signal"
+          // is still filtered out below by the strict output-schema parse plus
+          // the parentRunId/artifact cross-check, but this is a cheap first gate.
+          if (proposal.action !== "write" || proposal.resourceType !== "signal") {
+            return { status: "not_available" as const };
+          }
           const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
           if (!decision || decision.userDecision !== "approve") {
             return { status: "not_available" as const };
           }
-          const result = proposal.proposedOutput as SynthesizeCultureProfileOutput;
+          const parsed = synthesizeCultureProfileOutputSchema.safeParse(proposal.proposedOutput);
+          if (!parsed.success) {
+            // NOT a jobpilot.synthesizeCultureProfile output at all (or a
+            // malformed/foreign one) — fail closed, never render it.
+            return { status: "not_available" as const };
+          }
+          const result = parsed.data as SynthesizeCultureProfileOutput;
+          if (result.parentRunId !== input.parentRunId) {
+            return { status: "not_available" as const };
+          }
+          // Re-derive this run's REAL fetched artifacts and cross-check every
+          // `artifactHashes` entry against them — a persisted result whose
+          // hashes no longer match the run's own durable fetch records (e.g.
+          // stale/tampered) must not be rendered as if it were still valid.
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+          const intentRecords = (
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+          ).filter((r): r is NonNullable<typeof r> => r != null);
+          const realCompanyMatch = intentRecords.every((r) => r.company === input.company);
+          if (childRuns.length === 0 || !realCompanyMatch) {
+            return { status: "not_available" as const };
+          }
+          const realHashesBySourceId = new Map(
+            intentRecords.filter((r) => r.status === "fetched" && r.artifact).map((r) => [r.sourceId, r.artifact!.contentHash]),
+          );
+          const hashesMatch = result.artifactHashes.every((a) => realHashesBySourceId.get(a.sourceId) === a.contentHash);
+          if (!hashesMatch) {
+            return { status: "not_available" as const };
+          }
           return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result };
         }),
     }),

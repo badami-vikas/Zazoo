@@ -418,36 +418,46 @@ async function recordChildAgentRunTransition(
   if (before.status !== "running") {
     throw new ChildRunAlreadyTerminalError(id, before.status);
   }
-  const transitioned = await deps.store.updateStatus(workspaceId, id, "running", status);
-  try {
-    await deps.ledger.append({
-      id: ctx.ids.next(),
-      workspaceId: before.workspaceId,
-      actorType: actor.type,
-      actorId: actor.id,
-      action: "archive",
-      resourceType: "agent",
-      resourceId: before.parentAgentId,
-      inputs: { childRunId: id, event },
-      proposedOutput: transitioned,
-      userDecision: "auto",
-      policyResults: [],
-      context: { type: "child_agent_run", id, runId: before.parentRunId },
-      ...(before.taint ? { trustOrigin: before.taint } : {}),
-      createdAt: ctx.clock.nowISO(),
-    });
-  } catch (auditError) {
-    try {
-      await deps.store.updateStatus(workspaceId, id, status, "running");
-    } catch (rollbackError) {
-      throw new AggregateError(
-        [auditError, rollbackError],
-        `child-agent-run: transition to "${status}" could not be audited or rolled back`,
-      );
-    }
-    throw auditError;
-  }
-  return transitioned;
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // review, issue 4) — append the durable audit entry BEFORE ever exposing
+  // the terminal status via `updateStatus`, not after. The PRIOR ordering
+  // (status flip first, audit append second, rollback-to-"running" on audit
+  // failure) let any concurrent reader observe "terminal" via `store.get`
+  // during the window between the flip and either the audit succeeding or
+  // the rollback completing — and if the ROLLBACK itself also failed, a
+  // caller could be left having already acted on a terminal status that
+  // then silently reverted to "running" under it. Recording the audit
+  // entry first means: if `updateStatus` below never runs (this function
+  // throws before reaching it) or loses a CAS race, NO caller ever observes
+  // a terminal status for this attempt at all — the run's real status
+  // never changes, so there is nothing to roll back. The audit entry
+  // records the INTENDED post-transition projection (`{...before, status}`)
+  // rather than a live read-back, since the actual row does not exist yet
+  // at write time — a losing/failed attempt's entry is a truthful record of
+  // "this actor attempted this transition", not a claim about the run's
+  // confirmed final state (which readers must still get from `store.get`).
+  await deps.ledger.append({
+    id: ctx.ids.next(),
+    workspaceId: before.workspaceId,
+    actorType: actor.type,
+    actorId: actor.id,
+    action: "archive",
+    resourceType: "agent",
+    resourceId: before.parentAgentId,
+    inputs: { childRunId: id, event },
+    proposedOutput: { ...before, status },
+    userDecision: "auto",
+    policyResults: [],
+    context: { type: "child_agent_run", id, runId: before.parentRunId },
+    ...(before.taint ? { trustOrigin: before.taint } : {}),
+    createdAt: ctx.clock.nowISO(),
+  });
+  // The actual, authoritative CAS. If this throws (e.g. a concurrent
+  // transition already won the race since `before` was read), the audit
+  // entry above stands as a truthful "attempted but did not take effect"
+  // record — the run's real status was never exposed as this attempt's
+  // target and needs no rollback.
+  return deps.store.updateStatus(workspaceId, id, "running", status);
 }
 
 /**

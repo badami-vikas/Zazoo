@@ -268,7 +268,13 @@ export const MAX_CULTURE_SOURCES_PER_RUN = 5;
 /** An immutable, server-fetched artifact's content, as the grounding check
  * needs it. `contentHash` is computed by the server from the REAL fetched
  * bytes (apps/api, via node:crypto) — this module stays hash-algorithm
- * agnostic, it only compares the caller-asserted hash against this value. */
+ * agnostic, it only compares the caller-asserted hash against this value.
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
+ * issue 8) — fetched bytes are UNTRUSTED EXTERNAL data by definition (they
+ * originate outside this system's control); `trustOrigin` is always
+ * `"untrusted_external"` for a real fetch and must never be silently
+ * declassified. `expiresAt` bounds how long the excerpt may be relied on for
+ * grounding/synthesis before it is considered stale and must be re-fetched. */
 export interface CultureArtifactRef {
   sourceId: string;
   sourceType: CultureSourceType;
@@ -277,6 +283,8 @@ export interface CultureArtifactRef {
   content: string;
   contentHash: string;
   retrievedAt: string;
+  trustOrigin: "untrusted_external";
+  expiresAt: string;
 }
 
 export interface GroundedClaimInput {
@@ -342,12 +350,20 @@ export interface ClaimGroundingResult {
 function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
   grounded: ReadonlySet<string>;
   cycleNodes: ReadonlySet<string>;
+  /** TASK-011 remediation (2026-07-19 issue 10) — the order claims were
+   * fully resolved in, which is a valid topological order (every claim's
+   * dependencies appear before it) for any ACYCLIC portion of the graph.
+   * `groundClaims` uses this to build derived (theme/inference/
+   * contradiction) claim TEXT deterministically from already-built
+   * supporting claims' text, never from caller-supplied free text. */
+  postOrder: readonly string[];
 } {
   const byId = new Map(claims.map((c) => [c.id, c]));
   const grounded = new Set<string>();
   const cycleNodes = new Set<string>();
   const visiting = new Set<string>();
   const done = new Set<string>();
+  const postOrder: string[] = [];
 
   function referencesOf(claim: GroundedClaimInput): readonly string[] {
     if (claim.claimType === "contradiction") return claim.contradicts ?? [];
@@ -362,6 +378,7 @@ function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
     if (claim.claimType === "fact" || claim.claimType === "opinion") {
       grounded.add(id);
       done.add(id);
+      postOrder.push(id);
       return true;
     }
     if (visiting.has(id)) {
@@ -382,12 +399,13 @@ function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
     }
     visiting.delete(id);
     done.add(id);
+    postOrder.push(id);
     if (allRefsGrounded) grounded.add(id);
     return allRefsGrounded;
   }
 
   for (const claim of claims) visit(claim.id);
-  return { grounded, cycleNodes };
+  return { grounded, cycleNodes, postOrder };
 }
 
 /**
@@ -406,14 +424,30 @@ export function groundClaims(
   const evidence: CultureEvidence[] = [];
   const seenIds = new Set<string>();
   const allIds = new Set(claims.map((c) => c.id));
-  const { grounded, cycleNodes } = computeReferenceGrounding(claims);
 
+  // Duplicate-id check runs over the RAW batch (before any deduplication) —
+  // `computeReferenceGrounding`'s internal `byId` map silently collapses
+  // duplicates, so this must happen first, independently.
   for (const claim of claims) {
     if (seenIds.has(claim.id)) {
       failures.push({ claimId: claim.id, reason: "duplicate-claim-id", detail: `duplicate claim id "${claim.id}"` });
-      continue;
     }
     seenIds.add(claim.id);
+  }
+
+  const byId = new Map(claims.map((c) => [c.id, c]));
+  const { grounded, cycleNodes, postOrder } = computeReferenceGrounding(claims);
+  // TASK-011 remediation (2026-07-19, issue 10) — build evidence in
+  // TOPOLOGICAL (post-)order so every derived (theme/inference/
+  // contradiction) claim's supporting/contradicted claims already have
+  // their REAL, already-validated `claimText` available by the time this
+  // claim is processed — this is what makes the deterministic-template
+  // construction below possible without a second pass.
+  const evidenceById = new Map<string, CultureEvidence>();
+
+  for (const id of postOrder) {
+    const claim = byId.get(id)!;
+    if (evidenceById.has(id)) continue; // defensive; postOrder is already unique
 
     if (claim.claimType === "fact" || claim.claimType === "opinion") {
       const artifact = claim.sourceId ? artifactsBySourceId.get(claim.sourceId) : undefined;
@@ -433,7 +467,7 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "quote-not-found-in-artifact", detail: "quote is not a substring of the fetched artifact's content" });
         continue;
       }
-      evidence.push({
+      const item: CultureEvidence = {
         id: claim.id,
         claimType: claim.claimType,
         claimText: claim.quote,
@@ -443,7 +477,9 @@ export function groundClaims(
         retrievedAt: artifact.retrievedAt,
         authorContext: claim.authorContext ?? null,
         agentInference: false,
-      });
+      };
+      evidence.push(item);
+      evidenceById.set(claim.id, item);
     } else if (claim.claimType === "theme" || claim.claimType === "inference") {
       const supporting = claim.supportingClaimIds ?? [];
       if (supporting.length === 0) {
@@ -454,7 +490,7 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "self-reference", detail: "a claim cannot support itself" });
         continue;
       }
-      const dangling = supporting.filter((id) => !allIds.has(id));
+      const dangling = supporting.filter((sid) => !allIds.has(sid));
       if (dangling.length > 0) {
         failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `references unknown claim ids: ${dangling.join(", ")}` });
         continue;
@@ -467,17 +503,31 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "this claim does not transitively trace back to any artifact-grounded fact/opinion" });
         continue;
       }
-      evidence.push({
+      // TASK-011 remediation (2026-07-19, issue 10) — the claim's TEXT is
+      // deterministically DERIVED from its real, already-grounded
+      // supporting claims via a fixed, safe template — the caller's own
+      // `quote` (if supplied) is NEVER used for theme/inference claims,
+      // closing the "arbitrary caller-authored theme text" gap (e.g. an
+      // unrelated "million-dollar bonus" claim wrapped around a real
+      // teamwork fact's id would previously have been accepted verbatim).
+      const supportingTexts = supporting.map((sid) => evidenceById.get(sid)?.claimText ?? "");
+      const claimText =
+        claim.claimType === "theme"
+          ? `Recurring theme across ${supporting.length} supporting claim(s): ${supportingTexts.map((t) => `"${t}"`).join(" — ")}`
+          : `Inference drawn from ${supporting.length} supporting claim(s): ${supportingTexts.map((t) => `"${t}"`).join(" — ")}. This is Internal Strategist's structural inference from the pattern above, not independently verified as fact.`;
+      const item: CultureEvidence = {
         id: claim.id,
         claimType: claim.claimType,
-        claimText: claim.quote ?? "",
+        claimText,
         sourceLabel: "synthesis of cited claims",
         sourceUrl: "",
         sourceType: "company_official_page",
         retrievedAt: new Date().toISOString(),
         authorContext: claim.authorContext ?? null,
         agentInference: claim.claimType === "inference",
-      });
+      };
+      evidence.push(item);
+      evidenceById.set(claim.id, item);
     } else {
       // contradiction
       const refs = claim.contradicts ?? [];
@@ -489,7 +539,7 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "self-reference", detail: "a claim cannot contradict itself" });
         continue;
       }
-      const dangling = refs.filter((id) => !allIds.has(id));
+      const dangling = refs.filter((rid) => !allIds.has(rid));
       if (dangling.length > 0) {
         failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `contradicts unknown claim ids: ${dangling.join(", ")}` });
         continue;
@@ -502,10 +552,14 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "every contradicted branch must independently trace back to an artifact-grounded fact/opinion" });
         continue;
       }
-      evidence.push({
+      // Deterministically derived (issue 10) — quotes the REAL text of the
+      // conflicting claims via a fixed template; never caller-authored text.
+      const contradictedTexts = refs.map((rid) => evidenceById.get(rid)?.claimText ?? "");
+      const claimText = `Conflicting accounts: ${contradictedTexts.map((t) => `"${t}"`).join(" — versus — ")}`;
+      const item: CultureEvidence = {
         id: claim.id,
         claimType: "contradiction",
-        claimText: claim.quote ?? "",
+        claimText,
         sourceLabel: "synthesis of cited claims",
         sourceUrl: "",
         sourceType: "company_official_page",
@@ -513,7 +567,9 @@ export function groundClaims(
         authorContext: claim.authorContext ?? null,
         agentInference: false,
         contradicts: refs,
-      });
+      };
+      evidence.push(item);
+      evidenceById.set(claim.id, item);
     }
   }
 

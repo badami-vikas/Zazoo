@@ -75,13 +75,35 @@ const IPV4_BLOCKS: Array<[number, number]> = [
   [0xf0000000, 4], // 240.0.0.0/4
 ];
 
+/**
+ * Reuse/license intake (AP-008, 2026-07-17): evaluated `ipaddr.js@2.4.0`
+ * (MIT, npm modified 2026-06-29, ~466M monthly downloads) and
+ * `ip-address@10.2.0` (MIT, npm modified 2026-05-01, ~384M monthly
+ * downloads). Both are well-maintained, but neither is a clean drop-in for
+ * this guard's exact fail-closed policy without still carrying a local policy
+ * table here: `ipaddr.js`'s canned ranges do not cover the full set we need,
+ * and `ip-address` still omits deprecated site-local `fec0::/10`. Keep the
+ * small hand-rolled block list, sourced from the IANA IPv6 Special-Purpose
+ * Address Space registry plus RFC 3879, and keep IPv4-embedded IPv6 forms
+ * delegated back to the canonical IPv4 block list below.
+ */
 const IPV6_BLOCKS: Array<[bigint, number]> = [
-  [0n, 128], // ::/128
-  [1n, 128], // ::1/128
-  [0xfc00n << 112n, 7], // fc00::/7
-  [0xfe80n << 112n, 10], // fe80::/10
-  [0xff00n << 112n, 8], // ff00::/8
+  ipv6Block("::", 128), // ::/128 — Unspecified Address (RFC 4291)
+  ipv6Block("::1", 128), // ::1/128 — Loopback Address (RFC 4291)
+  ipv6Block("64:ff9b:1::", 48), // 64:ff9b:1::/48 — NAT64 local-use prefix (RFC 8215)
+  ipv6Block("100::", 64), // 100::/64 — Discard-Only Address Block (RFC 6666)
+  ipv6Block("100:0:0:1::", 64), // 100:0:0:1::/64 — Dummy IPv6 Prefix (RFC 9780)
+  ipv6Block("2001:2::", 48), // 2001:2::/48 — Benchmarking (RFC 5180)
+  ipv6Block("2001:db8::", 32), // 2001:db8::/32 — Documentation (RFC 3849)
+  ipv6Block("3fff::", 20), // 3fff::/20 — Documentation (RFC 9637)
+  ipv6Block("5f00::", 16), // 5f00::/16 — SRv6 SIDs (RFC 9602)
+  ipv6Block("fec0::", 10), // fec0::/10 — Deprecated site-local (RFC 3879)
+  ipv6Block("fc00::", 7), // fc00::/7 — Unique Local Addresses (RFC 4193)
+  ipv6Block("fe80::", 10), // fe80::/10 — Link-Local Unicast (RFC 4291)
+  ipv6Block("ff00::", 8), // ff00::/8 — Multicast (RFC 4291)
 ];
+
+const NAT64_WELL_KNOWN_PREFIX_96 = ipv6Block("64:ff9b::", 96)[0] >> 32n;
 
 function normalizeHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "").replace(/\.$/, "");
@@ -105,14 +127,24 @@ function inIpv4Block(ipInt: number, block: number, prefix: number): boolean {
   return (ipInt & mask) === (block & mask);
 }
 
+function ipv6Block(ip: string, prefix: number): [bigint, number] {
+  const ipInt = parseIpv6(ip);
+  if (ipInt === null) {
+    throw new Error(`Invalid IPv6 policy block literal: ${ip}/${prefix}`);
+  }
+  return [ipInt, prefix];
+}
+
 function parseIpv6(ip: string): bigint | null {
   let normalized = normalizeHostname(ip);
   if (normalized.includes(".")) {
-    const colon = normalized.lastIndexOf(":");
-    const v4 = colon >= 0 ? normalized.slice(colon + 1) : "";
-    const v4Int = ipv4ToInt(v4);
+    const v4Match = normalized.match(/((?:\d+\.){3}\d+)$/);
+    if (!v4Match?.[1]) return null;
+    const v4Int = ipv4ToInt(v4Match[1]);
     if (v4Int === null) return null;
-    normalized = `${normalized.slice(0, colon)}:${((v4Int >>> 16) & 0xffff).toString(16)}:${(v4Int & 0xffff).toString(16)}`;
+    normalized =
+      `${normalized.slice(0, normalized.length - v4Match[1].length)}` +
+      `${((v4Int >>> 16) & 0xffff).toString(16)}:${(v4Int & 0xffff).toString(16)}`;
   }
 
   const halves = normalized.split("::");
@@ -132,8 +164,15 @@ function parseIpv6(ip: string): bigint | null {
   return out;
 }
 
-function ipv4FromMappedIpv6(ipv6: bigint): string | null {
-  if (ipv6 >> 32n !== 0xffffn) return null;
+function ipv4FromEmbeddedIpv6(ipv6: bigint): string | null {
+  const prefix96 = ipv6 >> 32n;
+  const isIpv4Compatible = prefix96 === 0n;
+  const isIpv4Mapped = prefix96 === 0xffffn;
+  const isNat64WellKnown = prefix96 === NAT64_WELL_KNOWN_PREFIX_96;
+
+  if (!isIpv4Compatible && !isIpv4Mapped && !isNat64WellKnown) return null;
+  if (isIpv4Compatible && (ipv6 === 0n || ipv6 === 1n)) return null;
+
   const v4 = Number(ipv6 & 0xffffffffn);
   return [(v4 >>> 24) & 255, (v4 >>> 16) & 255, (v4 >>> 8) & 255, v4 & 255].join(".");
 }
@@ -156,8 +195,8 @@ export function isBlockedIp(ip: string): boolean {
     const ipInt = parseIpv6(normalized);
     if (ipInt === null) return true;
 
-    const mapped = ipv4FromMappedIpv6(ipInt);
-    if (mapped) return isBlockedIp(mapped);
+    const embeddedIpv4 = ipv4FromEmbeddedIpv6(ipInt);
+    if (embeddedIpv4) return isBlockedIp(embeddedIpv4);
 
     return IPV6_BLOCKS.some(([block, prefix]) => inIpv6Block(ipInt, block, prefix));
   }
@@ -232,28 +271,26 @@ export class RedirectDowngradeError extends Error {
   }
 }
 
-/** Request headers stripped on any CROSS-ORIGIN redirect hop — credential-
- * bearing or otherwise sensitive headers must never be replayed to a
- * different origin than the one the caller originally addressed, matching
- * the browser fetch spec's own cross-origin redirect header-stripping
- * behavior (which `http`/`https.request` does NOT do automatically, since it
- * never follows redirects itself). Matched case-insensitively. */
-const CROSS_ORIGIN_STRIPPED_HEADERS: readonly string[] = [
-  "authorization",
-  "cookie",
-  "proxy-authorization",
-  "x-api-key",
-  "api-key",
-  "x-auth-token",
-];
+/** Request headers forwarded to a CROSS-ORIGIN redirect hop — TASK-011
+ * remediation (2026-07-19 coordinator distributed-defects review, issue 12).
+ * An EXPLICIT SAFE ALLOWLIST, not a denylist: only headers on this list ever
+ * cross an origin boundary. A denylist can only ever block headers its
+ * author thought of (the prior version missed things like
+ * `X-Goog-Api-Key`/arbitrary custom API-key-shaped headers a caller might
+ * set) — an allowlist fails closed for anything unrecognized, including
+ * custom/vendor-specific credential headers no denylist could enumerate in
+ * advance. Matched case-insensitively. Deliberately small: only headers that
+ * are meaningful for a stateless, unauthenticated content fetch (this
+ * primitive's actual use case) are included — nothing that could plausibly
+ * carry a credential or session identifier. */
+const CROSS_ORIGIN_ALLOWED_HEADERS: readonly string[] = ["accept", "accept-language", "user-agent", "content-type"];
 
 function stripCrossOriginHeaders(headers: Record<string, string>): Record<string, string> {
-  const stripped: Record<string, string> = {};
+  const allowed: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (CROSS_ORIGIN_STRIPPED_HEADERS.includes(key.toLowerCase())) continue;
-    stripped[key] = value;
+    if (CROSS_ORIGIN_ALLOWED_HEADERS.includes(key.toLowerCase())) allowed[key] = value;
   }
-  return stripped;
+  return allowed;
 }
 
 interface ResolvedAddress {

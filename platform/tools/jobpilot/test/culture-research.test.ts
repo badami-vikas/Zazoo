@@ -135,6 +135,8 @@ function artifact(overrides: Partial<CultureArtifactRef> & Pick<CultureArtifactR
     sourceLabel: "test_fixture source",
     sourceUrl: "https://example.com/test_fixture",
     retrievedAt: "2026-07-17T00:00:00.000Z",
+    trustOrigin: "untrusted_external",
+    expiresAt: "2026-07-18T00:00:00.000Z",
     ...overrides,
   };
 }

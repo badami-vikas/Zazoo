@@ -47,8 +47,22 @@ test("blocks private, loopback, and link-local IPv4 ranges", () => {
   }
 });
 
-test("blocks loopback, local, and IPv4-mapped IPv6 addresses", () => {
-  for (const ip of ["::1", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:169.254.169.254"]) {
+test("blocks loopback, local, and special-purpose IPv6 ranges", () => {
+  for (const ip of ["::1", "fc00::1", "fe80::1", "fec0::1", "2001:db8::1", "64:ff9b:1::1"]) {
+    assert.equal(isBlockedIp(ip), true, `${ip} should be blocked`);
+  }
+});
+
+test("blocks IPv4-embedded IPv6 addresses when the embedded IPv4 is private/reserved", () => {
+  for (const ip of [
+    "::127.0.0.1",
+    "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
+    "::ffff:10.0.0.1",
+    "::ffff:172.16.0.1",
+    "::ffff:192.168.1.1",
+    "::ffff:169.254.169.254",
+  ]) {
     assert.equal(isBlockedIp(ip), true, `${ip} should be blocked`);
   }
 });
@@ -62,6 +76,7 @@ test("blocks local and cloud metadata hostnames", () => {
 test("allows public IPs and hostnames", () => {
   assert.equal(isBlockedIp("8.8.8.8"), false);
   assert.equal(isBlockedIp("2001:4860:4860::8888"), false);
+  assert.equal(isBlockedIp("2606:4700:4700::1111"), false);
   assert.equal(isBlockedIp("::ffff:8.8.8.8"), false);
   assert.equal(isBlockedHostname("careers.bcg.com"), false);
 });
@@ -426,6 +441,44 @@ test("a cross-origin redirect strips Authorization/Cookie/Proxy-Authorization he
     });
     assert.equal(aFinalReceivedHeaders.authorization, "Bearer secret-token", "Authorization must be PRESERVED on a same-origin hop");
     assert.equal(aFinalReceivedHeaders.cookie, "session=abc123", "Cookie must be PRESERVED on a same-origin hop");
+  } finally {
+    serverA.close();
+    serverB.close();
+  }
+});
+
+test("cross-origin header forwarding is an EXPLICIT ALLOWLIST (TASK-011 remediation, 2026-07-19 distributed-defects review, issue 12) — an unrecognized custom header (e.g. vendor-specific API-key-shaped headers a denylist could never enumerate in advance) is stripped, while Accept/User-Agent are correctly forwarded", async () => {
+  let bReceivedHeaders: http.IncomingHttpHeaders = {};
+  const serverB = http.createServer((req, res) => {
+    bReceivedHeaders = req.headers;
+    res.end("from-b");
+  });
+  await new Promise<void>((resolve) => serverB.listen(0, "127.0.0.1", resolve));
+  const portB = (serverB.address() as AddressInfo).port;
+
+  const serverA = http.createServer((_req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${portB}/elsewhere` });
+    res.end();
+  });
+  await new Promise<void>((resolve) => serverA.listen(0, "127.0.0.1", resolve));
+  const portA = (serverA.address() as AddressInfo).port;
+
+  try {
+    const overrides: UnsafeTestOverrides = { isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip) };
+    await guardedFetch(`http://127.0.0.1:${portA}/start`, {
+      unsafeTestOverrides: overrides,
+      headers: {
+        accept: "text/plain",
+        "user-agent": "test_fixture-agent/1.0",
+        "x-goog-api-key": "should-never-cross-an-origin",
+        "x-vendor-custom-secret": "an-unrecognized-header-a-denylist-would-have-missed",
+      },
+      allowedRedirectOrigins: [`http://127.0.0.1:${portA}`, `http://127.0.0.1:${portB}`],
+    });
+    assert.equal(bReceivedHeaders["x-goog-api-key"], undefined, "an unrecognized vendor API-key header must be stripped on a cross-origin hop");
+    assert.equal(bReceivedHeaders["x-vendor-custom-secret"], undefined, "ANY header not on the explicit allowlist must be stripped, not just known-credential-shaped names");
+    assert.equal(bReceivedHeaders.accept, "text/plain", "Accept is on the safe allowlist and must still cross origins");
+    assert.equal(bReceivedHeaders["user-agent"], "test_fixture-agent/1.0", "User-Agent is on the safe allowlist and must still cross origins");
   } finally {
     serverA.close();
     serverB.close();

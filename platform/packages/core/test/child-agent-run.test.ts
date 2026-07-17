@@ -25,6 +25,7 @@ import {
   type ChildAgentRun,
   type ChildAgentRunRequest,
   type ChildRunActionCheck,
+  type LedgerStore,
 } from "../src/index.js";
 
 function ctx(seed = 1) {
@@ -273,7 +274,7 @@ test("terminal child Run transitions are running-only, and throw the TYPED Child
   assert.equal(ledger.entries.length, 1);
 });
 
-test("concurrent terminal transitions audit only the winning compare-and-set", async () => {
+test("concurrent terminal transitions: exactly one CAS wins, but BOTH attempts are durably audited (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 4) — the audit entry is appended BEFORE the status CAS runs, so a losing attempt still leaves a truthful record of what was tried, and the winning entry's projected status matches the run's real final status", async () => {
   const c = ctx();
   const store = new InMemoryChildAgentRunStore();
   const ledger = new InMemoryLedger();
@@ -287,8 +288,41 @@ test("concurrent terminal transitions audit only the winning compare-and-set", a
 
   assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
   assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1);
-  assert.equal(ledger.entries.length, 1);
-  assert.equal((ledger.entries[0]!.proposedOutput as ChildAgentRun).status, (await store.get("ws-1", run.id))?.status);
+  // Both the winning AND the losing attempt are durably logged — the ledger
+  // is a truthful record of every ATTEMPT, not only confirmed state changes.
+  assert.equal(ledger.entries.length, 2);
+  const finalStatus = (await store.get("ws-1", run.id))?.status;
+  // Exactly one entry's projected status matches the run's real final
+  // status (the winner); the other recorded an attempt that never took
+  // effect (the loser) — never both, never neither.
+  const matching = ledger.entries.filter((e) => (e.proposedOutput as ChildAgentRun).status === finalStatus);
+  assert.equal(matching.length, 1);
+});
+
+test("child-run terminal transition: if the audit ledger append fails, the run's status is NEVER exposed as terminal — no caller can observe terminal then see it revert (TASK-011 remediation, 2026-07-19 coordinator distributed-defects review, issue 4)", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  const failingLedger: LedgerStore = {
+    append: async () => {
+      throw new Error("simulated durable-audit failure");
+    },
+    get: async () => null,
+    decisionFor: async () => null,
+    listPending: async () => ({ items: [], total: 0 }),
+  };
+  const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
+  const actor: Actor = { type: "agent", id: "internal_strategist" };
+
+  await assert.rejects(
+    () => cancelChildAgentRun({ store, ledger: failingLedger }, "ws-1", run.id, actor, c),
+    /simulated durable-audit failure/,
+  );
+  // The audit append happens BEFORE the status CAS — since it threw, the
+  // CAS never ran at all, so the run's real status is untouched. There is
+  // no "expose terminal, then roll back" window for any concurrent reader
+  // to observe.
+  const after = await store.get("ws-1", run.id);
+  assert.equal(after?.status, "running", "a failed audit append must leave the run's status completely untouched, never terminal");
 });
 
 test("consumeBudget: concurrent reservations against a maxCalls:1 budget — only ONE may succeed (TASK-011 remediation, 2026-07-17 security review)", async () => {
@@ -325,7 +359,7 @@ test("consumeBudget: many concurrent reservations against a maxCalls:1 budget �
   assert.equal(final?.callsUsed, 1);
 });
 
-test("a lifecycle audit failure rolls the winning transition back to running", async () => {
+test("a lifecycle audit failure means the transition never happens at all (TASK-011 remediation, 2026-07-19 — audit-then-transition ordering means there is no 'rollback', since the status CAS never runs until after the audit durably succeeds)", async () => {
   class FailingLedger extends InMemoryLedger {
     override async append(): Promise<never> {
       throw new Error("test_fixture audit unavailable");

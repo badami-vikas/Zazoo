@@ -1,3 +1,4 @@
+import { TRPCClientError } from '@trpc/client';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
@@ -9,6 +10,7 @@ import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactS
 import {
   loadStoredCultureResearchState,
   saveStoredCultureResearchState,
+  clearStoredCultureResearchState,
   deriveFullArtifactFactClaim,
   type StoredCultureResearchState,
 } from '../data/culture-research-client';
@@ -310,9 +312,15 @@ function CultureResearchSection() {
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
-  // Discover the server-owned sources for this company, and any locally
-  // remembered pointer to an in-progress/completed run — a page refresh must
-  // re-find real API state, never reset silently to "nothing happened".
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // review, issue 13): discover the server-owned sources for this company,
+  // AND the SERVER-AUTHORITATIVE pointer to any in-progress/completed run
+  // via `latestRun` — never trust `localStorage` alone. `localStorage` is
+  // read first ONLY to paint an instant, optimistic hint while the network
+  // call is in flight; the `latestRun` result then OVERWRITES it
+  // unconditionally (including with `null`, clearing a stale/foreign
+  // pointer) once it resolves, so clearing storage or switching devices
+  // still surfaces real pending/completed research.
   useEffect(() => {
     let cancelled = false;
     trpc.jobpilot.cultureResearch.sources
@@ -322,7 +330,27 @@ function CultureResearchSection() {
     if (typeof window !== 'undefined') {
       setPointer(loadStoredCultureResearchState(window.localStorage, workspaceId, company));
     }
-    setHydrated(true);
+    trpc.jobpilot.cultureResearch.latestRun
+      .query({ workspaceId, company })
+      .then((serverRun) => {
+        if (cancelled) return;
+        if (serverRun) {
+          const authoritative: StoredCultureResearchState = {
+            parentRunId: serverRun.parentRunId,
+            pending: serverRun.pending,
+            ...(serverRun.synthesisProposalId ? { synthesisProposalId: serverRun.synthesisProposalId } : {}),
+          };
+          setPointer(authoritative);
+          if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, workspaceId, company, authoritative);
+        } else {
+          // Server has no record for this company — any locally cached
+          // pointer is stale/foreign; clear it rather than trusting it.
+          setPointer(null);
+          if (typeof window !== 'undefined') clearStoredCultureResearchState(window.localStorage, workspaceId, company);
+        }
+      })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setHydrated(true); });
     return () => { cancelled = true; };
     // Deliberately mount-only: `workspaceId`/`company` are constant for this
     // component instance (PILOT_WORKSPACE and BCG_APPLICATION.company never
@@ -339,7 +367,7 @@ function CultureResearchSection() {
       if (!pointer) { setResult(null); return; }
       if (pointer.synthesisProposalId) {
         try {
-          const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, proposalId: pointer.synthesisProposalId });
+          const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
           if (!cancelled) setResult(r);
         } catch (e) {
           if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -367,6 +395,19 @@ function CultureResearchSection() {
     if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, workspaceId, company, next);
   }
 
+  // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+  // review, issue 13): "if proposal already approved, do not call decide
+  // again; reconcile/materialize based on durable status." `action.decide`
+  // fails closed with a 409 CONFLICT (`AlreadyResolvedError`) on a proposal
+  // that was already resolved — e.g. approved in an earlier session/device
+  // and the local pointer was rediscovered via `latestRun` above. That is
+  // NOT a real failure here: it means the approval already happened, so the
+  // caller should proceed exactly as if `decide` had just succeeded, rather
+  // than surfacing a scary error for an already-successful outcome.
+  function isAlreadyResolvedConflict(e: unknown): boolean {
+    return e instanceof TRPCClientError && e.data?.code === 'CONFLICT';
+  }
+
   async function startResearch() {
     const permittedIds = (sources ?? []).filter((s) => s.eligibility === 'permitted').map((s) => s.id);
     if (permittedIds.length === 0) {
@@ -389,7 +430,12 @@ function CultureResearchSection() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.action.decide.mutate({ proposalId: p.proposalId, decision: 'approve' });
+      try {
+        await trpc.action.decide.mutate({ proposalId: p.proposalId, decision: 'approve' });
+      } catch (e) {
+        if (!isAlreadyResolvedConflict(e)) throw e;
+        // Already approved (e.g. from another session) — reconcile via materialize below.
+      }
       const record = await trpc.jobpilot.cultureResearch.materialize.mutate({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
       setStatuses((prev) => ({ ...prev, [p.proposalId]: record }));
     } catch (e) {
@@ -426,8 +472,13 @@ function CultureResearchSection() {
     setBusy(true);
     setError(null);
     try {
-      await trpc.action.decide.mutate({ proposalId: pointer.synthesisProposalId, decision: 'approve' });
-      const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, proposalId: pointer.synthesisProposalId });
+      try {
+        await trpc.action.decide.mutate({ proposalId: pointer.synthesisProposalId, decision: 'approve' });
+      } catch (e) {
+        if (!isAlreadyResolvedConflict(e)) throw e;
+        // Already approved — reconcile via synthesisResult below.
+      }
+      const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, company, parentRunId: pointer.parentRunId, proposalId: pointer.synthesisProposalId });
       setResult(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

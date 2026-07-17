@@ -92,12 +92,43 @@ export interface MemoryAuthScope {
   userId?: string | null;
 }
 
+/**
+ * Thrown by `compareAndSupersede` when a CONCURRENT writer — in this process
+ * OR, for the Drizzle-backed adapter, a genuinely different process/instance
+ * sharing the same Postgres/pglite database — already superseded `id` first.
+ * Distinct from the plain `Error` `supersede()` throws for "unknown id" or
+ * "workspace/owner mismatch", so callers can distinguish "lost a real race"
+ * (retry/reconcile) from "this call was simply malformed" (bug).
+ */
+export class MemoryConflictError extends Error {
+  constructor(public readonly id: string) {
+    super(`memory store: id ${id} was already superseded by a concurrent writer`);
+    this.name = "MemoryConflictError";
+  }
+}
+
 export interface MemoryStore {
   /** Write a new Memory (candidate or confirmed). */
   write(entry: MemoryWrite): Promise<MemoryEntry>;
   /** Append a correcting Memory that supersedes `id` (append-only: the prior
-   * row is retained, tagged as superseded by the returned row). */
+   * row is retained, tagged as superseded by the returned row). NOT
+   * cross-instance-safe on its own — two concurrent callers can both
+   * supersede the same `id` (see `compareAndSupersede` for the guarded
+   * variant). Kept for single-writer call sites that don't need the
+   * cross-instance guarantee. */
   supersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
+  /**
+   * Cross-instance-safe compare-and-supersede (TASK-011 remediation,
+   * 2026-07-19 distributed-defects review) — atomically verifies `id` is
+   * still the CURRENT (non-superseded) row before writing `next` as its
+   * successor, and throws `MemoryConflictError` (never silently produces two
+   * "current" rows for one lineage) if a concurrent writer — in this
+   * process or, for the Drizzle adapter, a genuinely different API instance
+   * sharing the same database — already won. Any durable state machine that
+   * must stay correct across multiple API instances (not just multiple
+   * concurrent calls within one process) MUST use this, not `supersede`.
+   */
+  compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
   /** Fetch one Memory, authority-scoped — returns null if the caller may not
    * read it (indistinguishable from "not found", by design). */
   get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null>;
@@ -145,6 +176,28 @@ export class InMemoryMemoryStore implements MemoryStore {
     }
     if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
       throw new Error("memory store: a correction cannot change workspace or owner");
+    }
+    return this.#insert(next, id);
+  }
+
+  async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
+    // Synchronous read-check-write (no `await` between them) is what makes
+    // this atomic within a single process — matches the same pattern used
+    // elsewhere in this codebase (e.g. InMemoryChildAgentRunStore.consumeBudget)
+    // to close a check-then-act race. This adapter is dev/test-only and never
+    // shared across real separate processes, so this is the correct (and
+    // sufficient) guarantee for it; the Drizzle adapter provides the actual
+    // cross-instance guarantee via a Postgres advisory lock.
+    const current = this.entries.find((e) => e.id === id);
+    if (!current) {
+      throw new Error(`memory store: cannot supersede unknown id ${id}`);
+    }
+    if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
+      throw new Error("memory store: a correction cannot change workspace or owner");
+    }
+    const alreadySuperseded = this.entries.some((e) => e.supersedesId === id);
+    if (alreadySuperseded) {
+      throw new MemoryConflictError(id);
     }
     return this.#insert(next, id);
   }
