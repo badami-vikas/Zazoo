@@ -184,6 +184,19 @@ test("AGS1: an eligible assigned Agent resolves the governed skill and drafts (s
   assert.equal(h.events.events.length, 0);
 });
 
+test("AGS1: an assigned Agent without explicit active status fails closed", async () => {
+  const h = harness();
+  authorizeAgent(h, "internal_strategist");
+  h.agents.statuses.delete("internal_strategist");
+  const { task } = await seedGoalTask(h, "internal_strategist");
+  const proposal = await h.pipeline.propose(
+    req({ goalTaskRef: { goalId: task.goalId, taskId: task.id } }),
+    freshCtx(),
+  );
+  assert.equal(proposal.status, "rejected");
+  assert.match(proposal.rejectionReason ?? "", /resolution failed: agent-inactive/);
+});
+
 test("AGS1: a non-default eligible Agent (assigned but not in defaultAgents) can still resolve the same governed skill", async () => {
   const h = harness();
   authorizeAgent(h, "governance");
