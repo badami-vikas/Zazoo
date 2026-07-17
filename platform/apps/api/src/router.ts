@@ -26,8 +26,10 @@ import {
   JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE,
   RESEARCH_CULTURE_SOURCE_TASK_TYPE,
   SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE,
-  type ResearchCultureSourceOutput,
-  type SynthesizeCultureProfileOutput,
+  resolveAuthorizedCultureSource,
+  materializeCultureSourceFetch,
+  cancelCultureSourceFetch,
+  CULTURE_SOURCE_REGISTRY,
   type Wiring,
 } from "./wiring.js";
 import type {
@@ -121,7 +123,17 @@ import {
   scoreThesisFit,
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
-import { scoreJobFit, transition, InvalidTransitionError, planCultureSources, type ApplicationStage, type CandidateProfile, type JobProfile, type CultureSourceCandidate, type CultureEvidence } from "@bridge/jobpilot";
+import {
+  scoreJobFit,
+  transition,
+  InvalidTransitionError,
+  classifyCultureSource,
+  MAX_CULTURE_SOURCES_PER_RUN,
+  type ApplicationStage,
+  type CandidateProfile,
+  type JobProfile,
+  type GroundedClaimInput,
+} from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
 import {
   COMMONS_BUILT_IN_PACKAGES,
@@ -3061,204 +3073,268 @@ export const appRouter = t.router({
       }),
 
     /**
-     * JP3B (TASK-011) — cited company-culture research. Learning gathers evidence
-     * from ONLY permitted sources (a `do_not_use`/`research_only`/`not_yet_integrated`
-     * source type — Reddit, Google reviews, Glassdoor in this slice — is skipped
-     * with a recorded reason and gets NO child Agent Run and NO network access at
-     * all, per the TASK-007 handoff's "eligibility gates BEFORE Run creation"
-     * correction); Internal Strategist then partitions the gathered evidence into
-     * fact/opinion/theme/contradiction/inference and builds the source-rights
-     * disclosure the UI must show before any recommendation is used.
+     * JP3B (TASK-011) — cited company-culture research, TWO-PHASE (remediated
+     * 2026-07-17, see outputs/2026-07-17-jobpilot-culture-research-task011.md).
      *
-     * Claim authoring (turning a fetched page's raw text into typed claims) is
-     * NOT automated here — this platform has no PromptAssembler/claim-extraction
-     * substrate yet (docs/wiki/learning-agent.md: "PromptAssembler unbuilt"), and
-     * inventing one would itself be unvetted, non-deterministic scope. Callers
-     * supply the candidate claims already authored from a permitted source; this
-     * procedure's job is to (a) reject any claim citing a source type that isn't
-     * permitted, (b) ACTUALLY perform a real, governed, SSRF-guarded fetch of
-     * each permitted source through a bounded child Agent Run — proving genuine
-     * reachability/retrieval, not just trusting the caller's claim — and stamp
-     * every claim from that source with the fetch's real retrieval time, and (c)
-     * run the fabrication/insider-claim guard before returning anything.
+     * `propose` resolves ONLY server-owned `sourceId`s (never a client-supplied
+     * URL/type/label — see `resolveAuthorizedCultureSource`), gates every
+     * non-`permitted` source type before any child Run or network access, and
+     * creates a genuinely side-effect-free pipeline proposal per permitted
+     * source (the Skill's `run()` is pure). NOTHING is fetched yet.
+     *
+     * A human decision (`action.decide`) must approve a specific proposal
+     * before `materialize` will perform the real, guarded fetch for it — a
+     * vetoed or never-decided proposal can never reach the network. `cancel`
+     * aborts an in-flight fetch for real (or, before any fetch starts, simply
+     * guarantees one never will). `synthesize` only accepts claims that
+     * `groundClaims` can verify against the artifacts THIS run actually
+     * fetched — an absent/mutated quote or a forged contradiction reference
+     * fails the whole batch closed.
      */
-    researchCulture: authenticatedProcedure
-      .input(
-        z.object({
-          workspaceId: z.string().min(1),
-          company: z.string().min(1),
-          candidateSources: z
-            .array(
-              z.object({
-                sourceType: z.enum(["company_official_page", "public_blog_or_press", "reddit", "google_reviews", "glassdoor"]),
-                sourceLabel: z.string().min(1),
-                url: z.string().url(),
-              }),
-            )
-            .min(1),
-          claims: z.array(
-            z.object({
-              id: z.string().min(1),
-              claimType: z.enum(["fact", "opinion", "theme", "contradiction", "inference"]),
-              claimText: z.string().min(1),
-              sourceType: z.enum(["company_official_page", "public_blog_or_press", "reddit", "google_reviews", "glassdoor"]),
-              sourceLabel: z.string().min(1),
-              authorContext: z.string().min(1).nullable().optional(),
-              agentInference: z.boolean().optional(),
-              contradicts: z.array(z.string()).optional(),
-            }),
-          ),
-        }),
-      )
-      .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+    cultureResearch: t.router({
+      propose: authenticatedProcedure
+        .input(
+          z.object({
+            workspaceId: z.string().min(1),
+            company: z.string().min(1),
+            sourceIds: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
 
-        const plan = planCultureSources(input.candidateSources as CultureSourceCandidate[]);
-        const permittedKeys = new Set(plan.permitted.map((s) => `${s.sourceType}:${s.sourceLabel}`));
-        const offending = input.claims.find((c) => !permittedKeys.has(`${c.sourceType}:${c.sourceLabel}`));
-        if (offending) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `claim "${offending.id}" cites source "${offending.sourceLabel}" (${offending.sourceType}), which is not a permitted source for this run`,
-          });
-        }
-
-        const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
-        const researchGoalTask = await provisionCultureResearchTask(ctx.wiring, input.workspaceId);
-
-        const [learningScope, learningDataScope] = await Promise.all([
-          ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
-          ctx.wiring.agents.dataScope(LEARNING_AGENT),
-        ]);
-        const parentRunId = uuidv7();
-        const parentEnvelope: ParentRunEnvelope = {
-          runId: parentRunId,
-          agentId: LEARNING_AGENT,
-          workspaceId: input.workspaceId,
-          authorityScope: learningScope,
-          eligibleSkills: ["jobpilot.researchCultureSource"],
-          dataScope: learningDataScope,
-          plane: "cloud",
-          budgetRemaining: { calls: Math.max(plan.permitted.length, 1), cost: Math.max(plan.permitted.length, 1) },
-          reviewMode: "approve",
-          childRunPolicy: "allowed",
-          delegationDepth: 0,
-          onBehalfOf,
-        };
-
-        const sourceResults: ResearchCultureSourceOutput[] = [];
-        const retrievedAtBySource = new Map<string, string>();
-        for (const source of plan.permitted) {
-          const childRun = await createChildAgentRun(
-            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-            parentEnvelope,
-            {
-              goalId: researchGoalTask.goalId,
-              taskId: researchGoalTask.taskId,
-              delegatedScope: ["external:fetch:read"],
-              selectedSkills: ["jobpilot.researchCultureSource"],
-              budget: { maxCalls: 1, maxCost: 1 },
-              deadline: new Date(Date.now() + 60_000).toISOString(),
-              stopCondition: `fetch "${source.sourceLabel}" once and stop — never retried into another Run's budget`,
-              requestedDataScope: "public",
-              touchesExternalRisk: true,
-            },
-            ctx.run,
-          );
-
-          const violation = validateActionWithinChildRun(
-            { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" },
-            childRun,
-            ctx.run.clock.nowISO(),
-            1,
-          );
-          if (violation) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `culture-research child Run rejected: ${violation.detail}` });
+          // Dedupe before anything else — a caller listing the same id many
+          // times must not reserve many times the budget/fan-out.
+          const dedupedIds = Array.from(new Set(input.sourceIds));
+          if (dedupedIds.length > MAX_CULTURE_SOURCES_PER_RUN) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `at most ${MAX_CULTURE_SOURCES_PER_RUN} sources may be researched per run (received ${dedupedIds.length} distinct ids)`,
+            });
           }
 
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
-              onBehalfOf,
-              action: "read" as Action,
-              resourceType: "external:fetch" as ResourceType,
-              skill: "jobpilot.researchCultureSource",
-              dataScope: "public" as DataScope,
-              inputs: { sourceType: source.sourceType, sourceLabel: source.sourceLabel, url: source.url },
-              goalTaskRef: { goalId: researchGoalTask.goalId, taskId: researchGoalTask.taskId },
-              context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
-            },
-            ctx.run,
-          );
-          await ctx.wiring.childAgentRuns.consumeBudget(input.workspaceId, childRun.id, 1, ctx.run.clock.nowISO());
-
-          if (proposal.status === "rejected") {
-            throw new TRPCError({ code: "BAD_REQUEST", message: proposal.rejectionReason ?? "culture-research fetch was rejected" });
+          // Resolve every id server-side. ANY unknown, or cross-workspace/
+          // cross-company, id fails the WHOLE request closed — a forged id in
+          // the batch is treated as a misuse signal, not a partial skip.
+          const resolved = dedupedIds.map((id) => ({ id, source: resolveAuthorizedCultureSource(input.workspaceId, input.company, id) }));
+          const unknown = resolved.filter((r) => !r.source);
+          if (unknown.length > 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `unknown or unauthorized source id(s) for this workspace/company: ${unknown.map((u) => u.id).join(", ")}`,
+            });
           }
-          if (!proposal.output) {
-            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "culture-research fetch produced no output" });
-          }
-          const output = proposal.output.proposedOutput as ResearchCultureSourceOutput;
-          sourceResults.push(output);
-          retrievedAtBySource.set(`${output.sourceType}:${output.sourceLabel}`, output.retrievedAt);
-          await completeChildAgentRun(
-            { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-            input.workspaceId,
-            childRun.id,
-            { type: "agent", id: LEARNING_AGENT },
-            ctx.run,
-          );
-        }
+          const sources = resolved.map((r) => r.source!);
 
-        // Stamp every claim with its source's REAL fetch time — proves each claim
-        // corresponds to a genuinely retrieved source, not merely an asserted date.
-        const evidence: CultureEvidence[] = input.claims.map((c) => ({
-          id: c.id,
-          claimType: c.claimType,
-          claimText: c.claimText,
-          sourceLabel: c.sourceLabel,
-          sourceUrl: plan.permitted.find((s) => s.sourceType === c.sourceType && s.sourceLabel === c.sourceLabel)?.url ?? "",
-          sourceType: c.sourceType,
-          retrievedAt: retrievedAtBySource.get(`${c.sourceType}:${c.sourceLabel}`) ?? new Date().toISOString(),
-          authorContext: c.authorContext ?? null,
-          agentInference: c.agentInference ?? false,
-          ...(c.contradicts ? { contradicts: c.contradicts } : {}),
-        }));
+          const permitted = sources.filter((s) => classifyCultureSource(s.sourceType).eligibility === "permitted");
+          const skipped = sources
+            .filter((s) => classifyCultureSource(s.sourceType).eligibility !== "permitted")
+            .map((s) => {
+              const classification = classifyCultureSource(s.sourceType);
+              return { sourceId: s.id, sourceType: s.sourceType, sourceLabel: s.sourceLabel, eligibility: classification.eligibility, reason: classification.reason };
+            });
 
-        const synthesisGoalTask = await provisionCultureSynthesisTask(ctx.wiring, input.workspaceId);
-        const synthesisProposal = await ctx.wiring.pipeline.propose(
-          {
+          const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
+          const researchGoalTask = await provisionCultureResearchTask(ctx.wiring, input.workspaceId);
+
+          const [learningScope, learningDataScope] = await Promise.all([
+            ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
+            ctx.wiring.agents.dataScope(LEARNING_AGENT),
+          ]);
+          const parentRunId = uuidv7();
+          // FIXED budget from the server-owned cap — NEVER derived from the
+          // caller's request length (TASK-011 remediation #4).
+          const parentEnvelope: ParentRunEnvelope = {
+            runId: parentRunId,
+            agentId: LEARNING_AGENT,
             workspaceId: input.workspaceId,
-            actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
+            authorityScope: learningScope,
+            eligibleSkills: ["jobpilot.researchCultureSource"],
+            dataScope: learningDataScope,
+            plane: "cloud",
+            budgetRemaining: { calls: MAX_CULTURE_SOURCES_PER_RUN, cost: MAX_CULTURE_SOURCES_PER_RUN },
+            reviewMode: "approve",
+            childRunPolicy: "allowed",
+            delegationDepth: 0,
             onBehalfOf,
-            action: "write" as Action,
-            resourceType: "signal" as ResourceType,
-            skill: "jobpilot.synthesizeCultureProfile",
-            dataScope: "all" as DataScope,
-            inputs: { evidence, skippedSources: plan.skipped },
-            goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
-          },
-          ctx.run,
-        );
-        if (synthesisProposal.status === "rejected") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
-        }
-        if (!synthesisProposal.output) {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "culture-research synthesis produced no output" });
-        }
-        const synthesis = synthesisProposal.output.proposedOutput as SynthesizeCultureProfileOutput;
+          };
 
-        return {
-          company: input.company,
-          parentRunId,
-          sources: sourceResults,
-          skippedSources: plan.skipped,
-          partition: synthesis.partition,
-          disclosure: synthesis.disclosure,
-        };
-      }),
+          const pending: Array<{ proposalId: string; childRunId: string; sourceId: string; sourceType: string; sourceLabel: string }> = [];
+          for (const source of permitted) {
+            const childRun = await createChildAgentRun(
+              { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+              parentEnvelope,
+              {
+                goalId: researchGoalTask.goalId,
+                taskId: researchGoalTask.taskId,
+                delegatedScope: ["external:fetch:read"],
+                selectedSkills: ["jobpilot.researchCultureSource"],
+                budget: { maxCalls: 1, maxCost: 1 },
+                deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
+                stopCondition: `fetch "${source.sourceLabel}" once, only after human approval, and stop`,
+                requestedDataScope: "public",
+                touchesExternalRisk: true,
+              },
+              ctx.run,
+            );
+
+            // PURE — no network access. Proposing this is genuinely side-effect-free.
+            const proposal = await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
+                onBehalfOf,
+                action: "read" as Action,
+                resourceType: "external:fetch" as ResourceType,
+                skill: "jobpilot.researchCultureSource",
+                dataScope: "public" as DataScope,
+                inputs: { sourceId: source.id, workspaceId: input.workspaceId, company: input.company },
+                goalTaskRef: { goalId: researchGoalTask.goalId, taskId: researchGoalTask.taskId },
+                context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
+              },
+              ctx.run,
+            );
+            if (proposal.status === "rejected") {
+              throw new TRPCError({ code: "BAD_REQUEST", message: proposal.rejectionReason ?? "culture-research proposal was rejected" });
+            }
+
+            ctx.wiring.cultureFetchStore.create({
+              proposalId: proposal.id,
+              childRunId: childRun.id,
+              parentRunId,
+              workspaceId: input.workspaceId,
+              sourceId: source.id,
+              status: "pending",
+            });
+            pending.push({ proposalId: proposal.id, childRunId: childRun.id, sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel });
+          }
+
+          return { parentRunId, pending, skipped };
+        }),
+
+      /** Real, guarded fetch — invoked ONLY after `action.decide` has approved
+       * `proposalId` (re-checked from the ledger here, never trusted from the
+       * caller). Idempotent: re-materializing an already-resolved source
+       * returns the stored record instead of refetching. */
+      materialize: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          try {
+            const record = await materializeCultureSourceFetch(
+              { childAgentRuns: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger, fetchStore: ctx.wiring.cultureFetchStore },
+              input.workspaceId,
+              input.proposalId,
+              input.childRunId,
+              ctx.run,
+            );
+            const { abortController: _abortController, ...safeRecord } = record;
+            return safeRecord;
+          } catch (error) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
+          }
+        }),
+
+      /** Cancels a pending/in-flight source fetch — aborts a REAL in-flight
+       * request when one is running, or guarantees one never starts. */
+      cancel: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          const record = await cancelCultureSourceFetch(
+            { childAgentRuns: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger, fetchStore: ctx.wiring.cultureFetchStore },
+            input.workspaceId,
+            input.proposalId,
+            input.childRunId,
+            { type: ctx.identity.type, id: ctx.identity.id },
+            ctx.run,
+          );
+          const { abortController: _abortController, ...safeRecord } = record;
+          return safeRecord;
+        }),
+
+      status: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          const record = ctx.wiring.cultureFetchStore.get(input.proposalId);
+          if (!record || record.workspaceId !== input.workspaceId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "unknown culture-research proposal" });
+          }
+          const { abortController: _abortController, ...safeRecord } = record;
+          return safeRecord;
+        }),
+
+      /**
+       * Internal Strategist's synthesis — claims must GROUND against artifacts
+       * this run actually fetched (`groundClaims`, invoked inside the Skill).
+       * Skipped sources are recomputed SERVER-SIDE from the registry (never
+       * trusted from the client) so the disclosure is authoritative.
+       */
+      synthesize: authenticatedProcedure
+        .input(
+          z.object({
+            workspaceId: z.string().min(1),
+            company: z.string().min(1),
+            claims: z.array(
+              z.object({
+                id: z.string().min(1),
+                claimType: z.enum(["fact", "opinion", "theme", "contradiction", "inference"]),
+                quote: z.string().optional(),
+                sourceId: z.string().optional(),
+                contentHash: z.string().optional(),
+                authorContext: z.string().min(1).nullable().optional(),
+                supportingClaimIds: z.array(z.string()).optional(),
+                contradicts: z.array(z.string()).optional(),
+              }),
+            ),
+          }),
+        )
+        .mutation(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+
+          const fetchedArtifacts = Array.from(ctx.wiring.cultureFetchStore.records.values())
+            .filter((r) => r.workspaceId === input.workspaceId && r.status === "fetched" && r.artifact)
+            .map((r) => r.artifact!);
+          const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
+            (s) => s.workspaceId === input.workspaceId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
+          ).map((s) => {
+            const classification = classifyCultureSource(s.sourceType);
+            return { sourceLabel: s.sourceLabel, sourceType: s.sourceType, reason: classification.reason };
+          });
+
+          const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
+          const synthesisGoalTask = await provisionCultureSynthesisTask(ctx.wiring, input.workspaceId);
+          let synthesisProposal;
+          try {
+            synthesisProposal = await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
+                onBehalfOf,
+                action: "write" as Action,
+                resourceType: "signal" as ResourceType,
+                skill: "jobpilot.synthesizeCultureProfile",
+                dataScope: "all" as DataScope,
+                inputs: { claims: input.claims as GroundedClaimInput[], artifacts: fetchedArtifacts, skippedSources },
+                goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
+              },
+              ctx.run,
+            );
+          } catch (error) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
+          }
+          if (synthesisProposal.status === "rejected") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
+          }
+          return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
+        }),
+    }),
   }),
 
   /**

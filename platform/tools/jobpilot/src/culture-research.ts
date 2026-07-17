@@ -242,3 +242,194 @@ export function assertNoFabricatedAffinityOrInsiderClaim(text: string): Fabricat
   }
   return { clean: violations.length === 0, violations };
 }
+
+// ---------------------------------------------------------------------------
+// TASK-011 remediation (2026-07-17 security review) — grounded evidence.
+//
+// Claims can no longer be arbitrary caller-supplied text merely time-stamped
+// with a fetch. Every fact/opinion claim must carry a `quote` that is an
+// EXACT substring of the immutable, server-fetched artifact it cites, AND a
+// `contentHash` that must match that artifact's real (server-computed) hash —
+// binding the claim to the EXACT fetched bytes, not just "some artifact
+// somewhere contains this text" (two different sources could coincidentally
+// share a substring; the hash makes the citation unambiguous and rejects a
+// claim built against stale/superseded content). Theme/inference claims
+// reference other REAL claims in the same batch (`supportingClaimIds`) rather
+// than a raw quote; contradiction claims reference what they contradict
+// (`contradicts`) — both are validated against the actual submitted batch
+// (no dangling or self-referencing ids), and claim ids must be unique.
+// ---------------------------------------------------------------------------
+
+/** A fixed, small, server-owned cap on how many sources one culture-research
+ * run may fan out to — independent of how long a caller's request list is
+ * (a caller listing 500 source ids must not reserve 500x budget/child Runs). */
+export const MAX_CULTURE_SOURCES_PER_RUN = 5;
+
+/** An immutable, server-fetched artifact's content, as the grounding check
+ * needs it. `contentHash` is computed by the server from the REAL fetched
+ * bytes (apps/api, via node:crypto) — this module stays hash-algorithm
+ * agnostic, it only compares the caller-asserted hash against this value. */
+export interface CultureArtifactRef {
+  sourceId: string;
+  sourceType: CultureSourceType;
+  sourceLabel: string;
+  sourceUrl: string;
+  content: string;
+  contentHash: string;
+  retrievedAt: string;
+}
+
+export interface GroundedClaimInput {
+  id: string;
+  claimType: CultureClaimType;
+  /** Required verbatim substring of the cited artifact's content for
+   * `fact`/`opinion` claims. Ignored for other claim types. */
+  quote?: string;
+  /** Required for `fact`/`opinion` — which fetched artifact this claim cites. */
+  sourceId?: string;
+  /** Required for `fact`/`opinion` — must equal the cited artifact's REAL
+   * content hash, or the claim is rejected as stale/mismatched. */
+  contentHash?: string;
+  authorContext?: string | null;
+  /** Required (non-empty) for `theme`/`inference` — ids of OTHER claims in
+   * this same batch that substantiate the theme/inference. */
+  supportingClaimIds?: readonly string[];
+  /** Required (non-empty) for `contradiction` — ids of OTHER claims in this
+   * batch that this one conflicts with. */
+  contradicts?: readonly string[];
+}
+
+export type ClaimGroundingFailureReason =
+  | "duplicate-claim-id"
+  | "unknown-source"
+  | "missing-quote"
+  | "quote-not-found-in-artifact"
+  | "content-hash-mismatch"
+  | "empty-supporting-set"
+  | "dangling-reference"
+  | "self-reference";
+
+export interface ClaimGroundingFailure {
+  claimId: string;
+  reason: ClaimGroundingFailureReason;
+  detail: string;
+}
+
+export interface ClaimGroundingResult {
+  ok: boolean;
+  evidence: CultureEvidence[];
+  failures: ClaimGroundingFailure[];
+}
+
+/**
+ * Validates a batch of claims against the REAL fetched artifacts for this
+ * run, and against each other (for theme/inference/contradiction
+ * cross-references). Returns `ok: false` with the full set of failures if ANY
+ * claim fails to ground — this is all-or-nothing per batch (a partially
+ * grounded batch is not applied), matching the fail-closed posture the rest
+ * of this Skill already uses (`assertNoFabricatedAffinityOrInsiderClaim`).
+ */
+export function groundClaims(
+  claims: readonly GroundedClaimInput[],
+  artifactsBySourceId: ReadonlyMap<string, CultureArtifactRef>,
+): ClaimGroundingResult {
+  const failures: ClaimGroundingFailure[] = [];
+  const evidence: CultureEvidence[] = [];
+  const seenIds = new Set<string>();
+  const allIds = new Set(claims.map((c) => c.id));
+
+  for (const claim of claims) {
+    if (seenIds.has(claim.id)) {
+      failures.push({ claimId: claim.id, reason: "duplicate-claim-id", detail: `duplicate claim id "${claim.id}"` });
+      continue;
+    }
+    seenIds.add(claim.id);
+
+    if (claim.claimType === "fact" || claim.claimType === "opinion") {
+      const artifact = claim.sourceId ? artifactsBySourceId.get(claim.sourceId) : undefined;
+      if (!artifact) {
+        failures.push({ claimId: claim.id, reason: "unknown-source", detail: `source "${claim.sourceId ?? ""}" was not fetched in this run` });
+        continue;
+      }
+      if (!claim.quote || claim.quote.trim().length === 0) {
+        failures.push({ claimId: claim.id, reason: "missing-quote", detail: "fact/opinion claims require a quote" });
+        continue;
+      }
+      if (claim.contentHash !== artifact.contentHash) {
+        failures.push({ claimId: claim.id, reason: "content-hash-mismatch", detail: "claimed content hash does not match the fetched artifact's real hash" });
+        continue;
+      }
+      if (!artifact.content.includes(claim.quote)) {
+        failures.push({ claimId: claim.id, reason: "quote-not-found-in-artifact", detail: "quote is not a substring of the fetched artifact's content" });
+        continue;
+      }
+      evidence.push({
+        id: claim.id,
+        claimType: claim.claimType,
+        claimText: claim.quote,
+        sourceLabel: artifact.sourceLabel,
+        sourceUrl: artifact.sourceUrl,
+        sourceType: artifact.sourceType,
+        retrievedAt: artifact.retrievedAt,
+        authorContext: claim.authorContext ?? null,
+        agentInference: false,
+      });
+    } else if (claim.claimType === "theme" || claim.claimType === "inference") {
+      const supporting = claim.supportingClaimIds ?? [];
+      if (supporting.length === 0) {
+        failures.push({ claimId: claim.id, reason: "empty-supporting-set", detail: "theme/inference claims require at least one supporting claim id" });
+        continue;
+      }
+      if (supporting.includes(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "self-reference", detail: "a claim cannot support itself" });
+        continue;
+      }
+      const dangling = supporting.filter((id) => !allIds.has(id));
+      if (dangling.length > 0) {
+        failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `references unknown claim ids: ${dangling.join(", ")}` });
+        continue;
+      }
+      evidence.push({
+        id: claim.id,
+        claimType: claim.claimType,
+        claimText: claim.quote ?? "",
+        sourceLabel: "synthesis of cited claims",
+        sourceUrl: "",
+        sourceType: "company_official_page",
+        retrievedAt: new Date().toISOString(),
+        authorContext: claim.authorContext ?? null,
+        agentInference: claim.claimType === "inference",
+      });
+    } else {
+      // contradiction
+      const refs = claim.contradicts ?? [];
+      if (refs.length === 0) {
+        failures.push({ claimId: claim.id, reason: "empty-supporting-set", detail: "contradiction claims require at least one contradicted claim id" });
+        continue;
+      }
+      if (refs.includes(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "self-reference", detail: "a claim cannot contradict itself" });
+        continue;
+      }
+      const dangling = refs.filter((id) => !allIds.has(id));
+      if (dangling.length > 0) {
+        failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `contradicts unknown claim ids: ${dangling.join(", ")}` });
+        continue;
+      }
+      evidence.push({
+        id: claim.id,
+        claimType: "contradiction",
+        claimText: claim.quote ?? "",
+        sourceLabel: "synthesis of cited claims",
+        sourceUrl: "",
+        sourceType: "company_official_page",
+        retrievedAt: new Date().toISOString(),
+        authorContext: claim.authorContext ?? null,
+        agentInference: false,
+        contradicts: refs,
+      });
+    }
+  }
+
+  return { ok: failures.length === 0, evidence, failures };
+}

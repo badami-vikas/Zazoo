@@ -35,16 +35,20 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
   data for product demonstrations and future end-to-end child-executor evidence.
 
-- **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`).
-  **Reason:** the end-to-end governed-Skill test must never make a real network call in CI. `globalThis.fetch`
-  is stubbed (same convention as `security-hardening.test.ts`'s onboarding role-model test) so no live HTTP
-  request happens; the ONE candidate "permitted" source's test URL uses a real, non-reserved public IP
-  literal (`1.1.1.1`) rather than a hostname so the actual (unstubbed) SSRF guard's DNS-independent
-  literal-IP path is exercised fully offline; the "skipped" candidate sources (Glassdoor/Reddit/Google
-  reviews) likewise use real public IP literals since they are classified and rejected before any network
-  access is attempted. All test-only company/claim text is `test_fixture_`-prefixed in spirit (labelled
-  "test_fixture Co"/"test_fixture Careers" etc.) even though it is plain string data, not a `dummy_`
-  identifier.
+- **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`,
+  `platform/packages/net-guard/test/net-guard.test.ts`).
+  **Reason (updated after the 2026-07-17 security-remediation pass):** these tests must never make
+  a real network call in CI, yet must exercise REAL redirect/byte-cap/abort/reservation mechanics
+  rather than mocking them away. `net-guard`'s tests spin up real local `node:http` servers (loopback
+  is allowlisted ONLY via the test-only `unsafeTestOverrides` seam, every other private range stays
+  blocked) to prove genuine redirect-following, cycle detection, byte-cap streaming, and
+  `AbortSignal` cancellation over real sockets. `apps/api`'s tests register additional TEST-ONLY
+  entries in the server-owned `CULTURE_SOURCE_REGISTRY` via `unsafeRegisterTestOnlyCultureSource`
+  (never reachable from production code) pointing at real local test servers, and call
+  `materializeCultureSourceFetch` directly with the same loopback-allow override to prove the real
+  fetch/reservation/idempotency/completion logic end-to-end. All test-only company/claim/source text
+  is `test_fixture_`-prefixed in spirit (labelled "test_fixture Co"/"test_fixture source N" etc.)
+  even though it is plain string data, not a `dummy_` identifier.
   **Real elements they stand in for:** a real candidate company's official careers page fetch, a real
   Learning-Agent-owned bounded child Agent Run, and a real Internal-Strategist culture-evidence synthesis.
   **Removal condition:** retain as the permanent deterministic regression suite for this Skill; the BCG

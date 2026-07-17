@@ -44,6 +44,8 @@ export {
   partitionCultureEvidence,
   buildSourceDisclosure,
   assertNoFabricatedAffinityOrInsiderClaim,
+  groundClaims,
+  MAX_CULTURE_SOURCES_PER_RUN,
 } from "./culture-research.js";
 export type {
   CultureSourceType,
@@ -58,4 +60,9 @@ export type {
   CultureEvidencePartition,
   CultureSourceDisclosure,
   FabricationCheckResult,
+  CultureArtifactRef,
+  GroundedClaimInput,
+  ClaimGroundingFailureReason,
+  ClaimGroundingFailure,
+  ClaimGroundingResult,
 } from "./culture-research.js";

@@ -7,8 +7,11 @@ import {
   partitionCultureEvidence,
   buildSourceDisclosure,
   assertNoFabricatedAffinityOrInsiderClaim,
+  groundClaims,
   type CultureEvidence,
   type CultureSourceCandidate,
+  type CultureArtifactRef,
+  type GroundedClaimInput,
 } from "../src/culture-research.js";
 
 test("all 5 BRD-named source types are classified, matching AP-008 reuse-intake findings", () => {
@@ -121,3 +124,125 @@ test("assertNoFabricatedAffinityOrInsiderClaim flags a guaranteed-outcome claim"
   const result = assertNoFabricatedAffinityOrInsiderClaim("Follow this and I guarantee you'll get the job.");
   assert.equal(result.clean, false);
 });
+
+// ---------------------------------------------------------------------------
+// TASK-011 remediation (2026-07-17 security review) — groundClaims
+// ---------------------------------------------------------------------------
+
+function artifact(overrides: Partial<CultureArtifactRef> & Pick<CultureArtifactRef, "sourceId" | "content" | "contentHash">): CultureArtifactRef {
+  return {
+    sourceType: "company_official_page",
+    sourceLabel: "test_fixture source",
+    sourceUrl: "https://example.com/test_fixture",
+    retrievedAt: "2026-07-17T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("groundClaims accepts a fact/opinion whose quote is a real substring of the correct artifact with a matching hash", () => {
+  const artifacts = new Map([
+    ["src1", artifact({ sourceId: "src1", content: "Our culture is built on trust and collaboration.", contentHash: "hash-1" })],
+  ]);
+  const claims: GroundedClaimInput[] = [
+    { id: "c1", claimType: "fact", sourceId: "src1", quote: "built on trust and collaboration", contentHash: "hash-1" },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.evidence[0]?.claimText, "built on trust and collaboration");
+});
+
+test("groundClaims rejects a quote that is absent from the artifact's real content", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "Our culture is built on trust.", contentHash: "hash-1" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "c1", claimType: "fact", sourceId: "src1", quote: "we guarantee industry-leading pay", contentHash: "hash-1" },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "quote-not-found-in-artifact");
+});
+
+test("groundClaims rejects a mutated/stale content hash even when the quote text matches", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "Our culture is built on trust.", contentHash: "real-hash-abc" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "c1", claimType: "fact", sourceId: "src1", quote: "built on trust", contentHash: "stale-hash-xyz" },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "content-hash-mismatch");
+});
+
+test("groundClaims rejects a fact/opinion claim citing an unknown/unfetched source", () => {
+  const artifacts = new Map<string, CultureArtifactRef>();
+  const claims: GroundedClaimInput[] = [{ id: "c1", claimType: "fact", sourceId: "not-fetched", quote: "x", contentHash: "h" }];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "unknown-source");
+});
+
+test("groundClaims rejects a missing quote on a fact/opinion claim", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "text", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [{ id: "c1", claimType: "opinion", sourceId: "src1", contentHash: "h" }];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "missing-quote");
+});
+
+test("groundClaims rejects duplicate claim ids within one batch", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "trust and collaboration", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "dup", claimType: "fact", sourceId: "src1", quote: "trust", contentHash: "h" },
+    { id: "dup", claimType: "fact", sourceId: "src1", quote: "collaboration", contentHash: "h" },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  assert.equal(result.failures.some((f) => f.reason === "duplicate-claim-id"), true);
+});
+
+test("groundClaims accepts a theme/inference referencing real supporting claims in the same batch", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "trust and collaboration", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "fact1", claimType: "fact", sourceId: "src1", quote: "trust", contentHash: "h" },
+    { id: "theme1", claimType: "theme", quote: "values-driven theme", supportingClaimIds: ["fact1"] },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  assert.equal(result.evidence.length, 2);
+});
+
+test("groundClaims rejects a theme/inference with an empty supporting set", () => {
+  const result = groundClaims([{ id: "t1", claimType: "theme", quote: "x", supportingClaimIds: [] }], new Map());
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "empty-supporting-set");
+});
+
+test("groundClaims rejects a theme that references a dangling (nonexistent) supporting claim id", () => {
+  const result = groundClaims([{ id: "t1", claimType: "theme", quote: "x", supportingClaimIds: ["ghost"] }], new Map());
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "dangling-reference");
+});
+
+test("groundClaims rejects a theme that self-references as its own support", () => {
+  const result = groundClaims([{ id: "t1", claimType: "theme", quote: "x", supportingClaimIds: ["t1"] }], new Map());
+  assert.equal(result.ok, false);
+  assert.equal(result.failures[0]?.reason, "self-reference");
+});
+
+test("groundClaims accepts a contradiction referencing real claim ids and rejects a forged/dangling reference", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "great culture. also: toxic culture.", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "fact", sourceId: "src1", quote: "great culture", contentHash: "h" },
+    { id: "b", claimType: "opinion", sourceId: "src1", quote: "toxic culture", contentHash: "h" },
+    { id: "c1", claimType: "contradiction", quote: "these conflict", contradicts: ["a", "b"] },
+  ];
+  const ok = groundClaims(claims, artifacts);
+  assert.equal(ok.ok, true);
+
+  const forged = groundClaims(
+    [{ id: "c2", claimType: "contradiction", quote: "forged", contradicts: ["nonexistent-claim"] }],
+    artifacts,
+  );
+  assert.equal(forged.ok, false);
+  assert.equal(forged.failures[0]?.reason, "dangling-reference");
+});
+

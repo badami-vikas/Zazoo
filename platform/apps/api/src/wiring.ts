@@ -95,20 +95,30 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
+  type Actor,
+  type RunCtx,
+  reserveChildRunAction,
+  completeChildAgentRun,
+  cancelChildAgentRun,
+  failChildAgentRun,
   uuidv7,
 } from "@bridge/core";
-import { assertOutboundAllowed } from "@bridge/net-guard";
+import { guardedFetch } from "@bridge/net-guard";
 import {
   classifyCultureSource,
   partitionCultureEvidence,
   buildSourceDisclosure,
   assertNoFabricatedAffinityOrInsiderClaim,
+  groundClaims,
+  MAX_CULTURE_SOURCES_PER_RUN,
   type CultureSourceType,
-  type CultureEvidence,
   type CultureSkippedSource,
-  type CultureEvidencePartition,
   type CultureSourceDisclosure,
+  type CultureArtifactRef,
+  type GroundedClaimInput,
+  type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
+import { createHash } from "node:crypto";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
@@ -335,6 +345,10 @@ export interface Wiring {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
+  /** TASK-011 — in-memory culture-research fetch intents/artifacts, keyed by
+   * proposal id (see `InMemoryCultureFetchStore`'s doc comment). Same known
+   * restart-durability gap as `goalTasks`/`childAgentRuns`. */
+  cultureFetchStore: InMemoryCultureFetchStore;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
   /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
@@ -465,40 +479,152 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
  * other governed Skill in this file uses — no new pipeline mechanism, no new
  * physical Agent identity (reuses LEARNING_AGENT/INTERNAL_STRATEGIST_AGENT).
  *
+ * REMEDIATED 2026-07-17 (independent security review of the first pass, see
+ * outputs/2026-07-17-jobpilot-culture-research-task011.md) — the first pass
+ * had `jobpilot.researchCultureSource`'s `run()` perform the REAL network
+ * fetch, which pipeline.propose() calls unconditionally BEFORE the
+ * pending_review/approve decision is made — meaning "review" was cosmetic;
+ * the side effect had already happened. It also trusted client-supplied
+ * source URL/type/label, sized its budget off the caller's own array length,
+ * accepted arbitrary claim text, and left no way to cancel an in-flight
+ * fetch. This block is a full two-phase redesign:
+ *
+ *  1. `jobpilot.researchCultureSource.run()` is now PURE — no network access
+ *     at all. It only re-resolves the requested source from the SERVER-OWNED
+ *     `CULTURE_SOURCE_REGISTRY` (never trusting client-supplied url/type/
+ *     label) and returns an intent descriptor. Calling `pipeline.propose()`
+ *     for it is therefore genuinely side-effect-free, matching every other
+ *     governed Skill's "propose = draft, not yet committed" contract.
+ *  2. The REAL, guarded fetch happens only in `materializeCultureSourceFetch`
+ *     (below), invoked by the router ONLY after `action.decide` has recorded
+ *     an "approve" decision for that specific proposal — re-checked from the
+ *     ledger every time, never trusted from the caller. A vetoed/never-
+ *     decided proposal can never reach a fetch: zero network calls.
+ *  3. `reserveChildRunAction` atomically validates AND consumes the child
+ *     Run's budget immediately before the fetch (not earlier, since propose
+ *     has no effect to gate, and not later, since that would let two racing
+ *     materialize calls both proceed). Any exception during materialization
+ *     calls `failChildAgentRun` with audit evidence; success calls
+ *     `completeChildAgentRun` only once the artifact is durably stored.
+ *     Materializing an already-fetched/failed/cancelled source is a no-op
+ *     that returns the stored record — idempotent, never a silent refetch.
+ *  4. Fan-out is bounded by a FIXED constant
+ *     (`@bridge/jobpilot`'s `MAX_CULTURE_SOURCES_PER_RUN`), independent of how
+ *     many source ids a caller lists; ids are deduped before any reservation.
+ *  5. `guardedFetch` (`@bridge/net-guard`) is the ONLY network call site —
+ *     TOCTOU-safe pinned DNS resolution, validated redirects, a hard
+ *     streamed byte cap, and a real `AbortSignal` wired to
+ *     `cancelCultureSourceFetch` for genuine mid-fetch cancellation.
+ *  6. `jobpilot.synthesizeCultureProfile` now requires every claim to ground
+ *     against an immutable fetched artifact (`groundClaims`) — a quote must
+ *     be a real substring of the artifact this run actually fetched, bound
+ *     by a server-computed content hash so a claim can't cite content that
+ *     was never actually retrieved (or has since been superseded).
+ *
  * Two Skills, matching BRD `agents.Learning.default_skills`/
- * `agents.Internal_Strategist.default_skills` exactly:
- *  - `jobpilot.researchCultureSource` (Learning, one bounded child Run per
- *    PERMITTED source — @bridge/jobpilot's `planCultureSources` gate runs
- *    BEFORE any of this is ever invoked, so a `do_not_use`/`research_only`/
- *    `not_yet_integrated` source never reaches a child Run, a fetch, or this
- *    Skill at all): performs the REAL, SSRF-guarded (`assertOutboundAllowed`)
- *    outbound fetch and returns a plain-text excerpt. `riskBand: "external"`
- *    is JP3B's "stop for user/counsel permission; no bypass path" — this
- *    Skill's proposal still drafts `pending_review` like every other governed
- *    mutation, and the caller sets `touchesExternalRisk: true` on its child
- *    Run per the handoff's recipe, forcing at least `"approve"` review.
+ * `agents.Internal_Strategist.default_skills`:
+ *  - `jobpilot.researchCultureSource` (Learning) — pure intent only; see (1).
  *  - `jobpilot.synthesizeCultureProfile` (Internal Strategist, local plane,
- *    no network access of its own): partitions gathered evidence into
+ *    no network access of its own) — partitions GROUNDED evidence into
  *    fact/opinion/theme/contradiction/inference and builds the source-rights
- *    disclosure — pure synthesis over what Learning already gathered, per
- *    Internal Strategist's `agents.ts` boundary ("never invents evidence").
+ *    disclosure, per Internal Strategist's `agents.ts` boundary ("never
+ *    invents evidence").
  */
 export const JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE = "jobpilot.culture_research";
 export const RESEARCH_CULTURE_SOURCE_TASK_TYPE = "research_culture_source";
 export const SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE = "synthesize_culture_profile";
 
-/** Injectable so tests never perform a real network call (mirrors this file's
- * own `provisionRoleModelRecommendationTask`/Wikipedia-fetch precedent in
- * router.ts, which tests by stubbing `globalThis.fetch`, not by threading a
- * fetcher param — either shape works; this Skill takes an explicit fetcher
- * parameter so a caller CAN swap it without touching global state, while
- * `buildWiring()` below always registers the REAL default in production). */
-export type CultureSourceFetcher = (url: string) => Promise<string>;
+/**
+ * Server-owned authorized culture-research source catalog (TASK-011
+ * remediation #2 — "rights classification is caller-forgeable"). A client
+ * may select ONLY a `sourceId` from this registry; the server resolves
+ * company, URL, source type, and rights classification entirely from this
+ * table — a client can never supply or relabel a URL/sourceType directly, so
+ * a Glassdoor URL mislabeled "official page" has no code path to reach a
+ * fetch. Scoped by (workspaceId, company); an id from a different workspace
+ * or company is rejected as unknown for THAT request (see
+ * `resolveAuthorizedCultureSource`). In-memory/hardcoded for this pilot slice
+ * — same known-gap shape as `goalTasks`/`skillManifests`/`childAgentRuns`
+ * (no restart-durable store yet); a real admin surface to manage this
+ * catalog is future work, not silently faked as durable here.
+ */
+export interface AuthorizedCultureSource {
+  id: string;
+  workspaceId: string;
+  company: string;
+  sourceType: CultureSourceType;
+  sourceLabel: string;
+  url: string;
+}
 
-const CULTURE_FETCH_TIMEOUT_MS = 8_000;
-const MAX_CULTURE_EXCERPT_CHARS = 6_000;
+export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
+  {
+    id: "bcg-careers-interview-process",
+    workspaceId: PILOT_WORKSPACE,
+    company: "Boston Consulting Group",
+    sourceType: "company_official_page",
+    sourceLabel: "BCG Careers — Interview Process",
+    url: "https://careers.bcg.com/global/en/interview-process",
+  },
+  {
+    id: "bcg-glassdoor-reviews",
+    workspaceId: PILOT_WORKSPACE,
+    company: "Boston Consulting Group",
+    sourceType: "glassdoor",
+    sourceLabel: "Glassdoor — BCG reviews",
+    url: "https://www.glassdoor.com/Reviews/BCG-Reviews-E3854.htm",
+  },
+  {
+    id: "bcg-reddit-consulting",
+    workspaceId: PILOT_WORKSPACE,
+    company: "Boston Consulting Group",
+    sourceType: "reddit",
+    sourceLabel: "r/consulting — BCG threads",
+    url: "https://www.reddit.com/r/consulting/",
+  },
+  {
+    id: "bcg-google-reviews",
+    workspaceId: PILOT_WORKSPACE,
+    company: "Boston Consulting Group",
+    sourceType: "google_reviews",
+    sourceLabel: "Google reviews — BCG",
+    url: "https://www.google.com/maps/place/Boston+Consulting+Group",
+  },
+];
+
+/** TEST-ONLY escape hatch: appends an additional authorized source to the
+ * registry for a single test process. Production code must NEVER call this —
+ * the `unsafe` prefix makes misuse obvious at every call site. It exists so
+ * an integration test can point a REAL `materializeCultureSourceFetch` call
+ * at a local test server it controls (proving the real reservation/fetch/
+ * idempotency/completion logic end-to-end) without weakening authorization
+ * for any of the real entries above. */
+export function unsafeRegisterTestOnlyCultureSource(source: AuthorizedCultureSource): void {
+  CULTURE_SOURCE_REGISTRY.push(source);
+}
+
+/** Resolves a client-supplied `sourceId` against the registry, scoped to the
+ * REQUESTING workspace and company — an id that exists but belongs to a
+ * different workspace or company is treated as unknown for this request
+ * (never leaked as "found, but not yours"). Returns `null` for any mismatch. */
+export function resolveAuthorizedCultureSource(
+  workspaceId: string,
+  company: string,
+  sourceId: string,
+): AuthorizedCultureSource | null {
+  const found = CULTURE_SOURCE_REGISTRY.find((s) => s.id === sourceId);
+  if (!found) return null;
+  if (found.workspaceId !== workspaceId || found.company !== company) return null;
+  return found;
+}
+
 const CULTURE_RESEARCH_USER_AGENT =
   "Bridge/0.1 jobpilot-culture-research (research; see docs/raw/brd-jobpilot-2026-07.md)";
+const MAX_CULTURE_EXCERPT_CHARS = 6_000;
+/** Hard byte cap for a culture-research fetch — well within net-guard's own
+ * default, kept explicit here so this call site's bound is self-documenting. */
+const MAX_CULTURE_FETCH_BYTES = 500_000;
+const CULTURE_FETCH_TIMEOUT_MS = 8_000;
 
 function stripHtmlToText(html: string): string {
   return html
@@ -510,93 +636,272 @@ function stripHtmlToText(html: string): string {
     .trim();
 }
 
-/** The REAL fetcher: SSRF-guarded (guard runs immediately before the call,
- * since DNS answers can change between calls — see net-guard.ts's doc
- * comment), timeout-bounded, and returns raw response text for the caller to
- * reduce to a plain-text excerpt. */
-export async function defaultCultureSourceFetcher(url: string): Promise<string> {
-  await assertOutboundAllowed(url);
-  const response = await fetch(url, {
-    headers: { "user-agent": CULTURE_RESEARCH_USER_AGENT },
-    redirect: "follow",
-    signal: AbortSignal.timeout(CULTURE_FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error(`jobpilot.researchCultureSource: fetch failed with ${response.status} ${response.statusText}`);
-  }
-  return response.text();
+function computeContentHash(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
 export interface ResearchCultureSourceInput {
-  sourceType: CultureSourceType;
-  sourceLabel: string;
-  url: string;
+  sourceId: string;
+  workspaceId: string;
+  company: string;
 }
 
-export interface ResearchCultureSourceOutput {
+/** PURE intent descriptor — proves nothing was fetched yet. No excerpt, no
+ * artifact, no network access; just "this is what would be fetched, for
+ * which permitted source." */
+export interface ResearchCultureSourceIntentOutput {
+  sourceId: string;
   sourceType: CultureSourceType;
   sourceLabel: string;
   url: string;
-  retrievedAt: string;
-  excerpt: string;
+  plannedAt: string;
 }
 
 /**
- * Builds the Learning culture-source-research Skill. Re-checks source-type
- * eligibility at the Skill boundary too (defense in depth) — the router's
- * `planCultureSources` gate is the PRIMARY enforcement (it never even calls
- * this Skill for a non-`permitted` source), but this Skill must not silently
- * trust that every future caller remembered to gate first.
+ * Learning's culture-source-research Skill — PURE (TASK-011 remediation #3).
+ * Re-resolves the source from the registry itself (defense in depth — never
+ * trusts that the caller already did this) and re-checks eligibility, but
+ * performs NO fetch. The real fetch is `materializeCultureSourceFetch`,
+ * called only after this proposal is approved.
  */
-export function createResearchCultureSourceSkill(fetcher: CultureSourceFetcher = defaultCultureSourceFetcher): Skill {
+export function createResearchCultureSourceSkill(): Skill {
   return {
     name: "jobpilot.researchCultureSource",
     async run(inputs) {
       const input = inputs as ResearchCultureSourceInput;
-      const classification = classifyCultureSource(input.sourceType);
+      const source = resolveAuthorizedCultureSource(input.workspaceId, input.company, input.sourceId);
+      if (!source) {
+        throw new Error(`jobpilot.researchCultureSource: "${input.sourceId}" is not an authorized source for this workspace/company`);
+      }
+      const classification = classifyCultureSource(source.sourceType);
       if (classification.eligibility !== "permitted") {
         throw new Error(
-          `jobpilot.researchCultureSource: source type "${input.sourceType}" is "${classification.eligibility}" — ${classification.reason}`,
+          `jobpilot.researchCultureSource: source type "${source.sourceType}" is "${classification.eligibility}" — ${classification.reason}`,
         );
       }
-      const html = await fetcher(input.url);
-      const excerpt = stripHtmlToText(html).slice(0, MAX_CULTURE_EXCERPT_CHARS);
-      const output: ResearchCultureSourceOutput = {
-        sourceType: input.sourceType,
-        sourceLabel: input.sourceLabel,
-        url: input.url,
-        retrievedAt: new Date().toISOString(),
-        excerpt,
+      const output: ResearchCultureSourceIntentOutput = {
+        sourceId: source.id,
+        sourceType: source.sourceType,
+        sourceLabel: source.sourceLabel,
+        url: source.url,
+        plannedAt: new Date().toISOString(),
       };
       return { proposedOutput: output, diff: { to: output } };
     },
   };
 }
 
+export type CultureFetchStatus = "pending" | "fetching" | "fetched" | "failed" | "cancelled";
+
+export interface CultureFetchRecord {
+  proposalId: string;
+  childRunId: string;
+  parentRunId: string;
+  workspaceId: string;
+  sourceId: string;
+  status: CultureFetchStatus;
+  artifact?: CultureArtifactRef;
+  error?: string;
+  /** Not serialized to any client response — internal cancellation handle only. */
+  abortController?: AbortController;
+}
+
+/**
+ * In-memory registry of culture-fetch intents/artifacts, keyed by the
+ * pipeline proposal id. Same known-gap shape as `goalTasks`/`childAgentRuns`
+ * (restart does not persist in-flight state) — not silently faked as
+ * durable. This is what makes materialization idempotent (status already
+ * "fetched"/"failed"/"cancelled" short-circuits instead of re-fetching) and
+ * cancellable (the stored `AbortController` is what `cancelCultureSourceFetch`
+ * aborts).
+ */
+export class InMemoryCultureFetchStore {
+  readonly records = new Map<string, CultureFetchRecord>();
+
+  create(record: CultureFetchRecord): CultureFetchRecord {
+    this.records.set(record.proposalId, record);
+    return record;
+  }
+  get(proposalId: string): CultureFetchRecord | undefined {
+    return this.records.get(proposalId);
+  }
+}
+
+/**
+ * Performs the REAL, guarded fetch for one already-approved culture-research
+ * proposal — TASK-011 remediation #3/#6/#7. Never called during `propose()`;
+ * only the router calls this, and only after confirming the ledger holds an
+ * "approve" decision for `proposalId`. Idempotent: a proposal whose fetch
+ * already resolved (fetched/failed/cancelled) returns the stored record
+ * rather than re-fetching. Reserves the child Run's budget atomically
+ * (`reserveChildRunAction`) immediately before the network call — not
+ * earlier (propose has no effect to gate) and not later (would allow two
+ * racing calls to both proceed). Any exception fails the child Run closed
+ * with audit evidence; success completes it only once the artifact is
+ * durably stored in `fetchStore`.
+ */
+export async function materializeCultureSourceFetch(
+  deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore; fetchStore: InMemoryCultureFetchStore },
+  workspaceId: string,
+  proposalId: string,
+  childRunId: string,
+  ctx: RunCtx,
+  /** TEST-ONLY passthrough to `guardedFetch`'s block-list override — NEVER
+   * wired through the router (production callers never supply this); exists
+   * so tests can exercise this function's real reservation/idempotency/
+   * completion logic against a real local test server instead of the live
+   * internet, without weakening the guard for any real call site. */
+  unsafeTestOverrides?: import("@bridge/net-guard").UnsafeTestOverrides,
+): Promise<CultureFetchRecord> {
+  const existing = deps.fetchStore.get(proposalId);
+  if (existing && existing.status !== "pending") {
+    return existing; // idempotent — never refetch an already-resolved source
+  }
+
+  const decisionRow = await deps.ledger.decisionFor(proposalId);
+  if (!decisionRow || decisionRow.userDecision !== "approve") {
+    throw new Error(`materializeCultureSourceFetch: proposal ${proposalId} is not in an approved state`);
+  }
+  const proposalRow = await deps.ledger.get(proposalId);
+  if (!proposalRow) {
+    throw new Error(`materializeCultureSourceFetch: unknown proposal ${proposalId}`);
+  }
+  const intent = proposalRow.proposedOutput as ResearchCultureSourceIntentOutput;
+
+  const record: CultureFetchRecord =
+    existing ?? deps.fetchStore.create({ proposalId, childRunId, parentRunId: "", workspaceId, sourceId: intent.sourceId, status: "pending" });
+
+  const violation = await reserveChildRunAction(
+    deps.childAgentRuns,
+    workspaceId,
+    childRunId,
+    { action: "read", resourceType: "external:fetch", skill: "jobpilot.researchCultureSource", dataScope: "public" },
+    1,
+    ctx.clock.nowISO(),
+  );
+  if (violation) {
+    throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
+  }
+
+  const abortController = new AbortController();
+  record.status = "fetching";
+  record.abortController = abortController;
+
+  try {
+    const result = await guardedFetch(intent.url, {
+      headers: { "user-agent": CULTURE_RESEARCH_USER_AGENT },
+      timeoutMs: CULTURE_FETCH_TIMEOUT_MS,
+      maxBytes: MAX_CULTURE_FETCH_BYTES,
+      signal: abortController.signal,
+      ...(unsafeTestOverrides ? { unsafeTestOverrides } : {}),
+    });
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`fetch failed with HTTP ${result.status}`);
+    }
+    const contentType = String(result.headers["content-type"] ?? "").toLowerCase();
+    if (contentType && !contentType.startsWith("text/") && !contentType.includes("xhtml") && !contentType.includes("xml")) {
+      throw new Error(`fetch returned a non-text content-type ("${contentType}") — culture-research sources must be textual web content`);
+    }
+    const content = stripHtmlToText(result.body.toString("utf8")).slice(0, MAX_CULTURE_EXCERPT_CHARS);
+    const artifact: CultureArtifactRef = {
+      sourceId: intent.sourceId,
+      sourceType: intent.sourceType,
+      sourceLabel: intent.sourceLabel,
+      sourceUrl: result.finalUrl,
+      content,
+      contentHash: computeContentHash(content),
+      retrievedAt: new Date().toISOString(),
+    };
+    record.status = "fetched";
+    record.artifact = artifact;
+    delete record.abortController;
+    await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx);
+    return record;
+  } catch (error) {
+    record.status = "failed";
+    record.error = error instanceof Error ? error.message : String(error);
+    delete record.abortController;
+    await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch(() => {
+      // The child Run may already be terminal (e.g. concurrently cancelled) —
+      // that is itself a legitimate terminal state, not a reason to mask the
+      // original fetch failure below.
+    });
+    throw error;
+  }
+}
+
+/**
+ * Cancels a culture-research source's fetch — TASK-011 remediation #7.
+ * Before approval / before materialization ever starts, this is a pure
+ * bookkeeping cancel (the fetch could never have started — `materialize`
+ * checks `decisionFor`/status first). Mid-fetch, this ABORTS the real
+ * in-flight `guardedFetch` call via the stored `AbortController` — genuine
+ * cancellation, not merely marking a row.
+ */
+export async function cancelCultureSourceFetch(
+  deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore; fetchStore: InMemoryCultureFetchStore },
+  workspaceId: string,
+  proposalId: string,
+  childRunId: string,
+  actor: Actor,
+  ctx: RunCtx,
+): Promise<CultureFetchRecord> {
+  const record = deps.fetchStore.get(proposalId);
+  if (record?.abortController) {
+    record.abortController.abort();
+  }
+  if (record) {
+    record.status = "cancelled";
+    delete record.abortController;
+  }
+  await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch(() => {
+    // Already terminal (completed/failed/cancelled) — fine, cancellation is idempotent.
+  });
+  return (
+    record ??
+    deps.fetchStore.create({ proposalId, childRunId, parentRunId: "", workspaceId, sourceId: "", status: "cancelled" })
+  );
+}
+
 export interface SynthesizeCultureProfileInput {
-  evidence: CultureEvidence[];
+  claims: GroundedClaimInput[];
+  artifacts: CultureArtifactRef[];
   skippedSources: CultureSkippedSource[];
 }
 
 export interface SynthesizeCultureProfileOutput {
-  partition: CultureEvidencePartition;
+  partition: ReturnType<typeof partitionCultureEvidence>;
   disclosure: CultureSourceDisclosure;
+}
+
+export class ClaimGroundingError extends Error {
+  constructor(public readonly failures: ClaimGroundingFailure[]) {
+    super(`jobpilot.synthesizeCultureProfile: ${failures.length} claim(s) failed to ground: ${failures.map((f) => `${f.claimId} (${f.reason})`).join(", ")}`);
+    this.name = "ClaimGroundingError";
+  }
 }
 
 /**
  * Internal Strategist's synthesis Skill — no network access, no invented
- * evidence: partitions exactly the evidence it was given and builds the
- * rights/access disclosure. Fails closed (throws, never silently drops) if
- * ANY claim fails the fabrication/insider-claim guard — JP3B exit criterion
- * "generated materials contain no invented personal affinity, insider claim,
- * or defamatory assertion" is enforced HERE, not left to a downstream reviewer
- * to catch after the fact.
+ * evidence. TASK-011 remediation #5: claims must GROUND against the
+ * immutable fetched artifacts this run actually produced (`groundClaims`) —
+ * an absent quote, a quote from the wrong artifact, a stale/mismatched
+ * content hash, a duplicate claim id, or a dangling/self-referencing
+ * contradiction/support reference fails the WHOLE batch closed
+ * (`ClaimGroundingError`). Only once every claim grounds does the
+ * fabrication/insider-claim guard run over the resulting evidence text, and
+ * only then are evidence partitioned + the disclosure built.
  */
 const synthesizeCultureProfile: Skill = {
   name: "jobpilot.synthesizeCultureProfile",
   async run(inputs) {
     const input = inputs as SynthesizeCultureProfileInput;
-    for (const item of input.evidence) {
+    const artifactsBySourceId = new Map(input.artifacts.map((a) => [a.sourceId, a]));
+    const grounded = groundClaims(input.claims, artifactsBySourceId);
+    if (!grounded.ok) {
+      throw new ClaimGroundingError(grounded.failures);
+    }
+    for (const item of grounded.evidence) {
       const check = assertNoFabricatedAffinityOrInsiderClaim(item.claimText);
       if (!check.clean) {
         throw new Error(
@@ -604,8 +909,8 @@ const synthesizeCultureProfile: Skill = {
         );
       }
     }
-    const partition = partitionCultureEvidence(input.evidence);
-    const disclosure = buildSourceDisclosure(input.evidence, input.skippedSources);
+    const partition = partitionCultureEvidence(grounded.evidence);
+    const disclosure = buildSourceDisclosure(grounded.evidence, input.skippedSources);
     const output: SynthesizeCultureProfileOutput = { partition, disclosure };
     return { proposedOutput: output, diff: { to: output } };
   },
@@ -617,6 +922,11 @@ export const JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST = {
   version: "1.0.0",
   goalTypes: [JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE],
   taskTypes: [RESEARCH_CULTURE_SOURCE_TASK_TYPE],
+  // NOTE: this Skill's run() is now PURE (no network) — it still declares
+  // external:fetch:read/cloud/external because that is the REAL authority
+  // its approval unlocks for the subsequent materialize step, and the
+  // manifest is what makes riskBand:"external" force explicit_human review
+  // before that real effect may ever occur.
   permissions: ["external:fetch:read"],
   plane: "cloud",
   dataScopes: ["public"],
@@ -640,7 +950,6 @@ export const JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST = {
   defaultAgents: ["internal_strategist"],
   childRunPolicy: "forbidden",
 } as const;
-
 /**
  * AGS1 real-catalog migration (TASK-007 closure) — Help Offer drafting was
  * previously staged via the generic `stageMutation` kernel passthrough
@@ -1314,6 +1623,7 @@ export async function buildWiring(): Promise<Wiring> {
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(synthesizeCultureProfile);
+  const cultureFetchStore = new InMemoryCultureFetchStore();
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -1888,6 +2198,7 @@ export async function buildWiring(): Promise<Wiring> {
     goalTasks,
     skillManifests,
     childAgentRuns,
+    cultureFetchStore,
     memoryStore,
     evalStore,
     policyParams,
