@@ -45,6 +45,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Flag } from 'lucide-react';
 import clsx from 'clsx';
+import { trpc } from '../../lib/trpc';
 import { useRedFlagContext, type RedFlagAnchor } from './RedFlagProvider';
 
 interface MenuPosition {
@@ -84,6 +85,18 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const [reasonDraft, setReasonDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  /** review round-5 item 11 — surfaces `RedFlagProvider.create`'s
+   * "still loading" rejection (or any other create failure) instead of an
+   * unhandled promise rejection; cleared on the NEXT successful create. */
+  const [createError, setCreateError] = useState<string | null>(null);
+  /** review round-5 item 3 ("ship enactment"): `learningStatus === 'proposed'`
+   * alone doesn't tell the UI whether the owner has actually approved the
+   * proposal in Approvals yet — that lives in the ledger, not the flag's own
+   * Memory content. Checked ON DEMAND (popover open), never in the batched
+   * `RedFlagProvider` fetch, since it only matters for the rare flag that is
+   * BOTH proposed AND currently being inspected — batching it into every
+   * page load would reintroduce the N+1 pattern review item 7 removed. */
+  const [approval, setApproval] = useState<'unknown' | 'checking' | 'pending' | 'approved' | 'other'>('unknown');
   /** Serializes reason-save (textarea onBlur) against clear/reopen/forget —
    * review item 4: "do not let textarea onBlur race clear/reopen/forget."
    * Blur fires before a sibling button's click when focus moves away, so
@@ -97,6 +110,7 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
   const current = ctx.flagFor(anchor);
   const isOpen = current?.value.status === 'open';
   const isApplied = current?.value.learningStatus === 'applied';
+  const isProposed = current?.value.learningStatus === 'proposed';
   const reason = current?.value.reason ?? '';
 
   useEffect(() => {
@@ -118,6 +132,26 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [position]);
+
+  // Re-check approval status each time the popover opens on a proposed flag
+  // — never on mount/batch load (see comment on `approval` state above).
+  useEffect(() => {
+    if (!position || !isProposed || !current?.value.proposalId) return;
+    let cancelled = false;
+    setApproval('checking');
+    trpc.action.resolution
+      .query({ proposalId: current.value.proposalId })
+      .then((res) => {
+        if (cancelled) return;
+        setApproval(res.status === 'resolved' && res.decision === 'approve' ? 'approved' : res.status === 'pending' ? 'pending' : 'other');
+      })
+      .catch(() => {
+        if (!cancelled) setApproval('unknown');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [position, isProposed, current?.value.proposalId]);
 
   /** Saves the reason if changed, resolving to the flagId that should be
    * used for any FOLLOWING action — either the freshly-superseded row's id
@@ -155,9 +189,16 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     event.stopPropagation();
     if (!current) {
       // Never flagged before — one click records it and turns it red immediately.
+      // review round-5 item 11: disabled (see the button's `disabled` prop
+      // below) while `ctx.loading`, so this should rarely fire during the
+      // initial load — still guarded here too in case a click was already
+      // in flight when loading started (e.g. a fast scope change).
       setBusy(true);
+      setCreateError(null);
       try {
         await ctx.create({ anchor, renderedValue, ...(renderedVersion ? { renderedVersion } : {}) });
+      } catch (err) {
+        setCreateError(err instanceof Error ? err.message : 'Could not record this flag — try again.');
       } finally {
         setBusy(false);
       }
@@ -205,6 +246,22 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     }
   }
 
+  /** review round-5 item 4 — "exposes retry for failed pre-proposal state":
+   * a governed learning step that errored (never the Human's own
+   * correction, which already succeeded) is retryable directly, without
+   * forcing a Clear-then-Reopen workaround that would needlessly fork the
+   * flag's own open/cleared history. */
+  async function handleRetryLearning() {
+    if (!current) return;
+    setBusy(true);
+    try {
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.retryLearning(flagId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRevokeCorrection() {
     if (!current) return;
     setBusy(true);
@@ -216,11 +273,31 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     }
   }
 
+  /** review round-5 item 3 — the missing "ship enactment" affordance: an
+   * approved correction never enacts itself; a Human must explicitly ask
+   * for it here. Only enabled once `action.resolution` has confirmed the
+   * proposal is actually approved — never optimistically shown for a merely
+   * "proposed" flag, since `enactCorrection` itself would reject that with
+   * CONFLICT server-side (defense in depth, not the only gate). */
+  async function handleEnactCorrection() {
+    if (!current) return;
+    setBusy(true);
+    try {
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.enactCorrection(flagId);
+      setApproval('unknown');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const label = isOpen
     ? 'Flagged as incorrect — inspect, edit, or clear'
     : current
       ? 'Previously flagged, now cleared — inspect or reopen'
-      : 'Flag this value as incorrect';
+      : ctx.loading
+        ? 'Flag this value as incorrect (loading current status…)'
+        : 'Flag this value as incorrect';
 
   return (
     <span className={clsx('group/rf relative inline-flex min-w-0 items-center gap-1', className)}>
@@ -239,7 +316,7 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
         type="button"
         aria-label={label}
         aria-pressed={isOpen}
-        disabled={busy}
+        disabled={busy || (!current && ctx.loading)}
         onClick={handleGlyphActivate}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -273,6 +350,11 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
       >
         <Flag className="h-full w-full" style={{ color: isOpen ? 'var(--danger)' : 'var(--color-warm-gray)' }} fill={isOpen ? 'var(--danger)' : 'none'} />
       </button>
+      {createError && (
+        <span role="alert" className="absolute left-0 top-full z-[80] mt-1 whitespace-nowrap rounded border bg-white px-1.5 py-0.5 text-[10px]" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
+          {createError}
+        </span>
+      )}
 
       {position && current && (
         <div
@@ -293,6 +375,14 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
             Learning status: {current.value.learningStatus}
             {current.value.learningStatus === 'failed' && current.value.learningFailureReason ? ` (${current.value.learningFailureReason})` : ''}
           </div>
+          {isProposed && (
+            <div className="mb-2 text-xs" style={{ color: approval === 'approved' ? 'var(--success)' : 'var(--color-warm-gray)' }}>
+              {approval === 'checking' && 'Checking approval status…'}
+              {approval === 'pending' && 'Awaiting Human approval in Approvals.'}
+              {approval === 'approved' && 'Approved — ready to enact this correction.'}
+              {(approval === 'other' || approval === 'unknown') && 'Not yet enactable.'}
+            </div>
+          )}
           <textarea
             value={reasonDraft}
             onChange={(e) => setReasonDraft(e.target.value)}
@@ -312,6 +402,32 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
                 Reopen
               </button>
             )}
+            {isProposed && approval === 'approved' ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => void handleEnactCorrection()}
+                className="rounded-lg border px-2 py-1 text-xs font-semibold hover:bg-black/5"
+                style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                title="Apply the approved correction — its effect becomes visible immediately (review round-5 item 3: 'no approved correction may be stranded')"
+              >
+                Enact correction
+              </button>
+            ) : null}
+            {current.value.learningStatus === 'failed' ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => void handleRetryLearning()}
+                className="rounded-lg border px-2 py-1 text-xs font-medium hover:bg-black/5"
+                style={{ borderColor: 'var(--color-border)' }}
+                title="Retry the governed learning step — your correction itself was already recorded; only this follow-on step failed"
+              >
+                Retry learning
+              </button>
+            ) : null}
             {isApplied ? (
               <button
                 type="button"

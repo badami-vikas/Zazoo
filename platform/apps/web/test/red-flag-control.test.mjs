@@ -49,7 +49,7 @@ test("RedFlagControl is a context CONSUMER (no per-mount fetch) — the batched 
   assert.doesNotMatch(controlSource, /trpc\.redFlag\./, "RedFlagControl must not call trpc.redFlag directly — only through the provider's context");
 
   const providerSource = await readFile(redFlagProviderUrl, "utf8");
-  for (const proc of ["create", "clear", "reopen", "updateReason", "forget", "listForScope", "enactCorrection", "revokeCorrection"]) {
+  for (const proc of ["create", "clear", "reopen", "updateReason", "forget", "listForScope", "enactCorrection", "revokeCorrection", "retryLearning"]) {
     assert.match(providerSource, new RegExp(`trpc\\.redFlag\\.${proc}\\.`));
   }
   assert.match(providerSource, /crypto\.randomUUID\(\)/, "create() must supply a client-generated idempotency operationId");
@@ -78,28 +78,74 @@ test("RedFlagControl visibly withholds the flagged value once its correction is 
   assert.match(source, /Undo correction/);
 });
 
-test("TableView requires a STABLE persisted record id — never the sorted row's array index — before wrapping a cell in RedFlagControl (review round-4 item 6)", async () => {
+test("RedFlagControl ships the enactment affordance (review round-5 item 3) — no approved correction may be stranded", async () => {
+  const source = await readFile(redFlagControlUrl, "utf8");
+  // Approval status is checked ON DEMAND (popover open on a 'proposed' flag),
+  // never batched into every page load — must not reintroduce the item-7 N+1.
+  assert.match(source, /trpc\.action\.resolution\s*\.query/);
+  assert.match(source, /if \(!position \|\| !isProposed \|\| !current\?\.value\.proposalId\) return;/, "the approval check must be gated on the popover actually being open, not fired on mount");
+  assert.match(source, /ctx\.enactCorrection\(flagId\)/);
+  assert.match(source, /Enact correction/);
+  assert.match(source, /approval === 'approved'/, "the Enact button must only render once action.resolution has confirmed approval, not merely learningStatus === 'proposed'");
+});
+
+test("RedFlagControl ships a Retry action for a failed governed learning step (review round-5 item 4) — never forces Clear-then-Reopen just to retry", async () => {
+  const source = await readFile(redFlagControlUrl, "utf8");
+  assert.match(source, /ctx\.retryLearning\(flagId\)/);
+  assert.match(source, /learningStatus === 'failed'/);
+  assert.match(source, /Retry learning/);
+});
+
+test("RedFlagProvider (review round-5 item 11): loading/error are distinct from a genuinely empty scope, last-good rows survive a failed refresh, overlapping refreshes are generation-guarded, and create() is disabled until initial load", async () => {
+  const source = await readFile(redFlagProviderUrl, "utf8");
+  // A failed refresh must NEVER clobber existing rows with an empty array —
+  // only a successful response may call setRows().
+  assert.doesNotMatch(source, /\.catch\(\(\) => setRows\(\[\]\)\)/, "a failed refresh must preserve last-good rows, never reset to an empty array");
+  assert.match(source, /setError\(true\)/);
+  assert.match(source, /error: boolean/, "the context must expose a distinct error flag, not just loading");
+  // Generation/abort guard against overlapping refreshes landing out of order.
+  assert.match(source, /generationRef/);
+  assert.match(source, /if \(generationRef\.current !== generation\) return;/);
+  // create() must refuse to run before the FIRST successful load.
+  assert.match(source, /if \(rows === null\) \{\s*\n\s*throw new Error/, "create must reject while the batched scope query has never yet succeeded");
+});
+
+test("RedFlagControl (review round-5 item 11): the flag glyph is disabled while unflagged AND the provider is still loading, and surfaces a create() failure inline", async () => {
+  const source = await readFile(redFlagControlUrl, "utf8");
+  assert.match(source, /disabled=\{busy \|\| \(!current && ctx\.loading\)\}/);
+  assert.match(source, /createError/);
+  assert.match(source, /role="alert"/);
+});
+
+test("TableView requires a STABLE persisted record id — never the sorted row's array index — before wrapping a cell in RedFlagControl (review round-4 item 6), and gates rendering on the module being one the server can validate (review round-5 item 6)", async () => {
   const [tableSource, eligibilitySource] = await Promise.all([readFile(tableViewUrl, "utf8"), readFile(eligibilityUrl, "utf8")]);
   assert.match(tableSource, /import \{ RedFlagControl \} from ["'].*RedFlagControl\.js["']/);
   assert.match(tableSource, /import \{ RedFlagProvider \} from ["'].*RedFlagProvider\.js["']/);
-  assert.match(tableSource, /<RedFlagProvider scope=\{\{ moduleId: moduleIdFromDatabaseId\(spec\.id\), databaseId: spec\.id \}\}>/);
+  assert.match(tableSource, /isSupportedRedFlagModule/, "must gate on the client-side mirror of the server's validateAnchorTarget allowlist");
+  assert.match(tableSource, /flaggable \? <RedFlagProvider scope=\{\{ moduleId, databaseId: spec\.id \}\}>\{table\}<\/RedFlagProvider> : table/);
   assert.match(tableSource, /isFlaggableValue\(value\)/);
   assert.match(tableSource, /stableRecordId/, "must derive a stable record id, not the sorted row's array index");
   assert.doesNotMatch(tableSource, /recordId = String\(row\["id"\] \?\? i\)/, "must never fall back to the sorted row index as the anchor's recordId");
-  assert.match(tableSource, /kind: "cell", moduleId: moduleIdFromDatabaseId\(spec\.id\), databaseId: spec\.id, recordId: stableRecordId, fieldId: col\.id/);
+  assert.match(tableSource, /kind: "cell", moduleId, databaseId: spec\.id, recordId: stableRecordId, fieldId: col\.id/);
   assert.match(eligibilitySource, /export function isFlaggableValue/);
   assert.match(eligibilitySource, /export function moduleIdFromDatabaseId/);
+  assert.match(eligibilitySource, /export function isSupportedRedFlagModule/);
+  assert.doesNotMatch(eligibilitySource, /SUPPORTED_RED_FLAG_MODULES = new Set\(\[[^\]]*"signal"/, "Signal has no backing existence-check store yet — must NOT be in the supported-module allowlist");
 });
 
-test("JobPilotApplicationDetail wraps rendered bullets in RedFlagProvider scopes and uses the discriminated bullet anchor (cell vs. bullet never conflated)", async () => {
+test("JobPilotApplicationDetail (unrouted, fixture-only) has NO red-flag wiring — a control on non-UUID fixture ids would always fail-closed (review round-5 item 6, AP-021)", async () => {
   const source = await readFile(jobPilotDetailUrl, "utf8");
-  assert.match(source, /import \{ RedFlagControl \} from ['"]\.\.\/components\/shared\/RedFlagControl['"]/);
-  assert.match(source, /import \{ RedFlagProvider \} from ['"]\.\.\/components\/shared\/RedFlagProvider['"]/);
-  assert.match(source, /<RedFlagProvider scope=\{\{ moduleId: 'job-pilot', recordId: artifact\.id \}\}>/);
-  assert.match(source, /<RedFlagProvider scope=\{\{ moduleId: 'job-pilot', recordId: application\.id \}\}>/);
-  assert.match(source, /kind: 'bullet', moduleId: 'job-pilot', target: \{ type: 'record', recordId: artifact\.id \}, bulletPath: `s\$\{i\}\.b\$\{j\}`/);
-  assert.match(source, /kind: 'bullet', moduleId: 'job-pilot', target: \{ type: 'record', recordId: application\.id \}, bulletPath: `fit\.strength\.\$\{i\}`/);
-  assert.match(source, /kind: 'bullet', moduleId: 'job-pilot', target: \{ type: 'record', recordId: application\.id \}, bulletPath: `fit\.concern\.\$\{i\}`/);
+  assert.doesNotMatch(source, /RedFlagControl/);
+  assert.doesNotMatch(source, /RedFlagProvider/);
+});
+
+test("JobPilotPage wires a REAL bullet Red Flag surface (review round-5 item 6) — anchored to the real persisted application.id, not a fixture", async () => {
+  const source = await readFile(new URL("../src/app/pages/JobPilotPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /import \{ RedFlagControl \} from ["'].*RedFlagControl["']/);
+  assert.match(source, /import \{ RedFlagProvider \} from ["'].*RedFlagProvider["']/);
+  assert.match(source, /<RedFlagProvider scope=\{\{ moduleId: "jobpilot" \}\}>/);
+  assert.match(source, /kind: "bullet", moduleId: "jobpilot", target: \{ type: "record", recordId: applicationId \}, bulletPath: "fit\.stage"/);
+  assert.match(source, /kind: "bullet", moduleId: "jobpilot", target: \{ type: "record", recordId: applicationId \}, bulletPath: "fit\.flag"/);
 });
 
 test("the pre-canon green/yellow/red FlagIcon and its dead fixture duplicate are removed (AP-023)", async () => {

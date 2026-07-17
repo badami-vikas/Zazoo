@@ -12,7 +12,7 @@ import test from "node:test";
 import { DrizzleQueryError } from "drizzle-orm";
 import type { MemoryWrite } from "@bridge/core";
 import { createLocalDb, DrizzleMemoryStore, schema } from "../src/index.js";
-import { isSerializationFailure } from "../src/memory-store.js";
+import { isMemoryIdUniqueViolation, isSerializationFailure } from "../src/memory-store.js";
 
 const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
 const LINEAGE_KEY = "cccccccc-0000-4000-8000-000000000009";
@@ -185,3 +185,55 @@ test("casSupersede returns null (never re-throws) when the transaction rejects w
     await close();
   }
 });
+
+/**
+ * TASK-010 review round-5 item 10 — a deterministic id (e.g. a red-flag
+ * correction's `deterministicUuid(...)`-derived memoryId) means two
+ * genuinely concurrent `casSupersede` calls can both pass the in-transaction
+ * "no current row yet" compare and then both attempt to INSERT the
+ * IDENTICAL row id — a real Postgres unique-violation (`23505`) on
+ * `memories.id`, not the `40001` serialization failure the test above
+ * covers. Unlike that one, pglite's single-connection execution model DOES
+ * reliably reproduce this specific race for real (confirmed via a targeted
+ * repro during development): both transactions start before either
+ * commits, and the loser's own INSERT genuinely violates the primary key.
+ */
+test("isMemoryIdUniqueViolation recognizes a real DrizzleQueryError-wrapped 23505 scoped to memories_pkey, at any cause-chain depth, and rejects unrelated errors", () => {
+  const rawPgError = Object.assign(new Error('duplicate key value violates unique constraint "memories_pkey"'), { code: "23505", constraint: "memories_pkey" });
+  const singleWrap = new DrizzleQueryError("insert into memories ...", [], rawPgError);
+  assert.equal(isMemoryIdUniqueViolation(singleWrap), true);
+
+  const doubleWrap = new DrizzleQueryError("insert into memories ...", [], singleWrap as unknown as Error);
+  assert.equal(isMemoryIdUniqueViolation(doubleWrap), true);
+
+  // A DIFFERENT unique constraint on the same 23505 SQLSTATE must NOT match.
+  const otherConstraint = new DrizzleQueryError("insert", [], Object.assign(new Error("dup"), { code: "23505", constraint: "some_other_unique_index" }));
+  assert.equal(isMemoryIdUniqueViolation(otherConstraint), false, "a DIFFERENT unique constraint must not be misreported as a memories-id collision");
+
+  const serializationFailure = new DrizzleQueryError("select", [], Object.assign(new Error("ssi"), { code: "40001" }));
+  assert.equal(isMemoryIdUniqueViolation(serializationFailure), false, "a DIFFERENT SQLSTATE must not be misreported as a memories-id collision");
+
+  assert.equal(isMemoryIdUniqueViolation(new Error("plain error, no .code anywhere")), false);
+  assert.equal(isMemoryIdUniqueViolation(null), false);
+  assert.equal(isMemoryIdUniqueViolation("not an object"), false);
+});
+
+test("casSupersede: two REAL concurrent transactions inserting the IDENTICAL deterministic id both pass the 'no current row' compare — the loser's genuine 23505 surfaces as CAS-failure null, never an unhandled throw", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleMemoryStore(db);
+    const sameId = "dddddddd-0000-4000-8000-000000000001";
+    const results = await Promise.all([
+      store.casSupersede({ workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, workspaceId) }),
+      store.casSupersede({ workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null, next: draft(sameId, workspaceId) }),
+    ]);
+    const winners = results.filter((r) => r !== null);
+    assert.equal(winners.length, 1, "exactly one of the two concurrent identical-id inserts must win — the other must resolve to null, never throw");
+    const current = await store.currentForLineage(workspaceId, OWNER, LINEAGE_KEY);
+    assert.equal(current?.id, sameId);
+  } finally {
+    await close();
+  }
+});
+

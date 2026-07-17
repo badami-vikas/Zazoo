@@ -82,6 +82,24 @@ export function isFlaggableValue(value: unknown): boolean {
 }
 
 /**
+ * TASK-010 review round-5 item 6 — the client-side mirror of the server's
+ * `validateAnchorTarget` module allowlist (router.ts): a cell/bullet whose
+ * derived `moduleId` isn't one of these is server-verified to ALWAYS fail
+ * `redFlag.create` with `NOT_FOUND` (fail-closed for an unrecognized
+ * module), so rendering an interactive-looking flag glyph there would be a
+ * control that can never actually work (AP-021: "interactive-looking UI
+ * must open detail/edit/filter/explanation/governed Action" — one that
+ * always errors violates this just as much as one that does nothing).
+ * `WorkspacePage.tsx` currently also renders a `"signal"` node type through
+ * `TableView` — Signals have no backing existence-check store yet, so
+ * `"signal"` is deliberately NOT in this list until one exists.
+ */
+const SUPPORTED_RED_FLAG_MODULES = new Set(["jobpilot", "job-pilot", "dealpilot", "initiative", "touchpoint", "person", "people", "community", "communities"]);
+export function isSupportedRedFlagModule(moduleId: string): boolean {
+  return SUPPORTED_RED_FLAG_MODULES.has(moduleId);
+}
+
+/**
  * TASK-010 review remediation item 5 — the coarser Module identity a
  * Red Flag's `moduleId` field expects, distinct from the concrete
  * Database/table identity (`TableSpec.id`, e.g. "jobpilot.jobs"). `TableSpec`

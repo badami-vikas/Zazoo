@@ -141,11 +141,11 @@ its real data source exists, and an empty state would hide the thing being revie
   'bcg-consultant-mba-2026'` and bullet content are display-only demo content.
   **Real element it stands in for:** a real `jobpilotApplications` row (via
   `jobpilotStore.getApplication`) and its persisted fit-recommendation bullets.
-  **Interaction with TASK-010:** `redFlag.create`'s server-side anchor validation (round-4 item
-  6) now requires a red-flagged cell/bullet's `recordId` to resolve to a REAL, workspace-owned
-  JobPilot application — this page's bullets, still pointing at the fixture's hardcoded id,
-  would fail that check with `NOT_FOUND` if ever flagged. Not a live regression today (the page
-  isn't reachable), but noted so it isn't silently rediscovered as "TASK-010 broke this."
+  **Interaction with TASK-010:** round-5 removed the `RedFlagControl`/`RedFlagProvider` wiring
+  this page previously had (round 1-4) — the fixture bullets are no longer flaggable at all,
+  closing the round-4-noted `NOT_FOUND` risk outright rather than leaving a control that could
+  never actually succeed (AP-021: an interactive-looking control must work). If this page is
+  ever routed to real data, red-flag wiring should be re-added pointing at the real anchor.
   **Removal condition:** either route this page to a real, `jobpilotStore`-backed application
   detail view, or delete it if `JobPilotPage.tsx`'s own detail affordance supersedes it.
 

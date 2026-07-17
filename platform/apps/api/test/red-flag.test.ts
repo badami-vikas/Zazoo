@@ -438,9 +438,79 @@ test("SAGA (review round-4 item 3): a genuinely failed governed step is retryabl
     const first = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: opId, anchor: cellAnchor(recordId), renderedValue: "x" });
     assert.equal(parseFlag(first.memory).learningStatus, "failed");
     assert.match(parseFlag(first.memory).learningFailureReason ?? "", /simulated transient/);
+    // review round-5 item 4: a THROWN (not merely rejected) attempt never
+    // reached ledger append — `proposalId` must stay absent, never the
+    // deterministic guess, or clear/forget would later try to withdraw a
+    // proposal the ledger has never seen.
+    assert.equal(parseFlag(first.memory).proposalId, undefined, "a genuinely thrown governed step must not persist an unconfirmed proposalId");
 
     const retried = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: opId, anchor: cellAnchor(recordId), renderedValue: "x" });
     assert.equal(parseFlag(retried.memory).learningStatus, "proposed", "a genuinely FAILED attempt must be retryable through create(), not permanently stuck");
+    assert.ok(parseFlag(retried.memory).proposalId, "once genuinely proposed, the confirmed proposalId must be persisted");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("PROPOSAL ID CORRECTNESS (review round-5 item 4): clear/forget on a flag whose learning step THREW (no proposalId ever persisted) succeed without trying to withdraw a nonexistent ledger entry", async () => {
+  const wiring = await buildWiring();
+  try {
+    const recordId = await seedJobApplication(wiring);
+    const caller = await makeCaller(wiring);
+
+    const originalPropose = wiring.pipeline.propose.bind(wiring.pipeline);
+    wiring.pipeline.propose = (async () => {
+      throw new Error("simulated permanent governed-step failure");
+    }) as typeof wiring.pipeline.propose;
+
+    const { memory } = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000206", anchor: cellAnchor(recordId), renderedValue: "x" });
+    const value = parseFlag(memory);
+    assert.equal(value.learningStatus, "failed");
+    assert.equal(value.proposalId, undefined);
+
+    // Clear must succeed (no proposal to withdraw) — never throw the
+    // ledger's generic "no ledger entry" error.
+    const { memory: cleared } = await caller.redFlag.clear({ workspaceId: PILOT_WORKSPACE, flagId: memory.id });
+    assert.equal(parseFlag(cleared).status, "cleared");
+
+    // Forget must likewise succeed.
+    await caller.redFlag.forget({ workspaceId: PILOT_WORKSPACE, flagId: cleared.id });
+    const gone = await wiring.memoryStore.get(cleared.id, { workspaceId: PILOT_WORKSPACE, userId: PILOT_USER });
+    assert.equal(gone, null);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("RETRY LEARNING (review round-5 item 4): retries the governed step directly on an OPEN flag without forcing Clear-then-Reopen, and rejects retrying a non-failed flag", async () => {
+  const wiring = await buildWiring();
+  try {
+    const recordId = await seedJobApplication(wiring);
+    const caller = await makeCaller(wiring);
+
+    const originalPropose = wiring.pipeline.propose.bind(wiring.pipeline);
+    let shouldThrow = true;
+    wiring.pipeline.propose = (async (...args: Parameters<typeof originalPropose>) => {
+      if (shouldThrow) {
+        shouldThrow = false;
+        throw new Error("simulated transient governed-step failure");
+      }
+      return originalPropose(...args);
+    }) as typeof wiring.pipeline.propose;
+
+    const { memory } = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000207", anchor: cellAnchor(recordId), renderedValue: "x" });
+    assert.equal(parseFlag(memory).learningStatus, "failed");
+    assert.equal(parseFlag(memory).status, "open", "the flag itself must stay OPEN — only the learning step failed");
+
+    const { memory: retried } = await caller.redFlag.retryLearning({ workspaceId: PILOT_WORKSPACE, flagId: memory.id, operationId: "00000000-0000-4000-8000-000000000208" });
+    assert.equal(parseFlag(retried).learningStatus, "proposed", "retryLearning must re-attempt the governed step on the SAME open flag, no Clear/Reopen required");
+    assert.equal(parseFlag(retried).status, "open");
+
+    // Retrying an already-proposed flag must be rejected — nothing to retry.
+    await assert.rejects(
+      () => caller.redFlag.retryLearning({ workspaceId: PILOT_WORKSPACE, flagId: retried.id, operationId: "00000000-0000-4000-8000-000000000209" }),
+      (err: unknown) => err instanceof TRPCError && err.code === "CONFLICT",
+    );
   } finally {
     await wiring.close();
   }
@@ -462,6 +532,31 @@ test("SAGA: concurrent first-create on the SAME anchor with DIFFERENT operationI
     assert.equal(rejected.length, 1);
     const rejection = (rejected[0] as PromiseRejectedResult).reason;
     assert.ok(rejection instanceof TRPCError && rejection.code === "CONFLICT");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("SAGA (review round-5 item 10): two DIFFERENT anchors' FIRST-EVER flags in a fresh workspace both provision the SAME workspace red-flag learning Goal concurrently — neither errors, both converge on the identical Goal id", async () => {
+  const wiring = await buildWiring();
+  try {
+    // Two DISTINCT anchors (different applications) so BOTH genuinely reach
+    // step 2 (the governed learning step, which provisions the shared
+    // per-workspace Goal) at the same time — unlike the "same anchor" test
+    // above, where only one caller ever gets past step 1's own CAS lock.
+    const recordIdA = await seedJobApplication(wiring);
+    const recordIdB = await seedJobApplication(wiring);
+    const caller = await makeCaller(wiring);
+    const [a, b] = await Promise.all([
+      caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000c01", anchor: cellAnchor(recordIdA), renderedValue: "a" }),
+      caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000c02", anchor: cellAnchor(recordIdB), renderedValue: "b" }),
+    ]);
+    assert.equal(parseFlag(a.memory).learningStatus, "proposed", "neither concurrent first-ever attempt may fail due to a Goal-provisioning race");
+    assert.equal(parseFlag(b.memory).learningStatus, "proposed");
+
+    const goals = await wiring.goalTasks.listGoals(PILOT_WORKSPACE);
+    const learningGoals = goals.filter((g) => g.type === PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE);
+    assert.equal(learningGoals.length, 1, "exactly ONE red-flag learning Goal must exist for the workspace — a race must never duplicate it");
   } finally {
     await wiring.close();
   }
@@ -550,6 +645,31 @@ test("CAS: clear/reopen/updateReason reject a stale flagId with CONFLICT instead
   }
 });
 
+test("SAGA (review round-5 item 5, 'updateReason-vs-clear'): a REAL concurrent updateReason and clear racing the SAME current flagId — exactly one wins, the other gets CONFLICT, and the lineage is never forked", async () => {
+  const wiring = await buildWiring();
+  try {
+    const recordId = await seedJobApplication(wiring);
+    const caller = await makeCaller(wiring);
+    const { memory } = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000d01", anchor: cellAnchor(recordId), renderedValue: "x" });
+    const results = await Promise.allSettled([
+      caller.redFlag.updateReason({ workspaceId: PILOT_WORKSPACE, flagId: memory.id, reason: "concurrent reason edit" }),
+      caller.redFlag.clear({ workspaceId: PILOT_WORKSPACE, flagId: memory.id }),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    assert.equal(fulfilled.length, 1, "exactly one of the two concurrent actions on the SAME current flag must win");
+    assert.equal(rejected.length, 1);
+    assert.ok((rejected[0] as PromiseRejectedResult).reason instanceof TRPCError && ((rejected[0] as PromiseRejectedResult).reason as TRPCError).code === "CONFLICT");
+    // Whichever won, the lineage must have exactly ONE current version — never forked.
+    const current = await wiring.memoryStore.currentForLineage(PILOT_WORKSPACE, PILOT_USER, memory.subjectElementId!);
+    assert.ok(current);
+    const winnerId = (fulfilled[0] as PromiseFulfilledResult<{ memory: { id: string } }>).value.memory.id;
+    assert.equal(current!.id, winnerId, "the lineage's current version must be exactly the winning action's own result — never a third, forked row");
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("updateReason is a no-op (no new lineage row) when the reason does not actually change", async () => {
   const wiring = await buildWiring();
   try {
@@ -589,6 +709,40 @@ test("ANCHOR IDENTITY: file-only and result-only bullet anchors never collide ev
     await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-00000000000f", anchor: resultAnchor, renderedValue: "result value" });
     const all = await caller.redFlag.listAll({ workspaceId: PILOT_WORKSPACE });
     assert.equal(all.flags.length, 2, "a file-only and a result-only anchor with the identical bulletPath/id string must remain distinct");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("ANCHOR IDENTITY (review round-5 item 6): a module ALIAS never forks a real target's lineage — 'job-pilot' and its canonical spelling 'jobpilot' hash to the SAME lineage key, and a caller flagging the same anchor under either spelling collides on the SAME flag", async () => {
+  const wiring = await buildWiring();
+  try {
+    const recordId = await seedJobApplication(wiring);
+    const caller = await makeCaller(wiring);
+    const aliasAnchor = cellAnchor(recordId); // moduleId: "job-pilot"
+    const canonicalAnchor = { ...aliasAnchor, moduleId: "jobpilot" };
+    // `anchorLineageKey` is the exact function `redFlag.create`'s CAS/lineage
+    // primitive keys off — this is the direct, unit-level proof that the
+    // alias and its canonical spelling are NOT two different real-world
+    // targets from the store's point of view.
+    assert.equal(anchorLineageKey(aliasAnchor), anchorLineageKey(canonicalAnchor), "an alias and its canonical spelling must derive the identical lineage key");
+
+    await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000a10", anchor: aliasAnchor, renderedValue: "x" });
+    // A second create on the SAME real target, spelled with the CANONICAL
+    // module id, must be rejected as "already flagged" (CONFLICT) — exactly
+    // the same behavior as re-flagging with the identical spelling — never
+    // silently accepted as a second, independent flag on what the UI would
+    // treat as a totally different target.
+    await assert.rejects(
+      () => caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: "00000000-0000-4000-8000-000000000a11", anchor: canonicalAnchor, renderedValue: "y" }),
+      (err: unknown) => err instanceof TRPCError && err.code === "CONFLICT",
+    );
+    // And the alternate spelling's `listForAnchor` finds the SAME single flag.
+    const viaAlias = await caller.redFlag.listForAnchor({ workspaceId: PILOT_WORKSPACE, anchor: aliasAnchor });
+    const viaCanonical = await caller.redFlag.listForAnchor({ workspaceId: PILOT_WORKSPACE, anchor: canonicalAnchor });
+    assert.equal(viaAlias.flags.length, 1);
+    assert.equal(viaCanonical.flags.length, 1);
+    assert.equal(viaAlias.flags[0]!.row.id, viaCanonical.flags[0]!.row.id, "both spellings must resolve to the SAME Memory row, not two independent lineages");
   } finally {
     await wiring.close();
   }

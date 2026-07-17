@@ -55,6 +55,39 @@ test("retrieve: contentPathEquals pushes a dot-path JSON predicate into the SQL 
   }
 });
 
+test("retrieve: contentPathEquals never throws on a non-JSON content row anywhere in the queried set (review round-5 item 8)", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleMemoryStore(db);
+    // A large batch of non-JSON, sourceRefType:"feedback" content — plain
+    // text, NOT JSON.stringify'd — simulating a hypothetical unrelated
+    // write path that also happens to classify its content this way.
+    // Reproduced a REAL query failure during development: Postgres does
+    // NOT guarantee left-to-right evaluation of AND-combined conditions,
+    // so a naive unconditional `content::jsonb` cast broke the WHOLE query
+    // once enough non-JSON rows existed for the planner to evaluate the
+    // cast before the sourceRefType filter narrowed anything.
+    for (let i = 0; i < 60; i += 1) {
+      await store.write(
+        draft(`00000000-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`, workspaceId, null, {
+          content: `plain text, not JSON at all #${i} {{{`,
+        }),
+      );
+    }
+    await store.write(draft("00000000-0000-4000-8000-000000000299", workspaceId, { kind: "red_flag", anchor: { moduleId: "initiative" } }));
+
+    const rows = await store.retrieve(
+      { sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }] },
+      { workspaceId, userId: OWNER },
+    );
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.id, "00000000-0000-4000-8000-000000000299");
+  } finally {
+    await close();
+  }
+});
+
 test("retrieve: contentPathEquals with multiple predicates ANDs them together", async () => {
   const { db, close } = await createLocalDb();
   try {

@@ -118,14 +118,32 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (query.type) conds.push(eq(memories.type, query.type));
     if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
     if (query.sourceRefType) conds.push(eq(memories.sourceRefType, query.sourceRefType));
-    // review round-4 item 7: push structured JSON predicates into the SQL
-    // WHERE (a `content::jsonb` path-extraction, no schema migration) rather
-    // than scanning an unbounded/capped page app-side. `path` always comes
-    // from trusted server code (see MemoryQuery's doc comment) — the ARRAY
-    // itself is still a bound parameter, never string-concatenated.
+    // review round-4 item 7 / round-5 item 8: push structured JSON
+    // predicates into the SQL WHERE (no schema migration) rather than
+    // scanning an unbounded/capped page app-side — but NEVER cast arbitrary
+    // `content` to `jsonb` unconditionally: `memories.content` is a plain
+    // `text` column shared by every Memory kind app-wide, so a row from an
+    // unrelated write path with genuinely non-JSON content anywhere in the
+    // table would throw a cast error for the WHOLE query — Postgres does
+    // NOT guarantee left-to-right evaluation of AND-combined conditions (a
+    // real, reproduced failure during development: 50 non-JSON
+    // `sourceRefType: "feedback"` rows alongside one real red-flag row
+    // broke the query even though `sourceRefType = 'feedback'` was ALSO
+    // one of the AND'd conditions). `CASE WHEN content IS JSON THEN ... ELSE
+    // NULL END` is the fix: `IS JSON` (native SQL/Postgres 16+) is a
+    // boolean test, never throws, and CASE — unlike AND/OR — has a
+    // SQL-standard-guaranteed sequential evaluation order, so the `::jsonb`
+    // cast is provably never reached for non-JSON content regardless of
+    // query plan. `path` always comes from trusted server code (see
+    // MemoryQuery's doc comment) — the array itself is still a bound
+    // parameter, never string-concatenated. This is the app-layer interim;
+    // the durable fix (a real, validated JSONB/structured column) is
+    // deferred to the post-RM4 migration per the review that flagged this.
     for (const predicate of query.contentPathEquals ?? []) {
       const pathLiteral = pgTextArrayLiteral(predicate.path.split("."));
-      conds.push(sql`(${memories.content}::jsonb #>> ${sql.raw(`'${pathLiteral}'`)}::text[]) = ${predicate.equals}`);
+      conds.push(
+        sql`(CASE WHEN ${memories.content} IS JSON THEN (${memories.content}::jsonb #>> ${sql.raw(`'${pathLiteral}'`)}::text[]) ELSE NULL END) = ${predicate.equals}`,
+      );
     }
     const order = query.order ?? "desc";
     if (query.cursor) {
@@ -213,7 +231,7 @@ export class DrizzleMemoryStore implements MemoryStore {
         { isolationLevel: "serializable" },
       );
     } catch (err) {
-      if (isSerializationFailure(err)) return null;
+      if (isSerializationFailure(err) || isMemoryIdUniqueViolation(err)) return null;
       throw err;
     }
   }
@@ -296,6 +314,38 @@ export function isSerializationFailure(err: unknown): boolean {
   for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 6; depth++) {
     const pg = e as { code?: unknown; cause?: unknown };
     if (pg.code === SERIALIZATION_FAILURE) return true;
+    e = pg.cause;
+  }
+  return false;
+}
+
+/** Postgres SQLSTATE `23505` ("unique_violation") — scoped specifically to
+ * the `memories` table's own primary key (`memories_pkey`), mirroring
+ * `ledger-store.ts`'s `isRefLedgerUniqueViolation` pattern exactly (same
+ * `.cause`-chain unwrap for the same drizzle-orm wrapping behavior).
+ *
+ * TASK-010 review round-5 item 10 — a deterministic Memory id (e.g. a
+ * red-flag correction's `deterministicUuid(...)`-derived memoryId/
+ * preferenceAdjustmentId) means two genuinely CONCURRENT callers across
+ * DIFFERENT processes/connections can both pass `casSupersede`'s own
+ * `current === expectedCurrentId` compare (each inside its OWN serializable
+ * transaction, each seeing "no current row yet") and then both attempt to
+ * INSERT the identical row id — Postgres's unique index on `memories.id`
+ * catches this as a genuine `23505`, not the `40001` serialization failure
+ * `isSerializationFailure` already handles (a duplicate-PK insert and a
+ * write-skew abort are different failure modes at the database level, even
+ * though both mean the same thing to this CAS primitive's caller: "someone
+ * else already resolved this, re-read"). Scoped to `memories_pkey`
+ * specifically so a DIFFERENT unique constraint on this table (should one
+ * ever exist) is never silently swallowed as a false CAS loss. */
+const MEMORY_ID_UNIQUE_INDEX = "memories_pkey";
+export function isMemoryIdUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 6; depth++) {
+    const pg = e as { code?: unknown; message?: unknown; constraint?: unknown; cause?: unknown };
+    if (pg.code === "23505") {
+      const text = `${String(pg.constraint ?? "")} ${String(pg.message ?? "")}`;
+      if (text.includes(MEMORY_ID_UNIQUE_INDEX)) return true;
+    }
     e = pg.cause;
   }
   return false;

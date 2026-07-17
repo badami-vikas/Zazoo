@@ -13,7 +13,7 @@
  * clear/reopen/forget click can safely chain off the SAVE's own returned
  * id instead of a stale closure value.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { trpc, PILOT_WORKSPACE } from '../../lib/trpc';
 
 type CreateInput = Parameters<typeof trpc.redFlag.create.mutate>[0];
@@ -56,6 +56,12 @@ function toRow(memory: RedFlagMemory): RedFlagRow | null {
 interface RedFlagContextValue {
   flagFor(anchor: RedFlagAnchor): RedFlagRow | null;
   loading: boolean;
+  /** review round-5 item 11 — true only while the MOST RECENT refresh
+   * attempt failed; distinct from `loading` (never yet loaded) and from a
+   * genuinely empty scope (`rows === []` with `error === false`). Last-good
+   * `rows` from an earlier successful load are preserved across an error —
+   * a transient network blip must never make existing flags disappear. */
+  error: boolean;
   create(input: { anchor: RedFlagAnchor; renderedValue: string; renderedVersion?: string; reason?: string }): Promise<RedFlagMemory>;
   clear(flagId: string): Promise<RedFlagMemory>;
   reopen(flagId: string): Promise<RedFlagMemory>;
@@ -63,6 +69,7 @@ interface RedFlagContextValue {
   forget(flagId: string): Promise<void>;
   enactCorrection(flagId: string): Promise<RedFlagMemory>;
   revokeCorrection(flagId: string): Promise<RedFlagMemory>;
+  retryLearning(flagId: string): Promise<RedFlagMemory>;
 }
 
 const RedFlagContext = createContext<RedFlagContextValue | null>(null);
@@ -75,13 +82,36 @@ export function useRedFlagContext(): RedFlagContextValue {
 
 export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; children: ReactNode }) {
   const [rows, setRows] = useState<RedFlagRow[] | null>(null);
+  const [error, setError] = useState(false);
   const scopeKey = JSON.stringify(scope);
+  /** review round-5 item 11 — "generation/abort guard overlapping
+   * refreshes": every refresh() call stamps the CURRENT generation before
+   * firing its query, and only applies its result if it is STILL the most
+   * recent refresh when the response lands. Without this, an older
+   * in-flight request (e.g. the initial mount's refresh(), or a scope
+   * change's refresh()) that happens to resolve AFTER a newer one (a
+   * mutation's own applyLocally()-triggered refresh()) could silently
+   * overwrite fresher data with stale data — a classic out-of-order-
+   * response race, not merely a duplicate-request inefficiency. */
+  const generationRef = useRef(0);
 
   const refresh = useCallback(() => {
+    const generation = ++generationRef.current;
     trpc.redFlag.listForScope
       .query({ workspaceId: PILOT_WORKSPACE, ...scope })
-      .then((result) => setRows(result.flags))
-      .catch(() => setRows([]));
+      .then((result) => {
+        if (generationRef.current !== generation) return; // a newer refresh already landed or is in flight
+        setRows(result.flags);
+        setError(false);
+      })
+      .catch(() => {
+        if (generationRef.current !== generation) return;
+        // Preserve the last KNOWN-GOOD rows (never clobber real flags with
+        // an empty array just because a request failed) — only flip the
+        // `error` flag so a caller can distinguish "genuinely empty" from
+        // "we don't currently know."
+        setError(true);
+      });
     // Depends on `scopeKey` (a stable JSON string), not the `scope` object
     // reference itself, since callers may pass a fresh object literal each
     // render.
@@ -112,6 +142,7 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
         const withoutStale = base.filter((r) => anchorMatchKey(r.value.anchor) !== key);
         return [...withoutStale, next];
       });
+      setError(false); // a successful mutation proves we're not in a genuine error state
     }
     refresh();
     return memory;
@@ -121,7 +152,17 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
     () => ({
       flagFor: (anchor) => byKey.get(anchorMatchKey(anchor)) ?? null,
       loading: rows === null,
+      error,
       create: async (input) => {
+        // review round-5 item 11 — "disable create until initial load":
+        // before the batched scope query has EVER completed once, we
+        // genuinely don't know whether this anchor already has an open
+        // flag someone else recorded — creating blind risks a confusing
+        // CONFLICT (or, worse, a Human believing they just flagged
+        // something for the first time when it was already flagged).
+        if (rows === null) {
+          throw new Error('Red flag data is still loading — please wait a moment and try again.');
+        }
         const { memory } = await trpc.redFlag.create.mutate({ workspaceId: PILOT_WORKSPACE, operationId: crypto.randomUUID(), ...input });
         return applyLocally(memory);
       },
@@ -150,8 +191,16 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
         const { memory } = await trpc.redFlag.revokeCorrection.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
         return applyLocally(memory);
       },
+      retryLearning: async (flagId) => {
+        // review round-5 item 4: a stable client operationId, same
+        // idempotency contract as create() — a client's own retry-of-a-
+        // retry (e.g. a double-click before the first response lands)
+        // converges instead of attempting the governed step twice.
+        const { memory } = await trpc.redFlag.retryLearning.mutate({ workspaceId: PILOT_WORKSPACE, flagId, operationId: crypto.randomUUID() });
+        return applyLocally(memory);
+      },
     }),
-    [byKey, rows, refresh],
+    [byKey, rows, error, refresh],
   );
 
   return <RedFlagContext.Provider value={value}>{children}</RedFlagContext.Provider>;
