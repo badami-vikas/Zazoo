@@ -168,11 +168,16 @@ export {
   rollbackFromHistory,
   type PromoteResult,
 } from "./package/lifecycle.js";
-export { InMemoryPackageStore, type PackageStore } from "./package/ports.js";
+export {
+  InMemoryPackageStore,
+  type PackageAttachmentTarget,
+  type PackageStore,
+} from "./package/ports.js";
 // PKG-2 (Month-6) Commons supply-chain trust — pure signing/verification policy
 // + canonicalization + TLS-by-default (crypto itself is bound at the seam).
 export {
   canonicalizeManifest,
+  canonicalizeJson,
   verifyManifestSignature,
   toSignedEnvelope,
   assertCommonsUrlTls,
@@ -185,6 +190,19 @@ export {
   type ManifestVerificationResult,
   type VerifyManifestOptions,
 } from "./package/signing.js";
+export {
+  canonicalizeCommonsContent,
+  canonicalizeCommonsSignedPayload,
+  commonsPackageContent,
+  computeCommonsContentHash,
+  normalizeCommonsTags,
+  verifyCommonsEntry,
+  verifyCommonsEntryContent,
+  type CommonsPackageContent,
+  type CommonsEntryVerificationFailure,
+  type CommonsEntryVerificationResult,
+  type ContentHasher,
+} from "./package/commons-trust.js";
 
 // PI-2 tainted-context egress gate + PI-3 dual-LLM quarantine / spotlighting (Month-3
 // prompt-injection defenses; ADR-066/067). The pipeline enforces the egress gate
@@ -243,6 +261,11 @@ export {
   type CommonsPackageDetail,
   type CommonsListQuery,
   type CommonsListResult,
+  type CommonsProvenance,
+  type CommonsSecurityCheck,
+  type CommonsDependencyPin,
+  type CommonsSecurityScan,
+  type CommonsContentHash,
 } from "./package/commons.js";
 
 // Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar",

@@ -112,6 +112,14 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
           trigger: "Manual",
           procedure: "dummy.intake",
         }],
+        commons_needs: [{
+          id: "calendar-availability",
+          title: "Check availability",
+          description: "Read Calendar availability before proposing a time.",
+          agent_id: "operator",
+          kind: "skill",
+          tags: ["need:calendar-availability"],
+        }],
       },
     }),
   );
@@ -119,24 +127,57 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
   assert.equal(parsed.module?.displayName, "Dummy");
   assert.deepEqual(parsed.module?.agents[0]?.skillIds, ["dummy.skill"]);
   assert.equal(parsed.module?.automations[0]?.agentId, "operator");
+  assert.equal(parsed.module?.commonsNeeds?.[0]?.agentId, "operator");
 });
 
-test("parsePackageManifest: rejects a Module display name that traverses the File root", () => {
+test("parsePackageManifest: rejects a Commons need without an attributable Module Agent", () => {
   assert.throws(
     () =>
       parsePackageManifest(
         rawManifest({
+          capabilities: [
+            { id: "dummy.agent", capability_type: "agent", permissions: [] },
+            { id: "dummy.skill", capability_type: "skill", permissions: [] },
+          ],
           module: {
-            display_name: " .. ",
+            display_name: "Dummy",
             route: "/dummy",
             pages: [],
-            agents: [],
+            agents: [{ id: "operator", name: "Operator", capability_id: "dummy.agent", skill_ids: ["dummy.skill"] }],
             automations: [],
+            commons_needs: [{
+              id: "missing-owner",
+              title: "Missing owner",
+              description: "This need names an undeclared Agent.",
+              agent_id: "other-agent",
+              kind: "skill",
+              tags: ["need:missing-owner"],
+            }],
           },
         }),
       ),
-    /display_name cannot be a relative path segment/,
+    /declared module agent/,
   );
+});
+
+test("parsePackageManifest: rejects a Module display name that traverses the File root", () => {
+  for (const displayName of [" . ", " .. "]) {
+    assert.throws(
+      () =>
+        parsePackageManifest(
+          rawManifest({
+            module: {
+              display_name: displayName,
+              route: "/dummy",
+              pages: [],
+              agents: [],
+              automations: [],
+            },
+          }),
+        ),
+      /display_name cannot be a relative path segment/,
+    );
+  }
 });
 
 test("parsePackageManifest: rejects a Module Skill not owned by a declared capability", () => {

@@ -44,6 +44,8 @@ export interface PipelineDeps {
 export interface ProposeOptions {
   /** Server-owned stable ID for an idempotent proposal. Never expose this to untrusted callers. */
   proposalId?: string;
+  /** Server-owned floor for transitions whose domain contract always requires a Human decision. */
+  requireHumanReview?: boolean;
 }
 
 /**
@@ -224,7 +226,7 @@ export class UniversalActionPipeline {
     if (egressGate) all.push(egressGate);
 
     // 5) Review gate — append ledger row, status by approval requirement.
-    if (requiresApproval(req.actor.type, all)) {
+    if (options.requireHumanReview === true || requiresApproval(req.actor.type, all)) {
       const entry = await this.#appendLedger(req, output, all, null, ctx, options.proposalId);
       return {
         id: entry.id,

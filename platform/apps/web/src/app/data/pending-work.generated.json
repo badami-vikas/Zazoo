@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T22:24:12.114Z",
+  "generatedAt": "2026-07-17T00:10:35.275Z",
   "items": [
     {
       "id": "TASK-001",
@@ -70,7 +70,7 @@
     {
       "id": "TASK-004",
       "title": "TASK-004 — Commons install and trust prototype",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.",
@@ -80,19 +80,19 @@
         "docs/raw/module-evolution-system-2026-07.md"
       ],
       "evidence": [
-        "2026-07-16 state check supersedes the stale e5edafc audit: signed Commons transport, tRPC consumption, governed package install, TLS enforcement, privacy gate, and tamper/untrusted-key rejection exist",
-        "explicit content-hash provenance, deterministic publish scan, Module-scoped search/install, and owning-Module attachment remain"
+        "e5edafc audit",
+        "`outputs/2026-07-16-task004-commons-task005-glue.md` — clean local Commons/API/web desktop+375px Prototype test plus final review passed with Ed25519, closed provenance, signed hash/dependency/scan inspection, stable Human-review install finalization/reconciliation, current Module-need revalidation, governed Agent attachment, rejection/privacy tests, and no marketplace route"
       ],
       "requests": [
         "R-004",
         "R-016",
         "R-026"
       ],
-      "approval": "none",
+      "approval": "AP-031 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 93,
@@ -117,7 +117,7 @@
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "none",
+      "approval": "AP-031 applied for the bounded gate-glue implementation only; no DONE approval",
       "dependencies": [
         "TASK-001",
         "TASK-002",
@@ -157,7 +157,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 201,
+      "sourceLine": 203,
       "rank": 5
     },
     {
@@ -190,7 +190,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 189,
+      "sourceLine": 191,
       "rank": 6
     },
     {
@@ -219,7 +219,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 165,
+      "sourceLine": 167,
       "rank": 7
     },
     {
@@ -251,7 +251,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 141,
+      "sourceLine": 143,
       "rank": 8
     },
     {
@@ -283,7 +283,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 129,
+      "sourceLine": 131,
       "rank": 9
     },
     {
@@ -315,7 +315,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 213,
+      "sourceLine": 215,
       "rank": 10
     },
     {
@@ -344,7 +344,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 225,
+      "sourceLine": 227,
       "rank": 11
     },
     {
@@ -373,7 +373,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 237,
+      "sourceLine": 239,
       "rank": 12
     },
     {
@@ -406,7 +406,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 249,
+      "sourceLine": 251,
       "rank": 13
     },
     {
@@ -434,7 +434,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 117,
+      "sourceLine": 119,
       "rank": 14
     },
     {
@@ -462,7 +462,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
+      "sourceLine": 179,
       "rank": 15
     },
     {
@@ -490,7 +490,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
+      "sourceLine": 155,
       "rank": 16
     },
     {
@@ -554,7 +554,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 285,
+      "sourceLine": 287,
       "rank": 18
     },
     {
@@ -582,7 +582,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 261,
+      "sourceLine": 263,
       "rank": 19
     },
     {
@@ -609,7 +609,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 273,
+      "sourceLine": 275,
       "rank": 20
     }
   ]

@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SignJWT } from "jose";
-import { corsOriginConfig, rateLimitBucket, rateLimitConfig, assertProductionEnv, buildServer } from "../src/server.js";
+import {
+  assertProductionEnv,
+  buildServer,
+  corsOriginConfig,
+  rateLimitBucket,
+  rateLimitConfig,
+  serverHostConfig,
+} from "../src/server.js";
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prior: Record<string, string | undefined> = {};
@@ -69,6 +76,24 @@ test("CORS (SEC-2): a configured verifier forces restrictive CORS even in non-pr
   // The whole point of SEC-2: an auth-enabled server must not also echo `origin: true`.
   withEnv({ API_ALLOWED_ORIGINS: undefined, NODE_ENV: "development", SUPABASE_JWT_SECRET: "test_fixture_secret", SUPABASE_URL: undefined }, () => {
     assert.deepEqual(corsOriginConfig(), []);
+  });
+
+  test("server host: pure local dev is loopback-only; shared deployments require an explicit network boundary", () => {
+    withEnv({
+      API_HOST: undefined,
+      NODE_ENV: "development",
+      DATABASE_URL: undefined,
+      SUPABASE_JWT_SECRET: undefined,
+      SUPABASE_URL: undefined,
+    }, () => {
+      assert.equal(serverHostConfig(), "127.0.0.1");
+    });
+    withEnv({ API_HOST: undefined, NODE_ENV: "production" }, () => {
+      assert.equal(serverHostConfig(), "0.0.0.0");
+    });
+    withEnv({ API_HOST: "192.0.2.10", NODE_ENV: "development" }, () => {
+      assert.equal(serverHostConfig(), "192.0.2.10");
+    });
   });
   withEnv({ API_ALLOWED_ORIGINS: undefined, NODE_ENV: undefined, SUPABASE_JWT_SECRET: undefined, SUPABASE_URL: "https://test_fixture.supabase.co" }, () => {
     assert.deepEqual(corsOriginConfig(), []);
@@ -227,6 +252,11 @@ test("public Helpdesk create/read/reply paths use the tight sensitive rate bucke
   assert.equal(rateLimitBucket("/trpc/helpdesk.public.createTicket"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/helpdesk.public.getThread?batch=1"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/helpdesk.public.reply"), "sensitive");
+});
+
+test("governed Automation Runs use the tight sensitive rate bucket", () => {
+  assert.equal(rateLimitBucket("/trpc/ritual.runById"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/health"), "global");
 });
 
 test("SEC-2: rateLimitConfig honors env overrides and falls back to safe defaults", () => {

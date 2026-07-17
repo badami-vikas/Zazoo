@@ -8,4 +8,9 @@ export { buildWiring, type Wiring } from "./wiring.js";
 export type { ApiContext } from "./context.js";
 // Universal Commons fetch adapter over @bridge/core's CommonsRegistry port —
 // local service today, Bridge Cloud later (COMMONS_URL config-only swap).
-export { HttpCommonsClient, commonsUrlFromEnv, DEFAULT_COMMONS_URL } from "./commons-client.js";
+export {
+  HttpCommonsClient,
+  commonsUrlFromEnv,
+  trustedCommonsPublicKeysFromEnv,
+  DEFAULT_COMMONS_URL,
+} from "./commons-client.js";

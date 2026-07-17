@@ -71,7 +71,13 @@ export default function Layout() {
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((res) => {
         const available = res.items
-          .filter((p) => p.state === "available" && p.status === "installed")
+          .filter(
+            (p) =>
+              p.state === "available" &&
+              p.status === "installed" &&
+              p.manifest?.module !== undefined &&
+              p.moduleAttachment === undefined,
+          )
           .map((p) => ({
             packageName: p.packageName,
             displayName: p.manifest?.module?.displayName ?? p.manifest?.name ?? p.packageName,

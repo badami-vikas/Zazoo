@@ -9,10 +9,10 @@
  * @bridge/core stays zero-runtime-deps, no zod there).
  *
  * Idempotency (ADR-023, docs/BUGS.md "capability re-registration idempotency"):
- * `create()` treats (workspaceId, packageName, packageVersion) as a logical
- * key — a second `create()` call with the SAME name+version returns the
- * EXISTING row unchanged rather than inserting a duplicate or throwing a
- * unique-constraint error. This mirrors how `capability.register` re-running
+ * `create()` treats workspace/package/version plus Module-Agent-need attachment
+ * as a logical key — a retry returns the EXISTING row unchanged rather than
+ * inserting a duplicate or throwing a unique-constraint error. This mirrors
+ * how `capability.register` re-running
  * bundled-capability registration during a package's `install` step would
  * otherwise collide with `capability_manifests_uq` (workspace_id, name,
  * version) on every re-install of the SAME version — see the paired fix in
@@ -24,7 +24,14 @@
  */
 import { and, eq, count } from "drizzle-orm";
 import { z } from "zod";
-import type { PackageInstallationRow, PackageManifest, PackageStore, PackageVersionState } from "@bridge/core";
+import { canonicalizeManifest } from "@bridge/core";
+import type {
+  PackageAttachmentTarget,
+  PackageInstallationRow,
+  PackageManifest,
+  PackageStore,
+  PackageVersionState,
+} from "@bridge/core";
 import type { Database } from "./client.js";
 import { packageInstallations } from "./schema.js";
 
@@ -53,6 +60,14 @@ const packageManifestSchema = z
   })
   .passthrough();
 
+const moduleAttachmentSchema = z.object({
+  source: z.literal("commons"),
+  modulePackageName: z.string().min(1),
+  agentId: z.string().min(1),
+  needId: z.string().min(1),
+  contentHash: z.string().startsWith("sha256:"),
+});
+
 /**
  * Validate `package_installations.manifest` jsonb. Throws loudly on a
  * malformed shape rather than silently treating a corrupted manifest as
@@ -69,6 +84,9 @@ export function parsePackageManifestRow(raw: unknown): PackageManifest {
 }
 
 function unpack(row: typeof packageInstallations.$inferSelect): PackageInstallationRow {
+  const moduleAttachment = row.moduleAttachment === null
+    ? undefined
+    : moduleAttachmentSchema.parse(row.moduleAttachment);
   return {
     id: row.id,
     workspaceId: row.workspaceId,
@@ -79,8 +97,50 @@ function unpack(row: typeof packageInstallations.$inferSelect): PackageInstallat
     state: row.state as PackageVersionState,
     status: row.status as PackageInstallationRow["status"],
     lineageManifestId: row.lineageManifestId,
+    ...(moduleAttachment ? { moduleAttachment } : {}),
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function sameAttachment(
+  left: PackageInstallationRow["moduleAttachment"],
+  right: PackageInstallationRow["moduleAttachment"],
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.source === right.source &&
+    left.modulePackageName === right.modulePackageName &&
+    left.agentId === right.agentId &&
+    left.needId === right.needId &&
+    left.contentHash === right.contentHash
+  );
+}
+
+function matchesAttachmentTarget(
+  row: PackageInstallationRow,
+  target: PackageAttachmentTarget | undefined,
+): boolean {
+  if (!target) return row.moduleAttachment === undefined;
+  return Boolean(
+    row.moduleAttachment &&
+      row.moduleAttachment.modulePackageName === target.modulePackageName &&
+      row.moduleAttachment.agentId === target.agentId &&
+      row.moduleAttachment.needId === target.needId,
+  );
+}
+
+function assertSameImmutableContent(
+  existing: PackageInstallationRow,
+  incoming: Omit<PackageInstallationRow, "id" | "createdAt">,
+  validatedManifest: PackageManifest,
+): void {
+  if (
+    canonicalizeManifest(existing.manifest) !== canonicalizeManifest(validatedManifest) ||
+    existing.lineageManifestId !== incoming.lineageManifestId ||
+    !sameAttachment(existing.moduleAttachment, incoming.moduleAttachment)
+  ) {
+    throw new Error("package_installations: conflicting immutable content for attachment identity");
+  }
 }
 
 export class DrizzlePackageStore implements PackageStore {
@@ -90,14 +150,13 @@ export class DrizzlePackageStore implements PackageStore {
   }
 
   /**
-   * Idempotent on (workspaceId, packageName, packageVersion): a re-register
-   * of the SAME name+version returns the existing row unchanged instead of
-   * inserting a duplicate (see module doc comment). A genuinely new version
-   * always inserts a fresh row.
+   * Idempotent on workspace/package/version plus attachment identity. A
+   * re-register returns the existing row unchanged; a new version or distinct
+   * declared Module-Agent-need attachment inserts a fresh row.
    */
   async create(row: Omit<PackageInstallationRow, "id" | "createdAt">): Promise<PackageInstallationRow> {
     const validatedManifest = parsePackageManifestRow(row.manifest);
-    const existing = await this.#db
+    const existingRows = await this.#db
       .select()
       .from(packageInstallations)
       .where(
@@ -106,10 +165,13 @@ export class DrizzlePackageStore implements PackageStore {
           eq(packageInstallations.packageName, row.packageName),
           eq(packageInstallations.packageVersion, row.packageVersion),
         ),
-      )
-      .limit(1);
-    if (existing[0]) {
-      return unpack(existing[0]);
+      );
+    const existing = existingRows
+      .map(unpack)
+      .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
+    if (existing) {
+      assertSameImmutableContent(existing, row, validatedManifest);
+      return existing;
     }
 
     const [inserted] = await this.#db
@@ -123,10 +185,28 @@ export class DrizzlePackageStore implements PackageStore {
         state: row.state,
         status: row.status,
         ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
+        ...(row.moduleAttachment ? { moduleAttachment: row.moduleAttachment } : {}),
       })
+      .onConflictDoNothing()
       .returning();
-    if (!inserted) throw new Error("package_installations: insert returned no row");
-    return unpack(inserted);
+    if (inserted) return unpack(inserted);
+
+    const racedRows = await this.#db
+      .select()
+      .from(packageInstallations)
+      .where(
+        and(
+          eq(packageInstallations.workspaceId, row.workspaceId),
+          eq(packageInstallations.packageName, row.packageName),
+          eq(packageInstallations.packageVersion, row.packageVersion),
+        ),
+      );
+    const raced = racedRows
+      .map(unpack)
+      .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
+    if (!raced) throw new Error("package_installations: conflicting insert did not match the attachment identity");
+    assertSameImmutableContent(raced, row, validatedManifest);
+    return raced;
   }
 
   async get(id: string): Promise<PackageInstallationRow | null> {
@@ -159,7 +239,11 @@ export class DrizzlePackageStore implements PackageStore {
     return rows.map(unpack);
   }
 
-  async getAvailable(workspaceId: string, packageName: string): Promise<PackageInstallationRow | null> {
+  async getAvailable(
+    workspaceId: string,
+    packageName: string,
+    attachmentTarget?: PackageAttachmentTarget,
+  ): Promise<PackageInstallationRow | null> {
     const rows = await this.#db
       .select()
       .from(packageInstallations)
@@ -169,16 +253,24 @@ export class DrizzlePackageStore implements PackageStore {
           eq(packageInstallations.packageName, packageName),
           eq(packageInstallations.state, "available"),
         ),
-      )
-      .limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+      );
+    return rows.map(unpack).find((row) => matchesAttachmentTarget(row, attachmentTarget)) ?? null;
   }
 
   async setState(id: string, state: PackageVersionState): Promise<PackageInstallationRow> {
     const [updated] = await this.#db
       .update(packageInstallations)
       .set({ state })
+      .where(eq(packageInstallations.id, id))
+      .returning();
+    if (!updated) throw new Error(`package_installations: unknown id ${id}`);
+    return unpack(updated);
+  }
+
+  async setComputedRisk(id: string, risk: PackageInstallationRow["computedRisk"]): Promise<PackageInstallationRow> {
+    const [updated] = await this.#db
+      .update(packageInstallations)
+      .set({ computedRisk: risk })
       .where(eq(packageInstallations.id, id))
       .returning();
     if (!updated) throw new Error(`package_installations: unknown id ${id}`);

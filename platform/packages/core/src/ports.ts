@@ -216,12 +216,17 @@ export interface RitualDefinition {
   id: string;
   name: string;
   workspaceId: string;
+  /** Owning Agent. Optional only so legacy/unbound rows can be loaded and rejected explicitly at execution. */
+  agentId?: string;
+  /** Execution residency for the owning Agent. Optional only for legacy rows, which execution rejects. */
+  agentPlane?: import("./types.js").Plane;
   steps: RitualStepDef[];
 }
 
 /** Loads ritual definitions — the `rituals` table (Drizzle) or in-memory in dev. */
 export interface RitualRegistry {
   load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null>;
+  save(definition: RitualDefinition): Promise<void>;
 }
 
 /**

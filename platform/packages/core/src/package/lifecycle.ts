@@ -99,6 +99,11 @@ export function rollbackFromHistory(args: {
   if (currentAvailable.workspaceId !== rollbackTarget.workspaceId) {
     throw new Error("package lifecycle: rollback target must be in the same workspace");
   }
+  if (currentAvailable.moduleAttachment || rollbackTarget.moduleAttachment) {
+    throw new Error(
+      "package lifecycle: signed Commons installations cannot be forked locally; install the exact signed version instead",
+    );
+  }
 
   const newVersion = `${currentAvailable.packageVersion}-rollback-from-${rollbackTarget.packageVersion}`;
   return {

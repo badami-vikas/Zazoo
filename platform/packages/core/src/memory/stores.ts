@@ -362,6 +362,11 @@ export class InMemoryRitualRegistry implements RitualRegistry {
     this.rituals.set(`${def.workspaceId}:${def.id}`, def);
     return this;
   }
+  async save(def: RitualDefinition): Promise<void> {
+    if (!def.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
+    if (!def.agentPlane) throw new Error("RitualRegistry.save: owning agentPlane is required");
+    this.register(def);
+  }
   async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
     return this.rituals.get(`${workspaceId}:${ritualId}`) ?? null;
   }

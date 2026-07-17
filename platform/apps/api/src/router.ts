@@ -49,6 +49,8 @@ import {
   parseSkillMention,
   invokeAgent,
   buildCommunicationsSystemPrompt,
+  canonicalizeJson,
+  normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
   findFoundationalAgent,
   buildChiefOfStaffPersona,
@@ -57,6 +59,7 @@ import {
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
+  maxRisk,
   evaluateSandboxRequirement,
   isUntrustedOrigin,
   trustGrantsForOrigin,
@@ -75,8 +78,11 @@ import {
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
+  type PackageManifest,
+  type CommonsPackageEntry,
   type CommonsListQuery,
   type CommonsPackageDetail,
+  type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
@@ -84,7 +90,13 @@ import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@
 import { scoreThesisFit, type ThesisProfile } from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
-import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
+import {
+  COMMONS_BUILT_IN_PACKAGES,
+  isModuleRuntimeRitualId,
+  resolveModuleAgentRuntimeId,
+  resolveModuleRitualRuntimeId,
+} from "./built-in-packages.js";
+import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
@@ -98,12 +110,20 @@ type OutreachDraftResult =
     };
 const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
 
-function stableOutreachProposalId(key: string): string {
+function stableProposalId(key: string): string {
   const hex = createHash("sha256").update(key).digest("hex").slice(0, 32).split("");
   hex[12] = "5";
   hex[16] = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
   const value = hex.join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function stableOutreachProposalId(key: string): string {
+  return stableProposalId(key);
+}
+
+function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
+  return stableProposalId(`package-install:${workspaceId}:${installationId}`);
 }
 
 /**
@@ -172,7 +192,7 @@ const requireAuthenticatedIdentity = t.middleware(async ({ ctx, next }) => {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message:
-        "authentication required: this deployment verifies identities (or persists data), " +
+        "authentication required: verified authentication is required because this deployment verifies identities (or persists data), " +
         "but the request presented no verified credentials",
     });
   }
@@ -409,11 +429,14 @@ const ritualRunInput = z.object({
 const ritualRunByIdInput = z.object({
   workspaceId: z.string().min(1),
   ritualId: z.string().min(1),
-  actor: actorSchema,
+  modulePackageName: z.string().min(1).optional(),
+  actor: actorSchema.optional(),
   onBehalfOf: onBehalfOfSchema.optional(),
   params: z.record(z.unknown()).optional(),
   seed: z.string().optional(),
 });
+
+const toolRunInput = ritualRunByIdInput.extend({ actor: actorSchema });
 
 /** Layered, gated agent permissions (least-privilege; cf. Google incremental scopes).
  * `send` is intentionally NOT an egress tier — agents may never send (human-only). */
@@ -725,6 +748,207 @@ function resolverFrom(rows: Map<string, CapabilityManifestRow>): (id: string) =>
   };
 }
 
+function packageInstallIdFromProposal(entry: LedgerEntry): string | undefined {
+  if (typeof entry.inputs !== "object" || entry.inputs === null || Array.isArray(entry.inputs)) return undefined;
+  const inputs = entry.inputs as Record<string, unknown>;
+  if (inputs.operation !== "package_install" || typeof inputs.installationId !== "string") return undefined;
+  if (entry.resourceId !== inputs.installationId) return undefined;
+  if (entry.id !== stablePackageInstallProposalId(entry.workspaceId, inputs.installationId)) return undefined;
+  return inputs.installationId;
+}
+
+async function findPendingProposalById(
+  wiring: Wiring,
+  workspaceId: string,
+  proposalId: string,
+): Promise<(Proposal & { createdAt: string }) | null> {
+  let offset = 0;
+  while (true) {
+    const page = await wiring.pipeline.listPending(workspaceId, { limit: 200, offset });
+    const found = page.items.find((proposal) => proposal.id === proposalId);
+    if (found) return found;
+    offset += page.items.length;
+    if (page.items.length === 0 || offset >= page.total) return null;
+  }
+}
+
+async function assertCurrentCommonsAttachment(
+  wiring: Wiring,
+  installation: PackageInstallationRow,
+): Promise<CommonsPackageEntry | null> {
+  const attachment = installation.moduleAttachment;
+  if (!attachment) return null;
+  const ownerModule = await wiring.packageStore.getAvailable(
+    installation.workspaceId,
+    attachment.modulePackageName,
+  );
+  if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `owning Module "${attachment.modulePackageName}" is no longer installed`,
+    });
+  }
+  const need = ownerModule.manifest.module.commonsNeeds?.find(
+    (candidate) => candidate.id === attachment.needId,
+  );
+  if (!need || need.agentId !== attachment.agentId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons capability need is no longer owned by the attached Module Agent",
+    });
+  }
+  const entry = await wiring.commonsRegistry.getVersion(
+    installation.packageName,
+    installation.packageVersion,
+  );
+  if (!entry || entry.integrity.value !== attachment.contentHash) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons installation no longer matches its pinned root artifact",
+    });
+  }
+  try {
+    assertCommonsEntryContentTrusted(entry);
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : "Commons root artifact failed trust verification",
+    });
+  }
+  if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons package no longer satisfies the declared Module need",
+    });
+  }
+  if (
+    entry.manifest.capabilities.length === 0 ||
+    entry.manifest.capabilities.some((capability) => capability.capabilityType !== "skill")
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Only Skill packages can remain attached beneath a Module Agent",
+    });
+  }
+  return entry;
+}
+
+async function verifiedCommonsDependencyInstallations(
+  wiring: Wiring,
+  root: PackageInstallationRow,
+  rootEntry: CommonsPackageEntry | null,
+): Promise<PackageInstallationRow[]> {
+  if (!root.moduleAttachment || !rootEntry) return [];
+  const { items } = await wiring.packageStore.list(root.workspaceId, { limit: 10_000, offset: 0 });
+  const pins = new Map<string, string>(
+    (rootEntry.securityScan.dependencyPins ?? []).map(
+      (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+    ),
+  );
+  const found = new Map<string, PackageInstallationRow>();
+  const visited = new Set<string>();
+  const visit = async (entry: CommonsPackageEntry): Promise<void> => {
+    for (const dependency of entry.manifest.dependencies) {
+      const key = `${dependency.manifestId}@${dependency.version}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const expectedHash = pins.get(key);
+      const dependencyEntry = await wiring.commonsRegistry.getVersion(
+        dependency.manifestId,
+        dependency.version,
+      );
+      if (!dependencyEntry || !expectedHash || dependencyEntry.integrity.value !== expectedHash) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+        });
+      }
+      try {
+        assertCommonsEntryContentTrusted(dependencyEntry);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : `Commons dependency "${key}" failed trust verification`,
+        });
+      }
+      const local = items.find(
+        (candidate) =>
+          candidate.packageName === dependency.manifestId &&
+          candidate.packageVersion === dependency.version &&
+          candidate.moduleAttachment?.source === "commons" &&
+          candidate.moduleAttachment.modulePackageName === root.moduleAttachment?.modulePackageName &&
+          candidate.moduleAttachment.agentId === root.moduleAttachment?.agentId &&
+          candidate.moduleAttachment.needId === root.moduleAttachment?.needId &&
+          candidate.moduleAttachment.contentHash === expectedHash,
+      );
+      if (!local || !["private", "promoted", "available"].includes(local.state)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Commons dependency "${key}" is not staged in an activatable state`,
+        });
+      }
+      found.set(local.id, local);
+      for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
+        pins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+      }
+      await visit(dependencyEntry);
+    }
+  };
+  await visit(rootEntry);
+  return [...found.values()];
+}
+
+async function activateApprovedPackageInstallation(
+  wiring: Wiring,
+  workspaceId: string,
+  installationId: string,
+): Promise<PackageInstallationRow> {
+  let installation = await wiring.packageStore.get(installationId);
+  if (!installation || installation.workspaceId !== workspaceId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+  }
+  const rootEntry = await assertCurrentCommonsAttachment(wiring, installation);
+  const dependencies = await verifiedCommonsDependencyInstallations(wiring, installation, rootEntry);
+  for (const dependency of dependencies) {
+    await wiring.packageStore.setComputedRisk(
+      dependency.id,
+      maxRisk(dependency.computedRisk, installation.computedRisk),
+    );
+    await wiring.packageStore.setStatus(dependency.id, "installed");
+    let current = (await wiring.packageStore.get(dependency.id))!;
+    if (current.state === "private") current = await wiring.packageStore.setState(current.id, "promoted");
+    if (current.state === "promoted") {
+      const available = await wiring.packageStore.getAvailable(
+        workspaceId,
+        current.packageName,
+        current.moduleAttachment,
+      );
+      const promotion = promoteToAvailable(current, available);
+      await wiring.packageStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
+      if (promotion.demoted) {
+        await wiring.packageStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
+      }
+    } else if (current.state !== "available") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Commons dependency cannot activate from state "${current.state}"`,
+      });
+    }
+  }
+  if (installation.status !== "installed") {
+    installation = await wiring.packageStore.setStatus(installation.id, "installed");
+  }
+  if (installation.state === "private") {
+    installation = await wiring.packageStore.setState(installation.id, "promoted");
+  } else if (installation.state !== "promoted" && installation.state !== "available") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `package installation cannot activate from state "${installation.state}"`,
+    });
+  }
+  return installation;
+}
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -971,8 +1195,22 @@ export const appRouter = t.router({
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
       try {
+        const packageInstallationId = packageInstallIdFromProposal(original);
+        const packageInstallation =
+          packageInstallationId && input.decision !== "veto"
+            ? await activateApprovedPackageInstallation(
+                ctx.wiring,
+                original.workspaceId,
+                packageInstallationId,
+              )
+            : undefined;
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
-        return { ...resolved, effects, effectsStatus: "confirmed" as const };
+        return {
+          ...resolved,
+          effects,
+          effectsStatus: "confirmed" as const,
+          ...(packageInstallation ? { packageInstallation } : {}),
+        };
       } catch (cause) {
         const effectsError = cause instanceof Error ? cause.message : String(cause);
         let effectsAuditId: string | undefined;
@@ -1194,13 +1432,18 @@ export const appRouter = t.router({
      * authority (ritual ⊆ agent). The gate cannot be widened by a workflow. */
     create: procedure.input(ritualCreateInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      const mem = ctx.wiring.memory;
-      if (!mem) throw new Error("ritual.create: in-memory governance store required (persistent ritual CRUD pending)");
-      const agentViews = input.agentIds.map((id) => ({
-        id,
-        scope: mem.agents.scope.get(id) ?? [],
-        dataScope: mem.agents.tiers.get(id) ?? ("all" as DataScope),
-      }));
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.agentIds.length !== 1) {
+        throw new Error("ritual.create: exactly one owning Agent is required");
+      }
+      const agentId = input.agentIds[0]!;
+      const agentViews = await Promise.all(
+        input.agentIds.map(async (id) => ({
+          id,
+          scope: await ctx.wiring.agents.capabilityScope(id),
+          dataScope: await ctx.wiring.agents.dataScope(id),
+        })),
+      );
       const violations = validateRitualWithinAgents(
         input.steps.map((s) => ({
           action: s.action as Action,
@@ -1212,13 +1455,13 @@ export const appRouter = t.router({
       if (violations.length > 0) {
         return { ok: false as const, violations, reason: "ritual exceeds assigned agents' authority (ritual ⊆ agent)" };
       }
-      const reg = ctx.wiring.ritualRegistry as { register?: (d: RitualDefinition) => unknown };
-      if (!reg.register) throw new Error("ritual.create: persistent ritual CRUD pending");
       const ritualId = ctx.run.ids.next();
-      reg.register({
+      await ctx.wiring.ritualRegistry.save({
         id: ritualId,
         name: input.name,
         workspaceId: input.workspaceId,
+        agentId,
+        agentPlane: "local",
         steps: input.steps.map((s) => ({
           skill: s.skill,
           action: s.action as Action,
@@ -1228,12 +1471,19 @@ export const appRouter = t.router({
           ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
         })),
       });
-      return { ok: true as const, ritualId, agentIds: input.agentIds };
+      return { ok: true as const, ritualId, agentId, agentIds: [agentId] };
     }),
 
     /** Run a ritual: ordered, governed steps through the pipeline. */
     run: procedure.input(ritualRunInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ritual.run actor must match the authenticated workspace member",
+        });
+      }
       return ctx.wiring.ritualExecutor.run(
         {
           workspaceId: input.workspaceId,
@@ -1241,7 +1491,7 @@ export const appRouter = t.router({
           actor: {
             type: input.actor.type as ActorType,
             id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+            plane: "local",
           },
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           steps: input.steps.map((s) => ({
@@ -1261,15 +1511,50 @@ export const appRouter = t.router({
     /** Run a ritual by id — loads its step config from the registry (P2). */
     runById: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (isModuleRuntimeRitualId(input.ritualId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Module Automations must run through their manifest Ritual key and package binding",
+        });
+      }
+      let ritualId = input.ritualId;
+      if (input.modulePackageName) {
+        const moduleInstallation = await ctx.wiring.packageStore.getAvailable(
+          input.workspaceId,
+          input.modulePackageName,
+        );
+        const automation = moduleInstallation?.manifest.module?.automations.find(
+          (candidate) => candidate.ritualId === input.ritualId,
+        );
+        const runtimeAgentId = automation
+          ? resolveModuleAgentRuntimeId(input.modulePackageName, automation.agentId)
+          : undefined;
+        const runtimeRitualId = resolveModuleRitualRuntimeId(input.modulePackageName, input.ritualId);
+        const definition = runtimeRitualId
+          ? await ctx.wiring.ritualRegistry.load(input.workspaceId, runtimeRitualId)
+          : null;
+        if (!automation || !runtimeAgentId || !runtimeRitualId || definition?.agentId !== runtimeAgentId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Module Automation has no verified runtime binding",
+          });
+        }
+        ritualId = runtimeRitualId;
+      }
       return ctx.wiring.ritualExecutor.runById(
         {
           workspaceId: input.workspaceId,
-          ritualId: input.ritualId,
-          actor: {
-            type: input.actor.type as ActorType,
-            id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-          },
+          ritualId,
+          ...(input.actor
+            ? {
+                actor: {
+                  type: input.actor.type as ActorType,
+                  id: input.actor.id,
+                  ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+                },
+              }
+            : {}),
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
@@ -1382,8 +1667,15 @@ export const appRouter = t.router({
 
   tool: t.router({
     /** Invoke a tool — its composition runs through the pipeline (config → pipeline). */
-    run: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
+    run: procedure.input(toolRunInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "tool.run actor must match the authenticated workspace member",
+        });
+      }
       return ctx.wiring.ritualExecutor.runTool(
         {
           workspaceId: input.workspaceId,
@@ -1391,7 +1683,7 @@ export const appRouter = t.router({
           actor: {
             type: input.actor.type as ActorType,
             id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+            plane: "local",
           },
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           ...(input.params ? { params: input.params } : {}),
@@ -2813,10 +3105,11 @@ export const appRouter = t.router({
    */
   packages: t.router({
     /** Real local-plane File inventory for one installed Module. */
-    files: procedure
+    files: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1), moduleName: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const installation = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.moduleName);
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
@@ -2843,7 +3136,8 @@ export const appRouter = t.router({
      * pending_review — no risk computed yet (that happens at `install`). */
     register: procedure.input(packageRegisterInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      let manifest;
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      let manifest: PackageManifest;
       try {
         manifest = parsePackageManifest(input.manifest);
       } catch (err) {
@@ -2878,10 +3172,18 @@ export const appRouter = t.router({
      */
     install: procedure.input(packageInstallInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const installation = await ctx.wiring.packageStore.get(input.installationId);
       if (!installation || installation.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
+      if (installation.state !== "private") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `package installation must be private before install, got ${installation.state}`,
+        });
+      }
+      const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
 
       // PKG-1 sandbox floor (Month-6): an executable capability may only install
       // when its declared isolation satisfies the sandbox gate — no
@@ -2905,13 +3207,22 @@ export const appRouter = t.router({
       // manifests, and package dependencies via other installations of this
       // workspace's package store (name+version exact match, per the no-ranges rule).
       const capDepRows = new Map<string, CapabilityManifestRow>();
+      const bundledCapabilities = new Map<string, CapabilityManifest>();
+      for (const capability of installation.manifest.capabilities) {
+        bundledCapabilities.set(capability.id, capability);
+        bundledCapabilities.set(capability.name, capability);
+      }
       for (const cap of installation.manifest.capabilities) {
         for (const dep of cap.dependencies) {
+          if (bundledCapabilities.has(dep.manifestId)) continue;
+          if (!z.string().uuid().safeParse(dep.manifestId).success) continue;
           const row = await ctx.wiring.capabilityStore.getManifest(dep.manifestId);
           if (row) capDepRows.set(dep.manifestId, row);
         }
       }
       const resolveCapabilityDependency = (id: string): CapabilityManifest | undefined => {
+        const bundled = bundledCapabilities.get(id);
+        if (bundled) return bundled;
         const row = capDepRows.get(id);
         if (!row) return undefined;
         return {
@@ -2927,15 +3238,103 @@ export const appRouter = t.router({
         };
       };
       const { items: allInstallations } = await ctx.wiring.packageStore.list(input.workspaceId, { limit: 10000, offset: 0 });
+      const verifiedCommonsDependencies = new Map<string, PackageManifest>();
+      const verifiedDependencyInstallations = new Map<string, PackageInstallationRow>();
+      if (installation.moduleAttachment) {
+        const rootEntry = currentCommonsEntry!;
+        const pins = new Map<string, string>(
+          rootEntry.securityScan.dependencyPins
+            ?.map((pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const) ?? [],
+        );
+        const visited = new Set<string>();
+        const verifyDependencyClosure = async (manifest: PackageManifest): Promise<void> => {
+          for (const dependency of manifest.dependencies) {
+            const key = `${dependency.manifestId}@${dependency.version}`;
+            if (visited.has(key)) continue;
+            visited.add(key);
+            const expectedHash = pins.get(key);
+            const entry = await ctx.wiring.commonsRegistry.getVersion(dependency.manifestId, dependency.version);
+            if (!entry || !expectedHash || entry.integrity.value !== expectedHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+              });
+            }
+            try {
+              assertCommonsEntryContentTrusted(entry);
+            } catch (err) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
+              });
+            }
+            const local = allInstallations.find(
+              (candidate) =>
+                candidate.packageName === dependency.manifestId &&
+                candidate.packageVersion === dependency.version &&
+                candidate.moduleAttachment?.source === "commons" &&
+                candidate.moduleAttachment.modulePackageName === installation.moduleAttachment?.modulePackageName &&
+                candidate.moduleAttachment.agentId === installation.moduleAttachment?.agentId &&
+                candidate.moduleAttachment.needId === installation.moduleAttachment?.needId &&
+                candidate.moduleAttachment.contentHash === expectedHash,
+            );
+            if (!local) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" was not staged from its pinned artifact`,
+              });
+            }
+            if (!["private", "promoted", "available"].includes(local.state)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" cannot activate from state "${local.state}"`,
+              });
+            }
+            verifiedCommonsDependencies.set(key, entry.manifest);
+            verifiedDependencyInstallations.set(key, local);
+            for (const pin of entry.securityScan.dependencyPins ?? []) {
+              pins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+            }
+            await verifyDependencyClosure(entry.manifest);
+          }
+        };
+        await verifyDependencyClosure(installation.manifest);
+      }
+      const installManifests = [installation.manifest, ...verifiedCommonsDependencies.values()];
+      const installCapabilities = installManifests.flatMap((manifest) => manifest.capabilities);
+      for (const capability of installCapabilities) {
+        bundledCapabilities.set(capability.id, capability);
+        bundledCapabilities.set(capability.name, capability);
+        for (const dependency of capability.dependencies) {
+          if (bundledCapabilities.has(dependency.manifestId)) continue;
+          if (!z.string().uuid().safeParse(dependency.manifestId).success) continue;
+          const row = await ctx.wiring.capabilityStore.getManifest(dependency.manifestId);
+          if (row) capDepRows.set(dependency.manifestId, row);
+        }
+      }
       const resolvePackageDependency = (name: string, version: string) =>
-        allInstallations.find((i) => i.packageName === name && i.packageVersion === version)?.manifest;
+        installation.moduleAttachment
+          ? verifiedCommonsDependencies.get(`${name}@${version}`)
+          : allInstallations.find((i) => i.packageName === name && i.packageVersion === version)?.manifest;
 
-      const risk = computePackageRisk(installation.manifest, resolveCapabilityDependency, resolvePackageDependency);
+      const computedRisk = computePackageRisk(
+        installation.manifest,
+        resolveCapabilityDependency,
+        resolvePackageDependency,
+      );
+      const signedRiskFloor = installation.moduleAttachment
+        ? installation.computedRisk
+        : "informational";
+      const risk = {
+        ...computedRisk,
+        compositeRisk: maxRisk(computedRisk.compositeRisk, signedRiskFloor),
+        effectiveRisk: maxRisk(computedRisk.effectiveRisk, signedRiskFloor),
+      };
 
       // Package-wide audience: the strictest (most-restrictive-raising) audience
       // across its own bundled capabilities — mirrors raiseForAudience's
       // "audience only ever raises, never lowers" contract at the package level.
-      const audiences = installation.manifest.capabilities.map((c) => c.audience);
+      const audiences = installCapabilities.map((c) => c.audience);
       const audience = audiences.includes("external_visible")
         ? "external_visible"
         : audiences.includes("team")
@@ -2946,7 +3345,7 @@ export const appRouter = t.router({
       // LEAST-trusted capability origin — if any bundled capability is
       // community/user_code (untrusted), the whole install is floored there.
       const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
-      const floorOrigin: CapabilityOrigin = installation.manifest.capabilities.some((c) => isUntrustedOrigin(c.origin))
+      const floorOrigin: CapabilityOrigin = installCapabilities.some((c) => isUntrustedOrigin(c.origin))
         ? "community"
         : "built_in";
 
@@ -2978,13 +3377,38 @@ export const appRouter = t.router({
       // it — a second install of the identical capability is a no-op
       // re-registration, not a new manifest.
       const registeredManifestIds: string[] = [];
-      for (const cap of installation.manifest.capabilities) {
+      for (const cap of installCapabilities) {
         const existingManifest = await ctx.wiring.capabilityStore.getManifestByNameVersion(
           input.workspaceId,
           cap.name,
           cap.version,
         );
         const capId = existingManifest?.id ?? ctx.run.ids.next();
+        if (
+          existingManifest &&
+          canonicalizeJson({
+            capabilityType: existingManifest.capabilityType,
+            name: existingManifest.name,
+            version: existingManifest.version,
+            origin: existingManifest.origin,
+            audience: existingManifest.audience,
+            manifest: existingManifest.manifest,
+            dependencies: existingManifest.dependencies,
+          }) !== canonicalizeJson({
+            capabilityType: cap.capabilityType,
+            name: cap.name,
+            version: cap.version,
+            origin: cap.origin,
+            audience: cap.audience,
+            manifest: { permissions: cap.permissions, connectors: cap.connectors },
+            dependencies: cap.dependencies,
+          })
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `capability "${cap.name}" v${cap.version} already exists with different signed content`,
+          });
+        }
         if (!existingManifest) {
           await ctx.wiring.capabilityStore.createManifest({
             id: capId,
@@ -2999,34 +3423,83 @@ export const appRouter = t.router({
             dependencies: cap.dependencies,
           });
         }
-        await ctx.wiring.capabilityStore.upsertState({
-          manifestId: capId,
-          workspaceId: input.workspaceId,
-          state: "draft",
-          suspended: false,
-          evidence: {},
-        });
+        const existingState = existingManifest
+          ? await ctx.wiring.capabilityStore.getState(capId)
+          : null;
+        if (!existingState) {
+          await ctx.wiring.capabilityStore.upsertState({
+            manifestId: capId,
+            workspaceId: input.workspaceId,
+            state: "draft",
+            suspended: false,
+            evidence: {},
+          });
+        }
         registeredManifestIds.push(capId);
       }
 
-      const withRisk = await ctx.wiring.packageStore.setState(installation.id, installation.state);
-      const rerisked: PackageInstallationRow = { ...withRisk, computedRisk: risk.effectiveRisk };
+      const rerisked = await ctx.wiring.packageStore.setComputedRisk(installation.id, risk.effectiveRisk);
 
       if (decision.requirement !== "auto") {
-        // Not auto-approved — proposal parked pending_review via the SAME
-        // pipeline round trip capability.approve uses, human decides, agent-floor applies.
-        const proposal = await ctx.wiring.pipeline.propose(
-          {
-            workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
-            action: "approve",
-            resourceType: "skill", // package_installations has no dedicated ResourceType yet — same interim token capability.approve uses
-            resourceId: installation.id,
-            inputs: { installationId: installation.id, packageName: installation.packageName, effectiveRisk: risk.effectiveRisk },
-            skill: "stageMutation",
-          },
-          ctx.run,
+        const proposalId = stablePackageInstallProposalId(input.workspaceId, installation.id);
+        const priorDecision = await ctx.wiring.ledger.decisionFor(proposalId);
+        if (priorDecision) {
+          if (priorDecision.userDecision === "approve" || priorDecision.userDecision === "edit") {
+            const finalized = await activateApprovedPackageInstallation(
+              ctx.wiring,
+              input.workspaceId,
+              installation.id,
+            );
+            return {
+              installed: true,
+              decision,
+              risk,
+              installation: finalized,
+              registeredManifestIds,
+              reconciled: true as const,
+            };
+          }
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "package install proposal was vetoed; stage a new signed package version to retry",
+          });
+        }
+        let proposal: Proposal | null = await findPendingProposalById(
+          ctx.wiring,
+          input.workspaceId,
+          proposalId,
         );
+        if (!proposal) {
+          try {
+            proposal = await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: ctx.identity.type, id: ctx.identity.id },
+                action: "write",
+                resourceType: "signal", // governed install intent; package_installation is not yet a kernel ResourceType
+                resourceId: installation.id,
+                inputs: {
+                  operation: "package_install",
+                  installationId: installation.id,
+                  packageName: installation.packageName,
+                  effectiveRisk: risk.effectiveRisk,
+                },
+                skill: "stageMutation",
+              },
+              ctx.run,
+              { proposalId, requireHumanReview: true },
+            );
+          } catch (cause) {
+            proposal = await findPendingProposalById(ctx.wiring, input.workspaceId, proposalId);
+            if (!proposal) throw cause;
+          }
+        }
+        if (proposal.status !== "pending_review") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: proposal.rejectionReason ?? "package install proposal did not reach Human review",
+          });
+        }
         return { installed: false, decision, risk, proposal, installation: rerisked, registeredManifestIds };
       }
 
@@ -3034,8 +3507,38 @@ export const appRouter = t.router({
         await ctx.wiring.capabilityBudgets.recordAutoActivation(input.workspaceId, risk.effectiveRisk, input.todayKey);
       }
 
+      await assertCurrentCommonsAttachment(ctx.wiring, installation);
       const installed = await ctx.wiring.packageStore.setStatus(installation.id, "installed");
       const installedWithRisk: PackageInstallationRow = { ...installed, computedRisk: risk.effectiveRisk };
+      for (const dependency of verifiedDependencyInstallations.values()) {
+        await ctx.wiring.packageStore.setComputedRisk(
+          dependency.id,
+          maxRisk(dependency.computedRisk, risk.effectiveRisk),
+        );
+        await ctx.wiring.packageStore.setStatus(dependency.id, "installed");
+        let promotable = dependency;
+        if (promotable.state === "private") {
+          promotable = await ctx.wiring.packageStore.setState(promotable.id, "promoted");
+        }
+        if (promotable.state === "promoted") {
+          const currentAvailable = await ctx.wiring.packageStore.getAvailable(
+            input.workspaceId,
+            promotable.packageName,
+            promotable.moduleAttachment,
+          );
+          const promotion = promoteToAvailable(promotable, currentAvailable);
+          await ctx.wiring.packageStore.setState(
+            promotion.promoted.installationId,
+            promotion.promoted.nextState,
+          );
+          if (promotion.demoted) {
+            await ctx.wiring.packageStore.setState(
+              promotion.demoted.installationId,
+              promotion.demoted.nextState,
+            );
+          }
+        }
+      }
       const advanced = await ctx.wiring.packageStore.setState(installation.id, advancePackageState(installation.state));
       return {
         installed: true,
@@ -3046,18 +3549,64 @@ export const appRouter = t.router({
       };
     }),
 
-    list: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
+    reconcileApproved: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        assertPilotWorkspace(proposal.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        const installationId = packageInstallIdFromProposal(proposal);
+        if (!installationId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "proposal is not a package install approval" });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (decision?.userDecision !== "approve" && decision?.userDecision !== "edit") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "package install proposal is not approved" });
+        }
+        const installation = await activateApprovedPackageInstallation(
+          ctx.wiring,
+          proposal.workspaceId,
+          installationId,
+        );
+        return { installation, proposalId: input.proposalId };
+      }),
+
+    list: authenticatedProcedure.input(paginatedInput).query(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const { items, total } = await ctx.wiring.packageStore.list(input.workspaceId, {
         limit: input.limit,
         offset: input.offset,
       });
-      return { items, total, hasMore: input.offset + items.length < total };
+      const itemsWithRuntimeBindings = await Promise.all(
+        items.map(async (installation) => {
+          const runtimeAutomationIds: string[] = [];
+          for (const automation of installation.manifest.module?.automations ?? []) {
+            if (!automation.ritualId) continue;
+            const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
+            const agentId = resolveModuleAgentRuntimeId(installation.packageName, automation.agentId);
+            const definition = ritualId
+              ? await ctx.wiring.ritualRegistry.load(input.workspaceId, ritualId)
+              : null;
+            if (ritualId && agentId && definition?.agentId === agentId) {
+              runtimeAutomationIds.push(automation.id);
+            }
+          }
+          return { ...installation, runtimeAutomationIds };
+        }),
+      );
+      return {
+        items: itemsWithRuntimeBindings,
+        total,
+        hasMore: input.offset + itemsWithRuntimeBindings.length < total,
+      };
     }),
 
-    get: procedure.input(packageIdInput).query(async ({ input, ctx }) => {
+    get: authenticatedProcedure.input(packageIdInput).query(async ({ input, ctx }) => {
       const installation = await ctx.wiring.packageStore.get(input.installationId);
       if (!installation) throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+      await assertMembership(ctx.wiring.workspaceStore, installation.workspaceId, ctx.identity.id);
       return { installation };
     }),
 
@@ -3069,11 +3618,18 @@ export const appRouter = t.router({
      */
     promote: procedure.input(packagePromoteInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const target = await ctx.wiring.packageStore.get(input.installationId);
       if (!target || target.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
-      const currentlyAvailable = await ctx.wiring.packageStore.getAvailable(input.workspaceId, target.packageName);
+      const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, target);
+      await verifiedCommonsDependencyInstallations(ctx.wiring, target, currentCommonsEntry);
+      const currentlyAvailable = await ctx.wiring.packageStore.getAvailable(
+        input.workspaceId,
+        target.packageName,
+        target.moduleAttachment,
+      );
       let result;
       try {
         result = promoteToAvailable(target, currentlyAvailable);
@@ -3098,11 +3654,16 @@ export const appRouter = t.router({
      */
     rollback: procedure.input(packageRollbackInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const rollbackTarget = await ctx.wiring.packageStore.get(input.rollbackTargetId);
       if (!rollbackTarget || rollbackTarget.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown rollback target installation" });
       }
-      const currentAvailable = await ctx.wiring.packageStore.getAvailable(input.workspaceId, rollbackTarget.packageName);
+      const currentAvailable = await ctx.wiring.packageStore.getAvailable(
+        input.workspaceId,
+        rollbackTarget.packageName,
+        rollbackTarget.moduleAttachment,
+      );
       if (!currentAvailable) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `package "${rollbackTarget.packageName}" has no currently-available version to roll back from` });
       }
@@ -3127,8 +3688,8 @@ export const appRouter = t.router({
   //    registers the manifest in the workspace package store (state=private), and
   //    returns the installationId. The caller then calls `packages.install` for the
   //    full governed proposal → pipeline → approval flow — no logic duplication.
-  //  - publishBuiltins is a mutation → same auth gate. Pushes the four built-in
-  //    workspace-definition packages to the running Commons service. Idempotent:
+  //  - publishBuiltins is a mutation → same auth gate. Pushes curated built-in
+  //    packages to the running Commons service. Idempotent:
   //    already-published versions are skipped, not failed.
   //  - ALL mutations still go through requireAuthOnMutation (pipe middleware) and
   //    withPilotWorkspaceGuard (error translation).
@@ -3141,6 +3702,7 @@ export const appRouter = t.router({
         z.object({
           kind: z.enum(["workspace_definition", "skill", "workflow", "agent", "tool", "view", "integration_bundle"]).optional(),
           tag: z.string().optional(),
+          search: z.string().trim().min(1).optional(),
           limit: z.number().int().min(1).max(100).optional(),
           offset: z.number().int().min(0).optional(),
         }),
@@ -3149,6 +3711,7 @@ export const appRouter = t.router({
         const query: CommonsListQuery = {};
         if (input.kind !== undefined) query.kind = input.kind;
         if (input.tag !== undefined) query.tag = input.tag;
+        if (input.search !== undefined) query.search = input.search;
         if (input.limit !== undefined) query.limit = input.limit;
         if (input.offset !== undefined) query.offset = input.offset;
         return ctx.wiring.commonsRegistry.listAvailable(query);
@@ -3191,10 +3754,23 @@ export const appRouter = t.router({
           name: z.string().min(1),
           /** Omit to install the latest version. */
           version: z.string().optional(),
+          modulePackageName: z.string().min(1),
+          agentId: z.string().min(1),
+          needId: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+
+        const ownerModule = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.modulePackageName);
+        if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.modulePackageName}" not found` });
+        }
+        const need = ownerModule.manifest.module.commonsNeeds?.find((candidate) => candidate.id === input.needId);
+        if (!need || need.agentId !== input.agentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons capability need is not owned by the selected Module Agent" });
+        }
 
         // Fetch from registry — HttpCommonsClient verifies the publisher signature (PKG-2).
         const entry = input.version
@@ -3209,9 +3785,20 @@ export const appRouter = t.router({
               : `commons: package "${input.name}" not found`,
           });
         }
+        try {
+          assertCommonsEntryContentTrusted(entry);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err instanceof Error ? err.message : "Commons entry failed install-time trust verification",
+          });
+        }
+        if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons package does not satisfy the declared Module need" });
+        }
 
         // Re-validate the manifest at this seam (same guard packages.register uses).
-        let manifest;
+        let manifest: PackageManifest;
         try {
           manifest = parsePackageManifest({ package: entry.manifest });
         } catch (err) {
@@ -3220,6 +3807,64 @@ export const appRouter = t.router({
           }
           throw err;
         }
+        if (manifest.capabilities.length === 0 || manifest.capabilities.some((capability) => capability.capabilityType !== "skill")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Skill packages can attach beneath a Module Agent" });
+        }
+
+        const dependencyPins = new Map<string, string>(
+          (entry.securityScan.dependencyPins ?? []).map(
+            (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+          ),
+        );
+        const staged = new Set<string>();
+        const stageDependencies = async (parent: PackageManifest): Promise<void> => {
+          for (const dependency of parent.dependencies) {
+            const key = `${dependency.manifestId}@${dependency.version}`;
+            if (staged.has(key)) continue;
+            staged.add(key);
+            const dependencyEntry = await ctx.wiring.commonsRegistry.getVersion(
+              dependency.manifestId,
+              dependency.version,
+            );
+            const expectedHash = dependencyPins.get(key);
+            if (!dependencyEntry || !expectedHash || dependencyEntry.integrity.value !== expectedHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+              });
+            }
+            try {
+              assertCommonsEntryContentTrusted(dependencyEntry);
+            } catch (err) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
+              });
+            }
+            await ctx.wiring.packageStore.create({
+              workspaceId: input.workspaceId,
+              packageName: dependencyEntry.manifest.name,
+              packageVersion: dependencyEntry.manifest.version,
+              manifest: dependencyEntry.manifest,
+              computedRisk: dependencyEntry.securityScan.riskBand,
+              state: "private",
+              status: "pending_review",
+              lineageManifestId: dependencyEntry.manifest.lineageManifestId,
+              moduleAttachment: {
+                source: "commons",
+                modulePackageName: ownerModule.packageName,
+                agentId: input.agentId,
+                needId: input.needId,
+                contentHash: dependencyEntry.integrity.value,
+              },
+            });
+            for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
+              dependencyPins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+            }
+            await stageDependencies(dependencyEntry.manifest);
+          }
+        };
+        await stageDependencies(manifest);
 
         // Register as a private installation — same as packages.register, but the
         // manifest source is the verified Commons entry, not a user-supplied object.
@@ -3228,17 +3873,24 @@ export const appRouter = t.router({
           packageName: manifest.name,
           packageVersion: manifest.version,
           manifest,
-          computedRisk: "informational", // packages.install recomputes over the full closure
+          computedRisk: entry.securityScan.riskBand,
           state: "private",
           status: "pending_review",
           lineageManifestId: manifest.lineageManifestId,
+          moduleAttachment: {
+            source: "commons",
+            modulePackageName: ownerModule.packageName,
+            agentId: input.agentId,
+            needId: input.needId,
+            contentHash: entry.integrity.value,
+          },
         });
 
         return { installation: created };
       }),
 
     /**
-     * Publish the four built-in workspace-definition packages to the running
+     * Publish curated built-in packages to the running
      * Commons service. Idempotent: already-published versions are skipped.
      * This is the runtime equivalent of `pnpm --filter @bridge/api publish-builtins`.
      * Requires authentication (mutation guard) to prevent arbitrary callers from
@@ -3249,14 +3901,37 @@ export const appRouter = t.router({
       const skipped: string[] = [];
       const failed: { name: string; reason: string }[] = [];
 
-      for (const { manifest } of BUILT_IN_PACKAGES) {
+      for (const { manifest, commons } of COMMONS_BUILT_IN_PACKAGES) {
         try {
-          await ctx.wiring.commonsRegistry.publish(manifest, ["built-in", manifest.kind]);
+          await ctx.wiring.commonsRegistry.publish(manifest, {
+            tags: commons.tags,
+            provenance: commons.provenance,
+          });
           published.push(`${manifest.name}@${manifest.version}`);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (message.includes("already published")) {
-            skipped.push(`${manifest.name}@${manifest.version}`);
+            const existing = await ctx.wiring.commonsRegistry.getVersion(manifest.name, manifest.version);
+            const expectedIdentity = canonicalizeJson({
+              manifest,
+              tags: normalizeCommonsTags(commons.tags),
+              provenance: commons.provenance,
+            });
+            const existingIdentity = existing
+              ? canonicalizeJson({
+                  manifest: existing.manifest,
+                  tags: normalizeCommonsTags(existing.tags),
+                  provenance: existing.provenance,
+                })
+              : null;
+            if (existingIdentity === expectedIdentity) {
+              skipped.push(`${manifest.name}@${manifest.version}`);
+            } else {
+              failed.push({
+                name: manifest.name,
+                reason: "published version has different immutable manifest, tags, or provenance",
+              });
+            }
           } else {
             failed.push({ name: manifest.name, reason: message });
           }

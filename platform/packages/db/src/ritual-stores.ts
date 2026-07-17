@@ -14,7 +14,7 @@ import type {
   ToolRegistry,
 } from "@bridge/core";
 import type { Database } from "./client.js";
-import { ritualRuns, rituals, tools } from "./schema.js";
+import { agents, ritualRuns, rituals, tools } from "./schema.js";
 
 /**
  * Mirrors `RitualStepDef` (@bridge/core/src/ports.ts:166). This is the ONLY
@@ -121,7 +121,13 @@ export class DrizzleRitualRegistry implements RitualRegistry {
 
   async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
     const rows = await this.#db
-      .select({ id: rituals.id, name: rituals.name, pipeline: rituals.skillPipeline })
+      .select({
+        id: rituals.id,
+        name: rituals.name,
+        agentId: rituals.agentId,
+        agentPlane: rituals.agentPlane,
+        pipeline: rituals.skillPipeline,
+      })
       .from(rituals)
       .where(and(eq(rituals.workspaceId, workspaceId), eq(rituals.id, ritualId), eq(rituals.status, "active")))
       .limit(1);
@@ -131,7 +137,48 @@ export class DrizzleRitualRegistry implements RitualRegistry {
     // another process, a raw insert bypassing `saveSteps`), throw loudly
     // rather than silently dropping the step.
     const steps = parseRitualSteps(row.pipeline);
-    return { id: row.id, name: row.name, workspaceId, steps };
+    return {
+      id: row.id,
+      name: row.name,
+      workspaceId,
+      ...(row.agentId ? { agentId: row.agentId } : {}),
+      ...(row.agentPlane === "local" || row.agentPlane === "cloud" ? { agentPlane: row.agentPlane } : {}),
+      steps,
+    };
+  }
+
+  async save(definition: RitualDefinition): Promise<void> {
+    if (!definition.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
+    if (!definition.agentPlane) throw new Error("RitualRegistry.save: owning agentPlane is required");
+    const [owningAgent] = await this.#db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(and(eq(agents.id, definition.agentId), eq(agents.workspaceId, definition.workspaceId)))
+      .limit(1);
+    if (!owningAgent) {
+      throw new Error("RitualRegistry.save: owning Agent must belong to the Ritual workspace");
+    }
+    const steps = parseRitualSteps(definition.steps);
+    await this.#db.insert(rituals).values({
+      id: definition.id,
+      workspaceId: definition.workspaceId,
+      name: definition.name,
+      trigger: {},
+      agentId: definition.agentId,
+      agentPlane: definition.agentPlane,
+      agentIds: [definition.agentId],
+      skillPipeline: steps,
+    }).onConflictDoUpdate({
+      target: rituals.id,
+      set: {
+        name: definition.name,
+        agentId: definition.agentId,
+        agentPlane: definition.agentPlane,
+        agentIds: [definition.agentId],
+        skillPipeline: steps,
+        status: "active",
+      },
+    });
   }
 
   /** Write-time gate: validates the full pipeline and throws before anything is persisted. */

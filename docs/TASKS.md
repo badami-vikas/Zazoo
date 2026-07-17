@@ -91,15 +91,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Unblock: Implementation is complete. Perform a human physical drag→save→relaunch, an actual VoiceOver control pass, and the external-display attach/detach/reposition/cross-display matrix. Space/fullscreen plus pointer/keyboard/Accessibility control paths now pass on the single-display host.
 
 ## TASK-004 — Commons install and trust prototype
-- Status: in_progress
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.
 - Prototype test: From a real Module need, search Commons, inspect provenance and scan results, install a signed content-hash-pinned capability, reject tampered/untrusted input, and show the installed capability in its owning Module.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md CM0–CM1; docs/raw/module-evolution-system-2026-07.md
-- Evidence: 2026-07-16 state check supersedes the stale e5edafc audit: signed Commons transport, tRPC consumption, governed package install, TLS enforcement, privacy gate, and tamper/untrusted-key rejection exist; explicit content-hash provenance, deterministic publish scan, Module-scoped search/install, and owning-Module attachment remain
+- Evidence: e5edafc audit; `outputs/2026-07-16-task004-commons-task005-glue.md` — clean local Commons/API/web desktop+375px Prototype test plus final review passed with Ed25519, closed provenance, signed hash/dependency/scan inspection, stable Human-review install finalization/reconciliation, current Module-need revalidation, governed Agent attachment, rejection/privacy tests, and no marketplace route
 - Requests: R-004; R-016; R-026
-- Approval: none
+- Approval: AP-031 applied
 - Dependencies: TASK-001
 
 ## TASK-005 — Avatar + Commons end-to-end demo certification
@@ -110,9 +110,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
 - Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: none
+- Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
+- Unblock: complete TASK-003 physical macOS evidence and run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
 
 ## TASK-006 — DealPilot ETA core prototype
 - Status: in_progress
