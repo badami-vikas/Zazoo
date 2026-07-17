@@ -171,7 +171,7 @@ Verification:
 
 The feature base has a pre-existing TASK-007 compile blocker: `AgentQuery` requires `workspaceId` and `isActive`, while `InMemoryAgentStore` lacks those methods/maps. Cross-package TypeScript gates and the full suites pass with that isolated compatibility shim, which is not included in this TASK-008 change. Full lint is also blocked by the pre-existing missing `react-hooks/exhaustive-deps` rule in `ZazooAvatar.tsx`; TASK-008 changed-file lint is separate.
 
-`origin/main` was fetched at `b303a4f` before delivery; this branch is two commits ahead and 11 commits behind. Per the no-merge directive, main was not merged or rebased. A synthetic merge-tree check identifies content conflicts in `platform/apps/api/src/router.ts`, `platform/apps/api/src/wiring.ts`, `platform/packages/db/src/governance-stores.ts`, and `platform/packages/db/test/local-store.test.ts`; the other overlapping files auto-merge.
+`origin/main` was fetched at `b303a4f` before delivery. Per the no-merge directive, main was not merged or rebased. A synthetic merge-tree check identifies content conflicts in `platform/apps/api/src/router.ts`, `platform/apps/api/src/wiring.ts`, `platform/packages/db/src/governance-stores.ts`, and `platform/packages/db/test/local-store.test.ts`; the other overlapping files auto-merge.
 
 ### Proposed shared-ledger updates
 
