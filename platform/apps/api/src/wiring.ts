@@ -687,6 +687,22 @@ const CULTURE_CANCEL_CAS_MAX_RETRIES = 5;
  * considered stale/expired for synthesis grounding — issue 8 (external
  * trust/retention). Bounded, not indefinite. */
 const CULTURE_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
+/** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+ * RE-review round 2, issue 7 — hardened after a fresh independent review
+ * found the ORIGINAL self-heal check unsafe). A synthesis-pointer's
+ * proposalId not YET resolving in the ledger is NOT, by itself, proof the
+ * pointer is dead — a genuinely live, in-flight `pipeline.propose` call
+ * (authority/policy checks, the Skill's own artifact resolution, the
+ * fabrication guard) can legitimately still be running when a SECOND,
+ * concurrent `synthesize()` request for the SAME parentRunId reads this
+ * pointer. Without an age check, that second request could self-heal
+ * (release + rebind) the still-live winner's pointer out from under it,
+ * permanently orphaning the first caller's soon-to-exist, perfectly valid
+ * ledger row (their proposalId, once decided, would fail the NEW
+ * `assertCultureProposalBindingValid` backstop). Only a pointer OLDER than
+ * this grace period is self-healed — comfortably longer than any realistic
+ * `pipeline.propose` call for this Skill (which does no network access). */
+const CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS = 30_000;
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
  * issue 13) — the max number of historical culture-fetch intent rows
  * `DurableCultureFetchStore.listByCompany` will scan to find the latest
@@ -1493,6 +1509,36 @@ export class DurableCultureSynthesisPointerStore {
       await this.#memory.forget(row.id, this.#authScope(workspaceId));
     }
   }
+}
+
+/**
+ * TASK-011 remediation (2026-07-19 coordinator distributed-defects RE-review
+ * round 2, issue 7 — hardened after a fresh independent review found the
+ * original self-heal check unsafe). Releases a synthesis-pointer ONLY when
+ * its proposalId genuinely appears dead: it does not resolve in the ledger
+ * AND the pointer itself is older than `CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS`.
+ * The age check is essential — see the constant's own doc comment for why a
+ * bare "ledger.get returned null" check is unsafe (it cannot distinguish a
+ * genuinely dead pointer from a live, in-flight `pipeline.propose` call that
+ * simply hasn't reached `#appendLedger` yet). Call this BEFORE preallocating
+ * a new pointer for the same parentRunId; a pointer that is not (yet)
+ * eligible for release is left completely untouched, and `recordProposal`'s
+ * own first-write-wins semantics correctly reject the new attempt in that
+ * case (the ordinary, expected "someone else is already synthesizing this
+ * run" outcome).
+ */
+export async function selfHealDeadSynthesisPointer(
+  deps: { cultureSynthesisPointerStore: DurableCultureSynthesisPointerStore; ledger: LedgerStore },
+  workspaceId: string,
+  parentRunId: string,
+  nowISO: string,
+): Promise<void> {
+  const existingPointer = await deps.cultureSynthesisPointerStore.getForParentRun(workspaceId, parentRunId);
+  if (!existingPointer) return;
+  const ageMs = Date.parse(nowISO) - Date.parse(existingPointer.createdAt);
+  if (ageMs < CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS) return; // too young to safely presume dead — a live propose() may still be in flight
+  if (await deps.ledger.get(existingPointer.proposalId)) return; // resolves in the ledger — genuinely live (or was already properly decided), not dead
+  await deps.cultureSynthesisPointerStore.releaseIfMatching(workspaceId, parentRunId, existingPointer.proposalId).catch(() => {});
 }
 
 /**

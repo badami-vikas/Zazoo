@@ -2118,6 +2118,28 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
     await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, proposed.parentRunId, TEST_COMPANY, deadProposalId);
     assert.equal(await wiring.ledger.get(deadProposalId), null, "sanity: the dead proposalId truly has no ledger row");
 
+    // Backdate the pointer's own `createdAt` well past the self-heal grace
+    // period — a fresh independent review found the ORIGINAL self-heal
+    // check unsafe (it could dethrone a genuinely live, still-in-flight
+    // concurrent synthesize() call, not just a truly dead crash artifact);
+    // the fix requires the pointer to be OLD before ever releasing it. This
+    // backdate is what makes THIS test genuinely simulate "a real crash a
+    // long time ago", as opposed to "a request that is merely still running".
+    const pointerRows = await wiring.memoryStore.retrieve(
+      { subjectElementId: proposed.parentRunId, includeSuperseded: false, limit: 5 },
+      { workspaceId: PILOT_WORKSPACE },
+    );
+    const pointerRow = pointerRows.find((r) => {
+      try {
+        return (JSON.parse(r.content) as { kind?: string }).kind === "culture_synthesis_pointer";
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(pointerRow, "sanity: the dead pointer row exists");
+    const backdated = { ...(JSON.parse(pointerRow!.content) as { createdAt: string }), createdAt: new Date(Date.now() - 60_000).toISOString() };
+    await wiring.memoryStore.compareAndSupersede(pointerRow!.id, { ...pointerRow!, id: randomUUID(), content: JSON.stringify(backdated) });
+
     const healed = await caller.jobpilot.cultureResearch.synthesize({
       workspaceId: PILOT_WORKSPACE,
       company: TEST_COMPANY,
@@ -2128,6 +2150,59 @@ test("cultureResearch.synthesize: self-heals a DEAD pointer left by a genuine cr
     assert.notEqual(healed.proposalId, deadProposalId);
     const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
     assert.equal(pointer?.proposalId, healed.proposalId, "the pointer must now resolve to the NEW, real synthesis proposal, not the dead one");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: a YOUNG pointer whose proposalId does not yet resolve in the ledger is NEVER self-healed/released — a fresh independent review found the original age-less self-heal check could dethrone a genuinely live, in-flight concurrent synthesize() call, permanently orphaning its soon-to-exist valid ledger row against action.decide's binding backstop (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review round 2, issue 7 hardening)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture values direct feedback.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+    const fetched = await materializeCultureSourceFetch(cultureFetchDeps(wiring), PILOT_WORKSPACE, proposalId, childRunId, makeRun(), allowLoopback);
+
+    // Simulate the "live, in-flight" moment DIRECTLY: bind a pointer whose
+    // proposalId has no ledger row YET (mirroring the exact instant a real
+    // concurrent synthesize() call is still inside pipeline.propose, before
+    // #appendLedger has run) — but do NOT backdate it. Its createdAt is
+    // "now", well within the grace period.
+    const inFlightProposalId = randomUUID();
+    await wiring.cultureSynthesisPointerStore.recordProposal(PILOT_WORKSPACE, proposed.parentRunId, TEST_COMPANY, inFlightProposalId);
+    assert.equal(await wiring.ledger.get(inFlightProposalId), null, "sanity: the in-flight proposalId has no ledger row yet, exactly like a real request mid-propose()");
+
+    // A SECOND synthesize() call for the SAME parentRunId must NOT be able
+    // to steal/rebind the pointer — it must instead see it as still-live
+    // (first-write-wins) and fail with CONFLICT, exactly the ordinary
+    // "someone else is already synthesizing this run" outcome, never a
+    // silent takeover.
+    await assert.rejects(
+      () =>
+        caller.jobpilot.cultureResearch.synthesize({
+          workspaceId: PILOT_WORKSPACE,
+          company: TEST_COMPANY,
+          parentRunId: proposed.parentRunId,
+          claims: [{ id: "claim-1", claimType: "fact", sourceId: id, quote: "values direct feedback", contentHash: fetched.artifact!.contentHash }],
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof TRPCError);
+        assert.equal((error as TRPCError).code, "CONFLICT");
+        return true;
+      },
+    );
+
+    // The pointer must be COMPLETELY untouched — still pointing at the
+    // "in-flight" proposalId, never released or rebound.
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(PILOT_WORKSPACE, proposed.parentRunId);
+    assert.equal(pointer?.proposalId, inFlightProposalId, "the young, not-yet-resolved pointer must survive a concurrent synthesize() attempt completely untouched");
   } finally {
     await server.close();
     await wiring.close();

@@ -31,6 +31,7 @@ import {
   materializeCultureSourceFetch,
   cancelCultureSourceFetch,
   reconcileIntentChildConsistency,
+  selfHealDeadSynthesisPointer,
   isArtifactExpired,
   CULTURE_SOURCE_REGISTRY,
   type SynthesizeCultureProfileOutput,
@@ -3632,10 +3633,25 @@ export const appRouter = t.router({
           // pointer whose proposalId DOES resolve (however that proposal was
           // ultimately decided) is left untouched here; that case is a live,
           // real synthesis and is not this function's concern.
-          const existingPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, input.parentRunId);
-          if (existingPointer && !(await ctx.wiring.ledger.get(existingPointer.proposalId))) {
-            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, existingPointer.proposalId).catch(() => {});
-          }
+          // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+          // RE-review round 2, issue 7 — hardened after a fresh independent
+          // review found the original inline self-heal check unsafe: a bare
+          // "ledger.get returned null" check cannot distinguish a genuinely
+          // dead pointer (crash between recordProposal and propose) from a
+          // live, in-flight concurrent synthesize() call for the SAME
+          // parentRunId that simply hasn't reached #appendLedger yet — the
+          // ORIGINAL version could self-heal (release + rebind) a still-live
+          // winner's pointer out from under it, permanently orphaning their
+          // soon-to-exist valid ledger row against the NEW
+          // assertCultureProposalBindingValid backstop. `selfHealDeadSynthesisPointer`
+          // additionally requires the pointer to be older than a grace
+          // period before ever releasing it — see its own doc comment.
+          await selfHealDeadSynthesisPointer(
+            { cultureSynthesisPointerStore: ctx.wiring.cultureSynthesisPointerStore, ledger: ctx.wiring.ledger },
+            input.workspaceId,
+            input.parentRunId,
+            ctx.run.clock.nowISO(),
+          );
 
           // PREALLOCATE the proposal id and durably record the (parentRunId
           // -> proposalId) pointer BEFORE any real ledger proposal can exist

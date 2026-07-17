@@ -995,6 +995,15 @@ re-verifiable on this branch.
    `releaseIfMatching` compensation (releases the pointer on a failed/rejected propose) AND a
    self-heal check (a genuine crash between `recordProposal` and `propose` completing leaves a dead
    pointer with no matching ledger row — detected and released before a fresh attempt).
+   **Hardened after a fresh independent review** (see "post-push independent review" below) found
+   the ORIGINAL age-less self-heal check unsafe: it could dethrone a genuinely LIVE, in-flight
+   concurrent `synthesize()` call for the same `parentRunId` (whose `pipeline.propose` simply hasn't
+   reached `#appendLedger` yet) exactly as easily as a truly dead crash artifact, permanently
+   orphaning that live caller's soon-to-exist valid proposal against the new
+   `assertCultureProposalBindingValid` backstop. Fixed by extracting the logic into
+   `selfHealDeadSynthesisPointer`, which additionally requires the pointer to be older than
+   `CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS` (30s — comfortably longer than any realistic
+   network-free `pipeline.propose` call for this Skill) before ever releasing it.
 8. **Artifact retention/privacy, structurally** — found the actual gap: `synthesize`'s `inputs`
    (which `pipeline.propose` persists VERBATIM into the immutable ledger row) embedded the FULL
    `CultureArtifactRef[]`, including every fetched artifact's raw content, forever bypassing this
@@ -1016,19 +1025,40 @@ re-verifiable on this branch.
 
 ### New tests this round
 
-`jobpilot-culture-research.test.ts` [api] (+9): cancellation-fenced-CAS unit test, tagged-ownership
+`jobpilot-culture-research.test.ts` [api] (+11): cancellation-fenced-CAS unit test, tagged-ownership
 regression, forged-proposal decide-backstop test (research + synthesis shapes, plus a legitimate
 control), generic-cancel-endpoint routing test, prebinding-crash-safety test (grounding failure does
-not poison the pointer), dead-pointer self-heal test, ledger-row-never-embeds-raw-content test,
-trustOrigin threading test. `culture-research-client.test.mjs` [web] (+5): bounded-quote-length test,
-4 `isArtifactUsable` unit tests (null, purged, expired, usable).
+not poison the pointer), dead-pointer self-heal test, **young-live-pointer-survives-concurrent-
+synthesize test (post-push independent review hardening)**, ledger-row-never-embeds-raw-content
+test, trustOrigin threading test. `culture-research-client.test.mjs` [web] (+5): bounded-quote-length
+test, 4 `isArtifactUsable` unit tests (null, purged, expired, usable).
+
+### Post-push independent review — 1 genuine defect found and fixed before this report
+
+A fresh, adversarial independent review of the pushed commit found the item-7 self-heal check
+(above) was itself unsafe: it treated "the pointer's proposalId doesn't resolve in the ledger yet"
+as proof of death, but that is indistinguishable from a genuinely live, in-flight concurrent
+`synthesize()` call for the same `parentRunId` whose `pipeline.propose` simply hadn't reached
+`#appendLedger` yet (real awaits: authority/policy checks, the Skill's own artifact resolution,
+fabrication guard). A second request landing in that window could self-heal (release + rebind) the
+live winner's pointer, permanently orphaning the first caller's soon-to-exist valid ledger row
+against the new `assertCultureProposalBindingValid` backstop — no test exercised two concurrent
+`synthesize()` calls racing this exact path. Fixed by extracting `selfHealDeadSynthesisPointer`
+(now requiring the pointer to be older than a 30s grace period before ever releasing it) and adding
+a regression test proving a young, unresolved pointer survives a concurrent `synthesize()` attempt
+completely untouched (the second caller instead gets the ordinary `CONFLICT` outcome). Full affected
+gate rerun clean after the fix (see Verification below); this is included in the pushed commit
+this report is based on, not a separate follow-up round.
 
 ### Verification
 
 `@bridge/core` 430/430, `@bridge/db` 112/112, `@bridge/net-guard` 24/24, `@bridge/jobpilot` 124/124,
-`@bridge/api` 229/229 (full suite), `@bridge/web` 61/61 + clean build/typecheck, full monorepo build
-21/21, eslint clean (same 2 pre-existing, unrelated issues in `ZazooAvatar.tsx`/`determinism.ts` —
-confirmed untouched by this branch's diff), no-dummy-runtime clean.
+`@bridge/api` 230/230 (full suite, rerun twice after the post-review fix — one incidental flake in
+a PRE-EXISTING, unrelated timing-sensitive real-socket test under full-suite load, confirmed to pass
+in isolation and on rerun, not a regression), `@bridge/web` 61/61 + clean build/typecheck, full
+monorepo build 21/21, eslint clean (same 2 pre-existing, unrelated issues in
+`ZazooAvatar.tsx`/`determinism.ts` — confirmed untouched by this branch's diff), no-dummy-runtime
+clean.
 
 `origin/main` re-checked at end of round: still `87043d4` (unchanged) — no new commits to merge.
 
