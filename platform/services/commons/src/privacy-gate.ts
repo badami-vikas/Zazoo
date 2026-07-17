@@ -5,9 +5,9 @@
  *
  * Strategy: recursively walk the RAW publish payload (before/independent of
  * manifest parsing, so unknown extra fields can't smuggle data past the shape
- * guard) and flag any key that names workspace- or user-specific state. The
- * error lists every offending JSON path so a publisher can generalize the
- * manifest instead of guessing.
+ * guard) and flag keys or scalar values that carry workspace/user-specific
+ * state. The error lists every offending JSON path so a publisher can
+ * generalize the manifest instead of guessing.
  */
 
 /** Keys that mark WORKSPACE-SPECIFIC or USER-IDENTIFYING data. Matched
@@ -31,6 +31,15 @@ const DENIED_KEYS: readonly string[] = [
   "updatedby",
   "authorid",
   "accountid",
+  "fullname",
+  "firstname",
+  "lastname",
+  "primarycontact",
+  "contactname",
+  "customername",
+  "clientname",
+  "companyname",
+  "organizationname",
   // credentials / secrets — never registry content
   "apikey",
   "accesstoken",
@@ -39,13 +48,47 @@ const DENIED_KEYS: readonly string[] = [
   "password",
   "credential",
 ];
+const DENIED_KEY_SUFFIXES = [
+  "secret",
+  "token",
+  "password",
+  "credential",
+  "apikey",
+  "contact",
+] as const;
 
 function normalizeKey(key: string): string {
   return key.replace(/[_-]/g, "").toLowerCase();
 }
 
 function isDeniedKey(key: string): boolean {
-  return DENIED_KEYS.includes(normalizeKey(key));
+  const normalized = normalizeKey(key);
+  return DENIED_KEYS.includes(normalized) || DENIED_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+const DENIED_VALUE_PATTERNS: readonly RegExp[] = [
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i,
+  /\b(?:ws|usr|user|tenant|acct|account|person)_[a-z0-9_-]{6,}\b/i,
+  /\b(?:customer|client|contact|workspace|tenant|user|person):[^\s,;]+/i,
+  /(?:^|\/)users?\/[^/\s]+/i,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/i,
+  /\b(?:sk|pk|ghp|github_pat)_[A-Za-z0-9_-]{12,}\b/i,
+  /\b(?:AKIA|ASIA|AIDA|AROA|AIPA|ANPA|ANVA|A3T[A-Z0-9])[A-Z0-9]{16}\b/,
+  /\b(?:aws[_ -]?secret[_ -]?access[_ -]?key|secretAccessKey)\b\s*[:=]\s*[A-Za-z0-9/+=]{40}\b/i,
+  /\bAIza[0-9A-Za-z_-]{35}\b/,
+  /\b(?:xox[baprs]|xapp)-[0-9A-Za-z-]{10,}\b/,
+  /\bGOCSPX-[0-9A-Za-z_-]{16,}\b/,
+  /\bAccountKey=[A-Za-z0-9+/=]{32,}\b/i,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  /\b\d{3}-\d{2}-\d{4}\b/,
+  /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}\b/,
+  /\b(?:\d[ -]*?){13,19}\b/,
+  /\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,4}\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Parkway|Pkwy|Highway|Hwy|Circle|Cir|Terrace|Ter)\b/i,
+];
+
+function isDeniedValue(value: unknown): boolean {
+  return typeof value === "string" && DENIED_VALUE_PATTERNS.some((pattern) => pattern.test(value));
 }
 
 /**
@@ -63,5 +106,6 @@ export function findWorkspaceDataPaths(value: unknown, path = ""): string[] {
       return findWorkspaceDataPaths(child, childPath);
     });
   }
+  if (isDeniedValue(value)) return [path || "$"];
   return [];
 }

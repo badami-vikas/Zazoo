@@ -6,10 +6,27 @@
  * all governance lives in the pipeline, not here.
  */
 import { initTRPC, TRPCError } from "@trpc/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { LEARNING_AGENT, PILOT_WORKSPACE, type Wiring } from "./wiring.js";
+import {
+  LEARNING_AGENT,
+  OUTREACH_AGENT,
+  EGRESS_AGENT,
+  PILOT_WORKSPACE,
+  LEARNING_ROLE_MODEL_GOAL_TYPE,
+  PRODUCE_RECOMMENDATION_TASK_TYPE,
+  HELPDESK_ROUTING_GOAL_TYPE,
+  DRAFT_HELP_OFFER_TASK_TYPE,
+  DEALPILOT_SOURCING_GOAL_TYPE,
+  SOURCE_CANDIDATES_TASK_TYPE,
+  RELATIONSHIP_CAPTURE_GOAL_TYPE,
+  STAGE_CAPTURE_TASK_TYPE,
+  RELATIONSHIP_OUTREACH_GOAL_TYPE,
+  DRAFT_OUTREACH_TASK_TYPE,
+  type Wiring,
+} from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -23,6 +40,7 @@ import type {
 import {
   AgentFloorDeniedError,
   AlreadyResolvedError,
+  NotPendingProposalError,
   buildAgentCapability,
   validateRitualWithinAgents,
   computeRisk,
@@ -47,6 +65,8 @@ import {
   parseSkillMention,
   invokeAgent,
   buildCommunicationsSystemPrompt,
+  canonicalizeJson,
+  normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
   findFoundationalAgent,
   buildChiefOfStaffPersona,
@@ -55,6 +75,7 @@ import {
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
+  maxRisk,
   evaluateSandboxRequirement,
   isUntrustedOrigin,
   trustGrantsForOrigin,
@@ -62,6 +83,8 @@ import {
   promoteToAvailable,
   rollbackFromHistory,
   InvalidPackageTransitionError,
+  resolveSkillForTask,
+  cancelChildAgentRun,
   type CapabilityManifest,
   type CapabilityManifestRow,
   type CapabilityOrigin,
@@ -69,11 +92,15 @@ import {
   type WhyBetterCard,
   type CapabilityHealthRecord,
   type PendingProposalRecord,
+  type Proposal,
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
+  type PackageManifest,
+  type CommonsPackageEntry,
   type CommonsListQuery,
   type CommonsPackageDetail,
+  type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
@@ -81,11 +108,41 @@ import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@
 import { scoreThesisFit, type ThesisProfile } from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
-import { BUILT_IN_PACKAGES } from "./built-in-packages.js";
+import {
+  COMMONS_BUILT_IN_PACKAGES,
+  isModuleRuntimeRitualId,
+  resolveModuleAgentRuntimeId,
+  resolveModuleRitualRuntimeId,
+} from "./built-in-packages.js";
+import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
+type OutreachDraftResult =
+  | Proposal
+  | {
+      id: string;
+      status: "already_resolved";
+      decision: "approve" | "veto" | "edit" | "auto";
+    };
+const outreachDraftsInFlight = new Map<string, Promise<OutreachDraftResult>>();
+
+function stableProposalId(key: string): string {
+  const hex = createHash("sha256").update(key).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function stableOutreachProposalId(key: string): string {
+  return stableProposalId(key);
+}
+
+function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
+  return stableProposalId(`package-install:${workspaceId}:${installationId}`);
+}
 
 /**
  * Translate `NonPilotWorkspaceError` → `TRPCError({code:"FORBIDDEN"})` in ONE place
@@ -153,7 +210,7 @@ const requireAuthenticatedIdentity = t.middleware(async ({ ctx, next }) => {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message:
-        "authentication required: this deployment verifies identities (or persists data), " +
+        "authentication required: verified authentication is required because this deployment verifies identities (or persists data), " +
         "but the request presented no verified credentials",
     });
   }
@@ -229,7 +286,7 @@ function cleanOnBehalfOf(
 }
 
 function cleanContext(
-  c: { type: "initiative" | "community" | "ritual"; id: string; runId?: string | undefined } | undefined,
+  c: { type: "initiative" | "community" | "ritual" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
 ): RunContext | undefined {
   if (!c) return undefined;
   return { type: c.type, id: c.id, ...(c.runId ? { runId: c.runId } : {}) };
@@ -257,6 +314,104 @@ class NonPilotWorkspaceError extends Error {
 
 function assertPilotWorkspace(workspaceId: string): void {
   if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
+}
+
+/**
+ * AGS1 (TASK-007) real-catalog migration — `stageLearningRecommendation` is a
+ * governed Skill now (see wiring.ts's `LEARNING_RECOMMENDATION_SKILL_MANIFEST`),
+ * so every `pipeline.propose` call naming it needs a resolved Goal/Task. This
+ * find-or-create helper keeps ONE durable Goal per workspace (reused across
+ * calls — a Goal is a durable intended outcome, not reminted per request) and
+ * mints one bounded Task per recommendation request (each recommendation IS
+ * its own bounded unit of work), assigned to `LEARNING_AGENT`.
+ */
+/**
+ * AGS1 (TASK-007) shared find-or-create Goal/Task provisioning — a Goal is a
+ * durable intended outcome reused across calls (find-or-create by type); a
+ * Task is a bounded unit of work minted fresh per call. Shared by every
+ * router procedure that must supply a real `goalTaskRef` to a governed Skill.
+ */
+async function provisionGoalTask(
+  wiring: Wiring,
+  workspaceId: string,
+  goalType: string,
+  goalTitle: string,
+  taskType: string,
+  assignedAgentId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
+  const existingGoals = await wiring.goalTasks.listGoals(workspaceId);
+  const goal =
+    existingGoals.find((g) => g.type === goalType) ??
+    (await wiring.goalTasks.createGoal({ workspaceId, type: goalType, title: goalTitle }, seam));
+  const task = await wiring.goalTasks.createTask({ workspaceId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
+  return { goalId: goal.id, taskId: task.id };
+}
+
+async function provisionRoleModelRecommendationTask(
+  wiring: Wiring,
+  workspaceId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    LEARNING_ROLE_MODEL_GOAL_TYPE,
+    "Role-model deliberate-practice recommendations",
+    PRODUCE_RECOMMENDATION_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
+async function provisionHelpdeskAnswerTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    HELPDESK_ROUTING_GOAL_TYPE,
+    "Helpdesk routing and Help Offer drafting",
+    DRAFT_HELP_OFFER_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — DealPilot sourcing is EGRESS_AGENT's Task (the
+ * same cloud/egress identity every Google external:fetch flow already uses). */
+async function provisionDealpilotSourcingTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    DEALPILOT_SOURCING_GOAL_TYPE,
+    "DealPilot candidate sourcing",
+    SOURCE_CANDIDATES_TASK_TYPE,
+    EGRESS_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — a raw human capture is modeled as Learning
+ * "observing authorized evidence" (its stated mandate). */
+async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    RELATIONSHIP_CAPTURE_GOAL_TYPE,
+    "Relationship evidence capture",
+    STAGE_CAPTURE_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+async function provisionOutreachDraftTask(
+  wiring: Wiring,
+  workspaceId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    RELATIONSHIP_OUTREACH_GOAL_TYPE,
+    "Relationship outreach drafting",
+    DRAFT_OUTREACH_TASK_TYPE,
+    OUTREACH_AGENT,
+  );
 }
 
 /**
@@ -338,18 +493,75 @@ const proposeInput = z.object({
   dataScope: dataScopeEnum.optional(),
   context: z
     .object({
-      type: z.enum(["initiative", "community", "ritual"]),
+      type: z.enum(["initiative", "community", "ritual", "child_agent_run"]),
       id: z.string().min(1),
       runId: z.string().optional(),
     })
     .optional(),
   seed: z.string().optional(),
+  /** AGS1 (TASK-007) — binds this proposal to a resolved Goal/Task assignment.
+   * Required only for skills that have a registered SkillManifest; see
+   * `PipelineDeps.skillManifests`'s doc comment in @bridge/core's pipeline.ts. */
+  goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
 const decideInput = z.object({
   proposalId: z.string().min(1),
   decision: z.enum(["approve", "veto", "edit"]),
   editedOutput: z.unknown().optional(),
+  reason: z.string().trim().min(1).max(500).optional(),
+});
+
+const outreachDraftInput = z.object({
+  workspaceId: z.string().min(1),
+  sourceId: z.string().trim().min(1).max(500),
+  label: z.string().trim().min(1).max(200),
+  resource: z.string().trim().min(1).max(500),
+  proposed: z.string().trim().min(1).max(20_000),
+  channel: z.string().trim().min(1).max(100).optional(),
+  prior: z.string().max(20_000).nullable().optional(),
+  runId: z.string().trim().min(1).max(500).optional(),
+  trace: z.object({
+    signals: z.array(z.string().trim().min(1).max(500)).max(50),
+    context: z.string().trim().min(1).max(5_000),
+    reasoning: z.string().trim().min(1).max(5_000),
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// AGS0-AGS2 (TASK-007) — Goal/Task-bound Skill resolution + bounded child
+// Agent Runs. See @bridge/core's goal-task.ts / skill-manifest.ts /
+// child-agent-run.ts for the governed primitives these procedures wrap.
+// ---------------------------------------------------------------------------
+const goalCreateInput = z.object({
+  workspaceId: z.string().min(1),
+  type: z.string().min(1),
+  title: z.string().min(1),
+});
+
+const taskCreateInput = z.object({
+  workspaceId: z.string().min(1),
+  goalId: z.string().min(1),
+  type: z.string().min(1),
+  assignedAgentId: z.string().min(1),
+});
+
+const taskReassignInput = z.object({
+  workspaceId: z.string().min(1),
+  taskId: z.string().min(1),
+  assignedAgentId: z.string().min(1),
+});
+
+const resolveSkillInput = z.object({
+  workspaceId: z.string().min(1),
+  goalId: z.string().min(1),
+  taskId: z.string().min(1),
+  /** The Agent attempting to use a Skill for this Task — server-resolved
+   * authority (capabilityScope/plane/dataScope) always comes from
+   * `ctx.wiring.agents`, never client-asserted. */
+  agentId: z.string().min(1),
+  skillId: z.string().min(1).optional(),
+  requestedDataScope: dataScopeEnum.optional(),
 });
 
 const ritualStep = z.object({
@@ -359,6 +571,8 @@ const ritualStep = z.object({
   resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
   dataScope: dataScopeEnum.optional(),
+  /** AGS1/TASK-007 — see RitualStepDef.goalTaskRef's doc comment (@bridge/core's ports.ts). */
+  goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
 const ritualRunInput = z.object({
@@ -373,11 +587,14 @@ const ritualRunInput = z.object({
 const ritualRunByIdInput = z.object({
   workspaceId: z.string().min(1),
   ritualId: z.string().min(1),
-  actor: actorSchema,
+  modulePackageName: z.string().min(1).optional(),
+  actor: actorSchema.optional(),
   onBehalfOf: onBehalfOfSchema.optional(),
   params: z.record(z.unknown()).optional(),
   seed: z.string().optional(),
 });
+
+const toolRunInput = ritualRunByIdInput.extend({ actor: actorSchema });
 
 /** Layered, gated agent permissions (least-privilege; cf. Google incremental scopes).
  * `send` is intentionally NOT an egress tier — agents may never send (human-only). */
@@ -689,6 +906,207 @@ function resolverFrom(rows: Map<string, CapabilityManifestRow>): (id: string) =>
   };
 }
 
+function packageInstallIdFromProposal(entry: LedgerEntry): string | undefined {
+  if (typeof entry.inputs !== "object" || entry.inputs === null || Array.isArray(entry.inputs)) return undefined;
+  const inputs = entry.inputs as Record<string, unknown>;
+  if (inputs.operation !== "package_install" || typeof inputs.installationId !== "string") return undefined;
+  if (entry.resourceId !== inputs.installationId) return undefined;
+  if (entry.id !== stablePackageInstallProposalId(entry.workspaceId, inputs.installationId)) return undefined;
+  return inputs.installationId;
+}
+
+async function findPendingProposalById(
+  wiring: Wiring,
+  workspaceId: string,
+  proposalId: string,
+): Promise<(Proposal & { createdAt: string }) | null> {
+  let offset = 0;
+  while (true) {
+    const page = await wiring.pipeline.listPending(workspaceId, { limit: 200, offset });
+    const found = page.items.find((proposal) => proposal.id === proposalId);
+    if (found) return found;
+    offset += page.items.length;
+    if (page.items.length === 0 || offset >= page.total) return null;
+  }
+}
+
+async function assertCurrentCommonsAttachment(
+  wiring: Wiring,
+  installation: PackageInstallationRow,
+): Promise<CommonsPackageEntry | null> {
+  const attachment = installation.moduleAttachment;
+  if (!attachment) return null;
+  const ownerModule = await wiring.packageStore.getAvailable(
+    installation.workspaceId,
+    attachment.modulePackageName,
+  );
+  if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `owning Module "${attachment.modulePackageName}" is no longer installed`,
+    });
+  }
+  const need = ownerModule.manifest.module.commonsNeeds?.find(
+    (candidate) => candidate.id === attachment.needId,
+  );
+  if (!need || need.agentId !== attachment.agentId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons capability need is no longer owned by the attached Module Agent",
+    });
+  }
+  const entry = await wiring.commonsRegistry.getVersion(
+    installation.packageName,
+    installation.packageVersion,
+  );
+  if (!entry || entry.integrity.value !== attachment.contentHash) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons installation no longer matches its pinned root artifact",
+    });
+  }
+  try {
+    assertCommonsEntryContentTrusted(entry);
+  } catch (error) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error instanceof Error ? error.message : "Commons root artifact failed trust verification",
+    });
+  }
+  if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Commons package no longer satisfies the declared Module need",
+    });
+  }
+  if (
+    entry.manifest.capabilities.length === 0 ||
+    entry.manifest.capabilities.some((capability) => capability.capabilityType !== "skill")
+  ) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Only Skill packages can remain attached beneath a Module Agent",
+    });
+  }
+  return entry;
+}
+
+async function verifiedCommonsDependencyInstallations(
+  wiring: Wiring,
+  root: PackageInstallationRow,
+  rootEntry: CommonsPackageEntry | null,
+): Promise<PackageInstallationRow[]> {
+  if (!root.moduleAttachment || !rootEntry) return [];
+  const { items } = await wiring.packageStore.list(root.workspaceId, { limit: 10_000, offset: 0 });
+  const pins = new Map<string, string>(
+    (rootEntry.securityScan.dependencyPins ?? []).map(
+      (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+    ),
+  );
+  const found = new Map<string, PackageInstallationRow>();
+  const visited = new Set<string>();
+  const visit = async (entry: CommonsPackageEntry): Promise<void> => {
+    for (const dependency of entry.manifest.dependencies) {
+      const key = `${dependency.manifestId}@${dependency.version}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const expectedHash = pins.get(key);
+      const dependencyEntry = await wiring.commonsRegistry.getVersion(
+        dependency.manifestId,
+        dependency.version,
+      );
+      if (!dependencyEntry || !expectedHash || dependencyEntry.integrity.value !== expectedHash) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+        });
+      }
+      try {
+        assertCommonsEntryContentTrusted(dependencyEntry);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error instanceof Error ? error.message : `Commons dependency "${key}" failed trust verification`,
+        });
+      }
+      const local = items.find(
+        (candidate) =>
+          candidate.packageName === dependency.manifestId &&
+          candidate.packageVersion === dependency.version &&
+          candidate.moduleAttachment?.source === "commons" &&
+          candidate.moduleAttachment.modulePackageName === root.moduleAttachment?.modulePackageName &&
+          candidate.moduleAttachment.agentId === root.moduleAttachment?.agentId &&
+          candidate.moduleAttachment.needId === root.moduleAttachment?.needId &&
+          candidate.moduleAttachment.contentHash === expectedHash,
+      );
+      if (!local || !["private", "promoted", "available"].includes(local.state)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Commons dependency "${key}" is not staged in an activatable state`,
+        });
+      }
+      found.set(local.id, local);
+      for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
+        pins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+      }
+      await visit(dependencyEntry);
+    }
+  };
+  await visit(rootEntry);
+  return [...found.values()];
+}
+
+async function activateApprovedPackageInstallation(
+  wiring: Wiring,
+  workspaceId: string,
+  installationId: string,
+): Promise<PackageInstallationRow> {
+  let installation = await wiring.packageStore.get(installationId);
+  if (!installation || installation.workspaceId !== workspaceId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+  }
+  const rootEntry = await assertCurrentCommonsAttachment(wiring, installation);
+  const dependencies = await verifiedCommonsDependencyInstallations(wiring, installation, rootEntry);
+  for (const dependency of dependencies) {
+    await wiring.packageStore.setComputedRisk(
+      dependency.id,
+      maxRisk(dependency.computedRisk, installation.computedRisk),
+    );
+    await wiring.packageStore.setStatus(dependency.id, "installed");
+    let current = (await wiring.packageStore.get(dependency.id))!;
+    if (current.state === "private") current = await wiring.packageStore.setState(current.id, "promoted");
+    if (current.state === "promoted") {
+      const available = await wiring.packageStore.getAvailable(
+        workspaceId,
+        current.packageName,
+        current.moduleAttachment,
+      );
+      const promotion = promoteToAvailable(current, available);
+      await wiring.packageStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
+      if (promotion.demoted) {
+        await wiring.packageStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
+      }
+    } else if (current.state !== "available") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Commons dependency cannot activate from state "${current.state}"`,
+      });
+    }
+  }
+  if (installation.status !== "installed") {
+    installation = await wiring.packageStore.setStatus(installation.id, "installed");
+  }
+  if (installation.state === "private") {
+    installation = await wiring.packageStore.setState(installation.id, "promoted");
+  } else if (installation.state !== "promoted" && installation.state !== "available") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `package installation cannot activate from state "${installation.state}"`,
+    });
+  }
+  return installation;
+}
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -696,21 +1114,21 @@ export const appRouter = t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
     propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request
-      // body. An agent actor keeps its requested service identity but always drafts and
-      // still requires a human approval downstream (agent-floor + require_approval).
-      const actor =
-        input.actor.type === "agent"
-          ? {
-              type: "agent" as ActorType,
-              id: input.actor.id,
-              ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-            }
-          : {
-              type: ctx.identity.type,
-              id: ctx.identity.id,
-              ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-            };
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type === "agent") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Agent proposals must enter through the server-owned Agent runtime",
+        });
+      }
+      // Human identity is SERVER-RESOLVED (ctx.identity), never taken from the request.
+      // Agent services invoke the pipeline behind server-owned runtime boundaries rather
+      // than allowing a browser to choose an Agent id.
+      const actor = {
+        type: ctx.identity.type,
+        id: ctx.identity.id,
+        ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+      };
       return ctx.wiring.pipeline.propose(
         {
           workspaceId: input.workspaceId,
@@ -724,10 +1142,135 @@ export const appRouter = t.router({
           ...(input.dataScope ? { dataScope: input.dataScope as DataScope } : {}),
           ...(cleanContext(input.context) ? { context: cleanContext(input.context)! } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
+          ...(input.goalTaskRef ? { goalTaskRef: input.goalTaskRef } : {}),
         },
         ctx.run,
       );
     }),
+
+    /** A constrained browser request for the server-owned Outreach Agent to draft
+     * one relationship Touchpoint. The caller controls the content, never Agent
+     * identity, Skill, governed resource/action, or approval policy. */
+    proposeOutreachDraft: authenticatedProcedure
+      .input(outreachDraftInput)
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        if (ctx.identity.type !== "user") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only a user can request an Outreach Agent draft",
+          });
+        }
+
+        const idempotencyKey = `${input.workspaceId}:${ctx.identity.id}:${input.sourceId}`;
+        const proposalId = stableOutreachProposalId(idempotencyKey);
+        const active = outreachDraftsInFlight.get(idempotencyKey);
+        if (active) return active;
+
+        const operation = (async (): Promise<OutreachDraftResult> => {
+          let offset = 0;
+          while (true) {
+            const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+              limit: 200,
+              offset,
+            });
+            const existing = pending.items.find((proposal) => {
+              const inputs = proposal.request.inputs;
+              return (
+                typeof inputs === "object" &&
+                inputs !== null &&
+                "sourceId" in inputs &&
+                inputs.sourceId === input.sourceId &&
+                proposal.request.actor.type === "agent" &&
+                proposal.request.actor.id === OUTREACH_AGENT &&
+                proposal.request.onBehalfOf?.type === "user" &&
+                proposal.request.onBehalfOf.id === ctx.identity.id
+              );
+            });
+            if (existing) return existing;
+            offset += pending.items.length;
+            if (pending.items.length === 0 || offset >= pending.total) break;
+          }
+
+          const goalTaskRef = await provisionOutreachDraftTask(
+            ctx.wiring,
+            input.workspaceId,
+          );
+          try {
+            return await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: "agent", id: OUTREACH_AGENT },
+                onBehalfOf: { type: "user", id: ctx.identity.id },
+                action: "write",
+                resourceType: "touchpoint",
+                inputs: {
+                  text: input.proposed,
+                  sourceId: input.sourceId,
+                  runId: input.runId ?? null,
+                  display: {
+                    action: input.label,
+                    actor: "Outreach Agent",
+                    actorKind: "agent",
+                    onBehalfOf: "You",
+                    resource: input.resource,
+                    policy: "Agent-authored relationship drafts require Human approval",
+                    channel: input.channel,
+                    prior: input.prior ?? null,
+                    trace: input.trace,
+                  },
+                },
+                skill: "outreach.stageDraft",
+                dataScope: "public",
+                goalTaskRef,
+                ...(input.runId
+                  ? { context: { type: "ritual", id: input.runId, runId: input.runId } }
+                  : {}),
+                seed: input.sourceId,
+                trustOrigin: "user_content",
+              },
+              ctx.run,
+              { proposalId },
+            );
+          } catch (cause) {
+            // The ledger primary key is the cross-process idempotency gate. A loser
+            // of the insert race returns the winner's pending proposal.
+            let offset = 0;
+            while (true) {
+              const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+                limit: 200,
+                offset,
+              });
+              const winner = pending.items.find((proposal) => proposal.id === proposalId);
+              if (winner) return winner;
+              offset += pending.items.length;
+              if (pending.items.length === 0 || offset >= pending.total) break;
+            }
+            const existing = await ctx.wiring.ledger.get(proposalId);
+            if (existing) {
+              const decision = await ctx.wiring.ledger.decisionFor(proposalId);
+              const terminalDecision = decision?.userDecision ?? existing.userDecision;
+              if (terminalDecision !== null) {
+                return {
+                  id: proposalId,
+                  status: "already_resolved" as const,
+                  decision: terminalDecision,
+                };
+              }
+            }
+            throw cause;
+          }
+        })();
+        outreachDraftsInFlight.set(idempotencyKey, operation);
+        try {
+          return await operation;
+        } finally {
+          if (outreachDraftsInFlight.get(idempotencyKey) === operation) {
+            outreachDraftsInFlight.delete(idempotencyKey);
+          }
+        }
+      }),
 
     /**
      * Pending proposals awaiting a human decision — backs the Approvals inbox
@@ -755,6 +1298,29 @@ export const appRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
+    /** Read the append-only resolution state for idempotent review reconciliation. */
+    resolution: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        assertPilotWorkspace(proposal.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (decision) {
+          return { status: "resolved" as const, decision: decision.userDecision };
+        }
+        const rejected =
+          typeof proposal.diff === "object" &&
+          proposal.diff !== null &&
+          !Array.isArray(proposal.diff) &&
+          "rejected" in proposal.diff;
+        if (proposal.refLedgerId !== undefined || proposal.userDecision !== null || rejected) {
+          return { status: "terminal" as const, decision: proposal.userDecision };
+        }
+        return { status: "pending" as const, decision: null };
+      }),
+
     /** Resolve a pending proposal: approve | veto | edit. */
     decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
@@ -771,12 +1337,16 @@ export const appRouter = t.router({
           ctx.identity,
           ctx.run,
           input.editedOutput,
+          input.reason,
         );
       } catch (err) {
         // Double-approve / already-resolved (including the persistent ledger's
         // partial-unique-index race guard) → 409, not a generic 500.
         if (err instanceof AlreadyResolvedError) {
           throw new TRPCError({ code: "CONFLICT", message: err.message });
+        }
+        if (err instanceof NotPendingProposalError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         // Agent-floor DENY at the review gate (an agent attempted to approve) → 403,
         // matching the IntegrationFloorScopeError → FORBIDDEN pattern above.
@@ -788,8 +1358,68 @@ export const appRouter = t.router({
       // Post-approval Google side effects (no-op for unrelated proposals):
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
-      const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
-      return { ...resolved, effects };
+      try {
+        const packageInstallationId = packageInstallIdFromProposal(original);
+        const packageInstallation =
+          packageInstallationId && input.decision !== "veto"
+            ? await activateApprovedPackageInstallation(
+                ctx.wiring,
+                original.workspaceId,
+                packageInstallationId,
+              )
+            : undefined;
+        const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
+        return {
+          ...resolved,
+          effects,
+          effectsStatus: "confirmed" as const,
+          ...(packageInstallation ? { packageInstallation } : {}),
+        };
+      } catch (cause) {
+        const effectsError = cause instanceof Error ? cause.message : String(cause);
+        let effectsAuditId: string | undefined;
+        try {
+          const auditId = ctx.run.ids.next();
+          await ctx.wiring.ledger.append({
+            id: auditId,
+            workspaceId: resolved.request.workspaceId,
+            actorType: resolved.request.actor.type,
+            actorId: resolved.request.actor.id,
+            action: resolved.request.action,
+            resourceType: resolved.request.resourceType,
+            ...(resolved.request.resourceId ? { resourceId: resolved.request.resourceId } : {}),
+            inputs: {
+              originalProposalId: input.proposalId,
+              display: {
+                actor: `${resolved.request.actor.type} · ${resolved.request.actor.id}`,
+                resource: `${resolved.request.resourceType}${resolved.request.resourceId ? ` · ${resolved.request.resourceId}` : ""}`,
+                policy: "Post-decision effect failed",
+              },
+            },
+            proposedOutput: {
+              text: `Approved effect failed: ${effectsError}`,
+              executed: false,
+              error: effectsError,
+            },
+            userDecision: "auto",
+            policyResults: [],
+            diff: { executionFailed: effectsError },
+            createdAt: ctx.run.clock.nowISO(),
+          });
+          effectsAuditId = auditId;
+        } catch (auditCause) {
+          // An irreversible decision plus a failed effect must stay visible even when
+          // the failure-audit append also fails.
+          console.error("action.decide: failed to append post-decision effect audit", auditCause);
+        }
+        return {
+          ...resolved,
+          effects: { materialized: false, sent: false },
+          effectsStatus: "failed" as const,
+          effectsError,
+          ...(effectsAuditId ? { effectsAuditId } : {}),
+        };
+      }
     }),
   }),
 
@@ -809,9 +1439,56 @@ export const appRouter = t.router({
    * only add surface area without closing a real gap; if a caller ever needs
    * multi-workspace Google integration, that's the same Phase 5 multi-tenancy work
    * the rest of this fix explicitly defers, not a one-off param here. */
+  /**
+   * AGS1 (TASK-007 closure) — raw human capture (camera tool), migrated off a
+   * client-constructed `action.propose` call (which previously sent a raw
+   * `actor:{type:"user"}` for `skill:"stageCapture"`) onto a dedicated
+   * procedure: the SERVER, never the client, decides the invoking Agent
+   * (LEARNING_AGENT — "observes authorized evidence") and provisions the
+   * Goal/Task `stageCapture`'s manifest requires (see wiring.ts's
+   * STAGE_CAPTURE_SKILL_MANIFEST).
+   */
+  capture: t.router({
+    stage: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          localMediaId: z.string().min(1),
+          kind: z.enum(["photo", "video"]).optional(),
+          caption: z.string().optional(),
+          ocrText: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goalTaskRef = await provisionCaptureTask(ctx.wiring, input.workspaceId);
+        return ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+            onBehalfOf: { type: "user", id: ctx.identity.id },
+            action: "write",
+            resourceType: "touchpoint",
+            dataScope: "private" as DataScope,
+            skill: "stageCapture",
+            inputs: {
+              local_media_id: input.localMediaId,
+              ...(input.kind ? { kind: input.kind } : {}),
+              ...(input.caption ? { caption: input.caption } : {}),
+              ...(input.ocrText ? { ocrText: input.ocrText } : {}),
+            },
+            goalTaskRef,
+          },
+          ctx.run,
+        );
+      }),
+  }),
+
   google: t.router({
     /** Connection + manifest surfaces for the Integrations UI. */
-    list: procedure.query(async ({ ctx }) => {
+    list: authenticatedProcedure.query(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       const info = await ctx.wiring.google.connectionInfo();
       const m = ctx.wiring.googleManifest;
       return {
@@ -828,7 +1505,8 @@ export const appRouter = t.router({
     }),
 
     /** The Google consent URL (read AND write scopes, offline). */
-    connectUrl: procedure.mutation(async ({ ctx }) => {
+    connectUrl: authenticatedProcedure.mutation(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
@@ -836,15 +1514,17 @@ export const appRouter = t.router({
     }),
 
     /** Revoke locally (delete the local token). */
-    disconnect: procedure.mutation(async ({ ctx }) => {
+    disconnect: authenticatedProcedure.mutation(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       await ctx.wiring.google.disconnect();
       return { ok: true };
     }),
 
     /** Source Gmail through the gate → propose Touchpoints/Memories/Signals. */
-    syncGmail: procedure
+    syncGmail: authenticatedProcedure
       .input(z.object({ maxResults: z.number().int().positive().max(100).optional(), query: z.string().optional() }).optional())
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.syncGmail(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.query ? { query: input.query } : {}),
@@ -852,7 +1532,7 @@ export const appRouter = t.router({
       }),
 
     /** Source Calendar through the gate → propose Touchpoints. */
-    syncCalendar: procedure
+    syncCalendar: authenticatedProcedure
       .input(
         z
           .object({
@@ -863,6 +1543,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.syncCalendar(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -872,7 +1553,7 @@ export const appRouter = t.router({
 
     /** Read-only projection: FULL Calendar events for the Calendar surface (gated
      * external:fetch, auto-approved as the user's own view). No Touchpoint proposals. */
-    listEvents: procedure
+    listEvents: authenticatedProcedure
       .input(
         z
           .object({
@@ -883,6 +1564,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         const events = await ctx.wiring.google.listCalendarEvents(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -894,7 +1576,7 @@ export const appRouter = t.router({
     /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2).
      * For calendar, `action` = create (default) | update | delete. The real Google
      * write runs in the EgressExecutor only after a human approves. */
-    proposeSend: procedure
+    proposeSend: authenticatedProcedure
       .input(
         z.object({
           kind: z.enum(["email", "calendar"]),
@@ -903,6 +1585,7 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.proposeSend(ctx.run, {
           kind: input.kind,
           ...(input.action ? { action: input.action } : {}),
@@ -966,13 +1649,18 @@ export const appRouter = t.router({
      * authority (ritual ⊆ agent). The gate cannot be widened by a workflow. */
     create: procedure.input(ritualCreateInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      const mem = ctx.wiring.memory;
-      if (!mem) throw new Error("ritual.create: in-memory governance store required (persistent ritual CRUD pending)");
-      const agentViews = input.agentIds.map((id) => ({
-        id,
-        scope: mem.agents.scope.get(id) ?? [],
-        dataScope: mem.agents.tiers.get(id) ?? ("all" as DataScope),
-      }));
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.agentIds.length !== 1) {
+        throw new Error("ritual.create: exactly one owning Agent is required");
+      }
+      const agentId = input.agentIds[0]!;
+      const agentViews = await Promise.all(
+        input.agentIds.map(async (id) => ({
+          id,
+          scope: await ctx.wiring.agents.capabilityScope(id),
+          dataScope: await ctx.wiring.agents.dataScope(id),
+        })),
+      );
       const violations = validateRitualWithinAgents(
         input.steps.map((s) => ({
           action: s.action as Action,
@@ -984,13 +1672,13 @@ export const appRouter = t.router({
       if (violations.length > 0) {
         return { ok: false as const, violations, reason: "ritual exceeds assigned agents' authority (ritual ⊆ agent)" };
       }
-      const reg = ctx.wiring.ritualRegistry as { register?: (d: RitualDefinition) => unknown };
-      if (!reg.register) throw new Error("ritual.create: persistent ritual CRUD pending");
       const ritualId = ctx.run.ids.next();
-      reg.register({
+      await ctx.wiring.ritualRegistry.save({
         id: ritualId,
         name: input.name,
         workspaceId: input.workspaceId,
+        agentId,
+        agentPlane: "local",
         steps: input.steps.map((s) => ({
           skill: s.skill,
           action: s.action as Action,
@@ -998,14 +1686,22 @@ export const appRouter = t.router({
           ...(s.resourceId ? { resourceId: s.resourceId } : {}),
           ...(s.inputs !== undefined ? { inputs: s.inputs as Record<string, unknown> } : {}),
           ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
+          ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
         })),
       });
-      return { ok: true as const, ritualId, agentIds: input.agentIds };
+      return { ok: true as const, ritualId, agentId, agentIds: [agentId] };
     }),
 
     /** Run a ritual: ordered, governed steps through the pipeline. */
     run: procedure.input(ritualRunInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ritual.run actor must match the authenticated workspace member",
+        });
+      }
       return ctx.wiring.ritualExecutor.run(
         {
           workspaceId: input.workspaceId,
@@ -1013,7 +1709,7 @@ export const appRouter = t.router({
           actor: {
             type: input.actor.type as ActorType,
             id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+            plane: "local",
           },
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           steps: input.steps.map((s) => ({
@@ -1023,6 +1719,7 @@ export const appRouter = t.router({
             ...(s.resourceId ? { resourceId: s.resourceId } : {}),
             inputs: s.inputs,
             ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
+            ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
           })),
           ...(input.seed ? { seed: input.seed } : {}),
         },
@@ -1033,15 +1730,50 @@ export const appRouter = t.router({
     /** Run a ritual by id — loads its step config from the registry (P2). */
     runById: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (isModuleRuntimeRitualId(input.ritualId)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Module Automations must run through their manifest Ritual key and package binding",
+        });
+      }
+      let ritualId = input.ritualId;
+      if (input.modulePackageName) {
+        const moduleInstallation = await ctx.wiring.packageStore.getAvailable(
+          input.workspaceId,
+          input.modulePackageName,
+        );
+        const automation = moduleInstallation?.manifest.module?.automations.find(
+          (candidate) => candidate.ritualId === input.ritualId,
+        );
+        const runtimeAgentId = automation
+          ? resolveModuleAgentRuntimeId(input.modulePackageName, automation.agentId)
+          : undefined;
+        const runtimeRitualId = resolveModuleRitualRuntimeId(input.modulePackageName, input.ritualId);
+        const definition = runtimeRitualId
+          ? await ctx.wiring.ritualRegistry.load(input.workspaceId, runtimeRitualId)
+          : null;
+        if (!automation || !runtimeAgentId || !runtimeRitualId || definition?.agentId !== runtimeAgentId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Module Automation has no verified runtime binding",
+          });
+        }
+        ritualId = runtimeRitualId;
+      }
       return ctx.wiring.ritualExecutor.runById(
         {
           workspaceId: input.workspaceId,
-          ritualId: input.ritualId,
-          actor: {
-            type: input.actor.type as ActorType,
-            id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-          },
+          ritualId,
+          ...(input.actor
+            ? {
+                actor: {
+                  type: input.actor.type as ActorType,
+                  id: input.actor.id,
+                  ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+                },
+              }
+            : {}),
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
@@ -1059,18 +1791,31 @@ export const appRouter = t.router({
    * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
    */
   dealpilot: t.router({
-    source: procedure
+    source: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        // AGS1 (TASK-007 closure) — sourcing external candidates is now
+        // EGRESS_AGENT-mediated (the same cloud/egress identity every Google
+        // external:fetch flow uses), matching this platform's plane-gate
+        // philosophy ("local agents REQUEST; a cloud agent SOURCES" —
+        // authority.ts's planeGate doc comment). The frontend already
+        // branches on pending_review/applied/rejected and reads
+        // output.proposedOutput regardless of status, so no client change
+        // was needed — see wiring.ts's DEALPILOT_SOURCE_SKILL_MANIFEST.
+        const goalTaskRef = await provisionDealpilotSourcingTask(ctx.wiring, input.workspaceId);
         return ctx.wiring.pipeline.propose(
           {
             workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            actor: { type: "agent", id: EGRESS_AGENT, plane: "cloud" },
+            onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
             action: "read" as Action,
             resourceType: "external:fetch" as ResourceType,
             skill: "dealpilot.source",
+            dataScope: "public" as DataScope,
             inputs: { kind: "company", hints: {} },
+            goalTaskRef,
           },
           ctx.run,
         );
@@ -1154,8 +1899,15 @@ export const appRouter = t.router({
 
   tool: t.router({
     /** Invoke a tool — its composition runs through the pipeline (config → pipeline). */
-    run: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
+    run: procedure.input(toolRunInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "tool.run actor must match the authenticated workspace member",
+        });
+      }
       return ctx.wiring.ritualExecutor.runTool(
         {
           workspaceId: input.workspaceId,
@@ -1163,7 +1915,7 @@ export const appRouter = t.router({
           actor: {
             type: input.actor.type as ActorType,
             id: input.actor.id,
-            ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+            plane: "local",
           },
           ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
           ...(input.params ? { params: input.params } : {}),
@@ -1407,6 +2159,7 @@ export const appRouter = t.router({
         )
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
           const source = await researchPublicFigure(input.figure);
           const recommendation = {
             kind: "learning_recommendation" as const,
@@ -1431,6 +2184,7 @@ export const appRouter = t.router({
               inputs: recommendation,
               skill: "stageLearningRecommendation",
               trustOrigin: "untrusted_external",
+              goalTaskRef: await provisionRoleModelRecommendationTask(ctx.wiring, input.workspaceId),
             },
             ctx.run,
           );
@@ -1974,10 +2728,12 @@ export const appRouter = t.router({
         .input(
           z.object({
             workspaceId: z.string().min(1),
-            subject: z.string().min(1),
-            submitterEmail: z.string().email(),
-            submitterName: z.string().optional(),
-            body: z.string().min(1),
+            subject: z.string().trim().min(1).max(200),
+            submitterEmail: z.string().trim().email().max(320),
+            submitterName: z.string().trim().max(120).optional(),
+            body: z.string().trim().min(1).max(10_000),
+            operationId: z.string().uuid(),
+            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -1987,13 +2743,15 @@ export const appRouter = t.router({
             subject: input.subject,
             submitterEmail: input.submitterEmail,
             body: input.body,
+            operationId: input.operationId,
+            accessToken: input.accessToken,
             ...(input.submitterName ? { submitterName: input.submitterName } : {}),
           });
           return { ticket, message };
         }),
 
       getThread: publicProcedure
-        .input(z.object({ accessToken: z.string().min(1) }))
+        .input(z.object({ accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/) }))
         .query(async ({ input, ctx }) => {
           const result = await ctx.wiring.helpdeskStore.getTicketByToken(input.accessToken);
           if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
@@ -2001,9 +2759,19 @@ export const appRouter = t.router({
         }),
 
       reply: publicProcedure
-        .input(z.object({ accessToken: z.string().min(1), body: z.string().min(1) }))
+        .input(
+          z.object({
+            accessToken: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/),
+            body: z.string().trim().min(1).max(10_000),
+            operationId: z.string().uuid(),
+          }),
+        )
         .mutation(async ({ input, ctx }) => {
-          const message = await ctx.wiring.helpdeskStore.replyByToken(input.accessToken, input.body);
+          const message = await ctx.wiring.helpdeskStore.replyByToken(
+            input.accessToken,
+            input.body,
+            input.operationId,
+          );
           if (!message) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
           return message;
         }),
@@ -2037,7 +2805,7 @@ export const appRouter = t.router({
         z.object({
           workspaceId: z.string().min(1),
           ticketId: z.string().uuid(),
-          body: z.string().min(1),
+          body: z.string().trim().min(1).max(10_000),
           status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
         }),
       )
@@ -2158,15 +2926,21 @@ export const appRouter = t.router({
           route,
           input.draftBody,
         );
+        // AGS1 (TASK-007 closure) — a real governed Skill: LEARNING_AGENT drafts
+        // the Help Offer, never the Human directly (helpdesk.stageAnswer's own
+        // manifest requires it — see wiring.ts's HELPDESK_ANSWER_SKILL_MANIFEST).
+        const goalTaskRef = await provisionHelpdeskAnswerTask(ctx.wiring, input.workspaceId);
         const proposal = await ctx.wiring.pipeline.propose(
           {
             workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            actor: { type: "agent", id: LEARNING_AGENT },
+            onBehalfOf: { type: "user", id: ctx.identity.id },
             action: "write",
             resourceType: "signal",
             resourceId: input.routedToPersonId,
             inputs: { ...offer },
-            skill: "stageMutation",
+            skill: "helpdesk.stageAnswer",
+            goalTaskRef,
           },
           ctx.run,
         );
@@ -2571,10 +3345,11 @@ export const appRouter = t.router({
    */
   packages: t.router({
     /** Real local-plane File inventory for one installed Module. */
-    files: procedure
+    files: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1), moduleName: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
         const installation = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.moduleName);
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
@@ -2601,7 +3376,8 @@ export const appRouter = t.router({
      * pending_review — no risk computed yet (that happens at `install`). */
     register: procedure.input(packageRegisterInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
-      let manifest;
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      let manifest: PackageManifest;
       try {
         manifest = parsePackageManifest(input.manifest);
       } catch (err) {
@@ -2636,10 +3412,18 @@ export const appRouter = t.router({
      */
     install: procedure.input(packageInstallInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const installation = await ctx.wiring.packageStore.get(input.installationId);
       if (!installation || installation.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
+      if (installation.state !== "private") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `package installation must be private before install, got ${installation.state}`,
+        });
+      }
+      const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
 
       // PKG-1 sandbox floor (Month-6): an executable capability may only install
       // when its declared isolation satisfies the sandbox gate — no
@@ -2663,13 +3447,22 @@ export const appRouter = t.router({
       // manifests, and package dependencies via other installations of this
       // workspace's package store (name+version exact match, per the no-ranges rule).
       const capDepRows = new Map<string, CapabilityManifestRow>();
+      const bundledCapabilities = new Map<string, CapabilityManifest>();
+      for (const capability of installation.manifest.capabilities) {
+        bundledCapabilities.set(capability.id, capability);
+        bundledCapabilities.set(capability.name, capability);
+      }
       for (const cap of installation.manifest.capabilities) {
         for (const dep of cap.dependencies) {
+          if (bundledCapabilities.has(dep.manifestId)) continue;
+          if (!z.string().uuid().safeParse(dep.manifestId).success) continue;
           const row = await ctx.wiring.capabilityStore.getManifest(dep.manifestId);
           if (row) capDepRows.set(dep.manifestId, row);
         }
       }
       const resolveCapabilityDependency = (id: string): CapabilityManifest | undefined => {
+        const bundled = bundledCapabilities.get(id);
+        if (bundled) return bundled;
         const row = capDepRows.get(id);
         if (!row) return undefined;
         return {
@@ -2685,15 +3478,103 @@ export const appRouter = t.router({
         };
       };
       const { items: allInstallations } = await ctx.wiring.packageStore.list(input.workspaceId, { limit: 10000, offset: 0 });
+      const verifiedCommonsDependencies = new Map<string, PackageManifest>();
+      const verifiedDependencyInstallations = new Map<string, PackageInstallationRow>();
+      if (installation.moduleAttachment) {
+        const rootEntry = currentCommonsEntry!;
+        const pins = new Map<string, string>(
+          rootEntry.securityScan.dependencyPins
+            ?.map((pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const) ?? [],
+        );
+        const visited = new Set<string>();
+        const verifyDependencyClosure = async (manifest: PackageManifest): Promise<void> => {
+          for (const dependency of manifest.dependencies) {
+            const key = `${dependency.manifestId}@${dependency.version}`;
+            if (visited.has(key)) continue;
+            visited.add(key);
+            const expectedHash = pins.get(key);
+            const entry = await ctx.wiring.commonsRegistry.getVersion(dependency.manifestId, dependency.version);
+            if (!entry || !expectedHash || entry.integrity.value !== expectedHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+              });
+            }
+            try {
+              assertCommonsEntryContentTrusted(entry);
+            } catch (err) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
+              });
+            }
+            const local = allInstallations.find(
+              (candidate) =>
+                candidate.packageName === dependency.manifestId &&
+                candidate.packageVersion === dependency.version &&
+                candidate.moduleAttachment?.source === "commons" &&
+                candidate.moduleAttachment.modulePackageName === installation.moduleAttachment?.modulePackageName &&
+                candidate.moduleAttachment.agentId === installation.moduleAttachment?.agentId &&
+                candidate.moduleAttachment.needId === installation.moduleAttachment?.needId &&
+                candidate.moduleAttachment.contentHash === expectedHash,
+            );
+            if (!local) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" was not staged from its pinned artifact`,
+              });
+            }
+            if (!["private", "promoted", "available"].includes(local.state)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" cannot activate from state "${local.state}"`,
+              });
+            }
+            verifiedCommonsDependencies.set(key, entry.manifest);
+            verifiedDependencyInstallations.set(key, local);
+            for (const pin of entry.securityScan.dependencyPins ?? []) {
+              pins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+            }
+            await verifyDependencyClosure(entry.manifest);
+          }
+        };
+        await verifyDependencyClosure(installation.manifest);
+      }
+      const installManifests = [installation.manifest, ...verifiedCommonsDependencies.values()];
+      const installCapabilities = installManifests.flatMap((manifest) => manifest.capabilities);
+      for (const capability of installCapabilities) {
+        bundledCapabilities.set(capability.id, capability);
+        bundledCapabilities.set(capability.name, capability);
+        for (const dependency of capability.dependencies) {
+          if (bundledCapabilities.has(dependency.manifestId)) continue;
+          if (!z.string().uuid().safeParse(dependency.manifestId).success) continue;
+          const row = await ctx.wiring.capabilityStore.getManifest(dependency.manifestId);
+          if (row) capDepRows.set(dependency.manifestId, row);
+        }
+      }
       const resolvePackageDependency = (name: string, version: string) =>
-        allInstallations.find((i) => i.packageName === name && i.packageVersion === version)?.manifest;
+        installation.moduleAttachment
+          ? verifiedCommonsDependencies.get(`${name}@${version}`)
+          : allInstallations.find((i) => i.packageName === name && i.packageVersion === version)?.manifest;
 
-      const risk = computePackageRisk(installation.manifest, resolveCapabilityDependency, resolvePackageDependency);
+      const computedRisk = computePackageRisk(
+        installation.manifest,
+        resolveCapabilityDependency,
+        resolvePackageDependency,
+      );
+      const signedRiskFloor = installation.moduleAttachment
+        ? installation.computedRisk
+        : "informational";
+      const risk = {
+        ...computedRisk,
+        compositeRisk: maxRisk(computedRisk.compositeRisk, signedRiskFloor),
+        effectiveRisk: maxRisk(computedRisk.effectiveRisk, signedRiskFloor),
+      };
 
       // Package-wide audience: the strictest (most-restrictive-raising) audience
       // across its own bundled capabilities — mirrors raiseForAudience's
       // "audience only ever raises, never lowers" contract at the package level.
-      const audiences = installation.manifest.capabilities.map((c) => c.audience);
+      const audiences = installCapabilities.map((c) => c.audience);
       const audience = audiences.includes("external_visible")
         ? "external_visible"
         : audiences.includes("team")
@@ -2704,7 +3585,7 @@ export const appRouter = t.router({
       // LEAST-trusted capability origin — if any bundled capability is
       // community/user_code (untrusted), the whole install is floored there.
       const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
-      const floorOrigin: CapabilityOrigin = installation.manifest.capabilities.some((c) => isUntrustedOrigin(c.origin))
+      const floorOrigin: CapabilityOrigin = installCapabilities.some((c) => isUntrustedOrigin(c.origin))
         ? "community"
         : "built_in";
 
@@ -2736,13 +3617,38 @@ export const appRouter = t.router({
       // it — a second install of the identical capability is a no-op
       // re-registration, not a new manifest.
       const registeredManifestIds: string[] = [];
-      for (const cap of installation.manifest.capabilities) {
+      for (const cap of installCapabilities) {
         const existingManifest = await ctx.wiring.capabilityStore.getManifestByNameVersion(
           input.workspaceId,
           cap.name,
           cap.version,
         );
         const capId = existingManifest?.id ?? ctx.run.ids.next();
+        if (
+          existingManifest &&
+          canonicalizeJson({
+            capabilityType: existingManifest.capabilityType,
+            name: existingManifest.name,
+            version: existingManifest.version,
+            origin: existingManifest.origin,
+            audience: existingManifest.audience,
+            manifest: existingManifest.manifest,
+            dependencies: existingManifest.dependencies,
+          }) !== canonicalizeJson({
+            capabilityType: cap.capabilityType,
+            name: cap.name,
+            version: cap.version,
+            origin: cap.origin,
+            audience: cap.audience,
+            manifest: { permissions: cap.permissions, connectors: cap.connectors },
+            dependencies: cap.dependencies,
+          })
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `capability "${cap.name}" v${cap.version} already exists with different signed content`,
+          });
+        }
         if (!existingManifest) {
           await ctx.wiring.capabilityStore.createManifest({
             id: capId,
@@ -2757,34 +3663,83 @@ export const appRouter = t.router({
             dependencies: cap.dependencies,
           });
         }
-        await ctx.wiring.capabilityStore.upsertState({
-          manifestId: capId,
-          workspaceId: input.workspaceId,
-          state: "draft",
-          suspended: false,
-          evidence: {},
-        });
+        const existingState = existingManifest
+          ? await ctx.wiring.capabilityStore.getState(capId)
+          : null;
+        if (!existingState) {
+          await ctx.wiring.capabilityStore.upsertState({
+            manifestId: capId,
+            workspaceId: input.workspaceId,
+            state: "draft",
+            suspended: false,
+            evidence: {},
+          });
+        }
         registeredManifestIds.push(capId);
       }
 
-      const withRisk = await ctx.wiring.packageStore.setState(installation.id, installation.state);
-      const rerisked: PackageInstallationRow = { ...withRisk, computedRisk: risk.effectiveRisk };
+      const rerisked = await ctx.wiring.packageStore.setComputedRisk(installation.id, risk.effectiveRisk);
 
       if (decision.requirement !== "auto") {
-        // Not auto-approved — proposal parked pending_review via the SAME
-        // pipeline round trip capability.approve uses, human decides, agent-floor applies.
-        const proposal = await ctx.wiring.pipeline.propose(
-          {
-            workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
-            action: "approve",
-            resourceType: "skill", // package_installations has no dedicated ResourceType yet — same interim token capability.approve uses
-            resourceId: installation.id,
-            inputs: { installationId: installation.id, packageName: installation.packageName, effectiveRisk: risk.effectiveRisk },
-            skill: "stageMutation",
-          },
-          ctx.run,
+        const proposalId = stablePackageInstallProposalId(input.workspaceId, installation.id);
+        const priorDecision = await ctx.wiring.ledger.decisionFor(proposalId);
+        if (priorDecision) {
+          if (priorDecision.userDecision === "approve" || priorDecision.userDecision === "edit") {
+            const finalized = await activateApprovedPackageInstallation(
+              ctx.wiring,
+              input.workspaceId,
+              installation.id,
+            );
+            return {
+              installed: true,
+              decision,
+              risk,
+              installation: finalized,
+              registeredManifestIds,
+              reconciled: true as const,
+            };
+          }
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "package install proposal was vetoed; stage a new signed package version to retry",
+          });
+        }
+        let proposal: Proposal | null = await findPendingProposalById(
+          ctx.wiring,
+          input.workspaceId,
+          proposalId,
         );
+        if (!proposal) {
+          try {
+            proposal = await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: ctx.identity.type, id: ctx.identity.id },
+                action: "write",
+                resourceType: "signal", // governed install intent; package_installation is not yet a kernel ResourceType
+                resourceId: installation.id,
+                inputs: {
+                  operation: "package_install",
+                  installationId: installation.id,
+                  packageName: installation.packageName,
+                  effectiveRisk: risk.effectiveRisk,
+                },
+                skill: "stageMutation",
+              },
+              ctx.run,
+              { proposalId, requireHumanReview: true },
+            );
+          } catch (cause) {
+            proposal = await findPendingProposalById(ctx.wiring, input.workspaceId, proposalId);
+            if (!proposal) throw cause;
+          }
+        }
+        if (proposal.status !== "pending_review") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: proposal.rejectionReason ?? "package install proposal did not reach Human review",
+          });
+        }
         return { installed: false, decision, risk, proposal, installation: rerisked, registeredManifestIds };
       }
 
@@ -2792,8 +3747,38 @@ export const appRouter = t.router({
         await ctx.wiring.capabilityBudgets.recordAutoActivation(input.workspaceId, risk.effectiveRisk, input.todayKey);
       }
 
+      await assertCurrentCommonsAttachment(ctx.wiring, installation);
       const installed = await ctx.wiring.packageStore.setStatus(installation.id, "installed");
       const installedWithRisk: PackageInstallationRow = { ...installed, computedRisk: risk.effectiveRisk };
+      for (const dependency of verifiedDependencyInstallations.values()) {
+        await ctx.wiring.packageStore.setComputedRisk(
+          dependency.id,
+          maxRisk(dependency.computedRisk, risk.effectiveRisk),
+        );
+        await ctx.wiring.packageStore.setStatus(dependency.id, "installed");
+        let promotable = dependency;
+        if (promotable.state === "private") {
+          promotable = await ctx.wiring.packageStore.setState(promotable.id, "promoted");
+        }
+        if (promotable.state === "promoted") {
+          const currentAvailable = await ctx.wiring.packageStore.getAvailable(
+            input.workspaceId,
+            promotable.packageName,
+            promotable.moduleAttachment,
+          );
+          const promotion = promoteToAvailable(promotable, currentAvailable);
+          await ctx.wiring.packageStore.setState(
+            promotion.promoted.installationId,
+            promotion.promoted.nextState,
+          );
+          if (promotion.demoted) {
+            await ctx.wiring.packageStore.setState(
+              promotion.demoted.installationId,
+              promotion.demoted.nextState,
+            );
+          }
+        }
+      }
       const advanced = await ctx.wiring.packageStore.setState(installation.id, advancePackageState(installation.state));
       return {
         installed: true,
@@ -2804,18 +3789,64 @@ export const appRouter = t.router({
       };
     }),
 
-    list: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
+    reconcileApproved: authenticatedProcedure
+      .input(z.object({ proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const proposal = await ctx.wiring.ledger.get(input.proposalId);
+        if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        assertPilotWorkspace(proposal.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        const installationId = packageInstallIdFromProposal(proposal);
+        if (!installationId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "proposal is not a package install approval" });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+        if (decision?.userDecision !== "approve" && decision?.userDecision !== "edit") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "package install proposal is not approved" });
+        }
+        const installation = await activateApprovedPackageInstallation(
+          ctx.wiring,
+          proposal.workspaceId,
+          installationId,
+        );
+        return { installation, proposalId: input.proposalId };
+      }),
+
+    list: authenticatedProcedure.input(paginatedInput).query(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const { items, total } = await ctx.wiring.packageStore.list(input.workspaceId, {
         limit: input.limit,
         offset: input.offset,
       });
-      return { items, total, hasMore: input.offset + items.length < total };
+      const itemsWithRuntimeBindings = await Promise.all(
+        items.map(async (installation) => {
+          const runtimeAutomationIds: string[] = [];
+          for (const automation of installation.manifest.module?.automations ?? []) {
+            if (!automation.ritualId) continue;
+            const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
+            const agentId = resolveModuleAgentRuntimeId(installation.packageName, automation.agentId);
+            const definition = ritualId
+              ? await ctx.wiring.ritualRegistry.load(input.workspaceId, ritualId)
+              : null;
+            if (ritualId && agentId && definition?.agentId === agentId) {
+              runtimeAutomationIds.push(automation.id);
+            }
+          }
+          return { ...installation, runtimeAutomationIds };
+        }),
+      );
+      return {
+        items: itemsWithRuntimeBindings,
+        total,
+        hasMore: input.offset + itemsWithRuntimeBindings.length < total,
+      };
     }),
 
-    get: procedure.input(packageIdInput).query(async ({ input, ctx }) => {
+    get: authenticatedProcedure.input(packageIdInput).query(async ({ input, ctx }) => {
       const installation = await ctx.wiring.packageStore.get(input.installationId);
       if (!installation) throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+      await assertMembership(ctx.wiring.workspaceStore, installation.workspaceId, ctx.identity.id);
       return { installation };
     }),
 
@@ -2827,11 +3858,18 @@ export const appRouter = t.router({
      */
     promote: procedure.input(packagePromoteInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const target = await ctx.wiring.packageStore.get(input.installationId);
       if (!target || target.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
       }
-      const currentlyAvailable = await ctx.wiring.packageStore.getAvailable(input.workspaceId, target.packageName);
+      const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, target);
+      await verifiedCommonsDependencyInstallations(ctx.wiring, target, currentCommonsEntry);
+      const currentlyAvailable = await ctx.wiring.packageStore.getAvailable(
+        input.workspaceId,
+        target.packageName,
+        target.moduleAttachment,
+      );
       let result;
       try {
         result = promoteToAvailable(target, currentlyAvailable);
@@ -2856,11 +3894,16 @@ export const appRouter = t.router({
      */
     rollback: procedure.input(packageRollbackInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const rollbackTarget = await ctx.wiring.packageStore.get(input.rollbackTargetId);
       if (!rollbackTarget || rollbackTarget.workspaceId !== input.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown rollback target installation" });
       }
-      const currentAvailable = await ctx.wiring.packageStore.getAvailable(input.workspaceId, rollbackTarget.packageName);
+      const currentAvailable = await ctx.wiring.packageStore.getAvailable(
+        input.workspaceId,
+        rollbackTarget.packageName,
+        rollbackTarget.moduleAttachment,
+      );
       if (!currentAvailable) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `package "${rollbackTarget.packageName}" has no currently-available version to roll back from` });
       }
@@ -2885,8 +3928,8 @@ export const appRouter = t.router({
   //    registers the manifest in the workspace package store (state=private), and
   //    returns the installationId. The caller then calls `packages.install` for the
   //    full governed proposal → pipeline → approval flow — no logic duplication.
-  //  - publishBuiltins is a mutation → same auth gate. Pushes the four built-in
-  //    workspace-definition packages to the running Commons service. Idempotent:
+  //  - publishBuiltins is a mutation → same auth gate. Pushes curated built-in
+  //    packages to the running Commons service. Idempotent:
   //    already-published versions are skipped, not failed.
   //  - ALL mutations still go through requireAuthOnMutation (pipe middleware) and
   //    withPilotWorkspaceGuard (error translation).
@@ -2899,6 +3942,7 @@ export const appRouter = t.router({
         z.object({
           kind: z.enum(["workspace_definition", "skill", "workflow", "agent", "tool", "view", "integration_bundle"]).optional(),
           tag: z.string().optional(),
+          search: z.string().trim().min(1).optional(),
           limit: z.number().int().min(1).max(100).optional(),
           offset: z.number().int().min(0).optional(),
         }),
@@ -2907,6 +3951,7 @@ export const appRouter = t.router({
         const query: CommonsListQuery = {};
         if (input.kind !== undefined) query.kind = input.kind;
         if (input.tag !== undefined) query.tag = input.tag;
+        if (input.search !== undefined) query.search = input.search;
         if (input.limit !== undefined) query.limit = input.limit;
         if (input.offset !== undefined) query.offset = input.offset;
         return ctx.wiring.commonsRegistry.listAvailable(query);
@@ -2949,10 +3994,23 @@ export const appRouter = t.router({
           name: z.string().min(1),
           /** Omit to install the latest version. */
           version: z.string().optional(),
+          modulePackageName: z.string().min(1),
+          agentId: z.string().min(1),
+          needId: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+
+        const ownerModule = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.modulePackageName);
+        if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.modulePackageName}" not found` });
+        }
+        const need = ownerModule.manifest.module.commonsNeeds?.find((candidate) => candidate.id === input.needId);
+        if (!need || need.agentId !== input.agentId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons capability need is not owned by the selected Module Agent" });
+        }
 
         // Fetch from registry — HttpCommonsClient verifies the publisher signature (PKG-2).
         const entry = input.version
@@ -2967,9 +4025,20 @@ export const appRouter = t.router({
               : `commons: package "${input.name}" not found`,
           });
         }
+        try {
+          assertCommonsEntryContentTrusted(entry);
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err instanceof Error ? err.message : "Commons entry failed install-time trust verification",
+          });
+        }
+        if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons package does not satisfy the declared Module need" });
+        }
 
         // Re-validate the manifest at this seam (same guard packages.register uses).
-        let manifest;
+        let manifest: PackageManifest;
         try {
           manifest = parsePackageManifest({ package: entry.manifest });
         } catch (err) {
@@ -2978,6 +4047,64 @@ export const appRouter = t.router({
           }
           throw err;
         }
+        if (manifest.capabilities.length === 0 || manifest.capabilities.some((capability) => capability.capabilityType !== "skill")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Skill packages can attach beneath a Module Agent" });
+        }
+
+        const dependencyPins = new Map<string, string>(
+          (entry.securityScan.dependencyPins ?? []).map(
+            (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
+          ),
+        );
+        const staged = new Set<string>();
+        const stageDependencies = async (parent: PackageManifest): Promise<void> => {
+          for (const dependency of parent.dependencies) {
+            const key = `${dependency.manifestId}@${dependency.version}`;
+            if (staged.has(key)) continue;
+            staged.add(key);
+            const dependencyEntry = await ctx.wiring.commonsRegistry.getVersion(
+              dependency.manifestId,
+              dependency.version,
+            );
+            const expectedHash = dependencyPins.get(key);
+            if (!dependencyEntry || !expectedHash || dependencyEntry.integrity.value !== expectedHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Commons dependency "${key}" does not match its signed content-hash pin`,
+              });
+            }
+            try {
+              assertCommonsEntryContentTrusted(dependencyEntry);
+            } catch (err) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
+              });
+            }
+            await ctx.wiring.packageStore.create({
+              workspaceId: input.workspaceId,
+              packageName: dependencyEntry.manifest.name,
+              packageVersion: dependencyEntry.manifest.version,
+              manifest: dependencyEntry.manifest,
+              computedRisk: dependencyEntry.securityScan.riskBand,
+              state: "private",
+              status: "pending_review",
+              lineageManifestId: dependencyEntry.manifest.lineageManifestId,
+              moduleAttachment: {
+                source: "commons",
+                modulePackageName: ownerModule.packageName,
+                agentId: input.agentId,
+                needId: input.needId,
+                contentHash: dependencyEntry.integrity.value,
+              },
+            });
+            for (const pin of dependencyEntry.securityScan.dependencyPins ?? []) {
+              dependencyPins.set(`${pin.name}@${pin.version}`, pin.contentHash);
+            }
+            await stageDependencies(dependencyEntry.manifest);
+          }
+        };
+        await stageDependencies(manifest);
 
         // Register as a private installation — same as packages.register, but the
         // manifest source is the verified Commons entry, not a user-supplied object.
@@ -2986,17 +4113,24 @@ export const appRouter = t.router({
           packageName: manifest.name,
           packageVersion: manifest.version,
           manifest,
-          computedRisk: "informational", // packages.install recomputes over the full closure
+          computedRisk: entry.securityScan.riskBand,
           state: "private",
           status: "pending_review",
           lineageManifestId: manifest.lineageManifestId,
+          moduleAttachment: {
+            source: "commons",
+            modulePackageName: ownerModule.packageName,
+            agentId: input.agentId,
+            needId: input.needId,
+            contentHash: entry.integrity.value,
+          },
         });
 
         return { installation: created };
       }),
 
     /**
-     * Publish the four built-in workspace-definition packages to the running
+     * Publish curated built-in packages to the running
      * Commons service. Idempotent: already-published versions are skipped.
      * This is the runtime equivalent of `pnpm --filter @bridge/api publish-builtins`.
      * Requires authentication (mutation guard) to prevent arbitrary callers from
@@ -3007,14 +4141,37 @@ export const appRouter = t.router({
       const skipped: string[] = [];
       const failed: { name: string; reason: string }[] = [];
 
-      for (const { manifest } of BUILT_IN_PACKAGES) {
+      for (const { manifest, commons } of COMMONS_BUILT_IN_PACKAGES) {
         try {
-          await ctx.wiring.commonsRegistry.publish(manifest, ["built-in", manifest.kind]);
+          await ctx.wiring.commonsRegistry.publish(manifest, {
+            tags: commons.tags,
+            provenance: commons.provenance,
+          });
           published.push(`${manifest.name}@${manifest.version}`);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (message.includes("already published")) {
-            skipped.push(`${manifest.name}@${manifest.version}`);
+            const existing = await ctx.wiring.commonsRegistry.getVersion(manifest.name, manifest.version);
+            const expectedIdentity = canonicalizeJson({
+              manifest,
+              tags: normalizeCommonsTags(commons.tags),
+              provenance: commons.provenance,
+            });
+            const existingIdentity = existing
+              ? canonicalizeJson({
+                  manifest: existing.manifest,
+                  tags: normalizeCommonsTags(existing.tags),
+                  provenance: existing.provenance,
+                })
+              : null;
+            if (existingIdentity === expectedIdentity) {
+              skipped.push(`${manifest.name}@${manifest.version}`);
+            } else {
+              failed.push({
+                name: manifest.name,
+                reason: "published version has different immutable manifest, tags, or provenance",
+              });
+            }
           } else {
             failed.push({ name: manifest.name, reason: message });
           }
@@ -3212,6 +4369,160 @@ export const appRouter = t.router({
         agent: "chief_of_staff" as const,
         persona: personaCard,
       };
+    }),
+  }),
+
+  /**
+   * AGS0-AGS2 (TASK-007) — typed Goals/Tasks, the fail-closed Goal/Task-bound
+   * Skill resolver, and bounded child Agent Runs. `skill.resolve` is a
+   * read-only preview (never invokes anything); `skill.invoke` is the real
+   * governed call — it goes through the SAME `pipeline.propose` every other
+   * mutation uses, so a direct Human/Automation invocation of a governed
+   * Skill fails closed there exactly as it would through `action.propose`
+   * (see pipeline.ts's AGS1 gate) — this router adds no separate enforcement
+   * path, only a more ergonomic Goal/Task-shaped surface over the same gate.
+   */
+  agentOrchestration: t.router({
+    goal: t.router({
+      create: authenticatedProcedure.input(goalCreateInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.goalTasks.createGoal(
+          { workspaceId: input.workspaceId, type: input.type, title: input.title },
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      }),
+      list: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.goalTasks.listGoals(input.workspaceId);
+      }),
+    }),
+
+    task: t.router({
+      create: authenticatedProcedure.input(taskCreateInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
+        const [agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+          ctx.wiring.agents.isActive(input.assignedAgentId),
+        ]);
+        if (!goal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `unknown goal ${input.goalId}` });
+        }
+        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        }
+        return ctx.wiring.goalTasks.createTask(
+          {
+            workspaceId: input.workspaceId,
+            goalId: input.goalId,
+            type: input.type,
+            assignedAgentId: input.assignedAgentId,
+          },
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      }),
+      listByGoal: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), goalId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.goalTasks.listTasksByGoal(input.workspaceId, input.goalId);
+        }),
+      /** The ONLY thing that changes governed-Skill eligibility for a Task —
+       * never a Skill manifest's `defaultAgents` preference list. */
+      reassign: authenticatedProcedure.input(taskReassignInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const [agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+          ctx.wiring.agents.isActive(input.assignedAgentId),
+        ]);
+        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        }
+        return ctx.wiring.goalTasks.reassignTask(
+          input.workspaceId,
+          input.taskId,
+          input.assignedAgentId,
+        );
+      }),
+    }),
+
+    skill: t.router({
+      /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
+       * the UI show WHY an Agent is (or is not) eligible before a real call. */
+      resolve: authenticatedProcedure.input(resolveSkillInput).query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
+        const task = await ctx.wiring.goalTasks.getTask(input.workspaceId, input.taskId);
+        if (!goal || !task || task.goalId !== goal.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown or mismatched Goal/Task" });
+        }
+        const [agentScope, agentDataScope, agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.capabilityScope(input.agentId),
+          ctx.wiring.agents.dataScope(input.agentId),
+          ctx.wiring.agents.workspaceId(input.agentId),
+          ctx.wiring.agents.isActive(input.agentId),
+        ]);
+        const candidates = input.skillId
+          ? ctx.wiring.skillManifests.forSkill(input.workspaceId, input.skillId)
+          : ctx.wiring.skillManifests.all(input.workspaceId);
+        return resolveSkillForTask(candidates, {
+          goal,
+          task,
+          agent: {
+            id: input.agentId,
+            workspaceId: agentWorkspaceId,
+            active: agentActive,
+            capabilityScope: agentScope,
+            plane: "local",
+            dataScope: agentDataScope,
+          },
+          ...(input.skillId ? { skillId: input.skillId } : {}),
+          ...(input.requestedDataScope ? { requestedDataScope: input.requestedDataScope as DataScope } : {}),
+        });
+      }),
+    }),
+
+    childRun: t.router({
+      get: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.get(input.workspaceId, input.childRunId);
+        }),
+
+      listByParentRun: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), parentRunId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+        }),
+
+      /** Governance/Human may stop any child Run within policy. The acting
+       * identity is SERVER-RESOLVED (`ctx.identity`), never client-asserted —
+       * same rule every mutation in this router follows. */
+      cancel: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return cancelChildAgentRun(
+          { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+          input.workspaceId,
+          input.childRunId,
+          { type: ctx.identity.type, id: ctx.identity.id },
+          ctx.run,
+        );
+      }),
     }),
   }),
 });

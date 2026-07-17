@@ -5,7 +5,7 @@
 - **Module plan** — [docs/raw/taskmanager-module-plan-2026-07.md](../docs/raw/taskmanager-module-plan-2026-07.md): three-lens (design/business/technical) plan for a Task Manager Module owning the single governed execution queue per workspace plus one Goal anchor over a self-referential, dot-path-leveled Task tree. 14 Skills, 12 guard/routing/reschedule/scan Automations, zero new permanent Agents beyond the existing roster, reuse-first source map, data model, delivery slices TM0–TM6 with exit criteria, success metrics, and a risk register.
 - **BRD** — [docs/raw/brd-taskmanager-2026-07.md](../docs/raw/brd-taskmanager-2026-07.md): agent-first business requirements; the five sub-2-minute answers; included/excluded scope; layered model; game-designs workspace + Bridge self-hosting as certifying use cases.
 - **Wiki summary** — [docs/wiki/taskmanager.md](../docs/wiki/taskmanager.md); index updated.
-- **Roadmap** — TASK-021 in [docs/TASKS.md](../docs/TASKS.md), placed immediately after TASK-014 (execution order + physical row). AP-030 then AP-031 APPLIED (user directives = approval). R-035/R-036 recorded. ADR-099 records the vocabulary call, revised same day.
+- **Roadmap** — TASK-021 in [docs/TASKS.md](../docs/TASKS.md), placed immediately after TASK-014 (execution order + physical row). AP-033 then AP-034 APPLIED (user directives = approval; renumbered during merge-integration — main used AP-030/AP-031 for parallel task-integration approvals). R-035/R-036 recorded. ADR-105 records the vocabulary call, revised same day (renumbered — main used ADR-099 for a different decision).
 
 ## Key design calls
 

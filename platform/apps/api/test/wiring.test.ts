@@ -8,9 +8,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore } from "@bridge/db";
-import { InMemoryLedger, InMemoryRoleStore } from "@bridge/core";
-import { buildInMemoryPorts, buildPersistentPorts } from "../src/wiring.js";
+import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore } from "@bridge/db";
+import { InMemoryLedger, InMemoryRoleStore, InMemoryGoalTaskStore, InMemorySkillManifestRegistry, InMemoryChildAgentRunStore } from "@bridge/core";
+import { buildInMemoryPorts, buildPersistentPorts, GOVERNED_SKILL_MANIFEST_CATALOG } from "../src/wiring.js";
 
 /** A syntactically-valid Postgres URL that is never actually connected to: postgres-js's
  * client is lazy (no TCP connection until a query runs), so constructing/closing it is
@@ -60,6 +60,7 @@ test("buildPersistentPorts: binds canonical identity to the REAL DrizzleCanonica
         "this is the lie this fix actually closes (was InMemoryCanonicalIdentityStore unconditionally)",
     );
     assert.equal(ports.memory, undefined, "persistent mode must not expose in-memory-only governance stores");
+    assert.equal(typeof ports.ensureOutreachGovernance, "function");
   } finally {
     void ports.closeDb();
   }
@@ -77,4 +78,70 @@ test("buildPersistentPorts: logs a loud, specific warning for DealPilot's ToolCa
   const hit = warnings.find((w) => w.includes("ToolCaptureStore"));
   assert.ok(hit, `expected a boot warning naming the ToolCaptureStore gap; got: ${JSON.stringify(warnings)}`);
   assert.match(hit!, /Phase 3 item 11b/, "warning should point at the tracked, still-open backlog item");
+});
+
+test("buildPersistentPorts: exposes ensureInternalStrategistGovernance (TASK-007 persistent-mode governance seed hook)", () => {
+  // Structural-only: postgres-js is lazy (no TCP until a query runs — see the
+  // DUMMY_POSTGRES_URL doc comment above), so we assert the hook is WIRED
+  // (present, callable-shaped) without invoking it against an unreachable DB.
+  // buildInMemoryPorts correctly has NO such hook — seedGovernance covers that
+  // mode synchronously instead (see buildWiring's call site).
+  const { result: persistentPorts } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
+  try {
+    assert.equal(typeof persistentPorts.ensureInternalStrategistGovernance, "function");
+  } finally {
+    void persistentPorts.closeDb();
+  }
+});
+
+test("buildPersistentPorts: exposes ensureGovernanceAgentGovernance and ensureCapabilityBuilderGovernance (AGS3 durable-boundary hooks)", () => {
+  const { result: persistentPorts } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
+  try {
+    assert.equal(typeof persistentPorts.ensureGovernanceAgentGovernance, "function");
+    assert.equal(typeof persistentPorts.ensureCapabilityBuilderGovernance, "function");
+  } finally {
+    void persistentPorts.closeDb();
+  }
+});
+
+test("buildInMemoryPorts: has no ensureInternalStrategistGovernance hook (seedGovernance covers in-memory mode instead)", async () => {
+  const ports = await buildInMemoryPorts({ localDir: undefined });
+  try {
+    assert.equal(ports.ensureInternalStrategistGovernance, undefined);
+  } finally {
+    await ports.closeDb();
+  }
+});
+
+test("buildInMemoryPorts: goalTasks/skillManifests/childAgentRuns are in-memory, and the full governed Skill catalog is pre-registered", async () => {
+  const ports = await buildInMemoryPorts({ localDir: undefined });
+  try {
+    assert.ok(ports.goalTasks instanceof InMemoryGoalTaskStore);
+    assert.ok(ports.skillManifests instanceof InMemorySkillManifestRegistry);
+    assert.ok(ports.childAgentRuns instanceof InMemoryChildAgentRunStore);
+    // Every code-declared manifest in GOVERNED_SKILL_MANIFEST_CATALOG is present —
+    // in-memory mode registers the SAME list buildPersistentPorts seeds to the DB.
+    for (const manifest of GOVERNED_SKILL_MANIFEST_CATALOG) {
+      assert.ok(
+        ports.skillManifests.forSkill(manifest.workspaceId, manifest.skillId).length > 0,
+        `expected "${manifest.skillId}" to be pre-registered in in-memory mode`,
+      );
+    }
+    // No ensureSkillManifestCatalog hook in this mode — nothing to seed to a DB.
+    assert.equal(ports.ensureSkillManifestCatalog, undefined);
+  } finally {
+    await ports.closeDb();
+  }
+});
+
+test("buildPersistentPorts: goalTasks/skillManifests/childAgentRuns are the real Drizzle-backed stores, and ensureSkillManifestCatalog is wired", () => {
+  const { result: persistentPorts } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
+  try {
+    assert.ok(persistentPorts.goalTasks instanceof DrizzleGoalTaskStore);
+    assert.ok(persistentPorts.skillManifests instanceof DrizzleSkillManifestRegistry);
+    assert.ok(persistentPorts.childAgentRuns instanceof DrizzleChildAgentRunStore);
+    assert.equal(typeof persistentPorts.ensureSkillManifestCatalog, "function");
+  } finally {
+    void persistentPorts.closeDb();
+  }
 });

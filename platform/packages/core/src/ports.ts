@@ -39,6 +39,10 @@ export interface RoleQuery {
 }
 
 export interface AgentQuery {
+  /** Owning workspace for this physical Agent identity, or null when unknown. */
+  workspaceId(agentId: string): Promise<string | null>;
+  /** Only active Agents may resolve or invoke governed Skills. */
+  isActive(agentId: string): Promise<boolean>;
   /** The role an agent inherits (assumes_role_id), if any. */
   assumedRole(agentId: string): Promise<string | null>;
   /**
@@ -100,10 +104,10 @@ export interface LedgerStore {
    */
   decisionFor(proposalId: string): Promise<LedgerEntry | null>;
   /**
-   * Pending proposals awaiting a human decision (`userDecision IS NULL`) — a decision
-   * row always has `userDecision` set (approve/veto/edit/auto), so this predicate alone
-   * distinguishes proposals from the decisions that resolve them, no separate `status`
-   * column needed. Ordered newest-first; paginated by the caller (offset/limit).
+   * Root proposals awaiting a human decision: `userDecision IS NULL`,
+   * `refLedgerId IS NULL`, and no resolving row references the proposal. Null-decision
+   * audit rows may also carry `refLedgerId`, so neither predicate alone is sufficient.
+   * Ordered newest-first; paginated by the caller (offset/limit).
    */
   listPending(workspaceId: string, opts: { limit: number; offset: number }): Promise<{ items: LedgerEntry[]; total: number }>;
 }
@@ -209,6 +213,19 @@ export interface RitualStepDef {
   inputs?: Record<string, unknown>;
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
+  /**
+   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Ritual's
+   * (Automation's) declared Agent is fulfilling, threaded unchanged into
+   * `pipeline.propose`'s `goalTaskRef`. This is the SAME Goal/Task resolver
+   * contract every other governed Skill invocation uses — an Automation does
+   * not get a second, parallel actor-binding mechanism; a step whose `skill`
+   * has a registered SkillManifest still resolves through
+   * `resolveSkillForTask` exactly as a direct Agent call would, and still
+   * fails closed without a valid `goalTaskRef` naming a Task assigned to the
+   * ritual's declared Agent. Absent for steps that target an ungoverned
+   * (no-manifest) skill — unaffected, same as any other caller.
+   */
+  goalTaskRef?: { goalId: string; taskId: string };
 }
 
 /** A ritual definition resolved from the registry (P2: rituals are config rows). */
@@ -216,12 +233,17 @@ export interface RitualDefinition {
   id: string;
   name: string;
   workspaceId: string;
+  /** Owning Agent. Optional only so legacy/unbound rows can be loaded and rejected explicitly at execution. */
+  agentId?: string;
+  /** Execution residency for the owning Agent. Optional only for legacy rows, which execution rejects. */
+  agentPlane?: import("./types.js").Plane;
   steps: RitualStepDef[];
 }
 
 /** Loads ritual definitions — the `rituals` table (Drizzle) or in-memory in dev. */
 export interface RitualRegistry {
   load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null>;
+  save(definition: RitualDefinition): Promise<void>;
 }
 
 /**

@@ -2,12 +2,16 @@
 title: Goal-bound Skills, Internal Strategist, and Child Agent Runs
 type: raw
 doc_kind: plan
-status: proposed
+status: executed
 companions: [bridge-foundational-agents-onboarding-2026-07.md, builder-agent-roadmap-2026-07.md, governance-agent-roadmap-2026-07.md, learning-agent-roadmap-2026-07.md, brd-dealpilot-2026-07.md, brd-jobpilot-2026-07.md]
 related_wiki: ../wiki/foundational-agents.md
-updated: 2026-07-15
+updated: 2026-07-17
 tags: [agents, skills, goals, tasks, delegation, internal-strategist, authority]
 ---
+
+## Implementation outcome
+
+Executed in TASK-007. Workspace-scoped Goal/Task assignment now governs active Agent Skill eligibility through persistent manifests. Missing assignment, authority, Plane, or data scope fails closed. Server-owned child Agent Runs narrow parent ceilings, persist budget/lifecycle state, and remain inspectable and stoppable with append-only audit. Persistent schema ships after the released migration high-water mark as migration `0014`.
 
 # Decision
 

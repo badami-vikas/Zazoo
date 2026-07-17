@@ -14,6 +14,9 @@ import {
   createDrizzlePorts,
   createLocalDb,
   ensureLearningAgentGovernance,
+  ensureOutreachAgentGovernance,
+  ensureEgressAgentGovernance,
+  ensureIntakeAgentGovernance,
   schema,
 } from "../src/index.js";
 
@@ -63,7 +66,10 @@ test("persistent governance provisions and verifies the attributable Learning Ag
 
     const ports = createDrizzlePorts(db);
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
-    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["signal:write"]);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), [
+      "signal:write",
+      "touchpoint:write",
+    ]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>
@@ -94,6 +100,104 @@ test("persistent governance provisions and verifies the attributable Learning Ag
       ).length,
       1,
     );
+  } finally {
+    await close();
+  }
+});
+
+test("persistent governance provisions the server-owned Outreach Agent Touchpoint grant", async () => {
+  const workspaceId = "b0000000-0000-4000-a000-000000000001";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
+  const agentId = "b0000000-0000-4000-a000-0000000000d1";
+  const roleId = "b0000000-0000-4000-a000-0000000000f1";
+  const permissionId = "b0000000-0000-4000-a000-0000000000c1";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "outreach-governance@test.invalid" });
+    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Outreach governance test" });
+
+    const config = { workspaceId, userId, agentId, roleId, permissionId };
+    await Promise.all(
+      Array.from({ length: 10 }, () => ensureOutreachAgentGovernance(db, config)),
+    );
+    await ensureOutreachAgentGovernance(db, config);
+
+    const ports = createDrizzlePorts(db);
+    assert.equal(await ports.agents.assumedRole(agentId), roleId);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["touchpoint:write"]);
+    assert.ok(
+      (await ports.roles.grantsForRole(roleId)).some(
+        (grant) =>
+          grant.resourceType === "touchpoint" &&
+          grant.action === "write" &&
+          grant.effect === "allow",
+      ),
+    );
+    assert.ok(
+      (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
+        (grant) =>
+          grant.resourceType === "touchpoint" &&
+          grant.action === "write" &&
+          grant.effect === "allow",
+      ),
+    );
+    assert.equal(
+      (await db.select().from(schema.permissions)).filter(
+        (row) =>
+          row.workspaceId === workspaceId &&
+          row.actorType === "user" &&
+          row.actorId === userId &&
+          row.resourceType === "touchpoint" &&
+          row.resourceId === null &&
+          row.action === "write" &&
+          row.effect === "allow",
+      ).length,
+      1,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("persistent governance aligns Egress and Intake authority with their governed Skill manifests", async () => {
+  const workspaceId = "b0000000-0000-4000-a000-000000000011";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e911";
+  const egressAgentId = "b0000000-0000-4000-a000-0000000000e1";
+  const intakeAgentId = "b0000000-0000-4000-a000-0000000000e2";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "runtime-governance@test.invalid" });
+    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Runtime governance test" });
+    await ensureEgressAgentGovernance(db, {
+      workspaceId,
+      userId,
+      agentId: egressAgentId,
+      roleId: "b0000000-0000-4000-a000-0000000000f1",
+      permissionId: "b0000000-0000-4000-a000-0000000000c7",
+    });
+    await ensureIntakeAgentGovernance(db, {
+      workspaceId,
+      userId,
+      agentId: intakeAgentId,
+      roleId: "b0000000-0000-4000-a000-0000000000f6",
+      permissionId: "b0000000-0000-4000-a000-0000000000c8",
+    });
+
+    const ports = createDrizzlePorts(db);
+    assert.deepEqual(await ports.agents.allowedSkills(egressAgentId), [
+      "dealpilot.source",
+      "google.sourceGmail",
+      "google.sourceCalendar",
+      "google.listCalendarEvents",
+    ]);
+    assert.deepEqual(await ports.agents.capabilityScope(intakeAgentId), [
+      "touchpoint:write",
+      "signal:write",
+      "person:write",
+    ]);
+    assert.deepEqual(await ports.agents.allowedSkills(intakeAgentId), ["google.stage"]);
+    assert.equal(await ports.agents.workspaceId(intakeAgentId), workspaceId);
+    assert.equal(await ports.agents.isActive(intakeAgentId), true);
   } finally {
     await close();
   }

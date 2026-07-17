@@ -6,11 +6,11 @@
  * propose/decide stay generic; this orchestrates the Google-specific side effects
  * that run only AFTER the governed approval.
  */
-import type { Proposal, ProposalStatus, RunCtx, UniversalActionPipeline } from "@bridge/core";
+import type { GoalTaskStore, Proposal, ProposalStatus, RunCtx, UniversalActionPipeline } from "@bridge/core";
 import type { SecretStore } from "@bridge/local";
 import type { CalendarEvent, CreateEventEnvelope, SendEmailEnvelope } from "./contracts.js";
 import { EgressExecutor } from "./egress.js";
-import { IntakeMaterializer, IntakeService, type IntakeIdentities, type IntakeResult } from "./intake.js";
+import { IntakeMaterializer, IntakeService, provisionGoogleSyncTask, type IntakeIdentities, type IntakeResult } from "./intake.js";
 import {
   SKILL_COMPOSE_DELETE_EVENT,
   SKILL_COMPOSE_EMAIL,
@@ -28,6 +28,12 @@ export interface GoogleServiceDeps {
   identities: IntakeIdentities;
   /** The user's own addresses — excluded from counterparty matching. */
   selfEmails: string[];
+  /** AGS1 (TASK-007 closure) — see `IntakeServiceDeps.goalTasks`'s doc comment
+   * (intake.ts); used here only by `listCalendarEvents` (`SKILL_LIST_CALENDAR`
+   * is the one governed skill in this class — `proposeSend`'s
+   * `SKILL_COMPOSE_*` skills all target `resourceType:"external:send"`, which
+   * is structurally agent-floor-protected and needs no manifest/goalTaskRef). */
+  goalTasks?: GoalTaskStore;
 }
 
 /** A calendar write verb. `create` is the default when omitted (back-compat). */
@@ -98,6 +104,7 @@ export class GoogleService {
    */
   async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<CalendarEvent[]> {
     const { workspaceId, egressAgentId, userId } = this.deps.identities;
+    const listGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
     const proposal = await this.deps.pipeline.propose(
       {
         workspaceId,
@@ -113,6 +120,7 @@ export class GoogleService {
           ...(opts?.timeMin ? { timeMin: opts.timeMin } : {}),
           ...(opts?.timeMax ? { timeMax: opts.timeMax } : {}),
         },
+        ...(listGoalTaskRef ? { goalTaskRef: listGoalTaskRef } : {}),
       },
       ctx,
     );

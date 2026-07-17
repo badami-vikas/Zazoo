@@ -25,6 +25,39 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
+  `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
+  `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).
+  **Reason:** deterministic cross-workspace denial, Agent assignment, budget race, lifecycle rollback,
+  migration, RLS, and Automation binding tests cannot mutate real user Goals/Tasks or persistent Runs.
+  **Real elements they stand in for:** workspace members, foundational Agents, Goals, Tasks, Skill manifests,
+  parent/child Runs, budgets, lifecycle decisions, and audit entries.
+  **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
+  data for product demonstrations and future end-to-end child-executor evidence.
+
+- **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
+  `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).
+  **Reason:** deterministic pre-migration UUID Skill allowlists and singular/ambiguous Automation ownership
+  cannot be reproduced against a live shared database without mutating legacy governance rows.
+  **Real elements they stand in for:** concurrent legacy package-install retries, package lineage, existing
+  Agent Skill UUID allowlists, legacy Ritual Agent arrays, local/external Automation steps, and same-target
+  immutable package-content conflicts.
+  **Removal condition:** retain as isolated migration regression coverage until every deployed pre-0013
+  database has migrated and the legacy `rituals.agent_ids` column is removed.
+
+- **2026-07-16 — TASK-008 Relationship trust-boundary test fixtures** (`platform/packages/core/test/ledger-pending.test.ts`,
+  `platform/packages/core/test/pipeline.test.ts`, `platform/packages/db/test/helpdesk-store.test.ts`,
+  `platform/packages/db/test/ledger-store.test.ts`, `platform/packages/db/test/local-store.test.ts`,
+  `platform/apps/api/test/router-decide.test.ts`, `platform/apps/api/test/graph-people-communities.test.ts`,
+  `platform/apps/api/test/server.test.ts`, `platform/apps/web/test/relationship-module.test.mjs`).
+  **Reason:** deterministic tenant-pruning, append-only resolution, Agent attribution, provider-failure,
+  Helpdesk credential, idempotency, rate-classification, and retry tests cannot mutate a shared workspace
+  or depend on private People, Communities, Signals, tickets, and external providers.
+  **Real elements they stand in for:** authenticated workspace actors, Relationship Records/Relations/Events,
+  Outreach proposals and decisions, public Help Requests/replies, recovery credentials, and provider outcomes.
+  **Removal condition:** retain as isolated regression fixtures; keep prototype evidence on user-approved local
+  data and replace provider doubles with sandbox integration evidence when durable effect retry lands.
+
 - **2026-07-16 — TASK-002 onboarding/Learning Agent test fixtures** (`platform/apps/api/test/security-hardening.test.ts`,
   `platform/packages/db/test/local-store.test.ts`, `platform/apps/web/test/onboarding-learning.test.mjs`).
   **Reason:** deterministic governance, scheduling, citation, Memory-lineage, and responsive UI tests cannot
@@ -57,12 +90,14 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** retain only as isolated unit fixtures; add local-only real-store/browser evidence
   before DP0 can be proposed DONE.
 
-- **2026-07-15 — Commons router test registry** (`platform/apps/api/test/commons.test.ts`).
-  **Reason:** API contract tests need deterministic package/version responses and cannot require a separately
-  running Commons service or mutate a shared registry.
-  **Real element it stands in for:** signed entries returned by the live `CommonsRegistry` transport.
-  **Removal condition:** keep the port double for unit isolation; add signed live-service integration evidence
-  before CM0 can be proposed DONE.
+- **2026-07-15 — Commons router/package lifecycle fixtures** (`platform/apps/api/test/commons.test.ts`,
+  `platform/apps/api/test/packages.test.ts`, `platform/apps/api/test/pkg2-commons-signing.test.ts`).
+  **Reason:** deterministic signature, approval/veto, dependency substitution, transient failure,
+  reconciliation, and Module-need drift tests cannot mutate a shared registry or real installed Modules.
+  **Real elements they stand in for:** signed live-registry entries, installed Module needs, Human decisions,
+  dependency closures, and post-decision provider/storage outcomes.
+  **Removal condition:** retain as isolated trust/lifecycle regression coverage; keep the separate clean local
+  Commons/API/web Prototype test as real end-to-end evidence.
 
 - **2026-07-14 — desktop app icon set** (`platform/apps/desktop/src-tauri/icons/`: `icon.png`
   (now 512×512), `icon.icns`, `icon.ico`, `32x32.png`, `64x64.png`, `128x128.png`,

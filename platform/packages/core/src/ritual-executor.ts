@@ -22,6 +22,9 @@ export interface RitualStep {
   inputs: unknown;
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
+  /** AGS1/TASK-007 — see `RitualStepDef.goalTaskRef`'s doc comment (ports.ts).
+   * Threaded unchanged into this step's `pipeline.propose` call. */
+  goalTaskRef?: { goalId: string; taskId: string };
 }
 
 export interface RitualRunRequest {
@@ -47,7 +50,8 @@ export interface RitualRunResult {
 export interface RitualRunByIdRequest {
   workspaceId: string;
   ritualId: string;
-  actor: Actor;
+  /** Deprecated compatibility assertion. The stored Ritual owner is authoritative. */
+  actor?: Actor;
   onBehalfOf?: OnBehalfOf;
   /** Run-time params shallow-merged into each step's static inputs. */
   params?: Record<string, unknown>;
@@ -96,7 +100,17 @@ export class InProcessRitualExecutor implements RitualExecutor {
     if (!this.#registry) throw new Error("runById: no RitualRegistry configured");
     const def = await this.#registry.load(req.workspaceId, req.ritualId);
     if (!def) throw new Error(`runById: ritual ${req.ritualId} not found`);
-    return this.#runDefinition(def, req, ctx);
+    if (!def.agentId) throw new Error(`runById: ritual ${req.ritualId} has no owning Agent binding`);
+    if (!def.agentPlane) throw new Error(`runById: ritual ${req.ritualId} has no owning Agent Plane binding`);
+    if (req.actor && (req.actor.type !== "agent" || req.actor.id !== def.agentId)) {
+      throw new Error(`runById: caller actor does not match owning Agent ${def.agentId}`);
+    }
+    return this.#runDefinition(
+      def,
+      req,
+      { type: "agent", id: def.agentId, plane: def.agentPlane },
+      ctx,
+    );
   }
 
   /** Invoke a Tool — its composition runs through the pipeline like a ritual. */
@@ -104,12 +118,14 @@ export class InProcessRitualExecutor implements RitualExecutor {
     if (!this.#toolRegistry) throw new Error("runTool: no ToolRegistry configured");
     const def = await this.#toolRegistry.load(req.workspaceId, req.ritualId);
     if (!def) throw new Error(`runTool: tool ${req.ritualId} not found`);
-    return this.#runDefinition(def, req, ctx);
+    if (!req.actor) throw new Error(`runTool: tool ${req.ritualId} requires an actor`);
+    return this.#runDefinition(def, req, req.actor, ctx);
   }
 
   async #runDefinition(
     def: RitualDefinition,
     req: RitualRunByIdRequest,
+    actor: Actor,
     ctx: RunCtx,
   ): Promise<RitualRunResult> {
     const steps: RitualStep[] = def.steps.map((s) => ({
@@ -120,9 +136,10 @@ export class InProcessRitualExecutor implements RitualExecutor {
       // Run-time params shallow-merge over the step's static config inputs.
       inputs: req.params ? { ...(s.inputs ?? {}), ...req.params } : (s.inputs ?? {}),
       ...(s.dataScope ? { dataScope: s.dataScope } : {}),
+      ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
     }));
     const runId = ctx.ids.next();
-    return this.#execute(runId, req.workspaceId, def.id, req.actor, req.onBehalfOf, steps, req.seed, ctx);
+    return this.#execute(runId, req.workspaceId, def.id, actor, req.onBehalfOf, steps, req.seed, ctx);
   }
 
   async #execute(
@@ -153,6 +170,7 @@ export class InProcessRitualExecutor implements RitualExecutor {
           ...(step.dataScope ? { dataScope: step.dataScope } : {}),
           context: { type: "ritual", id: ritualId, runId },
           ...(seed ? { seed } : {}),
+          ...(step.goalTaskRef ? { goalTaskRef: step.goalTaskRef } : {}),
         },
         ctx,
       );

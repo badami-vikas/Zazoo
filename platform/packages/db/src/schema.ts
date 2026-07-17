@@ -15,6 +15,8 @@ import {
   boolean,
   customType,
   date,
+  doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -24,6 +26,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -481,19 +484,23 @@ export const skills = pgTable(
   (t) => [unique("skills_uq").on(t.workspaceId, t.name, t.version)],
 );
 
-export const agents = pgTable("agents", {
-  id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-  name: text("name").notNull(),
-  identityType: text("identity_type").notNull().default("service_principal"),
-  ownerUserId: uuid("owner_user_id").references(() => users.id),
-  assumesRoleId: uuid("assumes_role_id"),
-  goal: text("goal"),
-  allowedSkills: uuid("allowed_skills").array().notNull().default(sql`'{}'`),
-  allowedTools: uuid("allowed_tools").array().notNull().default(sql`'{}'`),
-  capabilityScope: jsonb("capability_scope").notNull().default({}),
-  status: text("status").notNull().default("active"),
-});
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    name: text("name").notNull(),
+    identityType: text("identity_type").notNull().default("service_principal"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id),
+    assumesRoleId: uuid("assumes_role_id"),
+    goal: text("goal"),
+    allowedSkills: text("allowed_skills").array().notNull().default(sql`'{}'`),
+    allowedTools: uuid("allowed_tools").array().notNull().default(sql`'{}'`),
+    capabilityScope: jsonb("capability_scope").notNull().default({}),
+    status: text("status").notNull().default("active"),
+  },
+  (t) => [unique("agents_workspace_id_id_uq").on(t.workspaceId, t.id)],
+);
 
 export const rituals = pgTable("rituals", {
   id: uuidPk(),
@@ -501,6 +508,9 @@ export const rituals = pgTable("rituals", {
   name: text("name").notNull(),
   trigger: jsonb("trigger").notNull(),
   cadence: text("cadence"),
+  agentId: uuid("agent_id").references(() => agents.id),
+  agentPlane: text("agent_plane"),
+  /** Legacy multi-owner field retained only for migration compatibility. */
   agentIds: uuid("agent_ids").array().notNull().default(sql`'{}'`),
   skillPipeline: jsonb("skill_pipeline").notNull().default([]),
   policyScopeId: uuid("policy_scope_id"),
@@ -1007,14 +1017,10 @@ export const workspaceDefinitions = pgTable(
  * zod schema for this jsonb lives in package-store.ts, not here.
  * `lineageManifestId` self-references this table (a rollback fork points
  * back at the historical row it forked from — lifecycle.ts's
- * `rollbackFromHistory`), nullable for a v1 package. NOT unique on
- * (workspace_id, name, version) the way `capability_manifests_uq` is —
- * package re-registration idempotency is handled at the store layer
- * (package-store.ts's `create`: same name+version reuses the existing row
- * instead of inserting a duplicate), not via a DB constraint, because a
- * package's `manifest` jsonb can legitimately be re-registered with the
- * IDENTICAL name+version during iterative local development before its
- * first real install (see ADR-023).
+ * `rollbackFromHistory`), nullable for a v1 package. Installation identity
+ * is unique per workspace/package/version/Module-Agent-need attachment.
+ * Re-registering identical content reuses that row; the same signed package
+ * may still attach to a different declared Module Agent need.
  */
 export const packageInstallations = pgTable(
   "package_installations",
@@ -1035,10 +1041,166 @@ export const packageInstallations = pgTable(
      * separate flag from capability_states.state). */
     status: text("status").notNull().default("pending_review"),
     lineageManifestId: uuid("lineage_manifest_id"),
+    /** Installation-local ownership for a signed Commons capability. */
+    moduleAttachment: jsonb("module_attachment"),
     createdAt: now(),
   },
   (t) => [
     index("package_installations_ws_name_idx").on(t.workspaceId, t.packageName),
     index("package_installations_ws_state_idx").on(t.workspaceId, t.packageName, t.state),
+    uniqueIndex("package_installations_attachment_uq").on(
+      t.workspaceId,
+      t.packageName,
+      t.packageVersion,
+      sql`coalesce(${t.moduleAttachment}->>'modulePackageName', '')`,
+      sql`coalesce(${t.moduleAttachment}->>'agentId', '')`,
+      sql`coalesce(${t.moduleAttachment}->>'needId', '')`,
+    ),
+  ],
+);
+
+// =====================================================================
+// LAYER 8 — GOAL/TASK/SKILL-MANIFEST/CHILD-AGENT-RUN (TASK-007, AGS1/AGS2,
+// docs/raw/agent-goal-skill-orchestration-plan-2026-07.md). Restart-durable
+// backing for @bridge/core's goal-task.ts/skill-manifest.ts/child-agent-run.ts
+// in-memory ports — the in-process Maps those ports shipped with are correct
+// as the dependency-free default (mirrors every other in-memory port in this
+// codebase), but production/persistent mode must not lose live Goals, Tasks,
+// registered Skill manifests, or running child Agent Runs across a restart.
+// =====================================================================
+
+export const goals = pgTable(
+  "goals",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    createdAt: now(),
+  },
+  (t) => [
+    index("goals_ws_type_idx").on(t.workspaceId, t.type),
+    unique("goals_workspace_id_id_uq").on(t.workspaceId, t.id),
+  ],
+);
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    goalId: uuid("goal_id").notNull(),
+    type: text("type").notNull(),
+    /** The ONLY thing that authorizes an eligible Agent to invoke a matching
+     * governed Skill for this Task (@bridge/core's goal-task.ts doc comment) —
+     * references `agents.id`, never a client-asserted string. */
+    assignedAgentId: uuid("assigned_agent_id").notNull(),
+    status: text("status").notNull().default("open"), // open | in_progress | done | blocked | cancelled
+    createdAt: now(),
+  },
+  (t) => [
+    index("tasks_goal_idx").on(t.goalId),
+    index("tasks_assigned_agent_idx").on(t.assignedAgentId),
+    unique("tasks_workspace_id_id_uq").on(t.workspaceId, t.id),
+    foreignKey({
+      columns: [t.workspaceId, t.goalId],
+      foreignColumns: [goals.workspaceId, goals.id],
+      name: "tasks_workspace_goal_fk",
+    }),
+    foreignKey({
+      columns: [t.workspaceId, t.assignedAgentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+      name: "tasks_workspace_agent_fk",
+    }),
+  ],
+);
+
+/**
+ * The governed Skill contract catalog (@bridge/core's skill-manifest.ts
+ * `SkillManifest`). `workspaceId` nullable mirrors `skills.workspaceId` —
+ * null = a global/platform-wide manifest (the normal case: manifests are
+ * declared once in code at wiring.ts and seeded here idempotently on boot,
+ * the same "code declares, DB durably records" pattern as
+ * `ensureFoundationalAgentGovernance`'s role/permission seed), non-null only
+ * for a future workspace-scoped override. Unique on (skill_id, version) so
+ * the boot-time seed upsert is idempotent across restarts.
+ */
+export const skillManifests = pgTable(
+  "skill_manifests",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    skillId: text("skill_id").notNull(),
+    version: text("version").notNull().default("1.0.0"),
+    goalTypes: jsonb("goal_types").notNull().default([]),
+    taskTypes: jsonb("task_types").notNull().default([]),
+    inputSchema: jsonb("input_schema"),
+    outputSchema: jsonb("output_schema"),
+    permissions: jsonb("permissions").notNull().default([]),
+    plane: text("plane").notNull(),
+    dataScopes: jsonb("data_scopes").notNull().default([]),
+    riskBand: text("risk_band").notNull(),
+    budget: jsonb("budget"),
+    evalVersion: text("eval_version").notNull(),
+    defaultAgents: jsonb("default_agents"),
+    requiredIntegrations: jsonb("required_integrations"),
+    childRunPolicy: text("child_run_policy"), // forbidden | allowed
+    createdAt: now(),
+  },
+  (t) => [unique("skill_manifests_uq").on(t.workspaceId, t.skillId, t.version)],
+);
+
+/**
+ * Bounded child Agent Runs (@bridge/core's child-agent-run.ts `ChildAgentRun`).
+ * `parentRunId` is NOT a foreign key — it names the top-level RunCtx/ledger
+ * `context.runId` the child Run was spawned under, which is an ephemeral
+ * per-request id, not itself a persisted row (mirrors `ledger.actorId`'s
+ * un-referenced uuid: the actor may be a user OR an agent, no single table to
+ * point at). The append-only lifecycle audit trail lives in `ledger`
+ * (unaffected by this table — see `recordChildAgentRunTransition`'s doc
+ * comment); this table is the CURRENT-STATE projection a restart must not lose.
+ */
+export const childAgentRuns = pgTable(
+  "child_agent_runs",
+  {
+    id: uuidPk(),
+    parentRunId: uuid("parent_run_id").notNull(),
+    parentAgentId: uuid("parent_agent_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    goalId: uuid("goal_id").notNull(),
+    taskId: uuid("task_id").notNull(),
+    depth: integer("depth").notNull(),
+    authorityScope: jsonb("authority_scope").notNull().default([]),
+    droppedScope: jsonb("dropped_scope").notNull().default([]),
+    eligibleSkills: jsonb("eligible_skills").notNull().default([]),
+    dataScope: text("data_scope").notNull(),
+    plane: text("plane").notNull(),
+    budget: jsonb("budget").notNull(),
+    callsUsed: integer("calls_used").notNull().default(0),
+    costUsed: doublePrecision("cost_used").notNull().default(0),
+    deadline: timestamp("deadline", { withTimezone: true }).notNull(),
+    stopCondition: text("stop_condition").notNull(),
+    reviewMode: text("review_mode").notNull(), // auto | notify | approve | quorum
+    taint: text("taint"),
+    status: text("status").notNull().default("running"), // running | completed | cancelled | failed | stopped
+    createdAt: now(),
+  },
+  (t) => [
+    index("child_agent_runs_parent_run_idx").on(t.workspaceId, t.parentRunId),
+    foreignKey({
+      columns: [t.workspaceId, t.parentAgentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+      name: "child_agent_runs_workspace_agent_fk",
+    }),
+    foreignKey({
+      columns: [t.workspaceId, t.goalId],
+      foreignColumns: [goals.workspaceId, goals.id],
+      name: "child_agent_runs_workspace_goal_fk",
+    }),
+    foreignKey({
+      columns: [t.workspaceId, t.taskId],
+      foreignColumns: [tasks.workspaceId, tasks.id],
+      name: "child_agent_runs_workspace_task_fk",
+    }),
   ],
 );

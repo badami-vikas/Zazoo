@@ -6,15 +6,12 @@
 // Display fields live in the row's jsonb (`inputs.display`, `proposed_output.text`) so the UI doesn't
 // have to resolve actor_id/resource_id uuids — the same shape the real app would project server-side.
 import { useSyncExternalStore } from 'react';
+import { collectAllPages } from '../lib/pagination';
 import { supabase } from '../lib/supabase';
-import { API_ENABLED, apiPropose, apiDecide } from './api';
+import { PILOT_WORKSPACE, trpc } from '../lib/trpc';
 import { pendingApprovals, allLedger, type LedgerEntry, type Decision } from './governance';
 
-export type LedgerSource = 'supabase' | 'local';
-
-const PILOT_WORKSPACE = 'b0000000-0000-4000-a000-000000000001';
-const DEMO_USER = 'e0f0053b-fc44-476e-be27-1371e179e958';
-const OUTREACH_AGENT = 'b0000000-0000-4000-a000-0000000000d1'; // agent actor that surfaces proposals
+export type LedgerSource = 'api' | 'supabase' | 'local';
 
 // Reactive count of pending ledger rows, so the nav badge matches the Approvals page (single source).
 let livePendingCount = pendingApprovals.length;
@@ -33,7 +30,7 @@ export function useLivePendingCount(): number {
 }
 
 const LEDGER_COLS =
-  'id, actor_type, action, resource_type, on_behalf_of_type, inputs, proposed_output, user_decision, policy_results, created_at';
+  'id, actor_type, action, resource_type, on_behalf_of_type, inputs, proposed_output, user_decision, policy_results, ref_ledger_id, diff, created_at';
 
 function relAge(iso: string): string {
   const then = new Date(iso).getTime();
@@ -50,6 +47,34 @@ function shortTs(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function normalizeDecision(value: unknown): Decision {
+  switch (value) {
+    case 'approve':
+    case 'approved':
+      return 'approved';
+    case 'veto':
+    case 'vetoed':
+      return 'vetoed';
+    case 'edit':
+    case 'edited_approved':
+      return 'edited_approved';
+    case 'auto':
+    case 'auto_approved':
+      return 'auto_approved';
+    default:
+      return null;
+  }
+}
+
+function isReviewDecision(value: unknown): boolean {
+  const decision = normalizeDecision(value);
+  return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved';
+}
+
+function isRejectedAuditRow(row: any): boolean {
+  return Boolean(asRecord(row.diff)?.rejected);
 }
 
 // One ledger row (jsonb display payload) → the UI's LedgerEntry shape.
@@ -69,7 +94,7 @@ function rowToEntry(r: any): LedgerEntry {
     resourceType: r.resource_type,
     resource: d.resource || '',
     policy: d.policy || '—',
-    decision: (r.user_decision as Decision) ?? null,
+    decision: normalizeDecision(r.user_decision),
     channel: d.channel,
     prior: d.prior ?? null,
     proposed: (r.proposed_output && r.proposed_output.text) || '',
@@ -77,7 +102,134 @@ function rowToEntry(r: any): LedgerEntry {
   };
 }
 
+type PendingProposalPage = Awaited<ReturnType<typeof trpc.action.listPending.query>>;
+type PendingProposal = PendingProposalPage['items'][number];
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return Object.fromEntries(Object.entries(value));
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function displayResourceType(value: PendingProposal['request']['resourceType']): LedgerEntry['resourceType'] {
+  switch (value) {
+    case 'person':
+    case 'initiative':
+    case 'community':
+    case 'ritual':
+    case 'signal':
+      return value;
+    case 'file':
+    case 'tool':
+    case 'skill':
+    case 'agent':
+    case 'role':
+    case 'permission':
+    case 'ledger':
+    case 'delegation':
+    case 'integration':
+    case 'network_graph:full':
+    case 'external:send':
+    case 'external:fetch':
+    case 'policy':
+    case 'policy_param':
+    case 'touchpoint':
+      return 'external';
+  }
+}
+
+function proposalToEntry(proposal: PendingProposal): LedgerEntry {
+  const inputs = asRecord(proposal.request.inputs);
+  const display = asRecord(inputs?.display);
+  const output = asRecord(proposal.output);
+  const proposedOutput = output?.proposedOutput;
+  const proposedRecord = asRecord(proposedOutput);
+  const routeEvidence = asRecord(proposedRecord?.routeEvidence);
+  const trace = asRecord(display?.trace);
+  const createdAt = String(proposal.createdAt);
+  const matchedPerson = asString(routeEvidence?.displayName);
+  const resource =
+    asString(display?.resource) ??
+    (proposedRecord?.kind === 'help_offer' && matchedPerson
+      ? `Help Offer for ${matchedPerson}`
+      : `${proposal.request.resourceType}${proposal.request.resourceId ? ` · ${proposal.request.resourceId}` : ''}`);
+  const proposed =
+    asString(proposedRecord?.draftBody) ??
+    asString(proposedRecord?.text) ??
+    (typeof proposedOutput === 'string' ? proposedOutput : JSON.stringify(proposedOutput ?? {}, null, 2));
+  const policy = asString(display?.policy) ?? (
+    proposal.policyResults
+      .filter(result => result.effect === 'require_approval' || result.effect === 'block')
+      .map(result => result.reason)
+      .join('; ') || 'Human review required'
+  );
+
+  return {
+    id: proposal.id,
+    sourceId: asString(inputs?.sourceId) ?? undefined,
+    ts: shortTs(createdAt),
+    age: relAge(createdAt),
+    actorKind: proposal.request.actor.type === 'agent' ? 'agent' : 'human',
+    actor: asString(display?.actor) ?? `${proposal.request.actor.type} · ${proposal.request.actor.id}`,
+    onBehalfOfType: proposal.request.onBehalfOf ? 'user' : null,
+    onBehalfOf: proposal.request.onBehalfOf
+      ? asString(display?.onBehalfOf) ?? proposal.request.onBehalfOf.id
+      : null,
+    delegationId: asString(inputs?.delegationId),
+    runId: asString(inputs?.runId),
+    action: asString(display?.action) ?? proposal.request.action,
+    resourceType: displayResourceType(proposal.request.resourceType),
+    resource,
+    policy,
+    decision: null,
+    channel: asString(display?.channel) ?? (proposedRecord?.kind === 'help_offer' ? 'Helpdesk' : undefined),
+    prior: asString(display?.prior),
+    proposed,
+    trace: {
+      signals: Array.isArray(trace?.signals)
+        ? trace.signals.filter((signal): signal is string => typeof signal === 'string')
+        : [],
+      context: asString(trace?.context) ?? `Governed ${proposal.request.action} proposal awaiting review.`,
+      reasoning: asString(trace?.reasoning) ?? policy,
+    },
+    proposalOutput: proposedOutput,
+  };
+}
+
 const localFallback = () => ({ pending: pendingApprovals, all: allLedger, source: 'local' as LedgerSource });
+
+export async function loadPendingApprovals(): Promise<{
+  pending: LedgerEntry[];
+  source: LedgerSource;
+  error?: string;
+}> {
+  try {
+    const proposals = await collectAllPages(async (offset, limit) => {
+      const page = await trpc.action.listPending.query({
+        workspaceId: PILOT_WORKSPACE,
+        limit,
+        offset,
+      });
+      return {
+        ...page,
+        hasMore: offset + page.items.length < page.total,
+      };
+    });
+    const pending = proposals.map(proposalToEntry);
+    setLivePendingCount(pending.length);
+    return { pending, source: 'api' };
+  } catch (cause) {
+    setLivePendingCount(pendingApprovals.length);
+    return {
+      pending: pendingApprovals,
+      source: 'local',
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
 
 /**
  * Load the ledger. Returns:
@@ -94,21 +246,35 @@ export async function loadLedger(): Promise<{ pending: LedgerEntry[]; all: Ledge
       .order('created_at', { ascending: false });
     if (error || !data || data.length === 0) { setLivePendingCount(pendingApprovals.length); return localFallback(); }
 
-    // Fold decision-append rows (inputs.proposal_id set) onto their proposals.
+    // Fold current ref_ledger_id decisions and legacy inputs.proposal_id decisions.
+    // Null-decision referenced rows are blocked-attempt audits, not resolutions.
     const appendByProposal = new Map<string, any>();
+    const resolvingRowIds = new Set<string>();
     for (const r of data) {
-      const pid = r.inputs && r.inputs.proposal_id;
-      if (pid) appendByProposal.set(pid, r);
+      const pid = r.ref_ledger_id || (r.inputs && r.inputs.proposal_id);
+      if (pid && isReviewDecision(r.user_decision)) {
+        if (!appendByProposal.has(pid)) appendByProposal.set(pid, r);
+        resolvingRowIds.add(r.id);
+      }
     }
     const all = data
-      .filter(r => !(r.inputs && r.inputs.proposal_id)) // hide standalone decision rows
+      .filter(r => !resolvingRowIds.has(r.id))
       .map(r => {
         const e = rowToEntry(r);
         const ap = appendByProposal.get(r.id);
-        if (ap && e.decision === null) e.decision = (ap.user_decision as Decision) ?? null;
+        if (ap && e.decision === null) e.decision = normalizeDecision(ap.user_decision);
         return e;
       });
-    const pending = all.filter(e => e.decision === null);
+    const pending = data
+      .filter(
+        r =>
+          !r.ref_ledger_id &&
+          !(r.inputs && r.inputs.proposal_id) &&
+          normalizeDecision(r.user_decision) === null &&
+          !isRejectedAuditRow(r) &&
+          !appendByProposal.has(r.id),
+      )
+      .map(rowToEntry);
     setLivePendingCount(pending.length);
     return { pending, all, source: 'supabase' };
   } catch {
@@ -118,104 +284,101 @@ export async function loadLedger(): Promise<{ pending: LedgerEntry[]; all: Ledge
 }
 
 /**
- * Record a decision by APPENDING a new ledger row that references the proposal (append-only — the
- * table has no UPDATE policy). Returns true if the append succeeded against Supabase.
+ * Resolve a proposal through the authenticated Action Pipeline. The pipeline appends
+ * the decision row and performs the approved commit; there is no browser-side write fallback.
  */
-export async function recordDecisionAppend(entry: LedgerEntry, decision: Decision, reason?: string): Promise<boolean> {
-  // Governed path (#8): resolve through the pipeline, which appends the decision row itself.
-  if (API_ENABLED && decision) {
+export async function recordDecisionAppend(
+  entry: LedgerEntry,
+  decision: Decision,
+  reason?: string,
+  editedValue?: string,
+): Promise<{
+  recorded: boolean;
+  decision?: Decision;
+  execution?: 'confirmed' | 'failed' | 'unconfirmed';
+  executionError?: string;
+}> {
+  if (!decision) return { recorded: false };
+  try {
+    const originalOutput = entry.proposalOutput;
+    const originalRecord = asRecord(originalOutput);
+    const nextText = editedValue ?? entry.proposed;
+    const editedOutput =
+      decision === 'edited_approved'
+        ? originalRecord?.kind === 'help_offer'
+          ? { ...originalRecord, draftBody: nextText }
+          : originalRecord && 'text' in originalRecord
+            ? { ...originalRecord, text: nextText }
+            : nextText
+        : undefined;
+    const result = await trpc.action.decide.mutate({
+      proposalId: entry.id,
+      decision:
+        decision === 'vetoed'
+          ? 'veto'
+          : decision === 'edited_approved'
+            ? 'edit'
+            : 'approve',
+      ...(editedOutput !== undefined ? { editedOutput } : {}),
+      ...(reason ? { reason } : {}),
+    });
+    setLivePendingCount(Math.max(0, livePendingCount - 1));
+    return {
+      recorded: true,
+      decision,
+      execution: result.effectsStatus,
+      ...("effectsError" in result && result.effectsError ? { executionError: result.effectsError } : {}),
+    };
+  } catch {
     try {
-      const edited = decision === 'edited_approved' ? { text: entry.proposed } : undefined;
-      if (await apiDecide(entry.id, decision, edited)) {
+      const resolution = await trpc.action.resolution.query({ proposalId: entry.id });
+      if (resolution.status === 'resolved') {
         setLivePendingCount(Math.max(0, livePendingCount - 1));
-        return true;
+        return {
+          recorded: true,
+          decision: normalizeDecision(resolution.decision),
+          execution: 'unconfirmed',
+        };
       }
     } catch {
-      /* fall through to the direct-Supabase append below */
+      // Preserve the pending row when neither the decision nor its current state can be confirmed.
     }
-  }
-  try {
-    const { error } = await supabase.from('ledger').insert({
-      workspace_id: PILOT_WORKSPACE,
-      actor_type: 'human',
-      actor_id: DEMO_USER,
-      action: 'decision',
-      resource_type: entry.resourceType,
-      inputs: {
-        seed: 'a3',
-        proposal_id: entry.id,
-        reason: reason ?? null,
-        display: {
-          actor: 'You',
-          actorKind: 'human',
-          resource: entry.resource,
-          policy: entry.policy,
-          channel: entry.channel,
-        },
-      },
-      proposed_output: { text: entry.proposed },
-      user_decision: decision,
-      created_at: new Date().toISOString(),
-    });
-    if (!error) setLivePendingCount(Math.max(0, livePendingCount - 1));
-    return !error;
-  } catch {
-    return false;
+    return { recorded: false };
   }
 }
 
 /**
- * Propose a signal-driven action by INSERTing a PENDING ledger row (user_decision null) — the same
- * append-only path the real agent would use. Mirrors the seeded proposal shape so loadLedger() and the
- * Approvals inbox pick it up identically. Returns true if the insert succeeded against Supabase; the
- * caller falls back to the local draft store when offline. (A3b — closes the Signal → live-ledger loop.)
+ * Ask the server-owned Outreach Agent to stage a pending Touchpoint through the
+ * Action Pipeline. A failed or unavailable API never falls back to a browser ledger write.
  */
-export async function proposeToLedger(entry: LedgerEntry): Promise<boolean> {
-  // Governed path (#8): the pipeline runs authority → policy → skill → draft and appends the
-  // pending_review ledger row itself. Falls back to the direct insert below when the API is off.
-  if (API_ENABLED) {
-    try {
-      const r = await apiPropose(entry);
-      if (r && r.status !== 'rejected') {
-        setLivePendingCount(livePendingCount + 1);
-        return true;
-      }
-      if (r && r.status === 'rejected') return false; // governance denied — surface as no-op
-    } catch {
-      /* fall through to the direct-Supabase insert below */
-    }
-  }
+export type StagedProposal =
+  | { proposalId: string; status: 'pending' }
+  | { proposalId: string; status: 'resolved'; decision: Exclude<Decision, null> };
+
+export async function proposeToLedger(entry: LedgerEntry): Promise<StagedProposal | null> {
   try {
-    const { error } = await supabase.from('ledger').insert({
-      workspace_id: PILOT_WORKSPACE,
-      actor_type: 'agent',
-      actor_id: OUTREACH_AGENT,
-      on_behalf_of_type: 'user',
-      on_behalf_of_id: DEMO_USER,
-      action: entry.action,
-      resource_type: entry.resourceType,
-      inputs: {
-        seed: 'a3b',
-        signal_id: entry.id,
-        runId: entry.runId ?? null,
-        display: {
-          actor: entry.actor,
-          actorKind: 'agent',
-          onBehalfOf: 'You',
-          resource: entry.resource,
-          policy: entry.policy,
-          channel: entry.channel,
-          prior: entry.prior ?? null,
-          trace: entry.trace,
-        },
-      },
-      proposed_output: { text: entry.proposed },
-      user_decision: null,
-      created_at: new Date().toISOString(),
+    const proposal = await trpc.action.proposeOutreachDraft.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: entry.id,
+      label: entry.action,
+      resource: entry.resource,
+      proposed: entry.proposed,
+      ...(entry.channel ? { channel: entry.channel } : {}),
+      ...(entry.prior !== undefined ? { prior: entry.prior } : {}),
+      ...(entry.runId ? { runId: entry.runId } : {}),
+      trace: entry.trace,
     });
-    if (!error) { setLivePendingCount(livePendingCount + 1); return true; }
-    return false;
+    if (proposal.status === 'pending_review') {
+      setLivePendingCount(livePendingCount + 1);
+      return { proposalId: proposal.id, status: 'pending' as const };
+    }
+    if (proposal.status === 'already_resolved') {
+      const decision = normalizeDecision(proposal.decision);
+      if (!decision) return null;
+      return { proposalId: proposal.id, status: 'resolved' as const, decision };
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }

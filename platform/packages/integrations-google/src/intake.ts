@@ -14,7 +14,7 @@
  *      entries to the LOCAL graph and dual-writes ONLY the public identity to cloud
  *      canonical. Every step is append-only audited in the (local) ledger.
  */
-import type { Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
+import type { GoalTaskStore, Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
 import type { BodyStore, LocalGraphStore } from "@bridge/local";
 import type { CanonicalIdentityStore } from "@bridge/db";
 import {
@@ -109,6 +109,43 @@ export interface IntakeServiceDeps {
   pipeline: UniversalActionPipeline;
   bodies: BodyStore;
   graph: LocalGraphStore;
+  /**
+   * AGS1 (TASK-007 closure) — optional Goal/Task provisioning for the 3
+   * governed skills this service invokes (`SKILL_SOURCE_GMAIL`,
+   * `SKILL_SOURCE_CALENDAR`, `SKILL_STAGE`). Every call site already uses an
+   * Agent actor (`egressAgentId`/`intakeAgentId`), never Human/Automation-
+   * direct; this dependency only supplies the `goalTaskRef` a registered
+   * `SkillManifest` requires. Omitted = unchanged behavior UNLESS the
+   * embedding's pipeline has a manifest registered for these skill ids, in
+   * which case omitting this will fail closed (by design — see
+   * `provisionGoogleSyncTask`'s doc comment).
+   */
+  goalTasks?: GoalTaskStore;
+}
+
+/**
+ * AGS1 (TASK-007 closure) — find-or-create the ONE durable `"google.sync"`
+ * Goal for a workspace (a Goal is a durable intended outcome, not reminted
+ * per call) and mint one bounded Task per call, assigned to the Agent actually
+ * invoking the skill. Shared by every governed Google skill call site in this
+ * package (`syncGmail`/`syncCalendar`/`stage` here, `listCalendarEvents` in
+ * service.ts) so they all resolve against the SAME Goal.
+ */
+export async function provisionGoogleSyncTask(
+  goalTasks: GoalTaskStore | undefined,
+  workspaceId: string,
+  taskType: string,
+  assignedAgentId: string,
+  ctx: RunCtx,
+): Promise<{ goalId: string; taskId: string } | undefined> {
+  if (!goalTasks) return undefined;
+  const seam = { nextId: () => ctx.ids.next(), nowISO: () => ctx.clock.nowISO() };
+  const existingGoals = await goalTasks.listGoals(workspaceId);
+  const goal =
+    existingGoals.find((g) => g.type === "google.sync") ??
+    (await goalTasks.createGoal({ workspaceId, type: "google.sync", title: "Google Workspace sync" }, seam));
+  const task = await goalTasks.createTask({ workspaceId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
+  return { goalId: goal.id, taskId: task.id };
 }
 
 function norm(email: string): string {
@@ -157,6 +194,7 @@ export class IntakeService {
     const { workspaceId, egressAgentId, intakeAgentId, userId } = opts.identities;
 
     // 1) Source through the gate (cloud egress agent). The user's Sync click approves.
+    const gmailGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
     const fetchProposal = await this.deps.pipeline.propose(
       {
         workspaceId,
@@ -172,6 +210,7 @@ export class IntakeService {
           ...(opts.maxResults ? { maxResults: opts.maxResults } : {}),
           ...(opts.query ? { query: opts.query } : {}),
         },
+        ...(gmailGoalTaskRef ? { goalTaskRef: gmailGoalTaskRef } : {}),
       },
       ctx,
     );
@@ -201,6 +240,7 @@ export class IntakeService {
   /** Source Calendar events through the gate, then propose a Touchpoint per event. */
   async syncCalendar(opts: SyncOpts, ctx: RunCtx): Promise<IntakeResult> {
     const { workspaceId, egressAgentId, intakeAgentId, userId } = opts.identities;
+    const calendarGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
     const fetchProposal = await this.deps.pipeline.propose(
       {
         workspaceId,
@@ -217,6 +257,7 @@ export class IntakeService {
           ...(opts.timeMin ? { timeMin: opts.timeMin } : {}),
           ...(opts.timeMax ? { timeMax: opts.timeMax } : {}),
         },
+        ...(calendarGoalTaskRef ? { goalTaskRef: calendarGoalTaskRef } : {}),
       },
       ctx,
     );
@@ -486,6 +527,7 @@ export class IntakeService {
       };
     }
 
+    const stageGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, args.workspaceId, "stage_google_data", args.intakeAgentId, ctx);
     const proposal = await this.deps.pipeline.propose(
       {
         workspaceId: args.workspaceId,
@@ -510,6 +552,7 @@ export class IntakeService {
             trace: args.trace,
           },
         },
+        ...(stageGoalTaskRef ? { goalTaskRef: stageGoalTaskRef } : {}),
       },
       ctx,
     );

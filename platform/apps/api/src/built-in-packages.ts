@@ -2,12 +2,65 @@
  * Signed source definitions for built-in Modules. Module Detail reads the same
  * manifests the package store installs; no frontend inventory is hardcoded.
  */
-import type { CapabilityManifest, PackageManifest, RiskBand } from "@bridge/core";
+import type { CapabilityManifest, CommonsProvenance, PackageManifest, RiskBand } from "@bridge/core";
 
 type BuiltInPackage = {
   manifest: PackageManifest;
   computedRisk: RiskBand;
 };
+
+type CommonsBuiltInPackage = BuiltInPackage & {
+  commons: {
+    provenance: CommonsProvenance;
+    tags: string[];
+  };
+};
+
+export const DEALPILOT_SOURCING_AGENT_ID = "b0000000-0000-4000-a000-0000000000e1";
+export const DEALPILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1";
+export const DEALPILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
+
+export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
+  return packageName === "deal-pilot" && manifestRitualId === DEALPILOT_SOURCE_RITUAL_KEY
+    ? DEALPILOT_SOURCE_RITUAL_ID
+    : undefined;
+}
+
+export function isModuleRuntimeRitualId(ritualId: string): boolean {
+  return ritualId === DEALPILOT_SOURCE_RITUAL_ID;
+}
+
+export function resolveModuleAgentRuntimeId(packageName: string, manifestAgentId: string): string | undefined {
+  return packageName === "deal-pilot" && manifestAgentId === "sourcing-agent"
+    ? DEALPILOT_SOURCING_AGENT_ID
+    : undefined;
+}
+
+const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
+const INSPECTED_COMMIT = "5775e5b9cf63938e9f2a8220e63b36e1122eac80";
+const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
+  "deal-pilot": "platform/tools/dealpilot/src/manifest.ts",
+  "job-pilot": "platform/tools/jobpilot/src/manifest.ts",
+  relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
+  calendar: "platform/apps/web/src/app/pages/CalendarPage.tsx",
+};
+
+function builtInSourceRef(packageName: string): string {
+  const sourceRef = BUILT_IN_SOURCE_REFS[packageName];
+  if (!sourceRef) throw new Error(`No inspected source reference declared for ${packageName}`);
+  return sourceRef;
+}
+
+function provenance(sourceRef: string): CommonsProvenance {
+  return {
+    sourceRepository: SOURCE_REPOSITORY,
+    sourceRef,
+    inspectedCommit: INSPECTED_COMMIT,
+    repositoryLicense: "NOASSERTION",
+    artifactLicense: "LicenseRef-Bridge-Internal",
+    licenseVerified: true,
+  };
+}
 
 const readAll = (resourceType: string) => ({
   resourceType,
@@ -36,7 +89,6 @@ const writePrivate = (resourceType: string) => ({
   dataScope: "private" as const,
   egress: false,
 });
-
 function capability(
   id: string,
   name: string,
@@ -265,7 +317,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
     computedRisk: "advisory",
     manifest: {
       name: "deal-pilot",
-      version: "0.2.0",
+      version: "0.3.0",
       kind: "workspace_definition",
       summary: "Sourcing waterfall and thesis-fit scoring for deal flow.",
       description:
@@ -290,6 +342,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           name: "Deal sourcing Agent",
           capabilityId: "deal-pilot.sourcing-agent",
           skillIds: ["dealpilot.source"],
+          plane: "cloud",
         }],
         automations: [{
           id: "source-intake",
@@ -298,6 +351,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           agentId: "sourcing-agent",
           trigger: "Manual source refresh",
           procedure: "dealpilot.source",
+          ritualId: DEALPILOT_SOURCE_RITUAL_KEY,
         }],
       },
     },
@@ -306,7 +360,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
     computedRisk: "advisory",
     manifest: {
       name: "job-pilot",
-      version: "0.2.0",
+      version: "0.2.1",
       kind: "workspace_definition",
       summary: "Real job records and an application tracking pipeline.",
       description:
@@ -339,6 +393,14 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           agentId: "application-agent",
           trigger: "Job saved",
           procedure: "jobpilot.create",
+        }],
+        commonsNeeds: [{
+          id: "interview-calendar-availability",
+          title: "Check interview availability",
+          description: "Let the Application tracking Agent read Calendar availability before proposing interview times.",
+          agentId: "application-agent",
+          kind: "skill",
+          tags: ["need:interview-calendar-availability"],
         }],
       },
     },
@@ -454,6 +516,49 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           procedure: "google.listEvents",
         }],
       },
+    },
+  },
+];
+
+const interviewCalendarAvailability: BuiltInPackage = {
+  computedRisk: "informational",
+  manifest: {
+    name: "interview-calendar-availability",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Read Calendar availability before proposing interview times.",
+    description:
+      "Reuses Bridge's governed Google Calendar event reader so a Module Agent can check real availability without gaining write or send authority.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        ...calendarCapabilities.find((capability) => capability.id === "google.listCalendarEvents")!,
+        version: "1.0.0",
+        audience: "private",
+      },
+    ],
+    contextProviders: [],
+    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
+export const COMMONS_BUILT_IN_PACKAGES: readonly CommonsBuiltInPackage[] = [
+  // Relationship's current full capability union forms the lethal trifecta.
+  // It remains a local built-in Module but cannot enter Commons until split
+  // into independently safe generalized artifacts.
+  ...BUILT_IN_PACKAGES.filter((pkg) => pkg.manifest.name !== "relationship").map((pkg) => ({
+    ...pkg,
+    commons: {
+      provenance: provenance(builtInSourceRef(pkg.manifest.name)),
+      tags: ["built-in", pkg.manifest.kind],
+    },
+  })),
+  {
+    ...interviewCalendarAvailability,
+    commons: {
+      provenance: provenance("platform/packages/integrations-google/src/skills.ts"),
+      tags: ["built-in", "calendar", "interview", "need:interview-calendar-availability"],
     },
   },
 ];

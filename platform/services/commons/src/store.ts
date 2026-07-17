@@ -51,11 +51,20 @@ export class FsCommonsStore implements CommonsStore {
   }
 
   async put(entry: CommonsPackageEntry): Promise<void> {
-    const existing = await this.get(entry.name, entry.version);
-    if (existing !== null) throw new DuplicateVersionError(entry.name, entry.version);
     const dir = join(this.#root, safeSegment(entry.name));
     await mkdir(dir, { recursive: true });
-    await writeFile(this.#versionPath(entry.name, entry.version), JSON.stringify(entry, null, 2), "utf8");
+    try {
+      await writeFile(
+        this.#versionPath(entry.name, entry.version),
+        JSON.stringify(entry, null, 2),
+        { encoding: "utf8", flag: "wx" },
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new DuplicateVersionError(entry.name, entry.version);
+      }
+      throw error;
+    }
   }
 
   async get(name: string, version: string): Promise<CommonsPackageEntry | null> {

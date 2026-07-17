@@ -11,6 +11,7 @@
 import type {
   ModuleAgentBinding,
   ModuleAutomationBinding,
+  ModuleCapabilityNeed,
   ModulePageBinding,
   ModuleSurfaceManifest,
   PackageDependency,
@@ -241,11 +242,16 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   if (!Array.isArray(agentsRaw)) fail("package.module.agents must be an array");
   const agents: ModuleAgentBinding[] = agentsRaw.map((agent, index) => {
     if (!isPlainObject(agent)) fail(`package.module.agents[${index}] must be an object`);
-    const binding = {
+    const plane = agent.plane;
+    if (plane !== undefined && plane !== "local" && plane !== "cloud") {
+      fail(`package.module.agents[${index}].plane must be local or cloud`);
+    }
+    const binding: ModuleAgentBinding = {
       id: requiredString(agent.id, `package.module.agents[${index}].id`),
       name: requiredString(agent.name, `package.module.agents[${index}].name`),
       capabilityId: requiredString(agent.capabilityId ?? agent.capability_id, `package.module.agents[${index}].capability_id`),
       skillIds: parseStringArray(agent.skillIds ?? agent.skill_ids, `package.module.agents[${index}].skill_ids`),
+      ...(plane ? { plane } : {}),
     };
     if (capabilityById.get(binding.capabilityId)?.capabilityType !== "agent") {
       fail(`package.module.agents[${index}].capability_id must reference an agent capability`);
@@ -263,7 +269,8 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   if (!Array.isArray(automationsRaw)) fail("package.module.automations must be an array");
   const automations: ModuleAutomationBinding[] = automationsRaw.map((automation, index) => {
     if (!isPlainObject(automation)) fail(`package.module.automations[${index}] must be an object`);
-    const binding = {
+    const ritualId = automation.ritualId ?? automation.ritual_id;
+    const binding: ModuleAutomationBinding = {
       id: requiredString(automation.id, `package.module.automations[${index}].id`),
       name: requiredString(automation.name, `package.module.automations[${index}].name`),
       capabilityId: requiredString(
@@ -273,6 +280,9 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       agentId: requiredString(automation.agentId ?? automation.agent_id, `package.module.automations[${index}].agent_id`),
       trigger: requiredString(automation.trigger, `package.module.automations[${index}].trigger`),
       procedure: requiredString(automation.procedure, `package.module.automations[${index}].procedure`),
+      ...(ritualId !== undefined
+        ? { ritualId: requiredString(ritualId, `package.module.automations[${index}].ritual_id`) }
+        : {}),
     };
     if (capabilityById.get(binding.capabilityId)?.capabilityType !== "workflow") {
       fail(`package.module.automations[${index}].capability_id must reference a workflow capability`);
@@ -283,7 +293,31 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
     return binding;
   });
 
-  return { displayName, route, pages, agents, automations };
+  const commonsNeedsRaw = raw.commonsNeeds ?? raw.commons_needs ?? [];
+  if (!Array.isArray(commonsNeedsRaw)) fail("package.module.commons_needs must be an array");
+  const commonsNeeds: ModuleCapabilityNeed[] = commonsNeedsRaw.map((need, index) => {
+    if (!isPlainObject(need)) fail(`package.module.commons_needs[${index}] must be an object`);
+    const agentId = requiredString(need.agentId ?? need.agent_id, `package.module.commons_needs[${index}].agent_id`);
+    if (!agentIds.has(agentId)) {
+      fail(`package.module.commons_needs[${index}].agent_id must reference a declared module agent`);
+    }
+    const needKind = requiredString(need.kind, `package.module.commons_needs[${index}].kind`);
+    if (!PACKAGE_KINDS.includes(needKind as PackageKind)) {
+      fail(`package.module.commons_needs[${index}].kind must be one of ${PACKAGE_KINDS.join(", ")}`);
+    }
+    const tags = parseStringArray(need.tags, `package.module.commons_needs[${index}].tags`);
+    if (tags.length === 0) fail(`package.module.commons_needs[${index}].tags must contain at least one tag`);
+    return {
+      id: requiredString(need.id, `package.module.commons_needs[${index}].id`),
+      title: requiredString(need.title, `package.module.commons_needs[${index}].title`),
+      description: requiredString(need.description, `package.module.commons_needs[${index}].description`),
+      agentId,
+      kind: needKind as PackageKind,
+      tags,
+    };
+  });
+
+  return { displayName, route, pages, agents, automations, commonsNeeds };
 }
 
 /**

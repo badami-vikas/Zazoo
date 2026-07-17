@@ -1,4 +1,4 @@
-<!-- Generated: 2026-07-04 | Files scanned: platform/apps/api/src, platform/packages/core/src | Token estimate: ~550 -->
+<!-- Updated: 2026-07-17 | Files scanned: platform/apps/api/src, platform/packages/core/src, platform/packages/db/src orchestration stores | Token estimate: ~700 -->
 
 # Backend Codemap
 
@@ -11,13 +11,17 @@ No REST layer — tRPC is the sole API surface. `onError` in server.ts only logs
 ```
 health.query                        → { ok: true }
 
-action.propose  → core.pipeline.propose   → Authority+Policy pre-check, Ledger append (pending)
-action.decide   → core.pipeline.decide    → resolve proposal, commit, emit event
-                    ⚠ no transaction/unique-constraint — concurrent decide = double-approve
+action.propose  → core.pipeline.propose   → Authority+Policy+Goal/Task Skill gates, Ledger append
+action.decide   → core.pipeline.decide    → one append-only resolution, commit, emit event
 
 google.list/connectUrl/disconnect          → GoogleService (packages/integrations-google)
 google.syncGmail/syncCalendar/listEvents   → IntakeService (poll-only, no webhooks)
 google.proposeSend                          → egress.ts, draft created pre-approval (known issue)
+
+agentOrchestration.goal/task.*              → workspace-scoped GoalTaskStore
+agentOrchestration.skill.resolve            → active assignment + manifest/authority/Plane/data gates
+agentOrchestration.childRun.get/list/cancel → authenticated workspace inspection/stop
+                                                (no public create; server runtime only)
 
 agent.create/update                        → governance-stores.ts, capability scope stripped
                                                server-side (isForbiddenAgentToken)
@@ -50,7 +54,14 @@ memory/stores.ts      InMemory{Ledger,EventBus,EphemeralStore,...} — unbounded
                       this is the default when DATABASE_URL is unset (production risk)
 skills.ts             Skill registry; each skill.run(inputs: unknown, ctx) — no per-skill
                       zod validation (inputs is z.unknown() all the way from the router)
+goal-task.ts          workspace Goal/Task store; active assigned Task is Skill eligibility source
+skill-manifest.ts     workspace manifest registry + fail-closed Agent/Task/authority resolver
+child-agent-run.ts    parent-ceiling intersection, deadline/budget/lifecycle/audit contracts
 ```
+
+Persistent adapters: `db/src/goal-task-store.ts`, `skill-manifest-store.ts`, and
+`child-agent-run-store.ts`. Migration `0014` follows released `0013`; tenant-composite
+foreign keys/checks/FORCE-RLS protect orchestration state.
 
 ## Cross-cutting gaps (see ../BUGS.md for full detail)
 

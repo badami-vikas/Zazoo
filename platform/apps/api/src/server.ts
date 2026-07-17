@@ -31,15 +31,23 @@ export function corsOriginConfig(): true | string[] {
       .map((o) => o.trim())
       .filter(Boolean);
   }
+
   if (process.env.NODE_ENV === "production" || isVerifierConfigured()) return [];
   return true;
+}
+
+export function serverHostConfig(): string {
+  if (process.env.API_HOST) return process.env.API_HOST;
+  return process.env.NODE_ENV === "production" || isVerifierConfigured() || Boolean(process.env.DATABASE_URL)
+    ? "0.0.0.0"
+    : "127.0.0.1";
 }
 
 /** Sensitive tRPC procedures that get a tighter per-IP rate cap than the global default:
  * a mutation that spends real work/quota (`action.propose`, `blueprint.propose`), a
  * brute-forceable verification stub (`onboarding.verifyPhoneOtp`), and outbound-network
  * procedures that can be turned into a cost-amplification / SSRF lever
- * (`google.syncGmail`, `dealpilot.source`). Matched as substrings of the request path so
+ * (`google.syncGmail`, `dealpilot.source`, governed Automation Runs). Matched as substrings of the request path so
  * a batched tRPC call (comma-joined procedure names in the URL) is caught if it contains
  * ANY sensitive procedure — fail-tight. */
 const RATE_LIMIT_SENSITIVE_PATHS = [
@@ -48,6 +56,8 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "onboarding.verifyPhoneOtp",
   "google.syncGmail",
   "dealpilot.source",
+  "ritual.runById",
+  "helpdesk.public.",
 ] as const;
 
 export interface RateLimitConfig {
@@ -75,7 +85,7 @@ export function rateLimitConfig(): RateLimitConfig {
 
 /** Path (no query string) → which limit bucket it falls in. A request lands in the
  * `sensitive` bucket if its path contains any sensitive procedure name. */
-function rateLimitBucket(url: string): "sensitive" | "global" {
+export function rateLimitBucket(url: string): "sensitive" | "global" {
   const path = url.split("?")[0] ?? url;
   return RATE_LIMIT_SENSITIVE_PATHS.some((p) => path.includes(p)) ? "sensitive" : "global";
 }
@@ -111,10 +121,16 @@ const HEALTH_PROBE_ID = "00000000-0000-0000-0000-000000000000";
 export const LOG_REDACT_PATHS: string[] = [
   "req.body.phone",
   "req.body.code",
+  "req.body.accessToken",
+  "req.body.json.accessToken",
+  "req.body.*.json.accessToken",
   "req.headers.authorization",
   'req.headers["authorization"]',
   "body.phone",
   "body.code",
+  "body.accessToken",
+  "body.json.accessToken",
+  "body.*.json.accessToken",
   "headers.authorization",
   'headers["authorization"]',
 ];
@@ -210,6 +226,7 @@ export async function buildServer() {
     trpcOptions: {
       router: appRouter,
       createContext,
+      allowMethodOverride: true,
       onError({ path, error }) {
         app.log.error({ path, msg: error.message }, "trpc error");
       },
@@ -224,7 +241,7 @@ const isMain = entry !== undefined && import.meta.url === pathToFileURL(entry).h
 if (isMain) {
   const port = Number(process.env.PORT ?? 4000);
   buildServer()
-    .then((app) => app.listen({ port, host: "0.0.0.0" }))
+    .then((app) => app.listen({ port, host: serverHostConfig() }))
     .then((addr) => console.log(`bridge-api listening at ${addr}`))
     .catch((err) => {
       console.error(err);

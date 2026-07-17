@@ -37,12 +37,16 @@ export function SignalsView({ selectedList }: { selectedList?: string | null }) 
 
   const act = async (s: Signal, actionIndex: number, label: string) => {
     const entry = proposeFromSignal(s, actionIndex);
-    // Write the proposal to the live Supabase ledger (append-only, via the member JWT). If Supabase is
-    // unreachable, fall back to the local draft store so the loop still works offline. (A3b)
-    const live = await proposeToLedger(entry);
-    if (!live) proposeAction(entry);
+    const staged = await proposeToLedger(entry);
+    if (!staged) proposeAction(entry);
     setProposed(prev => ({ ...prev, [s.id]: label }));
-    setToast(live ? `“${label}” drafted to Approvals — recorded in the live ledger` : `“${label}” drafted — sent to Approvals for your review`);
+    setToast(
+      !staged
+        ? `“${label}” saved locally — reconnect the API before it can be reviewed`
+        : staged.status === 'resolved'
+          ? `“${label}” was already reviewed (${staged.decision.replace('_', ' ')})`
+          : `“${label}” drafted to Approvals through the Action Pipeline`,
+    );
     window.setTimeout(() => setToast(null), 2800);
   };
 

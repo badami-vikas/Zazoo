@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 
 import {
   canonicalizeManifest,
+  canonicalizeCommonsSignedPayload,
+  commonsPackageContent,
+  computeCommonsContentHash,
+  normalizeCommonsTags,
+  verifyCommonsEntry,
   verifyManifestSignature,
   assertCommonsUrlTls,
   CommonsInsecureTransportError,
@@ -12,6 +17,7 @@ import {
   type SignedManifestEnvelope,
   type PackageManifest,
   type TrustGrantView,
+  type CommonsPackageEntry,
 } from "../src/index.js";
 
 function manifest(overrides: Partial<PackageManifest> = {}): PackageManifest {
@@ -77,6 +83,84 @@ test("canonicalizeManifest: key order does not change the canonical bytes", () =
     name: "test-fixture-pkg",
   };
   assert.equal(canonicalizeManifest(a), canonicalizeManifest(b));
+});
+
+function commonsEntry(): CommonsPackageEntry {
+  const content = {
+    name: "test-fixture-pkg",
+    version: "1.0.0",
+    kind: "tool" as const,
+    summary: "s",
+    tags: ["test"],
+    manifest: manifest(),
+    provenance: {
+      sourceRepository: "https://github.com/example/repo",
+      sourceRef: "capability",
+      inspectedCommit: "0123456789abcdef0123456789abcdef01234567",
+      repositoryLicense: "MIT",
+      artifactLicense: "MIT",
+      licenseVerified: true,
+    },
+    securityScan: {
+      scanner: "bridge-commons-manifest" as const,
+      scannerVersion: "1.0.0" as const,
+      policyVersion: "CM1-2026-07" as const,
+      status: "passed" as const,
+      riskBand: "informational" as const,
+      lethalTrifecta: false,
+      checks: [],
+    },
+  };
+  const integrity = computeCommonsContentHash(content, (value) => `hash(${value})`);
+  const publishedAt = "2026-07-16T00:00:00.000Z";
+  return {
+    ...content,
+    integrity,
+    publishedAt,
+    signature: {
+      signature: `sig(${canonicalizeCommonsSignedPayload(content, integrity, publishedAt)})`,
+      publicKey: "publisher-key-1",
+      algorithm: "ed25519",
+      signedAt: "2026-07-16T00:00:00.000Z",
+    },
+  };
+}
+
+test("Commons hash excludes its own integrity/signature/publish fields and verifies the signed pin", () => {
+  const entry = commonsEntry();
+  assert.equal(
+    computeCommonsContentHash(commonsPackageContent(entry), (value) => `hash(${value})`).value,
+    entry.integrity.value,
+  );
+  assert.deepEqual(
+    verifyCommonsEntry(entry, (value) => `hash(${value})`, fakeVerifier("publisher-key-1")),
+    { valid: true },
+  );
+});
+
+test("Commons tag normalization uses locale-independent code-point order", () => {
+  assert.deepEqual(normalizeCommonsTags(["ä", "a", "z", "ä"]), ["a", "z", "ä"]);
+});
+
+test("Commons verification rejects changed provenance even when the manifest is unchanged", () => {
+  const entry = commonsEntry();
+  const tampered = {
+    ...entry,
+    provenance: { ...entry.provenance, inspectedCommit: "ffffffffffffffffffffffffffffffffffffffff" },
+  };
+  assert.deepEqual(
+    verifyCommonsEntry(tampered, (value) => `hash(${value})`, fakeVerifier("publisher-key-1")),
+    { valid: false, reason: "hash_mismatch" },
+  );
+});
+
+test("Commons verification rejects a changed publication time", () => {
+  const entry = commonsEntry();
+  const tampered = { ...entry, publishedAt: "2099-01-01T00:00:00.000Z" };
+  assert.deepEqual(
+    verifyCommonsEntry(tampered, (value) => `hash(${value})`, fakeVerifier("publisher-key-1")),
+    { valid: false, reason: "invalid_signature" },
+  );
 });
 
 test("verifyManifestSignature: a valid signature verifies", () => {

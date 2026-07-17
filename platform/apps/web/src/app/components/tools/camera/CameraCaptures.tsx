@@ -35,16 +35,20 @@ export default function CameraCaptures() {
     await proposeCapture(r.id, { ...(r.caption ? { caption: r.caption } : {}), ...(r.ocrText ? { ocrText: r.ocrText } : {}) });
     if (API_ENABLED) {
       // Also propose to the REAL platform pipeline. The blob is NEVER sent — only a local reference + facts.
+      // AGS1 (TASK-007 closure): the server (never this client) decides the invoking
+      // Agent and provisions the Goal/Task the governed `stageCapture` Skill requires —
+      // see apps/api/src/router.ts's `capture.stage` procedure.
       try {
-        await fetch(`${import.meta.env.VITE_API_URL}/trpc/action.propose`, {
+        await fetch(`${import.meta.env.VITE_API_URL}/trpc/capture.stage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             json: {
               workspaceId: 'b0000000-0000-4000-a000-000000000001',
-              actor: { type: 'user', id: 'e0f0053b-fc44-476e-be27-1371e179e958', plane: 'local' },
-              action: 'write', resourceType: 'touchpoint', dataScope: 'private', skill: 'stageCapture',
-              inputs: { local_media_id: r.id, kind: r.kind, ...(r.caption ? { caption: r.caption } : {}), ...(r.ocrText ? { ocrText: r.ocrText } : {}) },
+              localMediaId: r.id,
+              kind: r.kind,
+              ...(r.caption ? { caption: r.caption } : {}),
+              ...(r.ocrText ? { ocrText: r.ocrText } : {}),
             },
           }),
         });

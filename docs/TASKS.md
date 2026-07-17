@@ -8,7 +8,7 @@ Task Manager and Claude read this single ordered list. Status remains part of ea
 
 `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-030/AP-031).
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034).
 
 ## Operating standard
 
@@ -91,15 +91,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Unblock: Implementation is complete. Perform a human physical drag→save→relaunch, an actual VoiceOver control pass, and the external-display attach/detach/reposition/cross-display matrix. Space/fullscreen plus pointer/keyboard/Accessibility control paths now pass on the single-display host.
 
 ## TASK-004 — Commons install and trust prototype
-- Status: in_progress
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The app can discover and install one real Commons capability through the governed signed supply chain without transferring personal data to Commons.
 - Prototype test: From a real Module need, search Commons, inspect provenance and scan results, install a signed content-hash-pinned capability, reject tampered/untrusted input, and show the installed capability in its owning Module.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md CM0–CM1; docs/raw/module-evolution-system-2026-07.md
-- Evidence: 2026-07-16 state check supersedes the stale e5edafc audit: signed Commons transport, tRPC consumption, governed package install, TLS enforcement, privacy gate, and tamper/untrusted-key rejection exist; explicit content-hash provenance, deterministic publish scan, Module-scoped search/install, and owning-Module attachment remain
+- Evidence: e5edafc audit; `outputs/2026-07-16-task004-commons-task005-glue.md` — clean local Commons/API/web desktop+375px Prototype test plus final review passed with Ed25519, closed provenance, signed hash/dependency/scan inspection, stable Human-review install finalization/reconciliation, current Module-need revalidation, governed Agent attachment, rejection/privacy tests, and no marketplace route
 - Requests: R-004; R-016; R-026
-- Approval: none
+- Approval: AP-031 applied
 - Dependencies: TASK-001
 
 ## TASK-005 — Avatar + Commons end-to-end demo certification
@@ -110,9 +110,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
 - Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: none
+- Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
+- Unblock: complete TASK-003 physical macOS evidence and run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
 
 ## TASK-006 — DealPilot ETA core prototype
 - Status: in_progress
@@ -127,15 +129,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-001
 
 ## TASK-007 — Agent, Skill, and child-Run orchestration
-- Status: in_progress
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.
-- Prototype test: Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.
+- Prototype test: ✅ Assigned active Agents resolve matching workspace Goal/Task Skills; unauthorized/missing/inactive/cross-workspace invocation fails closed; a server-owned child Run narrows authority/budget/taint/depth, records lifecycle audit, and can be stopped by Governance/Human.
 - Scope: docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3; docs/raw/bridge-foundational-agents-onboarding-2026-07.md
-- Evidence: BUGS standalone Skills/non-Agent invocation; specialist-agent overfit review
+- Evidence: RESOLVED BUGS standalone Skills/non-Agent invocation; specialist-agent overfit review; [TASK-007 output](../outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md); core 421, DB 106, API 161, Google 35, web 43 tests; monorepo typecheck/build; changed-file lint; migration no-drift; four independent security/correctness reviews, final no findings.
 - Requests: R-019; R-028; R-029; agent redesign directive 2026-07-15
-- Approval: AP-021, AP-023, and AP-029 applied
+- Approval: AP-021, AP-023, AP-029, and AP-032 applied
 - Dependencies: TASK-001
 
 ## TASK-008 — Relationship Module consolidation
@@ -145,7 +147,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.
 - Prototype test: Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.
 - Scope: docs/raw/relationship-module-plan-2026-07.md RM0–RM6; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: BUGS Knowledge/Relationship IA; BUGS no actionable cross-Module graph
+- Evidence: RESOLVED BUGS Knowledge/Relationship IA; OPEN BUGS missing RM4 Relation persistence/materialization integration; `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009.
 - Requests: Relationship alignment directive 2026-07-14
 - Approval: AP-020, AP-021, and AP-029 applied
 - Dependencies: TASK-001
@@ -231,8 +233,9 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Scope: docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6; docs/raw/brd-taskmanager-2026-07.md; docs/raw/initiatives-taskade-research.md (verdicts bind); docs/raw/ui-architecture-rules-2026-07.md
 - Evidence: docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025); user's game-designs repo independently converged on the identical format (2026-07-16 report)
 - Requests: R-035; R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)
-- Approval: AP-030 applied (plan+roadmap addition); AP-031 applied (revision); ADR-099 records the vocabulary call, revised same day
+- Approval: AP-033 applied (plan+roadmap addition); AP-034 applied (revision); ADR-105 records the vocabulary call, revised same day (renumbered from this session's original AP-030/AP-031/ADR-099 during merge-integration — main used those IDs for parallel task-integration approvals)
 - Dependencies: TASK-001; TASK-012 (VOCAB2 tree migration); TASK-014 (standard Module UI); TASK-004 line for TM6 only
+
 ## TASK-015 — End-to-end runtime taint tracking
 - Status: ready
 - Priority: P3
@@ -264,7 +267,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
 - Prototype test: Package state survives restart; install proposals use the right resource type; Helpdesk topics are derived/validated; browser bundle excludes Node-only sandbox code; web styling loads; persisted pins use governed storage.
 - Scope: docs/BUGS.md detailed runtime evidence
-- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
+- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
 - Requests: none
 - Approval: none
 - Dependencies: TASK-012

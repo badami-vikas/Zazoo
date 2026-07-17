@@ -23,6 +23,7 @@ export {
 export {
   IntakeService,
   IntakeMaterializer,
+  provisionGoogleSyncTask,
   type IntakeServiceDeps,
   type IntakeMaterializerDeps,
   type IntakeIdentities,

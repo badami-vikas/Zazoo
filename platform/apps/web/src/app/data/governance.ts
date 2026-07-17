@@ -23,6 +23,8 @@ export interface DecisionTrace {
 
 export interface LedgerEntry {
   id: string;
+  sourceId?: string;       // originating Signal/capture id when proposal id differs
+  proposalId?: string;     // remote proposal bound to a legacy/offline local draft
   ts: string;            // ISO-ish display timestamp
   age: string;           // humanized age for the queue
   actorKind: ActorKind;
@@ -33,12 +35,13 @@ export interface LedgerEntry {
   delegationId?: string | null;
   runId?: string | null;
   action: string;        // verb, e.g. "Send intro email"
-  resourceType: 'person' | 'initiative' | 'community' | 'ritual' | 'external' | 'memory' | 'help';
+  resourceType: 'person' | 'initiative' | 'community' | 'ritual' | 'signal' | 'external' | 'memory' | 'help';
   resource: string;      // target label, e.g. "Priya Anand"
   policy: string;        // the policy that forced review (policies.name)
   decision: Decision;    // null === pending (awaiting review)
   // proposed output + optional prior version for the diff drawer
   proposed: string;
+  proposalOutput?: unknown; // exact pipeline payload used for edit-then-approve
   prior?: string | null;
   trace: DecisionTrace;
   channel?: string;      // e.g. "Email", "Calendar"

@@ -8,6 +8,8 @@ historical source: [../raw/bridge-foundational-agents-onboarding-2026-07.md](../
 
 **Child Runs:** Agent may create bounded child Agent Runs. Child gets subset/intersection of parent authority, Skills, data, budget, review mode, taint. Depth capped. Parent accountable. No credential reveal, self-review, or authority growth.
 
+**Runtime shipped:** workspace manifest + active assigned Goal/Task required. No match = reject. Child create = server-only. Budget/deadline/lifecycle = persistent + atomic. Governance/Human can inspect/stop. Lifecycle transitions audited.
+
 **New Agent test:** create only for durable identity, separate authority/data boundary, independent eval lifecycle/queue/cadence, or irreducible duty conflict. Workflow/method/report/source = Skill, not Agent.
 
 **One Onboarding flow:** trust copy → essential preferences with immediate purpose → permissions with live proof → one performed value beat → approval-gated Module/Skill/Automation recommendations → one next action. Public-role-model research is cited and governed. Progressive reflection continues later with why/skip/snooze/pause/inspect/correct/delete.

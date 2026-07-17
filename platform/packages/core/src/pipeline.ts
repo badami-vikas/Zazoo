@@ -12,7 +12,10 @@
  * append-only — a decision is a NEW row referencing the proposal, never an update.
  */
 import { agentFloorDeny, resolveAuthority, type AuthorityDeps } from "./authority.js";
+import { isAgentFloorDenied } from "./agent-floor.js";
 import { evaluateTaintedEgress } from "./policy/taint-egress.js";
+import type { GoalTaskStore } from "./goal-task.js";
+import { resolveSkillForTask, type SkillManifestRegistry } from "./skill-manifest.js";
 import type {
   EventBus,
   LedgerStore,
@@ -39,7 +42,73 @@ export interface PipelineDeps {
   ledger: LedgerStore;
   events: EventBus;
   variance: VarianceAdjuster;
+  /**
+   * AGS1 — the Goal/Task-bound Skill manifest catalog. Optional and additive:
+   * when omitted entirely, `propose()` behaves EXACTLY as before AGS1 existed
+   * (no embedding is forced to opt in). Once configured, EVERY skill
+   * invocation must EITHER resolve through a registered manifest OR target a
+   * resourceType/action combination that is ALREADY, structurally,
+   * agent-floor-denied (`isAgentFloorDenied` — policy/policy_param/skill/
+   * agent/role/permission/ledger/delegation writes/executes/archives/
+   * approvals) — there is no silent "unregistered skill just passes through"
+   * path once this field is set, and no maintained allowlist either: the ONE
+   * exemption is DERIVED from the pre-existing, non-removable agent-floor
+   * invariant, not a separate list this module or any caller maintains. The
+   * reasoning: if NO Agent could ever perform this (action, resourceType)
+   * combination regardless of any grant (agent-floor already denies it
+   * unconditionally), then requiring an Agent+Task to perform it is
+   * nonsensical — the action is definitionally a Human-only governance
+   * decision (e.g. `capability.approve`, `blueprint.activate`,
+   * `packages.install` all propose `action:"approve"`/`"execute"` on
+   * resourceType `"skill"`, which agent-floor already forbids ANY agent from
+   * touching). Everything else — any skill on a NON-floor-protected
+   * resourceType/action — must have a real manifest or is rejected, EXCEPT
+   * the one reserved Human-only `KERNEL_PASSTHROUGH_SKILL` name (see its own doc
+   * comment) — not a maintained allowlist, a single permanent kernel
+   * reservation, the same shape as `Action`'s own `"approve"` being reserved
+   * and never client-proposable.
+   */
+  skillManifests?: SkillManifestRegistry;
+  /** Loads the Goal/Task a governed request claims via `req.goalTaskRef`.
+   * Required (alongside `skillManifests`) only for requests naming a skill
+   * that HAS a registered manifest. */
+  goalTasks?: GoalTaskStore;
 }
+
+export interface ProposeOptions {
+  /** Server-owned stable ID for an idempotent proposal. Never expose this to untrusted callers. */
+  proposalId?: string;
+  /** Server-owned floor for transitions whose domain contract always requires a Human decision. */
+  requireHumanReview?: boolean;
+}
+
+/**
+ * The ONE reserved skill name that is NEVER "a Skill" in the AGS1 governed
+ * sense. It is exempt from the AGS1 gate only for non-Agent actors — not a
+ * time-boxed allowlist entry, a single, permanent kernel reservation, exactly
+ * like how `Action`'s `"approve"` is reserved and never client-proposable
+ * (types.ts's comment on `Action`).
+ *
+ * WHY this exists at all: `ActionRequest.skill` is a mandatory field on every
+ * `propose()` call, including calls that are pure Human-authored mutations
+ * already fully gated by the ordinary authority/policy layers (Layers 0-2 of
+ * `resolveAuthority`) and that have NO bounded Agent capability behind them
+ * at all — e.g. a Human sharing/exporting their OWN touchpoint, or any other
+ * mutation not yet bound to a dedicated named Skill. Forcing these through an
+ * Agent+Task would misrepresent a Human's own already-authorized action as a
+ * delegated Agent capability, and — since `resolveSkillForTask` requires an
+ * Agent actor — would make such actions IMPOSSIBLE to perform at all (no
+ * Agent could take their place; the Human's OWN grant is the real, and only,
+ * authority check). `KERNEL_PASSTHROUGH_SKILL`'s registered implementation is
+ * a provably pure echo (`{ proposedOutput: inputs, diff: { to: inputs } }`,
+ * see `apps/api/src/wiring.ts`'s `stageMutation` — the ONE object this
+ * constant is required to name) — it carries no Agent-specific logic
+ * whatsoever, which is what makes it kernel plumbing rather than a Skill
+ * catalog entry. An Agent cannot use this reservation to bypass Goal/Task
+ * resolution on an unprotected action. Every other skill name is expected to
+ * carry a real, bounded capability and a real manifest.
+ */
+export const KERNEL_PASSTHROUGH_SKILL = "stageMutation";
 
 /**
  * Thrown by `decide()` when a proposal has already been resolved (a referencing
@@ -75,6 +144,13 @@ export class AgentFloorDeniedError extends Error {
   }
 }
 
+export class NotPendingProposalError extends Error {
+  constructor(public readonly proposalId: string) {
+    super(`decide: ledger entry ${proposalId} is an audit row, not a pending proposal`);
+    this.name = "NotPendingProposalError";
+  }
+}
+
 /** Approval is required if any pre/runtime policy says so, OR the actor is an agent
  * (governed agentic execution: agents always draft, humans approve). */
 function requiresApproval(actorType: string, results: PolicyResult[]): boolean {
@@ -107,9 +183,8 @@ function toPostCommitResults(results: PolicyResult[]): PostCommitPolicyResult[] 
   const out: PostCommitPolicyResult[] = [];
   for (const r of results) {
     if (r.effect === "block" || r.effect === "require_approval") {
-      // eslint-disable-next-line no-console -- post-commit block/require_approval is a
-      // policy-authoring bug: the action is already committed, so this MUST be
-      // surfaced (not silently dropped) even though it cannot be honored here.
+      // A post-commit block/require_approval is a policy-authoring bug: the action is
+      // already committed, so this must be surfaced even though it cannot be honored.
       console.warn(
         `policy(post): effect "${r.effect}" from policy "${r.policyId}" (${r.reason}) cannot be enforced post-commit — ignored`,
       );
@@ -128,7 +203,7 @@ export class UniversalActionPipeline {
   }
 
   /** Phase 1: authority → pre-policy → skill → runtime-policy → review gate. */
-  async propose(req: ActionRequest, ctx: RunCtx): Promise<Proposal> {
+  async propose(req: ActionRequest, ctx: RunCtx, options: ProposeOptions = {}): Promise<Proposal> {
     const { authority, policies, skills, ledger } = this.#deps;
 
     // The turn's effective provenance (PI-2). req.trustOrigin (tagged at the ingest
@@ -181,6 +256,95 @@ export class UniversalActionPipeline {
       }
     }
 
+    // 3b) AGS1 governed-skill gate. Fails closed by DEFAULT for every skill:
+    // a skill invocation must EITHER resolve through a registered SkillManifest
+    // (the branch below) OR target a resourceType/action combination that is
+    // ALREADY, structurally, agent-floor-denied, OR be the ONE reserved
+    // Human-only `KERNEL_PASSTHROUGH_SKILL` name — see PipelineDeps'
+    // `skillManifests` doc comment for why both (and only those) are principled exemptions rather
+    // than a maintained allowlist. Only engages when `skillManifests` is
+    // configured at all (omitted entirely in @bridge/core's own test
+    // harnesses and any other embedding that hasn't opted into AGS1
+    // governance yet — see PipelineDeps.skillManifests).
+    if (this.#deps.skillManifests) {
+      const manifests = this.#deps.skillManifests.forSkill(req.workspaceId, req.skill);
+      const structurallyExempt =
+        isAgentFloorDenied(req.action, req.resourceType) ||
+        (req.actor.type !== "agent" && req.skill === KERNEL_PASSTHROUGH_SKILL);
+      if (manifests.length === 0 && !structurallyExempt) {
+        return this.#reject(
+          req,
+          auth,
+          pre,
+          `skill "${req.skill}" has no registered SkillManifest and (${req.action}, ${req.resourceType}) is not agent-floor-protected — fails closed (AGS1)`,
+          ctx,
+        );
+      }
+      if (manifests.length > 0) {
+        // Fail closed: a governed Skill may ONLY be invoked by an Agent Run —
+        // never directly by a Human or an Automation actor (BUGS.md 2026-07-14
+        // "Skills are a standalone toggle and runtime allows non-Agent invocation").
+        if (req.actor.type !== "agent") {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" may only be invoked by an eligible Agent Run — direct ${req.actor.type} invocation is not permitted`,
+            ctx,
+          );
+        }
+        if (!req.goalTaskRef || !this.#deps.goalTasks) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" requires a resolved Goal/Task assignment (goalTaskRef)`,
+            ctx,
+          );
+        }
+        const goal = await this.#deps.goalTasks.getGoal(req.workspaceId, req.goalTaskRef.goalId);
+        const task = await this.#deps.goalTasks.getTask(req.workspaceId, req.goalTaskRef.taskId);
+        if (!goal || !task || task.goalId !== goal.id) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}": unknown or mismatched Goal/Task (${req.goalTaskRef.goalId}/${req.goalTaskRef.taskId})`,
+            ctx,
+          );
+        }
+        const agentScope = await authority.agents.capabilityScope(req.actor.id);
+        const agentDataScope = await authority.agents.dataScope(req.actor.id);
+        const [agentWorkspaceId, agentActive] = await Promise.all([
+          authority.agents.workspaceId(req.actor.id),
+          authority.agents.isActive(req.actor.id),
+        ]);
+        const resolution = await resolveSkillForTask(manifests, {
+          goal,
+          task,
+          agent: {
+            id: req.actor.id,
+            workspaceId: agentWorkspaceId,
+            active: agentActive,
+            capabilityScope: agentScope,
+            plane: req.actor.plane ?? "local",
+            dataScope: agentDataScope,
+          },
+          skillId: req.skill,
+          ...(req.dataScope ? { requestedDataScope: req.dataScope } : {}),
+        });
+        if (!resolution.ok) {
+          return this.#reject(
+            req,
+            auth,
+            pre,
+            `governed skill "${req.skill}" resolution failed: ${resolution.reason ?? "ineligible"} — ${resolution.detail ?? "no eligible manifest"}`,
+            ctx,
+          );
+        }
+      }
+    }
+
     const output = await skill.run(req.inputs, ctx);
 
     // 4) Policy(runtime) — evaluate the produced output.
@@ -213,8 +377,8 @@ export class UniversalActionPipeline {
     if (egressGate) all.push(egressGate);
 
     // 5) Review gate — append ledger row, status by approval requirement.
-    if (requiresApproval(req.actor.type, all)) {
-      const entry = await this.#appendLedger(req, output, all, null, ctx);
+    if (options.requireHumanReview === true || requiresApproval(req.actor.type, all)) {
+      const entry = await this.#appendLedger(req, output, all, null, ctx, options.proposalId);
       return {
         id: entry.id,
         status: "pending_review",
@@ -226,7 +390,7 @@ export class UniversalActionPipeline {
     }
 
     // Auto-approve path (human + allow policies): commit immediately.
-    const entry = await this.#appendLedger(req, output, all, "auto", ctx);
+    const entry = await this.#appendLedger(req, output, all, "auto", ctx, options.proposalId);
     await this.#commit(entry, ctx);
     return {
       id: entry.id,
@@ -243,7 +407,7 @@ export class UniversalActionPipeline {
   async listPending(
     workspaceId: string,
     opts: { limit: number; offset: number },
-  ): Promise<{ items: Proposal[]; total: number }> {
+  ): Promise<{ items: Array<Proposal & { createdAt: string }>; total: number }> {
     const { ledger } = this.#deps;
     const { items, total } = await ledger.listPending(workspaceId, opts);
     return {
@@ -253,6 +417,11 @@ export class UniversalActionPipeline {
         request: this.#requestFromEntry(entry),
         authority: { allowed: true, reason: "pending review", basis: "principal", dataScope: entry.dataScope ?? "private" },
         policyResults: entry.policyResults,
+        output: {
+          proposedOutput: entry.proposedOutput,
+          ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
+        },
+        createdAt: entry.createdAt,
       })),
       total,
     };
@@ -270,11 +439,22 @@ export class UniversalActionPipeline {
     decider: Actor,
     ctx: RunCtx,
     editedOutput?: unknown,
+    decisionReason?: string,
   ): Promise<Proposal> {
     const { ledger } = this.#deps;
 
     const original = await ledger.get(proposalId);
     if (!original) throw new Error(`decide: no ledger entry ${proposalId}`);
+    if (
+      original.refLedgerId !== undefined ||
+      original.userDecision !== null ||
+      (typeof original.diff === "object" &&
+        original.diff !== null &&
+        !Array.isArray(original.diff) &&
+        "rejected" in original.diff)
+    ) {
+      throw new NotPendingProposalError(proposalId);
+    }
 
     // Gate the approver. `approve` on the ledger is agent-floor-protected: agents may
     // never approve/veto/edit a proposal. Humans pass the floor (the inbox is theirs).
@@ -300,9 +480,6 @@ export class UniversalActionPipeline {
       throw new AgentFloorDeniedError(floor);
     }
 
-    if (original.userDecision !== null) {
-      throw new AlreadyResolvedError(proposalId, original.userDecision);
-    }
     // Append-only: resolution is the existence of a referencing decision row. This
     // check narrows the race window but is NOT itself atomic — two concurrent
     // decide() calls can both pass it (TOCTOU). The real guarantee is downstream:
@@ -335,7 +512,17 @@ export class UniversalActionPipeline {
       inputs: original.inputs,
       proposedOutput: committedOutput,
       userDecision: decision,
-      diff: decision === "edit" ? { from: original.proposedOutput, to: editedOutput } : original.diff,
+      diff:
+        decision === "edit"
+          ? { from: original.proposedOutput, to: editedOutput }
+          : decision === "veto" && decisionReason
+            ? {
+                ...(typeof original.diff === "object" && original.diff !== null && !Array.isArray(original.diff)
+                  ? original.diff
+                  : {}),
+                reviewReason: decisionReason,
+              }
+            : original.diff,
       policyResults: original.policyResults,
       refLedgerId: original.id,
       ...(original.seed ? { seed: original.seed } : {}),
@@ -420,9 +607,10 @@ export class UniversalActionPipeline {
     policyResults: PolicyResult[],
     decision: LedgerEntry["userDecision"],
     ctx: RunCtx,
+    proposalId?: string,
   ): Promise<LedgerEntry> {
     const entry: LedgerEntry = {
-      id: ctx.ids.next(),
+      id: proposalId ?? ctx.ids.next(),
       workspaceId: req.workspaceId,
       actorType: req.actor.type,
       actorId: req.actor.id,

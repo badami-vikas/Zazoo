@@ -212,7 +212,19 @@ export class InMemoryLedger implements LedgerStore {
     opts: { limit: number; offset: number },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const pending = this.entries
-      .filter((e) => e.workspaceId === workspaceId && e.userDecision === null)
+      .filter(
+        (entry) =>
+          entry.workspaceId === workspaceId &&
+          entry.userDecision === null &&
+          entry.refLedgerId === undefined &&
+          !(
+            typeof entry.diff === "object" &&
+            entry.diff !== null &&
+            !Array.isArray(entry.diff) &&
+            "rejected" in entry.diff
+          ) &&
+          !this.#resolved.has(entry.id),
+      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return { items: pending.slice(opts.offset, opts.offset + opts.limit), total: pending.length };
   }
@@ -349,6 +361,11 @@ export class InMemoryRitualRegistry implements RitualRegistry {
   register(def: RitualDefinition): this {
     this.rituals.set(`${def.workspaceId}:${def.id}`, def);
     return this;
+  }
+  async save(def: RitualDefinition): Promise<void> {
+    if (!def.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
+    if (!def.agentPlane) throw new Error("RitualRegistry.save: owning agentPlane is required");
+    this.register(def);
   }
   async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
     return this.rituals.get(`${workspaceId}:${ritualId}`) ?? null;

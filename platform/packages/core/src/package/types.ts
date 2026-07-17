@@ -12,6 +12,7 @@
  */
 import type { CapabilityManifest, RiskBand } from "../capability/types.js";
 import type { WorkspaceBlueprint } from "../blueprint.js";
+import type { Plane } from "../types.js";
 
 /** package.yaml's `kind` — one level broader than CapabilityType (a package
  * can itself be shaped like a whole workspace_definition, not just one
@@ -56,6 +57,7 @@ export interface ModuleAgentBinding {
   name: string;
   capabilityId: string;
   skillIds: string[];
+  plane?: Plane;
 }
 
 export interface ModuleAutomationBinding {
@@ -65,6 +67,17 @@ export interface ModuleAutomationBinding {
   agentId: string;
   trigger: string;
   procedure: string;
+  /** Persisted Ritual definition backing the governed Run action. */
+  ritualId?: string;
+}
+
+export interface ModuleCapabilityNeed {
+  id: string;
+  title: string;
+  description: string;
+  agentId: string;
+  kind: PackageKind;
+  tags: string[];
 }
 
 /**
@@ -78,6 +91,8 @@ export interface ModuleSurfaceManifest {
   pages: ModulePageBinding[];
   agents: ModuleAgentBinding[];
   automations: ModuleAutomationBinding[];
+  /** Source-backed capability gaps that may be satisfied from Commons. */
+  commonsNeeds?: ModuleCapabilityNeed[];
 }
 
 /**
@@ -117,6 +132,14 @@ export interface PackageManifest {
 /** Single-live-version states (format doc §3, Zapier model). */
 export type PackageVersionState = "private" | "promoted" | "available" | "legacy" | "deprecating" | "deprecated";
 
+export interface PackageModuleAttachment {
+  source: "commons";
+  modulePackageName: string;
+  agentId: string;
+  needId: string;
+  contentHash: string;
+}
+
 /** package_installations row shape (or the equivalent PackageStore row) — one
  * per (workspace, package name, version). */
 export interface PackageInstallationRow {
@@ -129,6 +152,8 @@ export interface PackageInstallationRow {
   state: PackageVersionState;
   status: "pending_review" | "installed" | "rejected";
   lineageManifestId: string | null;
+  /** Installation-local ownership. The signed Commons artifact stays immutable. */
+  moduleAttachment?: PackageModuleAttachment;
   createdAt: string;
 }
 

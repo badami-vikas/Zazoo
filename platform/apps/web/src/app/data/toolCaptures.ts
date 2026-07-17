@@ -146,18 +146,47 @@ function buildEntry(c: ToolCapture): LedgerEntry {
 }
 
 /** Adopt = the gated commit: governed person:write proposal → Approvals, then freeze the capture. */
-export async function adoptCapture(c: ToolCapture): Promise<boolean> {
-  const proposed = await proposeToLedger(buildEntry(c));
+export async function adoptCapture(c: ToolCapture): Promise<'pending' | 'approved' | 'vetoed' | null> {
+  const staged = await proposeToLedger(buildEntry(c));
+  if (!staged) return null;
+  const outcome =
+    staged.status === 'pending'
+      ? 'pending'
+      : staged.decision === 'vetoed'
+        ? 'vetoed'
+        : 'approved';
   try {
-    await supabase.from('tool_captures')
-      .update({ status: 'adopted', adopted_at: new Date().toISOString() })
-      .eq('id', c.id);
-  } catch { /* demo/local: best-effort */ }
-  return proposed;
+    const { data, error } = await supabase.from('tool_captures')
+      .update(
+        outcome === 'vetoed'
+          ? { status: 'dismissed' }
+          : { status: 'adopted', adopted_at: new Date().toISOString() },
+      )
+      .eq('id', c.id)
+      .select('id')
+      .maybeSingle();
+    if (error || !data) return null;
+    if (staged.status === 'resolved' && outcome === 'approved') {
+      await materializeApprovedCapture(buildEntry(c), staged.decision);
+    }
+    return outcome;
+  } catch {
+    return null;
+  }
 }
 
-export async function dismissCapture(c: ToolCapture): Promise<void> {
-  try { await supabase.from('tool_captures').update({ status: 'dismissed' }).eq('id', c.id); } catch { /* noop */ }
+export async function dismissCapture(c: ToolCapture): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('tool_captures')
+      .update({ status: 'dismissed' })
+      .eq('id', c.id)
+      .select('id')
+      .maybeSingle();
+    return !error && Boolean(data);
+  } catch {
+    return false;
+  }
 }
 
 // ── Captured People store (materialized on APPROVE — draft-then-approve) ────────

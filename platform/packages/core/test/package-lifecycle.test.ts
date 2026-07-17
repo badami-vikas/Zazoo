@@ -91,6 +91,23 @@ test("rollbackFromHistory: forks a NEW draft row, never mutating the historical 
   assert.equal(historical.state, "legacy");
 });
 
+test("rollbackFromHistory: rejects local forks of content-hash-pinned Commons artifacts", () => {
+  const moduleAttachment = {
+    source: "commons" as const,
+    modulePackageName: "job-pilot",
+    agentId: "application-agent",
+    needId: "calendar",
+    contentHash: `sha256:${"1".repeat(64)}`,
+  };
+  const current = row({ id: "current", packageVersion: "1.2.0", state: "available", moduleAttachment });
+  const historical = row({ id: "hist", packageVersion: "1.1.0", state: "legacy", moduleAttachment });
+
+  assert.throws(
+    () => rollbackFromHistory({ currentAvailable: current, rollbackTarget: historical }),
+    /exact signed version/,
+  );
+});
+
 test("rollbackFromHistory: rejects a cross-package rollback target", () => {
   const current = row({ id: "current", packageName: "package-a" });
   const historical = row({ id: "hist", packageName: "package-b" });
@@ -108,6 +125,39 @@ test("InMemoryPackageStore: create/get/list round trip", async () => {
     state: "private",
     status: "pending_review",
     lineageManifestId: null,
+  });
+
+  test("InMemoryPackageStore: attachment retries require identical signed content but allow rerisking", async () => {
+    const store = new InMemoryPackageStore();
+    const attachment = {
+      source: "commons" as const,
+      modulePackageName: "job-pilot",
+      agentId: "application-agent",
+      needId: "calendar",
+      contentHash: `sha256:${"1".repeat(64)}`,
+    };
+    const base = {
+      workspaceId: "test_fixture_ws",
+      packageName: "dummy-package",
+      packageVersion: "1.0.0",
+      manifest: row().manifest,
+      computedRisk: "informational" as const,
+      state: "private" as const,
+      status: "pending_review" as const,
+      lineageManifestId: null,
+      moduleAttachment: attachment,
+    };
+    const created = await store.create(base);
+    const reriskedRetry = await store.create({ ...base, computedRisk: "external" });
+    assert.equal(reriskedRetry.id, created.id);
+    await assert.rejects(
+      () =>
+        store.create({
+          ...base,
+          moduleAttachment: { ...attachment, contentHash: `sha256:${"2".repeat(64)}` },
+        }),
+      /conflicting immutable content/,
+    );
   });
   assert.ok(created.id);
   const fetched = await store.get(created.id);

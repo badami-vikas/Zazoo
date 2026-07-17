@@ -10,15 +10,25 @@ import {
   checkDesignConstraintViolations,
 } from "../src/index.js";
 
-test("ADR-046: Communications is not in the foundational-agent roster", () => {
+test("ADR-046/AGS0: Communications is not in the roster; Internal Strategist is", () => {
   // The type system already proves "communications" can't appear here —
   // FoundationalAgentId no longer includes it, so `a.id === "communications"`
-  // wouldn't even compile. This just pins the roster's actual shape.
-  assert.equal(FOUNDATIONAL_AGENTS.length, 3);
+  // wouldn't even compile. This just pins the roster's actual shape — four
+  // non-Chief-of-Staff agents (AP-023/AGS0 adds Internal Strategist).
+  assert.equal(FOUNDATIONAL_AGENTS.length, 4);
   assert.deepEqual(
     FOUNDATIONAL_AGENTS.map((a) => a.id).sort(),
-    ["capability_builder", "governance", "learning"],
+    ["capability_builder", "governance", "internal_strategist", "learning"],
   );
+});
+
+test("AGS0: Internal Strategist is addressable via @mention and never executes directly", () => {
+  const strategist = FOUNDATIONAL_AGENTS.find((a) => a.id === "internal_strategist");
+  assert.ok(strategist);
+  assert.equal(strategist!.neverExecutes, true);
+  assert.equal(strategist!.requiresApproval, false);
+  const { agentId } = parseMention("@strategist compare these two options");
+  assert.equal(agentId, "internal_strategist");
 });
 
 test("parseMention no longer resolves @communications (it's a skill now)", () => {

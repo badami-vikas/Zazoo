@@ -242,7 +242,7 @@ Invariants:
 - every Task has an exit test before it may enter in-progress; done requires a verification record or a challenger fires;
 - Agent writes are pipeline proposals (draft-then-approve), agent-floor DENY intact; Automations only start Agent Runs; the reschedule auto-apply band is a system/router gate (ADR-073 pattern), never the agent's own judgment;
 - an agent-assigned Task's executor defaults to Capability Builder in this Module; a Task whose required Skill belongs to a different eligible Agent (cross-Module) routes there instead — Builder never invokes a Skill it doesn't own;
-- glossary Goal/Task definitions are reused verbatim; no retired kernel identifier (`Initiative` included) returns to any namespace, kernel or Module (ADR-099 revised 2026-07-16);
+- glossary Goal/Task definitions are reused verbatim; no retired kernel identifier (`Initiative` included) returns to any namespace, kernel or Module (ADR-105 revised 2026-07-16);
 - no dummy data: empty workspace shows honest empty states + an offer to run goal-outcome-framing.
 
 # 6. Delivery sequence
@@ -255,7 +255,7 @@ slices:
     goal: the graph exists — schema + vocabulary settled
     deliverables:
       - goals/tasks Databases (two, not four) + depends_on/blocked_by/evidence Relations (migration)
-      - Module manifest (Pages, Agents+Skills listing, Automations, Files) registered; ADR-099 vocabulary call recorded (revised 2026-07-16: Initiative stays retired, no Outcome type)
+      - Module manifest (Pages, Agents+Skills listing, Automations, Files) registered; ADR-105 vocabulary call recorded (revised 2026-07-16: Initiative stays retired, no Outcome type)
       - migration path from existing initiatives/touchpoints data under VOCAB2 into the single tasks Database (adjacency list + materialized path; no parallel old tree left live)
     exit_criteria:
       - a real Goal→Task chain (including a multi-level Task tree) persists and reads back with correct dot-path values (no orphan layer)
@@ -352,7 +352,7 @@ risks:
     mitigation: Database = source of truth, projection derived; drift detector + reconciliation proposals; no silent overwrite either direction (tested)
   vocabulary_regression:
     risk: a future session re-adds an `Initiative` or `Outcome` Record type without checking this history, reviving the retired word
-    mitigation: ADR-099 (revised 2026-07-16) records the collapse explicitly with the reasoning; vocab lint keeps `Initiative` out of all namespaces, not just kernel; TM0 migrates the legacy tree rather than paralleling it
+    mitigation: ADR-105 (revised 2026-07-16) records the collapse explicitly with the reasoning; vocab lint keeps `Initiative` out of all namespaces, not just kernel; TM0 migrates the legacy tree rather than paralleling it
   agent_overreach:
     risk: planning Skills start "helpfully" committing plans or merging duplicates; reschedule auto-apply drifts from minor into significant changes
     mitigation: all writes are pipeline proposals; auto-merge structurally absent; agent-floor DENY on destructive ops; reschedule auto-apply band is a deterministic system gate the agent cannot widen; negative tests in TM3/TM4 gates

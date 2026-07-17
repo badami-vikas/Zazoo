@@ -38,6 +38,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { CommonsCapabilityPanel } from "../components/CommonsCapabilityPanel";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
 type FileInventory = Awaited<ReturnType<typeof trpc.packages.files.query>>;
@@ -231,9 +232,18 @@ function PagesDatabasesSection({ pkg }: { pkg: PackageRow }) {
 }
 
 /** Agents section — each with Skills nested underneath. */
-function AgentsSection({ pkg }: { pkg: PackageRow }) {
+function AgentsSection({
+  pkg,
+  attachments,
+  onInstalled,
+}: {
+  pkg: PackageRow;
+  attachments: PackageRow[];
+  onInstalled: () => void;
+}) {
   const agents = pkg.manifest?.module?.agents ?? [];
   const capabilities = new Map((pkg.manifest?.capabilities ?? []).map((capability) => [capability.id, capability]));
+  const needs = pkg.manifest?.module?.commonsNeeds ?? [];
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
@@ -246,6 +256,13 @@ function AgentsSection({ pkg }: { pkg: PackageRow }) {
         <div className="space-y-2">
           {agents.map((agent) => {
             const agentCapability = capabilities.get(agent.capabilityId);
+            const attachedPackages = attachments.filter((attachment) => attachment.moduleAttachment?.agentId === agent.id);
+            const attachedSkills = attachedPackages.flatMap((attachment) =>
+              attachment.manifest.capabilities
+                .filter((capability) => capability.capabilityType === "skill")
+                .map((capability) => ({ capability, attachment }))
+            );
+            const totalSkills = agent.skillIds.length + attachedSkills.length;
             return (
               <details
                 key={agent.id}
@@ -253,7 +270,7 @@ function AgentsSection({ pkg }: { pkg: PackageRow }) {
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <summary className="cursor-pointer text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-                  {agent.name} · {agent.skillIds.length} {agent.skillIds.length === 1 ? "Skill" : "Skills"}
+                  {agent.name} · {totalSkills} {totalSkills === 1 ? "Skill" : "Skills"}
                 </summary>
                 <div className="mt-3 space-y-3">
                   <div className="flex flex-wrap gap-1.5">
@@ -281,7 +298,26 @@ function AgentsSection({ pkg }: { pkg: PackageRow }) {
                         </li>
                       );
                     })}
+                    {attachedSkills.map(({ capability, attachment }) => (
+                      <li key={`${attachment.id}-${capability.id}`} className="p-3">
+                        <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                          {capability.name}
+                        </p>
+                        <p className="mt-0.5 text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
+                          {capability.id} · installed from Commons · invoked only by {agent.name}
+                        </p>
+                      </li>
+                    ))}
                   </ul>
+                  {needs.filter((need) => need.agentId === agent.id).map((need) => (
+                    <CommonsCapabilityPanel
+                      key={need.id}
+                      modulePackageName={pkg.packageName}
+                      need={need}
+                      installed={attachedPackages.find((attachment) => attachment.moduleAttachment?.needId === need.id)}
+                      onInstalled={onInstalled}
+                    />
+                  ))}
                 </div>
               </details>
             );
@@ -295,7 +331,39 @@ function AgentsSection({ pkg }: { pkg: PackageRow }) {
 /** Automations section. */
 function AutomationsSection({ pkg }: { pkg: PackageRow }) {
   const automations = pkg.manifest?.module?.automations ?? [];
+  const runtimeAutomationIds = new Set(pkg.runtimeAutomationIds);
   const agents = new Map((pkg.manifest?.module?.agents ?? []).map((agent) => [agent.id, agent]));
+  const [runStates, setRunStates] = useState<Record<string, {
+    status: "running" | "completed" | "halted" | "error";
+    runId?: string;
+    needsReview?: boolean;
+    message?: string;
+  }>>({});
+
+  const runAutomation = async (automationId: string, ritualId: string) => {
+    setRunStates((current) => ({ ...current, [automationId]: { status: "running" } }));
+    try {
+      const result = await trpc.ritual.runById.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        ritualId,
+        modulePackageName: pkg.packageName,
+      });
+      setRunStates((current) => ({
+        ...current,
+        [automationId]: {
+          status: result.status,
+          runId: result.runId,
+          needsReview: result.proposals.some((proposal) => proposal.status === "pending_review"),
+        },
+      }));
+    } catch (failure) {
+      setRunStates((current) => ({
+        ...current,
+        [automationId]: { status: "error", message: String(failure) },
+      }));
+    }
+  };
+
   return (
     <section className="space-y-3">
       <SectionHeader icon={Zap} title="Automations" />
@@ -306,8 +374,10 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
         />
       ) : (
         <ul className="divide-y rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-          {automations.map((automation) => (
-            <li key={automation.id} className="p-3">
+          {automations.map((automation) => {
+            const runState = runStates[automation.id];
+            return (
+            <li key={automation.id} className="p-3 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{automation.name}</p>
@@ -315,12 +385,41 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
                     Trigger: {automation.trigger} · Agent: {agents.get(automation.agentId)?.name ?? automation.agentId}
                   </p>
                 </div>
-                <span className="rounded border px-1.5 py-0.5 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}>
-                  {automation.procedure}
-                </span>
+                {automation.ritualId && runtimeAutomationIds.has(automation.id) ? <button
+                  type="button"
+                  onClick={() => void runAutomation(automation.id, automation.ritualId!)}
+                  disabled={runState?.status === "running"}
+                  className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
+                  style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                >
+                  {runState?.status === "running" ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  {runState?.status === "running" ? "Running…" : "Run"}
+                </button> : (
+                  <span className="rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+                    Runtime binding pending
+                  </span>
+                )}
               </div>
+              <p className="text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
+                Procedure: {automation.procedure}
+              </p>
+              {runState && runState.status !== "running" && (
+                <div className="text-xs" style={{ color: runState.status === "error" ? "var(--destructive)" : "var(--color-warm-gray)" }}>
+                  {runState.status === "error"
+                    ? `Run failed: ${runState.message}`
+                    : `Run ${runState.runId} ${runState.status}.`}
+                  {runState.needsReview && (
+                    <>
+                      {" "}
+                      <Link to="/approvals" className="font-medium underline" style={{ color: "var(--color-steel)" }}>
+                        Review or correct in Approvals
+                      </Link>
+                    </>
+                  )}
+                </div>
+              )}
             </li>
-          ))}
+          )})}
         </ul>
       )}
     </section>
@@ -481,6 +580,8 @@ export function ModuleDetailPage() {
   const [files, setFiles] = useState<FileInventory | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<PackageRow[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!moduleId) return;
@@ -491,6 +592,7 @@ export function ModuleDetailPage() {
     setFiles(null);
     setFilesError(null);
     setFilesLoading(false);
+    setAttachments([]);
     trpc.packages.list
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
       .then((result) => {
@@ -501,6 +603,14 @@ export function ModuleDetailPage() {
           (p) => p.packageName === moduleId && p.state === "available" && p.status === "installed"
         );
         setPkg(found ?? null);
+        setAttachments(
+          result.items.filter(
+            (item) =>
+              item.moduleAttachment?.modulePackageName === moduleId &&
+              item.state === "available" &&
+              item.status === "installed"
+          )
+        );
         if (found) {
           setFilesLoading(true);
           trpc.packages.files
@@ -525,7 +635,7 @@ export function ModuleDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [moduleId]);
+  }, [moduleId, refreshKey]);
 
   if (loading) {
     return (
@@ -604,7 +714,7 @@ export function ModuleDetailPage() {
           <OverviewSection pkg={pkg} />
           <PagesDatabasesSection pkg={pkg} />
           <SubmodulesSection pkg={pkg} />
-          <AgentsSection pkg={pkg} />
+          <AgentsSection pkg={pkg} attachments={attachments} onInstalled={() => setRefreshKey((value) => value + 1)} />
           <AutomationsSection pkg={pkg} />
           <IntegrationsSection pkg={pkg} />
           <FilesSection pkg={pkg} inventory={files} loading={filesLoading} error={filesError} />

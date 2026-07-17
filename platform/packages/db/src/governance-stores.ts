@@ -8,6 +8,7 @@
  * in-tenant capability layer. They compose — neither replaces the other.
  */
 import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
   AgentQuery,
@@ -16,7 +17,7 @@ import type {
   PolicyStore,
   RoleQuery,
 } from "@bridge/core";
-import type { Actor, GrantRule, PolicyResult } from "@bridge/core";
+import type { Actor, DataScope, GrantRule, PolicyResult } from "@bridge/core";
 import type { Database } from "./client.js";
 import {
   agents,
@@ -29,6 +30,14 @@ import {
 } from "./schema.js";
 
 type Effect = "allow" | "deny";
+
+function stableGovernanceId(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex").slice(0, 32).split("");
+  hex[12] = "4";
+  hex[16] = "8";
+  const compact = hex.join("");
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
+}
 
 /**
  * `agents.capability_scope` jsonb shape: `{ resources: string[], dataScope?
@@ -90,75 +99,103 @@ export function parseAllowedSkills(raw: unknown): string[] {
 }
 
 export interface LearningAgentGovernanceConfig {
-    workspaceId: string;
-    userId: string;
-    agentId: string;
-    roleId: string;
-    permissionId: string;
-  }
+  workspaceId: string;
+  userId: string;
+  agentId: string;
+  roleId: string;
+  permissionId: string;
+}
 
-  /**
-   * Idempotently provisions and verifies the persistent Learning Agent authority
-   * used by onboarding. Persistent mode cannot rely on the in-memory seed:
-   * the Agent must have an attributable assumed Role + capability scope, and the
-   * user it acts for must independently hold the same Signal write authority.
-   */
-export async function ensureLearningAgentGovernance(
-    db: Database,
-    config: LearningAgentGovernanceConfig,
-  ): Promise<void> {
-    await db
-      .insert(roles)
-      .values({
-        id: config.roleId,
+export type OutreachAgentGovernanceConfig = LearningAgentGovernanceConfig;
+export type FoundationalAgentGovernanceConfig = LearningAgentGovernanceConfig;
+export type InternalStrategistGovernanceConfig = FoundationalAgentGovernanceConfig;
+export type RuntimeAgentGovernanceConfig = FoundationalAgentGovernanceConfig;
+
+interface PersistentAgentGovernanceConfig extends LearningAgentGovernanceConfig {
+  name: string;
+  description: string;
+  goal: string;
+  resourceType: GrantRule["resourceType"];
+  action: GrantRule["action"];
+  capabilityToken: string;
+  additionalGrants?: readonly {
+    resourceType: GrantRule["resourceType"];
+    action: GrantRule["action"];
+    capabilityToken: string;
+  }[];
+  allowedSkills?: readonly string[];
+  dataScope?: DataScope;
+}
+
+async function ensurePersistentAgentGovernance(
+  db: Database,
+  config: PersistentAgentGovernanceConfig,
+): Promise<void> {
+  const grants = [
+    {
+      resourceType: config.resourceType,
+      action: config.action,
+      capabilityToken: config.capabilityToken,
+    },
+    ...(config.additionalGrants ?? []),
+  ];
+  const capabilityTokens = grants.map((grant) => grant.capabilityToken);
+  const dataScope = config.dataScope ?? "public";
+  await db
+    .insert(roles)
+    .values({
+      id: config.roleId,
+      workspaceId: config.workspaceId,
+      name: config.name,
+      kind: "agent",
+      description: config.description,
+    })
+    .onConflictDoUpdate({
+      target: roles.id,
+      set: {
         workspaceId: config.workspaceId,
-        name: "Learning Agent",
+        name: config.name,
         kind: "agent",
-        description: "May draft inspectable Signal recommendations; never approves or executes them.",
-      })
-      .onConflictDoUpdate({
-        target: roles.id,
-        set: {
-          workspaceId: config.workspaceId,
-          name: "Learning Agent",
-          kind: "agent",
-          description: "May draft inspectable Signal recommendations; never approves or executes them.",
-        },
-      });
+        description: config.description,
+      },
+    });
 
-    await db
-      .insert(agents)
-      .values({
-        id: config.agentId,
+  await db
+    .insert(agents)
+    .values({
+      id: config.agentId,
+      workspaceId: config.workspaceId,
+      name: config.name,
+      ownerUserId: config.userId,
+      assumesRoleId: config.roleId,
+      goal: config.goal,
+      allowedSkills: [...(config.allowedSkills ?? [])],
+      capabilityScope: { resources: capabilityTokens, dataScope },
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: agents.id,
+      set: {
         workspaceId: config.workspaceId,
-        name: "Learning Agent",
+        name: config.name,
         ownerUserId: config.userId,
         assumesRoleId: config.roleId,
-        goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
-        capabilityScope: { resources: ["signal:write"], dataScope: "public" },
+        goal: config.goal,
+        allowedSkills: [...(config.allowedSkills ?? [])],
+        capabilityScope: { resources: capabilityTokens, dataScope },
         status: "active",
-      })
-      .onConflictDoUpdate({
-        target: agents.id,
-        set: {
-          workspaceId: config.workspaceId,
-          name: "Learning Agent",
-          ownerUserId: config.userId,
-          assumesRoleId: config.roleId,
-          goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
-          capabilityScope: { resources: ["signal:write"], dataScope: "public" },
-          status: "active",
-        },
-      });
+      },
+    });
 
+  for (const [index, grant] of grants.entries()) {
     const roleGrant = await db
       .select({ id: rolePermissions.id })
       .from(rolePermissions)
       .where(
         and(
           eq(rolePermissions.roleId, config.roleId),
-          eq(rolePermissions.resourceType, "signal"),
-          eq(rolePermissions.action, "write"),
+          eq(rolePermissions.resourceType, grant.resourceType),
+          eq(rolePermissions.action, grant.action),
           eq(rolePermissions.effect, "allow"),
           isNull(rolePermissions.resourceId),
         ),
@@ -168,10 +205,13 @@ export async function ensureLearningAgentGovernance(
       await db
         .insert(rolePermissions)
         .values({
+          id: stableGovernanceId(
+            `role:${config.roleId}:${grant.resourceType}:${grant.action}`,
+          ),
           roleId: config.roleId,
-          resourceType: "signal",
+          resourceType: grant.resourceType,
           resourceId: null,
-          action: "write",
+          action: grant.action,
           effect: "allow",
         })
         .onConflictDoNothing();
@@ -185,8 +225,8 @@ export async function ensureLearningAgentGovernance(
           eq(permissions.workspaceId, config.workspaceId),
           eq(permissions.actorType, "user"),
           eq(permissions.actorId, config.userId),
-          eq(permissions.resourceType, "signal"),
-          eq(permissions.action, "write"),
+          eq(permissions.resourceType, grant.resourceType),
+          eq(permissions.action, grant.action),
           eq(permissions.effect, "allow"),
           isNull(permissions.resourceId),
           isNull(permissions.revokedAt),
@@ -197,40 +237,182 @@ export async function ensureLearningAgentGovernance(
       await db
         .insert(permissions)
         .values({
-          id: config.permissionId,
+          id:
+            index === 0
+              ? config.permissionId
+              : stableGovernanceId(
+                  `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
+                ),
           workspaceId: config.workspaceId,
           actorType: "user",
           actorId: config.userId,
-          resourceType: "signal",
+          resourceType: grant.resourceType,
           resourceId: null,
-          action: "write",
+          action: grant.action,
           effect: "allow",
           grantedBy: config.userId,
         })
         .onConflictDoNothing();
     }
-
-    const agentStore = new DrizzleAgentStore(db);
-    const roleStore = new DrizzleRoleStore(db);
-    const [assumedRole, scope, roleGrants, principalGrants] = await Promise.all([
-      agentStore.assumedRole(config.agentId),
-      agentStore.capabilityScope(config.agentId),
-      roleStore.grantsForRole(config.roleId),
-      roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
-    ]);
-    const hasSignalWrite = (grant: GrantRule) =>
-      grant.resourceType === "signal" &&
-      grant.resourceId === null &&
-      grant.action === "write" &&
-      grant.effect === "allow";
-    if (
-      assumedRole !== config.roleId ||
-      !scope.includes("signal:write") ||
-      !roleGrants.some(hasSignalWrite) ||
-      !principalGrants.some(hasSignalWrite)
-    ) {
-      throw new Error("Persistent Learning Agent governance provisioning failed verification");
   }
+
+  const agentStore = new DrizzleAgentStore(db);
+  const roleStore = new DrizzleRoleStore(db);
+  const [assumedRole, scope, roleGrants, principalGrants] = await Promise.all([
+    agentStore.assumedRole(config.agentId),
+    agentStore.capabilityScope(config.agentId),
+    roleStore.grantsForRole(config.roleId),
+    roleStore.directGrants(config.workspaceId, { type: "user", id: config.userId }),
+  ]);
+  const hasGrant = (actual: GrantRule, expected: (typeof grants)[number]) =>
+    actual.resourceType === expected.resourceType &&
+    actual.resourceId === null &&
+    actual.action === expected.action &&
+    actual.effect === "allow";
+  if (
+    assumedRole !== config.roleId ||
+    !capabilityTokens.every((token) => scope.includes(token)) ||
+    !grants.every((expected) => roleGrants.some((actual) => hasGrant(actual, expected))) ||
+    !grants.every((expected) => principalGrants.some((actual) => hasGrant(actual, expected)))
+  ) {
+    throw new Error(`Persistent ${config.name} governance provisioning failed verification`);
+  }
+}
+
+/**
+ * Idempotently provisions and verifies the persistent Learning Agent authority
+ * used by onboarding.
+ */
+export async function ensureLearningAgentGovernance(
+  db: Database,
+  config: LearningAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Learning Agent",
+    description: "May draft inspectable Signal recommendations; never approves or executes them.",
+    goal: "Produce source-attributed Memories, Signals, and recommendations without executing Actions.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    additionalGrants: [
+      { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+    ],
+    allowedSkills: [
+      "stageLearningRecommendation",
+      "stageStrategicRecommendation",
+      "helpdesk.stageAnswer",
+      "stageCapture",
+    ],
+    dataScope: "all",
+  });
+}
+
+/** Provision the server-owned Outreach Agent used for relationship drafts. */
+export async function ensureOutreachAgentGovernance(
+  db: Database,
+  config: OutreachAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Outreach Agent",
+    description: "May draft relationship Touchpoints; never approves or sends them.",
+    goal: "Produce inspectable relationship Touchpoint drafts for Human review.",
+    resourceType: "touchpoint",
+    action: "write",
+    capabilityToken: "touchpoint:write",
+    allowedSkills: ["outreach.stageDraft"],
+  });
+}
+
+export async function ensureEgressAgentGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Egress Agent",
+    description: "May source approved public external data; never sends externally.",
+    goal: "Fetch public source data through governed Integrations for review and intake.",
+    resourceType: "external:fetch",
+    action: "read",
+    capabilityToken: "external:fetch:read",
+    allowedSkills: [
+      "dealpilot.source",
+      "google.sourceGmail",
+      "google.sourceCalendar",
+      "google.listCalendarEvents",
+    ],
+    dataScope: "public",
+  });
+}
+
+export async function ensureIntakeAgentGovernance(
+  db: Database,
+  config: RuntimeAgentGovernanceConfig,
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    name: "Intake Agent",
+    description: "May stage sourced evidence into governed local graph proposals.",
+    goal: "Transform authorized source data into inspectable local proposals.",
+    resourceType: "touchpoint",
+    action: "write",
+    capabilityToken: "touchpoint:write",
+    additionalGrants: [
+      { resourceType: "signal", action: "write", capabilityToken: "signal:write" },
+      { resourceType: "person", action: "write", capabilityToken: "person:write" },
+    ],
+    allowedSkills: ["google.stage"],
+    dataScope: "all",
+  });
+}
+
+async function ensureSignalDraftAgentGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+  details: { name: string; description: string; goal: string },
+): Promise<void> {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
+    ...details,
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+  });
+}
+
+export async function ensureInternalStrategistGovernance(
+  db: Database,
+  config: InternalStrategistGovernanceConfig,
+): Promise<void> {
+  return ensureSignalDraftAgentGovernance(db, config, {
+    name: "Internal Strategist",
+    description: "May draft inspectable analytical-synthesis Signal recommendations; never approves or executes them.",
+    goal: "Produce evidenced analytical synthesis and recommendations from cited Human/Learning data, without executing Actions.",
+  });
+}
+
+export async function ensureGovernanceAgentGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensureSignalDraftAgentGovernance(db, config, {
+    name: "Governance",
+    description: "May draft inspectable risk-assessment Signals; never approves or executes them.",
+    goal: "Explain policy, assess risk, and summarize audit findings without deciding authority.",
+  });
+}
+
+export async function ensureCapabilityBuilderGovernance(
+  db: Database,
+  config: FoundationalAgentGovernanceConfig,
+): Promise<void> {
+  return ensureSignalDraftAgentGovernance(db, config, {
+    name: "Capability Builder",
+    description: "May draft inspectable capability-change Signals; never activates its own output.",
+    goal: "Draft and test proposed capability changes without shipping or activation.",
+  });
 }
 
 function asGrant(row: {
@@ -304,6 +486,24 @@ export class DrizzleAgentStore implements AgentQuery {
   #db: Database;
   constructor(db: Database) {
     this.#db = db;
+  }
+
+  async workspaceId(agentId: string): Promise<string | null> {
+    const rows = await this.#db
+      .select({ workspaceId: agents.workspaceId })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1);
+    return rows[0]?.workspaceId ?? null;
+  }
+
+  async isActive(agentId: string): Promise<boolean> {
+    const rows = await this.#db
+      .select({ status: agents.status })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1);
+    return rows[0]?.status === "active";
   }
 
   async assumedRole(agentId: string): Promise<string | null> {

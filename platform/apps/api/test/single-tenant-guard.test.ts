@@ -18,7 +18,7 @@ import test from "node:test";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 
 const NON_PILOT_WORKSPACE = "d0000000-0000-4000-a000-00000000dead"; // test_fixture_ — deliberately not PILOT_WORKSPACE
 
@@ -32,7 +32,7 @@ async function makeCaller(wiring: Wiring) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: "test_fixture_single_tenant_guard_user" },
+    identity: { type: "user", id: PILOT_USER },
     authenticated: true, // SEC-1: in-process test caller is a trusted, authenticated actor
     verifying: false,
   });
@@ -85,7 +85,7 @@ test("action.propose: a non-pilot workspaceId is rejected with FORBIDDEN (guard 
       () =>
         caller.action.propose({
           workspaceId: NON_PILOT_WORKSPACE,
-          actor: { type: "user", id: "test_fixture_single_tenant_guard_user" },
+          actor: { type: "user", id: PILOT_USER },
           action: "write",
           resourceType: "touchpoint",
           inputs: { note: "test_fixture_note" },
@@ -108,7 +108,7 @@ test("action.propose: the pilot workspace's own id still works normally", async 
     const caller = await makeCaller(wiring);
     const result = await caller.action.propose({
       workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: "test_fixture_single_tenant_guard_user" },
+      actor: { type: "user", id: PILOT_USER },
       action: "write",
       resourceType: "touchpoint",
       inputs: { note: "test_fixture_note" },

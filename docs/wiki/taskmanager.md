@@ -1,6 +1,6 @@
 # Task Manager Module
 
-Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: proposed 2026-07-16, revised same day (TASK-021, AP-030/AP-031, placed after TASK-014).
+Full depth: [../raw/taskmanager-module-plan-2026-07.md](../raw/taskmanager-module-plan-2026-07.md) · BRD: [../raw/brd-taskmanager-2026-07.md](../raw/brd-taskmanager-2026-07.md). Status: proposed 2026-07-16, revised same day (TASK-021, AP-033/AP-034, placed after TASK-014).
 
 ## Core call
 
@@ -44,4 +44,4 @@ Internal: TASKS.md format ADOPT · Task Manager UI EVOLVE · touchpoint tree MIG
 
 ## Top risks
 
-Second-queue creep · plausibly-done · methodology bloat · ledger drift · vocabulary regression (a later session re-adding Initiative/Outcome as types — ADR-099 now records why not) · agent overreach (reschedule band widening — blocked by system gate) · Builder misuse (routing everything to Builder regardless of domain — mitigated by Skill-eligibility check first).
+Second-queue creep · plausibly-done · methodology bloat · ledger drift · vocabulary regression (a later session re-adding Initiative/Outcome as types — ADR-105 now records why not) · agent overreach (reschedule band widening — blocked by system gate) · Builder misuse (routing everything to Builder regardless of domain — mitigated by Skill-eligibility check first).

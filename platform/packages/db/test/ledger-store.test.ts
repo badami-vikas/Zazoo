@@ -142,6 +142,22 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
       createdAt: "2026-07-05T00:00:01.000Z",
     });
     assert.equal(await store.decisionFor(proposal.id), null, "no RESOLVING decision yet");
+    await store.append({
+      id: "30000000-0000-4000-8000-000000000004",
+      workspaceId: ws.id,
+      actorType: "agent",
+      actorId: NIL_ACTOR,
+      action: "write",
+      resourceType: "person",
+      inputs: {},
+      userDecision: null,
+      diff: { rejected: "authority denied" },
+      policyResults: [],
+      createdAt: "2026-07-05T00:00:02.000Z",
+    });
+    const pendingBeforeDecision = await store.listPending(ws.id, { limit: 50, offset: 0 });
+    assert.equal(pendingBeforeDecision.total, 1);
+    assert.deepEqual(pendingBeforeDecision.items.map((entry) => entry.id), [proposal.id]);
 
     // The real human resolution now succeeds without hitting the unique index.
     const resolved = await store.append(
@@ -155,6 +171,10 @@ test("ledger: a floor-denied (rejected, userDecision null) audit row does NOT bl
     assert.equal(resolved.userDecision, "approve");
     const found = await store.decisionFor(proposal.id);
     assert.equal(found?.id, resolved.id);
+    assert.deepEqual(await store.listPending(ws.id, { limit: 50, offset: 0 }), {
+      items: [],
+      total: 0,
+    });
   } finally {
     await close();
   }
