@@ -4,7 +4,7 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
-## 2026-07-18 — Durable Relationship effects (ADR-111)
+## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.
 - DB sequence picks winner. New decision replaces old Relation set.

@@ -5,8 +5,8 @@ doc_kind: plan
 status: proposed
 companions: [governance-agent-roadmap-2026-07.md, builder-agent-roadmap-2026-07.md, bridge-foundational-agents-onboarding-2026-07.md, roadmap-v2-universal-commons.md, undefined-elements-definitions-2026-07.md, security-audit-2026-07.md, desktop-companion-agent-roadmap-2026-07.md]
 related_wiki: ../wiki/learning-agent.md
-updated: 2026-07-14
-tags: [learning-agent, memory, mem0, rag, research, competitor-discovery, prompt-assembler, taint, injection]
+updated: 2026-07-17
+tags: [learning-agent, memory, mem0, rag, research, competitor-discovery, prompt-assembler, taint, injection, web-search, recon, search-provider]
 ---
 
 # 0. Product decision
@@ -369,3 +369,31 @@ risks:
 ```
 
 Sequencing note: LA0/LA1 overlap P0–P1 commitments (Memory seam, PromptAssembler ADR-031, onboarding profile ADR-034) — they refine those tracks, no H2 sequencer reorder; pull-forwards via `docs/APPROVALS.md`. LA1's PromptAssembler is a shared build with Builder BA0 (one subsystem, two consumers — build once). LA3's SSRF/quarantine work is the same hardening the security audit demands; closing it here closes those findings. Cross-roadmap: Builder BA1+ consumes LA3/LA4 research; Governance GA2 supplies the trivial-fact grant mechanism; Commons ingestion trust (egg-commons CM slices) reuses LA taint/provenance infrastructure.
+
+# 7. LA3 web-research provider survey — Tier 1/2/3 candidate Integrations (2026-07-17)
+
+LA3's research lane needs concrete web-search/extraction backends behind its SSRF-hardened client. This section records a full-market survey (178 candidates reviewed, sourced from a Parallel.ai FindAll run) so LA3 doesn't start from zero when it builds the fetch layer. Full raw classification (per-provider notes, discarded-group reasoning): `outputs/2026-07-17-learning-agent-recon-search-integrations.md`. Decision record: ADR-111 (`decisions-log.md`). Execution task: TASK-023.
+
+```yaml
+search_provider_port:
+  shape: "same port/adapter pattern as ModelProvider/MemoryStore/ContentGuard — one interface, swappable backends, no caller change on provider swap"
+  taint: "every result carries untrusted_external taint (PI-1/PI-2) before reaching Memory or a prompt — no new mechanism, reuse of the shipped pipeline"
+tier_1_free_direct_no_account:
+  - parallel_search_mcp: "https://search.parallel.ai/mcp — anonymous HTTP MCP, web_search/web_fetch, $0, verified working this session"
+  - jina_ai_search_foundation: "s.jina.ai / r.jina.ai — keyless HTTP GET works today; free key only raises rate ceiling"
+  - duckduckgo_instant_answer: "api.duckduckgo.com — public JSON, no key ever, narrower coverage"
+tier_2_free_tier_signup_required:
+  count: 33
+  examples: [Exa, Tavily, You.com API, Brave Search API, SerpAPI, Serper, Firecrawl, Linkup, Apify, Browserbase, Steel.dev, ZenRows, ScrapingBee]
+  full_list: "outputs/2026-07-17-learning-agent-recon-search-integrations.md"
+  credential_pattern: "Bridge's existing vault (same shape as DealPilot Source credentials, TASK-006)"
+tier_3_paid_or_self_hosted_only:
+  paid_enterprise: [Perplexity Sonar, Bright Data, Oxylabs, Nimble, Nebius, Azure AI Search, Reworkd, Webz.io, Klue, Contify, xAI/Grok API, DataForSEO, Gemini Deep Research Agent]
+  self_hosted_only_no_hosted_endpoint: [Crawl4AI, Scrapy, OrioSearch, Vane, SearXNG]
+  infra_only: [Roundproxies]
+rollout:
+  phase_1: "$0 — wire the 3 Tier-1 providers behind the SearchProvider port; taint every result; ships first"
+  phase_2: "$0 at eval volume — add 2-4 proven Tier-2 providers (not all 33) as fallback adapters once Tier-1 coverage proves insufficient for a real need"
+  phase_3: "paid, evaluation-gated — Tier-3 only behind an explicit cost/ROI proposal + APPROVALS.md gate, never a silent default"
+  non_goal: "self-hosted-only Tier-3 items deferred indefinitely — no hosting decision made for them yet"
+```

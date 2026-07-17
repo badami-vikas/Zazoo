@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034).
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
 
 ## Operating standard
 
@@ -342,3 +342,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: LLM prompt/infra optimization audit directive 2026-07-17
 - Approval: AP-038 applied
 - Dependencies: none
+
+## Learning Agent governed web-research/recon Skill
+- ID: TASK-023
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.
+- Prototype test: From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.
+- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
+- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning
+- Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
+- Approval: AP-039 applied
+- Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
