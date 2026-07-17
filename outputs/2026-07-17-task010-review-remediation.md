@@ -362,3 +362,94 @@ migration-numbering collision the coordinator warned about.
   level, unit-test-level, and (round 1) HTTP-level verification.
 - A fresh independent read-only review of this remediated commit is being
   requested before reporting completion back to the coordinator.
+
+## Round 3 — fresh independent review found 2 more real bugs, both fixed
+
+A fresh, independent read-only review of the round-2 remediation was
+requested and executed (verifying by running actual code and constructed
+repros, not just reading). 7 of the 9 claimed fixes held up under
+inspection with nothing worth reporting (auth/ownership, ledger privacy,
+anchor identity, pagination, N+1 elimination, touch/CSS, and no-fabricated
+migration). Two did not — both confirmed by executing the actual code:
+
+### Bug A: the idempotent-retry check never actually fires on a genuine retry
+
+**Where**: `redFlag.create`'s resumability check read `currentValue` from
+`flagged` — the row fetched via `memoryStore.get(memoryId, ...)` where
+`memoryId` is the DETERMINISTIC, IMMUTABLE step-1 Memory id. That specific
+row's content is written ONCE at creation with `learningStatus: "none"` and
+never changes in place — the actual outcome ("proposed"/"failed") is
+recorded on a DIFFERENT, later-superseding row
+(`redflag-memory-outcome:...`). So `currentValue.learningStatus !== "none"`
+could never be true, and every retry of an already-completed `create()`
+re-executed `provisionRedFlagLearningTask` + `pipeline.propose()` from
+scratch with the same deterministic `proposalId` — which then threw a
+"ledger: duplicate id ... (append-only violation)" internally on every
+retry. The client-visible end state happened to still be correct (the
+final `casSupersede` call's own stale-`expectedCurrentId` check caught the
+mismatch and fell back to a re-read), masking the redundant work as a
+"no observable bug" — but `pipeline.propose` was genuinely being invoked
+twice, not skipped as the code's own doc comment claimed.
+
+**Fix**: resolve the ACTUAL current lineage state via
+`memoryStore.currentForLineage(workspaceId, ownerId, anchorKey)` (falling
+back to `flagged` only if nothing exists yet) BEFORE deciding whether to
+attempt step 2, and use that row's id (not `flagged.id`) as the final
+`casSupersede`'s `expectedCurrentId`. Added a precise regression test that
+monkeypatches `wiring.pipeline.propose` to count invocations and asserts
+exactly 1 call across a create-then-retry pair — the kind of assertion that
+would have caught this immediately (the prior test only checked the
+converged end state, which is exactly what let this bug hide).
+
+### Bug B: the persistent CAS's serialization-failure detection was dead code, and broken
+
+**Where**: `DrizzleMemoryStore.isSerializationFailure` checked
+`err.code === "40001"` directly on the caught error. drizzle-orm ≥0.45
+wraps every query failure in a `DrizzleQueryError`, hanging the real
+Postgres error (which carries `.code`) on `.cause` — NOT at the top level.
+This exact behavior is already documented and worked around elsewhere in
+this same package: `ledger-store.ts`'s `isRefLedgerUniqueViolation` walks
+the `.cause` chain up to 6 levels for precisely this reason. Without the
+same unwrap, a REAL Postgres `40001` serialization failure under genuine
+concurrent load would never be recognized — it would re-throw as an
+unhandled `DrizzleQueryError` instead of gracefully returning `null`,
+which is exactly the "silently forking history" failure mode the whole
+CAS primitive (review item 4) exists to close. The existing "two REAL
+concurrent transactions" test did not catch this: pglite's single-
+connection execution model doesn't reliably produce genuine write-skew
+under `Promise.all`, so that test's "exactly one wins" result came from
+the in-transaction `current.id !== expectedCurrentId` check alone — the
+`catch` block (and therefore `isSerializationFailure`) was never entered.
+
+**Fix**: `isSerializationFailure` now walks the `.cause` chain identically
+to `isRefLedgerUniqueViolation`'s established pattern (same depth limit,
+same reasoning). Since forcing pglite to produce a genuine `40001` isn't
+reliable in this test environment, added two more targeted tests instead
+of relying on chance: (1) a standalone unit test constructing REAL
+`drizzle-orm` `DrizzleQueryError` instances (imported directly, not
+mocked) wrapping a `.code: "40001"` cause at both one and two levels of
+nesting, asserting `isSerializationFailure` recognizes both and correctly
+rejects an unrelated SQLSTATE (`23505`) and non-error values; (2) a
+`casSupersede` integration test that monkeypatches `db.transaction` for
+one call to reject with a real wrapped `40001`, asserting `casSupersede`
+returns `null` rather than letting the error propagate.
+
+### Re-verification after both fixes
+
+`@bridge/core`: 426/426 (unchanged — these fixes were api+db only).
+`@bridge/db`: 113/113 (111 + 2 new: the standalone unwrap test and the
+`casSupersede` integration test). `@bridge/api`: 187/187 (the retry test
+was strengthened in place, not added as a new test — same count).
+`@bridge/jobpilot`: 94/94, `@bridge/dealpilot`: 72/72, `@bridge/commons`:
+22/22, `@bridge/integrations-google`: 35/35, `@bridge/web`: 57/57 —
+unaffected, confirmed via a full re-run. Full monorepo
+`typecheck build` (40/40) clean. `eslint .` clean on every file this round
+touched (0 new errors; the 2 pre-existing, unrelated findings from prior
+rounds remain, confirmed present on the untouched tree). No new schema
+migration, no new dummy data.
+
+### Outstanding (unchanged)
+
+Item 9's migration remains PENDING on TASK-008 RM4 landing. No live
+desktop/375px browser walkthrough has been captured — only source-level,
+unit-test-level, and (round 1) HTTP-level verification.

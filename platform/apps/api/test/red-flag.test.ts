@@ -213,14 +213,29 @@ test("clear/forget withdraw a still-pending governed proposal so it can never la
   }
 });
 
-test("SAGA: a retried create (same operationId) converges — no duplicate Memory/Task/proposal", async () => {
+test("SAGA: a retried create (same operationId) converges — no duplicate Memory/Task/proposal, and step 2 genuinely does not re-run", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     const opId = "00000000-0000-4000-8000-000000000005";
+
+    // Independent-review follow-up: assert pipeline.propose is NOT invoked a
+    // second time on retry — the client-visible convergence checks below can
+    // pass even if step 2 redundantly re-runs (a real bug an earlier version
+    // of this handler had: it read the immutable step-1 row's own frozen
+    // "none" content instead of re-resolving the lineage's actual current
+    // state, so a retry always thought step 2 had never been attempted).
+    let proposeCallCount = 0;
+    const originalPropose = wiring.pipeline.propose.bind(wiring.pipeline);
+    wiring.pipeline.propose = (async (...args: Parameters<typeof originalPropose>) => {
+      proposeCallCount += 1;
+      return originalPropose(...args);
+    }) as typeof wiring.pipeline.propose;
+
     const first = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: opId, anchor: CELL_ANCHOR, renderedValue: "x", reason: "r" });
     const second = await caller.redFlag.create({ workspaceId: PILOT_WORKSPACE, operationId: opId, anchor: CELL_ANCHOR, renderedValue: "x", reason: "r" });
     assert.equal(first.memory.id, second.memory.id);
+    assert.equal(proposeCallCount, 1, "a retry of an already-resolved create() must not re-invoke pipeline.propose at all");
 
     const allFlags = await caller.redFlag.listAll({ workspaceId: PILOT_WORKSPACE });
     assert.equal(allFlags.flags.length, 1, "retrying the same operationId must not create a second flag");

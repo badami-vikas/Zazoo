@@ -2921,16 +2921,28 @@ export const appRouter = t.router({
           flagged = created;
         }
 
-        const currentValue = parseLearningMemory(flagged.content);
-        if (!isRedFlagContent(currentValue)) {
+        const currentValue0 = parseLearningMemory(flagged.content);
+        if (!isRedFlagContent(currentValue0)) {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "red flag memory content was not the expected shape" });
         }
 
         // Step 2 (idempotent, resumable): the SEPARATE governed learning
-        // step. Skipped entirely if a previous attempt already reached a
-        // terminal outcome for this exact operationId.
+        // step. `flagged` is the IMMUTABLE step-1 row (its own content never
+        // changes) — on a retry it does NOT reflect a learningStatus
+        // transition recorded by a LATER superseding row, so the actual
+        // current lineage head must be re-resolved via `currentForLineage`
+        // rather than trusting `flagged.content` directly (a bug an
+        // independent review caught: relying on `flagged`'s own frozen
+        // "none" content here made this check never fire on a genuine
+        // retry, silently re-running `pipeline.propose` with the same
+        // deterministic proposalId every time instead of skipping).
+        const currentRow = (await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, anchorKey)) ?? flagged;
+        const currentValue = parseLearningMemory(currentRow.content);
+        if (!isRedFlagContent(currentValue)) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "red flag memory content was not the expected shape" });
+        }
         if (currentValue.learningStatus !== "none") {
-          return { memory: flagged };
+          return { memory: currentRow };
         }
 
         const taskId = deterministicUuid(`redflag-task:${ownerId}:${input.operationId}`);
@@ -2989,9 +3001,9 @@ export const appRouter = t.router({
           workspaceId: input.workspaceId,
           ownerUserId: ownerId,
           lineageKey: anchorKey,
-          expectedCurrentId: flagged.id,
+          expectedCurrentId: currentRow.id,
           next: {
-            ...flagged,
+            ...currentRow,
             id: deterministicUuid(`redflag-memory-outcome:${ownerId}:${input.operationId}`),
             content: JSON.stringify({
               ...currentValue,
@@ -3007,7 +3019,7 @@ export const appRouter = t.router({
           // Another concurrent call (a genuine retry racing itself) already
           // recorded the outcome — re-read rather than erroring.
           const latest = await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, anchorKey);
-          return { memory: latest ?? flagged };
+          return { memory: latest ?? currentRow };
         }
         return { memory: updated };
       }),

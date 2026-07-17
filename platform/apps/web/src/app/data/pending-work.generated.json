@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T11:26:12.277Z",
+  "generatedAt": "2026-07-17T12:11:29.599Z",
   "items": [
     {
       "id": "TASK-001",
@@ -208,10 +208,16 @@
       "evidence": [
         "user feedback-mechanism correction 2026-07-15",
         "[TASK-010 output](../outputs/2026-07-17-task010-red-flag-feedback.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells) and JobPilotApplicationDetail.tsx (rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
-        "`redFlag.create/clear/reopen/updateReason/forget/listForAnchor/listAll` write Human-authored correction Memory directly (never through the Agent/Skill pipeline) and separately start a governed `learning.proposePreferenceAdjustment` Skill run (Goal/Task-resolved, always drafts, never auto-applies)",
-        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023) and the orphaned pre-canon `FlagIcon.tsx` deleted",
-        "core 421, DB 107, API 177 (incl. 7 new redFlag tests), JobPilot 93, DealPilot 72, Commons 22, web 56 (incl. 7 new) tests, full monorepo typecheck/build (40/40), changed-file lint, and no-dummy-runtime all pass clean",
-        "live HTTP smoke test against a running API server confirmed create/clear/reopen/listAll/fail-closed-direct-invocation end-to-end. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click interaction (only source-level and HTTP-level verification done so far)."
+        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). **Independent review found this commit not merge-ready** (auth/IDOR, ledger-privacy leak, no saga/idempotency, no lineage concurrency control, weak anchor identity, no server-side pagination, per-cell N+1 queries, viewport- instead of pointer-based touch detection, unbacked persisted-column rename) — remediated in [TASK-010 review remediation output](../outputs/2026-07-17-task010-review-remediation.md): every `redFlag` procedure is now authenticated+membership-gated with owner always `ctx.identity.id`",
+        "the governed proposal's ledger row carries only an opaque Memory reference (no anchor/renderedValue/reason)",
+        "`create` is a client-`operationId`-driven idempotent two-step saga",
+        "`MemoryStore` gained a real `casSupersede`/`currentForLineage` CAS primitive",
+        "the anchor is a discriminated cell/bullet union with a canonical-string-derived lineage key",
+        "`listAll`/`history` add cursor pagination and full lineage",
+        "a new `RedFlagProvider` batches one query per table/record instead of one per cell",
+        "touch detection now uses `[@media(hover:none)]`/`[@media(pointer:coarse)]`. **A second, fresh independent review of that remediation then found 2 further real bugs, both fixed**: (a) the idempotent-retry check read the immutable step-1 Memory's own frozen `learningStatus: \"none\"` instead of re-resolving the lineage's actual current state via `currentForLineage`, so a genuine retry silently re-invoked `pipeline.propose` a second time with the same deterministic `proposalId` (masked only by an unrelated CAS fallback) — fixed by resolving `currentForLineage` before deciding whether to skip step 2, with a test asserting `pipeline.propose` is called exactly once across a create+retry pair",
+        "(b) the persistent CAS's `isSerializationFailure` checked `err.code` at the top level, but drizzle-orm ≥0.45 wraps driver errors in `DrizzleQueryError` with the real error on `.cause` (the exact issue `ledger-store.ts`'s `isRefLedgerUniqueViolation` already works around) — a genuine Postgres `40001` would have re-thrown as unhandled instead of returning a graceful CAS-failure `null`, undetected by the original concurrency test because pglite's single-connection model didn't happen to produce a real race",
+        "fixed by walking the `.cause` chain identically to the ledger's precedent, with new tests constructing a real `DrizzleQueryError`-wrapped `40001` directly (both a standalone unwrap test and a `casSupersede`-integration test via a monkeypatched transaction). Re-verified after both fixes: core 426, DB 113 (+2), API 187, JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 57 tests, full monorepo typecheck/build (40/40), lint, and no-dummy-runtime all pass clean. Item 9 (the JobPilot flag column's persisted-data migration) remains explicitly PENDING, not fabricated — TASK-008 RM4 owns migration 0015 and has not landed. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the pending migration once RM4 lands."
       ],
       "requests": [
         "red-flag directive 2026-07-15"

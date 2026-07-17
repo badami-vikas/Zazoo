@@ -228,8 +228,35 @@ export class DrizzleMemoryStore implements MemoryStore {
 type DbLike = Pick<Database, "select" | "insert">;
 
 /** Postgres SQLSTATE `40001` ("serialization_failure") — thrown by a
- * SERIALIZABLE transaction that lost a concurrency race. Both the
- * postgres-js and pglite drivers surface it as `.code` on the thrown error. */
-function isSerializationFailure(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "40001";
+ * SERIALIZABLE transaction that lost a concurrency race.
+ *
+ * drizzle-orm ≥0.45 wraps every query failure in a `DrizzleQueryError` and
+ * hangs the real Postgres error (which carries `.code`) on `.cause` — it
+ * does NOT surface `.code` at the top level. This mirrors
+ * `ledger-store.ts`'s `isRefLedgerUniqueViolation` exactly (same drizzle
+ * version, same wrapping behavior): walk the cause chain so a genuine
+ * `40001` is recognized on both postgres-js and pglite instead of
+ * re-throwing as an unhandled `DrizzleQueryError` — which would silently
+ * defeat this whole CAS primitive's concurrency guarantee under real
+ * contention (confirmed missing in an earlier version of this function by
+ * an independent review; `casSupersede`'s own concurrency test alone did
+ * NOT catch it because pglite's single-connection execution model didn't
+ * happen to produce a real 40001 in that specific test).
+ */
+const SERIALIZATION_FAILURE = "40001";
+/** Exported (only from this module, not the package barrel) so a unit test
+ * can verify the `.cause`-chain unwrap directly against a REAL
+ * `DrizzleQueryError` — pglite's single-connection execution model does not
+ * reliably produce a genuine overlapping-transaction `40001` under
+ * `Promise.all` (confirmed by an independent review), so exercising this
+ * function in isolation with a constructed wrapped error is the reliable
+ * regression test for the unwrap logic itself, independent of whether a
+ * real race can be forced in a given test environment. */
+export function isSerializationFailure(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 6; depth++) {
+    const pg = e as { code?: unknown; cause?: unknown };
+    if (pg.code === SERIALIZATION_FAILURE) return true;
+    e = pg.cause;
+  }
+  return false;
 }

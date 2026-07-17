@@ -9,8 +9,10 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { DrizzleQueryError } from "drizzle-orm";
 import type { MemoryWrite } from "@bridge/core";
 import { createLocalDb, DrizzleMemoryStore, schema } from "../src/index.js";
+import { isSerializationFailure } from "../src/memory-store.js";
 
 const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
 const LINEAGE_KEY = "cccccccc-0000-4000-8000-000000000009";
@@ -123,6 +125,62 @@ test("currentForLineage scopes strictly by workspaceId + ownerUserId + subjectEl
     const otherOwner = await store.currentForLineage(workspaceId, "bbbbbbbb-0000-4000-8000-000000000002", LINEAGE_KEY);
     assert.equal(otherWorkspace, null);
     assert.equal(otherOwner, null);
+  } finally {
+    await close();
+  }
+});
+
+/**
+ * Independent-review follow-up: pglite's single-connection execution model
+ * does not reliably produce a genuine overlapping-transaction `40001` under
+ * `Promise.all` (the "two REAL concurrent transactions" test above passes
+ * via the in-transaction `current.id !== expectedCurrentId` check alone —
+ * confirmed by instrumenting the `catch` block, which is never entered
+ * there). These tests instead verify the unwrap logic directly against a
+ * REAL `DrizzleQueryError` (the actual wrapper drizzle-orm >=0.45 throws),
+ * which is the reliable way to regression-test this without depending on
+ * whether a given test environment's driver happens to produce real
+ * write-skew.
+ */
+test("isSerializationFailure recognizes a real DrizzleQueryError-wrapped 40001, at any cause-chain depth, and rejects unrelated errors", () => {
+  const rawPgError = Object.assign(new Error("could not serialize access due to concurrent update"), { code: "40001" });
+  const singleWrap = new DrizzleQueryError("select 1", [], rawPgError);
+  assert.equal(isSerializationFailure(singleWrap), true);
+
+  // drizzle-orm's own transaction retry/batch paths can nest another
+  // DrizzleQueryError around an inner one — the walk must not stop at depth 1.
+  const doubleWrap = new DrizzleQueryError("insert into memories ...", [], singleWrap as unknown as Error);
+  assert.equal(isSerializationFailure(doubleWrap), true);
+
+  const uniqueViolation = new DrizzleQueryError("insert", [], Object.assign(new Error("dup"), { code: "23505" }));
+  assert.equal(isSerializationFailure(uniqueViolation), false, "a DIFFERENT SQLSTATE must not be misreported as a serialization failure");
+
+  assert.equal(isSerializationFailure(new Error("plain error, no .code anywhere")), false);
+  assert.equal(isSerializationFailure(null), false);
+  assert.equal(isSerializationFailure("not an object"), false);
+});
+
+test("casSupersede returns null (never re-throws) when the transaction rejects with a real wrapped 40001", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleMemoryStore(db);
+    const rawPgError = Object.assign(new Error("could not serialize access due to concurrent update"), { code: "40001" });
+    const wrapped = new DrizzleQueryError("select ...", [], rawPgError);
+    // Monkeypatch this ONE call's transaction() to simulate what a real
+    // concurrent-write-skew rejection looks like coming out of drizzle-orm,
+    // since forcing pglite to genuinely produce one is not reliable here.
+    const originalTransaction = db.transaction.bind(db);
+    (db as unknown as { transaction: typeof db.transaction }).transaction = (() => Promise.reject(wrapped)) as typeof db.transaction;
+    try {
+      const result = await store.casSupersede({
+        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+        next: draft("00000000-0000-4000-8000-000000000099", workspaceId),
+      });
+      assert.equal(result, null, "a genuine serialization failure must surface as a CAS-failure null, never an unhandled throw");
+    } finally {
+      (db as unknown as { transaction: typeof db.transaction }).transaction = originalTransaction;
+    }
   } finally {
     await close();
   }
