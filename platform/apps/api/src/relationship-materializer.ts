@@ -1,5 +1,10 @@
-import type { LedgerEntry, Proposal } from "@bridge/core";
-import type { DrizzleGraphStore, RelationRecord } from "@bridge/db";
+import type { LedgerEntry, LedgerStore, Proposal } from "@bridge/core";
+import type {
+  DrizzleGraphStore,
+  DrizzleRelationMaterializationStore,
+  RelationMaterializationEffect,
+  RelationRecord,
+} from "@bridge/db";
 import { z } from "zod";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
@@ -47,6 +52,27 @@ export interface RelationshipMaterialization {
   participants: RelationRecord[];
 }
 
+export interface RelationshipMaterializationEffectResult {
+  effect: RelationMaterializationEffect;
+  materialization: RelationshipMaterialization | null;
+}
+
+function nextRelationshipRetryAt(
+  attemptedAt: Date,
+  attemptCount: number,
+  maxAttempts: number,
+): Date | null {
+  return attemptCount < maxAttempts
+    ? new Date(
+        attemptedAt.getTime() +
+          Math.min(
+            60_000 * 2 ** Math.max(0, attemptCount - 1),
+            15 * 60_000,
+          ),
+      )
+    : null;
+}
+
 export function relationshipOwnerFromLedger(entry: LedgerEntry): string | null {
   if (entry.onBehalfOfType === "user" && entry.onBehalfOfId) return entry.onBehalfOfId;
   return entry.actorType === "user" ? entry.actorId : null;
@@ -75,17 +101,16 @@ export function proposalFromResolvedRelationshipLedger(
   decision: LedgerEntry,
 ): Proposal {
   return {
-    id: original.id,
+    id: decision.id,
     status: "applied",
     request: {
       workspaceId: original.workspaceId,
-      actor: { type: original.actorType, id: original.actorId, plane: "local" },
+      actor: { type: original.actorType, id: original.actorId },
       ...(original.onBehalfOfType && original.onBehalfOfId
         ? {
             onBehalfOf: {
               type: original.onBehalfOfType,
               id: original.onBehalfOfId,
-              ...(original.delegationId ? { delegationId: original.delegationId } : {}),
             },
           }
         : {}),
@@ -103,16 +128,20 @@ export function proposalFromResolvedRelationshipLedger(
       allowed: true,
       reason: "authorized; approved at review",
       basis: "role",
-      dataScope: original.dataScope ?? "all",
+      dataScope: "all",
     },
     policyResults: original.policyResults,
-    output: { proposedOutput: decision.proposedOutput },
+    output: {
+      proposedOutput: decision.proposedOutput,
+      ...(decision.diff !== undefined ? { diff: decision.diff } : {}),
+    },
   };
 }
 
 export async function materializeApprovedRelationshipProposal(
   graphStore: DrizzleGraphStore,
   proposal: Proposal,
+  original: LedgerEntry,
   decision: LedgerEntry | null = null,
 ): Promise<RelationshipMaterialization | null> {
   if (
@@ -125,23 +154,24 @@ export async function materializeApprovedRelationshipProposal(
   if (
     !decision ||
     (decision.userDecision !== "approve" && decision.userDecision !== "edit") ||
-    decision.refLedgerId !== proposal.id ||
-    decision.workspaceId !== proposal.request.workspaceId ||
-    decision.actorType !== proposal.request.actor.type ||
-    decision.actorId !== proposal.request.actor.id ||
-    decision.onBehalfOfType !== proposal.request.onBehalfOf?.type ||
-    decision.onBehalfOfId !== proposal.request.onBehalfOf?.id ||
-    decision.delegationId !== proposal.request.onBehalfOf?.delegationId ||
-    decision.action !== proposal.request.action ||
-    decision.resourceType !== proposal.request.resourceType ||
-    decision.resourceId !== proposal.request.resourceId ||
-    decision.seed !== proposal.request.seed ||
-    decision.dataScope !== proposal.request.dataScope ||
-    stableJson(decision.inputs) !== stableJson(proposal.request.inputs) ||
+    proposal.id !== decision.id ||
+    decision.refLedgerId !== original.id ||
+    decision.workspaceId !== original.workspaceId ||
+    decision.actorType !== original.actorType ||
+    decision.actorId !== original.actorId ||
+    decision.onBehalfOfType !== original.onBehalfOfType ||
+    decision.onBehalfOfId !== original.onBehalfOfId ||
+    decision.delegationId !== original.delegationId ||
+    decision.action !== original.action ||
+    decision.resourceType !== original.resourceType ||
+    decision.resourceId !== original.resourceId ||
+    decision.seed !== original.seed ||
+    decision.dataScope !== original.dataScope ||
+    stableJson(decision.inputs) !== stableJson(original.inputs) ||
     stableJson(decision.proposedOutput) !== stableJson(proposal.output?.proposedOutput) ||
-    stableJson(decision.context) !== stableJson(proposal.request.context) ||
-    stableJson(decision.policyResults) !== stableJson(proposal.policyResults) ||
-    decision.trustOrigin !== proposal.request.trustOrigin ||
+    stableJson(decision.context) !== stableJson(original.context) ||
+    stableJson(decision.policyResults) !== stableJson(original.policyResults) ||
+    decision.trustOrigin !== original.trustOrigin ||
     !Number.isSafeInteger(decision.appendSequence) ||
     (decision.appendSequence ?? 0) <= 0
   ) {
@@ -167,33 +197,11 @@ export async function materializeApprovedRelationshipProposal(
     throw new Error("Approved Relationship proposal requires an authority-checked user principal");
   }
 
-  const anchor = await graphStore.getSignalEvidenceAnchor(
-    proposal.request.workspaceId,
-    ownerUserId,
-    parsed.signalId,
-    parsed.sourceEventId,
-  );
-  if (!anchor || anchor.sourceEvent.id !== parsed.sourceEventId) {
-    throw new Error("Approved Relationship proposal no longer has its accessible source Event");
-  }
-  const payload =
-    typeof anchor.sourceEvent.payload === "object" &&
-    anchor.sourceEvent.payload !== null &&
-    !Array.isArray(anchor.sourceEvent.payload)
-      ? anchor.sourceEvent.payload as Record<string, unknown>
-      : {};
-  const source =
-    typeof payload.source === "string" && payload.source.trim()
-      ? payload.source.trim()
-      : `event:${anchor.sourceEvent.type}`;
-
   return graphStore.materializeSignalEvidence({
     workspaceId: proposal.request.workspaceId,
     ownerUserId,
     signalId: parsed.signalId,
     sourceEventId: parsed.sourceEventId,
-    source,
-    observedAt: anchor.sourceEvent.createdAt,
     userConfirmed: parsed.userConfirmed,
     visibility: parsed.visibility,
     decisionLedgerId: decision.id,
@@ -206,4 +214,242 @@ export async function materializeApprovedRelationshipProposal(
       ...(participant.role ? { role: participant.role } : {}),
     })),
   });
+}
+
+export async function applyApprovedRelationshipMaterialization(
+  graphStore: DrizzleGraphStore,
+  effectStore: DrizzleRelationMaterializationStore,
+  original: LedgerEntry,
+  decision: LedgerEntry,
+  attemptedAt: Date,
+  opts: { allowExhausted?: boolean } = {},
+): Promise<RelationshipMaterializationEffectResult> {
+  const ownerUserId = relationshipOwnerFromLedger(original);
+  if (!ownerUserId || relationshipOwnerFromLedger(decision) !== ownerUserId) {
+    throw new Error(
+      "Approved Relationship materialization requires its owning user",
+    );
+  }
+  const attempt = await effectStore.beginAttempt(
+    {
+      workspaceId: original.workspaceId,
+      ownerUserId,
+      proposalLedgerId: original.id,
+      decisionLedgerId: decision.id,
+    },
+    attemptedAt,
+    opts,
+  );
+  if (attempt.effect.status === "applied") {
+    return { effect: attempt.effect, materialization: null };
+  }
+  if (!attempt.started) {
+    return { effect: attempt.effect, materialization: null };
+  }
+  const leaseToken = attempt.effect.leaseToken;
+  if (!leaseToken) {
+    throw new Error("Approved Relationship materialization attempt has no lease");
+  }
+  try {
+    const materialization = await materializeApprovedRelationshipProposal(
+      graphStore,
+      proposalFromResolvedRelationshipLedger(original, decision),
+      original,
+      decision,
+    );
+    if (!materialization) {
+      throw new Error(
+        "Approved proposal did not produce Relationship materialization",
+      );
+    }
+    const effect = await effectStore.markApplied(
+      attempt.effect.id,
+      original.workspaceId,
+      ownerUserId,
+      leaseToken,
+      1 + materialization.participants.length,
+      attemptedAt,
+    );
+    return { effect, materialization };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const nextRetryAt = nextRelationshipRetryAt(
+      attemptedAt,
+      attempt.effect.attemptCount,
+      attempt.effect.maxAttempts,
+    );
+    await effectStore.markFailed(
+      attempt.effect.id,
+      original.workspaceId,
+      ownerUserId,
+      leaseToken,
+      message,
+      attemptedAt,
+      nextRetryAt,
+    );
+    throw cause;
+  }
+}
+
+export async function reconcileRetryableRelationshipMaterializations(
+  graphStore: DrizzleGraphStore,
+  effectStore: DrizzleRelationMaterializationStore,
+  ledger: LedgerStore,
+  workspaceId: string,
+  ownerUserId: string,
+  attemptedAt: Date,
+  limit = 20,
+): Promise<{
+  discovered: number;
+  attempted: number;
+  applied: number;
+  failed: number;
+  errors: string[];
+}> {
+  let discovered = 0;
+  const errors: string[] = [];
+  try {
+    discovered = await effectStore.discoverApproved(
+      workspaceId,
+      ownerUserId,
+      { limit },
+    );
+  } catch (cause) {
+    errors.push(cause instanceof Error ? cause.message : String(cause));
+  }
+  const retryable = await effectStore.listRetryable(
+    workspaceId,
+    ownerUserId,
+    { limit, now: attemptedAt },
+  );
+  let applied = 0;
+  let failed = 0;
+  for (const effect of retryable) {
+    try {
+      const original = await ledger.get(effect.proposalLedgerId);
+      const decision = await ledger.decisionFor(effect.proposalLedgerId);
+      if (
+        !original ||
+        !decision ||
+        decision.id !== effect.decisionLedgerId ||
+        (decision.userDecision !== "approve" &&
+          decision.userDecision !== "edit")
+      ) {
+        const message =
+          "Relationship materialization effect has no matching approved decision";
+        const attempt = await effectStore.beginAttempt(
+          {
+            workspaceId,
+            ownerUserId,
+            proposalLedgerId: effect.proposalLedgerId,
+            decisionLedgerId: effect.decisionLedgerId,
+          },
+          attemptedAt,
+        );
+        if (attempt.started) {
+          const leaseToken = attempt.effect.leaseToken;
+          if (!leaseToken) {
+            throw new Error(
+              "Relationship materialization mismatch attempt has no lease",
+            );
+          }
+          await effectStore.markFailed(
+            attempt.effect.id,
+            workspaceId,
+            ownerUserId,
+            leaseToken,
+            message,
+            attemptedAt,
+            nextRelationshipRetryAt(
+              attemptedAt,
+              attempt.effect.attemptCount,
+              attempt.effect.maxAttempts,
+            ),
+          );
+        }
+        throw new Error(message);
+      }
+      const result = await applyApprovedRelationshipMaterialization(
+        graphStore,
+        effectStore,
+        original,
+        decision,
+        attemptedAt,
+      );
+      if (result.effect.status === "applied") applied += 1;
+    } catch (cause) {
+      failed += 1;
+      errors.push(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+  return {
+    discovered,
+    attempted: retryable.length,
+    applied,
+    failed,
+    errors,
+  };
+}
+
+export async function reconcileWorkspaceRelationshipMaterializations(
+  graphStore: DrizzleGraphStore,
+  effectStore: DrizzleRelationMaterializationStore,
+  ledger: LedgerStore,
+  workspaceId: string,
+  attemptedAt: Date,
+  opts: {
+    ownerLimit?: number;
+    effectLimit?: number;
+    afterOwnerUserId?: string;
+  } = {},
+): Promise<{
+  ownersExamined: number;
+  nextOwnerCursor: string | null;
+  discovered: number;
+  attempted: number;
+  applied: number;
+  failed: number;
+  errors: string[];
+}> {
+  const owners = await effectStore.listApprovedOwners(workspaceId, {
+    limit: opts.ownerLimit ?? 25,
+    ...(opts.afterOwnerUserId
+      ? { afterOwnerUserId: opts.afterOwnerUserId }
+      : {}),
+  });
+  const aggregate = {
+    ownersExamined: owners.ownerUserIds.length,
+    nextOwnerCursor: owners.nextCursor,
+    discovered: 0,
+    attempted: 0,
+    applied: 0,
+    failed: 0,
+    errors: [] as string[],
+  };
+  for (const ownerUserId of owners.ownerUserIds) {
+    try {
+      const result = await reconcileRetryableRelationshipMaterializations(
+        graphStore,
+        effectStore,
+        ledger,
+        workspaceId,
+        ownerUserId,
+        attemptedAt,
+        opts.effectLimit ?? 20,
+      );
+      aggregate.discovered += result.discovered;
+      aggregate.attempted += result.attempted;
+      aggregate.applied += result.applied;
+      aggregate.failed += result.failed;
+      aggregate.errors.push(...result.errors);
+    } catch (cause) {
+      aggregate.failed += 1;
+      aggregate.errors.push(
+        `owner ${ownerUserId}: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
+  }
+  return aggregate;
 }

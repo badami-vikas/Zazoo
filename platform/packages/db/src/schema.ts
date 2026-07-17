@@ -285,7 +285,10 @@ export const edges = pgTable(
     properties: jsonb("properties").notNull().default({}),
     evidenceRefs: jsonb("evidence_refs").$type<RelationEvidenceRef[]>().notNull().default([]),
     confidence: numeric("confidence", { precision: 5, scale: 4 }).notNull().default(sql`1`),
-    observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
+    observedAt: timestamp("observed_at", {
+      withTimezone: true,
+      precision: 3,
+    }).notNull().defaultNow(),
     validFrom: timestamp("valid_from", { withTimezone: true }),
     validTo: timestamp("valid_to", { withTimezone: true }),
     userConfirmed: boolean("user_confirmed").notNull().default(false),
@@ -296,11 +299,15 @@ export const edges = pgTable(
     decisionLedgerId: uuid("decision_ledger_id"),
     decisionSequence: bigint("decision_sequence", { mode: "number" }),
     decisionAt: timestamp("decision_at", { withTimezone: true }),
-    createdAt: now(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      precision: 3,
+    }).notNull().defaultNow(),
   },
   (t) => [
     index("edges_src_idx").on(t.workspaceId, t.srcType, t.srcId),
     index("edges_dst_idx").on(t.workspaceId, t.dstType, t.dstId),
+    index("edges_relation_page_idx").on(t.workspaceId, t.observedAt, t.createdAt, t.id),
     uniqueIndex("edges_semantic_uq").on(
       t.workspaceId,
       t.srcType,
@@ -741,7 +748,7 @@ export const ledger = pgTable("ledger", {
   id: uuidPkV7(),
   appendSequence: bigint("append_sequence", { mode: "number" }).default(
     sql`nextval('ledger_append_sequence_seq'::regclass)`,
-  ),
+  ).notNull(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
   actorType: text("actor_type").notNull(),
   actorId: uuid("actor_id").notNull(),
@@ -775,6 +782,76 @@ export const ledger = pgTable("ledger", {
   trustOrigin: text("trust_origin"),
   createdAt: now(),
 });
+
+export const relationMaterializationEffects = pgTable(
+  "relation_materialization_effects",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    proposalLedgerId: uuid("proposal_ledger_id").notNull(),
+    decisionLedgerId: uuid("decision_ledger_id").notNull(),
+    status: text("status")
+      .$type<"pending" | "applied" | "failed">()
+      .notNull()
+      .default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    leaseRecoveryCount: integer("lease_recovery_count").notNull().default(0),
+    maxLeaseRecoveries: integer("max_lease_recoveries").notNull().default(3),
+    relationCount: integer("relation_count"),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: now(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("relation_materialization_effects_proposal_uq").on(
+      t.workspaceId,
+      t.proposalLedgerId,
+    ),
+    unique("relation_materialization_effects_decision_uq").on(
+      t.workspaceId,
+      t.decisionLedgerId,
+    ),
+    index("relation_materialization_effects_retry_idx").on(
+      t.workspaceId,
+      t.ownerUserId,
+      t.status,
+      t.nextRetryAt,
+      t.leaseExpiresAt,
+    ),
+    index("relation_materialization_effects_outstanding_idx").on(
+      t.workspaceId,
+      t.ownerUserId,
+      t.id,
+    ).where(sql`${t.status} IN ('pending', 'failed')`),
+    check(
+      "relation_materialization_effects_status_check",
+      sql`${t.status} IN ('pending', 'applied', 'failed')`,
+    ),
+    check(
+      "relation_materialization_effects_attempts_check",
+      sql`${t.attemptCount} >= 0 AND ${t.maxAttempts} > 0 AND ${t.attemptCount} <= ${t.maxAttempts} AND ${t.leaseRecoveryCount} >= 0 AND ${t.maxLeaseRecoveries} > 0 AND ${t.leaseRecoveryCount} <= ${t.maxLeaseRecoveries}`,
+    ),
+    check(
+      "relation_materialization_effects_relation_count_check",
+      sql`${t.relationCount} IS NULL OR ${t.relationCount} >= 0`,
+    ),
+    check(
+      "relation_materialization_effects_decision_check",
+      sql`${t.proposalLedgerId} <> ${t.decisionLedgerId}`,
+    ),
+    check(
+      "relation_materialization_effects_state_check",
+      sql`(${t.status} = 'pending' AND ${t.appliedAt} IS NULL AND ${t.lastError} IS NULL AND ((${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL) OR (${t.leaseToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL))) OR (${t.status} = 'failed' AND ${t.appliedAt} IS NULL AND ${t.lastError} IS NOT NULL AND ${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL) OR (${t.status} = 'applied' AND ${t.appliedAt} IS NOT NULL AND ${t.lastError} IS NULL AND ${t.nextRetryAt} IS NULL AND ${t.relationCount} IS NOT NULL AND ${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
 
 export const decisionTraces = pgTable("decision_traces", {
   id: uuidPk(),

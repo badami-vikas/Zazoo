@@ -28,6 +28,10 @@ async function legacyDatabase(): Promise<PGlite> {
       "id" uuid PRIMARY KEY,
       "email" text NOT NULL
     );
+    CREATE TABLE "workspaces" (
+      "id" uuid PRIMARY KEY,
+      "name" text NOT NULL
+    );
     CREATE TABLE "node_types" (
       "type" text PRIMARY KEY,
       "plane" text NOT NULL
@@ -93,6 +97,11 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
         ($2, 'test_fixture_migration_relation_second_owner@example.com')`,
       [ownerId, secondOwnerId],
     );
+    await db.query(
+      `INSERT INTO "workspaces" ("id", "name")
+       VALUES ($1, 'test_fixture_migration_relation_workspace')`,
+      [workspaceId],
+    );
     await db.exec(`
       INSERT INTO "node_types" ("type", "plane") VALUES
         ('person', 'mirror'),
@@ -105,7 +114,7 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
         "id", "workspace_id", "src_type", "src_id", "dst_type", "dst_id", "edge_type", "properties", "created_at"
       ) VALUES (
         '50000000-0000-4000-8000-000000000001', $1, 'event', $2, 'person', $3, 'participant', '{"legacy":true}',
-        '2020-01-02T03:04:05.000Z'
+        '2020-01-02T03:04:05.123789Z'
       )`,
       [workspaceId, eventId, personId],
     );
@@ -140,7 +149,7 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
       ALTER TABLE "edges" OWNER TO migration_owner;
       ALTER TABLE "ledger" OWNER TO migration_owner;
       ALTER TABLE "node_types" OWNER TO migration_owner;
-      GRANT REFERENCES ON TABLE "users" TO migration_owner;
+      GRANT REFERENCES ON TABLE "users", "workspaces" TO migration_owner;
       GRANT USAGE, CREATE ON SCHEMA public TO migration_owner;
       GRANT USAGE ON SCHEMA app_private TO migration_owner;
       SET ROLE migration_owner;
@@ -176,6 +185,47 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
     ]) {
       assert.ok(names.has(expected), `Relation column ${expected} must exist`);
     }
+    const timestampPrecision = await db.query<{
+      column_name: string;
+      datetime_precision: number;
+    }>(
+      `SELECT column_name, datetime_precision
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'edges'
+         AND column_name IN ('observed_at', 'created_at')
+       ORDER BY column_name`,
+    );
+    assert.deepEqual(timestampPrecision.rows, [
+      { column_name: "created_at", datetime_precision: 3 },
+      { column_name: "observed_at", datetime_precision: 3 },
+    ]);
+    const effectColumns = await db.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'relation_materialization_effects'`,
+    );
+    const effectColumnNames = new Set(
+      effectColumns.rows.map((row) => row.column_name),
+    );
+    assert.ok(effectColumnNames.has("lease_token"));
+    assert.ok(effectColumnNames.has("lease_expires_at"));
+    assert.ok(effectColumnNames.has("lease_recovery_count"));
+    assert.ok(effectColumnNames.has("max_lease_recoveries"));
+    const outstandingIndex = await db.query<{ indexdef: string }>(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE indexname = 'relation_materialization_effects_outstanding_idx'`,
+    );
+    assert.equal(outstandingIndex.rows.length, 1);
+    assert.match(
+      outstandingIndex.rows[0]!.indexdef,
+      /\(workspace_id, owner_user_id, id\)/,
+    );
+    assert.match(outstandingIndex.rows[0]!.indexdef, /WHERE/);
+    assert.match(outstandingIndex.rows[0]!.indexdef, /pending/);
+    assert.match(outstandingIndex.rows[0]!.indexdef, /failed/);
 
     const legacy = await db.query<{
       evidence_refs: unknown[];
@@ -212,7 +262,9 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
     const migrationPosture = await db.query<{
       edges_force_rls: boolean;
       ledger_force_rls: boolean;
-      ledger_append_sequence: string | null;
+      effects_force_rls: boolean;
+      ledger_append_sequences: string;
+      ledger_append_sequence_nullable: string;
       legacy_decision_ref: string;
       duplicate_legacy_decision_ref: string | null;
     }>(
@@ -221,8 +273,15 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
                WHERE oid = 'public.edges'::regclass) AS edges_force_rls,
               (SELECT relforcerowsecurity FROM pg_class
                WHERE oid = 'public.ledger'::regclass) AS ledger_force_rls,
-              (SELECT "append_sequence"::text FROM "ledger"
-               WHERE "id" = '6a000000-0000-4000-8000-0000000000a1') AS ledger_append_sequence,
+              (SELECT relforcerowsecurity FROM pg_class
+               WHERE oid = 'public.relation_materialization_effects'::regclass) AS effects_force_rls,
+              (SELECT string_agg("append_sequence"::text, ',' ORDER BY "created_at", "id")
+               FROM "ledger") AS ledger_append_sequences,
+              (SELECT "is_nullable"
+               FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name = 'ledger'
+                 AND column_name = 'append_sequence') AS ledger_append_sequence_nullable,
               (SELECT "ref_ledger_id"::text FROM "ledger"
                WHERE "id" = '60000000-0000-4000-8000-000000000002') AS legacy_decision_ref,
               (SELECT "ref_ledger_id"::text FROM "ledger"
@@ -233,7 +292,9 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
       {
         edges_force_rls: true,
         ledger_force_rls: true,
-        ledger_append_sequence: null,
+        effects_force_rls: true,
+        ledger_append_sequences: "1,2,3",
+        ledger_append_sequence_nullable: "NO",
         legacy_decision_ref: "6a000000-0000-4000-8000-0000000000a1",
         duplicate_legacy_decision_ref: null,
       },
@@ -290,42 +351,34 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
               has_table_privilege(role_name, 'public.' || table_name, 'UPDATE') AS can_update,
               has_table_privilege(role_name, 'public.' || table_name, 'DELETE') AS can_delete
        FROM unnest(ARRAY['anon', 'authenticated']) AS roles(role_name)
-       CROSS JOIN unnest(ARRAY['edges', 'ledger']) AS tables(table_name)
+       CROSS JOIN unnest(ARRAY['edges', 'ledger', 'relation_materialization_effects']) AS tables(table_name)
        ORDER BY role_name, table_name`,
     );
-    assert.deepEqual(privileges.rows, [
-      {
-        role_name: "anon",
-        table_name: "edges",
-        can_select: false,
-        can_insert: false,
-        can_update: false,
-        can_delete: false,
-      },
-      {
-        role_name: "anon",
-        table_name: "ledger",
-        can_select: false,
-        can_insert: false,
-        can_update: false,
-        can_delete: false,
-      },
-      {
-        role_name: "authenticated",
-        table_name: "edges",
-        can_select: false,
-        can_insert: false,
-        can_update: false,
-        can_delete: false,
-      },
-      {
-        role_name: "authenticated",
-        table_name: "ledger",
-        can_select: false,
-        can_insert: false,
-        can_update: false,
-        can_delete: false,
-      },
+    assert.equal(privileges.rows.length, 6);
+    assert.deepEqual(
+      new Set(privileges.rows.map((row) => row.table_name)),
+      new Set(["edges", "ledger", "relation_materialization_effects"]),
+    );
+    assert.ok(
+      privileges.rows.every(
+        (row) =>
+          !row.can_select &&
+          !row.can_insert &&
+          !row.can_update &&
+          !row.can_delete,
+      ),
+    );
+    const effectPolicies = await db.query<{ policyname: string }>(
+      `SELECT policyname
+       FROM pg_policies
+       WHERE schemaname = 'public'
+         AND tablename = 'relation_materialization_effects'
+       ORDER BY policyname`,
+    );
+    assert.deepEqual(effectPolicies.rows, [
+      { policyname: "relation_materialization_effects_tenant_insert" },
+      { policyname: "relation_materialization_effects_tenant_select" },
+      { policyname: "relation_materialization_effects_tenant_update" },
     ]);
     const sequencePrivileges = await db.query<{
       role_name: string;
@@ -350,9 +403,14 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
        RETURNING "append_sequence"::text`,
       [workspaceId],
     );
-    const legacyWatermark =
-      BigInt(Date.parse("2020-01-02T03:04:07.000Z")) * 1024n + 1023n;
-    assert.ok(BigInt(nextAppend.rows[0]!.append_sequence) > legacyWatermark);
+    assert.equal(nextAppend.rows[0]!.append_sequence, "4");
+    await assert.doesNotReject(() =>
+      db.query(
+        `INSERT INTO "ledger" ("id", "workspace_id", "user_decision")
+         VALUES ('60000000-0000-4000-8000-000000000005', $1, 'auto')`,
+        [workspaceId],
+      ),
+    );
 
     await assert.rejects(
       () =>

@@ -27,6 +27,7 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { makeContextFactory } from "../src/context.js";
+import { reconcileWorkspaceRelationshipMaterializations } from "../src/relationship-materializer.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_WORKSPACE, PILOT_USER, type Wiring } from "../src/wiring.js";
 
@@ -73,6 +74,10 @@ async function seedFixtures(
   personId: string;
   communityId: string;
   otherMemberId: string;
+  otherSignalId: string;
+  otherEventId: string;
+  otherPersonId: string;
+  newerEventId: string | null;
 }> {
   const { db, close } = await createLocalDb({ dataDir: dir });
   try {
@@ -156,15 +161,73 @@ async function seedFixtures(
       source: "google-calendar",
       sourceModule: "relationship",
     });
-    if (options.addNewerSourceEvent) {
-      await db.insert(schema.events).values({
+    const [otherPerson] = await db
+      .insert(schema.people)
+      .values({
         workspaceId: PILOT_WORKSPACE,
-        type: "calendar.meeting_followup",
+        userId: otherMember.id,
+        visibility: "private",
+        fullNameOverride: "test_fixture_other_owner_person",
+      })
+      .returning({ id: schema.people.id });
+    assert.ok(otherPerson);
+    const [otherSignal] = await db
+      .insert(schema.signals)
+      .values({
+        workspaceId: PILOT_WORKSPACE,
+        type: "meeting_prep",
+        subjectType: "person",
+        subjectId: otherPerson.id,
+        payload: { reason: "An owner-scoped Event is approaching." },
+        recommendedAction: { label: "Prepare context" },
+      })
+      .returning({ id: schema.signals.id });
+    assert.ok(otherSignal);
+    const [otherEvent] = await db
+      .insert(schema.events)
+      .values({
+        workspaceId: PILOT_WORKSPACE,
+        type: "calendar.meeting_upcoming",
         entityType: "signal",
-        entityId: signal.id,
-        payload: { source: "newer-calendar-event" },
-        createdAt: new Date("2027-01-01T00:00:00.000Z"),
-      });
+        entityId: otherSignal.id,
+        payload: { source: "google-calendar" },
+      })
+      .returning({ id: schema.events.id });
+    assert.ok(otherEvent);
+    await db.insert(schema.edges).values({
+      workspaceId: PILOT_WORKSPACE,
+      ownerUserId: otherMember.id,
+      srcType: "event",
+      srcId: otherEvent.id,
+      dstType: "person",
+      dstId: otherPerson.id,
+      edgeType: "participant",
+      evidenceRefs: [
+        {
+          entityType: "event",
+          entityId: otherEvent.id,
+          source: "google-calendar",
+        },
+      ],
+      confidence: "1",
+      visibility: "private",
+      source: "google-calendar",
+      sourceModule: "relationship",
+    });
+    let newerEventId: string | null = null;
+    if (options.addNewerSourceEvent) {
+      const [newerEvent] = await db
+        .insert(schema.events)
+        .values({
+          workspaceId: PILOT_WORKSPACE,
+          type: "calendar.meeting_followup",
+          entityType: "signal",
+          entityId: signal.id,
+          payload: { source: "newer-calendar-event" },
+          createdAt: new Date("2027-01-01T00:00:00.000Z"),
+        })
+        .returning({ id: schema.events.id });
+      newerEventId = newerEvent?.id ?? null;
     }
     return {
       signalId: signal.id,
@@ -172,6 +235,10 @@ async function seedFixtures(
       personId: firstPersonId,
       communityId: firstCommunityId,
       otherMemberId: otherMember.id,
+      otherSignalId: otherSignal.id,
+      otherEventId: otherEvent.id,
+      otherPersonId: otherPerson.id,
+      newerEventId,
     };
   } finally {
     await close();
@@ -453,6 +520,10 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
         dataScope: "private",
       },
     ]);
+    wiring.roles.direct.set(
+      `user:${fixture.otherMemberId}`,
+      wiring.roles.direct.get(`user:${PILOT_USER}`) ?? [],
+    );
     const caller = await makeCaller(wiring);
 
     assert.deepEqual(
@@ -483,7 +554,6 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
-          offset: 0,
         }),
       /UNAUTHORIZED|authentication required/,
     );
@@ -506,7 +576,6 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
-          offset: 0,
         }),
       /pilot workspace|BAD_REQUEST/i,
     );
@@ -634,7 +703,6 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
-          offset: 0,
         })
       ).total,
       0,
@@ -742,6 +810,35 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.match(decided.effectsError, /relation_materialization_interrupted/);
     assert.ok("relationshipMaterialization" in decided);
     assert.equal(decided.relationshipMaterialization.status, "failed");
+    assert.equal(decided.relationshipMaterialization.attempts, 1);
+    const failedEffect = await caller.relationship.materializationStatus({
+      workspaceId: PILOT_WORKSPACE,
+      proposalId: proposed.proposal.id,
+    });
+    assert.equal(failedEffect?.status, "failed");
+    assert.equal(failedEffect?.attempts, 1);
+    assert.match(failedEffect?.lastError ?? "", /materialization_interrupted/);
+    const outstandingPage =
+      await caller.relationship.outstandingMaterializations({
+        workspaceId: PILOT_WORKSPACE,
+        limit: 10,
+      });
+    assert.equal(
+      outstandingPage.items.some(
+        (effect) => effect.proposalId === proposed.proposal.id,
+      ),
+      true,
+    );
+    assert.equal(outstandingPage.nextCursor, null);
+    assert.equal(outstandingPage.hasMore, false);
+    await assert.rejects(
+      () =>
+        otherMemberCaller.relationship.retryMaterialization({
+          workspaceId: PILOT_WORKSPACE,
+          proposalId: proposed.proposal.id,
+        }),
+      /NOT_FOUND|proposal not found/,
+    );
     const persistedEditedDecision = await wiring.ledger.decisionFor(proposed.proposal.id);
     assert.ok(persistedEditedDecision);
     assert.ok((persistedEditedDecision.appendSequence ?? 0) > 0);
@@ -773,7 +870,6 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
-          offset: 0,
         })
       ).total,
       0,
@@ -787,10 +883,84 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       await caller.action.resolution({ proposalId: proposed.proposal.id }),
       { status: "resolved", decision: "edit" },
     );
-    await assert.rejects(
-      () => caller.action.decide({ proposalId: proposed.proposal.id, decision: "approve" }),
-      /already resolved|CONFLICT/i,
+    const inFlight = await wiring.relationMaterializations.beginAttempt(
+      {
+        workspaceId: PILOT_WORKSPACE,
+        ownerUserId: PILOT_USER,
+        proposalLedgerId: proposed.proposal.id,
+        decisionLedgerId: persistedEditedDecision.id,
+      },
+      new Date(),
     );
+    assert.equal(inFlight.started, true);
+    assert.ok(inFlight.effect.leaseToken);
+    const concurrentLostResponseRetry = await caller.action.decide({
+      proposalId: proposed.proposal.id,
+      decision: "approve",
+    });
+    const concurrentMaterialization =
+      "relationshipMaterialization" in concurrentLostResponseRetry
+        ? concurrentLostResponseRetry.relationshipMaterialization
+        : undefined;
+    assert.ok(concurrentMaterialization);
+    assert.equal(concurrentLostResponseRetry.id, decided.id);
+    assert.equal(concurrentLostResponseRetry.recordedDecision, "edit");
+    assert.deepEqual(concurrentLostResponseRetry.output, decided.output);
+    assert.equal(concurrentLostResponseRetry.effectsStatus, "failed");
+    assert.equal(
+      concurrentMaterialization.status,
+      "pending",
+      "an idempotent repeat must expose the active durable effect instead of returning success-shaped resolution",
+    );
+    await wiring.relationMaterializations.markFailed(
+      inFlight.effect.id,
+      PILOT_WORKSPACE,
+      PILOT_USER,
+      inFlight.effect.leaseToken,
+      "test_fixture_interrupted_in_flight_worker",
+      new Date(),
+      new Date(),
+    );
+    const lostResponseRetry = await caller.action.decide({
+      proposalId: proposed.proposal.id,
+      decision: "approve",
+    });
+    assert.equal(lostResponseRetry.id, decided.id);
+    assert.equal(lostResponseRetry.recordedDecision, "edit");
+    assert.deepEqual(lostResponseRetry.output, decided.output);
+    assert.equal(lostResponseRetry.effectsStatus, "confirmed");
+    assert.deepEqual(lostResponseRetry.relationshipMaterialization, {
+      status: "confirmed",
+      relationCount: 3,
+    });
+    assert.equal(
+      (
+        await caller.relationship.outstandingMaterializations({
+          workspaceId: PILOT_WORKSPACE,
+          limit: 10,
+        })
+      ).items.some((effect) => effect.proposalId === proposed.proposal.id),
+      false,
+      "applied effects must leave the outstanding retry surface",
+    );
+    const appliedEffect = await caller.relationship.materializationStatus({
+      workspaceId: PILOT_WORKSPACE,
+      proposalId: proposed.proposal.id,
+    });
+    assert.equal(appliedEffect?.status, "applied");
+    assert.equal(appliedEffect?.attempts, 3);
+    const immutableEditReplay = await caller.action.decide({
+      proposalId: proposed.proposal.id,
+      decision: "edit",
+      editedOutput: { kind: "test_fixture_invalid_after_resolution" },
+    });
+    assert.equal(immutableEditReplay.id, decided.id);
+    assert.deepEqual(immutableEditReplay.output, decided.output);
+    assert.ok("relationshipMaterialization" in immutableEditReplay);
+    assert.deepEqual(immutableEditReplay.relationshipMaterialization, {
+      status: "confirmed",
+      relationCount: 3,
+    });
 
     const reconciled = await caller.relationship.reconcileApproved({
       workspaceId: PILOT_WORKSPACE,
@@ -801,7 +971,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       proposalId: proposed.proposal.id,
     });
     assert.equal(reconciled.status, "confirmed");
-    assert.equal(reconciled.sourceEvent.id, retried.sourceEvent.id);
+    assert.equal(retried.status, "confirmed");
     const materializedDetail = await caller.graph.getSignalDetail({
       workspaceId: PILOT_WORKSPACE,
       signalId: fixture.signalId,
@@ -811,10 +981,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       fixture.eventId,
       "Signal reads must retain the approved Event when a newer unapproved Event exists",
     );
-    assert.deepEqual(
-      reconciled.participants.map((relation) => relation.id).sort(),
-      retried.participants.map((relation) => relation.id).sort(),
-    );
+    assert.equal(retried.effect.relationCount, 3);
     const ownerHistory = await caller.action.listHistory({
       workspaceId: PILOT_WORKSPACE,
       limit: 100,
@@ -847,7 +1014,6 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       nodeType: "signal",
       nodeId: fixture.signalId,
       limit: 10,
-      offset: 0,
     });
     assert.equal(signalRelations.total, 1);
     assert.equal(signalRelations.items[0]?.edgeType, "source_event");
@@ -856,9 +1022,31 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 10,
-      offset: 0,
     });
     assert.equal(eventRelations.total, 3);
+    const firstEventPage = await caller.relationship.listRelations({
+      workspaceId: PILOT_WORKSPACE,
+      nodeType: "event",
+      nodeId: fixture.eventId,
+      limit: 2,
+    });
+    assert.ok(firstEventPage.nextCursor);
+    const secondEventPage = await caller.relationship.listRelations({
+      workspaceId: PILOT_WORKSPACE,
+      nodeType: "event",
+      nodeId: fixture.eventId,
+      limit: 2,
+      cursor: firstEventPage.nextCursor,
+    });
+    assert.equal(secondEventPage.nextCursor, null);
+    assert.equal(
+      new Set(
+        [...firstEventPage.items, ...secondEventPage.items].map(
+          (relation) => relation.id,
+        ),
+      ).size,
+      3,
+    );
     const editedPerson = eventRelations.items.find(
       (relation) => relation.edgeType === "participant" && relation.dstId === fixture.personId,
     );
@@ -936,20 +1124,16 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       await caller.action.resolution({ proposalId: approved.proposal.id }),
       { status: "resolved", decision: "approve" },
     );
-    await assert.rejects(
-      () =>
-        caller.relationship.reconcileApproved({
-          workspaceId: PILOT_WORKSPACE,
-          proposalId: proposed.proposal.id,
-        }),
-      /Stale Relationship decision/i,
-    );
+    const staleReconcile = await caller.relationship.reconcileApproved({
+      workspaceId: PILOT_WORKSPACE,
+      proposalId: proposed.proposal.id,
+    });
+    assert.equal(staleReconcile.status, "confirmed");
     const relationsAfterStaleReconcile = await caller.relationship.listRelations({
       workspaceId: PILOT_WORKSPACE,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 10,
-      offset: 0,
     });
     const latestPerson = relationsAfterStaleReconcile.items.find(
       (relation) => relation.edgeType === "participant" && relation.dstId === fixture.personId,
@@ -960,6 +1144,49 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       "reconciling an older approval must not roll back newer approved Relation state",
     );
     assert.deepEqual(latestPerson?.properties, { role: "approved-attendee" });
+
+    const leaseRaceProposal = await caller.relationship.proposeSignalEvidence({
+      workspaceId: PILOT_WORKSPACE,
+      signalId: fixture.signalId,
+      sourceEventId: fixture.eventId,
+      visibility: "private",
+      userConfirmed: true,
+      participants: [
+        {
+          recordType: "person",
+          recordId: fixture.personId,
+          role: "test_fixture_lease_race",
+          confidence: 0.96,
+        },
+      ],
+    });
+    await wiring.pipeline.decide(
+      leaseRaceProposal.proposal.id,
+      "approve",
+      { type: "user", id: PILOT_USER },
+      makeRun(),
+    );
+    const originalMarkApplied =
+      wiring.relationMaterializations.markApplied.bind(
+        wiring.relationMaterializations,
+      );
+    wiring.relationMaterializations.markApplied = async (...args) => {
+      const effect = await originalMarkApplied(...args);
+      throw new Error(
+        `test_fixture_response_lost_after_applied_${effect.id}`,
+      );
+    };
+    try {
+      const leaseRaceResult =
+        await caller.relationship.retryMaterialization({
+          workspaceId: PILOT_WORKSPACE,
+          proposalId: leaseRaceProposal.proposal.id,
+        });
+      assert.equal(leaseRaceResult.status, "confirmed");
+      assert.equal(leaseRaceResult.effect.status, "applied");
+    } finally {
+      wiring.relationMaterializations.markApplied = originalMarkApplied;
+    }
 
     const vetoed = await caller.relationship.proposeSignalEvidence({
       workspaceId: PILOT_WORKSPACE,
@@ -980,6 +1207,193 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
         }),
       /no approved resolution|PRECONDITION_FAILED/i,
     );
+
+    const restartGap = await caller.relationship.proposeSignalEvidence({
+      workspaceId: PILOT_WORKSPACE,
+      signalId: fixture.signalId,
+      sourceEventId: fixture.eventId,
+      visibility: "private",
+      userConfirmed: true,
+      participants: [
+        {
+          recordType: "person",
+          recordId: fixture.personId,
+          role: "test_fixture_restart_recovered",
+          confidence: 0.95,
+        },
+      ],
+    });
+    await wiring.pipeline.decide(
+      restartGap.proposal.id,
+      "approve",
+      { type: "user", id: PILOT_USER },
+      makeRun(),
+    );
+    const otherRestartGap =
+      await otherMemberCaller.relationship.proposeSignalEvidence({
+        workspaceId: PILOT_WORKSPACE,
+        signalId: fixture.otherSignalId,
+        sourceEventId: fixture.otherEventId,
+        visibility: "private",
+        userConfirmed: true,
+        participants: [
+          {
+            recordType: "person",
+            recordId: fixture.otherPersonId,
+            role: "test_fixture_other_owner_restart_recovered",
+            confidence: 0.94,
+          },
+        ],
+      });
+    await wiring.pipeline.decide(
+      otherRestartGap.proposal.id,
+      "approve",
+      { type: "user", id: fixture.otherMemberId },
+      makeRun(),
+    );
+    assert.equal(
+      await caller.relationship.materializationStatus({
+        workspaceId: PILOT_WORKSPACE,
+        proposalId: restartGap.proposal.id,
+      }),
+      null,
+      "the fixture simulates a process stop after decision persistence but before outbox creation",
+    );
+    assert.equal(
+      await otherMemberCaller.relationship.materializationStatus({
+        workspaceId: PILOT_WORKSPACE,
+        proposalId: otherRestartGap.proposal.id,
+      }),
+      null,
+    );
+    await wiring.close();
+    wiring = undefined;
+    wiring = await buildWiring();
+    const restartedCaller = await makeCaller(wiring);
+    const restartedOtherCaller = await makeCaller(wiring, {
+      type: "user",
+      id: fixture.otherMemberId,
+    });
+    const automaticRetry =
+      await reconcileWorkspaceRelationshipMaterializations(
+        wiring.graphStore,
+        wiring.relationMaterializations,
+        wiring.ledger,
+        PILOT_WORKSPACE,
+        new Date(Date.now() + 60_000),
+      );
+    assert.equal(automaticRetry.ownersExamined, 2);
+    assert.equal(automaticRetry.discovered, 2);
+    assert.equal(automaticRetry.applied, 2);
+    assert.equal(
+      (
+        await restartedCaller.relationship.materializationStatus({
+          workspaceId: PILOT_WORKSPACE,
+          proposalId: restartGap.proposal.id,
+        })
+      )?.status,
+      "applied",
+    );
+    assert.equal(
+      (
+        await restartedOtherCaller.relationship.materializationStatus({
+          workspaceId: PILOT_WORKSPACE,
+          proposalId: otherRestartGap.proposal.id,
+        })
+      )?.status,
+      "applied",
+    );
+    assert.ok(fixture.newerEventId);
+    assert.ok(wiring.roles instanceof InMemoryRoleStore);
+    wiring.roles.direct.set(`user:${PILOT_USER}`, [
+      {
+        resourceType: "relation",
+        resourceId: null,
+        action: "read",
+        effect: "allow",
+        dataScope: "private",
+      },
+      {
+        resourceType: "relation",
+        resourceId: null,
+        action: "write",
+        effect: "allow",
+        dataScope: "private",
+      },
+    ]);
+    const obsoleteProposal =
+      await restartedCaller.relationship.proposeSignalEvidence({
+        workspaceId: PILOT_WORKSPACE,
+        signalId: fixture.signalId,
+        sourceEventId: fixture.eventId,
+        visibility: "private",
+        userConfirmed: true,
+        participants: [
+          {
+            recordType: "person",
+            recordId: fixture.personId,
+            role: "test_fixture_obsolete_event_retry",
+            confidence: 0.91,
+          },
+        ],
+      });
+    const materializeAfterRestart =
+      wiring.graphStore.materializeSignalEvidence.bind(wiring.graphStore);
+    wiring.graphStore.materializeSignalEvidence = async () => {
+      throw new Error("test_fixture_obsolete_event_interrupted");
+    };
+    const obsoleteDecision = await restartedCaller.action.decide({
+      proposalId: obsoleteProposal.proposal.id,
+      decision: "approve",
+    });
+    assert.equal(obsoleteDecision.effectsStatus, "failed");
+    wiring.graphStore.materializeSignalEvidence = materializeAfterRestart;
+    const newerWinner =
+      await restartedCaller.relationship.proposeSignalEvidence({
+        workspaceId: PILOT_WORKSPACE,
+        signalId: fixture.signalId,
+        sourceEventId: fixture.newerEventId,
+        visibility: "private",
+        userConfirmed: true,
+        participants: [
+          {
+            recordType: "person",
+            recordId: fixture.personId,
+            role: "test_fixture_newer_event_winner",
+            confidence: 0.99,
+          },
+        ],
+      });
+    const newerDecision = await restartedCaller.action.decide({
+      proposalId: newerWinner.proposal.id,
+      decision: "approve",
+    });
+    assert.ok("relationshipMaterialization" in newerDecision);
+    assert.deepEqual(newerDecision.relationshipMaterialization, {
+      status: "confirmed",
+      relationCount: 2,
+    });
+    const getSignalEvidenceAnchor =
+      wiring.graphStore.getSignalEvidenceAnchor.bind(wiring.graphStore);
+    wiring.graphStore.getSignalEvidenceAnchor = async () => {
+      throw new Error("test_fixture_obsolete_event_anchor_must_not_be_rechecked");
+    };
+    const obsoleteRetry =
+      await restartedCaller.relationship.retryMaterialization({
+        workspaceId: PILOT_WORKSPACE,
+        proposalId: obsoleteProposal.proposal.id,
+      });
+    wiring.graphStore.getSignalEvidenceAnchor = getSignalEvidenceAnchor;
+    assert.equal(obsoleteRetry.status, "confirmed");
+    assert.equal(obsoleteRetry.effect.status, "applied");
+    const recoveredSource =
+      await restartedCaller.relationship.listRelations({
+        workspaceId: PILOT_WORKSPACE,
+        nodeType: "signal",
+        nodeId: fixture.signalId,
+        limit: 10,
+      });
+    assert.equal(recoveredSource.items[0]?.dstId, fixture.newerEventId);
   } finally {
     if (wiring) await wiring.close();
     if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;

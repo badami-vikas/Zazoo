@@ -1196,7 +1196,7 @@
         },
         "observed_at": {
           "name": "observed_at",
-          "type": "timestamp with time zone",
+          "type": "timestamp (3) with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
@@ -1267,7 +1267,7 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "timestamp (3) with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
@@ -1318,6 +1318,39 @@
             },
             {
               "expression": "dst_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "edges_relation_page_idx": {
+          "name": "edges_relation_page_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2920,7 +2953,7 @@
           "name": "append_sequence",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "default": "nextval('ledger_append_sequence_seq'::regclass)"
         },
         "workspace_id": {
@@ -4203,6 +4236,274 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.relation_materialization_effects": {
+      "name": "relation_materialization_effects",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proposal_ledger_id": {
+          "name": "proposal_ledger_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision_ledger_id": {
+          "name": "decision_ledger_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "max_attempts": {
+          "name": "max_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
+        },
+        "lease_recovery_count": {
+          "name": "lease_recovery_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "max_lease_recoveries": {
+          "name": "max_lease_recoveries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3
+        },
+        "relation_count": {
+          "name": "relation_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_attempted_at": {
+          "name": "last_attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_retry_at": {
+          "name": "next_retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "relation_materialization_effects_outstanding_idx": {
+          "name": "relation_materialization_effects_outstanding_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"relation_materialization_effects\".\"status\" IN ('pending', 'failed')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "relation_materialization_effects_retry_idx": {
+          "name": "relation_materialization_effects_retry_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_retry_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "relation_materialization_effects_workspace_id_workspaces_id_fk": {
+          "name": "relation_materialization_effects_workspace_id_workspaces_id_fk",
+          "tableFrom": "relation_materialization_effects",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "relation_materialization_effects_owner_user_id_users_id_fk": {
+          "name": "relation_materialization_effects_owner_user_id_users_id_fk",
+          "tableFrom": "relation_materialization_effects",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "relation_materialization_effects_proposal_uq": {
+          "name": "relation_materialization_effects_proposal_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "proposal_ledger_id"
+          ]
+        },
+        "relation_materialization_effects_decision_uq": {
+          "name": "relation_materialization_effects_decision_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "decision_ledger_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "relation_materialization_effects_status_check": {
+          "name": "relation_materialization_effects_status_check",
+          "value": "\"relation_materialization_effects\".\"status\" IN ('pending', 'applied', 'failed')"
+        },
+        "relation_materialization_effects_attempts_check": {
+          "name": "relation_materialization_effects_attempts_check",
+          "value": "\"relation_materialization_effects\".\"attempt_count\" >= 0 AND \"relation_materialization_effects\".\"max_attempts\" > 0 AND \"relation_materialization_effects\".\"attempt_count\" <= \"relation_materialization_effects\".\"max_attempts\" AND \"relation_materialization_effects\".\"lease_recovery_count\" >= 0 AND \"relation_materialization_effects\".\"max_lease_recoveries\" > 0 AND \"relation_materialization_effects\".\"lease_recovery_count\" <= \"relation_materialization_effects\".\"max_lease_recoveries\""
+        },
+        "relation_materialization_effects_relation_count_check": {
+          "name": "relation_materialization_effects_relation_count_check",
+          "value": "\"relation_materialization_effects\".\"relation_count\" IS NULL OR \"relation_materialization_effects\".\"relation_count\" >= 0"
+        },
+        "relation_materialization_effects_decision_check": {
+          "name": "relation_materialization_effects_decision_check",
+          "value": "\"relation_materialization_effects\".\"proposal_ledger_id\" <> \"relation_materialization_effects\".\"decision_ledger_id\""
+        },
+        "relation_materialization_effects_state_check": {
+          "name": "relation_materialization_effects_state_check",
+          "value": "(\"relation_materialization_effects\".\"status\" = 'pending' AND \"relation_materialization_effects\".\"applied_at\" IS NULL AND \"relation_materialization_effects\".\"last_error\" IS NULL AND ((\"relation_materialization_effects\".\"lease_token\" IS NULL AND \"relation_materialization_effects\".\"lease_expires_at\" IS NULL) OR (\"relation_materialization_effects\".\"lease_token\" IS NOT NULL AND \"relation_materialization_effects\".\"lease_expires_at\" IS NOT NULL))) OR (\"relation_materialization_effects\".\"status\" = 'failed' AND \"relation_materialization_effects\".\"applied_at\" IS NULL AND \"relation_materialization_effects\".\"last_error\" IS NOT NULL AND \"relation_materialization_effects\".\"lease_token\" IS NULL AND \"relation_materialization_effects\".\"lease_expires_at\" IS NULL) OR (\"relation_materialization_effects\".\"status\" = 'applied' AND \"relation_materialization_effects\".\"applied_at\" IS NOT NULL AND \"relation_materialization_effects\".\"last_error\" IS NULL AND \"relation_materialization_effects\".\"next_retry_at\" IS NULL AND \"relation_materialization_effects\".\"relation_count\" IS NOT NULL AND \"relation_materialization_effects\".\"lease_token\" IS NULL AND \"relation_materialization_effects\".\"lease_expires_at\" IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.resources": {

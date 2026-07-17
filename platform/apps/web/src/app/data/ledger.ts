@@ -311,6 +311,48 @@ export async function loadPendingApprovals(): Promise<{
   }
 }
 
+export type OutstandingRelationshipMaterialization = Awaited<
+  ReturnType<typeof trpc.relationship.outstandingMaterializations.query>
+>['items'][number];
+
+export async function loadOutstandingRelationshipMaterializations(): Promise<{
+  items: OutstandingRelationshipMaterialization[];
+  error?: string;
+}> {
+  try {
+    const items: OutstandingRelationshipMaterialization[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: { id: string } | undefined;
+    do {
+      const page = await trpc.relationship.outstandingMaterializations.query({
+        workspaceId: PILOT_WORKSPACE,
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      items.push(...page.items);
+      if (!page.nextCursor) return { items };
+      if (seenCursors.has(page.nextCursor.id)) {
+        throw new Error("Outstanding Relationship pagination did not advance");
+      }
+      seenCursors.add(page.nextCursor.id);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return { items };
+  } catch (cause) {
+    return {
+      items: [],
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
+export async function retryRelationshipMaterialization(proposalId: string) {
+  return trpc.relationship.retryMaterialization.mutate({
+    workspaceId: PILOT_WORKSPACE,
+    proposalId,
+  });
+}
+
 function editedProposalOutput(
   originalRecord: Record<string, unknown> | null,
   nextText: string,
@@ -413,7 +455,7 @@ export async function recordDecisionAppend(
 ): Promise<{
   recorded: boolean;
   decision?: Decision;
-  execution?: 'confirmed' | 'failed' | 'unconfirmed';
+  execution?: 'confirmed' | 'pending' | 'failed' | 'unconfirmed';
   executionError?: string;
 }> {
   if (!decision) return { recorded: false };
@@ -436,21 +478,72 @@ export async function recordDecisionAppend(
       ...(editedOutput !== undefined ? { editedOutput } : {}),
       ...(reason ? { reason } : {}),
     });
+    const persistedDecision = normalizeDecision(result.recordedDecision);
+    if (!persistedDecision) {
+      throw new Error("The Action Pipeline did not return its persisted decision");
+    }
     setLivePendingCount(Math.max(0, livePendingCount - 1));
+    const relationshipStatus =
+      'relationshipMaterialization' in result
+        ? result.relationshipMaterialization?.status
+        : undefined;
+    const execution =
+      relationshipStatus === 'pending'
+        ? ('pending' as const)
+        : result.effectsStatus;
     return {
       recorded: true,
-      decision,
-      execution: result.effectsStatus,
-      ...("effectsError" in result && result.effectsError ? { executionError: result.effectsError } : {}),
+      decision: persistedDecision,
+      execution,
+      ...(execution === 'failed' && 'effectsError' in result && result.effectsError
+        ? { executionError: result.effectsError }
+        : {}),
     };
   } catch {
     try {
       const resolution = await trpc.action.resolution.query({ proposalId: entry.id });
       if (resolution.status === 'resolved') {
         setLivePendingCount(Math.max(0, livePendingCount - 1));
+        const recordedDecision = normalizeDecision(resolution.decision);
+        if (
+          entry.resourceType === 'relation' &&
+          (recordedDecision === 'approved' ||
+            recordedDecision === 'edited_approved')
+        ) {
+          try {
+            const reconciliation =
+              await trpc.relationship.reconcileApproved.mutate({
+                workspaceId: PILOT_WORKSPACE,
+                proposalId: entry.id,
+              });
+            return {
+              recorded: true,
+              decision: recordedDecision,
+              execution:
+                reconciliation.status === 'confirmed'
+                  ? ('confirmed' as const)
+                  : reconciliation.status === 'pending'
+                    ? ('pending' as const)
+                    : ('failed' as const),
+              ...(reconciliation.status === 'failed'
+                ? { executionError: reconciliation.error }
+                : {}),
+            };
+          } catch (reconcileCause) {
+            return {
+              recorded: true,
+              decision: recordedDecision,
+              execution: 'unconfirmed',
+              executionError:
+                reconcileCause instanceof Error
+                  ? reconcileCause.message
+                  : String(reconcileCause),
+            };
+          }
+        }
         return {
           recorded: true,
-          decision: normalizeDecision(resolution.decision),
+          decision: recordedDecision,
           execution: 'unconfirmed',
         };
       }

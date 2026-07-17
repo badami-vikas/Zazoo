@@ -336,11 +336,6 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
             policyResults: [],
             createdAt: new Date(`2026-07-05T00:00:1${index}.000Z`),
           });
-          await db
-            .update(schema.ledger)
-            .set({ appendSequence: sql`NULL` })
-            .where(eq(schema.ledger.id, decisionId));
-
           const resolved = await store.decisionFor(proposalId);
           assert.equal(resolved?.id, decisionId);
           assert.equal(resolved?.refLedgerId, proposalId);

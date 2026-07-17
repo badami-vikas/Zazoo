@@ -37,8 +37,6 @@ const UNIQUE_VIOLATION = "23505";
  * translation to THIS constraint specifically, not any other unique violation a
  * future column might introduce on this table. */
 const REF_LEDGER_UNIQUE_INDEX = "ledger_ref_ledger_id_resolved_uq";
-const LEGACY_SEQUENCE_BUCKET_SIZE = 1024;
-
 function isRefLedgerUniqueViolation(err: unknown): boolean {
   // drizzle-orm ≥0.45 no longer throws the driver error directly — it wraps it in a
   // `DrizzleQueryError` and hangs the real Postgres error (which carries `.code` /
@@ -58,12 +56,7 @@ function isRefLedgerUniqueViolation(err: unknown): boolean {
 }
 
 function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
-  // 0015 leaves pre-existing rows nullable to avoid a production ledger rewrite.
-  // Its sequence watermark reserves this deterministic legacy range before new appends.
-  const appendSequence =
-    row.appendSequence ??
-    row.createdAt.getTime() * LEGACY_SEQUENCE_BUCKET_SIZE +
-      (Number.parseInt(row.id.replaceAll("-", "").slice(-3), 16) % LEGACY_SEQUENCE_BUCKET_SIZE);
+  const appendSequence = row.appendSequence;
   if (!Number.isSafeInteger(appendSequence) || appendSequence <= 0) {
     throw new Error(`Ledger row ${row.id} cannot be assigned a safe append sequence`);
   }
@@ -115,12 +108,72 @@ function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
 }
 
 export class DrizzleLedgerStore implements LedgerStore {
-  #db: Database;
-  constructor(db: Database) {
+  readonly #db: Database;
+  readonly #defaultWorkspaceId: string | null;
+  readonly #activeWorkspaceId: string | null;
+
+  constructor(
+    db: Database,
+    options: {
+      defaultWorkspaceId?: string;
+      activeWorkspaceId?: string;
+    } = {},
+  ) {
     this.#db = db;
+    this.#defaultWorkspaceId = options.defaultWorkspaceId ?? null;
+    this.#activeWorkspaceId = options.activeWorkspaceId ?? null;
+  }
+
+  async #withWorkspace<T>(
+    workspaceId: string,
+    operation: (store: DrizzleLedgerStore) => Promise<T>,
+  ): Promise<T> {
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`,
+      );
+      return operation(
+        new DrizzleLedgerStore(tx, {
+          defaultWorkspaceId: workspaceId,
+          activeWorkspaceId: workspaceId,
+        }),
+      );
+    });
+  }
+
+  #assertActiveWorkspace(workspaceId: string): void {
+    if (
+      this.#activeWorkspaceId &&
+      this.#activeWorkspaceId !== workspaceId
+    ) {
+      throw new Error("Ledger operation crossed its workspace context");
+    }
+  }
+
+  async ensureAppendSequenceFloor(floor: number): Promise<void> {
+    if (!Number.isSafeInteger(floor) || floor < 0) {
+      throw new Error("Ledger append sequence floor must be a non-negative integer");
+    }
+    if (floor === 0) return;
+    await this.#db.execute(sql`
+      SELECT setval(
+        'ledger_append_sequence_seq',
+        GREATEST(
+          (SELECT last_value FROM ledger_append_sequence_seq),
+          ${floor}
+        ),
+        true
+      )
+    `);
   }
 
   async append(entry: LedgerEntry): Promise<LedgerEntry> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(entry.workspaceId, (store) =>
+        store.append(entry),
+      );
+    }
+    this.#assertActiveWorkspace(entry.workspaceId);
     try {
       if (
         entry.refLedgerId &&
@@ -167,12 +220,22 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async get(id: string): Promise<LedgerEntry | null> {
+    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
+      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+        store.get(id),
+      );
+    }
     const rows = await this.#db.select().from(ledger).where(eq(ledger.id, id)).limit(1);
     const row = rows[0];
     return row ? unpack(row) : null;
   }
 
   async decisionFor(proposalId: string): Promise<LedgerEntry | null> {
+    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
+      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+        store.decisionFor(proposalId),
+      );
+    }
     // Decision rows carry a real ref_ledger_id column and a non-null user_decision
     // (see migrations/0003_ledger_ref_column.sql). This SELECT is a fast, indexed
     // pre-check for the pipeline's early-exit path; it is NOT itself the atomicity
@@ -213,6 +276,12 @@ export class DrizzleLedgerStore implements LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(workspaceId, (store) =>
+        store.listPending(workspaceId, opts),
+      );
+    }
+    this.#assertActiveWorkspace(workspaceId);
     const resolvingRows = alias(ledger, "resolving_rows");
     const where = and(
       eq(ledger.workspaceId, workspaceId),
@@ -249,6 +318,12 @@ export class DrizzleLedgerStore implements LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
+    if (!this.#activeWorkspaceId) {
+      return this.#withWorkspace(workspaceId, (store) =>
+        store.listHistory(workspaceId, opts),
+      );
+    }
+    this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
       privateRelationOwnerScope(opts.privateOwnerUserId),

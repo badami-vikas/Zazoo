@@ -8,11 +8,14 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { IntegrationFloorScopeError } from "@bridge/db";
+import {
+  IntegrationFloorScopeError,
+  type RelationMaterializationEffect,
+} from "@bridge/db";
 import type { ApiContext } from "./context.js";
 import {
+  applyApprovedRelationshipMaterialization,
   isRelationshipSignalEvidence,
-  materializeApprovedRelationshipProposal,
   proposalFromResolvedRelationshipLedger,
   relationshipOwnerFromLedger,
   relationshipSignalEvidencePayloadSchema,
@@ -1132,6 +1135,120 @@ async function activateApprovedPackageInstallation(
   return installation;
 }
 
+function relationshipEffectView(effect: RelationMaterializationEffect) {
+  return {
+    proposalId: effect.proposalLedgerId,
+    decisionId: effect.decisionLedgerId,
+    status: effect.status,
+    attempts: effect.attemptCount,
+    maxAttempts: effect.maxAttempts,
+    leaseRecoveries: effect.leaseRecoveryCount,
+    maxLeaseRecoveries: effect.maxLeaseRecoveries,
+    relationCount: effect.relationCount,
+    lastError: effect.lastError,
+    nextRetryAt: effect.nextRetryAt?.toISOString() ?? null,
+    leaseExpiresAt: effect.leaseExpiresAt?.toISOString() ?? null,
+    lastAttemptAt: effect.lastAttemptedAt?.toISOString() ?? null,
+    appliedAt: effect.appliedAt?.toISOString() ?? null,
+    createdAt: effect.createdAt.toISOString(),
+    updatedAt: effect.updatedAt.toISOString(),
+  };
+}
+
+async function approvedRelationshipResolution(
+  ctx: ApiContext,
+  workspaceId: string,
+  proposalId: string,
+): Promise<{ original: LedgerEntry; decision: LedgerEntry; ownerUserId: string }> {
+  const original = await ctx.wiring.ledger.get(proposalId);
+  if (
+    !original ||
+    original.workspaceId !== workspaceId ||
+    original.resourceType !== "relation" ||
+    !isRelationshipSignalEvidence(original.inputs)
+  ) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Relationship proposal not found",
+    });
+  }
+  const ownerUserId = relationshipOwnerFromLedger(original);
+  if (!ownerUserId || ownerUserId !== ctx.identity.id) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Relationship proposal not found",
+    });
+  }
+  const decision = await ctx.wiring.ledger.decisionFor(proposalId);
+  if (
+    !decision ||
+    (decision.userDecision !== "approve" && decision.userDecision !== "edit")
+  ) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Relationship proposal has no approved resolution to reconcile",
+    });
+  }
+  return { original, decision, ownerUserId };
+}
+
+async function retryApprovedRelationship(
+  ctx: ApiContext,
+  workspaceId: string,
+  proposalId: string,
+) {
+  const { original, decision, ownerUserId } =
+    await approvedRelationshipResolution(ctx, workspaceId, proposalId);
+  try {
+    const result = await applyApprovedRelationshipMaterialization(
+      ctx.wiring.graphStore,
+      ctx.wiring.relationMaterializations,
+      original,
+      decision,
+      new Date(ctx.run.clock.nowISO()),
+      { allowExhausted: true },
+    );
+    if (result.effect.status !== "applied") {
+      return {
+        status: result.effect.status,
+        effect: relationshipEffectView(result.effect),
+        error:
+          result.effect.lastError ??
+          (result.effect.leaseExpiresAt
+            ? "Relationship application is already in progress"
+            : "Relationship application is ready to retry"),
+        retryable: true,
+      };
+    }
+    return {
+      status: "confirmed" as const,
+      effect: relationshipEffectView(result.effect),
+      ...(result.materialization ?? {}),
+    };
+  } catch (cause) {
+    const effect = await ctx.wiring.relationMaterializations.getByProposal(
+      workspaceId,
+      ownerUserId,
+      proposalId,
+    );
+    if (!effect) throw cause;
+    if (effect.status === "applied") {
+      return {
+        status: "confirmed" as const,
+        effect: relationshipEffectView(effect),
+      };
+    }
+    return {
+      status: effect.status,
+      effect: relationshipEffectView(effect),
+      error:
+        effect.lastError ??
+        (cause instanceof Error ? cause.message : String(cause)),
+      retryable: true,
+    };
+  }
+}
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -1385,133 +1502,223 @@ export const appRouter = t.router({
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
       assertRelationshipProposalOwner(original, ctx.identity);
-      let committedEditedOutput = input.editedOutput;
-      if (
-        input.decision === "edit" &&
+      const isRelationshipProposal =
         original.resourceType === "relation" &&
-        isRelationshipSignalEvidence(original.inputs)
-      ) {
-        const originalPayload = relationshipSignalEvidencePayloadSchema.safeParse(original.inputs);
-        const editedPayload = relationshipSignalEvidencePayloadSchema.safeParse(input.editedOutput);
-        if (!originalPayload.success || !editedPayload.success) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "edited Relationship output must satisfy the Signal evidence Relation contract",
-          });
-        }
-        if (
-          editedPayload.data.signalId !== originalPayload.data.signalId ||
-          editedPayload.data.sourceEventId !== originalPayload.data.sourceEventId
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "a Relationship review edit cannot retarget the Signal or source Event",
-          });
-        }
-        committedEditedOutput = editedPayload.data;
-        const ownerUserId = relationshipOwnerFromLedger(original);
-        if (!ownerUserId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "edited Relationship output requires a user-owned proposal",
-          });
-        }
-        const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
-          original.workspaceId,
-          ownerUserId,
-          editedPayload.data.signalId,
-          editedPayload.data.sourceEventId,
-        );
-        if (
-          !detail?.sourceEvent ||
-          detail.sourceEvent.id !== editedPayload.data.sourceEventId ||
-          !editedPayload.data.participants.some(
-            (participant) =>
-              participant.recordType === detail.signal.subjectType &&
-              participant.recordId === detail.signal.subjectId,
-          )
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "edited Relationship output must retain its accessible Signal subject and source Event",
-          });
-        }
-        const editedParticipantRecords = await Promise.all(
-          editedPayload.data.participants.map((participant) =>
-            participant.recordType === "person"
-              ? ctx.wiring.graphStore.getPerson(
-                  original.workspaceId,
-                  ownerUserId,
-                  participant.recordId,
-                )
-              : ctx.wiring.graphStore.getCommunity(
-                  original.workspaceId,
-                  ownerUserId,
-                  participant.recordId,
-                ),
-          ),
-        );
-        if (editedParticipantRecords.some((record) => record === null)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "edited Relationship output contains an inaccessible participant",
-          });
-        }
-      }
-      let resolved: Proposal;
+        isRelationshipSignalEvidence(original.inputs);
+      let resolved: Proposal | null = null;
       let postDecisionPipelineError: unknown;
       let relationshipDecision: LedgerEntry | null = null;
-      try {
-        resolved = await ctx.wiring.pipeline.decide(
+      let ownerInitiatedRelationshipRetry = false;
+      let recordedDecision = input.decision;
+      if (isRelationshipProposal) {
+        const existingDecision = await ctx.wiring.ledger.decisionFor(
           input.proposalId,
-          input.decision,
-          ctx.identity,
-          ctx.run,
-          committedEditedOutput,
-          input.reason,
         );
-      } catch (err) {
-        // Double-approve / already-resolved (including the persistent ledger's
-        // partial-unique-index race guard) → 409, not a generic 500.
-        if (err instanceof AlreadyResolvedError) {
-          throw new TRPCError({ code: "CONFLICT", message: err.message });
+        if (existingDecision) {
+          if (
+            existingDecision.userDecision !== "approve" &&
+            existingDecision.userDecision !== "edit"
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `proposal ${input.proposalId} is already resolved`,
+            });
+          }
+          resolved = proposalFromResolvedRelationshipLedger(
+            original,
+            existingDecision,
+          );
+          relationshipDecision = existingDecision;
+          recordedDecision = existingDecision.userDecision;
+          ownerInitiatedRelationshipRetry = true;
         }
-        if (err instanceof NotPendingProposalError) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+      }
+      let committedEditedOutput = input.editedOutput;
+      if (
+        !resolved &&
+        input.decision === "edit" &&
+        isRelationshipProposal
+      ) {
+        try {
+          const originalPayload =
+            relationshipSignalEvidencePayloadSchema.safeParse(original.inputs);
+          const editedPayload =
+            relationshipSignalEvidencePayloadSchema.safeParse(input.editedOutput);
+          if (!originalPayload.success || !editedPayload.success) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Relationship output must satisfy the Signal evidence Relation contract",
+            });
+          }
+          if (
+            editedPayload.data.signalId !== originalPayload.data.signalId ||
+            editedPayload.data.sourceEventId !== originalPayload.data.sourceEventId
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "a Relationship review edit cannot retarget the Signal or source Event",
+            });
+          }
+          committedEditedOutput = editedPayload.data;
+          const ownerUserId = relationshipOwnerFromLedger(original);
+          if (!ownerUserId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "edited Relationship output requires a user-owned proposal",
+            });
+          }
+          const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
+            original.workspaceId,
+            ownerUserId,
+            editedPayload.data.signalId,
+            editedPayload.data.sourceEventId,
+          );
+          if (
+            !detail?.sourceEvent ||
+            detail.sourceEvent.id !== editedPayload.data.sourceEventId ||
+            !editedPayload.data.participants.some(
+              (participant) =>
+                participant.recordType === detail.signal.subjectType &&
+                participant.recordId === detail.signal.subjectId,
+            )
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Relationship output must retain its accessible Signal subject and source Event",
+            });
+          }
+          const editedParticipantsAccessible =
+            await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
+              original.workspaceId,
+              ownerUserId,
+              editedPayload.data.participants,
+            );
+          if (!editedParticipantsAccessible) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Relationship output contains an inaccessible participant",
+            });
+          }
+        } catch (validationCause) {
+          const racedDecision = await ctx.wiring.ledger.decisionFor(
+            input.proposalId,
+          );
+          if (
+            racedDecision?.userDecision === "approve" ||
+            racedDecision?.userDecision === "edit"
+          ) {
+            resolved = proposalFromResolvedRelationshipLedger(
+              original,
+              racedDecision,
+            );
+            relationshipDecision = racedDecision;
+            recordedDecision = racedDecision.userDecision;
+            ownerInitiatedRelationshipRetry = true;
+          } else if (racedDecision) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `proposal ${input.proposalId} is already resolved`,
+            });
+          } else {
+            throw validationCause;
+          }
         }
-        // Agent-floor DENY at the review gate (an agent attempted to approve) → 403,
-        // matching the IntegrationFloorScopeError → FORBIDDEN pattern above.
-        if (err instanceof AgentFloorDeniedError) {
-          throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+      }
+      if (!resolved) {
+        try {
+          resolved = await ctx.wiring.pipeline.decide(
+            input.proposalId,
+            input.decision,
+            ctx.identity,
+            ctx.run,
+            committedEditedOutput,
+            input.reason,
+          );
+        } catch (err) {
+          if (err instanceof AlreadyResolvedError) {
+            const persistedDecision =
+              original.resourceType === "relation" &&
+              isRelationshipSignalEvidence(original.inputs)
+                ? await ctx.wiring.ledger.decisionFor(input.proposalId)
+                : null;
+            if (
+              persistedDecision?.userDecision !== "approve" &&
+              persistedDecision?.userDecision !== "edit"
+            ) {
+              throw new TRPCError({ code: "CONFLICT", message: err.message });
+            }
+            resolved = proposalFromResolvedRelationshipLedger(
+              original,
+              persistedDecision,
+            );
+            relationshipDecision = persistedDecision;
+            recordedDecision = persistedDecision.userDecision;
+            ownerInitiatedRelationshipRetry = true;
+          } else {
+            if (err instanceof NotPendingProposalError) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+            }
+            if (err instanceof AgentFloorDeniedError) {
+              throw new TRPCError({ code: "FORBIDDEN", message: err.message });
+            }
+            const persistedDecision =
+              original.resourceType === "relation" &&
+              isRelationshipSignalEvidence(original.inputs)
+                ? await ctx.wiring.ledger.decisionFor(input.proposalId)
+                : null;
+            if (
+              persistedDecision?.userDecision !== "approve" &&
+              persistedDecision?.userDecision !== "edit"
+            ) {
+              throw err;
+            }
+            resolved = proposalFromResolvedRelationshipLedger(
+              original,
+              persistedDecision,
+            );
+            relationshipDecision = persistedDecision;
+            recordedDecision = persistedDecision.userDecision;
+            postDecisionPipelineError = err;
+            ownerInitiatedRelationshipRetry = true;
+          }
         }
-        const persistedDecision =
-          original.resourceType === "relation" &&
-          isRelationshipSignalEvidence(original.inputs)
-            ? await ctx.wiring.ledger.decisionFor(input.proposalId)
-            : null;
-        if (
-          persistedDecision?.userDecision !== "approve" &&
-          persistedDecision?.userDecision !== "edit"
-        ) {
-          throw err;
-        }
-        resolved = proposalFromResolvedRelationshipLedger(original, persistedDecision);
-        relationshipDecision = persistedDecision;
-        postDecisionPipelineError = err;
+      }
+      if (!resolved) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Relationship decision did not resolve",
+        });
       }
       // Post-approval Google side effects (no-op for unrelated proposals):
       // materialize an intake proposal to the LOCAL graph, or execute an approved
       // external:send through the gate. Runs ONLY after the governed decision.
-      let relationshipMaterialization: Awaited<
-        ReturnType<typeof materializeApprovedRelationshipProposal>
-      > = null;
+      let relationshipEffect: Awaited<
+        ReturnType<typeof applyApprovedRelationshipMaterialization>
+      > | null = null;
+      let persistedRelationshipDecision: LedgerEntry | null = null;
+      let relationshipApplicationReturned = false;
       try {
-        const persistedRelationshipDecision =
+        const relationshipDecisionCandidate =
           original.resourceType === "relation" &&
-          isRelationshipSignalEvidence(original.inputs) &&
-          input.decision !== "veto"
+          isRelationshipSignalEvidence(original.inputs)
             ? relationshipDecision ??
               await ctx.wiring.ledger.decisionFor(input.proposalId)
+            : null;
+        if (
+          relationshipDecisionCandidate?.userDecision === "approve" ||
+          relationshipDecisionCandidate?.userDecision === "edit" ||
+          relationshipDecisionCandidate?.userDecision === "veto"
+        ) {
+          recordedDecision = relationshipDecisionCandidate.userDecision;
+        }
+        persistedRelationshipDecision =
+          relationshipDecisionCandidate?.userDecision === "approve" ||
+          relationshipDecisionCandidate?.userDecision === "edit"
+            ? relationshipDecisionCandidate
             : null;
         const packageInstallationId = packageInstallIdFromProposal(original);
         const packageInstallation =
@@ -1522,31 +1729,67 @@ export const appRouter = t.router({
                 packageInstallationId,
               )
             : undefined;
-        relationshipMaterialization =
-          input.decision === "veto"
-            ? null
-            : await materializeApprovedRelationshipProposal(
+        relationshipEffect =
+          persistedRelationshipDecision
+            ? await applyApprovedRelationshipMaterialization(
                 ctx.wiring.graphStore,
-                persistedRelationshipDecision
-                  ? proposalFromResolvedRelationshipLedger(
-                      original,
-                      persistedRelationshipDecision,
-                    )
-                  : resolved,
+                ctx.wiring.relationMaterializations,
+                original,
                 persistedRelationshipDecision,
-              );
+                new Date(ctx.run.clock.nowISO()),
+                {
+                  allowExhausted: ownerInitiatedRelationshipRetry,
+                },
+              )
+            : null;
+        relationshipApplicationReturned =
+          persistedRelationshipDecision !== null;
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
         if (postDecisionPipelineError) throw postDecisionPipelineError;
+        if (
+          relationshipEffect &&
+          relationshipEffect.effect.status !== "applied"
+        ) {
+          const effectsError =
+            relationshipEffect.effect.lastError ??
+            "Relationship application is already in progress";
+          return {
+            ...resolved,
+            recordedDecision,
+            effects,
+            effectsStatus: "failed" as const,
+            effectsError,
+            effectsAuditId: undefined,
+            ...(packageInstallation ? { packageInstallation } : {}),
+            relationshipMaterialization: {
+              status: relationshipEffect.effect.status,
+              error: effectsError,
+              reconcileable: true,
+              attempts: relationshipEffect.effect.attemptCount,
+              maxAttempts: relationshipEffect.effect.maxAttempts,
+              leaseRecoveries:
+                relationshipEffect.effect.leaseRecoveryCount,
+              maxLeaseRecoveries:
+                relationshipEffect.effect.maxLeaseRecoveries,
+              nextRetryAt:
+                relationshipEffect.effect.nextRetryAt?.toISOString() ?? null,
+              leaseExpiresAt:
+                relationshipEffect.effect.leaseExpiresAt?.toISOString() ??
+                null,
+            },
+          };
+        }
         return {
           ...resolved,
+          recordedDecision,
           effects,
           effectsStatus: "confirmed" as const,
           ...(packageInstallation ? { packageInstallation } : {}),
-          ...(relationshipMaterialization
+          ...(relationshipEffect?.effect.status === "applied"
             ? {
                 relationshipMaterialization: {
-                  status: "confirmed" as const,
-                  relationCount: 1 + relationshipMaterialization.participants.length,
+                 status: "confirmed" as const,
+                 relationCount: relationshipEffect.effect.relationCount ?? 0,
                 },
               }
             : {}),
@@ -1563,6 +1806,33 @@ export const appRouter = t.router({
           pipelineMessage && cause !== postDecisionPipelineError
             ? `Post-decision pipeline failed: ${pipelineMessage}; subsequent approved effect failed: ${causeMessage}`
             : causeMessage;
+        const relationshipOwnerUserId = relationshipOwnerFromLedger(original);
+        const persistedRelationshipEffect =
+          relationshipOwnerUserId &&
+          original.resourceType === "relation" &&
+          isRelationshipSignalEvidence(original.inputs)
+            ? await ctx.wiring.relationMaterializations.getByProposal(
+              original.workspaceId,
+              relationshipOwnerUserId,
+              original.id,
+            )
+            : null;
+        if (
+          persistedRelationshipEffect?.status === "applied" &&
+          !relationshipApplicationReturned &&
+          !postDecisionPipelineError
+        ) {
+          return {
+            ...resolved,
+            recordedDecision,
+            effects: { materialized: false, sent: false },
+            effectsStatus: "confirmed" as const,
+            relationshipMaterialization: {
+              status: "confirmed" as const,
+              relationCount: persistedRelationshipEffect.relationCount ?? 0,
+            },
+          };
+        }
         let effectsAuditId: string | undefined;
         try {
           const auditId = ctx.run.ids.next();
@@ -1600,25 +1870,42 @@ export const appRouter = t.router({
         }
         return {
           ...resolved,
+          recordedDecision,
           effects: { materialized: false, sent: false },
           effectsStatus: "failed" as const,
           effectsError,
           ...(effectsAuditId ? { effectsAuditId } : {}),
-          ...(relationshipMaterialization
+          ...(persistedRelationshipEffect?.status === "applied"
             ? {
                 relationshipMaterialization: {
                   status: "confirmed" as const,
-                  relationCount: 1 + relationshipMaterialization.participants.length,
+                  relationCount: persistedRelationshipEffect.relationCount ?? 0,
                 },
               }
             : original.resourceType === "relation" &&
                 isRelationshipSignalEvidence(original.inputs) &&
-                input.decision !== "veto"
+                persistedRelationshipDecision !== null
               ? {
                   relationshipMaterialization: {
-                    status: "failed" as const,
-                    error: effectsError,
+                    status:
+                      persistedRelationshipEffect?.status === "pending"
+                        ? "pending" as const
+                        : "failed" as const,
+                    error:
+                      persistedRelationshipEffect?.lastError ?? effectsError,
                     reconcileable: true,
+                    attempts: persistedRelationshipEffect?.attemptCount ?? 0,
+                    maxAttempts: persistedRelationshipEffect?.maxAttempts ?? 5,
+                    leaseRecoveries:
+                      persistedRelationshipEffect?.leaseRecoveryCount ?? 0,
+                    maxLeaseRecoveries:
+                      persistedRelationshipEffect?.maxLeaseRecoveries ?? 3,
+                    nextRetryAt:
+                      persistedRelationshipEffect?.nextRetryAt?.toISOString() ??
+                      null,
+                    leaseExpiresAt:
+                      persistedRelationshipEffect?.leaseExpiresAt?.toISOString() ??
+                      null,
                   },
                 }
               : {}),
@@ -2008,19 +2295,47 @@ export const appRouter = t.router({
           nodeType: relationshipNodeTypeEnum,
           nodeId: z.string().uuid(),
           limit: z.number().int().min(1).max(100).default(50),
-          offset: z.number().int().min(0).default(0),
+          cursor: z
+            .object({
+              observedAt: z.string().datetime(),
+              createdAt: z.string().datetime(),
+              id: z.string().uuid(),
+            })
+            .optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const { items, total } = await ctx.wiring.graphStore.listRelations(
+        const { items, total, nextCursor } = await ctx.wiring.graphStore.listRelations(
           input.workspaceId,
           ctx.identity.id,
           { nodeType: input.nodeType, nodeId: input.nodeId },
-          { limit: input.limit, offset: input.offset },
+          {
+            limit: input.limit,
+            ...(input.cursor
+              ? {
+                  cursor: {
+                    observedAt: new Date(input.cursor.observedAt),
+                    createdAt: new Date(input.cursor.createdAt),
+                    id: input.cursor.id,
+                  },
+                }
+              : {}),
+          },
         );
-        return { items, total, hasMore: input.offset + items.length < total };
+        return {
+          items,
+          total,
+          nextCursor: nextCursor
+            ? {
+                observedAt: nextCursor.observedAt.toISOString(),
+                createdAt: nextCursor.createdAt.toISOString(),
+                id: nextCursor.id,
+              }
+            : null,
+          hasMore: nextCursor !== null,
+        };
       }),
 
     proposeSignalEvidence: authenticatedProcedure
@@ -2043,14 +2358,13 @@ export const appRouter = t.router({
         if (!detail) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
         }
-        const participantRecords = await Promise.all(
-          input.participants.map((participant) =>
-            participant.recordType === "person"
-              ? ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, participant.recordId)
-              : ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, participant.recordId),
-          ),
-        );
-        if (participantRecords.some((record) => record === null)) {
+        const participantsAccessible =
+          await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
+            input.workspaceId,
+            ctx.identity.id,
+            input.participants,
+          );
+        if (!participantsAccessible) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "every participant must be an accessible Relationship Record",
@@ -2099,48 +2413,65 @@ export const appRouter = t.router({
         };
       }),
 
+    materializationStatus: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { ownerUserId } = await approvedRelationshipResolution(
+          ctx,
+          input.workspaceId,
+          input.proposalId,
+        );
+        const effect = await ctx.wiring.relationMaterializations.getByProposal(
+          input.workspaceId,
+          ownerUserId,
+          input.proposalId,
+        );
+        return effect ? relationshipEffectView(effect) : null;
+      }),
+
+    outstandingMaterializations: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          limit: z.number().int().min(1).max(100).default(50),
+          cursor: z.object({ id: z.string().uuid() }).optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const { items, nextCursor } =
+          await ctx.wiring.relationMaterializations.listOutstandingPage(
+            input.workspaceId,
+            ctx.identity.id,
+            {
+              limit: input.limit,
+              ...(input.cursor ? { cursor: input.cursor } : {}),
+            },
+          );
+        return {
+          items: items.map(relationshipEffectView),
+          nextCursor,
+          hasMore: nextCursor !== null,
+        };
+      }),
+
+    retryMaterialization: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return retryApprovedRelationship(ctx, input.workspaceId, input.proposalId);
+      }),
+
     reconcileApproved: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const original = await ctx.wiring.ledger.get(input.proposalId);
-        if (
-          !original ||
-          original.workspaceId !== input.workspaceId ||
-          original.resourceType !== "relation" ||
-          !isRelationshipSignalEvidence(original.inputs)
-        ) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Relationship proposal not found" });
-        }
-        const ownerUserId = relationshipOwnerFromLedger(original);
-        if (!ownerUserId || ownerUserId !== ctx.identity.id) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Relationship proposal not found" });
-        }
-        const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
-        if (!decision || (decision.userDecision !== "approve" && decision.userDecision !== "edit")) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Relationship proposal has no approved resolution to reconcile",
-          });
-        }
-        try {
-          const materialization = await materializeApprovedRelationshipProposal(
-            ctx.wiring.graphStore,
-            proposalFromResolvedRelationshipLedger(original, decision),
-            decision,
-          );
-          if (!materialization) {
-            throw new Error("approved proposal did not produce Relationship materialization");
-          }
-          return { status: "confirmed" as const, ...materialization };
-        } catch (cause) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: cause instanceof Error ? cause.message : String(cause),
-            cause,
-          });
-        }
+        return retryApprovedRelationship(ctx, input.workspaceId, input.proposalId);
       }),
   }),
 

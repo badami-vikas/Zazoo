@@ -76,10 +76,27 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(ledgerData, /isReviewDecision/);
   assert.match(ledgerData, /isRejectedAuditRow/);
   assert.match(ledgerData, /trpc\.action\.resolution/);
+  assert.match(ledgerData, /trpc\.relationship\.reconcileApproved/);
+  assert.match(ledgerData, /trpc\.relationship\.outstandingMaterializations/);
+  assert.match(ledgerData, /while \(cursor\)/);
+  assert.match(ledgerData, /page\.nextCursor/);
+  assert.match(ledgerData, /trpc\.relationship\.retryMaterialization/);
+  assert.match(ledgerData, /normalizeDecision\(result\.recordedDecision\)/);
+  assert.match(ledgerData, /decision: persistedDecision/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);
   assert.match(approvalsPage, /getActions\(\)/);
+  assert.match(approvalsPage, /Approved Relationship applications/);
+  assert.match(approvalsPage, /Decision is recorded permanently/);
+  assert.match(approvalsPage, /Retry application/);
+  assert.match(approvalsPage, /crash recovery/);
+  assert.doesNotMatch(approvalsPage, /effect\.attempts >= effect\.maxAttempts/);
+  assert.match(
+    ledgerData,
+    /relationshipStatus === 'pending'[\s\S]*?\('pending' as const\)/,
+  );
+  assert.match(ledgerData, /reconciliation\.status === 'pending'/);
 });
 
 test("failed capture adoption remains pending and exposes an actionable error", () => {

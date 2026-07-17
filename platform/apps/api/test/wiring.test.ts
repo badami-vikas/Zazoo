@@ -7,13 +7,13 @@
  * instead of silently pretending to be real.
  */
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore, createLocalDb, schema } from "@bridge/db";
+import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore, DrizzleLedgerStore, createLocalDb, schema } from "@bridge/db";
 import { InMemoryLedger, InMemoryRoleStore, InMemoryGoalTaskStore, InMemorySkillManifestRegistry, InMemoryChildAgentRunStore } from "@bridge/core";
-import { buildInMemoryPorts, buildPersistentPorts, GOVERNED_SKILL_MANIFEST_CATALOG } from "../src/wiring.js";
+import { buildInMemoryPorts, buildPersistentPorts, GOVERNED_SKILL_MANIFEST_CATALOG, PILOT_USER, PILOT_WORKSPACE } from "../src/wiring.js";
 
 /** A syntactically-valid Postgres URL that is never actually connected to: postgres-js's
  * client is lazy (no TCP connection until a query runs), so constructing/closing it is
@@ -83,6 +83,69 @@ test("buildInMemoryPorts: resumes Relation decision ordering above persisted loc
       decisionLedgerId: "52000000-0000-4000-8000-000000000003",
       decisionSequence: 41,
       decisionAt: new Date("2026-07-17T00:00:00.000Z"),
+    });
+
+    test("buildInMemoryPorts: file-backed mode persists approved ledger decisions across restart", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "bridge-relation-ledger-restart-"));
+      const seeded = await createLocalDb({ dataDir: dir });
+      try {
+        await seeded.db.insert(schema.workspaces).values({
+          id: PILOT_WORKSPACE,
+          name: "test_fixture_relation_ledger_restart_workspace",
+        });
+        await seeded.db.insert(schema.users).values({
+          id: PILOT_USER,
+          email: "test_fixture_relation_ledger_restart@example.com",
+        });
+      } finally {
+        await seeded.close();
+      }
+
+      let first = await buildInMemoryPorts({ localDir: dir });
+      try {
+        assert.ok(first.ledger instanceof DrizzleLedgerStore);
+        const proposal = await first.ledger.append({
+          id: "53000000-0000-4000-8000-000000000001",
+          workspaceId: PILOT_WORKSPACE,
+          actorType: "user",
+          actorId: PILOT_USER,
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:00.000Z",
+        });
+        await first.ledger.append({
+          id: "53000000-0000-4000-8000-000000000002",
+          workspaceId: PILOT_WORKSPACE,
+          actorType: "user",
+          actorId: PILOT_USER,
+          action: "write",
+          resourceType: "relation",
+          inputs: proposal.inputs,
+          proposedOutput: proposal.inputs,
+          userDecision: "approve",
+          policyResults: [],
+          refLedgerId: proposal.id,
+          createdAt: "2026-07-17T00:00:01.000Z",
+        });
+      } finally {
+        await first.closeDb();
+      }
+
+      first = await buildInMemoryPorts({ localDir: dir });
+      try {
+        assert.equal(
+          (await first.ledger.decisionFor(
+            "53000000-0000-4000-8000-000000000001",
+          ))?.id,
+          "53000000-0000-4000-8000-000000000002",
+        );
+      } finally {
+        await first.closeDb();
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   } finally {
     await seeded.close();

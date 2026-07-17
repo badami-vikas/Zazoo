@@ -17,7 +17,7 @@
  * UniversalActionPipeline.propose(). See docs/raw/decisions-log.md.
  */
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import {
   communities,
@@ -41,6 +41,18 @@ export interface PageOpts {
 export interface Page<T> {
   items: T[];
   total: number;
+}
+
+export interface RelationCursor {
+  observedAt: Date;
+  createdAt: Date;
+  id: string;
+}
+
+export interface RelationPage {
+  items: RelationRecord[];
+  total: number;
+  nextCursor: RelationCursor | null;
 }
 
 export interface PersonRecord {
@@ -126,8 +138,6 @@ export interface MaterializeSignalEvidenceInput {
   ownerUserId: string;
   signalId: string;
   sourceEventId: string;
-  source: string;
-  observedAt: Date;
   userConfirmed: boolean;
   visibility: RelationVisibility;
   participants: SignalParticipantRelationInput[];
@@ -142,10 +152,18 @@ export interface NodeTypeOwner {
   owningModule: string | null;
 }
 
+interface AccessibleNodes {
+  people: Map<string, PersonRecord>;
+  communities: Map<string, CommunityRecord>;
+  signalIds: Set<string>;
+  eventIds: Set<string>;
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_RELATION_EVIDENCE_REFS = 100;
 const MAX_RELATION_PAGE_SIZE = 100;
 const MAX_SIGNAL_RELATIONS = 200;
+const MAX_BATCH_NODE_REFS = 10_000;
 
 function compareRelationPreference(
   left: RelationRecord,
@@ -183,6 +201,21 @@ function isRelationEvidenceRef(value: unknown): value is RelationEvidenceRef {
     UUID_PATTERN.test(ref.entityId) &&
     (ref.source === undefined || typeof ref.source === "string")
   );
+}
+
+function relationEvidenceCandidates(relation: RelationRecord): RelationEvidenceRef[] {
+  const seen = new Set<string>();
+  const candidates: RelationEvidenceRef[] = [];
+  if (!Array.isArray(relation.evidenceRefs)) return candidates;
+  for (const value of relation.evidenceRefs) {
+    if (!isRelationEvidenceRef(value) || !UUID_PATTERN.test(value.entityId)) continue;
+    const key = `${value.entityType}:${value.entityId.toLowerCase()}:${value.source ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push({ ...value, entityId: value.entityId.toLowerCase() });
+    if (candidates.length >= MAX_RELATION_EVIDENCE_REFS) break;
+  }
+  return candidates;
 }
 
 function assertRelationInput(input: UpsertRelationInput): void {
@@ -298,6 +331,7 @@ export class DrizzleGraphStore {
       desc(edges.decisionAt),
       desc(edges.observedAt),
       desc(edges.createdAt),
+      desc(edges.id),
     ];
   }
 
@@ -813,44 +847,247 @@ export class DrizzleGraphStore {
     )`;
   }
 
-  async #pruneRelationEvidence(
+  async #loadAccessibleNodes(
     workspaceId: string,
     viewerUserId: string,
-    relation: RelationRecord,
-  ): Promise<RelationRecord> {
-    const candidates = Array.isArray(relation.evidenceRefs)
-      ? relation.evidenceRefs.filter(isRelationEvidenceRef).slice(0, MAX_RELATION_EVIDENCE_REFS)
-      : [];
-    const readable = await Promise.all(
-      candidates.map((ref) => this.#canReadNode(workspaceId, viewerUserId, ref.entityType, ref.entityId)),
+    references: Array<{ nodeType: string; nodeId: string }>,
+    seed: { signalIds?: string[]; eventIds?: string[] } = {},
+  ): Promise<AccessibleNodes> {
+    const grouped = {
+      person: new Set<string>(),
+      community: new Set<string>(),
+      signal: new Set<string>(),
+      event: new Set<string>(),
+    };
+    let accepted = 0;
+    for (const reference of references) {
+      if (
+        !UUID_PATTERN.test(reference.nodeId) ||
+        !Object.hasOwn(grouped, reference.nodeType)
+      ) {
+        continue;
+      }
+      const values = grouped[reference.nodeType as keyof typeof grouped];
+      const id = reference.nodeId.toLowerCase();
+      if (values.has(id)) continue;
+      if (accepted >= MAX_BATCH_NODE_REFS) break;
+      values.add(id);
+      accepted += 1;
+    }
+    const seededSignalIds = new Set(
+      (seed.signalIds ?? []).map((id) => id.toLowerCase()),
     );
+    const seededEventIds = new Set(
+      (seed.eventIds ?? []).map((id) => id.toLowerCase()),
+    );
+    for (const id of seededSignalIds) grouped.signal.delete(id);
+    for (const id of seededEventIds) grouped.event.delete(id);
+
+    const [personRows, communityRows, signalRows, eventRows] = await Promise.all([
+      grouped.person.size === 0
+        ? Promise.resolve<PersonRecord[]>([])
+        : this.#db
+            .select({
+              id: people.id,
+              workspaceId: people.workspaceId,
+              visibility: people.visibility,
+              displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
+              currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+              currentCommunityId: people.currentCommunityId,
+              source: people.source,
+              lastInteractionAt: people.lastInteractionAt,
+              contextFreshnessAt: people.contextFreshnessAt,
+              createdAt: people.createdAt,
+            })
+            .from(people)
+            .leftJoin(
+              peopleCanonical,
+              eq(people.canonicalPersonId, peopleCanonical.id),
+            )
+            .where(
+              and(
+                eq(people.workspaceId, workspaceId),
+                inArray(people.id, [...grouped.person]),
+                or(
+                  eq(people.visibility, "workspace"),
+                  and(
+                    inArray(people.visibility, ["private", "team"]),
+                    eq(people.userId, viewerUserId),
+                  ),
+                ),
+                isNull(people.archivedAt),
+              ),
+            ),
+      grouped.community.size === 0
+        ? Promise.resolve<CommunityRecord[]>([])
+        : this.#db
+            .select({
+              id: communities.id,
+              workspaceId: communities.workspaceId,
+              visibility: communities.visibility,
+              displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
+              description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
+              kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+              source: communities.source,
+              isUserConfirmed: communities.isUserConfirmed,
+            })
+            .from(communities)
+            .leftJoin(
+              communitiesCanonical,
+              eq(communities.canonicalCommunityId, communitiesCanonical.id),
+            )
+            .where(
+              and(
+                eq(communities.workspaceId, workspaceId),
+                inArray(communities.id, [...grouped.community]),
+                or(
+                  eq(communities.visibility, "workspace"),
+                  and(
+                    inArray(communities.visibility, ["private", "team"]),
+                    eq(communities.userId, viewerUserId),
+                  ),
+                ),
+                isNull(communities.archivedAt),
+              ),
+            ),
+      grouped.signal.size === 0
+        ? Promise.resolve<Array<{ id: string }>>([])
+        : this.#db
+            .select({ id: signals.id })
+            .from(signals)
+            .where(
+              and(
+                eq(signals.workspaceId, workspaceId),
+                inArray(signals.id, [...grouped.signal]),
+                this.#readableSignalSubjectCondition(
+                  workspaceId,
+                  viewerUserId,
+                ),
+              ),
+            ),
+      grouped.event.size === 0
+        ? Promise.resolve<Array<{ id: string }>>([])
+        : this.#db
+            .select({ id: events.id })
+            .from(events)
+            .innerJoin(
+              signals,
+              and(
+                eq(signals.workspaceId, events.workspaceId),
+                eq(signals.id, events.entityId),
+              ),
+            )
+            .where(
+              and(
+                eq(events.workspaceId, workspaceId),
+                inArray(events.id, [...grouped.event]),
+                eq(events.entityType, "signal"),
+                this.#readableSignalSubjectCondition(
+                  workspaceId,
+                  viewerUserId,
+                ),
+              ),
+            ),
+    ]);
+    return {
+      people: new Map(personRows.map((row) => [row.id, row])),
+      communities: new Map(communityRows.map((row) => [row.id, row])),
+      signalIds: new Set([
+        ...seededSignalIds,
+        ...signalRows.map((row) => row.id),
+      ]),
+      eventIds: new Set([
+        ...seededEventIds,
+        ...eventRows.map((row) => row.id),
+      ]),
+    };
+  }
+
+  #pruneRelationEvidence(
+    relation: RelationRecord,
+    accessible: AccessibleNodes,
+  ): RelationRecord {
+    const candidates = relationEvidenceCandidates(relation);
     return {
       ...relation,
-      evidenceRefs: candidates.filter((_, index) => readable[index]),
+      evidenceRefs: candidates.filter((reference) => {
+        if (reference.entityType === "person") {
+          return accessible.people.has(reference.entityId);
+        }
+        if (reference.entityType === "community") {
+          return accessible.communities.has(reference.entityId);
+        }
+        if (reference.entityType === "signal") {
+          return accessible.signalIds.has(reference.entityId);
+        }
+        if (reference.entityType === "event") {
+          return accessible.eventIds.has(reference.entityId);
+        }
+        return false;
+      }),
     };
+  }
+
+  async areRelationshipRecordsAccessible(
+    workspaceId: string,
+    viewerUserId: string,
+    references: Array<{
+      recordType: "person" | "community";
+      recordId: string;
+    }>,
+  ): Promise<boolean> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.areRelationshipRecordsAccessible(
+          workspaceId,
+          viewerUserId,
+          references,
+        ),
+      );
+    }
+    if (references.length === 0 || references.length > 100) return false;
+    const unique = new Map(
+      references.map((reference) => [
+        `${reference.recordType}:${reference.recordId.toLowerCase()}`,
+        {
+          nodeType: reference.recordType,
+          nodeId: reference.recordId.toLowerCase(),
+        },
+      ]),
+    );
+    if (unique.size !== references.length) return false;
+    const accessible = await this.#loadAccessibleNodes(
+      workspaceId,
+      viewerUserId,
+      [...unique.values()],
+    );
+    return [...unique.values()].every((reference) =>
+      reference.nodeType === "person"
+        ? accessible.people.has(reference.nodeId)
+        : accessible.communities.has(reference.nodeId),
+    );
   }
 
   async listRelations(
     workspaceId: string,
     viewerUserId: string,
     anchor: { nodeType: string; nodeId: string },
-    opts: PageOpts,
-  ): Promise<Page<RelationRecord>> {
+    opts: { limit: number; cursor?: RelationCursor | null },
+  ): Promise<RelationPage> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.listRelations(workspaceId, viewerUserId, anchor, opts),
       );
     }
     if (!(await this.#canReadNode(workspaceId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
-      return { items: [], total: 0 };
+      return { items: [], total: 0, nextCursor: null };
     }
     const limit = Math.min(Math.max(opts.limit, 1), MAX_RELATION_PAGE_SIZE);
-    const offset = Math.max(opts.offset, 0);
     const visibleRelation = or(
       eq(edges.ownerUserId, viewerUserId),
       inArray(edges.visibility, ["workspace", "public"]),
     );
-    const where = and(
+    const baseWhere = and(
       eq(edges.workspaceId, workspaceId),
       visibleRelation,
       or(
@@ -866,19 +1103,64 @@ export class DrizzleGraphStore {
         ),
       ),
     );
+    const cursorWhere = opts.cursor
+      ? or(
+          lt(edges.observedAt, opts.cursor.observedAt),
+          and(
+            eq(edges.observedAt, opts.cursor.observedAt),
+            lt(edges.createdAt, opts.cursor.createdAt),
+          ),
+          and(
+            eq(edges.observedAt, opts.cursor.observedAt),
+            eq(edges.createdAt, opts.cursor.createdAt),
+            lt(edges.id, opts.cursor.id),
+          ),
+        )
+      : undefined;
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select()
         .from(edges)
-        .where(where)
-        .orderBy(desc(edges.observedAt), desc(edges.createdAt))
-        .limit(limit)
-        .offset(offset),
-      this.#db.select({ value: count() }).from(edges).where(where),
+        .where(and(baseWhere, cursorWhere))
+        .orderBy(
+          desc(edges.observedAt),
+          desc(edges.createdAt),
+          desc(edges.id),
+        )
+        .limit(limit + 1),
+      this.#db.select({ value: count() }).from(edges).where(baseWhere),
     ]);
+    const hasMore = rows.length > limit;
+    const pageRows = rows.slice(0, limit);
+    const evidenceReferences = pageRows.flatMap((relation) =>
+      relationEvidenceCandidates(relation).map((reference) => ({
+        nodeType: reference.entityType,
+        nodeId: reference.entityId,
+      })),
+    );
+    const accessible = await this.#loadAccessibleNodes(
+      workspaceId,
+      viewerUserId,
+      evidenceReferences,
+      {
+        signalIds: anchor.nodeType === "signal" ? [anchor.nodeId] : [],
+        eventIds: anchor.nodeType === "event" ? [anchor.nodeId] : [],
+      },
+    );
+    const last = pageRows.at(-1);
     return {
-      items: await Promise.all(rows.map((relation) => this.#pruneRelationEvidence(workspaceId, viewerUserId, relation))),
+      items: pageRows.map((relation) =>
+        this.#pruneRelationEvidence(relation, accessible),
+      ),
       total: Number(totalRows[0]?.value ?? 0),
+      nextCursor:
+        hasMore && last
+          ? {
+              observedAt: last.observedAt,
+              createdAt: last.createdAt,
+              id: last.id,
+            }
+          : null,
     };
   }
 
@@ -1013,12 +1295,10 @@ export class DrizzleGraphStore {
       !UUID_PATTERN.test(decisionLedgerId) ||
       !Number.isSafeInteger(input.decisionSequence) ||
       input.decisionSequence <= 0 ||
-      !input.source.trim() ||
-      Number.isNaN(input.observedAt.getTime()) ||
       Number.isNaN(input.decisionAt.getTime())
     ) {
       throw new Error(
-        "Signal evidence source, observedAt, and decision provenance are required",
+        "Signal evidence decision provenance is required",
       );
     }
     if (participants.length === 0 || participants.length > 100) {
@@ -1031,63 +1311,13 @@ export class DrizzleGraphStore {
       throw new Error("Signal evidence participants must be unique by Record");
     }
 
-    const signal = await this.#getAccessibleSignal(workspaceId, ownerUserId, signalId);
-    if (!signal) throw new Error("Signal not found or not accessible");
-    const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
-    if (!sourceEvent || sourceEvent.entityType !== "signal" || sourceEvent.entityId !== signal.id) {
-      throw new Error("Source Event must belong to the Signal");
-    }
-    if (
-      !participants.some(
-        (participant) =>
-          participant.recordType === signal.subjectType && participant.recordId === signal.subjectId,
-      )
-    ) {
-      throw new Error("Signal evidence participants must include the Signal subject");
-    }
-
-    const nodeTypeNames = ["signal", "event", ...participants.map((participant) => participant.recordType)];
-    const nodeTypeOwners = await Promise.all(
-      [...new Set(nodeTypeNames)].map((nodeType) => this.getNodeTypeOwner(nodeType)),
-    );
-    if (
-      nodeTypeOwners.some(
-        (owner) => owner === null || owner.owningModule !== "relationship",
-      )
-    ) {
-      throw new Error("Signal evidence node types must be owned by the Relationship Module");
-    }
-
-    const participantAccess = await Promise.all(
-      participants.map(async (participant) => {
-        if (!UUID_PATTERN.test(participant.recordId)) return false;
-        if (!Number.isFinite(participant.confidence) || participant.confidence < 0 || participant.confidence > 1) {
-          return false;
-        }
-        return this.#canReadNode(
-          workspaceId,
-          ownerUserId,
-          participant.recordType,
-          participant.recordId,
-        );
-      }),
-    );
-    const inaccessibleIndex = participantAccess.findIndex((accessible) => !accessible);
-    if (inaccessibleIndex >= 0) {
-      const participant = participants[inaccessibleIndex]!;
-      throw new Error(`Participant ${participant.recordType}:${participant.recordId} is invalid or not accessible`);
-    }
-
     await this.#db.execute(
       sql`SELECT pg_advisory_xact_lock(
         hashtextextended(${`${workspaceId}:${ownerUserId}:${signalId}`}, 0::bigint)
       )`,
     );
     const watermarkRows = await this.#db
-      .select({
-        decisionLedgerId: edges.decisionLedgerId,
-        decisionSequence: edges.decisionSequence,
-      })
+      .select()
       .from(edges)
       .where(
         and(
@@ -1101,27 +1331,224 @@ export class DrizzleGraphStore {
           ),
         ),
       )
-      .orderBy(desc(edges.decisionSequence))
+      .orderBy(
+        desc(edges.decisionSequence),
+        desc(edges.decisionAt),
+        desc(edges.id),
+      )
       .limit(1);
     const watermark = watermarkRows[0];
+    const pruneSupersededRelations = async (
+      winningDecisionSequence: number,
+      winningDecisionLedgerId: string,
+    ) => {
+      const sourceRelations = await this.#db
+        .select({
+          srcType: edges.srcType,
+          srcId: edges.srcId,
+          dstType: edges.dstType,
+          dstId: edges.dstId,
+        })
+        .from(edges)
+        .where(
+          and(
+            eq(edges.workspaceId, workspaceId),
+            eq(edges.ownerUserId, ownerUserId),
+            eq(edges.edgeType, "source_event"),
+            eq(edges.sourceModule, "relationship"),
+            isNotNull(edges.decisionSequence),
+            or(
+              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
+              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
+            ),
+          ),
+        );
+      const eventIds = [
+        ...new Set(
+          sourceRelations.flatMap((relation) => [
+            ...(relation.srcType === "event" ? [relation.srcId] : []),
+            ...(relation.dstType === "event" ? [relation.dstId] : []),
+          ]),
+        ),
+      ];
+      const supersededDecision = sql<boolean>`(
+        ${edges.decisionSequence} < ${winningDecisionSequence}
+        OR (
+          ${edges.decisionSequence} = ${winningDecisionSequence}
+          AND ${edges.decisionLedgerId} <> ${winningDecisionLedgerId}
+        )
+      )`;
+      if (eventIds.length > 0) {
+        await this.#db
+          .delete(edges)
+          .where(
+            and(
+              eq(edges.workspaceId, workspaceId),
+              eq(edges.ownerUserId, ownerUserId),
+              eq(edges.edgeType, "participant"),
+              eq(edges.sourceModule, "relationship"),
+              isNotNull(edges.decisionSequence),
+              supersededDecision,
+              or(
+                and(
+                  eq(edges.srcType, "event"),
+                  inArray(edges.srcId, eventIds),
+                ),
+                and(
+                  eq(edges.dstType, "event"),
+                  inArray(edges.dstId, eventIds),
+                ),
+              ),
+            ),
+          );
+      }
+      await this.#db
+        .delete(edges)
+        .where(
+          and(
+            eq(edges.workspaceId, workspaceId),
+            eq(edges.ownerUserId, ownerUserId),
+            eq(edges.edgeType, "source_event"),
+            eq(edges.sourceModule, "relationship"),
+            isNotNull(edges.decisionSequence),
+            supersededDecision,
+            or(
+              and(eq(edges.srcType, "signal"), eq(edges.srcId, signalId)),
+              and(eq(edges.dstType, "signal"), eq(edges.dstId, signalId)),
+            ),
+          ),
+        );
+    };
     if (
       watermark?.decisionSequence !== null &&
       watermark?.decisionSequence !== undefined &&
       (
-        watermark.decisionSequence > input.decisionSequence ||
-        (
-          watermark.decisionSequence === input.decisionSequence &&
-          watermark.decisionLedgerId !== decisionLedgerId
-        )
+        watermark.decisionSequence >= input.decisionSequence
       )
     ) {
-      throw new Error("Stale Relationship decision cannot materialize Signal evidence");
+      if (!watermark.decisionLedgerId) {
+        throw new Error("Canonical Relationship decision provenance is incomplete");
+      }
+      await pruneSupersededRelations(
+        watermark.decisionSequence,
+        watermark.decisionLedgerId,
+      );
+      const canonicalEventId =
+        watermark.srcType === "event"
+          ? watermark.srcId
+          : watermark.dstType === "event"
+            ? watermark.dstId
+            : null;
+      if (!canonicalEventId) {
+        throw new Error("Canonical Relationship source Event is invalid");
+      }
+      const canonicalParticipants = await this.#db
+        .select()
+        .from(edges)
+        .where(
+          and(
+            eq(edges.workspaceId, workspaceId),
+            eq(edges.ownerUserId, ownerUserId),
+            eq(edges.edgeType, "participant"),
+            eq(edges.sourceModule, "relationship"),
+            eq(edges.decisionSequence, watermark.decisionSequence),
+            eq(edges.decisionLedgerId, watermark.decisionLedgerId),
+            or(
+              and(
+                eq(edges.srcType, "event"),
+                eq(edges.srcId, canonicalEventId),
+              ),
+              and(
+                eq(edges.dstType, "event"),
+                eq(edges.dstId, canonicalEventId),
+              ),
+            ),
+          ),
+        );
+      return {
+        sourceEvent: watermark,
+        participants: canonicalParticipants,
+      };
+    }
+
+    const signal = await this.#getAccessibleSignal(
+      workspaceId,
+      ownerUserId,
+      signalId,
+    );
+    if (!signal) throw new Error("Signal not found or not accessible");
+    const sourceEvent = await this.getEvent(workspaceId, sourceEventId);
+    if (
+      !sourceEvent ||
+      sourceEvent.entityType !== "signal" ||
+      sourceEvent.entityId !== signal.id
+    ) {
+      throw new Error("Source Event must belong to the Signal");
+    }
+    const sourceEventPayload =
+      typeof sourceEvent.payload === "object" &&
+      sourceEvent.payload !== null &&
+      !Array.isArray(sourceEvent.payload)
+        ? sourceEvent.payload as Record<string, unknown>
+        : {};
+    const source =
+      typeof sourceEventPayload.source === "string" &&
+      sourceEventPayload.source.trim()
+        ? sourceEventPayload.source.trim()
+        : `event:${sourceEvent.type}`;
+    const observedAt = sourceEvent.createdAt;
+    if (
+      !participants.some(
+        (participant) =>
+          participant.recordType === signal.subjectType &&
+          participant.recordId === signal.subjectId,
+      )
+    ) {
+      throw new Error("Signal evidence participants must include the Signal subject");
+    }
+
+    const nodeTypeNames = [
+      "signal",
+      "event",
+      ...participants.map((participant) => participant.recordType),
+    ];
+    const nodeTypeOwners = await Promise.all(
+      [...new Set(nodeTypeNames)].map((nodeType) =>
+        this.getNodeTypeOwner(nodeType),
+      ),
+    );
+    if (
+      nodeTypeOwners.some(
+        (owner) => owner === null || owner.owningModule !== "relationship",
+      )
+    ) {
+      throw new Error("Signal evidence node types must be owned by the Relationship Module");
+    }
+
+    const invalidParticipant = participants.find(
+      (participant) =>
+        !UUID_PATTERN.test(participant.recordId) ||
+        !Number.isFinite(participant.confidence) ||
+        participant.confidence < 0 ||
+        participant.confidence > 1,
+    );
+    if (
+      invalidParticipant ||
+      !(await this.areRelationshipRecordsAccessible(
+        workspaceId,
+        ownerUserId,
+        participants,
+      ))
+    ) {
+      throw new Error(
+        "Signal evidence participants are invalid or not accessible",
+      );
     }
 
     const evidenceRef: RelationEvidenceRef = {
       entityType: "event",
       entityId: sourceEvent.id,
-      source: input.source.trim(),
+      source,
     };
     const values: Array<typeof edges.$inferInsert> = [
       {
@@ -1135,10 +1562,10 @@ export class DrizzleGraphStore {
         properties: {},
         evidenceRefs: [evidenceRef],
         confidence: "1",
-        observedAt: input.observedAt,
+        observedAt,
         userConfirmed: input.userConfirmed,
         visibility: input.visibility,
-        source: input.source.trim(),
+        source,
         sourceModule: "relationship",
         decisionLedgerId,
         decisionSequence: input.decisionSequence,
@@ -1156,10 +1583,10 @@ export class DrizzleGraphStore {
           properties: participant.role ? { role: participant.role } : {},
           evidenceRefs: [evidenceRef],
           confidence: String(participant.confidence),
-          observedAt: input.observedAt,
+          observedAt,
           userConfirmed: input.userConfirmed,
           visibility: input.visibility,
-          source: input.source.trim(),
+          source,
           sourceModule: "relationship",
           decisionLedgerId,
           decisionSequence: input.decisionSequence,
@@ -1195,7 +1622,7 @@ export class DrizzleGraphStore {
           observedAt: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."observed_at" ELSE ${edges.observedAt} END`,
           validFrom: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_from" ELSE ${edges.validFrom} END`,
           validTo: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."valid_to" ELSE ${edges.validTo} END`,
-          userConfirmed: sql`CASE WHEN ${incomingDecisionWins} THEN ${edges.userConfirmed} OR excluded."user_confirmed" ELSE ${edges.userConfirmed} END`,
+          userConfirmed: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."user_confirmed" ELSE ${edges.userConfirmed} END`,
           visibility: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."visibility" ELSE ${edges.visibility} END`,
           source: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source" ELSE ${edges.source} END`,
           sourceModule: sql`CASE WHEN ${incomingDecisionWins} THEN excluded."source_module" ELSE ${edges.sourceModule} END`,
@@ -1209,6 +1636,7 @@ export class DrizzleGraphStore {
     if (!sourceEventRelation || rows.length !== values.length) {
       throw new Error("Signal evidence Relations were not materialized atomically");
     }
+    await pruneSupersededRelations(input.decisionSequence, decisionLedgerId);
     return {
       sourceEvent: sourceEventRelation,
       participants: rows.filter((relation) => relation.edgeType === "participant"),
@@ -1523,10 +1951,36 @@ export class DrizzleGraphStore {
           .limit(MAX_SIGNAL_RELATIONS)
       : [];
 
-    const readableRelations = await Promise.all(
-      [...signalRelations, ...eventRelations].map((relation) =>
-        this.#pruneRelationEvidence(workspaceId, viewerUserId, relation),
-      ),
+    const allRelations = [...signalRelations, ...eventRelations];
+    const participantReferences = allRelations.flatMap((relation) => {
+      const sourceIsAnchor =
+        (relation.srcType === "signal" && relation.srcId === signal.id) ||
+        (sourceEvent !== null &&
+          relation.srcType === "event" &&
+          relation.srcId === sourceEvent.id);
+      const recordType = sourceIsAnchor ? relation.dstType : relation.srcType;
+      const recordId = sourceIsAnchor ? relation.dstId : relation.srcId;
+      return recordType === "person" || recordType === "community"
+        ? [{ nodeType: recordType, nodeId: recordId }]
+        : [];
+    });
+    const evidenceReferences = allRelations.flatMap((relation) =>
+      relationEvidenceCandidates(relation).map((reference) => ({
+        nodeType: reference.entityType,
+        nodeId: reference.entityId,
+      })),
+    );
+    const accessible = await this.#loadAccessibleNodes(
+      workspaceId,
+      viewerUserId,
+      [...participantReferences, ...evidenceReferences],
+      {
+        signalIds: [signal.id],
+        eventIds: sourceEvent ? [sourceEvent.id] : [],
+      },
+    );
+    const readableRelations = allRelations.map((relation) =>
+      this.#pruneRelationEvidence(relation, accessible),
     );
     readableRelations.sort((left, right) =>
       compareRelationPreference(left, right, viewerUserId),
@@ -1558,8 +2012,8 @@ export class DrizzleGraphStore {
       if (seen.has(key)) continue;
       const record =
         candidate.recordType === "person"
-          ? await this.getPerson(workspaceId, viewerUserId, candidate.recordId)
-          : await this.getCommunity(workspaceId, viewerUserId, candidate.recordId);
+          ? accessible.people.get(candidate.recordId)
+          : accessible.communities.get(candidate.recordId);
       if (!record) continue;
       seen.add(key);
       participants.push({ ...candidate, displayName: record.displayName });

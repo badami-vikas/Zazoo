@@ -134,37 +134,39 @@ The missing RM4 contract is implemented without replacing the hardened Relations
 
 - Relations now carry bounded evidence references, confidence, observed/valid time, confirmation, visibility, source, source Module, owner, and decision provenance.
 - Person, Community, Signal, and source Event node types map to the Relationship Module.
-- Semantic uniqueness is workspace- and owner-scoped. Materialization is atomic, retry-idempotent, and monotonic by database append sequence: reconciling an older approved proposal cannot overwrite newer approved Relation state, including after a file-backed Local Plane restart. A transaction-scoped advisory lock closes the previously absent-participant race without requiring write access to Signal rows.
-- `DrizzleGraphStore` exposes owner-scoped `upsertRelation`, approved Signal-evidence materialization, bounded visibility/endpoint/evidence-pruned reads, and node-type ownership. Signal reads prefer the viewer's approved source Event and owner Relation over newer unapproved Events or ownerless legacy rows.
-- The authenticated `relationship` API stages only the bounded Signal-evidence proposal shape, always forces Human review, hides private Relation proposals from other workspace members, persists sanitized edits, validates the exact append-only decision boundary, materializes approved/edited decisions, and reconciles resolved proposals.
+- Semantic uniqueness is workspace- and owner-scoped. Materialization is atomic, retry-idempotent, and monotonic by database append sequence. Under a transaction-scoped Signal lock, the winning decision updates retained Relations and removes omitted older participant/source Relations. Applying newer-then-older or older-then-newer therefore converges on the same state. Superseded and exact same-decision retries return canonical state before revalidating mutable inputs, so recovery still succeeds after an obsolete source Event or participant Record is removed.
+- Approved decisions have a durable `relation_materialization_effects` record with pending/applied/failed state, attempts, bounded automatic retry, separately bounded stale-lease recovery, errors, retry time, lease token/expiry, and applied Relation count. A file-backed Local Plane restart preserves both the decision and its effect. Token-guarded terminal writes make canonical database state win response-loss races.
+- Server startup/periodic reconciliation discovers approved proposals oldest-first, cursor-pages every owner, and retries bounded work. Authenticated owners can explicitly retry exhausted effects without another approval. Approvals continues showing resolved pending/failed applications until applied, cursor-pages the complete retry set, and does not render pending work as failure.
+- Repeated `action.decide` after response loss rereads the durable decision before mutable edit validation, returns the persisted decision ID/output/diff/classification, and reconciles that decision. Invalid replacement edit payloads and stale requested decisions cannot rewrite the recorded approval.
+- `DrizzleGraphStore` exposes owner-scoped `upsertRelation`, approved Signal-evidence materialization, composite `(observedAt, createdAt, id)` keyset reads, bounded visibility/endpoint/evidence pruning, and node-type ownership. Evidence authorization targets and Signal participants/source Events are deduplicated and batch-authorized while distinct evidence-source provenance is preserved; the 100 Relations × 100 references regression keeps repeated source Events to one access check per request. Unknown or inherited object-property node types fail closed.
+- The authenticated `relationship` API stages only the bounded Signal-evidence proposal shape, always forces Human review, hides private Relation proposals from other workspace members, persists sanitized edits, validates the exact append-only decision boundary, materializes approved/edited decisions, exposes owner-scoped status/retry/reconcile contracts, and cursor-pages outstanding effects.
 - Generic public `action.propose` does not accept `resourceType: relation`. Browser database roles have no direct `edges`, `ledger`, or ledger-sequence privileges. Execution Ledger history now uses an authenticated, workspace-scoped API with a disclosed 500-row newest-first window that preserves private Relation owner isolation.
-- Migration `0015_task008_relation_contract` follows post-release migration 0014, preserves legacy `created_at` as `observed_at`, safely suspends forced RLS only for its transactional legacy backfill, keeps legacy ownerless rows workspace-visible, and installs Relation constraints/RLS. Legacy ledger rows remain nullable and receive a deterministic read-time sequence while the new sequence starts above their reserved range, avoiding a historical-ledger rewrite and unique-index lock. The generated snapshot and schema declaration match; Drizzle generation reports no drift.
+- Migration `0015_task008_relation_contract` follows post-release migration 0014, preserves legacy `created_at` as equal millisecond-truncated `observed_at`, safely suspends forced RLS only for its transactional legacy backfill, keeps legacy ownerless rows workspace-visible, and installs Relation/effect constraints, indexes, and RLS. Existing ledger rows receive unique monotonic append sequences ordered by `(created_at, id)` before the column becomes non-null; the sequence resumes above that watermark. Outstanding effects use a partial `(workspace_id, owner_user_id, id)` pending/failed cursor index. The generated snapshot and schema declaration match; Drizzle generation reports no drift.
 
 Primary implementation files:
 
 - `platform/packages/db/src/schema.ts`
 - `platform/packages/db/src/graph-store.ts`
 - `platform/packages/db/src/ledger-store.ts`
-- `platform/packages/db/src/governance-stores.ts`
+- `platform/packages/db/src/relation-materialization-store.ts`
 - `platform/packages/db/migrations/0015_task008_relation_contract.sql`
-- `platform/packages/core/src/{ports,memory/stores}.ts`
 - `platform/apps/api/src/relationship-materializer.ts`
 - `platform/apps/api/src/router.ts`
+- `platform/apps/api/src/server.ts`
 - `platform/apps/api/src/wiring.ts`
 - `platform/apps/web/src/app/data/ledger.ts`
-- `platform/apps/web/src/app/data/governance.ts`
-- `platform/apps/web/src/app/components/ExecutionLedger.tsx`
+- `platform/apps/web/src/app/pages/ApprovalsPage.tsx`
 
 Verification:
 
 - Core: 422 tests passed.
-- DB: 114 tests passed, including forced-RLS migration, owner precedence, exact Event binding, evidence pruning, and atomic/idempotent materialization.
-- API: 163 tests passed, including authenticated owner-filtered ledger history and Local Plane restart ordering.
+- DB: 123 tests passed, including forced-RLS migration, monotonic legacy sequence backfill, order-independent canonical materialization, 101-effect retry pagination, owner precedence, exact Event binding, evidence pruning, leases, restart, and atomic/idempotent materialization.
+- API: 164 tests passed, including authenticated owner-filtered ledger history, pending/failed/applied effect contracts, lost-response decision replay, owner retry, multi-owner reconciliation, and Local Plane restart ordering.
 - Web: 43 tests passed; typecheck and production build passed.
 - Desktop: `cargo check` and 28 Rust tests passed.
 - Migration 0015 fresh-apply compatibility and schema no-drift checks passed.
 - Changed-file lint and the runtime dummy-data check passed.
-- Independent review found one high-confidence nullable-sequence schema mismatch. The declaration/snapshot were corrected, a fresh Drizzle generation became a no-op, and the focused migration/ledger suite plus API typecheck passed afterward.
+- Independent review findings covering canonical application order, legacy sequence collisions, persisted-decision UI classification, unreachable retries beyond page one, immutable stale recovery, partial-index cursor shape, inherited node keys, provenance preservation, migration precision, and latest-decision confirmation replacement were corrected with focused regressions. The final read-only review's sole finding was the confirmation-order case; the winning decision now replaces rather than ORs `userConfirmed`, and both application orders converge.
 - Final whitespace and conflict-marker checks passed.
 
 The feature base has a pre-existing TASK-007 compile blocker: `AgentQuery` requires `workspaceId` and `isActive`, while `InMemoryAgentStore` lacks those methods/maps. Cross-package TypeScript gates and the full suites pass with that isolated compatibility shim, which is not included in this TASK-008 change. Full lint is also blocked by the pre-existing missing `react-hooks/exhaustive-deps` rule in `ZazooAvatar.tsx`; TASK-008 changed-file lint is separate.

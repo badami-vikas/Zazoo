@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import {
   ShieldCheck, Check, X, PencilLine, Bot, User, ArrowRight, Sparkles,
   CornerDownRight, Inbox, FileText, GitCompareArrows, Info, List as ListIcon,
+  AlertTriangle, RotateCw,
 } from 'lucide-react';
 import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
@@ -13,7 +14,15 @@ import {
   type LedgerEntry, type Decision,
 } from '../data/governance';
 import { bindProposal, getActions, useActionQueue, resolveAction } from '../data/actionQueue';
-import { loadPendingApprovals, proposeToLedger, recordDecisionAppend, type LedgerSource } from '../data/ledger';
+import {
+  loadOutstandingRelationshipMaterializations,
+  loadPendingApprovals,
+  proposeToLedger,
+  recordDecisionAppend,
+  retryRelationshipMaterialization,
+  type LedgerSource,
+  type OutstandingRelationshipMaterialization,
+} from '../data/ledger';
 import { materializeApprovedCapture } from '../data/toolCaptures';
 
 // crude line-diff for the drawer — marks removed (prior-only) and added (proposed-only) lines
@@ -77,6 +86,9 @@ export function ApprovalsPage() {
   const [live, setLive] = useState<LedgerEntry[]>(pendingApprovals);
   const [source, setSource] = useState<LedgerSource>('local');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [materializations, setMaterializations] = useState<OutstandingRelationshipMaterialization[]>([]);
+  const [materializationError, setMaterializationError] = useState<string | null>(null);
+  const [retryingProposalId, setRetryingProposalId] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     loadPendingApprovals().then(({ pending, source, error }) => {
@@ -93,6 +105,22 @@ export function ApprovalsPage() {
       }
     });
     return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => {
+      void loadOutstandingRelationshipMaterializations().then(({ items, error }) => {
+        if (!alive) return;
+        setMaterializations(items);
+        setMaterializationError(error ?? null);
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, []);
   const queue = useMemo(() => {
     const remoteIds = new Set(live.map(entry => entry.id));
@@ -196,6 +224,11 @@ export function ApprovalsPage() {
     } else if (result.execution === 'unconfirmed') {
       setDecisionError('Decision recorded, but effect completion could not be confirmed. Inspect the Execution Ledger before retrying.');
     }
+    if (entry.resourceType === 'relation' && recordedDecision !== 'vetoed') {
+      const outstanding = await loadOutstandingRelationshipMaterializations();
+      setMaterializations(outstanding.items);
+      setMaterializationError(outstanding.error ?? null);
+    }
     setResolved({ id, decision: recordedDecision, reason: recordedDecision === decision ? reason : undefined });
     await new Promise(resolve => window.setTimeout(resolve, 650));
     const localAlias = queued.find(
@@ -220,6 +253,27 @@ export function ApprovalsPage() {
     setEditing(true);
   };
 
+  const retryMaterialization = async (proposalId: string) => {
+    if (retryingProposalId) return;
+    setRetryingProposalId(proposalId);
+    setMaterializationError(null);
+    try {
+      const result = await retryRelationshipMaterialization(proposalId);
+      if (result.status === 'confirmed') {
+        setMaterializations(items => items.filter(item => item.proposalId !== proposalId));
+      } else {
+        setMaterializations(items =>
+          items.map(item => item.proposalId === proposalId ? result.effect : item),
+        );
+        setMaterializationError(result.error);
+      }
+    } catch (cause) {
+      setMaterializationError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRetryingProposalId(null);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
       <Header tabs={[{ id: 'Approvals', icon: ShieldCheck }]} activeTab="Approvals" onTabChange={() => {}} />
@@ -237,6 +291,7 @@ export function ApprovalsPage() {
         expanded={insightsOpen}
         metrics={[
           { id: 'awaiting', label: 'Awaiting review', value: String(queue.length), hint: 'every outbound or sensitive agent action pauses here' },
+          { id: 'applying', label: 'Approved, applying', value: String(materializations.length), hint: 'durable effects that do not need another approval' },
           { id: 'source', label: 'Ledger source', value: source === 'api' ? 'Action Pipeline' : 'Unavailable', hint: 'append-only' },
         ]}
       />
@@ -244,6 +299,55 @@ export function ApprovalsPage() {
         <div role="alert" className="mx-4 mt-3 rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
           Approvals could not be loaded: {loadError}
         </div>
+      )}
+      {materializationError && (
+        <div role="alert" className="mx-4 mt-3 rounded-lg border px-3 py-2 text-sm text-red-700" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--color-border))' }}>
+          Approved Relationship application could not be confirmed: {materializationError}
+        </div>
+      )}
+      {materializations.length > 0 && (
+        <section aria-label="Approved Relationship applications" className="mx-4 mt-3 flex flex-col gap-2">
+          {materializations.map(effect => {
+            const applicationInProgress =
+              effect.status === 'pending' &&
+              effect.leaseExpiresAt !== null &&
+              new Date(effect.leaseExpiresAt).getTime() > Date.now();
+            return (
+              <div
+              key={effect.proposalId}
+              className="rounded-xl border px-4 py-3 flex items-center gap-3"
+              style={{
+                borderColor: 'color-mix(in srgb, var(--warning) 35%, var(--color-border))',
+                backgroundColor: 'color-mix(in srgb, var(--warning) 6%, white)',
+              }}
+            >
+              <AlertTriangle className="w-5 h-5 shrink-0" style={{ color: 'var(--warning)' }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>
+                  Relationship approved; application {effect.status}
+                </div>
+                <div className="text-xs truncate" style={{ color: 'var(--color-navy-mid)' }}>
+                  Decision is recorded permanently. Attempt {effect.attempts} of {effect.maxAttempts}
+                  {effect.leaseRecoveries > 0
+                    ? ` · crash recovery ${effect.leaseRecoveries} of ${effect.maxLeaseRecoveries}`
+                    : ''}
+                  {effect.lastError ? ` · ${effect.lastError}` : ''}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={retryingProposalId !== null || applicationInProgress}
+                onClick={() => void retryMaterialization(effect.proposalId)}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                style={{ borderColor: 'var(--color-border)', color: 'var(--color-steel)', backgroundColor: 'white' }}
+              >
+                <RotateCw className={clsx('w-3.5 h-3.5', retryingProposalId === effect.proposalId && 'animate-spin')} />
+                {applicationInProgress ? 'Applying' : 'Retry application'}
+              </button>
+            </div>
+            );
+          })}
+        </section>
       )}
 
       {queue.length === 0 ? (
