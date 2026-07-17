@@ -372,7 +372,7 @@ Sequencing note: LA0/LA1 overlap P0–P1 commitments (Memory seam, PromptAssembl
 
 # 7. LA3 web-research provider survey — Tier 1/2/3 candidate Integrations (2026-07-17)
 
-LA3's research lane needs concrete web-search/extraction backends behind its SSRF-hardened client. This section records a full-market survey (178 candidates reviewed, sourced from a Parallel.ai FindAll run) so LA3 doesn't start from zero when it builds the fetch layer. Full raw classification (per-provider notes, discarded-group reasoning): `outputs/2026-07-17-learning-agent-recon-search-integrations.md`. Decision record: ADR-111 (`decisions-log.md`). Execution task: TASK-022.
+LA3's research lane needs concrete web-search/extraction backends behind its SSRF-hardened client. This section records a full-market survey (178 candidates reviewed, sourced from a Parallel.ai FindAll run) so LA3 doesn't start from zero when it builds the fetch layer. Full raw classification (per-provider notes, discarded-group reasoning): `outputs/2026-07-17-learning-agent-recon-search-integrations.md`. Decision record: ADR-111 (`decisions-log.md`). Execution task: TASK-023.
 
 ```yaml
 search_provider_port:

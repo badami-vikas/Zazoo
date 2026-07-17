@@ -58,7 +58,7 @@ Grouped by reason (none of these are search, extraction, or recon-data-gathering
 
 ## Roadmap — rollout into the Learning Agent
 
-Full decision record: `docs/raw/decisions-log.md` ADR-111. Task: `docs/TASKS.md` TASK-022. Roadmap section: `docs/raw/learning-agent-roadmap-2026-07.md` §7 (LA3).
+Full decision record: `docs/raw/decisions-log.md` ADR-111. Task: `docs/TASKS.md` TASK-023. Roadmap section: `docs/raw/learning-agent-roadmap-2026-07.md` §7 (LA3).
 
 - **Phase 1 ($0, ships first).** Add a provider-agnostic `SearchProvider` port (same port/adapter shape as `ModelProvider`/`MemoryStore`/`ContentGuard`) to the Learning Agent's LA3 research lane. Wire the three Tier 1 sources behind it: Parallel Search MCP, Jina AI (keyless mode), DuckDuckGo Instant Answer. Every fetched result is tagged `untrusted_external` taint per the already-shipped PI-1/PI-2 pipeline before it can reach a Memory or prompt.
 - **Phase 2 (still $0 at evaluation volume, needs credential provisioning).** Add 2-4 Tier 2 providers as additional adapters behind the same port for when Tier 1 coverage is insufficient — Exa or Tavily for semantic/synthesized research, Firecrawl or Apify for structured extraction, Browserbase or Steel.dev for JS-heavy/interactive pages. API keys go in the existing credential vault (same pattern DealPilot Sources already use). Do not wire all 33 Tier 2 candidates — start with 2-4 proven providers and expand only on demonstrated need, per the "build only what creates lasting value" principle.

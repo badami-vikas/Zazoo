@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 appended at queue end 2026-07-17 per user directive (AP-038) — no re-rank requested.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
 
 ## Operating standard
 
@@ -330,8 +330,21 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied
 - Dependencies: TASK-005; TASK-015
 
-## Learning Agent governed web-research/recon Skill
+## Inference cost optimization: prompt caching + model tiering
 - ID: TASK-022
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.
+- Prototype test: A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.
+- Scope: platform/packages/models/src/anthropic-provider.ts; platform/packages/models/src/router.ts; platform/packages/core/src/ports.ts; platform/packages/core/src/run-context.ts; platform/packages/core/src/chief-of-staff.ts; platform/apps/api/src/router.ts (~4573); docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)
+- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])
+- Requests: LLM prompt/infra optimization audit directive 2026-07-17
+- Approval: AP-038 applied
+- Dependencies: none
+
+## Learning Agent governed web-research/recon Skill
+- ID: TASK-023
 - Status: ready
 - Priority: P2
 - Horizon: Convergence
@@ -340,5 +353,5 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
 - Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning
 - Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
-- Approval: AP-038 applied
+- Approval: AP-039 applied
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
