@@ -17,6 +17,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as http from "node:http";
+import * as https from "node:https";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import {
   guardedFetch,
@@ -25,6 +30,8 @@ import {
   SsrfBlockedError,
   RedirectCycleError,
   RedirectLimitExceededError,
+  RedirectOriginNotAllowedError,
+  RedirectDowngradeError,
   ResponseTooLargeError,
   type UnsafeTestOverrides,
 } from "../src/index.js";
@@ -280,5 +287,202 @@ test("cancel-before-fetch: an already-aborted signal rejects without ever connec
     assert.equal(connected, false);
   } finally {
     server.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// TASK-011 remediation (2026-07-18 coordinator final review, issue 3) —
+// redirect-origin allowlist, cross-origin credential-header stripping, and
+// https->http downgrade rejection. Two servers on different ports are
+// genuinely different origins (same host, different port = different
+// origin per the URL spec), so these prove real cross-origin behavior over
+// actual sockets, not a mocked notion of "origin".
+// ---------------------------------------------------------------------------
+
+test("hopOrigins reports the full in-order origin chain, including the first hop, on a same-origin redirect", async () => {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/start") {
+      res.writeHead(302, { location: "/final" });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("final-content");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const overrides: UnsafeTestOverrides = { isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip) };
+    const result = await guardedFetch(`http://127.0.0.1:${port}/start`, { unsafeTestOverrides: overrides });
+    assert.deepEqual(result.hopOrigins, [`http://127.0.0.1:${port}`, `http://127.0.0.1:${port}`]);
+  } finally {
+    server.close();
+  }
+});
+
+test("allowedRedirectOrigins: a redirect to an origin OUTSIDE the allowlist is rejected, even though the target is a lawful public-looking address", async () => {
+  const serverA = http.createServer((_req, res) => {
+    res.writeHead(302, { location: "" }); // filled in below once serverB's port is known
+    res.end();
+  });
+  const serverB = http.createServer((_req, res) => {
+    res.end("should never be reached");
+  });
+  await new Promise<void>((resolve) => serverA.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => serverB.listen(0, "127.0.0.1", resolve));
+  const portA = (serverA.address() as AddressInfo).port;
+  const portB = (serverB.address() as AddressInfo).port;
+  serverA.removeAllListeners("request");
+  serverA.on("request", (_req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${portB}/elsewhere` });
+    res.end();
+  });
+  try {
+    const overrides: UnsafeTestOverrides = { isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip) };
+    await assert.rejects(
+      () =>
+        guardedFetch(`http://127.0.0.1:${portA}/start`, {
+          unsafeTestOverrides: overrides,
+          allowedRedirectOrigins: [`http://127.0.0.1:${portA}`], // deliberately excludes portB's origin
+        }),
+      RedirectOriginNotAllowedError,
+    );
+  } finally {
+    serverA.close();
+    serverB.close();
+  }
+});
+
+test("allowedRedirectOrigins: a redirect to an origin INSIDE the allowlist (a second, explicitly permitted origin) succeeds", async () => {
+  const serverB = http.createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("from-b");
+  });
+  await new Promise<void>((resolve) => serverB.listen(0, "127.0.0.1", resolve));
+  const portB = (serverB.address() as AddressInfo).port;
+  const serverA = http.createServer((_req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${portB}/final` });
+    res.end();
+  });
+  await new Promise<void>((resolve) => serverA.listen(0, "127.0.0.1", resolve));
+  const portA = (serverA.address() as AddressInfo).port;
+  try {
+    const overrides: UnsafeTestOverrides = { isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip) };
+    const result = await guardedFetch(`http://127.0.0.1:${portA}/start`, {
+      unsafeTestOverrides: overrides,
+      allowedRedirectOrigins: [`http://127.0.0.1:${portA}`, `http://127.0.0.1:${portB}`],
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.toString(), "from-b");
+  } finally {
+    serverA.close();
+    serverB.close();
+  }
+});
+
+test("a cross-origin redirect strips Authorization/Cookie/Proxy-Authorization headers before the next hop, but a same-origin redirect keeps them", async () => {
+  let bReceivedHeaders: http.IncomingHttpHeaders = {};
+  const serverB = http.createServer((req, res) => {
+    bReceivedHeaders = req.headers;
+    res.end("from-b");
+  });
+  await new Promise<void>((resolve) => serverB.listen(0, "127.0.0.1", resolve));
+  const portB = (serverB.address() as AddressInfo).port;
+
+  let aFinalReceivedHeaders: http.IncomingHttpHeaders = {};
+  const serverA = http.createServer((req, res) => {
+    if (req.url === "/cross-origin") {
+      res.writeHead(302, { location: `http://127.0.0.1:${portB}/elsewhere` });
+      res.end();
+      return;
+    }
+    if (req.url === "/same-origin-start") {
+      res.writeHead(302, { location: "/same-origin-final" });
+      res.end();
+      return;
+    }
+    aFinalReceivedHeaders = req.headers;
+    res.end("same-origin-final");
+  });
+  await new Promise<void>((resolve) => serverA.listen(0, "127.0.0.1", resolve));
+  const portA = (serverA.address() as AddressInfo).port;
+
+  try {
+    const overrides: UnsafeTestOverrides = { isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip) };
+    const sensitiveHeaders = { authorization: "Bearer secret-token", cookie: "session=abc123", "x-api-key": "topsecret" };
+
+    await guardedFetch(`http://127.0.0.1:${portA}/cross-origin`, {
+      unsafeTestOverrides: overrides,
+      headers: sensitiveHeaders,
+      allowedRedirectOrigins: [`http://127.0.0.1:${portA}`, `http://127.0.0.1:${portB}`],
+    });
+    assert.equal(bReceivedHeaders.authorization, undefined, "Authorization must be stripped on a cross-origin hop");
+    assert.equal(bReceivedHeaders.cookie, undefined, "Cookie must be stripped on a cross-origin hop");
+    assert.equal(bReceivedHeaders["x-api-key"], undefined, "API-key-shaped headers must be stripped on a cross-origin hop");
+
+    await guardedFetch(`http://127.0.0.1:${portA}/same-origin-start`, {
+      unsafeTestOverrides: overrides,
+      headers: sensitiveHeaders,
+    });
+    assert.equal(aFinalReceivedHeaders.authorization, "Bearer secret-token", "Authorization must be PRESERVED on a same-origin hop");
+    assert.equal(aFinalReceivedHeaders.cookie, "session=abc123", "Cookie must be PRESERVED on a same-origin hop");
+  } finally {
+    serverA.close();
+    serverB.close();
+  }
+});
+
+test("an https:->http: downgrade redirect is always rejected, even to an allowlisted origin", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "net-guard-tls-"));
+  const keyPath = path.join(tmpDir, "key.pem");
+  const certPath = path.join(tmpDir, "cert.pem");
+  execFileSync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-keyout", keyPath, "-out", certPath,
+    "-days", "1", "-nodes", "-subj", "/CN=127.0.0.1",
+  ]);
+  const key = fs.readFileSync(keyPath);
+  const cert = fs.readFileSync(certPath);
+
+  const httpServer = http.createServer((_req, res) => {
+    res.end("should never be reached — downgrade must be rejected before this");
+  });
+  await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+  const httpPort = (httpServer.address() as AddressInfo).port;
+
+  const httpsServer = https.createServer({ key, cert }, (_req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${httpPort}/` });
+    res.end();
+  });
+  await new Promise<void>((resolve) => httpsServer.listen(0, "127.0.0.1", resolve));
+  const httpsPort = (httpsServer.address() as AddressInfo).port;
+
+  try {
+    const overrides: UnsafeTestOverrides = {
+      isBlockedIp: (ip) => ip !== "127.0.0.1" && isBlockedIp(ip),
+    };
+    // The self-signed test cert's issuer is untrusted — relax Node's global
+    // TLS verification for the DURATION of this one test only (restored in
+    // `finally`) so the first hop's handshake succeeds and we reach the
+    // downgrade check on its 302 Location header. This does not touch
+    // `guardedFetch`'s own SSRF/redirect logic at all.
+    const priorTlsReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    try {
+      await assert.rejects(
+        () =>
+          guardedFetch(`https://127.0.0.1:${httpsPort}/start`, {
+            unsafeTestOverrides: overrides,
+            allowedRedirectOrigins: [`https://127.0.0.1:${httpsPort}`, `http://127.0.0.1:${httpPort}`],
+          }),
+        RedirectDowngradeError,
+      );
+    } finally {
+      if (priorTlsReject === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      else process.env.NODE_TLS_REJECT_UNAUTHORIZED = priorTlsReject;
+    }
+  } finally {
+    httpServer.close();
+    httpsServer.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });

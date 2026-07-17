@@ -30,6 +30,7 @@ import {
   materializeCultureSourceFetch,
   cancelCultureSourceFetch,
   CULTURE_SOURCE_REGISTRY,
+  type SynthesizeCultureProfileOutput,
   type Wiring,
 } from "./wiring.js";
 import type {
@@ -1747,6 +1748,12 @@ export const appRouter = t.router({
    * the seam; agents can never be created able to send or approve. */
   agent: t.router({
     create: procedure.input(agentCreateInput).mutation(async ({ input, ctx }) => {
+      // TASK-011 remediation (2026-07-18 coordinator final review, issue 5) —
+      // membership/authority checks apply to agent creation like every other
+      // workspace-scoped mutation; a caller may not mint an Agent into a
+      // workspace they don't belong to.
+      assertPilotWorkspace(input.workspaceId);
+      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
       const mem = ctx.wiring.memory;
       if (!mem) throw new Error("agent.create: in-memory governance store required (persistent agent CRUD pending)");
       const built = buildAgentCapability({ capabilityScope: input.capabilityScope, egressTier: input.egressTier as EgressTier });
@@ -1755,6 +1762,20 @@ export const appRouter = t.router({
       mem.agents.tiers.set(agentId, input.dataScope as DataScope);
       mem.agents.skills.set(agentId, input.allowedSkills);
       mem.agents.assumed.set(agentId, null);
+      // TASK-011 remediation (2026-07-18 final review, issue 5) — `AgentQuery`
+      // now requires `workspaceId`/`isActive` (added alongside relationship-
+      // module trust boundaries; `InMemoryAgentStore`'s own implementation is
+      // fail-closed: unset = unknown workspace / inactive). Before this fix,
+      // an agent created here was PERMANENTLY unusable — it could never pass
+      // the AGS1 workspace-match check, nor any "must be active" gate — a
+      // silent, total break of `agent.create`'s own contract. A freshly
+      // created agent is bound to the workspace it was created in and made
+      // active immediately (this endpoint IS the explicit, governed creation
+      // act — there is no separate "activate" step for API-created agents
+      // elsewhere in this codebase); unknown/paused/retired agents remain
+      // fail-closed exactly as before.
+      mem.agents.workspaces.set(agentId, input.workspaceId);
+      mem.agents.statuses.set(agentId, "active");
       return {
         agentId,
         name: input.name,
@@ -3092,6 +3113,24 @@ export const appRouter = t.router({
      * fails the whole batch closed.
      */
     cultureResearch: t.router({
+      /** Lists the server-owned authorized sources for a company — the ONLY
+       * way a client learns which `sourceId`s exist to propose. Never
+       * exposes the underlying URL (irrelevant to the client until fetched
+       * and disclosed) — just enough to render a source picker and an
+       * honest "why is Glassdoor/Reddit/Google reviews skipped" explanation
+       * for ineligible sources, matching the disclosure the propose/synthesize
+       * flow already builds server-side. */
+      sources: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return CULTURE_SOURCE_REGISTRY.filter((s) => s.workspaceId === input.workspaceId && s.company === input.company).map((s) => {
+            const classification = classifyCultureSource(s.sourceType);
+            return { id: s.id, sourceLabel: s.sourceLabel, sourceType: s.sourceType, eligibility: classification.eligibility, reason: classification.reason };
+          });
+        }),
+
       propose: authenticatedProcedure
         .input(
           z.object({
@@ -3179,6 +3218,31 @@ export const appRouter = t.router({
               ctx.run,
             );
 
+            // TASK-011 remediation (2026-07-18 final review, issue 1) —
+            // create the DURABLE culture-fetch intent record BEFORE the
+            // ledger proposal exists, pinning the canonical URL/redirect-
+            // origin allowlist/goal+task/skill/actor from the SERVER-owned
+            // registry right now. `materialize`/`cancel` will re-resolve the
+            // registry fresh again later and refuse to proceed if it no
+            // longer matches — this pin is what a restart or a race can
+            // never silently bypass.
+            await ctx.wiring.cultureFetchStore.create({
+              childRunId: childRun.id,
+              parentRunId,
+              workspaceId: input.workspaceId,
+              company: input.company,
+              sourceId: source.id,
+              sourceType: source.sourceType,
+              sourceLabel: source.sourceLabel,
+              canonicalUrl: source.url,
+              allowedRedirectOrigins: source.allowedRedirectOrigins,
+              goalId: researchGoalTask.goalId,
+              taskId: researchGoalTask.taskId,
+              skill: "jobpilot.researchCultureSource",
+              action: "read",
+              actorId: LEARNING_AGENT,
+            });
+
             // PURE — no network access. Proposing this is genuinely side-effect-free.
             const proposal = await ctx.wiring.pipeline.propose(
               {
@@ -3199,14 +3263,7 @@ export const appRouter = t.router({
               throw new TRPCError({ code: "BAD_REQUEST", message: proposal.rejectionReason ?? "culture-research proposal was rejected" });
             }
 
-            ctx.wiring.cultureFetchStore.create({
-              proposalId: proposal.id,
-              childRunId: childRun.id,
-              parentRunId,
-              workspaceId: input.workspaceId,
-              sourceId: source.id,
-              status: "pending",
-            });
+            await ctx.wiring.cultureFetchStore.attachProposal(input.workspaceId, childRun.id, proposal.id);
             pending.push({ proposalId: proposal.id, childRunId: childRun.id, sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel });
           }
 
@@ -3224,14 +3281,18 @@ export const appRouter = t.router({
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
           try {
             const record = await materializeCultureSourceFetch(
-              { childAgentRuns: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger, fetchStore: ctx.wiring.cultureFetchStore },
+              {
+                childAgentRuns: ctx.wiring.childAgentRuns,
+                ledger: ctx.wiring.ledger,
+                fetchStore: ctx.wiring.cultureFetchStore,
+                abortControllers: ctx.wiring.cultureFetchAbortControllers,
+              },
               input.workspaceId,
               input.proposalId,
               input.childRunId,
               ctx.run,
             );
-            const { abortController: _abortController, ...safeRecord } = record;
-            return safeRecord;
+            return record;
           } catch (error) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
           }
@@ -3244,29 +3305,36 @@ export const appRouter = t.router({
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const record = await cancelCultureSourceFetch(
-            { childAgentRuns: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger, fetchStore: ctx.wiring.cultureFetchStore },
-            input.workspaceId,
-            input.proposalId,
-            input.childRunId,
-            { type: ctx.identity.type, id: ctx.identity.id },
-            ctx.run,
-          );
-          const { abortController: _abortController, ...safeRecord } = record;
-          return safeRecord;
+          try {
+            const record = await cancelCultureSourceFetch(
+              {
+                childAgentRuns: ctx.wiring.childAgentRuns,
+                ledger: ctx.wiring.ledger,
+                fetchStore: ctx.wiring.cultureFetchStore,
+                abortControllers: ctx.wiring.cultureFetchAbortControllers,
+              },
+              input.workspaceId,
+              input.proposalId,
+              input.childRunId,
+              { type: ctx.identity.type, id: ctx.identity.id },
+              ctx.run,
+            );
+            return record;
+          } catch (error) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
+          }
         }),
 
       status: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1) }))
+        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const record = ctx.wiring.cultureFetchStore.get(input.proposalId);
-          if (!record || record.workspaceId !== input.workspaceId) {
+          const record = await ctx.wiring.cultureFetchStore.getByProposal(input.workspaceId, input.proposalId, input.childRunId);
+          if (!record) {
             throw new TRPCError({ code: "NOT_FOUND", message: "unknown culture-research proposal" });
           }
-          const { abortController: _abortController, ...safeRecord } = record;
-          return safeRecord;
+          return record;
         }),
 
       /**
@@ -3280,6 +3348,12 @@ export const appRouter = t.router({
           z.object({
             workspaceId: z.string().min(1),
             company: z.string().min(1),
+            /** TASK-011 remediation (2026-07-18 final review, issue 6) — the
+             * EXACT parent Agent Run this synthesis is scoped to. Fetched
+             * artifacts are resolved ONLY from this run's own child Runs,
+             * never pooled across historical/concurrent runs for the same
+             * company. */
+            parentRunId: z.string().min(1),
             claims: z.array(
               z.object({
                 id: z.string().min(1),
@@ -3298,20 +3372,31 @@ export const appRouter = t.router({
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
 
-          // TASK-011 remediation (2026-07-17 security review, issue 4) — scope
-          // fetched artifacts to the REQUESTED company, not just the
-          // workspace. Without this, a workspace that has already fetched
-          // culture-research artifacts for more than one company could have
-          // `synthesize` for company A ground claims against (and surface in
-          // company A's disclosure) evidence actually fetched for company B —
-          // `groundClaims` only matches by `sourceId`, which is not itself
-          // company-scoped once pulled out of the registry.
-          const companySourceIds = new Set(
-            CULTURE_SOURCE_REGISTRY.filter((s) => s.workspaceId === input.workspaceId && s.company === input.company).map((s) => s.id),
-          );
-          const fetchedArtifacts = Array.from(ctx.wiring.cultureFetchStore.records.values())
-            .filter((r) => r.workspaceId === input.workspaceId && r.status === "fetched" && r.artifact && companySourceIds.has(r.sourceId))
-            .map((r) => r.artifact!);
+          // TASK-011 remediation (2026-07-18 final review, issue 6) — resolve
+          // fetched artifacts from THIS EXACT parent Run's own child Runs
+          // only, via the durable `cultureFetchStore`, never by scanning
+          // every fetch this workspace/company has ever made (which would
+          // silently pool evidence across historical or concurrent runs).
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+          if (childRuns.length === 0) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `unknown parent Run "${input.parentRunId}" for this workspace` });
+          }
+          const intentRecords = (
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+          ).filter((r): r is NonNullable<typeof r> => r != null);
+          const mismatchedCompany = intentRecords.find((r) => r.company !== input.company);
+          if (mismatchedCompany) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `parent Run "${input.parentRunId}" does not belong to company "${input.company}"` });
+          }
+          const fetchedIntents = intentRecords.filter((r) => r.status === "fetched" && r.artifact);
+          const seenSourceIds = new Set<string>();
+          for (const r of fetchedIntents) {
+            if (seenSourceIds.has(r.sourceId)) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `duplicate fetched artifact for source "${r.sourceId}" under this run` });
+            }
+            seenSourceIds.add(r.sourceId);
+          }
+          const fetchedArtifacts = fetchedIntents.map((r) => r.artifact!);
           const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
             (s) => s.workspaceId === input.workspaceId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
           ).map((s) => {
@@ -3332,7 +3417,7 @@ export const appRouter = t.router({
                 resourceType: "signal" as ResourceType,
                 skill: "jobpilot.synthesizeCultureProfile",
                 dataScope: "all" as DataScope,
-                inputs: { claims: input.claims as GroundedClaimInput[], artifacts: fetchedArtifacts, skippedSources },
+                inputs: { parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], artifacts: fetchedArtifacts, skippedSources },
                 goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
               },
               ctx.run,
@@ -3344,6 +3429,32 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
           }
           return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
+        }),
+
+      /**
+       * Reads the PERSISTED, APPROVED synthesis result — TASK-011 remediation
+       * (2026-07-18 final review, issue 7). The web UI polls this instead of
+       * holding any hand-authored culture data: before a synthesis proposal
+       * is approved, this returns `{ status: "not_available" }`, an honest
+       * empty state the UI must render as such, never as a placeholder claim.
+       * Only an `approve` decision unlocks the real, grounded, cited
+       * partition/disclosure the Skill produced.
+       */
+      synthesisResult: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          const proposal = await ctx.wiring.ledger.get(input.proposalId);
+          if (!proposal || proposal.workspaceId !== input.workspaceId) {
+            return { status: "not_available" as const };
+          }
+          const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
+          if (!decision || decision.userDecision !== "approve") {
+            return { status: "not_available" as const };
+          }
+          const result = proposal.proposedOutput as SynthesizeCultureProfileOutput;
+          return { status: "available" as const, proposalId: input.proposalId, approvedAt: decision.createdAt, result };
         }),
     }),
   }),

@@ -66,6 +66,26 @@ export class ChildRunAuthorityExceededError extends Error {
   }
 }
 
+/**
+ * Typed "this run is already terminal" race — TASK-011 remediation
+ * (2026-07-18 coordinator final review, issue 4). Distinct from a generic
+ * `Error` so callers that WANT to treat "already cancelled/completed/failed"
+ * as a benign, expected race (e.g. two concurrent transition attempts on the
+ * SAME child Run) can catch specifically this type and swallow ONLY it —
+ * every other failure (unknown run id, ledger append failure, etc.) must
+ * still surface/audit. Never swallow `Error` broadly at a
+ * `recordChildAgentRunTransition` call site; check `instanceof` this class.
+ */
+export class ChildRunAlreadyTerminalError extends Error {
+  constructor(
+    public readonly runId: string,
+    public readonly currentStatus: ChildAgentRunStatus,
+  ) {
+    super(`child-agent-run: run ${runId} is already "${currentStatus}"`);
+    this.name = "ChildRunAlreadyTerminalError";
+  }
+}
+
 export class ChildRunBudgetExceededError extends Error {
   constructor(public readonly reasonDetail: string) {
     super(`child-agent-run: ${reasonDetail}`);
@@ -388,7 +408,7 @@ async function recordChildAgentRunTransition(
   const before = await deps.store.get(workspaceId, id);
   if (!before) throw new Error(`child-agent-run: unknown run ${id}`);
   if (before.status !== "running") {
-    throw new Error(`child-agent-run: run ${id} is already "${before.status}"`);
+    throw new ChildRunAlreadyTerminalError(id, before.status);
   }
   const transitioned = await deps.store.updateStatus(workspaceId, id, "running", status);
   try {

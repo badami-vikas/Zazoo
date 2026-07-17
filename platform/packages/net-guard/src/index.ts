@@ -30,6 +30,19 @@
  * or a redirect cycle, is rejected exactly like a direct request to one would
  * be. `maxRedirects` bounds the hop count (default 3).
  *
+ * Redirect safety (TASK-011 remediation, 2026-07-18 final review): every hop,
+ * including the first, is checked against an OPTIONAL caller-supplied
+ * `allowedRedirectOrigins` allowlist (`RedirectOriginNotAllowedError` if a hop
+ * leaves it) — this is how a caller pins a fetch's RIGHTS classification
+ * (e.g. "official company page") so an arbitrary public cross-origin redirect
+ * cannot silently inherit that trust. An https:->http: downgrade on any hop
+ * is always rejected regardless of the allowlist. Credential-bearing headers
+ * (Authorization/Cookie/Proxy-Authorization/API-key-shaped) are stripped
+ * before any CROSS-ORIGIN hop, matching browser fetch's own behavior (which
+ * `http`/`https.request` does not replicate, since it never follows
+ * redirects itself). The full in-order hop-origin chain is returned as
+ * `hopOrigins` so a caller can independently re-verify it.
+ *
  * DELIBERATELY its own package, not part of `@bridge/core`: `@bridge/core` is
  * isomorphic/browser-safe (imported by `@bridge/web`), while this module uses
  * `node:dns`/`node:net`/`node:http`/`node:https` and must NEVER be imported by
@@ -192,6 +205,57 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
+/** A redirect hop left the caller-supplied `allowedRedirectOrigins` allowlist
+ * — TASK-011 remediation (2026-07-18 coordinator final review, issue 3). This
+ * is a DIFFERENT failure mode from `SsrfBlockedError`: the target may be a
+ * perfectly public, non-private address, but the CALLER declared (via a
+ * server-owned source registry, never client input) that only a specific set
+ * of origins may be trusted with this fetch's rights classification (e.g.
+ * "official company page"). An arbitrary public redirect off that allowlist
+ * must not silently inherit that trust. */
+export class RedirectOriginNotAllowedError extends Error {
+  constructor(origin: string) {
+    super(`guardedFetch: redirect to origin "${origin}" is not in the allowed redirect-origin set`);
+    this.name = "RedirectOriginNotAllowedError";
+  }
+}
+
+/** A redirect attempted to downgrade the connection from https: to http: —
+ * always rejected, regardless of `allowedRedirectOrigins` (an allowlisted
+ * origin does not license a scheme downgrade; downgrading exposes any
+ * subsequently-sent bytes, including headers we did NOT strip because the
+ * origin matched, to network-level tampering/interception). */
+export class RedirectDowngradeError extends Error {
+  constructor() {
+    super("guardedFetch: redirect attempted to downgrade https: to http:");
+    this.name = "RedirectDowngradeError";
+  }
+}
+
+/** Request headers stripped on any CROSS-ORIGIN redirect hop — credential-
+ * bearing or otherwise sensitive headers must never be replayed to a
+ * different origin than the one the caller originally addressed, matching
+ * the browser fetch spec's own cross-origin redirect header-stripping
+ * behavior (which `http`/`https.request` does NOT do automatically, since it
+ * never follows redirects itself). Matched case-insensitively. */
+const CROSS_ORIGIN_STRIPPED_HEADERS: readonly string[] = [
+  "authorization",
+  "cookie",
+  "proxy-authorization",
+  "x-api-key",
+  "api-key",
+  "x-auth-token",
+];
+
+function stripCrossOriginHeaders(headers: Record<string, string>): Record<string, string> {
+  const stripped: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (CROSS_ORIGIN_STRIPPED_HEADERS.includes(key.toLowerCase())) continue;
+    stripped[key] = value;
+  }
+  return stripped;
+}
+
 interface ResolvedAddress {
   address: string;
   family: number;
@@ -260,6 +324,15 @@ export interface GuardedFetchOptions {
    * chain immediately (wired to a real Node socket abort, not merely a
    * promise rejection after the fact). */
   signal?: AbortSignal;
+  /** When set, EVERY hop's origin (including the first request) must be a
+   * member of this set or `guardedFetch` rejects with
+   * `RedirectOriginNotAllowedError` — TASK-011 remediation (2026-07-18 final
+   * review, issue 3). This is how a caller pins a fetch's RIGHTS
+   * classification (e.g. "official company page") to a fixed set of origins
+   * a redirect chain may traverse without silently escaping it via an
+   * arbitrary public cross-origin redirect. Omit to allow any lawful
+   * (non-SSRF-blocked) origin, same as before this option existed. */
+  allowedRedirectOrigins?: readonly string[];
   /** Test-only — see `UnsafeTestOverrides`. Never set in production code. */
   unsafeTestOverrides?: UnsafeTestOverrides;
 }
@@ -271,6 +344,11 @@ export interface GuardedFetchResult {
   body: Buffer;
   truncated: boolean;
   redirectCount: number;
+  /** Every origin (scheme+host+port) actually connected to, in hop order,
+   * INCLUDING the first request — lets a caller verify (or re-verify) which
+   * origins backed a fetch whose rights classification depends on staying
+   * within an allowlist. */
+  hopOrigins: readonly string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 8_000;
@@ -369,16 +447,22 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const method = options.method ?? "GET";
-  const headers = options.headers ?? {};
   const overrides = options.unsafeTestOverrides;
+  const allowedRedirectOrigins = options.allowedRedirectOrigins ? new Set(options.allowedRedirectOrigins) : null;
 
   const visited = new Set<string>();
+  const hopOrigins: string[] = [];
   let currentUrl: URL;
   try {
     currentUrl = new URL(url);
   } catch {
     throw new SsrfBlockedError("invalid URL");
   }
+  // Current request headers — stripped of credential-bearing headers the
+  // moment a hop crosses an origin boundary (TASK-011 remediation 2026-07-18
+  // final review, issue 3). The FIRST hop keeps every caller-supplied header
+  // (the caller addressed that origin directly and chose to send them).
+  let currentHeaders = options.headers ?? {};
 
   let redirectCount = 0;
   for (;;) {
@@ -389,6 +473,12 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
     }
     visited.add(key);
 
+    const origin = currentUrl.origin;
+    if (allowedRedirectOrigins && !allowedRedirectOrigins.has(origin)) {
+      throw new RedirectOriginNotAllowedError(origin);
+    }
+    hopOrigins.push(origin);
+
     const addresses = await resolveGuardedAddresses(currentUrl.hostname, overrides);
 
     const combinedSignal = options.signal
@@ -397,7 +487,7 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
 
     const result = await performOneRequest(currentUrl, addresses, {
       method,
-      headers: { ...headers, host: currentUrl.host },
+      headers: { ...currentHeaders, host: currentUrl.host },
       timeoutMs,
       maxBytes,
       signal: combinedSignal,
@@ -414,6 +504,19 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
       } catch {
         throw new SsrfBlockedError(`redirect Location header is not a valid URL: ${result.headers.location}`);
       }
+      // Reject any https: -> http: downgrade unconditionally — an allowed
+      // redirect origin does not license sending subsequent bytes (including
+      // whatever headers survive stripping) over a plaintext connection.
+      if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
+        throw new RedirectDowngradeError();
+      }
+      // Cross-origin hop: strip credential-bearing headers before the NEXT
+      // request goes out, matching browser fetch's own cross-origin redirect
+      // behavior (which Node's http/https.request does not do for us, since
+      // it never follows redirects itself).
+      if (nextUrl.origin !== currentUrl.origin) {
+        currentHeaders = stripCrossOriginHeaders(currentHeaders);
+      }
       currentUrl = nextUrl;
       continue;
     }
@@ -425,6 +528,7 @@ export async function guardedFetch(url: string, options: GuardedFetchOptions = {
       body: result.body,
       truncated: result.truncated,
       redirectCount,
+      hopOrigins,
     };
   }
 }

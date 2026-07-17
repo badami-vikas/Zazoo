@@ -2,7 +2,7 @@
 title: TASK-011 — JobPilot Culture-Research Slice (JP3B)
 date: 2026-07-17
 task: TASK-011
-status: implemented (remediated after independent security review), pending coordinator ledger reconciliation
+status: implemented (remediated after FOUR rounds of independent/coordinator security review), pending coordinator ledger reconciliation
 ---
 
 # TASK-011 — JobPilot culture-research slice (JP3B)
@@ -294,8 +294,215 @@ Proposed entries (unchanged intent from the prior pass, updated for this remedia
    package (browser-bundle safety) AND a second ADR for the two-phase propose/decide/
    materialize pattern this Skill introduces (any future Skill whose `run()` would need a
    real external side effect should follow this same split, not repeat the first pass's
-   mistake of fetching inside `run()`).
+   mistake of fetching inside `run()`). A THIRD ADR should record the durable-intent-record
+   pattern below (§"Fourth remediation round") — reusing `MemoryStore` for a governed
+   intent/effect binding, not just "learned preferences" — as a reusable shape for any future
+   Skill needing a durable, restart-surviving, fail-closed intent-to-effect binding without a
+   new migration.
 2. **`docs/BUGS.md`** — the `InMemoryAgentStore` gap entry from the prior pass, now with a
-   pointer to the new regression tests.
+   pointer to the new regression tests, PLUS a new entry for the `agent.create` eligibility
+   gap fixed below (a dynamically created Agent was previously permanently unusable).
 3. **`docs/TASKS.md`** — TASK-011 exit criteria are met by the changes above; propose flipping
    status once the coordinator has reviewed this doc and the fresh independent review.
+
+## Fourth remediation round (2026-07-18 coordinator final review) — 7 more issues found and fixed
+
+A fourth review round (the coordinator's own final review of `d990427`) found 7 further,
+architecturally significant issues. All 7 are fixed on this branch; full detail below.
+
+### 1. Durable culture-fetch intent state (was process-local only)
+
+`InMemoryCultureFetchStore` (a plain in-process `Map` keyed by proposal id) is REPLACED by
+`DurableCultureFetchStore`, a new adapter over the existing `MemoryStore` port
+(`platform/apps/api/src/wiring.ts`). `MemoryStore` is Drizzle-backed (real Postgres in
+persistent mode, real local-file-backed pglite in zero-infra dev/test mode — see
+`buildPersistentPorts`/`buildInMemoryPorts`) — no new DB migration was needed or added (RM4 owns
+migration 0015).
+
+- Keyed by `childRunId` (`subjectElementId`, a deliberate, documented repurposing of that field)
+  because the child Run exists BEFORE the ledger proposal does — the durable record is created
+  the moment `propose()` creates the child Run, pinning `canonicalUrl`/`allowedRedirectOrigins`/
+  `goalId`/`taskId`/`skill`/`action`/`actorId`/`company`/`workspaceId`/`parentRunId` from the
+  SERVER-owned registry right then; `proposalId` is attached once `pipeline.propose()` returns it
+  (`attachProposal`).
+- `getByProposal(workspaceId, proposalId, childRunId)` is the ONLY lookup a router caller's
+  `(proposalId, childRunId)` pair may use — a mismatch (or a missing record) returns `null`,
+  never reconstructs from `proposedOutput` or any other fallback.
+- `transition(workspaceId, childRunId, fromStatuses, mutate)` is an atomic (per-`childRunId`,
+  single-process) compare-and-set: a small `KeyedAsyncMutex` serializes the load→mutate→persist
+  sequence so two racing transitions on the SAME record can never both observe the
+  pre-transition status (`MemoryStore.supersede()` alone has no CAS guarantee — two concurrent
+  `supersede(sameId, ...)` calls would both succeed and produce two "current" rows). Throws the
+  new, typed `CultureFetchAlreadyTerminalError` when the record isn't in an expected status.
+- `materializeCultureSourceFetch`/`cancelCultureSourceFetch` now: load via `getByProposal` (fail
+  closed, no fallback); cross-validate the IMMUTABLE ledger proposal's `workspaceId`/`action`/
+  `resourceType`/`inputs`/`context` against the durable record's own binding; re-resolve the
+  CURRENT registry entry fresh and refuse to proceed if the pinned `canonicalUrl` no longer
+  matches (a registry entry removed/changed between propose and materialize fails closed rather
+  than fetching a stale target).
+- A production bug was caught during a background sub-agent's independent test-rewrite pass and
+  fixed before this round closed: `DurableCultureFetchStore`'s row `id` was a composite string
+  (`culture-fetch:<childRunId>:<uuid>`), but `memories.id` is UUID-typed — EVERY write failed with
+  Postgres `22P02 invalid input syntax for type uuid`. Fixed by using a plain `randomUUID()` for
+  the row id (the lookup key remains `subjectElementId = childRunId`, which is already a real
+  UUID from `ctx.run.ids.next()`/`uuidv7()`).
+- Restart-durability proof: since two full `Wiring` instances against the same on-disk
+  `BRIDGE_LOCAL_DIR` hit a PRE-EXISTING, unrelated `buildInMemoryPorts` migration-rerun limitation
+  (`42P07 relation already exists` — re-running Drizzle's migration set against an
+  already-migrated local pglite file), the test instead constructs a SECOND, independent
+  `DurableCultureFetchStore` wrapping the SAME `wiring.memoryStore` port and proves it sees the
+  identical record — proof the record lives in the durable port itself, not an in-process cache
+  private to the first store instance. The two-`Wiring` migration-rerun gap is noted as an
+  existing, separate limitation, not something this task introduces or fixes.
+
+### 2. Grounding DAG — cycles and transitive rootedness
+
+`groundClaims` (`platform/tools/jobpilot/src/culture-research.ts`) gained a `computeReferenceGrounding`
+pre-pass: a DFS with visiting/done coloring over every claim's reference edges
+(`supportingClaimIds` for theme/inference, `contradicts` for contradiction) that computes, for
+every claim, (a) whether it is TRANSITIVELY rooted in ≥1 real artifact-grounded fact/opinion, and
+(b) which claims sit on a reference cycle. Two new failure reasons
+(`reference-cycle`, `not-transitively-grounded`) reject a purely synthetic cyclic chain of
+theme/inference claims that never touches a fact/opinion — previously, since the old checks only
+verified "the referenced id exists in this batch", such a chain passed validation. A contradiction
+whose contradicted branch is itself ungrounded now also fails (a contradiction cannot borrow
+rootedness from a claim that has none). 6 new tests cover a 2-node cycle, a 3-node cycle, a deep
+(4-hop) chain that DOES root in a real fact (accepted), a deep chain that never roots (rejected),
+a contradiction referencing an ungrounded branch, and an empty-artifact graph.
+
+### 3. Redirect safety — header stripping, downgrade rejection, origin allowlist
+
+`guardedFetch` (`platform/packages/net-guard/src/index.ts`) gained:
+- `allowedRedirectOrigins` option — EVERY hop (including the first) is checked against this set;
+  a hop landing outside it throws the new `RedirectOriginNotAllowedError`. The server-owned
+  `AuthorizedCultureSource` registry entry now carries its own `allowedRedirectOrigins` (currently
+  just the source's own origin per entry — no cross-origin redirects are expected for the BCG
+  pilot sources; the mechanism supports a wider allowlist per source if a real deployment needs it).
+- Credential-bearing header stripping (`Authorization`, `Cookie`, `Proxy-Authorization`,
+  `X-API-Key`/`API-Key`/`X-Auth-Token`-shaped headers) on any CROSS-ORIGIN hop — same-origin hops
+  keep them, matching browser `fetch`'s own cross-origin redirect behavior (which Node's
+  `http`/`https.request` does not replicate on its own, since it never follows redirects itself).
+- HTTPS→HTTP downgrade rejection (`RedirectDowngradeError`) on ANY hop, unconditionally — an
+  allowlisted origin does not license a scheme downgrade.
+- `GuardedFetchResult.hopOrigins` — the full in-order origin chain, so a caller can independently
+  re-verify what actually backed a fetch.
+- `materializeCultureSourceFetch` passes the durable record's pinned `allowedRedirectOrigins`
+  straight through.
+7 new tests, including a real self-signed-certificate HTTPS test server (openssl-generated at
+test time, `NODE_TLS_REJECT_UNAUTHORIZED` relaxed for that ONE test only) proving the downgrade
+rejection over a genuine TLS handshake, not a mocked one.
+
+### 4. Cancellation state machine — atomic CAS, typed already-terminal error
+
+- `platform/packages/core/src/child-agent-run.ts` gained `ChildRunAlreadyTerminalError` (typed,
+  carries `runId`/`currentStatus`), replacing a plain `Error` thrown by
+  `recordChildAgentRunTransition` when a child Run is already terminal. Every
+  `cancelChildAgentRun`/`completeChildAgentRun`/`failChildAgentRun` call site inside the
+  culture-research flow now catches ONLY this specific typed error (an expected, benign race) and
+  surfaces everything else. Existing regression test extended to assert the typed error, its
+  `runId`, `currentStatus`, and message.
+- `materializeCultureSourceFetch`'s catch block now checks `abortController.signal.aborted`
+  (true only if OUR OWN controller was aborted, not a timeout or unrelated failure) — if true, and
+  the durable record already reads `"cancelled"`, it returns that record UNCHANGED instead of
+  overwriting it to `"failed"`. This is the literal fix for "abort caused by cancellation must
+  remain cancelled, not failed."
+- `cancelCultureSourceFetch` calls `transition(..., ["pending", "fetching"], ...)` — cancelling an
+  ALREADY-terminal record (fetched/failed/cancelled) throws `CultureFetchAlreadyTerminalError`,
+  caught and turned into a no-op that returns the CURRENT (unchanged) record — cancellation can
+  never rewrite a terminal state.
+- New/updated tests: cancel-during-fetch (asserts the FINAL status is `"cancelled"`, not
+  `"failed"`), cancel-after-fetch (asserts the record and its artifact are UNCHANGED), and the
+  existing mismatched-`childRunId` tests for both `materialize` and `cancel`.
+
+### 5. `agent.create` eligibility — a real, previously-total bug
+
+Independent of culture-research, `router.ts`'s `agent.create` mutation created a new Agent's
+scope/dataScope/allowedSkills/assumed-role entries but NEVER called
+`mem.agents.workspaces.set(...)` or `mem.agents.statuses.set(...)`. Since `AgentQuery.workspaceId`/
+`isActive` are fail-closed by design (added by an already-merged Relationship-module commit, made
+correctly fail-closed by this task's earlier `InMemoryAgentStore` fix), an agent created via this
+endpoint was **permanently workspace-unbound and inactive** — it could never pass the AGS1
+workspace-match check nor any "must be active" gate. This bug was LATENT before this task's own
+earlier `isActive`/`workspaceId` fix (the interface didn't even have these methods yet), and
+became live/exploitable-as-a-functional-break only once that fix landed — this task closes the
+loop it opened. Fixed: `agent.create` now adds `assertPilotWorkspace`/`assertMembership` (matching
+every other workspace-scoped mutation) and explicitly binds the new agent's workspace + `"active"`
+status immediately (this endpoint IS the explicit, governed creation act — there is no separate
+"activate" step for API-created agents elsewhere in this codebase). 2 new tests
+(`platform/apps/api/test/agent-eligibility.test.ts`): create→task-assign succeeds; a non-pilot
+workspaceId is rejected.
+
+### 6. Synthesis binding — exact parent run, no cross-run pooling
+
+`cultureResearch.synthesize` now requires a `parentRunId` (returned by `propose()`). Fetched
+artifacts are resolved ONLY from that exact run's own child Runs (via
+`childAgentRuns.listByParentRun` + `cultureFetchStore.get` per child run) — never pooled across
+historical or concurrent runs for the same company (the prior round's company-scoping fix closed
+cross-company pooling but not cross-RUN pooling within the same company). A `parentRunId`
+belonging to a different company, or containing a duplicate fetched source id, is rejected
+`BAD_REQUEST`. `SynthesizeCultureProfileOutput` now carries `parentRunId` and
+`artifactHashes: {sourceId, contentHash}[]` so the persisted ledger row records exactly which
+run/artifacts backed it. A new `cultureResearch.synthesisResult` query reads the PERSISTED,
+APPROVED result (`{status:"not_available"}` before approval, `{status:"available", approvedAt,
+result}` after) — the durable source of truth the web UI now queries (see §7). 2 new tests prove
+cross-company `parentRunId` rejection and no cross-run artifact pooling.
+
+### 7. Runtime UI grounding — no hand-authored claims
+
+`platform/apps/web/src/app/data/bcg-application.ts` no longer carries ANY `cultureResearch`
+static data block (nor the `CultureClaim`/`CultureSkippedSource`/`CultureClaimType` types it used).
+`JobPilotApplicationDetail.tsx`'s `CultureResearchSection` is now a live, stateful component:
+
+- A new `cultureResearch.sources` query lets the client discover the server-owned authorized
+  sources for a company (id/label/type/eligibility/reason — never the raw URL, irrelevant until
+  fetched and disclosed).
+- Before any research has been proposed, it renders an honest empty state ("No culture research
+  has been run for this application yet") with a real "Start culture research" action — never a
+  placeholder claim.
+- `propose` → per-source "Approve & fetch" (calls `action.decide` then `materialize`) →
+  "Synthesize evidence" (submits one real, fully-grounded "fact" claim per fetched source, via the
+  new `deriveFullArtifactFactClaim` helper — the claim's `quote` is the artifact's ENTIRE real
+  fetched content, never fabricated or paraphrased text; a richer human-excerpt-picker or
+  LLM-assisted theme/opinion/contradiction extraction is tracked as future work) → "Approve
+  synthesis" → the real, persisted `synthesisResult` renders (citations, content hashes, an
+  approval timestamp, and the disclosure), all fetched live from the API.
+- The disclosure-gates-recommendations behavior is preserved exactly: the grounded evidence only
+  renders once `disclosureOpen` is true, matching the pre-existing UX pattern.
+- A tiny client-side pointer (`platform/apps/web/src/app/data/culture-research-client.ts`,
+  `localStorage`-backed) remembers WHICH proposal/childRun/parentRun ids are in flight for a
+  (workspaceId, company) pair, so a page refresh re-queries the real API state instead of
+  resetting to "nothing happened" — it stores only identifiers, never claim content; every claim/
+  citation/hash/disclosure the user sees is fetched live from the server each time. 7 new pure-
+  function tests cover round-tripping, corrupt-JSON handling, and the claim-derivation helper.
+- `docs/dummy.md`'s TASK-011 entry updated: the BCG Application Record no longer has anything to
+  remove (there is no static `cultureResearch` data left in that file); the row is retained solely
+  for the TEST fixtures.
+
+### Verification (this round)
+
+- `@bridge/core`: 429/429 (typed-error assertion added to the existing terminal-transition test).
+- `@bridge/net-guard`: 22/22 (96.34% line coverage) — 7 new redirect-safety tests.
+- `@bridge/jobpilot`: 120/120 — 6 new DAG cycle/rootedness tests.
+- `@bridge/api`: 29/29 in `jobpilot-culture-research.test.ts` + `agent-eligibility.test.ts`
+  (27 + 2), full package suite 198/199 in one parallel run (1 flaky timing-based abort test that
+  passes reliably in isolation — a PRE-EXISTING flakiness class in this timing-based test style,
+  not a new regression), 199/199 confirmed passing when the same file is run in isolation twice.
+- `@bridge/web`: build + typecheck + 55/55 tests pass (net-guard's Node-only code confirmed still
+  excluded from the browser bundle; new `culture-research-client.test.mjs` adds 7 tests).
+- `@bridge/db`: 107/107.
+- Full monorepo `turbo run build`: 21/21 tasks succeed.
+- `pnpm run lint`: 2 PRE-EXISTING, unrelated problems remain (`ZazooAvatar.tsx` and
+  `core/determinism.ts`, confirmed present on `d990427` before this round's changes via
+  `git stash`) — zero new lint problems from this round's changes.
+- `pnpm run check:no-dummy-runtime`: clean.
+- `@bridge/sensors#test` fails a PRE-EXISTING, unrelated coverage-percentage threshold
+  (36.98%→38% required on `d990427` before this round; 37.09% after — confirmed via `git stash`
+  that this package's test failure exists independent of, and is not caused by, this round's
+  changes; @bridge/sensors's own 7 tests all pass, only the aggregate coverage threshold is short).
+- A background sub-agent independently rewrote/extended `jobpilot-culture-research.test.ts` for
+  the new async/durable API shape and, in doing so, caught the `memories.id` UUID bug (§1) before
+  this round closed — a genuine instance of the "independent verification catches real bugs"
+  pattern this whole remediation cycle has followed.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped) — see the updated proposed-changes list above.

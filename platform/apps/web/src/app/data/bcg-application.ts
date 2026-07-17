@@ -22,31 +22,12 @@ export interface EvidenceClaim {
   note?: string;
 }
 
-/** JP3B (TASK-011) — a single cited culture-research claim. Mirrors
- * @bridge/jobpilot's CultureEvidence shape (culture-research.ts) but kept as
- * plain frontend data here, same relationship EvidenceClaim above has to the
- * backend evaluator: the frontend renders a hand-authored, real-source-backed
- * record, not a live API round-trip (JobPilot's jobpilot.researchCulture
- * procedure is the governed backend path a future live wiring would call). */
-export type CultureClaimType = 'fact' | 'opinion' | 'theme' | 'contradiction' | 'inference';
-
-export interface CultureClaim {
-  id: string;
-  claimType: CultureClaimType;
-  claimText: string;
-  sourceLabel: string;
-  sourceUrl: string;
-  retrievedAt: string;
-  authorContext: string | null;
-  agentInference: boolean;
-  contradicts?: readonly string[];
-}
-
-export interface CultureSkippedSource {
-  sourceLabel: string;
-  sourceType: 'reddit' | 'google_reviews' | 'glassdoor';
-  reason: string;
-}
+/** JP3B (TASK-011) — culture research is now LIVE (queried from the API by
+ * `CultureResearchSection`, see `../pages/JobPilotApplicationDetail.tsx` and
+ * `./culture-research-client.ts`), not hand-authored static data — TASK-011
+ * remediation (2026-07-18 coordinator final review, issue 7). This file no
+ * longer carries a `cultureResearch` block or its types.
+ */
 
 export const BCG_APPLICATION = {
   id: 'bcg-consultant-mba-2026',
@@ -204,127 +185,6 @@ Sincerely,\nVikas Badami` },
     { label: 'Existing consulting materials', detail: 'Consulting resume and cover-letter drafts supplied in Tools/Job/Job Application.' },
     { label: 'JobPilot BRD', detail: 'Agent ownership, evidence traceability, sensitive-field handling, and mandatory Human submission approval.' },
   ],
-  /**
-   * JP3B (TASK-011) — cited company-culture research (BRD JP-BRD-042). Learning
-   * gathered evidence ONLY from the same permitted, official BCG source already
-   * cited as `source.url` above (a live, robots.txt-compliant fetch performed
-   * while building this feature — see outputs/2026-07-17-jobpilot-culture-
-   * research-task011.md). Reddit, Google reviews, and Glassdoor are NOT
-   * fabricated as "empty" — they are explicitly skipped below with a real,
-   * user-visible reason, per JP3B's "skipped or stop for user/counsel
-   * permission; no bypass path" exit criterion. Internal Strategist separated
-   * every claim into fact/opinion/theme/contradiction/inference — the
-   * `contradictions` bucket is an HONEST EMPTY result (no Tier-1-permitted
-   * source in this pass surfaced a disputing account), never a fabricated row.
-   */
-  cultureResearch: {
-    researchAgent: 'Learning',
-    researchSkill: 'research company culture',
-    synthesisAgent: 'Internal Strategist',
-    synthesisSkill: 'synthesize culture evidence',
-    claims: [
-      {
-        id: 'culture-fact-1',
-        claimType: 'fact',
-        claimText: "BCG's official careers page states its culture is built on trust, collaboration, and leadership through continuous learning, and that most BCGers say they are proud to work there.",
-        sourceLabel: 'BCG Careers — Culture, Values, and Inclusion',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: null,
-        agentInference: false,
-      },
-      {
-        id: 'culture-fact-2',
-        claimType: 'fact',
-        claimText: 'BCG describes its consulting interview process as four stages: Application, Skill Interview, Case Interview, and Team Interview.',
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: null,
-        agentInference: false,
-      },
-      {
-        id: 'culture-fact-3',
-        claimType: 'fact',
-        claimText: 'BCG names five evaluation dimensions for consultant/experienced-hire candidates: Integrity, Intellectual Curiosity, Creative Thinking, Collaborative Mindset, and Drive — the SAME five dimensions already used in this application’s fit assessment above.',
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: null,
-        agentInference: false,
-      },
-      {
-        id: 'culture-theme-1',
-        claimType: 'theme',
-        claimText: "Multiple named BCG employees, across different offices, independently describe BCG as a values-driven organization whose interviews are evaluated against named core competencies — not case performance alone.",
-        sourceLabel: 'BCG Careers — Interview Process (recruiter and consultant quotes)',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: null,
-        agentInference: false,
-      },
-      {
-        id: 'culture-opinion-1',
-        claimType: 'opinion',
-        claimText: 'The questions you ask at the end of your interview can really help you understand if you are a fit for BCG. My conversation with my interviewer convinced me even more that BCG was the right place.',
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: 'David Ogbechie · Consultant, London',
-        agentInference: false,
-      },
-      {
-        id: 'culture-opinion-2',
-        claimType: 'opinion',
-        claimText: "BCG is a very values-driven organization. As such, when we interview candidates, we review your responses against both our values and the 'core competencies' that, in our opinion, are the most important to successfully work with us.",
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: 'Renata Owczarek · Senior Recruiting Specialist, Dubai',
-        agentInference: false,
-      },
-      {
-        id: 'culture-opinion-3',
-        claimType: 'opinion',
-        claimText: 'In answering behavioral questions, you want to be sure to relate your answers back to the requirements of the job.',
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: 'Nandini Agrawal · BCG Alumni',
-        agentInference: false,
-      },
-      {
-        id: 'culture-inference-1',
-        claimType: 'inference',
-        claimText: "Because BCG's own named evaluation dimensions match the categories already used in this candidate's fit assessment, and three named BCGers across two offices independently frame the interview as values-first rather than case-only, interview preparation likely benefits from weighting behavioral/values stories at least as heavily as case practice. This is Internal Strategist's inference from the pattern above, not a confirmed BCG policy — treat it as a prioritization suggestion, not a verified fact.",
-        sourceLabel: 'BCG Careers — Interview Process',
-        sourceUrl: 'https://careers.bcg.com/global/en/interview-process',
-        retrievedAt: '2026-07-17',
-        authorContext: null,
-        agentInference: true,
-      },
-    ] satisfies CultureClaim[],
-    // Honest empty bucket — no fabricated "contradiction" row. A genuinely
-    // disputing account would require Reddit/Glassdoor, both gated off below.
-    contradictions: [] satisfies CultureClaim[],
-    skippedSources: [
-      {
-        sourceLabel: 'Reddit (e.g. r/consulting BCG threads)',
-        sourceType: 'reddit',
-        reason: "Reddit's 2026 Data API requires a paid commercial OAuth contract for any product use; unauthenticated scraping is blocked at the network level. No such contract exists for this workspace.",
-      },
-      {
-        sourceLabel: 'Google reviews',
-        sourceType: 'google_reviews',
-        reason: 'Google prohibits scraping Search/Maps reviews; the only lawful path is the billed Places API (capped at 5 relevance-selected reviews), and no Places API key is provisioned for this workspace yet.',
-      },
-      {
-        sourceLabel: 'Glassdoor — BCG reviews',
-        sourceType: 'glassdoor',
-        reason: "Glassdoor's Terms of Service prohibit scraping and its review API is partner-only (BCG's own careers-site robots.txt even disallows a `glassdoor` path). Stays off unless a lawful partnership exists.",
-      },
-    ] satisfies CultureSkippedSource[],
-  },
 } as const;
 
 export function artifactById(id: string) {

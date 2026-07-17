@@ -61,6 +61,7 @@ import {
   InMemoryPackageStore,
   InMemoryOnboardingProfileStore,
   type MemoryStore,
+  type MemoryAuthScope,
   InMemoryEvalStore,
   InMemoryPolicyParamStore,
   InMemoryGoalTaskStore,
@@ -101,6 +102,7 @@ import {
   completeChildAgentRun,
   cancelChildAgentRun,
   failChildAgentRun,
+  ChildRunAlreadyTerminalError,
   uuidv7,
 } from "@bridge/core";
 import { guardedFetch } from "@bridge/net-guard";
@@ -118,7 +120,7 @@ import {
   type GroundedClaimInput,
   type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
@@ -345,10 +347,17 @@ export interface Wiring {
    * In-memory default; `buildPersistentPorts` binds the real, restart-durable
    * `DrizzleChildAgentRunStore` instead. */
   childAgentRuns: ChildAgentRunStore;
-  /** TASK-011 — in-memory culture-research fetch intents/artifacts, keyed by
-   * proposal id (see `InMemoryCultureFetchStore`'s doc comment). Same known
-   * restart-durability gap as `goalTasks`/`childAgentRuns`. */
-  cultureFetchStore: InMemoryCultureFetchStore;
+  /** TASK-011 — durable culture-research fetch-intent records (see
+   * `DurableCultureFetchStore`'s doc comment), keyed by childRunId and backed
+   * by `memoryStore` — restart-durable in both persistent and zero-infra/
+   * local-SQLite dev modes, unlike the process-local `Map` this replaced. */
+  cultureFetchStore: DurableCultureFetchStore;
+  /** Process-local-only live `AbortController`s for in-flight culture-
+   * research fetches, keyed by childRunId — intentionally NOT durable (an
+   * abort handle cannot survive a restart, and after a restart there is no
+   * live fetch in THIS process to abort anyway; `cultureFetchStore` itself
+   * remains the durable source of truth for status). */
+  cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
   /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
@@ -555,6 +564,15 @@ export interface AuthorizedCultureSource {
   sourceType: CultureSourceType;
   sourceLabel: string;
   url: string;
+  /** The origin set a redirect chain from `url` may traverse WITHOUT losing
+   * this source's rights classification — TASK-011 remediation (2026-07-18
+   * coordinator final review, issue 3). Always includes `url`'s own origin;
+   * a source with no additional legitimate redirect targets should list
+   * exactly that one origin. `materializeCultureSourceFetch` passes this
+   * straight through to `guardedFetch`'s `allowedRedirectOrigins`, which
+   * rejects (rather than silently downgrading trust for) any hop that lands
+   * outside it. */
+  allowedRedirectOrigins: readonly string[];
 }
 
 export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
@@ -565,6 +583,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
     sourceType: "company_official_page",
     sourceLabel: "BCG Careers — Interview Process",
     url: "https://careers.bcg.com/global/en/interview-process",
+    allowedRedirectOrigins: ["https://careers.bcg.com"],
   },
   {
     id: "bcg-glassdoor-reviews",
@@ -573,6 +592,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
     sourceType: "glassdoor",
     sourceLabel: "Glassdoor — BCG reviews",
     url: "https://www.glassdoor.com/Reviews/BCG-Reviews-E3854.htm",
+    allowedRedirectOrigins: ["https://www.glassdoor.com"],
   },
   {
     id: "bcg-reddit-consulting",
@@ -581,6 +601,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
     sourceType: "reddit",
     sourceLabel: "r/consulting — BCG threads",
     url: "https://www.reddit.com/r/consulting/",
+    allowedRedirectOrigins: ["https://www.reddit.com"],
   },
   {
     id: "bcg-google-reviews",
@@ -589,6 +610,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
     sourceType: "google_reviews",
     sourceLabel: "Google reviews — BCG",
     url: "https://www.google.com/maps/place/Boston+Consulting+Group",
+    allowedRedirectOrigins: ["https://www.google.com"],
   },
 ];
 
@@ -693,55 +715,253 @@ export function createResearchCultureSourceSkill(): Skill {
 
 export type CultureFetchStatus = "pending" | "fetching" | "fetched" | "failed" | "cancelled";
 
-export interface CultureFetchRecord {
-  proposalId: string;
+/**
+ * The durable, restart-surviving record binding ONE culture-research
+ * source-fetch intent to its exact workspace/company/parent+child Run/
+ * source/canonical URL/goal+task/skill/actor/proposal — TASK-011 remediation
+ * (2026-07-18 coordinator final review, issue 1). Previously this state lived
+ * only in a process-local `Map` (`InMemoryCultureFetchStore`): a restart, or
+ * any code path that reached `materialize`/`cancel` without that exact
+ * process's in-memory row, would either 404 in a way indistinguishable from
+ * "never existed" OR — worse — a caller could not be told apart from a
+ * legitimate one, since nothing durable anchored the binding. This record is
+ * now written to `MemoryStore` (Drizzle-backed, restart-durable in both
+ * persistent and zero-infra/local-SQLite dev modes — see
+ * `buildPersistentPorts`/`buildInMemoryPorts`), keyed by `childRunId` (stable
+ * from the moment `createChildAgentRun` returns, i.e. BEFORE any ledger
+ * proposal exists). `proposalId` is attached once `pipeline.propose()`
+ * returns it. `materialize`/`cancel`/`status` MUST load this record via
+ * `DurableCultureFetchStore.getByProposal` — there is no fallback path that
+ * reconstructs state from a caller-supplied `proposedOutput`, and a missing
+ * or mismatched (proposalId, childRunId) pair is rejected, never silently
+ * created.
+ */
+export interface CultureFetchIntentRecord {
   childRunId: string;
+  proposalId: string | null;
   parentRunId: string;
   workspaceId: string;
+  company: string;
   sourceId: string;
+  sourceType: CultureSourceType;
+  sourceLabel: string;
+  /** Pinned from the registry at record-creation time. `materialize`
+   * re-resolves the CURRENT registry entry and rejects if it no longer
+   * matches — never trusts this value alone as "still authorized". */
+  canonicalUrl: string;
+  allowedRedirectOrigins: readonly string[];
+  goalId: string;
+  taskId: string;
+  skill: "jobpilot.researchCultureSource";
+  action: "read";
+  actorId: string;
   status: CultureFetchStatus;
   artifact?: CultureArtifactRef;
   error?: string;
-  /** Not serialized to any client response — internal cancellation handle only. */
-  abortController?: AbortController;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A transition attempted against a record that is not in one of the
+ * expected `fromStatuses` — TASK-011 remediation (2026-07-18 final review,
+ * issue 4). Distinct from a generic Error so callers can swallow ONLY this
+ * specific, expected race (e.g. cancel racing an already-terminal fetch)
+ * and surface everything else. */
+export class CultureFetchAlreadyTerminalError extends Error {
+  constructor(
+    public readonly childRunId: string,
+    public readonly currentStatus: CultureFetchStatus,
+  ) {
+    super(`culture-fetch intent for child Run ${childRunId} is already "${currentStatus}"`);
+    this.name = "CultureFetchAlreadyTerminalError";
+  }
+}
+
+/** Serializes concurrent operations against the SAME key to a single
+ * in-process queue — the compare-and-set layer `MemoryStore.supersede()`
+ * does not itself provide (two concurrent `supersede(sameId, ...)` calls
+ * would both succeed, producing two "current" rows). Every
+ * `DurableCultureFetchStore` read-modify-write sequence for one
+ * `childRunId` runs inside this mutex, so two racing transition attempts for
+ * the same intent can never both observe the pre-transition state. Process-
+ * local only — matches this codebase's existing single-process-per-
+ * environment assumption (no other durable store here provides cross-
+ * process CAS either). */
+class KeyedAsyncMutex {
+  #tails = new Map<string, Promise<unknown>>();
+  run<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const tail = this.#tails.get(key) ?? Promise.resolve();
+    const result = tail.then(fn, fn);
+    this.#tails.set(
+      key,
+      result.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return result;
+  }
 }
 
 /**
- * In-memory registry of culture-fetch intents/artifacts, keyed by the
- * pipeline proposal id. Same known-gap shape as `goalTasks`/`childAgentRuns`
- * (restart does not persist in-flight state) — not silently faked as
- * durable. This is what makes materialization idempotent (status already
- * "fetched"/"failed"/"cancelled" short-circuits instead of re-fetching) and
- * cancellable (the stored `AbortController` is what `cancelCultureSourceFetch`
- * aborts).
+ * Durable adapter over `MemoryStore` for culture-fetch intent records.
+ * `subjectElementId` is repurposed as this store's lookup key (`childRunId`)
+ * — `MemoryStore` has no arbitrary-field query, but `retrieve({
+ * subjectElementId, includeSuperseded: false })` gives an O(1)-ish current-
+ * row lookup, and `supersede()` gives an append-only, auditable revision
+ * history for free (every prior status transition remains readable via
+ * `includeSuperseded: true`, matching this store's governance-adjacent
+ * audit posture). All mutation goes through `KeyedAsyncMutex` to make the
+ * load-then-supersede sequence a genuine compare-and-set.
  */
-export class InMemoryCultureFetchStore {
-  readonly records = new Map<string, CultureFetchRecord>();
+export class DurableCultureFetchStore {
+  #memory: MemoryStore;
+  #mutex = new KeyedAsyncMutex();
 
-  create(record: CultureFetchRecord): CultureFetchRecord {
-    this.records.set(record.proposalId, record);
+  constructor(memory: MemoryStore) {
+    this.#memory = memory;
+  }
+
+  #authScope(workspaceId: string): MemoryAuthScope {
+    return { workspaceId };
+  }
+
+  async #loadRow(workspaceId: string, childRunId: string): Promise<{ memoryId: string; record: CultureFetchIntentRecord } | null> {
+    const rows = await this.#memory.retrieve(
+      { subjectElementId: childRunId, includeSuperseded: false, limit: 1 },
+      this.#authScope(workspaceId),
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { memoryId: row.id, record: JSON.parse(row.content) as CultureFetchIntentRecord };
+  }
+
+  async #persistNext(memoryId: string | null, next: CultureFetchIntentRecord): Promise<void> {
+    const write: Parameters<MemoryStore["write"]>[0] = {
+      // MUST be a real UUID — `memories.id` is UUID-typed (migrations/000x);
+      // a composite string id (the original bug this comment replaces) fails
+      // every write with a Postgres 22P02 "invalid input syntax for type
+      // uuid" error. `childRunId` is kept as `subjectElementId` (also
+      // UUID-typed, but every child-Run id in this codebase already IS a
+      // real UUID via `ctx.run.ids.next()`/`uuidv7()`) for the lookup key.
+      id: randomUUID(),
+      workspaceId: next.workspaceId,
+      type: "episodic",
+      subjectElementId: next.childRunId,
+      scope: "workspace",
+      content: JSON.stringify(next),
+      sourceRefType: "ledger",
+      sourceRefId: next.proposalId ?? next.childRunId,
+      confidence: 1,
+      trustOrigin: "operator",
+      plane: "local",
+      createdBy: next.actorId,
+    };
+    if (memoryId) {
+      await this.#memory.supersede(memoryId, write);
+    } else {
+      await this.#memory.write(write);
+    }
+  }
+
+  /** Fail-closed lookup by childRunId alone — returns null (never throws) so
+   * callers render a uniform "unknown" rather than distinguishing missing
+   * from unauthorized. */
+  async get(workspaceId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
+    const row = await this.#loadRow(workspaceId, childRunId);
+    return row?.record ?? null;
+  }
+
+  /** The ONE lookup a router caller's (proposalId, childRunId) pair may use.
+   * A childRunId whose durable record's OWN `proposalId` does not match the
+   * caller-supplied `proposalId` is treated as unknown — never "found, but
+   * mismatched", closing the door on pairing an arbitrary proposalId with an
+   * unrelated real childRunId. */
+  async getByProposal(workspaceId: string, proposalId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
+    const record = await this.get(workspaceId, childRunId);
+    if (!record || record.proposalId !== proposalId) return null;
     return record;
   }
-  get(proposalId: string): CultureFetchRecord | undefined {
-    return this.records.get(proposalId);
+
+  /** Creates the durable intent record BEFORE any ledger proposal exists —
+   * idempotent: a retry for a childRunId that already has a record returns
+   * the EXISTING record unchanged (never duplicates or silently overwrites). */
+  async create(
+    input: Omit<CultureFetchIntentRecord, "proposalId" | "status" | "artifact" | "error" | "createdAt" | "updatedAt">,
+  ): Promise<CultureFetchIntentRecord> {
+    return this.#mutex.run(input.childRunId, async () => {
+      const existing = await this.#loadRow(input.workspaceId, input.childRunId);
+      if (existing) return existing.record;
+      const now = new Date().toISOString();
+      const record: CultureFetchIntentRecord = { ...input, proposalId: null, status: "pending", createdAt: now, updatedAt: now };
+      await this.#persistNext(null, record);
+      return record;
+    });
+  }
+
+  /** Attaches the ledger `proposalId` once `pipeline.propose()` returns it —
+   * the only field this call may change. Idempotent for the SAME id; rejects
+   * (fail closed) an attempt to rebind an already-bound record to a
+   * DIFFERENT proposal. */
+  async attachProposal(workspaceId: string, childRunId: string, proposalId: string): Promise<CultureFetchIntentRecord> {
+    return this.#mutex.run(childRunId, async () => {
+      const existing = await this.#loadRow(workspaceId, childRunId);
+      if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
+      if (existing.record.proposalId === proposalId) return existing.record;
+      if (existing.record.proposalId !== null) {
+        throw new Error(`DurableCultureFetchStore: child Run ${childRunId} is already bound to a different proposal`);
+      }
+      const next: CultureFetchIntentRecord = { ...existing.record, proposalId, updatedAt: new Date().toISOString() };
+      await this.#persistNext(existing.memoryId, next);
+      return next;
+    });
+  }
+
+  /** Atomic (per-childRunId, single-process) compare-and-set: loads the
+   * current record, verifies its status is one of `fromStatuses`, applies
+   * `mutate`, and persists the result — all inside the mutex, so two racing
+   * transitions for the SAME record can never both observe the
+   * pre-transition status. Throws `CultureFetchAlreadyTerminalError` (never
+   * a generic Error) when the record exists but is not in an expected
+   * status, so callers can choose to swallow exactly that race. */
+  async transition(
+    workspaceId: string,
+    childRunId: string,
+    fromStatuses: readonly CultureFetchStatus[],
+    mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
+  ): Promise<CultureFetchIntentRecord> {
+    return this.#mutex.run(childRunId, async () => {
+      const existing = await this.#loadRow(workspaceId, childRunId);
+      if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
+      if (!fromStatuses.includes(existing.record.status)) {
+        throw new CultureFetchAlreadyTerminalError(childRunId, existing.record.status);
+      }
+      const next: CultureFetchIntentRecord = { ...mutate(existing.record), updatedAt: new Date().toISOString() };
+      await this.#persistNext(existing.memoryId, next);
+      return next;
+    });
   }
 }
 
 /**
  * Performs the REAL, guarded fetch for one already-approved culture-research
- * proposal — TASK-011 remediation #3/#6/#7. Never called during `propose()`;
- * only the router calls this, and only after confirming the ledger holds an
+ * proposal — TASK-011 remediation #3/#6/#7, hardened again 2026-07-18
+ * (durable fail-closed record load, per-hop redirect-origin/downgrade
+ * safety, atomic CAS status transition, cancel-during-fetch lands as
+ * "cancelled" not "failed"). Never called during `propose()`; only the
+ * router calls this, and only after confirming the ledger holds an
  * "approve" decision for `proposalId`. Idempotent: a proposal whose fetch
  * already resolved (fetched/failed/cancelled) returns the stored record
  * rather than re-fetching. Reserves the child Run's budget atomically
- * (`reserveChildRunAction`) immediately before the network call — not
- * earlier (propose has no effect to gate) and not later (would allow two
- * racing calls to both proceed). Any exception fails the child Run closed
- * with audit evidence; success completes it only once the artifact is
- * durably stored in `fetchStore`.
+ * (`reserveChildRunAction`) immediately before the network call.
  */
 export async function materializeCultureSourceFetch(
-  deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore; fetchStore: InMemoryCultureFetchStore },
+  deps: {
+    childAgentRuns: ChildAgentRunStore;
+    ledger: LedgerStore;
+    fetchStore: DurableCultureFetchStore;
+    abortControllers: Map<string, AbortController>;
+  },
   workspaceId: string,
   proposalId: string,
   childRunId: string,
@@ -752,18 +972,16 @@ export async function materializeCultureSourceFetch(
    * completion logic against a real local test server instead of the live
    * internet, without weakening the guard for any real call site. */
   unsafeTestOverrides?: import("@bridge/net-guard").UnsafeTestOverrides,
-): Promise<CultureFetchRecord> {
-  const existing = deps.fetchStore.get(proposalId);
-  if (existing && existing.status !== "pending") {
-    return existing; // idempotent — never refetch an already-resolved source
+): Promise<CultureFetchIntentRecord> {
+  // Fail-closed load — the ONLY source of truth. No fallback reconstructs a
+  // record from `proposedOutput`; an unknown or mismatched (proposalId,
+  // childRunId) pair is rejected outright (TASK-011 remediation, issue 1).
+  const record = await deps.fetchStore.getByProposal(workspaceId, proposalId, childRunId);
+  if (!record) {
+    throw new Error(`materializeCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
-  // TASK-011 remediation (2026-07-17 security review, issue 3) — never trust
-  // a caller-supplied `childRunId` on its own: it must match the SAME child
-  // Run `propose()` actually created and recorded for this proposal, or a
-  // caller juggling several pending proposals from one batch could charge a
-  // reservation against a DIFFERENT (unrelated) child Run's budget.
-  if (existing && existing.childRunId !== childRunId) {
-    throw new Error(`materializeCultureSourceFetch: childRunId "${childRunId}" does not match the child Run recorded for proposal ${proposalId}`);
+  if (record.status !== "pending") {
+    return record; // idempotent — already resolved, or a concurrent materialize is already handling it
   }
 
   const decisionRow = await deps.ledger.decisionFor(proposalId);
@@ -774,10 +992,53 @@ export async function materializeCultureSourceFetch(
   if (!proposalRow) {
     throw new Error(`materializeCultureSourceFetch: unknown proposal ${proposalId}`);
   }
-  const intent = proposalRow.proposedOutput as ResearchCultureSourceIntentOutput;
+  // Cross-validate the IMMUTABLE ledger proposal against the durable
+  // record's OWN binding — the proposal's `inputs`/`proposedOutput`/context
+  // must agree with what the intent record already knows; the ledger row is
+  // corroborating evidence, never the primary source of truth for what gets
+  // fetched (that is `record.canonicalUrl`, re-checked against the registry
+  // below). `LedgerEntry` has no `skill` field of its own, so the Skill's
+  // identity is corroborated via its declared `action`/`resourceType`
+  // instead.
+  const proposedIntent = proposalRow.proposedOutput as ResearchCultureSourceIntentOutput;
+  const proposalInputs = proposalRow.inputs as Partial<ResearchCultureSourceInput> | null;
+  if (
+    proposalRow.workspaceId !== workspaceId ||
+    proposalRow.action !== record.action ||
+    proposalRow.resourceType !== "external:fetch" ||
+    !proposalInputs ||
+    proposalInputs.sourceId !== record.sourceId ||
+    proposalInputs.company !== record.company ||
+    proposedIntent.sourceId !== record.sourceId ||
+    proposalRow.context?.type !== "child_agent_run" ||
+    proposalRow.context.id !== childRunId
+  ) {
+    throw new Error(`materializeCultureSourceFetch: proposal ${proposalId} does not match its bound culture-fetch intent record`);
+  }
 
-  const record: CultureFetchRecord =
-    existing ?? deps.fetchStore.create({ proposalId, childRunId, parentRunId: "", workspaceId, sourceId: intent.sourceId, status: "pending" });
+  // Re-resolve the CURRENT registry entry fresh — never trust the canonical
+  // URL/redirect-origin allowlist pinned on the intent record alone; if the
+  // registry entry has since been removed or its URL changed, fail closed
+  // rather than fetching a stale/mismatched target.
+  const currentSource = resolveAuthorizedCultureSource(workspaceId, record.company, record.sourceId);
+  if (!currentSource || currentSource.url !== record.canonicalUrl) {
+    throw new Error(`materializeCultureSourceFetch: source "${record.sourceId}" is no longer authorized with its pinned canonical URL`);
+  }
+
+  // Atomic CAS: pending -> fetching. If a concurrent call (materialize retry
+  // or cancel) already moved this record OUT of "pending", treat that as an
+  // idempotent no-op rather than an error — this is exactly the "cancel
+  // guarantees the fetch never starts" race this transition closes.
+  let fetching: CultureFetchIntentRecord;
+  try {
+    fetching = await deps.fetchStore.transition(workspaceId, childRunId, ["pending"], (r) => ({ ...r, status: "fetching" }));
+  } catch (error) {
+    if (error instanceof CultureFetchAlreadyTerminalError) {
+      const current = await deps.fetchStore.get(workspaceId, childRunId);
+      if (current) return current;
+    }
+    throw error;
+  }
 
   const violation = await reserveChildRunAction(
     deps.childAgentRuns,
@@ -788,31 +1049,24 @@ export async function materializeCultureSourceFetch(
     ctx.clock.nowISO(),
   );
   if (violation) {
+    await deps.fetchStore
+      .transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }))
+      .catch((e) => {
+        if (!(e instanceof CultureFetchAlreadyTerminalError)) throw e;
+      });
     throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
   }
 
-  // TASK-011 remediation (2026-07-17 security review, issue 2) — re-check
-  // `record.status` immediately before claiming it: the awaits above
-  // (`decisionFor`, `ledger.get`, `reserveChildRunAction`) are genuine
-  // suspension points, during which `cancelCultureSourceFetch` could have
-  // already transitioned this SAME record to "cancelled". Without this
-  // re-check, that cancellation would be silently clobbered by the
-  // unconditional `record.status = "fetching"` below, and the fetch would
-  // proceed anyway — defeating "cancel guarantees the fetch never starts."
-  if (record.status !== "pending") {
-    return record;
-  }
-
   const abortController = new AbortController();
-  record.status = "fetching";
-  record.abortController = abortController;
+  deps.abortControllers.set(childRunId, abortController);
 
   try {
-    const result = await guardedFetch(intent.url, {
+    const result = await guardedFetch(fetching.canonicalUrl, {
       headers: { "user-agent": CULTURE_RESEARCH_USER_AGENT },
       timeoutMs: CULTURE_FETCH_TIMEOUT_MS,
       maxBytes: MAX_CULTURE_FETCH_BYTES,
       signal: abortController.signal,
+      allowedRedirectOrigins: fetching.allowedRedirectOrigins,
       ...(unsafeTestOverrides ? { unsafeTestOverrides } : {}),
     });
     if (result.status < 200 || result.status >= 300) {
@@ -824,83 +1078,127 @@ export async function materializeCultureSourceFetch(
     }
     const content = stripHtmlToText(result.body.toString("utf8")).slice(0, MAX_CULTURE_EXCERPT_CHARS);
     const artifact: CultureArtifactRef = {
-      sourceId: intent.sourceId,
-      sourceType: intent.sourceType,
-      sourceLabel: intent.sourceLabel,
+      sourceId: record.sourceId,
+      sourceType: record.sourceType,
+      sourceLabel: record.sourceLabel,
       sourceUrl: result.finalUrl,
       content,
       contentHash: computeContentHash(content),
       retrievedAt: new Date().toISOString(),
     };
-    record.status = "fetched";
-    record.artifact = artifact;
-    delete record.abortController;
-    await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx);
-    return record;
+    deps.abortControllers.delete(childRunId);
+    const fetched = await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({ ...r, status: "fetched", artifact }));
+    await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+      if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+    });
+    return fetched;
   } catch (error) {
-    record.status = "failed";
-    record.error = error instanceof Error ? error.message : String(error);
-    delete record.abortController;
-    await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch(() => {
+    deps.abortControllers.delete(childRunId);
+    // Was this abort CAUSED by cancellation (our own AbortController), as
+    // opposed to a timeout or any other failure? If so, `cancelCultureSourceFetch`
+    // already transitioned (or is about to transition) the durable record to
+    // "cancelled" — do NOT clobber that with "failed" (TASK-011 remediation,
+    // issue 4: "abort caused by cancellation must remain cancelled").
+    if (abortController.signal.aborted) {
+      const current = await deps.fetchStore.get(workspaceId, childRunId);
+      if (current?.status === "cancelled") return current;
+    }
+    try {
+      await deps.fetchStore.transition(workspaceId, childRunId, ["fetching"], (r) => ({
+        ...r,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    } catch (transitionError) {
+      // Refuse to rewrite a terminal state a concurrent cancel already set —
+      // surface anything else (e.g. an unknown-record bug).
+      if (!(transitionError instanceof CultureFetchAlreadyTerminalError)) throw transitionError;
+    }
+    await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
       // The child Run may already be terminal (e.g. concurrently cancelled) —
       // that is itself a legitimate terminal state, not a reason to mask the
-      // original fetch failure below.
+      // original fetch failure below. Surface any OTHER failure.
+      if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
     });
     throw error;
   }
 }
 
 /**
- * Cancels a culture-research source's fetch — TASK-011 remediation #7.
- * Before approval / before materialization ever starts, this is a pure
- * bookkeeping cancel (the fetch could never have started — `materialize`
- * checks `decisionFor`/status first). Mid-fetch, this ABORTS the real
- * in-flight `guardedFetch` call via the stored `AbortController` — genuine
+ * Cancels a culture-research source's fetch — TASK-011 remediation #7,
+ * hardened again 2026-07-18 (durable fail-closed record load; refuses to
+ * rewrite an already-terminal record rather than clobbering it to
+ * "cancelled"). Before approval / before materialization ever starts, this
+ * is a pure bookkeeping cancel (the fetch could never have started —
+ * `materialize` checks status first). Mid-fetch, this ABORTS the real
+ * in-flight `guardedFetch` call via the tracked `AbortController` — genuine
  * cancellation, not merely marking a row.
  */
 export async function cancelCultureSourceFetch(
-  deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore; fetchStore: InMemoryCultureFetchStore },
+  deps: {
+    childAgentRuns: ChildAgentRunStore;
+    ledger: LedgerStore;
+    fetchStore: DurableCultureFetchStore;
+    abortControllers: Map<string, AbortController>;
+  },
   workspaceId: string,
   proposalId: string,
   childRunId: string,
   actor: Actor,
   ctx: RunCtx,
-): Promise<CultureFetchRecord> {
-  const record = deps.fetchStore.get(proposalId);
-  // TASK-011 remediation (2026-07-17 fresh review, round 2) — mirror
-  // `materializeCultureSourceFetch`'s childRunId/proposalId cross-check here
-  // too: without it, any workspace member could pair an arbitrary proposalId
-  // with an unrelated, real childRunId from a DIFFERENT in-flight proposal
-  // and force that unrelated child Run into "cancelled" — potentially racing
-  // its own concurrent `materialize` call into discarding an already-fetched
-  // artifact (its `completeChildAgentRun` CAS would fail against the
-  // now-"cancelled" status and get caught as a fetch failure).
-  if (record && record.childRunId !== childRunId) {
-    throw new Error(`cancelCultureSourceFetch: childRunId "${childRunId}" does not match the child Run recorded for proposal ${proposalId}`);
+): Promise<CultureFetchIntentRecord> {
+  const record = await deps.fetchStore.getByProposal(workspaceId, proposalId, childRunId);
+  if (!record) {
+    throw new Error(`cancelCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
-  if (record?.abortController) {
-    record.abortController.abort();
+
+  // Abort a real in-flight fetch FIRST, before flipping the durable status —
+  // so `materializeCultureSourceFetch`'s own catch block observes
+  // `abortController.signal.aborted` and correctly attributes the abort to
+  // cancellation rather than a timeout/other failure.
+  const controller = deps.abortControllers.get(childRunId);
+  if (controller) controller.abort();
+
+  let result: CultureFetchIntentRecord;
+  try {
+    result = await deps.fetchStore.transition(workspaceId, childRunId, ["pending", "fetching"], (r) => ({ ...r, status: "cancelled" }));
+  } catch (error) {
+    if (error instanceof CultureFetchAlreadyTerminalError) {
+      // Already fetched/failed/cancelled — refuse to rewrite a terminal
+      // state. Cancelling an already-resolved source is a no-op that
+      // returns the CURRENT (unchanged) record, never "cancelled".
+      const current = await deps.fetchStore.get(workspaceId, childRunId);
+      if (current) return current;
+    }
+    throw error;
   }
-  if (record) {
-    record.status = "cancelled";
-    delete record.abortController;
-  }
-  await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch(() => {
-    // Already terminal (completed/failed/cancelled) — fine, cancellation is idempotent.
+
+  await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch((error) => {
+    // Already terminal (completed/failed/cancelled) — fine, cancellation is
+    // idempotent. Surface any OTHER failure (e.g. a ledger append error).
+    if (!(error instanceof ChildRunAlreadyTerminalError)) throw error;
   });
-  return (
-    record ??
-    deps.fetchStore.create({ proposalId, childRunId, parentRunId: "", workspaceId, sourceId: "", status: "cancelled" })
-  );
+  return result;
 }
 
 export interface SynthesizeCultureProfileInput {
+  /** The EXACT parent Agent Run this synthesis is scoped to — TASK-011
+   * remediation (2026-07-18 final review, issue 6). The router resolves
+   * `artifacts`/`skippedSources` from this run's own fetched intent records
+   * ONLY, never pooled across historical/concurrent runs for the company. */
+  parentRunId: string;
   claims: GroundedClaimInput[];
   artifacts: CultureArtifactRef[];
   skippedSources: CultureSkippedSource[];
 }
 
 export interface SynthesizeCultureProfileOutput {
+  parentRunId: string;
+  /** The exact fetched artifacts (by sourceId + their real contentHash) this
+   * synthesis was grounded against — persisted so a later reader can verify
+   * (or a stale/superseded synthesis can be detected) without re-deriving it
+   * from the run's live state. */
+  artifactHashes: ReadonlyArray<{ sourceId: string; contentHash: string }>;
   partition: ReturnType<typeof partitionCultureEvidence>;
   disclosure: CultureSourceDisclosure;
 }
@@ -917,11 +1215,15 @@ export class ClaimGroundingError extends Error {
  * evidence. TASK-011 remediation #5: claims must GROUND against the
  * immutable fetched artifacts this run actually produced (`groundClaims`) —
  * an absent quote, a quote from the wrong artifact, a stale/mismatched
- * content hash, a duplicate claim id, or a dangling/self-referencing
- * contradiction/support reference fails the WHOLE batch closed
+ * content hash, a duplicate claim id, a dangling/self-referencing/cyclic
+ * contradiction/support reference, or a claim that does not transitively
+ * trace back to a real fact/opinion fails the WHOLE batch closed
  * (`ClaimGroundingError`). Only once every claim grounds does the
  * fabrication/insider-claim guard run over the resulting evidence text, and
- * only then are evidence partitioned + the disclosure built.
+ * only then are evidence partitioned + the disclosure built. TASK-011
+ * remediation (2026-07-18, issue 6): the output embeds `parentRunId` and
+ * each grounded artifact's real hash, so the persisted ledger row can be
+ * independently verified against exactly the run/artifacts it claims.
  */
 const synthesizeCultureProfile: Skill = {
   name: "jobpilot.synthesizeCultureProfile",
@@ -942,7 +1244,12 @@ const synthesizeCultureProfile: Skill = {
     }
     const partition = partitionCultureEvidence(grounded.evidence);
     const disclosure = buildSourceDisclosure(grounded.evidence, input.skippedSources);
-    const output: SynthesizeCultureProfileOutput = { partition, disclosure };
+    const output: SynthesizeCultureProfileOutput = {
+      parentRunId: input.parentRunId,
+      artifactHashes: input.artifacts.map((a) => ({ sourceId: a.sourceId, contentHash: a.contentHash })),
+      partition,
+      disclosure,
+    };
     return { proposedOutput: output, diff: { to: output } };
   },
 };
@@ -1654,7 +1961,6 @@ export async function buildWiring(): Promise<Wiring> {
     .register(stageOutreachDraft)
     .register(createResearchCultureSourceSkill())
     .register(synthesizeCultureProfile);
-  const cultureFetchStore = new InMemoryCultureFetchStore();
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -1683,6 +1989,14 @@ export async function buildWiring(): Promise<Wiring> {
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
+  // TASK-011 remediation (2026-07-18) — the durable culture-fetch intent
+  // store needs `modePorts.memoryStore`, which is only available once the
+  // mode-specific ports are resolved (Drizzle-backed in BOTH persistent and
+  // zero-infra/local-SQLite dev modes — see `buildPersistentPorts`/
+  // `buildInMemoryPorts`). The abort-controller map stays process-local and
+  // is intentionally NOT part of `modePorts`.
+  const cultureFetchStore = new DurableCultureFetchStore(modePorts.memoryStore);
+  const cultureFetchAbortControllers = new Map<string, AbortController>();
   const {
     roles,
     agents,
@@ -2230,6 +2544,7 @@ export async function buildWiring(): Promise<Wiring> {
     skillManifests,
     childAgentRuns,
     cultureFetchStore,
+    cultureFetchAbortControllers,
     memoryStore,
     evalStore,
     policyParams,

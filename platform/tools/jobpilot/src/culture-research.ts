@@ -307,7 +307,9 @@ export type ClaimGroundingFailureReason =
   | "content-hash-mismatch"
   | "empty-supporting-set"
   | "dangling-reference"
-  | "self-reference";
+  | "self-reference"
+  | "reference-cycle"
+  | "not-transitively-grounded";
 
 export interface ClaimGroundingFailure {
   claimId: string;
@@ -319,6 +321,73 @@ export interface ClaimGroundingResult {
   ok: boolean;
   evidence: CultureEvidence[];
   failures: ClaimGroundingFailure[];
+}
+
+/**
+ * Computes, for every claim, whether it is TRANSITIVELY rooted in at least
+ * one real artifact-grounded fact/opinion claim, and which claims sit on a
+ * reference cycle — TASK-011 remediation (2026-07-18 coordinator final
+ * review, issue 2). `fact`/`opinion` claims are trivially grounded (they cite
+ * a real fetched artifact directly, verified elsewhere in `groundClaims`).
+ * `theme`/`inference` claims are grounded only if EVERY id in
+ * `supportingClaimIds` is itself grounded; `contradiction` claims are
+ * grounded only if EVERY id in `contradicts` is itself grounded (each
+ * contradicted branch must independently trace back to real evidence, not
+ * merely exist). A claim reachable from itself via these reference edges
+ * (directly or through others) is a cycle and can never be grounded, however
+ * long the chain — a purely self-referential loop of theme/inference claims
+ * that never touches a fact/opinion must be rejected, not merely accepted
+ * because every individual id happens to "exist" in the batch.
+ */
+function computeReferenceGrounding(claims: readonly GroundedClaimInput[]): {
+  grounded: ReadonlySet<string>;
+  cycleNodes: ReadonlySet<string>;
+} {
+  const byId = new Map(claims.map((c) => [c.id, c]));
+  const grounded = new Set<string>();
+  const cycleNodes = new Set<string>();
+  const visiting = new Set<string>();
+  const done = new Set<string>();
+
+  function referencesOf(claim: GroundedClaimInput): readonly string[] {
+    if (claim.claimType === "contradiction") return claim.contradicts ?? [];
+    if (claim.claimType === "theme" || claim.claimType === "inference") return claim.supportingClaimIds ?? [];
+    return [];
+  }
+
+  function visit(id: string): boolean {
+    if (done.has(id)) return grounded.has(id);
+    const claim = byId.get(id);
+    if (!claim) return false; // dangling reference — reported separately
+    if (claim.claimType === "fact" || claim.claimType === "opinion") {
+      grounded.add(id);
+      done.add(id);
+      return true;
+    }
+    if (visiting.has(id)) {
+      // Reached a node we're already in the middle of resolving — a cycle.
+      // Every node still on the `visiting` stack is part of (or feeds into)
+      // that cycle; mark this one, the caller's own visit() frames mark the
+      // rest as their own calls unwind.
+      cycleNodes.add(id);
+      return false;
+    }
+    visiting.add(id);
+    let allRefsGrounded = referencesOf(claim).length > 0;
+    for (const ref of referencesOf(claim)) {
+      if (!visit(ref)) {
+        allRefsGrounded = false;
+        if (visiting.has(ref)) cycleNodes.add(id); // this node feeds a cycle too
+      }
+    }
+    visiting.delete(id);
+    done.add(id);
+    if (allRefsGrounded) grounded.add(id);
+    return allRefsGrounded;
+  }
+
+  for (const claim of claims) visit(claim.id);
+  return { grounded, cycleNodes };
 }
 
 /**
@@ -337,6 +406,7 @@ export function groundClaims(
   const evidence: CultureEvidence[] = [];
   const seenIds = new Set<string>();
   const allIds = new Set(claims.map((c) => c.id));
+  const { grounded, cycleNodes } = computeReferenceGrounding(claims);
 
   for (const claim of claims) {
     if (seenIds.has(claim.id)) {
@@ -389,6 +459,14 @@ export function groundClaims(
         failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `references unknown claim ids: ${dangling.join(", ")}` });
         continue;
       }
+      if (cycleNodes.has(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "reference-cycle", detail: "this claim's supporting-claim references form a cycle" });
+        continue;
+      }
+      if (!grounded.has(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "this claim does not transitively trace back to any artifact-grounded fact/opinion" });
+        continue;
+      }
       evidence.push({
         id: claim.id,
         claimType: claim.claimType,
@@ -414,6 +492,14 @@ export function groundClaims(
       const dangling = refs.filter((id) => !allIds.has(id));
       if (dangling.length > 0) {
         failures.push({ claimId: claim.id, reason: "dangling-reference", detail: `contradicts unknown claim ids: ${dangling.join(", ")}` });
+        continue;
+      }
+      if (cycleNodes.has(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "reference-cycle", detail: "this claim's contradicted-claim references form a cycle" });
+        continue;
+      }
+      if (!grounded.has(claim.id)) {
+        failures.push({ claimId: claim.id, reason: "not-transitively-grounded", detail: "every contradicted branch must independently trace back to an artifact-grounded fact/opinion" });
         continue;
       }
       evidence.push({

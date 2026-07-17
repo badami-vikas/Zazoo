@@ -246,3 +246,89 @@ test("groundClaims accepts a contradiction referencing real claim ids and reject
   assert.equal(forged.failures[0]?.reason, "dangling-reference");
 });
 
+// ---------------------------------------------------------------------------
+// TASK-011 remediation (2026-07-18 coordinator final review, issue 2) — the
+// reference graph among theme/inference/contradiction claims must be a DAG
+// rooted in real artifact-grounded fact/opinion claims. A purely synthetic
+// cyclic chain (never touching a fact/opinion) previously passed validation
+// because the old checks only verified "the referenced id exists in this
+// batch", not "the referenced id is itself grounded" or "there is no cycle".
+// ---------------------------------------------------------------------------
+
+test("groundClaims rejects a two-node cycle of theme claims that never touches a fact/opinion", () => {
+  // theme1 supports theme2, theme2 supports theme1 — every id "exists" in
+  // the batch (the OLD dangling-reference check alone would have accepted
+  // this), but neither ever reaches a real fact/opinion.
+  const claims: GroundedClaimInput[] = [
+    { id: "theme1", claimType: "theme", quote: "x", supportingClaimIds: ["theme2"] },
+    { id: "theme2", claimType: "theme", quote: "y", supportingClaimIds: ["theme1"] },
+  ];
+  const result = groundClaims(claims, new Map());
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.every((f) => f.reason === "reference-cycle" || f.reason === "not-transitively-grounded"));
+  assert.ok(result.failures.some((f) => f.claimId === "theme1"));
+});
+
+test("groundClaims rejects a longer (3-node) cycle among theme/inference claims", () => {
+  const claims: GroundedClaimInput[] = [
+    { id: "a", claimType: "theme", quote: "a", supportingClaimIds: ["b"] },
+    { id: "b", claimType: "inference", quote: "b", supportingClaimIds: ["c"] },
+    { id: "c", claimType: "theme", quote: "c", supportingClaimIds: ["a"] },
+  ];
+  const result = groundClaims(claims, new Map());
+  assert.equal(result.ok, false);
+  // Every claim in the cycle must be rejected (as either the cycle itself or
+  // "not transitively grounded" — both are truthful for a claim on a cycle
+  // that never reaches real evidence) — none may silently pass.
+  assert.equal(result.failures.length, 3);
+});
+
+test("groundClaims accepts a DEEP (multi-hop) chain that eventually roots in a real fact — proves transitive rootedness is checked, not just direct references", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "trust and collaboration", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "fact1", claimType: "fact", sourceId: "src1", quote: "trust", contentHash: "h" },
+    { id: "theme1", claimType: "theme", quote: "t1", supportingClaimIds: ["fact1"] },
+    { id: "theme2", claimType: "theme", quote: "t2", supportingClaimIds: ["theme1"] },
+    { id: "inference1", claimType: "inference", quote: "i1", supportingClaimIds: ["theme2"] },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, true);
+  assert.equal(result.evidence.length, 4);
+});
+
+test("groundClaims rejects a deep chain that never bottoms out in a real fact/opinion (every id exists, none is a root)", () => {
+  const claims: GroundedClaimInput[] = [
+    { id: "theme1", claimType: "theme", quote: "t1", supportingClaimIds: ["theme2"] },
+    { id: "theme2", claimType: "theme", quote: "t2", supportingClaimIds: ["theme3"] },
+    { id: "theme3", claimType: "theme", quote: "t3", supportingClaimIds: ["theme1"] }, // closes the cycle
+  ];
+  const result = groundClaims(claims, new Map());
+  assert.equal(result.ok, false);
+  assert.equal(result.evidence.length, 0);
+});
+
+test("groundClaims rejects a contradiction whose contradicted branch is itself ungrounded (a contradiction cannot borrow rootedness from a claim that has none)", () => {
+  const artifacts = new Map([["src1", artifact({ sourceId: "src1", content: "trust and collaboration", contentHash: "h" })]]);
+  const claims: GroundedClaimInput[] = [
+    { id: "fact1", claimType: "fact", sourceId: "src1", quote: "trust", contentHash: "h" },
+    { id: "ungrounded-theme", claimType: "theme", quote: "floating", supportingClaimIds: ["also-ungrounded"] },
+    { id: "also-ungrounded", claimType: "theme", quote: "floating2", supportingClaimIds: ["ungrounded-theme"] },
+    { id: "c1", claimType: "contradiction", quote: "conflict", contradicts: ["fact1", "ungrounded-theme"] },
+  ];
+  const result = groundClaims(claims, artifacts);
+  assert.equal(result.ok, false);
+  const c1Failure = result.failures.find((f) => f.claimId === "c1");
+  assert.ok(c1Failure, "the contradiction referencing an ungrounded branch must itself fail");
+});
+
+test("groundClaims rejects an empty-artifact graph — theme/inference/contradiction claims with NO fact/opinion claims anywhere in the batch can never ground", () => {
+  const claims: GroundedClaimInput[] = [
+    { id: "theme1", claimType: "theme", quote: "t1", supportingClaimIds: ["theme2"] },
+    { id: "theme2", claimType: "theme", quote: "t2", supportingClaimIds: ["theme1"] },
+  ];
+  const result = groundClaims(claims, new Map());
+  assert.equal(result.ok, false);
+  assert.equal(result.evidence.length, 0);
+});
+
+

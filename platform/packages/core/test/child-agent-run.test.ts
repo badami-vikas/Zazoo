@@ -18,6 +18,7 @@ import {
   MAX_CHILD_RUN_DEPTH,
   ChildRunDepthExceededError,
   ChildRunAuthorityExceededError,
+  ChildRunAlreadyTerminalError,
   InMemoryChildAgentRunStore,
   type Actor,
   type ParentRunEnvelope,
@@ -240,7 +241,7 @@ test("cancelChildAgentRun: throws on an unknown child run id rather than silentl
   );
 });
 
-test("terminal child Run transitions are running-only", async () => {
+test("terminal child Run transitions are running-only, and throw the TYPED ChildRunAlreadyTerminalError (TASK-011 remediation, 2026-07-18 final review, issue 4) — not a generic Error — so callers can swallow exactly this expected race and surface everything else", async () => {
   const c = ctx();
   const store = new InMemoryChildAgentRunStore();
   const ledger = new InMemoryLedger();
@@ -261,7 +262,13 @@ test("terminal child Run transitions are running-only", async () => {
         { type: "user", id: "governance-human-1" },
         c,
       ),
-    /already "cancelled"/,
+    (error: unknown) => {
+      assert.ok(error instanceof ChildRunAlreadyTerminalError, "must throw the typed error, not a generic Error");
+      assert.equal(error.runId, run.id);
+      assert.equal(error.currentStatus, "cancelled");
+      assert.match(error.message, /already "cancelled"/);
+      return true;
+    },
   );
   assert.equal(ledger.entries.length, 1);
 });

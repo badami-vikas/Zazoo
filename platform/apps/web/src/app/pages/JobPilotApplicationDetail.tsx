@@ -1,13 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   AlertTriangle, ArrowLeft, Bot, BriefcaseBusiness, Check, CheckCircle2, ChevronDown,
   ChevronRight, ChevronUp, Clipboard, ExternalLink, FileCheck2, FileText, Flag, Lightbulb,
   LockKeyhole, MessageSquareText, Quote, ShieldCheck, ShieldAlert, Sparkles, Target, Users, XCircle,
 } from 'lucide-react';
-import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus, type CultureClaimType } from '../data/bcg-application';
+import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus } from '../data/bcg-application';
+import {
+  loadStoredCultureResearchState,
+  saveStoredCultureResearchState,
+  deriveFullArtifactFactClaim,
+  type StoredCultureResearchState,
+} from '../data/culture-research-client';
 import { EditableField } from '../components/shared/EditableField';
 import { useLocalEdits } from '../lib/useLocalEdits';
+import { trpc, PILOT_WORKSPACE } from '../lib/trpc';
 
 type TabId = 'overview' | 'artifacts' | 'interview' | 'evidence';
 
@@ -259,134 +266,344 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
 }
 
 /* ── Culture Research (JP3B, TASK-011) ───────────────────────────────── */
+/* TASK-011 remediation (2026-07-18 coordinator final review, issue 7): this
+ * section is now LIVE — it queries the real `jobpilot.cultureResearch.*`
+ * procedures and renders whatever the API actually returns. Before any
+ * research has been proposed/approved, it shows an honest empty state and an
+ * action to start research — never a placeholder claim. The source-rights
+ * disclosure gates the grounded evidence exactly as before (JP3B exit: "the
+ * user sees citations and a rights/access warning BEFORE using
+ * recommendations"), but now over REAL persisted synthesis output, complete
+ * with citations, content hashes, and an approval timestamp.
+ *
+ * Claim authoring here is intentionally minimal for this pass: once a source
+ * is fetched, its ENTIRE real content is submitted as one grounded "fact"
+ * claim (`deriveFullArtifactFactClaim`) — never fabricated text. A richer
+ * human-excerpt-picker or LLM-assisted theme/opinion/contradiction extraction
+ * is tracked as future work; the honest result today is a `facts` bucket
+ * populated with real cited claims and other buckets empty (a true empty
+ * result, not a fabricated one), matching how the server-side partition
+ * already renders a `contradictions: []` result. */
 
-const CULTURE_GROUP_META: { type: CultureClaimType; label: string; emptyNote: string }[] = [
-  { type: 'fact', label: 'Facts', emptyNote: 'No documented facts identified yet.' },
-  { type: 'theme', label: 'Repeated themes', emptyNote: 'No repeated theme identified yet.' },
-  { type: 'opinion', label: 'Attributed opinions', emptyNote: 'No attributed opinions identified yet.' },
-  { type: 'contradiction', label: 'Contradictions', emptyNote: 'No contradicting accounts found among the permitted sources used for this run — this is an honest empty result, not a fabricated one. Reddit and Glassdoor reviews (a likelier source of disputing accounts) are currently skipped; see the disclosure above.' },
-  { type: 'inference', label: 'Agent inference', emptyNote: 'No inference offered yet.' },
+type CultureSourceListItem = Awaited<ReturnType<typeof trpc.jobpilot.cultureResearch.sources.query>>[number];
+type CultureFetchStatusResult = Awaited<ReturnType<typeof trpc.jobpilot.cultureResearch.status.query>>;
+type CultureSynthesisResult = Awaited<ReturnType<typeof trpc.jobpilot.cultureResearch.synthesisResult.query>>;
+
+const CULTURE_GROUP_META: { key: 'facts' | 'themes' | 'opinions' | 'contradictions' | 'inferences'; label: string; emptyNote: string }[] = [
+  { key: 'facts', label: 'Facts', emptyNote: 'No documented facts identified yet.' },
+  { key: 'themes', label: 'Repeated themes', emptyNote: 'No repeated theme identified yet.' },
+  { key: 'opinions', label: 'Attributed opinions', emptyNote: 'No attributed opinions identified yet.' },
+  { key: 'contradictions', label: 'Contradictions', emptyNote: 'No contradicting accounts found among the permitted sources used for this run — this is an honest empty result, not a fabricated one. Reddit and Glassdoor reviews (a likelier source of disputing accounts) are currently skipped; see the disclosure above.' },
+  { key: 'inferences', label: 'Agent inference', emptyNote: 'No inference offered yet.' },
 ];
 
 function CultureResearchSection() {
+  const workspaceId = PILOT_WORKSPACE;
+  const company = BCG_APPLICATION.company;
+
   const [disclosureOpen, setDisclosureOpen] = useState(false);
-  const research = BCG_APPLICATION.cultureResearch;
+  const [sources, setSources] = useState<CultureSourceListItem[] | null>(null);
+  const [pointer, setPointer] = useState<StoredCultureResearchState | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, CultureFetchStatusResult>>({});
+  const [result, setResult] = useState<CultureSynthesisResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
-  const usedSources = useMemo(() => {
-    const seen = new Map<string, { sourceLabel: string; sourceUrl: string }>();
-    for (const claim of research.claims) {
-      if (!seen.has(claim.sourceUrl)) seen.set(claim.sourceUrl, { sourceLabel: claim.sourceLabel, sourceUrl: claim.sourceUrl });
+  // Discover the server-owned sources for this company, and any locally
+  // remembered pointer to an in-progress/completed run — a page refresh must
+  // re-find real API state, never reset silently to "nothing happened".
+  useEffect(() => {
+    let cancelled = false;
+    trpc.jobpilot.cultureResearch.sources
+      .query({ workspaceId, company })
+      .then((s) => { if (!cancelled) setSources(s); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    if (typeof window !== 'undefined') {
+      setPointer(loadStoredCultureResearchState(window.localStorage, workspaceId, company));
     }
-    return Array.from(seen.values());
-  }, [research.claims]);
+    setHydrated(true);
+    return () => { cancelled = true; };
+    // Deliberately mount-only: `workspaceId`/`company` are constant for this
+    // component instance (PILOT_WORKSPACE and BCG_APPLICATION.company never
+    // change), so omitting them from the deps array is safe.
+  }, []);
 
-  const claimsByType = (type: CultureClaimType) =>
-    type === 'contradiction' ? research.contradictions : research.claims.filter((c) => c.claimType === type);
+  // Re-fetch live state whenever the pointer changes (including on initial
+  // hydration) — every claim/citation/hash/disclosure the user sees comes
+  // from these calls, never from anything cached locally.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    async function refresh() {
+      if (!pointer) { setResult(null); return; }
+      if (pointer.synthesisProposalId) {
+        try {
+          const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, proposalId: pointer.synthesisProposalId });
+          if (!cancelled) setResult(r);
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        }
+      }
+      const nextStatuses: Record<string, CultureFetchStatusResult> = {};
+      await Promise.all(
+        pointer.pending.map(async (p) => {
+          try {
+            nextStatuses[p.proposalId] = await trpc.jobpilot.cultureResearch.status.query({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
+          } catch {
+            // Unknown/inaccessible — drop it from the live view rather than
+            // showing a stale local guess.
+          }
+        }),
+      );
+      if (!cancelled) setStatuses(nextStatuses);
+    }
+    refresh();
+    return () => { cancelled = true; };
+  }, [pointer, hydrated]);
+
+  function persistPointer(next: StoredCultureResearchState) {
+    setPointer(next);
+    if (typeof window !== 'undefined') saveStoredCultureResearchState(window.localStorage, workspaceId, company, next);
+  }
+
+  async function startResearch() {
+    const permittedIds = (sources ?? []).filter((s) => s.eligibility === 'permitted').map((s) => s.id);
+    if (permittedIds.length === 0) {
+      setError('No permitted culture-research sources are configured for this company yet.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const proposed = await trpc.jobpilot.cultureResearch.propose.mutate({ workspaceId, company, sourceIds: permittedIds });
+      persistPointer({ parentRunId: proposed.parentRunId, pending: proposed.pending });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveAndFetch(p: StoredCultureResearchState['pending'][number]) {
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.action.decide.mutate({ proposalId: p.proposalId, decision: 'approve' });
+      const record = await trpc.jobpilot.cultureResearch.materialize.mutate({ workspaceId, proposalId: p.proposalId, childRunId: p.childRunId });
+      setStatuses((prev) => ({ ...prev, [p.proposalId]: record }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function synthesize() {
+    if (!pointer) return;
+    const fetchedEntries = pointer.pending
+      .map((p) => ({ p, status: statuses[p.proposalId] }))
+      .filter((x): x is { p: (typeof pointer.pending)[number]; status: CultureFetchStatusResult & { status: 'fetched' } } => x.status?.status === 'fetched' && !!x.status.artifact);
+    if (fetchedEntries.length === 0) {
+      setError('At least one source must be approved and fetched before synthesis.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const claims = fetchedEntries.map(({ p, status }) => deriveFullArtifactFactClaim(`claim-${p.sourceId}`, p.sourceId, status.artifact!));
+      const synth = await trpc.jobpilot.cultureResearch.synthesize.mutate({ workspaceId, company, parentRunId: pointer.parentRunId, claims });
+      persistPointer({ ...pointer, synthesisProposalId: synth.proposalId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveSynthesis() {
+    if (!pointer?.synthesisProposalId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await trpc.action.decide.mutate({ proposalId: pointer.synthesisProposalId, decision: 'approve' });
+      const r = await trpc.jobpilot.cultureResearch.synthesisResult.query({ workspaceId, proposalId: pointer.synthesisProposalId });
+      setResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const available = result?.status === 'available' ? result : null;
 
   return (
     <SectionCard title="Culture research">
       <p className="mb-4 text-xs" style={{ color: 'var(--color-warm-gray)' }}>
-        {research.researchAgent} Agent · {research.researchSkill} Skill → {research.synthesisAgent} Agent · {research.synthesisSkill} Skill
+        Learning Agent · research company culture Skill → Internal Strategist Agent · synthesize culture evidence Skill
       </p>
 
-      {/* Source-rights disclosure — clickable, gates the evidence below (JP3B exit:
-          "the user sees citations and a rights/access warning BEFORE using recommendations"). */}
-      <button
-        onClick={() => setDisclosureOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-[var(--color-surface)]"
-        style={{ borderColor: '#E7C978', backgroundColor: '#FFFBEE' }}
-      >
-        <ShieldAlert className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />
-        <span className="flex-1 text-sm font-semibold" style={{ color: '#8A5A00' }}>
-          Source rights &amp; access — review before using these suggestions
-        </span>
-        {disclosureOpen ? <ChevronUp className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} /> : <ChevronDown className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />}
-      </button>
-
-      {!disclosureOpen && (
-        <p className="mt-3 text-xs italic" style={{ color: 'var(--color-warm-gray)' }}>
-          Open the disclosure above to see exactly which sources were used and which were skipped (and why) before viewing culture-informed evidence.
-        </p>
-      )}
-
-      {disclosureOpen && (
-        <div className="mt-3 space-y-4 rounded-lg border p-4" style={{ borderColor: 'var(--color-border)', backgroundColor: '#FAFAF7' }}>
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
-              Sources used ({usedSources.length})
-            </p>
-            {usedSources.map((s) => (
-              <a
-                key={s.sourceUrl}
-                href={s.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mb-1 flex items-center gap-1.5 text-xs font-medium hover:underline"
-                style={{ color: 'var(--color-steel)' }}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--success)' }} />
-                {s.sourceLabel} <ExternalLink className="h-3 w-3" />
-              </a>
-            ))}
-          </div>
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
-              Sources skipped ({research.skippedSources.length}) — no access, no fetch, no bypass
-            </p>
-            <div className="space-y-2">
-              {research.skippedSources.map((s) => (
-                <div key={s.sourceLabel} className="flex items-start gap-2">
-                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--danger)' }} />
-                  <div>
-                    <span className="text-xs font-semibold" style={{ color: 'var(--color-navy)' }}>{s.sourceLabel}</span>
-                    <p className="text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>{s.reason}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+      {error && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--danger)', backgroundColor: '#FCEEEE', color: 'var(--danger)' }}>
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {disclosureOpen && (
-        <div className="mt-5 space-y-5">
-          {CULTURE_GROUP_META.map((group) => {
-            const items = claimsByType(group.type);
+      {/* Honest empty state — no research proposed/persisted yet. */}
+      {hydrated && !pointer && !available && (
+        <div className="rounded-lg border p-4 text-center" style={{ borderColor: 'var(--color-border)', backgroundColor: '#FAFAF7' }}>
+          <p className="mb-3 text-sm" style={{ color: 'var(--color-warm-gray)' }}>
+            No culture research has been run for this application yet.
+          </p>
+          <button
+            onClick={startResearch}
+            disabled={busy || sources === null}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            style={{ backgroundColor: 'var(--color-steel)' }}
+          >
+            {busy ? 'Starting…' : 'Start culture research'}
+          </button>
+        </div>
+      )}
+
+      {/* Pending sources awaiting approval/fetch — real, per-source live status. */}
+      {pointer && !available && (
+        <div className="space-y-2">
+          {pointer.pending.map((p) => {
+            const status = statuses[p.proposalId];
             return (
-              <div key={group.type}>
-                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-navy-mid)' }}>
-                  {group.label} ({items.length})
-                </h3>
-                {items.length === 0 ? (
-                  <p className="text-xs leading-5 italic" style={{ color: 'var(--color-warm-gray)' }}>{group.emptyNote}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {items.map((item) => (
-                      <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
-                        {item.agentInference && (
-                          <span className="mb-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: 'var(--color-steel)', backgroundColor: '#EEF4F7' }}>
-                            <Bot className="h-3 w-3" /> Agent inference — not a verified fact
-                          </span>
-                        )}
-                        <p className="flex items-start gap-1.5 text-sm leading-6" style={{ color: 'var(--color-navy)' }}>
-                          {item.claimType === 'opinion' && <Quote className="mt-1 h-3 w-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />}
-                          {item.claimText}
-                        </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" style={{ color: 'var(--color-warm-gray)' }}>
-                          <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline" style={{ color: 'var(--color-steel)' }}>
-                            {item.sourceLabel} <ExternalLink className="h-3 w-3" />
-                          </a>
-                          <span>Retrieved {item.retrievedAt}</span>
-                          {item.authorContext && <span>{item.authorContext}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              <div key={p.proposalId} className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
+                <div>
+                  <span className="text-sm font-medium" style={{ color: 'var(--color-navy)' }}>{p.sourceLabel}</span>
+                  <span className="ml-2 text-xs" style={{ color: 'var(--color-warm-gray)' }}>{status?.status ?? 'pending'}</span>
+                </div>
+                {(!status || status.status === 'pending') && (
+                  <button onClick={() => approveAndFetch(p)} disabled={busy} className="rounded-md px-3 py-1 text-xs font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--success)' }}>
+                    Approve &amp; fetch
+                  </button>
                 )}
+                {status?.status === 'fetched' && <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--success)' }} />}
+                {status?.status === 'failed' && <XCircle className="h-4 w-4" style={{ color: 'var(--danger)' }} />}
               </div>
             );
           })}
+          {!pointer.synthesisProposalId && (
+            <button onClick={synthesize} disabled={busy} className="mt-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}>
+              Synthesize evidence
+            </button>
+          )}
+          {pointer.synthesisProposalId && (
+            <button onClick={approveSynthesis} disabled={busy} className="mt-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}>
+              Approve synthesis
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Source-rights disclosure — clickable, gates the evidence below (JP3B exit:
+          "the user sees citations and a rights/access warning BEFORE using recommendations"). */}
+      {available && (
+        <>
+          <button
+            onClick={() => setDisclosureOpen((o) => !o)}
+            className="flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-[var(--color-surface)]"
+            style={{ borderColor: '#E7C978', backgroundColor: '#FFFBEE' }}
+          >
+            <ShieldAlert className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />
+            <span className="flex-1 text-sm font-semibold" style={{ color: '#8A5A00' }}>
+              Source rights &amp; access — review before using these suggestions
+            </span>
+            {disclosureOpen ? <ChevronUp className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} /> : <ChevronDown className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />}
+          </button>
+
+          {!disclosureOpen && (
+            <p className="mt-3 text-xs italic" style={{ color: 'var(--color-warm-gray)' }}>
+              Open the disclosure above to see exactly which sources were used and which were skipped (and why) before viewing culture-informed evidence. Approved {new Date(available.approvedAt).toLocaleString()}.
+            </p>
+          )}
+
+          {disclosureOpen && (
+            <div className="mt-3 space-y-4 rounded-lg border p-4" style={{ borderColor: 'var(--color-border)', backgroundColor: '#FAFAF7' }}>
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
+                  Sources used ({available.result.disclosure.used.length})
+                </p>
+                {available.result.disclosure.used.map((s) => (
+                  <a
+                    key={s.sourceUrl}
+                    href={s.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mb-1 flex items-center gap-1.5 text-xs font-medium hover:underline"
+                    style={{ color: 'var(--color-steel)' }}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--success)' }} />
+                    {s.sourceLabel} <ExternalLink className="h-3 w-3" />
+                  </a>
+                ))}
+              </div>
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
+                  Sources skipped ({available.result.disclosure.skipped.length}) — no access, no fetch, no bypass
+                </p>
+                <div className="space-y-2">
+                  {available.result.disclosure.skipped.map((s) => (
+                    <div key={s.sourceLabel} className="flex items-start gap-2">
+                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--danger)' }} />
+                      <div>
+                        <span className="text-xs font-semibold" style={{ color: 'var(--color-navy)' }}>{s.sourceLabel}</span>
+                        <p className="text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>{s.reason}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {disclosureOpen && (
+            <div className="mt-5 space-y-5">
+              {CULTURE_GROUP_META.map((group) => {
+                const items = available.result.partition[group.key];
+                return (
+                  <div key={group.key}>
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-navy-mid)' }}>
+                      {group.label} ({items.length})
+                    </h3>
+                    {items.length === 0 ? (
+                      <p className="text-xs leading-5 italic" style={{ color: 'var(--color-warm-gray)' }}>{group.emptyNote}</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {items.map((item) => (
+                          <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
+                            {item.agentInference && (
+                              <span className="mb-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: 'var(--color-steel)', backgroundColor: '#EEF4F7' }}>
+                                <Bot className="h-3 w-3" /> Agent inference — not a verified fact
+                              </span>
+                            )}
+                            <p className="flex items-start gap-1.5 text-sm leading-6" style={{ color: 'var(--color-navy)' }}>
+                              {item.claimType === 'opinion' && <Quote className="mt-1 h-3 w-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />}
+                              {item.claimText}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" style={{ color: 'var(--color-warm-gray)' }}>
+                              <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline" style={{ color: 'var(--color-steel)' }}>
+                                {item.sourceLabel} <ExternalLink className="h-3 w-3" />
+                              </a>
+                              <span>Retrieved {item.retrievedAt}</span>
+                              {item.authorContext && <span>{item.authorContext}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </SectionCard>
   );
