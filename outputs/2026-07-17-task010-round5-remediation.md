@@ -221,3 +221,27 @@ already-documented, outside this session's blast radius.
   level verification, consistent with every prior round. `docs/TASKS.md` TASK-010 stays `in_progress`.
 - The persisted `FitRecommendation` migration (green→pursue/yellow→review/red→pass backfill, item 9
   from round 4) remains pending the SAME RM4 gate, as already reported.
+
+## Addendum (commit `eeadc1f`) — fresh independent review + 2 non-blocking follow-ups
+
+A fresh independent code-review agent verified all 11 items above against the actual code (not the
+commit message) — traced every branch of `attemptGovernedLearningStep`/`canonicalModuleId`/
+`casSupersede`/`isMemoryIdUniqueViolation`, cross-checked the client/server anchor allowlists, and
+independently re-ran every affected test suite plus the full monorepo typecheck/build. Verdict:
+**merge-ready**, all 11 items VERIFIED-FIXED against the real code and real (non-mocked) concurrency
+tests. Two non-blocking follow-ups were flagged and fixed in `eeadc1f`:
+
+1. `docs/BUGS.md`'s item-2 (RLS) entry overstated the leak as including the private proposal's
+   `onBehalfOf` identity — `LEDGER_COLS` does not select `on_behalf_of_id`, and a red-flag proposal's
+   opaque `inputs` carries no `display.onBehalfOf`, so the specific member is NOT actually exposed
+   through this path. Corrected the entry; the leak (existence + opaque summary + `flagMemoryId`
+   reference) remains real and still tracked, just accurately scoped now.
+2. `RedFlagProvider`'s `error` state had no UI consumer — a failed INITIAL load left `create()`
+   permanently disabled with a stuck "loading…" label and no in-app recovery short of a full
+   component remount. Fixed: exposed `retryLoad()` on the context (the provider's own `refresh()`);
+   `RedFlagControl` now re-enables the flag glyph specifically when `ctx.loading && ctx.error` (a
+   genuinely failed load, distinct from merely in-flight) and a click retries the load.
+
+Re-verified after both fixes: web 64/64 (2 tests updated/added), full monorepo typecheck (37/37) and
+build (20/20) clean, lint clean on every touched file.
+
