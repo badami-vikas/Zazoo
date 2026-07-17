@@ -1643,3 +1643,5 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - `docs/raw/decisions-log.md`: ADR-109 appended.
 - `docs/APPROVALS.md`: AP-037 added.
 - `docs/requests.md`: R-039 added.
+- 2026-07-17 — LLM inference optimization audit: verified zero runtime prompt optimization (no cache_control/batching/tiering; model = providers[0]); rejected text-as-image token hack; free-first stack map + ordered proposal recorded in outputs/2026-07-17-llm-inference-optimization-audit.md
+- 2026-07-17 — AP-038 applied: queued TASK-022 (inference cost optimization: prompt caching + model tiering) into docs/TASKS.md, appended to execution order after TASK-019; scope in outputs/2026-07-17-llm-inference-optimization-audit.md
