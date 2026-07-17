@@ -1066,15 +1066,30 @@ on, not a separate follow-up round.
 
 ### Verification
 
-`@bridge/core` 430/430, `@bridge/db` 112/112, `@bridge/net-guard` 24/24, `@bridge/jobpilot` 124/124,
-`@bridge/api` 230/230 (full suite, rerun twice after the post-review fix — one incidental flake in
-a PRE-EXISTING, unrelated timing-sensitive real-socket test under full-suite load, confirmed to pass
-in isolation and on rerun, not a regression), `@bridge/web` 61/61 + clean build/typecheck, full
+`@bridge/core` 431/431 (up from 430 — includes `origin/main`'s merged-in
+"an assigned Agent without explicit active status fails closed" test), `@bridge/db` 112/112,
+`@bridge/net-guard` 24/24, `@bridge/jobpilot` 124/124, `@bridge/api` 230/230 (full suite, rerun
+multiple times across the round — two isolated single-test flakes hit, each in a different
+timing-sensitive real-socket test using the same fixed-short-wait-then-check-server-closed pattern,
+under full-suite load specifically; both confirmed non-regressions via clean isolated reruns AND a
+clean full-suite rerun immediately after), `@bridge/web` 61/61 + clean build/typecheck, full
 monorepo build 21/21, eslint clean (same 2 pre-existing, unrelated issues in
 `ZazooAvatar.tsx`/`determinism.ts` — confirmed untouched by this branch's diff), no-dummy-runtime
 clean.
 
-`origin/main` re-checked at end of round: still `87043d4` (unchanged) — no new commits to merge.
+`origin/main` advanced during this round: `87043d4` → `212e65f` ("fix: fail closed for unseeded
+in-memory agents", touching `InMemoryAgentStore`). Merged forward
+(`ac6d1e0` "Merge remote-tracking branch 'origin/main'..."). The auto-merge succeeded WITHOUT
+conflict markers but produced a semantically broken file: both this branch and `origin/main` had
+independently added the SAME four `InMemoryAgentStore` members (`workspaces`/`statuses`/
+`workspaceId`/`isActive`) off the same shared ancestor, with different status vocabularies — git's
+line-based merge concatenated both rather than detecting the duplication (`tsc` caught it
+immediately: `TS2300`/`TS2393`). Manually resolved (commit `884831e`) by keeping `origin/main`'s
+richer `"active" | "paused" | "retired"` vocabulary (a subsequent independent review's own
+provenance check — see below — corrected an inverted attribution in this fix's first comment,
+corrected in commit `923dbf1`). `origin/main` re-checked at the end of the round: still `212e65f`
+(unchanged) — fully merged, no further conflicts. Migrations directory still ends at `0014` — RM4's
+`0015`/TASK-010's next migration have STILL not landed.
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped) this round.
@@ -1085,4 +1100,12 @@ Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions
    absent as of this round's final sync).
 2. `ledger` therefore still cannot be bound to the same durable `BRIDGE_LOCAL_DIR` DB as
    `goalTasks`/`childAgentRuns` — depends on item 1 landing first.
+
+### Post-merge independent review — 1 finding (comment-only), fixed
+
+A THIRD independent review, specifically of the `origin/main` merge-conflict resolution (given it
+touches agent-authority logic), found no functional defects but caught the resolution's own
+explanatory comment inverting which side actually introduced which status vocabulary (verified
+directly against the commit objects). Fixed in commit `923dbf1` — comment/attribution correction
+only, no behavior change, re-verified (`@bridge/core` 431/431).
 
