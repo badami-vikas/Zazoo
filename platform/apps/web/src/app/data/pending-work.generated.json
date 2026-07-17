@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T00:10:35.275Z",
+  "generatedAt": "2026-07-17T05:01:10.454Z",
   "items": [
     {
       "id": "TASK-001",
@@ -257,18 +257,24 @@
     {
       "id": "TASK-007",
       "title": "TASK-007 — Agent, Skill, and child-Run orchestration",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.",
-      "prototypeTest": "Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.",
+      "prototypeTest": "✅ Assigned active Agents resolve matching workspace Goal/Task Skills; unauthorized/missing/inactive/cross-workspace invocation fails closed; a server-owned child Run narrows authority/budget/taint/depth, records lifecycle audit, and can be stopped by Governance/Human.",
       "scope": [
         "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3",
         "docs/raw/bridge-foundational-agents-onboarding-2026-07.md"
       ],
       "evidence": [
-        "BUGS standalone Skills/non-Agent invocation",
-        "specialist-agent overfit review"
+        "RESOLVED BUGS standalone Skills/non-Agent invocation",
+        "specialist-agent overfit review",
+        "[TASK-007 output](../outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md)",
+        "core 421, DB 106, API 161, Google 35, web 43 tests",
+        "monorepo typecheck/build",
+        "changed-file lint",
+        "migration no-drift",
+        "four independent security/correctness reviews, final no findings."
       ],
       "requests": [
         "R-019",
@@ -276,11 +282,11 @@
         "R-029",
         "agent redesign directive 2026-07-15"
       ],
-      "approval": "AP-021, AP-023, and AP-029 applied",
+      "approval": "AP-021, AP-023, AP-029, and AP-032 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 131,
@@ -319,6 +325,41 @@
       "rank": 10
     },
     {
+      "id": "TASK-021",
+      "title": "TASK-021 — Task Manager Module",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "One installable Task Manager Module owning the single governed execution queue per workspace plus one Goal anchor over a self-referential, dot-path-leveled Task tree (no separate Initiative/Outcome Record types), with exit-test verification, planning Playbooks as draft-then-approve proposals, deterministic agent-task routing, confidence-graduated reschedule approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.",
+      "prototypeTest": "In a real workspace, create a Goal with outcomes[] and a 3-level Task tree (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; an agent-assigned Task routes to Capability Builder by default and to a Skill-eligible Agent for a cross-Module Task; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.",
+      "scope": [
+        "docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6",
+        "docs/raw/brd-taskmanager-2026-07.md",
+        "docs/raw/initiatives-taskade-research.md (verdicts bind)",
+        "docs/raw/ui-architecture-rules-2026-07.md"
+      ],
+      "evidence": [
+        "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025)",
+        "user's game-designs repo independently converged on the identical format (2026-07-16 report)"
+      ],
+      "requests": [
+        "R-035",
+        "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)"
+      ],
+      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision); ADR-105 records the vocabulary call, revised same day (renumbered from this session's original AP-030/AP-031/ADR-099 during merge-integration — main used those IDs for parallel task-integration approvals)",
+      "dependencies": [
+        "TASK-001",
+        "TASK-012 (VOCAB2 tree migration)",
+        "TASK-014 (standard Module UI)",
+        "TASK-004 line for TM6 only"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 227,
+      "rank": 11
+    },
+    {
       "id": "TASK-015",
       "title": "TASK-015 — End-to-end runtime taint tracking",
       "status": "pending",
@@ -344,8 +385,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 227,
-      "rank": 11
+      "sourceLine": 239,
+      "rank": 12
     },
     {
       "id": "TASK-016",
@@ -373,8 +414,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 239,
-      "rank": 12
+      "sourceLine": 251,
+      "rank": 13
     },
     {
       "id": "TASK-017",
@@ -406,8 +447,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 251,
-      "rank": 13
+      "sourceLine": 263,
+      "rank": 14
     },
     {
       "id": "TASK-006",
@@ -435,7 +476,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 119,
-      "rank": 14
+      "rank": 15
     },
     {
       "id": "TASK-011",
@@ -463,7 +504,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 179,
-      "rank": 15
+      "rank": 16
     },
     {
       "id": "TASK-009",
@@ -491,7 +532,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 155,
-      "rank": 16
+      "rank": 17
     },
     {
       "id": "TASK-002",
@@ -524,7 +565,7 @@
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 68,
-      "rank": 17
+      "rank": 18
     },
     {
       "id": "TASK-020",
@@ -554,8 +595,8 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 287,
-      "rank": 18
+      "sourceLine": 299,
+      "rank": 19
     },
     {
       "id": "TASK-018",
@@ -582,8 +623,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 263,
-      "rank": 19
+      "sourceLine": 275,
+      "rank": 20
     },
     {
       "id": "TASK-019",
@@ -609,8 +650,8 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 275,
-      "rank": 20
+      "sourceLine": 287,
+      "rank": 21
     }
   ]
 }
