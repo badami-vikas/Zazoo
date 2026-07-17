@@ -82,11 +82,82 @@ export interface MemoryQuery {
    * review item 6: "dedicated server-side red-flag filtering before
    * limiting"). */
   sourceRefType?: MemorySourceRefType;
+  /**
+   * Structured-content equality predicates pushed into the store's OWN
+   * query rather than scanned app-side over an unbounded/artificially
+   * capped page (TASK-010 review round-4 item 7: "extend Memory query
+   * support for structured red-flag metadata (JSON predicates acceptable
+   * without migration)"). Each entry is a dot-path into the Memory's opaque
+   * JSON `content` (e.g. `{ path: "anchor.moduleId", equals: "initiative" }`)
+   * — every predicate must match (AND). No schema migration needed:
+   * `content` stays free-form text; the persistent adapter casts it to
+   * `jsonb` at query time (`content::jsonb #>> '{a,b}'`), the in-memory
+   * adapter walks the parsed object. Path segments are always supplied by
+   * TRUSTED SERVER CODE (never a raw client string), so no injection
+   * surface exists even though the persistent adapter embeds the path in
+   * the query text.
+   */
+  contentPathEquals?: Array<{ path: string; equals: string }>;
   /** Include rows that have been superseded by a newer row. Default false —
    * retrieval returns only the CURRENT set of facts. */
   includeSuperseded?: boolean;
+  /** Sort order for `createdAt` (ties broken by `id`) — default `"desc"`
+   * (newest first, the pre-existing behavior every caller before TASK-010
+   * review round-4 relied on). `"asc"` (oldest first) is what a full,
+   * paginated lineage `history` needs (review item 8). */
+  order?: "asc" | "desc";
+  /**
+   * Keyset cursor (review item 8): return only rows strictly BEYOND this
+   * `(createdAt, id)` position in the requested `order` — i.e. strictly
+   * older than the cursor for `"desc"`, strictly newer for `"asc"`. Stable
+   * under concurrent insert/supersede between page fetches, unlike
+   * `offset`, which can duplicate or omit rows when the underlying set
+   * changes mid-pagination. Takes precedence over `offset` when both are
+   * supplied (a caller should pass one or the other, not both).
+   */
+  cursor?: { createdAt: string; id: string };
   limit?: number;
+  /** @deprecated prefer `cursor` (keyset) for anything paginated across
+   * multiple requests — offset pagination is still supported for the few
+   * remaining internal callers that fetch a single bounded page and never
+   * paginate further. */
   offset?: number;
+}
+
+/** Total order used for keyset pagination: `createdAt` first, `id` as a
+ * stable tiebreaker (two rows can share a `createdAt` timestamp, especially
+ * in fast test suites). Shared by both adapters so their pagination
+ * semantics agree exactly. */
+function compareMemoryOrder(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
+  const c = a.createdAt.localeCompare(b.createdAt);
+  return c !== 0 ? c : a.id.localeCompare(b.id);
+}
+
+/** Safe (no `eval`, no prototype-pollution) dot-path walk of a JSON-parsed
+ * value — mirrors what the persistent adapter's `#>>` path extraction does
+ * against `content::jsonb`. Returns `undefined` for a missing/non-object
+ * intermediate path segment (never throws). */
+function getJsonPath(value: unknown, path: string): unknown {
+  let cursor: unknown = value;
+  for (const segment of path.split(".")) {
+    if (cursor === null || typeof cursor !== "object") return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
+/** Shared by both adapters: does this Memory's parsed `content` satisfy
+ * every `contentPathEquals` predicate? A row whose `content` isn't valid
+ * JSON never matches any predicate (fails closed, never throws). */
+export function matchesContentPathEquals(content: string, predicates: Array<{ path: string; equals: string }> | undefined): boolean {
+  if (!predicates || predicates.length === 0) return true;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return false;
+  }
+  return predicates.every((p) => getJsonPath(parsed, p.path) === p.equals);
 }
 
 /**
@@ -204,8 +275,21 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (query.type) rows = rows.filter((e) => e.type === query.type);
     if (query.subjectElementId) rows = rows.filter((e) => e.subjectElementId === query.subjectElementId);
     if (query.sourceRefType) rows = rows.filter((e) => e.sourceRefType === query.sourceRefType);
-    rows = rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const offset = query.offset ?? 0;
+    if (query.contentPathEquals) rows = rows.filter((e) => matchesContentPathEquals(e.content, query.contentPathEquals));
+    const order = query.order ?? "desc";
+    rows = rows.sort((a, b) => (order === "asc" ? compareMemoryOrder(a, b) : compareMemoryOrder(b, a)));
+    if (query.cursor) {
+      // Keyset: keep only rows strictly BEYOND the cursor in the requested
+      // order (review item 8) — stable under concurrent insert/supersede
+      // between page fetches, unlike an offset (which shifts once the
+      // underlying set changes size).
+      const cursor = query.cursor;
+      rows = rows.filter((e) => {
+        const c = compareMemoryOrder(e, cursor);
+        return order === "asc" ? c > 0 : c < 0;
+      });
+    }
+    const offset = query.cursor ? 0 : (query.offset ?? 0);
     const limit = query.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map((e) => ({ ...e }));
   }

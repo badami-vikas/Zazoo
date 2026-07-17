@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T12:11:29.599Z",
+  "generatedAt": "2026-07-17T14:27:28.972Z",
   "items": [
     {
       "id": "TASK-001",
@@ -207,17 +207,21 @@
       ],
       "evidence": [
         "user feedback-mechanism correction 2026-07-15",
-        "[TASK-010 output](../outputs/2026-07-17-task010-red-flag-feedback.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells) and JobPilotApplicationDetail.tsx (rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
-        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). **Independent review found this commit not merge-ready** (auth/IDOR, ledger-privacy leak, no saga/idempotency, no lineage concurrency control, weak anchor identity, no server-side pagination, per-cell N+1 queries, viewport- instead of pointer-based touch detection, unbacked persisted-column rename) — remediated in [TASK-010 review remediation output](../outputs/2026-07-17-task010-review-remediation.md): every `redFlag` procedure is now authenticated+membership-gated with owner always `ctx.identity.id`",
-        "the governed proposal's ledger row carries only an opaque Memory reference (no anchor/renderedValue/reason)",
-        "`create` is a client-`operationId`-driven idempotent two-step saga",
-        "`MemoryStore` gained a real `casSupersede`/`currentForLineage` CAS primitive",
-        "the anchor is a discriminated cell/bullet union with a canonical-string-derived lineage key",
-        "`listAll`/`history` add cursor pagination and full lineage",
-        "a new `RedFlagProvider` batches one query per table/record instead of one per cell",
-        "touch detection now uses `[@media(hover:none)]`/`[@media(pointer:coarse)]`. **A second, fresh independent review of that remediation then found 2 further real bugs, both fixed**: (a) the idempotent-retry check read the immutable step-1 Memory's own frozen `learningStatus: \"none\"` instead of re-resolving the lineage's actual current state via `currentForLineage`, so a genuine retry silently re-invoked `pipeline.propose` a second time with the same deterministic `proposalId` (masked only by an unrelated CAS fallback) — fixed by resolving `currentForLineage` before deciding whether to skip step 2, with a test asserting `pipeline.propose` is called exactly once across a create+retry pair",
-        "(b) the persistent CAS's `isSerializationFailure` checked `err.code` at the top level, but drizzle-orm ≥0.45 wraps driver errors in `DrizzleQueryError` with the real error on `.cause` (the exact issue `ledger-store.ts`'s `isRefLedgerUniqueViolation` already works around) — a genuine Postgres `40001` would have re-thrown as unhandled instead of returning a graceful CAS-failure `null`, undetected by the original concurrency test because pglite's single-connection model didn't happen to produce a real race",
-        "fixed by walking the `.cause` chain identically to the ledger's precedent, with new tests constructing a real `DrizzleQueryError`-wrapped `40001` directly (both a standalone unwrap test and a `casSupersede`-integration test via a monkeypatched transaction). Re-verified after both fixes: core 426, DB 113 (+2), API 187, JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 57 tests, full monorepo typecheck/build (40/40), lint, and no-dummy-runtime all pass clean. Item 9 (the JobPilot flag column's persisted-data migration) remains explicitly PENDING, not fabricated — TASK-008 RM4 owns migration 0015 and has not landed. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the pending migration once RM4 lands."
+        "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells) and JobPilotApplicationDetail.tsx (rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
+        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Three coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
+        "round 2's own idempotency-check and CAS `.cause`-unwrap bugs (round 3)",
+        "and round 4's 11-item list — **governed learning is now substantive, not an echo**: `create` synthesizes a real, structured, owner-private `preference_adjustment` Memory (scope/target/proposed-change/rationale/evidence-ref) via owner-authorized read, and a SEPARATE Human-authorized `enactCorrection`/`revokeCorrection` pair applies/undoes the actual correction (display suppression) only after ledger approval — proving \"behavior changes only after approval and can be undone\"",
+        "**private-proposal ownership** — `action.listPending`/`decide` now hide/reject a red-flag's private proposal from every non-owner member while preserving full team-visible semantics for unrelated proposals",
+        "**replay-safe create** — reconciles against the ledger before re-proposing (crash recovery lands on \"proposed\" not \"failed\"), and a genuinely failed attempt is retryable",
+        "**durable clear/reopen** — withdrawal/revocation happens BEFORE the status flip (a failure leaves the flag untouched, safely retryable), and reopen mints a FRESH proposal rather than resurrecting a resolved one",
+        "**forget** enumerates and withdraws every proposal across the WHOLE lineage, not just the current head's",
+        "**server-validated canonical anchors** — JobPilot/DealPilot/People/Community/Touchpoint record targets are existence+workspace-checked server-side (unknown modules fail closed)",
+        "**DB-pushed scope/kind filtering** via a new `MemoryQuery.contentPathEquals` JSON-predicate mechanism (no migration)",
+        "**real keyset `(createdAt,id)` pagination** replaces offset-based `listAll`/`history`, removing the 200-version cap",
+        "**hybrid touch** (`any-pointer:coarse` alongside `pointer:coarse`)",
+        "and JobPilot's legacy `flag` column is normalized at the `DrizzleJobPilotStore` read boundary itself (every `createJob`/`listJobs`/`updateApplication`/`getApplication` call), not only a test helper. Round 4 also found and fixed 3 further real bugs while implementing: a stale `.get(id)` (vs. `currentForLineage`) read of the preference-adjustment lineage after `enactCorrection` superseded it",
+        "a non-monotonic outcome-Memory id causing a primary-key collision on any retry that changed learning status",
+        "and every superseding write silently inheriting its PREDECESSOR's `createdAt` via `{...current}` spread (broke history/keyset ordering) — fixed via a process-local monotonic timestamp helper. Re-verified: core 426, DB 118, API 203 (33 red-flag tests), JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 59 tests, full monorepo build (23/23 packages) and typecheck clean, lint clean, no-dummy-runtime clean. Item 9/11's JobPilot flag-column migration remains explicitly PENDING (not fabricated) — TASK-008 RM4 owns migration 0015 and has not landed. A pre-existing, unrelated dummy-data instance (`JobPilotApplicationDetail.tsx`'s unrouted `BCG_APPLICATION` fixture) was discovered and logged to `docs/dummy.md` rather than silently left untracked. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the pending RM4-dependent migration."
       ],
       "requests": [
         "red-flag directive 2026-07-15"

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@bridge/core": "workspace:*",
+    "@bridge/jobpilot": "workspace:*",
     "@electric-sql/pglite": "^0.2.17",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5",

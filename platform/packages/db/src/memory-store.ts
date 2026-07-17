@@ -13,7 +13,7 @@
  * `confidence` is a numeric column (Drizzle surfaces it as a string): unpack
  * Number()-izes on read, `#insert` stringifies on write.
  */
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type {
   MemoryAuthScope,
   MemoryClassification,
@@ -62,6 +62,21 @@ function visibilityWhere(authScope: MemoryAuthScope): SQL {
   return and(tenant, or(open, owned)) as SQL;
 }
 
+/** Postgres `text[]` literal for a validated JSON path — used only for
+ * `contentPathEquals` (see MemoryQuery's doc comment: paths are always
+ * supplied by trusted server code, never a raw client string, but this
+ * still fails loudly on anything outside a safe identifier shape rather
+ * than trusting that invariant silently). */
+function pgTextArrayLiteral(parts: string[]): string {
+  const escaped = parts.map((p) => {
+    if (!/^[A-Za-z0-9_]+$/.test(p)) {
+      throw new Error(`memory store: unsafe contentPathEquals path segment "${p}"`);
+    }
+    return p;
+  });
+  return `{${escaped.join(",")}}`;
+}
+
 export class DrizzleMemoryStore implements MemoryStore {
   #db: Database;
   constructor(db: Database) {
@@ -103,14 +118,39 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (query.type) conds.push(eq(memories.type, query.type));
     if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
     if (query.sourceRefType) conds.push(eq(memories.sourceRefType, query.sourceRefType));
+    // review round-4 item 7: push structured JSON predicates into the SQL
+    // WHERE (a `content::jsonb` path-extraction, no schema migration) rather
+    // than scanning an unbounded/capped page app-side. `path` always comes
+    // from trusted server code (see MemoryQuery's doc comment) — the ARRAY
+    // itself is still a bound parameter, never string-concatenated.
+    for (const predicate of query.contentPathEquals ?? []) {
+      const pathLiteral = pgTextArrayLiteral(predicate.path.split("."));
+      conds.push(sql`(${memories.content}::jsonb #>> ${sql.raw(`'${pathLiteral}'`)}::text[]) = ${predicate.equals}`);
+    }
+    const order = query.order ?? "desc";
+    if (query.cursor) {
+      // Keyset (review item 8): strictly beyond the cursor's (createdAt, id)
+      // position in the requested order — stable under concurrent insert/
+      // supersede between page fetches, unlike offset (never re-derives a
+      // row's position from a count that can shift underneath it).
+      const cursorCreatedAt = new Date(query.cursor.createdAt);
+      conds.push(
+        order === "asc"
+          ? sql`(${memories.createdAt}, ${memories.id}) > (${cursorCreatedAt}, ${query.cursor.id})`
+          : sql`(${memories.createdAt}, ${memories.id}) < (${cursorCreatedAt}, ${query.cursor.id})`,
+      );
+    }
     let q = this.#db
       .select()
       .from(memories)
       .where(and(...conds))
-      .orderBy(desc(memories.createdAt))
+      .orderBy(...(order === "asc" ? [asc(memories.createdAt), asc(memories.id)] : [desc(memories.createdAt), desc(memories.id)]))
       .$dynamic();
     if (query.limit != null) q = q.limit(query.limit);
-    if (query.offset != null) q = q.offset(query.offset);
+    // A cursor supersedes offset — offset only remains meaningful for the
+    // (shrinking) set of callers that fetch one bounded page and never
+    // paginate further (MemoryQuery's `offset` doc comment).
+    if (query.offset != null && !query.cursor) q = q.offset(query.offset);
     const rows = await q;
     return rows.map(unpack);
   }

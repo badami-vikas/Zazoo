@@ -132,6 +132,23 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** each page wired to real endpoints in the shell-v2 pass — a module's
   entry moves to Resolved when its consuming page(s) read tRPC instead of the module.
 
+- **2026-07-17 — `JobPilotApplicationDetail.tsx`'s `BCG_APPLICATION` fixture**
+  (`platform/apps/web/src/app/data/bcg-application.ts`, pre-existing since commit `aa88865`,
+  discovered during TASK-010 round-4 while adding server-side red-flag anchor validation).
+  **Reason it can't be real yet:** the page is currently UNROUTED (no entry in `routes.tsx` —
+  only the real, real-data-backed `/jobpilot` list page (`JobPilotPage.tsx`) is reachable), so
+  it was never wired to `jobpilotStore`'s real application rows; its hardcoded `id:
+  'bcg-consultant-mba-2026'` and bullet content are display-only demo content.
+  **Real element it stands in for:** a real `jobpilotApplications` row (via
+  `jobpilotStore.getApplication`) and its persisted fit-recommendation bullets.
+  **Interaction with TASK-010:** `redFlag.create`'s server-side anchor validation (round-4 item
+  6) now requires a red-flagged cell/bullet's `recordId` to resolve to a REAL, workspace-owned
+  JobPilot application — this page's bullets, still pointing at the fixture's hardcoded id,
+  would fail that check with `NOT_FOUND` if ever flagged. Not a live regression today (the page
+  isn't reachable), but noted so it isn't silently rediscovered as "TASK-010 broke this."
+  **Removal condition:** either route this page to a real, `jobpilotStore`-backed application
+  detail view, or delete it if `JobPilotPage.tsx`'s own detail affordance supersedes it.
+
 ## Resolved
 
 *(entries move here, struck through, once removed — none yet)*

@@ -57,17 +57,25 @@ export function TableView({ spec, view, data, onViewChange }: DataViewProps) {
           </TableHeader>
           <TableBody>
             {sorted.map((row, i) => {
-              const recordId = String(row["id"] ?? i);
+              // review round-4 item 6: a red flag anchor's `recordId` must be
+              // a STABLE, persisted record id — never the sorted row's
+              // array index, which is meaningless once the table is
+              // re-sorted/re-filtered and would silently mis-anchor an
+              // existing flag onto a DIFFERENT row. A row without a real
+              // `id` field is simply not flaggable (React's own `key` still
+              // falls back to the index, same as before — that's a
+              // rendering-identity concern, unrelated to anchor identity).
+              const stableRecordId = typeof row["id"] === "string" || typeof row["id"] === "number" ? String(row["id"]) : null;
               return (
-                <TableRow key={recordId}>
+                <TableRow key={stableRecordId ?? i}>
                   {spec.columns.map((col) => {
                     const value = row[col.id];
                     const cell = formatCell(value);
                     return (
                       <TableCell key={col.id}>
-                        {isFlaggableValue(value) ? (
+                        {isFlaggableValue(value) && stableRecordId ? (
                           <RedFlagControl
-                            anchor={{ kind: "cell", moduleId: moduleIdFromDatabaseId(spec.id), databaseId: spec.id, recordId, fieldId: col.id }}
+                            anchor={{ kind: "cell", moduleId: moduleIdFromDatabaseId(spec.id), databaseId: spec.id, recordId: stableRecordId, fieldId: col.id }}
                             renderedValue={cell}
                           >
                             {cell}

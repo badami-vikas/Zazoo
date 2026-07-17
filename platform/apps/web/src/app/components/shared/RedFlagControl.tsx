@@ -17,14 +17,25 @@
  *   - open flag (current)     -> solid red, ALWAYS visible (it IS the state). Click = inspect/edit/clear.
  *   - most recent is "cleared"-> subtle, uncolored, hover/focus-only (not currently active).
  *                                Click = inspect/reopen (never silently creates a duplicate).
+ *   - learningStatus "applied"-> the owner-approved correction is ACTUALLY
+ *     ENACTED (review round-4 item 1) — the flagged value itself is
+ *     visibly withheld ("corrected, pending re-entry") instead of shown,
+ *     proving governed learning changes real behavior only after approval;
+ *     reversible via "Undo correction" (revokeCorrection).
  *
- * Touch/accessibility (review item 8): visibility is gated on POINTER
- * CAPABILITY (`(hover: none)`), never viewport width — a touch-capable
- * laptop at a wide viewport still gets the persistent-visibility treatment,
- * and a narrow-viewport external mouse doesn't. The glyph itself stays
- * visually subtle, but its actual hit target is >=44x44 CSS px on a coarse
- * pointer (`(pointer: coarse)`), overlaid via a larger invisible padding box
- * so it never shifts surrounding layout.
+ * Touch/accessibility (review items 8 + round-4 item 10): visibility is
+ * gated on POINTER CAPABILITY — both `(hover: none)` (the device's PRIMARY
+ * pointer has no hover, e.g. a touchscreen used as the main input) AND
+ * `(any-pointer: coarse)` (a coarse pointer exists AT ALL, e.g. a touch
+ * digitizer alongside a mouse/trackpad) — never viewport width. A
+ * touch-capable laptop with an attached mouse still gets the persistent-
+ * visibility treatment on its touchscreen, and a narrow-viewport external
+ * mouse-only setup does not. The glyph itself stays visually subtle, but
+ * its actual hit target is >=44x44 CSS px whenever ANY coarse pointer is
+ * present (`(any-pointer: coarse)`, not only `(pointer: coarse)` — the
+ * PRIMARY pointer test alone misses a touchscreen that isn't the OS's
+ * declared primary input), overlaid via a larger invisible padding box so
+ * it never shifts surrounding layout.
  *
  * Never overloads color for anything else — this is the ONLY flag-shaped
  * control in the app (FlagIcon.tsx, the pre-canon green/yellow/red picker, was
@@ -77,11 +88,15 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
    * review item 4: "do not let textarea onBlur race clear/reopen/forget."
    * Blur fires before a sibling button's click when focus moves away, so
    * without this a fast Clear click could fire while a reason-save is still
-   * in flight. Every mutation handler awaits this first. */
-  const pendingSaveRef = useRef<Promise<void> | null>(null);
+   * in flight. Review round-4 item 9: this now resolves to the flagId the
+   * SAVE itself produced (the reason-save supersedes the lineage to a NEW
+   * row) — every OTHER mutation awaits it and uses ITS returned id, never a
+   * stale closure `current.row.id` captured before the save started. */
+  const pendingSaveRef = useRef<Promise<string> | null>(null);
 
   const current = ctx.flagFor(anchor);
   const isOpen = current?.value.status === 'open';
+  const isApplied = current?.value.learningStatus === 'applied';
   const reason = current?.value.reason ?? '';
 
   useEffect(() => {
@@ -104,22 +119,36 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     };
   }, [position]);
 
-  async function saveReasonIfChanged(): Promise<void> {
-    if (!current || reasonDraft === reason) return; // "save reason only when changed"
+  /** Saves the reason if changed, resolving to the flagId that should be
+   * used for any FOLLOWING action — either the freshly-superseded row's id
+   * (if a save happened) or the current, already-fresh id (if nothing
+   * changed). Never resolves to a stale id. */
+  async function saveReasonIfChanged(): Promise<string> {
+    if (!current) return '';
+    if (reasonDraft === reason) return current.row.id; // "save reason only when changed"
     const trimmed = reasonDraft.trim() || 'No reason given';
-    const p = ctx.updateReason(current.row.id, trimmed);
+    const flagIdAtSaveStart = current.row.id;
+    const p = (async () => {
+      const updated = await ctx.updateReason(flagIdAtSaveStart, trimmed);
+      return updated.id;
+    })();
     pendingSaveRef.current = p;
     try {
-      await p;
+      return await p;
     } finally {
       if (pendingSaveRef.current === p) pendingSaveRef.current = null;
     }
   }
 
-  /** Every OTHER mutation waits for any in-flight reason-save first, so a
-   * fast Clear/Reopen/Forget click can never race a pending onBlur save. */
-  async function afterPendingSave(): Promise<void> {
-    if (pendingSaveRef.current) await pendingSaveRef.current.catch(() => {});
+  /** Every OTHER mutation waits for any in-flight reason-save first and
+   * uses ITS resolved id — so a fast Clear/Reopen/Forget click can never
+   * race a pending onBlur save NOR act on the id the save has already
+   * superseded. */
+  async function afterPendingSave(): Promise<string> {
+    if (pendingSaveRef.current) {
+      return await pendingSaveRef.current.catch(() => current?.row.id ?? '');
+    }
+    return current?.row.id ?? '';
   }
 
   async function handleGlyphActivate(event: React.MouseEvent | React.KeyboardEvent) {
@@ -144,8 +173,8 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     if (!current) return;
     setBusy(true);
     try {
-      await afterPendingSave();
-      await ctx.clear(current.row.id);
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.clear(flagId);
       setPosition(null);
     } finally {
       setBusy(false);
@@ -156,8 +185,8 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     if (!current) return;
     setBusy(true);
     try {
-      await afterPendingSave();
-      await ctx.reopen(current.row.id);
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.reopen(flagId);
       setPosition(null);
     } finally {
       setBusy(false);
@@ -168,9 +197,20 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
     if (!current) return;
     setBusy(true);
     try {
-      await afterPendingSave();
-      await ctx.forget(current.row.id);
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.forget(flagId);
       setPosition(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevokeCorrection() {
+    if (!current) return;
+    setBusy(true);
+    try {
+      const flagId = await afterPendingSave();
+      if (flagId) await ctx.revokeCorrection(flagId);
     } finally {
       setBusy(false);
     }
@@ -184,7 +224,17 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
 
   return (
     <span className={clsx('group/rf relative inline-flex min-w-0 items-center gap-1', className)}>
-      {children}
+      {isApplied ? (
+        <span
+          className="italic line-through decoration-2"
+          style={{ color: 'var(--color-warm-gray)', textDecorationColor: 'var(--danger)' }}
+          title="A governed correction for this value has been approved and enacted — the original value is withheld pending re-entry"
+        >
+          (corrected, pending re-entry)
+        </span>
+      ) : (
+        children
+      )}
       <button
         type="button"
         aria-label={label}
@@ -198,21 +248,26 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
           }
         }}
         className={clsx(
-          // The button itself is the >=44x44 touch target on a coarse
-          // pointer (review item 8) — absolutely positioned so the larger
-          // hit area never shifts the cell/bullet's own layout; the glyph
-          // inside stays visually small regardless.
+          // The button itself is the >=44x44 touch target on ANY coarse
+          // pointer (review item 8 + round-4 item 10) — absolutely
+          // positioned so the larger hit area never shifts the cell/
+          // bullet's own layout; the glyph inside stays visually small
+          // regardless.
           'relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-offset-1',
           '[@media(pointer:coarse)]:before:absolute [@media(pointer:coarse)]:before:-inset-3.5 [@media(pointer:coarse)]:before:content-[""]',
+          '[@media(any-pointer:coarse)]:before:absolute [@media(any-pointer:coarse)]:before:-inset-3.5 [@media(any-pointer:coarse)]:before:content-[""]',
           // Uncolored + hover/focus-only when not currently open (never
           // flagged, or cleared); ALWAYS visible + red when open (that IS
           // the current state). Gated on POINTER CAPABILITY, not viewport
-          // width — `(hover: none)` covers touch/coarse-pointer devices
-          // regardless of screen size (§5d: "Touch and keyboard paths
-          // expose the same control").
+          // width — `(hover: none)` covers a touch-primary device
+          // regardless of screen size, and `(any-pointer: coarse)` ALSO
+          // covers a touch digitizer that coexists with a mouse/trackpad
+          // (review round-4 item 10 — the primary-pointer-only test alone
+          // missed this case) (§5d: "Touch and keyboard paths expose the
+          // same control").
           isOpen
             ? 'opacity-100'
-            : 'opacity-0 group-hover/rf:opacity-100 group-focus-within/rf:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60',
+            : 'opacity-0 group-hover/rf:opacity-100 group-focus-within/rf:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-60 [@media(any-pointer:coarse)]:opacity-60',
         )}
         title={label}
       >
@@ -257,6 +312,19 @@ export function RedFlagControl({ anchor, renderedValue, renderedVersion, childre
                 Reopen
               </button>
             )}
+            {isApplied ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => void handleRevokeCorrection()}
+                className="rounded-lg border px-2 py-1 text-xs font-medium hover:bg-black/5"
+                style={{ borderColor: 'var(--color-border)' }}
+                title="Undo the enacted correction — reverses the display suppression (review round-4 item 1: 'can be undone')"
+              >
+                Undo correction
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
