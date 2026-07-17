@@ -152,17 +152,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-020, AP-021, and AP-029 applied
 - Dependencies: TASK-001
 
-## TASK-009 — Actionable Second Brain graph
+## TASK-009 — Actionable Second Brain graph (converged into TASK-014 Graph renderer)
 - Status: ready
 - Priority: P1
 - Horizon: Core Modules
-- Outcome: A permission-filtered graph below Modules reveals useful cross-Module connections while every datum remains owned by its source Module.
-- Prototype test: Traverse a real cross-Module Record/Relation/Event/File connection, filter it, inspect provenance/backlinks, return to the owning Module, and perform a governed Action; inaccessible nodes never render and an accessible list fallback works.
-- Scope: docs/raw/ui-architecture-rules-2026-07.md §5c; docs/raw/relationship-module-plan-2026-07.md RM6
-- Evidence: BUGS 2026-07-14 no Second Brain graph
-- Requests: Second Brain directive 2026-07-14
-- Approval: AP-021 and AP-029 applied
-- Dependencies: TASK-008
+- Outcome: Second Brain IS the Graph view (§3, `docs/raw/brd-dataengine-views-2026-07.md`) at `scope: full` — every permitted Database across all installed Modules, permission-filtered, same renderer as a single-Page graph. The "Second Brain" nav entry is a named preset opening Graph view at full scope. Building the real Graph renderer with scope-selector support (TASK-014) delivers this simultaneously; no separate build.
+- Prototype test: From the Second Brain nav entry (Graph view, scope:full), traverse a real cross-Module Record/Relation/Event/File connection, filter by Relation type, inspect provenance/source-module, navigate to the owning Record Detail, and perform a governed Action; inaccessible nodes never render (permission-filtered); the same node/edge canvas works at scope:single-database on a Page with a relation column — confirming one renderer at all scopes.
+- Scope: docs/raw/brd-dataengine-views-2026-07.md §3 (graph kind, scope_selector) + §4 (Second Brain = full scope); docs/raw/ui-architecture-rules-2026-07.md §5c; docs/raw/relationship-module-plan-2026-07.md RM6
+- Evidence: BUGS 2026-07-14 no Second Brain graph; ADR-109 (Second Brain collapses into Graph view at full scope, supersedes ADR-108's "never merge" stance)
+- Requests: Second Brain directive 2026-07-14; R-039 (2026-07-17 cross-module scope + collapse)
+- Approval: AP-021 and AP-029 applied; AP-037 applied (convergence with TASK-014 Graph renderer)
+- Dependencies: TASK-008; TASK-014 (Graph renderer with scope selector delivers this)
 
 ## TASK-010 — Platform red-flag correction feedback
 - Status: ready
@@ -217,11 +217,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.
-- Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName="calendar"`, and the `tools.ts`/`moduleRoutes.ts` "calendar" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) gated on its Relations, confirmed distinct from the separate Second Brain cross-Module graph surface; a Task Manager Queue Page renders Tree view over its self-referential Task type.
+- Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName="calendar"`, and the `tools.ts`/`moduleRoutes.ts` "calendar" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) at `scope:single_database`; the scope selector expands to `scope:full` and renders the same canvas with cross-Module nodes — confirming Second Brain is this view at full scope, not a separate surface (ADR-109); a Task Manager Queue Page renders Tree view over its self-referential Task type.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit; docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)
 - Evidence: BUGS map view is not a map; BUGS pin persistence only local; BUGS Initiative resource scoping; existing partial table implementation; BUGS 2026-07-17 `/calendar` route resolves to Task Manager instead of Calendar (routes.tsx:87) and Calendar modeled as an installed Module/Tool in 3+ places instead of a View kind; BUGS 2026-07-17 four independent, non-shared calendar renderers (DataEngine.tsx, CalendarPage.tsx, dataviews/CalendarView.tsx, InitiativeDetail.tsx/WorkPage.tsx local hardcodes); BUGS 2026-07-17 GraphView.tsx is a table-with-banner placeholder, not a real node/edge renderer; BUGS 2026-07-17 `ViewConfig["kind"]` code says `network`, glossary canon says `graph` — vocabulary mismatch
 - Requests: table/actionability directives 2026-07-14–15; R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)
-- Approval: AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call and the Graph-view-vs-Second-Brain distinction
+- Approval: AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; AP-037 applied (Graph view scope selector + Second Brain collapse into Graph at full scope); ADR-109 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction
 - Dependencies: TASK-001; TASK-006; TASK-008
 
 ## TASK-021 — Task Manager Module

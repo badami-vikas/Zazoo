@@ -11,7 +11,9 @@ tags: [dataengine, view-grammar, views, calendar, graph, map, table, board, form
 
 # 1. Executive decision
 
-There is **one View Grammar**: a fixed, registered set of View kinds, each a stateless presentation overlay (filter + sort + column config + kind-specific rendering) over the rows of **one Database**. A View is never a separate entity, never a separate route, never a separate installed Module, and never tied to one integration. Whether a Page offers a given View kind is computed from that Page's column metadata (does it have a date column? a relation column? a location column? a self-referential parent column?) — never hand-picked per Page and never hardcoded per surface.
+There is **one View Grammar**: a fixed, registered set of View kinds, each a stateless presentation overlay (filter + sort + column config + kind-specific rendering) over Database rows. A View is never a separate entity, never a separate route, never a separate installed Module, and never tied to one integration. Whether a Page offers a given View kind is computed from that Page's column metadata (does it have a date column? a relation column? a location column? a self-referential parent column?) — never hand-picked per Page and never hardcoded per surface.
+
+One deliberate exception to the "one Database" default: **Graph view** (§3) supports a scope selector that extends its node/edge rendering from the Page's own Database (default) to any user-selected set of Databases, up to all permitted Databases across every installed Module. This makes Graph the only View kind that is not purely single-Database — and it means Second Brain (glossary-defined cross-Module graph) is Graph view at full scope, not a separate surface (§4).
 
 This directly resolves two live architectural violations, confirmed by code audit 2026-07-17:
 
@@ -100,12 +102,16 @@ view_kinds:
     reflected_in: Relationship People/Communities (address field), DealPilot Sources (headquarters location), any Page with a location column
 
   graph:                      # code symbol currently "network" — rename to match glossary (§1)
-    eligible_when: the Page's Database carries at least one typed Relation to another row (a relation-kind column)
-    renders: this Page's rows as nodes, typed Relations as labeled edges (edge label = the Relation's type, e.g. "introduced by," "reports to"); click node -> Record Detail; click edge -> Relation detail/evidence
+    eligible_when: the Page's Database carries at least one typed Relation column — this is the minimum to unlock Graph view; the scope selector then controls how wide the graph goes
+    scope_selector:
+      single_database: "(default) this Page's rows as nodes, their typed Relations as edges; scoped to this Page's Database only"
+      multi_database: "user selects additional Databases to include; their rows become nodes too, cross-Database Relations become edges — e.g. People + Deals + Communities on one canvas"
+      full: "all permitted Databases across every installed Module, filtered by permission; this IS Second Brain — same renderer, same eligibility rule, wider data set; also accessible via the Second Brain nav entry (a named preset that opens Graph view pre-configured to scope:full)"
+    renders: rows of all in-scope Databases as nodes, typed Relations as labeled edges (edge label = the Relation's type, e.g. "introduced by," "reports to"); click node -> Record Detail; click edge -> Relation detail/evidence; permission-filtered at every scope level
     write_path: read-only rendering; creating/editing a Relation happens through the owning Record Detail's Relations section (a governed write), never by drag-drawing an edge on the canvas
-    features: [node/edge click-through, edge-type label, zoom/pan, filter by Relation type], currently a PLACEHOLDER renderer (renders a table with a banner) — real node/edge rendering is a named TASK-014 deliverable, not yet shipped
-    reflected_in: Relationship People/Communities (Person<->Person/Community Relations) — this is the ONLY Graph consumer today; any future Module whose Database carries typed Relations becomes eligible automatically, no new code path required
-    explicitly_not: a separate relationship-graph table (confirmed — none exists); the Second Brain cross-Module graph (§4 — a deliberately distinct, wider surface)
+    features: [scope selector (single-DB / multi-DB / full), node/edge click-through, edge-type label, zoom/pan, filter by Relation type, permission-filtered node set at all scopes, progressive load for full scope], currently a PLACEHOLDER renderer (renders a table with a banner) — real node/edge rendering is a named TASK-014 deliverable, not yet shipped
+    reflected_in: Relationship People/Communities (Person<->Person/Community Relations) — this is the ONLY Graph consumer today; any future Module whose Database carries typed Relations becomes eligible automatically; Second Brain nav entry = this view at scope:full
+    explicitly_not: a separate relationship-graph table (confirmed — none exists); a separate surface from Second Brain (§4 — Second Brain IS this view at full scope)
 
   tree:                        # new, introduced by the Task Manager Module plan (docs/raw/taskmanager-module-plan-2026-07.md)
     eligible_when: the Page's Database is self-referential (a parent-ref-kind column pointing at another row of the same Database)
@@ -115,9 +121,15 @@ view_kinds:
     reflected_in: Task Manager Queue (the Task type's self-referential parent_task_id) — currently the only self-referential Database in the product; any future self-referential Database becomes eligible automatically
 ```
 
-# 4. Second Brain is not a View kind
+# 4. Second Brain IS the Graph view at full scope
 
-Second Brain (glossary-defined, `docs/raw/ui-architecture-rules-2026-07.md` §"Second Brain") is a **cross-Module graph surface** below the Module list — it spans every installed Module's permitted Records, Relations, Events, Files, and origin Modules, filtered by permission, with every node/edge opening source detail or a governed Action. It is architecturally distinct from a Page's own Graph view (§3) in one load-bearing way: a Page's Graph view is scoped to ONE Database (that Page's rows + their direct Relations); Second Brain crosses Database and Module boundaries entirely. Never merge the two, never let one Page's Graph view try to render cross-Module data, and never let Second Brain be implemented as "just a bigger Graph view kind" — it is its own surface with its own permission-filtering and provenance requirements.
+Second Brain (glossary-defined, `docs/raw/ui-architecture-rules-2026-07.md` §"Second Brain") is the Graph view kind (§3) at `scope: full` — every permitted Database across all installed Modules, filtered by permission. The only architectural difference between "a relationship graph on the People page" and "Second Brain" is which Databases contribute nodes and edges. The renderer, the eligibility rule, the write path, and the permission model are identical.
+
+**Implementation consequence:** there is no separate surface to build. The Graph renderer, once real (TASK-014), handles all three scopes (single-DB / multi-DB / full) with the same node/edge model and the same component. Performance concerns at full scope (large node sets, deep traversal) are solved by progressive load, pagination, and a sensible default filter — not by an architectural split.
+
+**Second Brain nav entry:** the "Second Brain" item below Modules in the left sidebar remains as a named shortcut. It opens Graph view pre-configured to `scope: full`, applying the standing permission filter. It is a nav preset, not a separate component, not a separate route class, and not a separate surface. Its permission-filtering and provenance requirements are the same as the Graph view's at full scope — nothing additional.
+
+**What this supersedes:** ADR-108 (first issue of this BRD, 2026-07-17) stated "never merge the two, never let one Page's Graph view try to render cross-Module data, and never let Second Brain be implemented as 'just a bigger Graph view kind' — it is its own surface." ADR-109 records why that stance was overstated and has been reversed. The correct formulation is: Second Brain IS the biggest Graph view, and that is fine.
 
 # 5. Cross-cutting features (every View kind)
 
@@ -148,7 +160,7 @@ Google Calendar specifically: it remains exactly what it already is at the sync/
 worked_examples:
   relationship_people_page:
     eligible_views: [table, gallery, map, graph, form]
-    why: has a location column (map), has typed Relations to other People/Communities (graph), no self-reference (no tree), no dedicated date column at the row level today (no calendar unless/until one is added)
+    why: has a location column (map), has typed Relations to other People/Communities (graph — eligible at single-DB scope by default; user may extend to multi-DB to pull in Deals/Applications, or to full/Second Brain scope); no self-reference (no tree), no dedicated date column at the row level today (no calendar unless/until one is added)
   task_manager_queue_page:
     eligible_views: [table, board, tree, calendar, form]
     why: has a status column (board), is self-referential via parent_task_id (tree), has a due/target date field (calendar); no location/relation-to-other-Database column, so no map/graph by default
@@ -169,7 +181,7 @@ task_014_additions:
   - collapse the four independent calendar renderers into the one dataviews/views/CalendarView.tsx, consumed everywhere a Page has a date column
   - remove Calendar's Module/Tool/route/nav identity entirely: routes.tsx "/calendar" and "/calendar/google", moduleRoutes.ts MODULE_ROUTES.calendar, tools.ts "calendar" catalog row, InstalledModuleBoundary packageName="calendar", IntelligencePage.tsx's "Calendar" peer-package listing
   - rename the code's ViewConfig["kind"] "network" to "graph" to match the canonical glossary term
-  - build the real Graph view renderer (node/edge, replacing the current table-with-banner placeholder) — code-verified as the actual gap, not the eligibility rule
+  - build the real Graph view renderer (node/edge, replacing the current table-with-banner placeholder) — code-verified as the actual gap, not the eligibility rule; the renderer must support the scope selector (single-DB / multi-DB / full); this replaces what was previously planned as a separate "Second Brain" surface (ADR-109 — Second Brain IS this view at full scope, not a separate component)
   - add "tree" as a registered View kind (Task Manager's dot-path hierarchy) alongside the existing table/gallery/kanban/calendar/map/graph/form six
   - promote map/graph/tree into docs/raw/ui-architecture-rules-2026-07.md's canon prose line (today only table/card/form/kanban/calendar are named there)
   - fix the tracked "map view is not a map" gap (docs/BUGS.md) as part of the same consolidation, since Map is one of the eight canonical kinds this BRD formalizes

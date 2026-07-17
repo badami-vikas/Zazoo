@@ -29,7 +29,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [stack](stack.md) — tech, libs, model provider.
 - [oss](oss.md) — open-source picks, build-not-buy, licenses.
 - [competitive](competitive.md) — rivals, easy-adds, avoid, moat.
-- [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task. Full View Grammar (8 kinds, eligibility rules, feature list per kind) → [../raw/brd-dataengine-views-2026-07.md](../raw/brd-dataengine-views-2026-07.md) — **2026-07-17, TASK-014 scope**.
+- [ui-architecture](ui-architecture.md) — data-shape→surface rules, Form, shared menus, Control Panel→3-dots, Files Section, `~/Documents/Bridge/<Organization>/`; UI-RULES-1 first runtime task. Full View Grammar (8 kinds, eligibility rules, feature list per kind) → [../raw/brd-dataengine-views-2026-07.md](../raw/brd-dataengine-views-2026-07.md) — **2026-07-17, TASK-014 scope**. **Graph view gains scope selector (single-DB/multi-DB/full); Second Brain = Graph at full scope, not a separate surface (ADR-109, 2026-07-17).**
 - [design](design.md) — prototype alignment audit + fix spec.
 - [design-system](design-system.md) — brand/type/color tokens + violations.
 - [resilience](resilience.md) — failure-class field guide → Engine/Governance/Learning/Builder/Human ownership.
