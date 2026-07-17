@@ -260,6 +260,30 @@ Re-verified after these 4 fixes: `@bridge/core` 429/429 (2 new atomicity tests),
 all tests including 21 in `jobpilot-culture-research.test.ts` (4 new regression tests), full
 monorepo build 21/21, eslint clean, no-dummy-runtime clean.
 
+## Third fresh review — 1 more issue found and fixed (round 2's own new code)
+
+A THIRD read-only review (of the round-2 fix commit itself) found that round 2 mirrored the
+`childRunId`/`proposalId` cross-check into `materializeCultureSourceFetch` but not into
+`cancelCultureSourceFetch` — the same class of bug (a caller pairing an arbitrary `proposalId`
+with an unrelated, real `childRunId` from a different in-flight proposal) could still cancel
+someone else's child Run. It also found that the round-2 regression test for issue 2 (the
+mid-function cancellation re-check) was satisfied by the pre-existing child-Run-status check
+inside `reserveChildRunAction`, not by the new guard itself — meaning that specific test would
+have passed even if the new guard had been deleted.
+
+Both fixed in a further commit:
+- `cancelCultureSourceFetch` now rejects when the stored record's `childRunId` doesn't match the
+  supplied one, mirroring `materializeCultureSourceFetch`'s check exactly. New test proves an
+  unrelated child Run stays untouched.
+- The issue-2 regression test was replaced with a deterministic reproduction that manually rolls
+  a child Run's status back to `"running"` after cancellation (simulating the exact scenario the
+  guard exists for — a ledger-append failure rolling back the CAS while the fetch record itself
+  stays `"cancelled"`) and proves `materializeCultureSourceFetch` still refuses to proceed via the
+  record-level guard alone, independent of the child-Run-level check.
+
+Re-verified: `@bridge/api` all 22 tests in `jobpilot-culture-research.test.ts`, full monorepo
+build 21/21, eslint clean, no-dummy-runtime clean.
+
 ## Blockers / proposed ledger changes (still NOT applied — for the coordinator)
 
 Per instruction, canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/

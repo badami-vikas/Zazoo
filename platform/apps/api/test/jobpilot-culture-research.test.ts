@@ -404,7 +404,7 @@ test("materializeCultureSourceFetch rejects a childRunId that does not match the
   }
 });
 
-test("materializeCultureSourceFetch: a cancellation that lands during the approval/reservation window is honored, never silently overridden by the fetch that follows (TASK-011 remediation, 2026-07-17 security review, issue 2)", async () => {
+test("materializeCultureSourceFetch: the mid-function cancellation re-check independently guards against a rolled-back child Run status (TASK-011 remediation, 2026-07-17 security review, issue 2 — deterministic reproduction, not timing-dependent)", async () => {
   let requestCount = 0;
   const server = await startTestServer((_req, res) => {
     requestCount += 1;
@@ -418,35 +418,7 @@ test("materializeCultureSourceFetch: a cancellation that lands during the approv
     const { proposalId, childRunId } = proposed.pending[0]!;
     await caller.action.decide({ proposalId, decision: "approve" });
 
-    // Wrap the ledger so `decisionFor` (materialize's first await) is
-    // artificially delayed, opening a window equivalent to the one the
-    // review found between approval-checking and the synchronous
-    // `record.status = "fetching"` flip.
-    const realLedger = wiring.ledger;
-    const delayedLedger: typeof realLedger = new Proxy(realLedger, {
-      get(target, prop, receiver) {
-        if (prop === "decisionFor") {
-          return async (id2: string) => {
-            await new Promise((r) => setTimeout(r, 40));
-            return target.decisionFor(id2);
-          };
-        }
-        const value = Reflect.get(target, prop, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
-
-    const materializePromise = materializeCultureSourceFetch(
-      { childAgentRuns: wiring.childAgentRuns, ledger: delayedLedger, fetchStore: wiring.cultureFetchStore },
-      PILOT_WORKSPACE,
-      proposalId,
-      childRunId,
-      makeRun(),
-      allowLoopback,
-    );
-    // Cancel while materialize is still awaiting the delayed decisionFor —
-    // before it has reserved budget or flipped status to "fetching".
-    await new Promise((r) => setTimeout(r, 10));
+    // Cancel normally — the fetch record AND the child Run both become "cancelled".
     await cancelCultureSourceFetch(
       { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
       PILOT_WORKSPACE,
@@ -456,11 +428,65 @@ test("materializeCultureSourceFetch: a cancellation that lands during the approv
       makeRun(),
     );
 
-    await assert.rejects(() => materializePromise);
-    assert.equal(requestCount, 0, "no fetch should ever have been attempted once cancelled");
-    const record = wiring.cultureFetchStore.get(proposalId);
-    assert.notEqual(record?.status, "fetching", "the cancellation must never be silently overridden by an in-progress fetch state");
-    assert.notEqual(record?.status, "fetched", "the cancellation must never be silently overridden by a completed fetch");
+    // Simulate exactly the scenario the mid-function re-check exists for: the
+    // child Run's OWN status gets rolled back to "running" (e.g. a ledger-
+    // append failure during cancellation rolling the CAS back —
+    // `child-agent-run.ts`'s `recordChildAgentRunTransition` does this on a
+    // failed audit append) while the fetch record itself STAYS "cancelled".
+    // If materialize relied SOLELY on the child-Run-level "running" check
+    // (via `reserveChildRunAction`), it would now incorrectly proceed to
+    // fetch. The record-level guard must catch this independently.
+    await wiring.childAgentRuns.updateStatus(PILOT_WORKSPACE, childRunId, "cancelled", "running");
+    assert.equal((await wiring.childAgentRuns.get(PILOT_WORKSPACE, childRunId))?.status, "running");
+    assert.equal(wiring.cultureFetchStore.get(proposalId)?.status, "cancelled");
+
+    const result = await materializeCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+    assert.equal(result.status, "cancelled", "the record-level guard must independently refuse to proceed");
+    assert.equal(requestCount, 0, "no fetch should ever have been attempted");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("cancelCultureSourceFetch rejects a childRunId that does not match the one recorded for the proposal (TASK-011 remediation, 2026-07-17 fresh review round 2)", async () => {
+  let requestCount = 0;
+  const server = await startTestServer((_req, res) => {
+    requestCount += 1;
+    res.end("should never be reached");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const idA = registerTestSource(server.url);
+    const idB = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA, idB] });
+    const [a, b] = proposed.pending;
+
+    // Attempting to cancel proposal A using proposal B's child Run id must
+    // be rejected — never cancel an unrelated child Run out from under it.
+    await assert.rejects(
+      () =>
+        cancelCultureSourceFetch(
+          { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+          PILOT_WORKSPACE,
+          a!.proposalId,
+          b!.childRunId,
+          { type: "user", id: PILOT_USER },
+          makeRun(),
+        ),
+      /does not match the child Run recorded/,
+    );
+    const childRunB = await wiring.childAgentRuns.get(PILOT_WORKSPACE, b!.childRunId);
+    assert.equal(childRunB?.status, "running", "the unrelated child Run must remain untouched, not cancelled");
+    assert.equal(requestCount, 0);
   } finally {
     await server.close();
     await wiring.close();

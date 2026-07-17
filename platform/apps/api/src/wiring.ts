@@ -867,6 +867,17 @@ export async function cancelCultureSourceFetch(
   ctx: RunCtx,
 ): Promise<CultureFetchRecord> {
   const record = deps.fetchStore.get(proposalId);
+  // TASK-011 remediation (2026-07-17 fresh review, round 2) — mirror
+  // `materializeCultureSourceFetch`'s childRunId/proposalId cross-check here
+  // too: without it, any workspace member could pair an arbitrary proposalId
+  // with an unrelated, real childRunId from a DIFFERENT in-flight proposal
+  // and force that unrelated child Run into "cancelled" — potentially racing
+  // its own concurrent `materialize` call into discarding an already-fetched
+  // artifact (its `completeChildAgentRun` CAS would fail against the
+  // now-"cancelled" status and get caught as a fetch failure).
+  if (record && record.childRunId !== childRunId) {
+    throw new Error(`cancelCultureSourceFetch: childRunId "${childRunId}" does not match the child Run recorded for proposal ${proposalId}`);
+  }
   if (record?.abortController) {
     record.abortController.abort();
   }
