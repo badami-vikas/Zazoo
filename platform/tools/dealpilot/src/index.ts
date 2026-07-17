@@ -1,5 +1,5 @@
 export { dealPilotManifest } from "./manifest.js";
-export type { ThesisProfile, DealProfile, TriageState, ThesisFitResult } from "./types.js";
+export type { ThesisProfile, DealProfile, ThesisFitBand, ThesisFitResult } from "./types.js";
 export { scoreThesisFit } from "./scoring.js";
 export type { DealPipelineResult } from "./pipeline.js";
 export { processDealCandidate } from "./pipeline.js";
@@ -42,3 +42,53 @@ export type {
   DealActivityProjection,
 } from "./projections.js";
 export { projectSummary, projectProfile, projectDocuments, projectActivity } from "./projections.js";
+export type {
+  DealPilotPageId,
+  DealPilotRecordKind,
+  RelationKind,
+  SourceRightsState,
+  SourceHealth,
+  SourceConnectionType,
+  DealRecord,
+  SourceRecord,
+  ThesisRecord,
+  DealPilotRecord,
+  DealPilotRelation,
+  DealPilotPage,
+  DealPilotBindings,
+  DealPilotColumn,
+  DealPilotPageManifest,
+  DealPilotModuleManifest,
+  CreateDealInput,
+  CreateSourceInput,
+  CreateThesisInput,
+  CreateRelationInput,
+  DealPilotRecordDetail,
+  DealPilotStore,
+  ThesisSourceDiscoveryProposal,
+} from "./domain.js";
+export {
+  dealPilotModuleManifest,
+  InMemoryDealPilotStore,
+  DealPilotStoreError,
+  SourceDiscoveryGateError,
+  assertSourceDiscoveryAllowed,
+  proposeThesisSourceDiscovery,
+  applyThesisSourceDiscovery,
+} from "./domain.js";
+export type {
+  CredentialField,
+  CredentialAccessAction,
+  SourceCredential,
+  CredentialMetadata,
+  SourceCredentialVault,
+  CredentialAuditEvent,
+  CredentialAuditSink,
+} from "./credentials.js";
+export {
+  InMemorySourceCredentialVault,
+  InMemoryCredentialAuditSink,
+  CredentialAccessError,
+  HumanReauthentication,
+  SourceCredentialService,
+} from "./credentials.js";

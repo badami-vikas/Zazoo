@@ -5,7 +5,7 @@
 
 import type { Fact, FactStore } from "@bridge/facts";
 import type { DealStage } from "./deal.js";
-import type { TriageState } from "./types.js";
+import type { ThesisFitBand } from "./types.js";
 
 // ─── Activity ────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ export interface DealSummaryProjection {
   /** True when no facts exist for this deal — UI should render an honest empty state. */
   isEmpty: boolean;
   stage: DealStage;
-  triage?: TriageState;
+  thesisFitBand?: ThesisFitBand;
   thesisFitScore?: number; // 0..1, from "thesisFitScore" fact when present
   keyEconomics: DealKeyEconomics;
   flags: DealFlag[]; // P0/P1/P2 flags from "flag:*" facts
@@ -155,7 +155,7 @@ function deriveActivityEvents(facts: Fact[]): ActivityEvent[] {
 /**
  * Project the Summary tab view for a Deal.
  *
- * Reads: `askPrice`, `revenue`, `sde`, `thesisFitScore`, `triage`, `flag:*` and `doc:*` facts.
+ * Reads: `askPrice`, `revenue`, `sde`, `thesisFitScore`, `thesisFitBand`, `flag:*` and `doc:*` facts.
  * `stage` is passed explicitly because it lives on the Deal shell record, not in FactStore.
  */
 export function projectSummary(
@@ -173,8 +173,8 @@ export function projectSummary(
   const impliedMultiple =
     askPrice != null && sde != null && sde > 0 ? askPrice / sde : undefined;
 
-  const triage =
-    profile.triage != null ? (profile.triage.value as TriageState) : undefined;
+  const thesisFitBand =
+    profile.thesisFitBand != null ? (profile.thesisFitBand.value as ThesisFitBand) : undefined;
   const thesisFitScore =
     profile.thesisFitScore != null ? (profile.thesisFitScore.value as number) : undefined;
 
@@ -194,7 +194,7 @@ export function projectSummary(
     dealId,
     isEmpty,
     stage: shell.stage,
-    ...(triage != null && { triage }),
+    ...(thesisFitBand != null && { thesisFitBand }),
     ...(thesisFitScore != null && { thesisFitScore }),
     keyEconomics: {
       ...(askPrice != null && { askPrice }),

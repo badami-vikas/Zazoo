@@ -4,8 +4,8 @@
 import { useSyncExternalStore, useState } from 'react';
 
 export interface ThesisProfile { industries: string[]; geo: string[]; sdeMin?: number; sdeMax?: number; revenueMin?: number; revenueMax?: number }
-export type TriageColor = 'green' | 'yellow' | 'red';
-export interface FitResult { score: number; triage: TriageColor; matched: string[]; unmatched: string[] }
+export type ThesisFitBand = 'strong_fit' | 'needs_review' | 'weak_fit';
+export interface FitResult { score: number; band: ThesisFitBand; matched: string[]; unmatched: string[] }
 
 export interface DealListing {
   id: string; name: string; industry: string; geo: string; sde: number; revenue: number;
@@ -51,8 +51,8 @@ export function scoreThesisFit(deal: DealListing, thesis: ThesisProfile): FitRes
   }
 
   const score = possible === 0 ? 0 : points / possible;
-  const triage: TriageColor = score >= 0.75 ? 'green' : score >= 0.4 ? 'yellow' : 'red';
-  return { score, triage, matched, unmatched };
+  const band: ThesisFitBand = score >= 0.75 ? 'strong_fit' : score >= 0.4 ? 'needs_review' : 'weak_fit';
+  return { score, band, matched, unmatched };
 }
 
 export interface DealAnalysis { summary: string; draftEmail: string; draftMessage: string; generatedAt: string }
@@ -95,7 +95,7 @@ export function advanceDeal(dealId: string, to: DealStage) {
   deal.stage = transition(deal.stage, to); deals = [...deals]; persist();
 }
 
-// Deep-dive analysis + draft outreach, triggered by flagging a deal (not a sourced listing) green.
+// Deep-dive analysis + draft outreach, triggered by an explicit Human request on a Deal.
 // Deterministic/simulated — same fidelity as JobPilot's fabrication-guard evaluator, no real LLM
 // call and no real send; drafts are stored for the human to review and send themselves.
 export function runDeepDive(dealId: string) {
@@ -103,8 +103,8 @@ export function runDeepDive(dealId: string) {
   const strengths = deal.fit.matched.join('; ') || 'no thesis criteria matched yet';
   const risks = deal.fit.unmatched.join('; ') || 'no gaps flagged';
   const summary = `${deal.name} (${deal.industry}, ${deal.geo}): SDE $${deal.sde.toLocaleString()} on $${deal.revenue.toLocaleString()} revenue — ${Math.round(deal.fit.score * 100)}% thesis fit. Strengths: ${strengths}. Watch: ${risks}.`;
-  const draftEmail = `Subject: Interest in ${deal.name}\n\nHi,\n\nWe came across ${deal.name} and wanted to express interest in learning more. Based on what's public, it looks like a ${deal.fit.triage === 'green' ? 'strong' : 'possible'} fit for our current thesis (${deal.industry}, ${deal.geo}). Could we set up a call to discuss financials and next steps?\n\nBest,\n[Your name]`;
-  const draftMessage = `Hey — flagged ${deal.name} (${deal.industry}, ${deal.geo}, SDE $${deal.sde.toLocaleString()}) as a green deal. Sent an intro email, will keep you posted.`;
+  const draftEmail = `Subject: Interest in ${deal.name}\n\nHi,\n\nWe came across ${deal.name} and wanted to express interest in learning more. Based on what's public, it looks like a ${deal.fit.band === 'strong_fit' ? 'strong' : 'possible'} fit for our current thesis (${deal.industry}, ${deal.geo}). Could we set up a call to discuss financials and next steps?\n\nBest,\n[Your name]`;
+  const draftMessage = `Marked ${deal.name} (${deal.industry}, ${deal.geo}, SDE $${deal.sde.toLocaleString()}) as ${deal.fit.band.split('_').join(' ')}. Drafted an intro email for Human review.`;
   deal.analysis = { summary, draftEmail, draftMessage, generatedAt: new Date().toISOString() };
   deals = [...deals]; persist();
 }

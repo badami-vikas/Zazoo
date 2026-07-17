@@ -169,6 +169,7 @@ test("manifest-declared DealPilot Automation registers its cloud owning Agent in
     assert.equal(definition?.agentPlane, "cloud");
     assert.equal(definition?.steps[0]?.skill, "dealpilot.source");
     assert.equal(definition?.steps[0]?.resourceType, "external:fetch");
+    assert.equal(definition?.steps[0]?.dataScope, "public");
     assert.ok(definition?.steps[0]?.goalTaskRef);
     const goalTaskRef = definition.steps[0]!.goalTaskRef!;
     const [goal, task] = await Promise.all([

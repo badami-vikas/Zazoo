@@ -13,14 +13,11 @@ import type { ApiContext } from "./context.js";
 import {
   LEARNING_AGENT,
   OUTREACH_AGENT,
-  EGRESS_AGENT,
   PILOT_WORKSPACE,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
   HELPDESK_ROUTING_GOAL_TYPE,
   DRAFT_HELP_OFFER_TASK_TYPE,
-  DEALPILOT_SOURCING_GOAL_TYPE,
-  SOURCE_CANDIDATES_TASK_TYPE,
   RELATIONSHIP_CAPTURE_GOAL_TYPE,
   STAGE_CAPTURE_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
@@ -105,11 +102,20 @@ import {
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
-import { scoreThesisFit, type ThesisProfile } from "@bridge/dealpilot";
+import {
+  CredentialAccessError,
+  SourceDiscoveryGateError,
+  applyThesisSourceDiscovery,
+  dealPilotModuleManifest,
+  proposeThesisSourceDiscovery,
+  scoreThesisFit,
+  type ThesisSourceDiscoveryProposal,
+} from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
 import {
   COMMONS_BUILT_IN_PACKAGES,
+  DEALPILOT_SOURCE_RITUAL_ID,
   isModuleRuntimeRitualId,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
@@ -374,19 +380,6 @@ async function provisionHelpdeskAnswerTask(wiring: Wiring, workspaceId: string):
   );
 }
 
-/** AGS1 (TASK-007 closure) — DealPilot sourcing is EGRESS_AGENT's Task (the
- * same cloud/egress identity every Google external:fetch flow already uses). */
-async function provisionDealpilotSourcingTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
-  return provisionGoalTask(
-    wiring,
-    workspaceId,
-    DEALPILOT_SOURCING_GOAL_TYPE,
-    "DealPilot candidate sourcing",
-    SOURCE_CANDIDATES_TASK_TYPE,
-    EGRESS_AGENT,
-  );
-}
-
 /** AGS1 (TASK-007 closure) — a raw human capture is modeled as Learning
  * "observing authorized evidence" (its stated mandate). */
 async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
@@ -435,6 +428,16 @@ async function assertMembership(
     });
   }
 }
+
+const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
+  const authenticationRequired =
+    ctx.verifying || ctx.wiring.persistent || process.env.NODE_ENV === "production";
+  if (authenticationRequired && !ctx.authenticated) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DealPilot" });
+  }
+  await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+  return next();
+});
 
 const actionEnum = z.enum(["read", "write", "execute", "share", "archive"]);
 const actorTypeEnum = z.enum(["user", "team", "agent"]);
@@ -1107,6 +1110,87 @@ async function activateApprovedPackageInstallation(
   return installation;
 }
 
+async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown, output: unknown) {
+  const request = inputs as {
+    kind?: unknown;
+    workspaceId?: unknown;
+    thesisId?: unknown;
+  };
+  if (request.kind !== "thesis_source_discovery") return null;
+  const proposed = output as ThesisSourceDiscoveryProposal | undefined;
+  if (
+    proposed?.kind !== "thesis_source_discovery" ||
+    typeof request.workspaceId !== "string" ||
+    typeof request.thesisId !== "string" ||
+    proposed.workspaceId !== request.workspaceId ||
+    proposed.thesisId !== request.thesisId ||
+    !Array.isArray(proposed.relations)
+  ) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery proposal binding is invalid" });
+  }
+  const thesis = await wiring.dealpilot.store.get("thesis", request.workspaceId, request.thesisId);
+  if (!thesis || thesis.kind !== "thesis") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery Thesis is unavailable" });
+  }
+  const authorizedRelations: ThesisSourceDiscoveryProposal["relations"] = [];
+  for (const relation of proposed.relations) {
+    if (
+      typeof relation !== "object" ||
+      relation === null ||
+      relation.thesisId !== request.thesisId ||
+      typeof relation.sourceId !== "string"
+    ) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery Relation is invalid" });
+    }
+    const source = await wiring.dealpilot.store.get("source", request.workspaceId, relation.sourceId);
+    if (!source || source.kind !== "source" || source.rightsState !== "attested") {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: `Source "${relation.sourceId}" is no longer authorized for discovery`,
+      });
+    }
+    authorizedRelations.push({
+      sourceId: source.id,
+      thesisId: thesis.id,
+      confidence: 0,
+      provenance: "authorized_source_inventory",
+      reason: "Authorized Source inventory candidate; Thesis fit is not scored",
+    });
+  }
+  return {
+    kind: "thesis_source_discovery",
+    workspaceId: request.workspaceId,
+    thesisId: request.thesisId,
+    relations: authorizedRelations,
+  } satisfies ThesisSourceDiscoveryProposal;
+}
+
+async function validateDealPilotDecision(
+  wiring: Wiring,
+  proposalId: string,
+  decision: "approve" | "veto" | "edit",
+  editedOutput?: unknown,
+) {
+  if (decision === "veto") return;
+  const original = await wiring.ledger.get(proposalId);
+  if (!original) return;
+  await validateDealPilotDiscoveryOutput(
+    wiring,
+    original.inputs,
+    decision === "edit" ? editedOutput : original.proposedOutput,
+  );
+}
+
+async function materializeDealPilotApproval(wiring: Wiring, proposal: Proposal) {
+  const validated = await validateDealPilotDiscoveryOutput(
+    wiring,
+    proposal.request.inputs,
+    proposal.output?.proposedOutput,
+  );
+  if (!validated) return [];
+  return applyThesisSourceDiscovery(wiring.dealpilot.store, validated);
+}
+
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
 
@@ -1331,6 +1415,16 @@ export const appRouter = t.router({
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
       let resolved;
       try {
+        const original = await ctx.wiring.ledger.get(input.proposalId);
+        if (original && ctx.identity.type !== "agent") {
+          await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
+        }
+        await validateDealPilotDecision(
+          ctx.wiring,
+          input.proposalId,
+          input.decision,
+          input.editedOutput,
+        );
         resolved = await ctx.wiring.pipeline.decide(
           input.proposalId,
           input.decision,
@@ -1369,9 +1463,14 @@ export const appRouter = t.router({
               )
             : undefined;
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
+        const dealPilotEffects =
+          resolved.status === "applied"
+            ? await materializeDealPilotApproval(ctx.wiring, resolved)
+            : [];
         return {
           ...resolved,
           effects,
+          dealPilotEffects,
           effectsStatus: "confirmed" as const,
           ...(packageInstallation ? { packageInstallation } : {}),
         };
@@ -1415,6 +1514,7 @@ export const appRouter = t.router({
         return {
           ...resolved,
           effects: { materialized: false, sent: false },
+          dealPilotEffects: [],
           effectsStatus: "failed" as const,
           effectsError,
           ...(effectsAuditId ? { effectsAuditId } : {}),
@@ -1783,97 +1883,34 @@ export const appRouter = t.router({
     }),
   }),
 
-  /**
-   * DealPilot — the first tool on the generic manifest intake seam (@bridge/tool-kit).
-   * `source` quarantines through the pipeline as `external:fetch` (audited, policy-gated);
-   * `commit` is the human "Add" that materializes ONE quarantined capture into DealPilot's
-   * facts + candidate list (capture ≠ commit). Thesis storage is basic get/set, in-memory
-   * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
-   */
+  /** DealPilot DP0-DP1 — three Databases, governed discovery, and secret-safe credentials. */
   dealpilot: t.router({
-    source: authenticatedProcedure
+    module: dealpilotProcedure
       .input(z.object({ workspaceId: z.string().min(1) }))
-      .mutation(async ({ input, ctx }) => {
+      .query(({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        // AGS1 (TASK-007 closure) — sourcing external candidates is now
-        // EGRESS_AGENT-mediated (the same cloud/egress identity every Google
-        // external:fetch flow uses), matching this platform's plane-gate
-        // philosophy ("local agents REQUEST; a cloud agent SOURCES" —
-        // authority.ts's planeGate doc comment). The frontend already
-        // branches on pending_review/applied/rejected and reads
-        // output.proposedOutput regardless of status, so no client change
-        // was needed — see wiring.ts's DEALPILOT_SOURCE_SKILL_MANIFEST.
-        const goalTaskRef = await provisionDealpilotSourcingTask(ctx.wiring, input.workspaceId);
-        return ctx.wiring.pipeline.propose(
-          {
-            workspaceId: input.workspaceId,
-            actor: { type: "agent", id: EGRESS_AGENT, plane: "cloud" },
-            onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
-            action: "read" as Action,
-            resourceType: "external:fetch" as ResourceType,
-            skill: "dealpilot.source",
-            dataScope: "public" as DataScope,
-            inputs: { kind: "company", hints: {} },
-            goalTaskRef,
-          },
-          ctx.run,
-        );
+        return dealPilotModuleManifest(ctx.wiring.dealpilot.bindings);
       }),
 
-    commit: procedure.input(z.object({ captureId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
-      return ctx.wiring.dealpilot.materializer.add(input.captureId);
-    }),
-
-    /** Quarantined-but-not-yet-committed captures waiting for human review/"Add". */
-    captures: procedure.query(({ ctx }) => {
-      return ctx.wiring.dealpilot.captures.list("dealpilot");
-    }),
-
-    getThesis: procedure.query(({ ctx }) => {
-      return ctx.wiring.dealpilot.thesis;
-    }),
-
-    setThesis: procedure
+    records: dealpilotProcedure
       .input(
         z.object({
-          industries: z.array(z.string()),
-          geo: z.array(z.string()),
-          sdeMin: z.number().optional(),
-          sdeMax: z.number().optional(),
-          revenueMin: z.number().optional(),
-          revenueMax: z.number().optional(),
+          workspaceId: z.string().min(1),
+          page: z.enum(["deals", "sources", "theses"]),
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().min(0).default(0),
         }),
       )
-      .mutation(({ input, ctx }) => {
-        const next: ThesisProfile = {
-          industries: input.industries,
-          geo: input.geo,
-          ...(input.sdeMin != null ? { sdeMin: input.sdeMin } : {}),
-          ...(input.sdeMax != null ? { sdeMax: input.sdeMax } : {}),
-          ...(input.revenueMin != null ? { revenueMin: input.revenueMin } : {}),
-          ...(input.revenueMax != null ? { revenueMax: input.revenueMax } : {}),
-        };
-        ctx.wiring.dealpilot.setThesis(next);
-        return ctx.wiring.dealpilot.thesis;
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        return ctx.wiring.dealpilot.store.list(input.page, input.workspaceId, {
+          limit: input.limit,
+          offset: input.offset,
+        });
       }),
 
-    /**
-     * Paginated (offset/limit): `candidateIds` is an in-memory array (wiring.ts), so a
-     * simple offset slice is correct and avoids over-engineering a cursor scheme for a
-     * backing store with no stable ordering keys yet. Default limit keeps this from
-     * mapping the entire candidate set through `facts.livingProfile()` on every call
-     * (All fixes.md §3 P1 "No pagination on any list surface").
-     *
-     * `workspaceId` is OPTIONAL and, if present, must be the pilot workspace (interim
-     * single-tenant safety fix, All fixes.md Phase 3 item 11a) — this procedure has no
-     * per-workspace backing store yet (candidateIds is one process-wide in-memory
-     * array), so silently proceeding for a non-pilot id would be a real cross-tenant
-     * leak the moment a second workspace existed. No current caller sends this param
-     * (the prototype only sends limit/offset); it's accepted defensively so a future
-     * caller can't slip a non-pilot id through unnoticed.
-     */
-    list: procedure
+    /** Compatibility endpoint for callers migrating from the pre-DP0 candidate feed. */
+    list: dealpilotProcedure
       .input(
         z
           .object({
@@ -1885,15 +1922,291 @@ export const appRouter = t.router({
       )
       .query(({ input, ctx }) => {
         if (input.workspaceId) assertPilotWorkspace(input.workspaceId);
-        const { facts, candidateIds, thesis } = ctx.wiring.dealpilot;
+        const { facts, candidateIds } = ctx.wiring.dealpilot;
         const total = candidateIds.length;
-        const page = candidateIds.slice(input.offset, input.offset + input.limit);
-        const items = page.map((id) => {
+        const ids = candidateIds.slice(input.offset, input.offset + input.limit);
+        const items = ids.map((id) => {
           const profile = facts.livingProfile(id);
-          const flat = Object.fromEntries(Object.entries(profile).map(([k, v]) => [k, v.value]));
-          return { id, profile: flat, fit: scoreThesisFit(flat, thesis) };
+          const flat = Object.fromEntries(Object.entries(profile).map(([key, value]) => [key, value.value]));
+          return { id, profile: flat, fit: scoreThesisFit(flat, { industries: [], geo: [] }) };
         });
         return { items, total, hasMore: input.offset + items.length < total };
+      }),
+
+    detail: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          kind: z.enum(["deal", "source", "thesis"]),
+          id: z.string().min(1),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const detail = await ctx.wiring.dealpilot.store.detail(
+          input.kind,
+          input.workspaceId,
+          input.id,
+          ctx.wiring.dealpilot.bindings,
+        );
+        if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: `${input.kind} Record not found` });
+        if (detail.record.kind !== "source") return detail;
+        return {
+          ...detail,
+          credentialProjection: await ctx.wiring.dealpilot.credentials.project(detail.record.credentialRef),
+        };
+      }),
+
+    createDeal: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          company: z.string().trim().min(1).max(300),
+          revenue: z.number().nonnegative().optional(),
+          ebitda: z.number().optional(),
+          sde: z.number().optional(),
+          askingPrice: z.number().nonnegative().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        return ctx.wiring.dealpilot.store.createDeal({
+          workspaceId: input.workspaceId,
+          company: input.company,
+          ...(input.revenue != null ? { revenue: input.revenue } : {}),
+          ...(input.ebitda != null ? { ebitda: input.ebitda } : {}),
+          ...(input.sde != null ? { sde: input.sde } : {}),
+          ...(input.askingPrice != null ? { askingPrice: input.askingPrice } : {}),
+        });
+      }),
+
+    createSource: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          name: z.string().trim().min(1).max(300),
+          link: z.string().url(),
+          connectionType: z.enum(["url", "email_alert", "api", "account"]),
+          spendCap: z.number().nonnegative(),
+          rightsAttested: z.boolean(),
+          userId: z.string().max(500).optional(),
+          password: z.string().max(2_000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.createSource({
+          workspaceId: input.workspaceId,
+          name: input.name,
+          link: input.link,
+          connectionType: input.connectionType,
+          spendCap: input.spendCap,
+          rightsState: input.rightsAttested ? "attested" : "unattested",
+          ...(input.rightsAttested ? { rightsAttestedBy: ctx.identity.id } : {}),
+          ...(input.userId || input.password ? { credentialOwnerId: ctx.identity.id } : {}),
+        });
+        if (!input.userId && !input.password) return source;
+        const credentialRef = await ctx.wiring.dealpilot.credentialVault.put(source.id, {
+          ...(input.userId ? { userId: input.userId } : {}),
+          ...(input.password ? { password: input.password } : {}),
+        });
+        return ctx.wiring.dealpilot.store.updateSource(source.id, input.workspaceId, { credentialRef });
+      }),
+
+    createThesis: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          name: z.string().trim().min(1).max(300),
+          focus: z.string().trim().min(1).max(1_000),
+          targetCagr: z.number().optional(),
+          criteria: z.array(z.string().trim().min(1)).default([]),
+          exclusions: z.array(z.string().trim().min(1)).default([]),
+          sourcingStrategy: z.string().trim().max(2_000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const thesis = await ctx.wiring.dealpilot.store.createThesis({
+          workspaceId: input.workspaceId,
+          name: input.name,
+          focus: input.focus,
+          criteria: input.criteria,
+          exclusions: input.exclusions,
+          ...(input.targetCagr != null ? { targetCagr: input.targetCagr } : {}),
+          ...(input.sourcingStrategy ? { sourcingStrategy: input.sourcingStrategy } : {}),
+        });
+        const discoveryTask = await proposeThesisSourceDiscovery(
+          ctx.wiring.dealpilot.store,
+          input.workspaceId,
+          thesis.id,
+        );
+        const discovery = await ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            action: "read",
+            resourceType: "tool",
+            skill: "stageMutation",
+            inputs: discoveryTask,
+          },
+          ctx.run,
+        );
+        return { thesis, discovery };
+      }),
+
+    discoverDeals: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        let proposal;
+        try {
+          const result = await ctx.wiring.ritualExecutor.runById(
+            {
+              workspaceId: input.workspaceId,
+              ritualId: DEALPILOT_SOURCE_RITUAL_ID,
+              onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
+              params: { workspaceId: input.workspaceId, sourceId: input.sourceId },
+            },
+            ctx.run,
+          );
+          proposal = result.proposals[0];
+          if (!proposal) throw new Error("DealPilot discovery Automation produced no proposal");
+        } catch (error) {
+          if (error instanceof SourceDiscoveryGateError) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+          }
+          throw new TRPCError({
+            code:
+              error instanceof Error &&
+              (error.message.includes("supports Deal discovery only") || error.message.includes("Source Record not found"))
+                ? "PRECONDITION_FAILED"
+                : "BAD_GATEWAY",
+            message: error instanceof Error ? error.message : "Source connector failed",
+          });
+        }
+        const output = proposal.output?.proposedOutput as {
+          spend?: { estimated: number; actual: number; cap: number; exceeded: boolean };
+        } | undefined;
+        return {
+          ...proposal,
+          spend: output?.spend ?? { estimated: 0, actual: 0, cap: 0, exceeded: false },
+        };
+      }),
+
+    captures: dealpilotProcedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const captures = await ctx.wiring.dealpilot.captures.list("dealpilot");
+        return captures
+          .filter((capture) => !ctx.wiring.dealpilot.committedCaptureIds.has(capture.captureId))
+          .map((capture) => ({
+            ...capture,
+            sourceId: ctx.wiring.dealpilot.captureSources.get(capture.captureId) ?? null,
+          }));
+      }),
+
+    commit: dealpilotProcedure
+      .input(z.object({ workspaceId: z.string().min(1), captureId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        if (ctx.wiring.dealpilot.committedCaptureIds.has(input.captureId)) {
+          return { committed: false, alreadyCommitted: true as const };
+        }
+        if (ctx.wiring.dealpilot.committingCaptureIds.has(input.captureId)) {
+          throw new TRPCError({ code: "CONFLICT", message: "Capture commit is already in progress" });
+        }
+        ctx.wiring.dealpilot.committingCaptureIds.add(input.captureId);
+        try {
+          const capture = await ctx.wiring.dealpilot.captures.get(input.captureId);
+          if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
+          const proposal = await ctx.wiring.pipeline.propose(
+            {
+              workspaceId: input.workspaceId,
+              actor: { type: ctx.identity.type, id: ctx.identity.id },
+              action: "write",
+              resourceType: "tool",
+              skill: "stageMutation",
+              inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
+              trustOrigin: capture.trustOrigin ?? "untrusted_external",
+            },
+            ctx.run,
+          );
+          if (proposal.status !== "applied") return { committed: false, proposal };
+          return {
+            ...(await ctx.wiring.dealpilot.materializer.add(input.captureId)),
+            proposal,
+          };
+        } finally {
+          ctx.wiring.dealpilot.committingCaptureIds.delete(input.captureId);
+        }
+      }),
+
+    reauthenticateCredential: dealpilotProcedure
+      .input(z.object({ workspaceId: z.string().min(1), sourceId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.get("source", input.workspaceId, input.sourceId);
+        if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
+        if (source.kind !== "source" || source.credentialOwnerId !== ctx.identity.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Source credential access is not authorized" });
+        }
+        try {
+          return ctx.wiring.dealpilot.credentials.reauthenticate({
+            actorType: ctx.identity.type,
+            actorId: ctx.identity.id,
+            sourceId: input.sourceId,
+            ...(ctx.reauthenticatedAt != null ? { reauthenticatedAt: ctx.reauthenticatedAt } : {}),
+          });
+        } catch (error) {
+          if (error instanceof CredentialAccessError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    accessCredential: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1),
+          token: z.string().min(1),
+          field: z.enum(["userId", "password"]),
+          action: z.enum(["reveal", "copy"]),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.get("source", input.workspaceId, input.sourceId);
+        if (!source || source.kind !== "source") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
+        }
+        if (source.credentialOwnerId !== ctx.identity.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Source credential access is not authorized" });
+        }
+        try {
+          return await ctx.wiring.dealpilot.credentials.access({
+            reference: source.credentialRef,
+            sourceId: source.id,
+            actorType: ctx.identity.type,
+            actorId: ctx.identity.id,
+            token: input.token,
+            field: input.field,
+            action: input.action,
+          });
+        } catch (error) {
+          if (error instanceof CredentialAccessError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+          }
+          throw error;
+        }
       }),
   }),
 

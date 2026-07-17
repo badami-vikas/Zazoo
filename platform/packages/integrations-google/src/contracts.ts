@@ -16,6 +16,8 @@ export interface GmailMessage {
   from: EmailAddress;
   to: EmailAddress[];
   cc?: EmailAddress[];
+  /** Provider receipt time derived from Gmail `internalDate`, not the sender-controlled Date header. */
+  receivedAt?: string;
   date: string;
   subject: string;
   bodyText: string;
@@ -65,6 +67,8 @@ export interface FetchEventsOpts {
 export interface FetchThreadsResult {
   threads: GmailThread[];
   nextPageToken?: string;
+  /** At least one listed thread could not be fetched after retries. */
+  incomplete?: boolean;
 }
 
 export interface FetchEventsResult {

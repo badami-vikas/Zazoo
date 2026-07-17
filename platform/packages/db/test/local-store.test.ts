@@ -17,6 +17,7 @@ import {
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
+  ensureDealPilotPrincipalGovernance,
   schema,
 } from "../src/index.js";
 
@@ -174,6 +175,40 @@ test("persistent governance aligns Egress and Intake authority with their govern
       agentId: egressAgentId,
       roleId: "b0000000-0000-4000-a000-0000000000f1",
       permissionId: "b0000000-0000-4000-a000-0000000000c7",
+    });
+
+    test("persistent governance provisions DealPilot's Human tool permissions without widening Agent roles", async () => {
+      const workspaceId = "b0000000-0000-4000-a000-000000000012";
+      const userId = "e0f0053b-fc44-476e-be27-1371e179e912";
+      const { db, close } = await createLocalDb();
+      try {
+        await db.insert(schema.users).values({ id: userId, email: "dealpilot-governance@test.invalid" });
+        await db.insert(schema.workspaces).values({ id: workspaceId, name: "DealPilot governance test" });
+
+        await Promise.all(
+          Array.from({ length: 5 }, () =>
+            ensureDealPilotPrincipalGovernance(db, { workspaceId, userId })),
+        );
+        await ensureDealPilotPrincipalGovernance(db, { workspaceId, userId });
+
+        const direct = await createDrizzlePorts(db).roles.directGrants(
+          workspaceId,
+          { type: "user", id: userId },
+        );
+        assert.equal(
+          direct.filter(
+            (grant) =>
+              grant.resourceType === "tool" &&
+              (grant.action === "read" || grant.action === "write") &&
+              grant.effect === "allow",
+          ).length,
+          2,
+        );
+        assert.equal((await db.select().from(schema.roles)).length, 0);
+        assert.equal((await db.select().from(schema.agents)).length, 0);
+      } finally {
+        await close();
+      }
     });
     await ensureIntakeAgentGovernance(db, {
       workspaceId,

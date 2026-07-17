@@ -80,7 +80,8 @@ test("createGmailFetchMessages: composes the governed Google gateway, never owns
                 messageId: "m1",
                 from: { email: "alerts@bizbuysell.com" },
                 to: [],
-                date: "2026-07-01T00:00:00Z",
+                receivedAt: "2026-07-01T00:00:00Z",
+                date: "2020-01-01T00:00:00Z",
                 subject: "New Listing Alert: HVAC Co",
                 bodyText: "Asking Price: $500,000",
               },
@@ -93,11 +94,329 @@ test("createGmailFetchMessages: composes the governed Google gateway, never owns
   const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
 
   const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
-  const messages = await fetchMessages({ kind: "company", hints: {} });
+  const messages = await fetchMessages({
+    kind: "company",
+    hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
+  });
+  fetchMessages.acknowledge?.("test_fixture_source");
+  const repeated = await fetchMessages({
+    kind: "company",
+    hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
+  });
+  fetchMessages.acknowledge?.("test_fixture_source");
 
   assert.equal(messages.length, 1);
+  assert.equal(messages[0]!.id, "m1");
   assert.equal(messages[0]!.subject, "New Listing Alert: HVAC Co");
   assert.match(capturedQuery ?? "", /bizbuysell\.com/);
+  assert.match(capturedQuery ?? "", /after:\d+/);
+  assert.equal(repeated.length, 0);
+});
+
+test("createGmailFetchMessages: resumes a budget-limited backlog without advancing past it", async () => {
+  const pageTokens: Array<string | undefined> = [];
+  const thread = (id: string, date: string, sender = "alerts@bizbuysell.com") => ({
+    threadId: `thread_${id}`,
+    subject: `New Listing Alert: ${id}`,
+    participants: [],
+    lastMessageAt: date,
+    snippet: "",
+    messages: [
+      {
+        messageId: id,
+        from: { email: sender },
+        to: [],
+        receivedAt: date,
+        date,
+        subject: `New Listing Alert: ${id}`,
+        bodyText: "Asking Price: $500,000",
+      },
+    ],
+  });
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => {
+      pageTokens.push(opts.pageToken);
+      return opts.pageToken
+        ? { threads: [thread("m2", "2026-07-02T00:00:00Z")] }
+        : {
+            threads: [
+              thread("old", "2026-06-29T00:00:00Z"),
+              thread("reply", "2026-07-01T12:00:00Z", "test_fixture_user@example.com"),
+              thread("m1", "2026-07-01T00:00:00Z"),
+            ],
+            nextPageToken: "page-2",
+          };
+    },
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+  const query = {
+    kind: "company" as const,
+    hints: {
+      sourceId: "test_fixture_source",
+      after: "2026-06-30T00:00:00.000Z",
+      maxResults: "1",
+      scanStartedAt: "2026-07-01T08:00:00.000Z",
+    },
+  };
+
+  const first = await fetchMessages(query);
+  const firstComplete = fetchMessages.lastFetchComplete?.("test_fixture_source");
+  fetchMessages.acknowledge?.("test_fixture_source");
+  const second = await fetchMessages(query);
+  fetchMessages.acknowledge?.("test_fixture_source");
+
+  assert.deepEqual(first.map((message) => message.id), ["m1"]);
+  assert.equal(firstComplete, false);
+  assert.deepEqual(second.map((message) => message.id), ["m2"]);
+  assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), true);
+  assert.deepEqual(pageTokens, [undefined, "page-2"]);
+});
+
+test("createGmailFetchMessages: an incomplete provider page retains the Source checkpoint", async () => {
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async () => ({
+      incomplete: true,
+      threads: [
+        {
+          threadId: "thread_m1",
+          subject: "New Listing Alert: m1",
+          participants: [],
+          lastMessageAt: "2026-07-01T00:00:00Z",
+          snippet: "",
+          messages: [
+            {
+              messageId: "m1",
+              from: { email: "alerts@bizbuysell.com" },
+              to: [],
+              receivedAt: "2026-07-01T00:00:00Z",
+              date: "2026-07-01T00:00:00Z",
+              subject: "New Listing Alert: m1",
+              bodyText: "Asking Price: $500,000",
+            },
+          ],
+        },
+      ],
+    }),
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+
+  const messages = await fetchMessages({
+    kind: "company",
+    hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
+  });
+
+  assert.deepEqual(messages.map((message) => message.id), ["m1"]);
+  assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), false);
+  fetchMessages.discard?.("test_fixture_source");
+});
+
+test("createGmailFetchMessages: a later-page failure does not acknowledge earlier messages", async () => {
+  let failLaterPage = true;
+  const thread = (id: string) => ({
+    threadId: `thread_${id}`,
+    subject: `New Listing Alert: ${id}`,
+    participants: [],
+    lastMessageAt: "2026-07-01T00:00:00Z",
+    snippet: "",
+    messages: [
+      {
+        messageId: id,
+        from: { email: "alerts@bizbuysell.com" },
+        to: [],
+        receivedAt: "2026-07-01T00:00:00Z",
+        date: "2026-07-01T00:00:00Z",
+        subject: `New Listing Alert: ${id}`,
+        bodyText: "Asking Price: $500,000",
+      },
+    ],
+  });
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => {
+      if (!opts.pageToken) return { threads: [thread("m1")], nextPageToken: "page-2" };
+      if (failLaterPage) throw new Error("test_fixture_later_page_failure");
+      return { threads: [thread("m2")] };
+    },
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+  const query = {
+    kind: "company" as const,
+    hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
+  };
+
+  await assert.rejects(fetchMessages(query), /test_fixture_later_page_failure/);
+  failLaterPage = false;
+  const retry = await fetchMessages(query);
+
+  assert.deepEqual(retry.map((message) => message.id), ["m1", "m2"]);
+  fetchMessages.acknowledge?.("test_fixture_source");
+});
+
+test("createGmailFetchMessages: provider page calls are capped and resume from continuation", async () => {
+  let calls = 0;
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => {
+      calls += 1;
+      const page = opts.pageToken ? Number(opts.pageToken.slice("page-".length)) : 1;
+      if (page < 6) {
+        return {
+          threads: [
+            {
+              threadId: `thread_reply_${page}`,
+              subject: "test_fixture_reply",
+              participants: [],
+              lastMessageAt: "2026-07-01T00:00:00Z",
+              snippet: "",
+              messages: [
+                {
+                  messageId: `reply_${page}`,
+                  from: { email: "test_fixture_user@example.com" },
+                  to: [],
+                  receivedAt: "2026-07-01T00:00:00Z",
+                  date: "2026-07-01T00:00:00Z",
+                  subject: "test_fixture_reply",
+                  bodyText: "test_fixture_reply",
+                },
+              ],
+            },
+          ],
+          nextPageToken: `page-${page + 1}`,
+        };
+      }
+      return {
+        threads: [
+          {
+            threadId: "thread_m6",
+            subject: "New Listing Alert: m6",
+            participants: [],
+            lastMessageAt: "2026-07-01T00:00:00Z",
+            snippet: "",
+            messages: [
+              {
+                messageId: "m6",
+                from: { email: "alerts@bizbuysell.com" },
+                to: [],
+                receivedAt: "2026-07-01T00:00:00Z",
+                date: "2026-07-01T00:00:00Z",
+                subject: "New Listing Alert: m6",
+                bodyText: "Asking Price: $500,000",
+              },
+            ],
+          },
+        ],
+      };
+    },
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+  const query = {
+    kind: "company" as const,
+    hints: {
+      sourceId: "test_fixture_source",
+      after: "2026-06-30T00:00:00.000Z",
+      maxResults: "1",
+      scanStartedAt: "2026-07-01T08:00:00.000Z",
+    },
+  };
+
+  const first = await fetchMessages(query);
+  assert.deepEqual(first, []);
+  assert.equal(calls, 5);
+  assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), false);
+  fetchMessages.acknowledge?.("test_fixture_source");
+  const second = await fetchMessages({
+    ...query,
+    hints: { ...query.hints, scanStartedAt: "2026-07-03T08:00:00.000Z" },
+  });
+
+  assert.deepEqual(second.map((message) => message.id), ["m6"]);
+  assert.equal(calls, 6);
+  assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), true);
+  assert.equal(fetchMessages.lastCheckpointAt?.("test_fixture_source"), "2026-07-01T08:00:00.000Z");
+  fetchMessages.acknowledge?.("test_fixture_source");
+});
+
+test("createGmailFetchMessages: rejects repeated provider page tokens", async () => {
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => ({
+      threads: [],
+      nextPageToken: opts.pageToken ?? "repeated",
+    }),
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+
+  await assert.rejects(
+    fetchMessages({
+      kind: "company",
+      hints: { sourceId: "test_fixture_source" },
+    }),
+    /repeated page token/,
+  );
+});
+
+test("createGmailFetchMessages: rejects page-token cycles that cross continuation runs", async () => {
+  const nextToken: Record<string, string> = {
+    "__first_page__": "A",
+    A: "B",
+    B: "C",
+    C: "D",
+    D: "E",
+    E: "F",
+    F: "A",
+  };
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => ({
+      threads: [],
+      nextPageToken: nextToken[opts.pageToken ?? "__first_page__"]!,
+    }),
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+  const query = {
+    kind: "company" as const,
+    hints: { sourceId: "test_fixture_source", maxResults: "1" },
+  };
+
+  await fetchMessages(query);
+  fetchMessages.acknowledge?.("test_fixture_source");
+
+  await assert.rejects(fetchMessages(query), /repeated page token/);
+});
+
+test("createGmailFetchMessages: a failed saved continuation restarts from the first page", async () => {
+  const tokens: Array<string | undefined> = [];
+  let mode: "paginate" | "invalid" | "restart" = "paginate";
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (opts) => {
+      tokens.push(opts.pageToken);
+      if (mode === "invalid") throw new Error("test_fixture_invalid_page_token");
+      if (mode === "restart") return { threads: [] };
+      const page = opts.pageToken ? Number(opts.pageToken.slice("page-".length)) : 1;
+      return {
+        threads: [],
+        nextPageToken: `page-${page + 1}`,
+      };
+    },
+  };
+  const gateways: GoogleGatewayFactory = { forIntegration: async () => fakeGateway as GoogleGateway };
+  const fetchMessages = createGmailFetchMessages(gateways, "integration_1");
+  const query = {
+    kind: "company" as const,
+    hints: { sourceId: "test_fixture_source", maxResults: "1" },
+  };
+
+  await fetchMessages(query);
+  fetchMessages.acknowledge?.("test_fixture_source");
+  mode = "invalid";
+  await assert.rejects(fetchMessages(query), /test_fixture_invalid_page_token/);
+  mode = "restart";
+  await fetchMessages(query);
+
+  assert.deepEqual(tokens, [undefined, "page-2", "page-3", "page-4", "page-5", "page-6", undefined]);
+  fetchMessages.acknowledge?.("test_fixture_source");
 });
 
 test("createBizBuySellAlertConnector: end-to-end fetch -> parse -> CaptureEnvelope, using the real parser by default", async () => {
@@ -256,4 +575,24 @@ test("createBizBuySellAlertConnector: does not warn when a fetched batch parses 
 
   assert.equal(envelopes.length, 2);
   assert.equal(warnings.length, 0);
+});
+
+test("createBizBuySellAlertConnector: reports every attempted message for spend accounting", async () => {
+  const fetchMessages = Object.assign(
+    async () => [
+      { subject: "New Listing Alert: test_fixture_hvac_co", body: "Business: test_fixture_hvac_co\nAsking Price: $850,000" },
+      { subject: "test_fixture_notice_1", body: "test_fixture_unstructured_blob_1" },
+      { subject: "test_fixture_notice_2", body: "test_fixture_unstructured_blob_2" },
+    ],
+    { lastFetchComplete: () => false },
+  );
+  const connector = createBizBuySellAlertConnector(fetchMessages);
+
+  const batch = await connector.fetchWithSummary({ kind: "company", hints: {} });
+
+  assert.equal(batch.envelopes.length, 1);
+  assert.equal(batch.summary.attempted, 3);
+  assert.equal(batch.summary.parsed, 1);
+  assert.equal(batch.summary.parseRate, 1 / 3);
+  assert.equal(batch.summary.complete, false);
 });

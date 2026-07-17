@@ -60,13 +60,18 @@ export default tseslint.config(
   },
   {
     // The real governance Pipeline class + its direct construction sites: "Pipeline"
-    // as a token is allowed here (it's not banned repo-wide — see rule header — this
-    // override exists only for documentation/clarity, no rule currently bans "Pipeline").
+    // as a token is allowed here (it's not banned repo-wide — see rule header).
     files: [
       "packages/core/src/pipeline.ts",
       "packages/core/src/index.ts",
-      "**/*.test.ts",
     ],
     rules: {},
+  },
+  {
+    // Tests exercise domain APIs and are not Engine vocabulary declaration sites.
+    files: ["**/*.test.ts"],
+    rules: {
+      "bridge/no-crm-vocab": "off",
+    },
   },
 );

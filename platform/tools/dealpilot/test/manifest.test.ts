@@ -8,7 +8,11 @@ import { recorderManifest } from "@bridge/recorder";
 
 test("manifest: kind external, has surfaces, no provides", () => {
   assert.equal(dealPilotManifest.kind, "external");
-  assert.ok(dealPilotManifest.surfaces.some((s) => s.route === "/dealpilot"));
+  assert.deepEqual(dealPilotManifest.surfaces.map((surface) => surface.route), [
+    "/dealpilot/deals",
+    "/dealpilot/sources",
+    "/dealpilot/theses",
+  ]);
 });
 
 test("registry: dealpilot composes company-sourcing + people-sourcing + recorder cleanly (Phase 3 anchor)", () => {

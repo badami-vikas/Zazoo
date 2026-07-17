@@ -60,4 +60,4 @@ All explicit product and engineering requirements from Vikas, recorded verbatim 
 
 > "I want even normal graphs to be allowed to be cross module scoped, so technically no difference between second brain and relationship graphs except the underlying data. Once done, commit, push and merge to main"
 
-Verbatim. Mapped to TASK-014 (Graph renderer + scope selector) and TASK-009 (Second Brain, now converged). AP-037, ADR-109.
+Verbatim. Mapped to TASK-014 (Graph renderer + scope selector) and TASK-009 (Second Brain, now converged). AP-037, ADR-110.

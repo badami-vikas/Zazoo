@@ -83,6 +83,13 @@ const readPrivate = (resourceType: string) => ({
   egress: false,
 });
 
+const readPublic = (resourceType: string) => ({
+  resourceType,
+  action: "read" as const,
+  dataScope: "public" as const,
+  egress: true,
+});
+
 const writePrivate = (resourceType: string) => ({
   resourceType,
   action: "write" as const,
@@ -112,11 +119,13 @@ function capability(
 
 const dealPilotCapabilities = [
   capability("deal-pilot.deals", "Deals database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("deal-pilot.sources", "Sources database and views", "view", [readAll("record"), writeAll("record")]),
+  capability("deal-pilot.theses", "Theses database and views", "view", [readAll("record"), writeAll("record")]),
   capability(
     "dealpilot.source",
     "Source governed deal candidates",
     "skill",
-    [readAll("external:fetch")],
+    [{ resourceType: "external:fetch", action: "read", dataScope: "public", egress: true }],
     [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
   ),
   capability(
@@ -131,7 +140,7 @@ const dealPilotCapabilities = [
     "deal-pilot.source-intake",
     "Deal source intake",
     "workflow",
-    [readAll("external:fetch"), writeAll("record")],
+    [readPublic("external:fetch"), writeAll("record")],
     [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
     [
       { manifestId: "deal-pilot.sourcing-agent", versionRange: "0.2.0" },
@@ -314,29 +323,45 @@ const calendarCapabilities = [
 
 export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
   {
-    computedRisk: "advisory",
+    computedRisk: "external",
     manifest: {
       name: "deal-pilot",
-      version: "0.3.0",
+      version: "0.4.0",
       kind: "workspace_definition",
-      summary: "Sourcing waterfall and thesis-fit scoring for deal flow.",
+      summary: "Governed ETA sourcing across Deals, Sources, and Theses.",
       description:
-        "Deal sourcing through governed brokerage-alert intake, candidate review, thesis-fit scoring, and real Deal records.",
+        "Adds sibling Deal, Source, and Thesis Databases with reviewed discovery, provenance, rights/spend gates, and secure credential projection.",
       lineageManifestId: null,
       dependencies: [],
       capabilities: dealPilotCapabilities,
       contextProviders: [],
-      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: { Record: "Deal" } },
+      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
       module: {
         displayName: "DealPilot",
-        route: "/dealpilot",
-        pages: [{
-          id: "deals",
-          name: "Deals",
-          route: "/dealpilot",
-          databaseId: "dealpilot.candidates",
-          capabilityId: "deal-pilot.deals",
-        }],
+        route: "/dealpilot/deals",
+        pages: [
+          {
+            id: "deals",
+            name: "Deals",
+            route: "/dealpilot/deals",
+            databaseId: "dealpilot.deals",
+            capabilityId: "deal-pilot.deals",
+          },
+          {
+            id: "sources",
+            name: "Sources",
+            route: "/dealpilot/sources",
+            databaseId: "dealpilot.sources",
+            capabilityId: "deal-pilot.sources",
+          },
+          {
+            id: "theses",
+            name: "Theses",
+            route: "/dealpilot/theses",
+            databaseId: "dealpilot.theses",
+            capabilityId: "deal-pilot.theses",
+          },
+        ],
         agents: [{
           id: "sourcing-agent",
           name: "Deal sourcing Agent",
@@ -352,6 +377,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           trigger: "Manual source refresh",
           procedure: "dealpilot.source",
           ritualId: DEALPILOT_SOURCE_RITUAL_KEY,
+          runRoute: "/dealpilot/sources",
         }],
       },
     },
