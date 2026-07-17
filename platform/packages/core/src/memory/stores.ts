@@ -59,6 +59,8 @@ export class InMemoryRoleStore implements RoleQuery {
 export class InMemoryAgentStore implements AgentQuery {
   readonly assumed = new Map<string, string | null>();
   readonly scope = new Map<string, string[]>();
+  readonly workspaces = new Map<string, string>();
+  readonly statuses = new Map<string, "active" | "paused" | "retired">();
   /** Per-agent data-tier ceiling. Default 'all' when unset. */
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
@@ -71,6 +73,12 @@ export class InMemoryAgentStore implements AgentQuery {
    * `DrizzleAgentStore.isActive`'s real-row-or-false shape, never assumes). */
   readonly statuses = new Map<string, "active" | "inactive">();
 
+  async workspaceId(agentId: string): Promise<string | null> {
+    return this.workspaces.get(agentId) ?? null;
+  }
+  async isActive(agentId: string): Promise<boolean> {
+    return this.statuses.get(agentId) === "active";
+  }
   async assumedRole(agentId: string): Promise<string | null> {
     return this.assumed.get(agentId) ?? null;
   }
