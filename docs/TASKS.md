@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-`TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
+`TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-030/AP-031).
 
 ## Operating standard
 
@@ -222,6 +222,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Approval: AP-010/AP-011, AP-021, and AP-029 applied
 - Dependencies: TASK-001; TASK-006; TASK-008
 
+## TASK-021 — Task Manager Module
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: One installable Task Manager Module owning the single governed execution queue per workspace plus one Goal anchor over a self-referential, dot-path-leveled Task tree (no separate Initiative/Outcome Record types), with exit-test verification, planning Playbooks as draft-then-approve proposals, deterministic agent-task routing, confidence-graduated reschedule approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.
+- Prototype test: In a real workspace, create a Goal with outcomes[] and a 3-level Task tree (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; an agent-assigned Task routes to Capability Builder by default and to a Skill-eligible Agent for a cross-Module Task; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.
+- Scope: docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6; docs/raw/brd-taskmanager-2026-07.md; docs/raw/initiatives-taskade-research.md (verdicts bind); docs/raw/ui-architecture-rules-2026-07.md
+- Evidence: docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025); user's game-designs repo independently converged on the identical format (2026-07-16 report)
+- Requests: R-035; R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)
+- Approval: AP-030 applied (plan+roadmap addition); AP-031 applied (revision); ADR-099 records the vocabulary call, revised same day
+- Dependencies: TASK-001; TASK-012 (VOCAB2 tree migration); TASK-014 (standard Module UI); TASK-004 line for TM6 only
 ## TASK-015 — End-to-end runtime taint tracking
 - Status: ready
 - Priority: P3
@@ -293,3 +304,4 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-029; R-030
 - Approval: none
 - Dependencies: TASK-003; TASK-015
+

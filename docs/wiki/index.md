@@ -23,6 +23,7 @@ Agents read wiki by default. Hit `../raw/` only when wiki thin / strong need. St
 - [foundational-agents](foundational-agents.md) — historical agent/onboarding design; current canon = 4 Agents (CoS, Learning, Governance, Capability Builder), Communications Skill, one Onboarding flow, one Avatar. VOCAB1 removes old code/payload names.
 - [calendar](calendar.md) — Calendar Module = time-axis projection over Events and Records; provider implementations stay behind ports.
 - [helpdesk](helpdesk.md) — Relationship sub-module: capability routing over graph → governed Help Request Records.
+- [taskmanager](taskmanager.md) — **2026-07-16, proposed (TASK-021)**: Task Manager Module — single governed execution queue + Goal→Outcome→Initiative→Task graph; agent-first ledger (`tasks.md` = projection, DB = truth); exit tests; planning Playbooks draft-then-approve; guard Automations; TM0–TM6; game-designs = certifying instance.
 - [schema](schema.md) — data model, two-tier, governance tables.
 - [roadmap](roadmap.md) — phases 0–6.
 - [stack](stack.md) — tech, libs, model provider.
