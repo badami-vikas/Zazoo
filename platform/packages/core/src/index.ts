@@ -36,6 +36,7 @@ export {
   AgentFloorDeniedError,
   NotPendingProposalError,
   type ProposeOptions,
+  KERNEL_PASSTHROUGH_SKILL,
   type PipelineDeps,
 } from "./pipeline.js";
 export {
@@ -50,6 +51,9 @@ export {
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./skills.js";
+export * from "./goal-task.js";
+export * from "./skill-manifest.js";
+export * from "./child-agent-run.js";
 
 // Capability Trust Model (docs/wiki/vision.md "Capability Trust Model" +
 // "Promotion defaults") — additive to the pipeline; agent-floor/human-decide

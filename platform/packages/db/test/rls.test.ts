@@ -35,6 +35,11 @@ test("RLS: workspace-scoped reads are isolated by app.workspace_id", async () =>
       .values({ workspaceId: tenantA.id, title: "test_fixture_tenant_a_resource", kind: "article" })
       .returning({ id: schema.resources.id });
     assert.ok(resourceA);
+    const [goalA] = await db
+      .insert(schema.goals)
+      .values({ workspaceId: tenantA.id, type: "test.goal", title: "Tenant A goal" })
+      .returning({ id: schema.goals.id });
+    assert.ok(goalA);
 
     await setRlsContext(db, tenantB.id);
     const [resourceB] = await db
@@ -42,11 +47,19 @@ test("RLS: workspace-scoped reads are isolated by app.workspace_id", async () =>
       .values({ workspaceId: tenantB.id, title: "test_fixture_tenant_b_resource", kind: "article" })
       .returning({ id: schema.resources.id });
     assert.ok(resourceB);
+    const [goalB] = await db
+      .insert(schema.goals)
+      .values({ workspaceId: tenantB.id, type: "test.goal", title: "Tenant B goal" })
+      .returning({ id: schema.goals.id });
+    assert.ok(goalB);
 
     await setRlsContext(db, tenantA.id);
     const rows = await db.select({ id: schema.resources.id }).from(schema.resources);
     assert.deepEqual(rows.map((row) => row.id), [resourceA.id]);
     assert.equal(rows.some((row) => row.id === resourceB.id), false);
+    const goals = await db.select({ id: schema.goals.id }).from(schema.goals);
+    assert.deepEqual(goals.map((row) => row.id), [goalA.id]);
+    assert.equal(goals.some((row) => row.id === goalB.id), false);
   } finally {
     await close();
   }

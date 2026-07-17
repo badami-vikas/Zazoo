@@ -18,3 +18,20 @@ test("migration journal timestamps are ordered and never future-dated", () => {
     }
   }
 });
+
+test("TASK-007 orchestration migration is after the released 0013 high-water mark", () => {
+  const journal = JSON.parse(
+    readFileSync(resolve(here, "../../migrations/meta/_journal.json"), "utf8"),
+  ) as { entries: Array<{ idx: number; when: number; tag: string }> };
+  const released = journal.entries.find((entry) => entry.tag === "0013_uneven_dragon_lord");
+  const orchestration = journal.entries.find(
+    (entry) => entry.tag === "0014_task007_goal_task_skill_manifest_child_run",
+  );
+
+  assert.ok(released, "released 0013 migration must remain in the journal");
+  assert.ok(orchestration, "TASK-007 orchestration migration must remain in the journal");
+  assert.ok(
+    orchestration.when > released.when,
+    "TASK-007 must apply to databases already migrated through released 0013",
+  );
+});

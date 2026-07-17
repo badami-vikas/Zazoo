@@ -129,15 +129,15 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-001
 
 ## TASK-007 — Agent, Skill, and child-Run orchestration
-- Status: in_progress
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.
-- Prototype test: Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.
+- Prototype test: ✅ Assigned active Agents resolve matching workspace Goal/Task Skills; unauthorized/missing/inactive/cross-workspace invocation fails closed; a server-owned child Run narrows authority/budget/taint/depth, records lifecycle audit, and can be stopped by Governance/Human.
 - Scope: docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3; docs/raw/bridge-foundational-agents-onboarding-2026-07.md
-- Evidence: BUGS standalone Skills/non-Agent invocation; specialist-agent overfit review
+- Evidence: RESOLVED BUGS standalone Skills/non-Agent invocation; specialist-agent overfit review; [TASK-007 output](../outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md); core 421, DB 106, API 161, Google 35, web 43 tests; monorepo typecheck/build; changed-file lint; migration no-drift; four independent security/correctness reviews, final no findings.
 - Requests: R-019; R-028; R-029; agent redesign directive 2026-07-15
-- Approval: AP-021, AP-023, and AP-029 applied
+- Approval: AP-021, AP-023, AP-029, and AP-032 applied
 - Dependencies: TASK-001
 
 ## TASK-008 — Relationship Module consolidation

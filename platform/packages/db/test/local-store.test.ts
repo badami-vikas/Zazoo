@@ -15,6 +15,8 @@ import {
   createLocalDb,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
+  ensureEgressAgentGovernance,
+  ensureIntakeAgentGovernance,
   schema,
 } from "../src/index.js";
 
@@ -64,7 +66,10 @@ test("persistent governance provisions and verifies the attributable Learning Ag
 
     const ports = createDrizzlePorts(db);
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
-    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["signal:write"]);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), [
+      "signal:write",
+      "touchpoint:write",
+    ]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>
@@ -149,6 +154,50 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
       ).length,
       1,
     );
+  } finally {
+    await close();
+  }
+});
+
+test("persistent governance aligns Egress and Intake authority with their governed Skill manifests", async () => {
+  const workspaceId = "b0000000-0000-4000-a000-000000000011";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e911";
+  const egressAgentId = "b0000000-0000-4000-a000-0000000000e1";
+  const intakeAgentId = "b0000000-0000-4000-a000-0000000000e2";
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: userId, email: "runtime-governance@test.invalid" });
+    await db.insert(schema.workspaces).values({ id: workspaceId, name: "Runtime governance test" });
+    await ensureEgressAgentGovernance(db, {
+      workspaceId,
+      userId,
+      agentId: egressAgentId,
+      roleId: "b0000000-0000-4000-a000-0000000000f1",
+      permissionId: "b0000000-0000-4000-a000-0000000000c7",
+    });
+    await ensureIntakeAgentGovernance(db, {
+      workspaceId,
+      userId,
+      agentId: intakeAgentId,
+      roleId: "b0000000-0000-4000-a000-0000000000f6",
+      permissionId: "b0000000-0000-4000-a000-0000000000c8",
+    });
+
+    const ports = createDrizzlePorts(db);
+    assert.deepEqual(await ports.agents.allowedSkills(egressAgentId), [
+      "dealpilot.source",
+      "google.sourceGmail",
+      "google.sourceCalendar",
+      "google.listCalendarEvents",
+    ]);
+    assert.deepEqual(await ports.agents.capabilityScope(intakeAgentId), [
+      "touchpoint:write",
+      "signal:write",
+      "person:write",
+    ]);
+    assert.deepEqual(await ports.agents.allowedSkills(intakeAgentId), ["google.stage"]);
+    assert.equal(await ports.agents.workspaceId(intakeAgentId), workspaceId);
+    assert.equal(await ports.agents.isActive(intakeAgentId), true);
   } finally {
     await close();
   }

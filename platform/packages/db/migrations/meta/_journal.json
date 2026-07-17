@@ -92,6 +92,13 @@
       "when": 1784020962426,
       "tag": "0013_uneven_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784253570229,
+      "tag": "0014_task007_goal_task_skill_manifest_child_run",
+      "breakpoints": true
     }
   ]
 }

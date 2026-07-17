@@ -73,6 +73,8 @@ export const ritualStepDefSchema = z.object({
   resourceId: z.string().min(1).optional(),
   inputs: z.record(z.unknown()).optional(),
   dataScope: dataScopeSchema.optional(),
+  // AGS1/TASK-007 — see RitualStepDef.goalTaskRef's doc comment (@bridge/core's ports.ts).
+  goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
 export const ritualStepListSchema = z.array(ritualStepDefSchema);
@@ -92,6 +94,7 @@ function normalizeStep(parsed: z.infer<typeof ritualStepDefSchema>): RitualStepD
   if (parsed.resourceId !== undefined) step.resourceId = parsed.resourceId;
   if (parsed.inputs !== undefined) step.inputs = parsed.inputs;
   if (parsed.dataScope !== undefined) step.dataScope = parsed.dataScope;
+  if (parsed.goalTaskRef !== undefined) step.goalTaskRef = parsed.goalTaskRef;
   return step;
 }
 

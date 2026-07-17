@@ -25,6 +25,16 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
+  `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
+  `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).
+  **Reason:** deterministic cross-workspace denial, Agent assignment, budget race, lifecycle rollback,
+  migration, RLS, and Automation binding tests cannot mutate real user Goals/Tasks or persistent Runs.
+  **Real elements they stand in for:** workspace members, foundational Agents, Goals, Tasks, Skill manifests,
+  parent/child Runs, budgets, lifecycle decisions, and audit entries.
+  **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
+  data for product demonstrations and future end-to-end child-executor evidence.
+
 - **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
   `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).
   **Reason:** deterministic pre-migration UUID Skill allowlists and singular/ambiguous Automation ownership

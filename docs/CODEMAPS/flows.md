@@ -1,8 +1,8 @@
-<!-- Generated: 2026-07-09 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor}.ts, capability/{types,approvals}.ts, packages/local/src/ports.ts, packages/db/src/schema.ts, docs/raw/SCHEMA.sql | Token estimate: ~1400 -->
+<!-- Updated: 2026-07-17 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor,goal-task,skill-manifest,child-agent-run}.ts, capability/{types,approvals}.ts, packages/local/src/ports.ts, packages/db/src/{schema,goal-task-store,skill-manifest-store,child-agent-run-store}.ts | Token estimate: ~1700 -->
 
 # Load-Bearing Flows + Schema ER
 
-Read this instead of re-reading `pipeline.ts` + `authority.ts` each session. Line refs valid as of 2026-07-09.
+Read this instead of re-reading the pipeline/authority/orchestration source each session. Flow verified 2026-07-17.
 
 ## 1. Action pipeline — propose → decide (pipeline.ts, authority.ts)
 
@@ -12,13 +12,20 @@ sequenceDiagram
   participant P as UniversalActionPipeline
   participant A as resolveAuthority
   participant Pol as PolicyEvaluator
+  participant M as SkillManifest + GoalTask stores
   participant S as Skill
   participant L as Ledger (append-only)
   C->>P: propose(req) [pipeline.ts:130]
   P->>A: Layer 0 agentFloorDeny → 0.5 planeGate → grants∩scope∪ephemeral−deny (∩principal if onBehalfOf) [authority.ts:380-420]
   A-->>P: allowed? (deny-by-default)
   P->>Pol: evaluate(phase:pre) — block ⇒ reject [152-162]
-  P->>S: skill lookup + agent allowedSkills check, then skill.run() → proposedOutput (NOT committed) [165-177]
+  alt registered governed Skill
+    P->>M: workspace manifest + active Goal/Task + assigned active Agent + authority/Plane/data scope
+    M-->>P: resolved or fail closed
+  else Human-only kernel passthrough / structurally Agent-floor-denied governance Action
+    Note over P: no Agent Skill authority is inferred
+  end
+  P->>S: skill lookup + agent allowedSkills check, then skill.run() → proposedOutput (NOT committed)
   P->>Pol: evaluate(phase:runtime, proposedOutput) — block ⇒ reject [180-192]
   Note over P: requiresApproval [79-82]: any require_approval policy OR actor is agent ⇒ agents ALWAYS draft
   alt needs approval
@@ -36,9 +43,33 @@ sequenceDiagram
   end
 ```
 
-Capability Trust bands (capability/approvals.ts): informational/advisory→auto · transformational→user_pref · operational→governance · **external→explicit_human hard floor** [65]; audience only raises [46-50]; kill switch ⇒ explicit_human [172]; auto budgets 20/10 per day, exhausted ⇒ escalate [82-193].
+Capability Trust bands (capability/approvals.ts): informational/advisory→auto · transformational→user_pref · operational→governance · **external→explicit_human hard floor**; audience only raises; kill switch ⇒ explicit_human; exhausted auto budgets ⇒ escalate.
 
-## 2. Plane gate crossing (authority.ts:57-78, 391-397; @bridge/local)
+## 2. Goal/Task Skill + bounded child Agent Run
+
+```mermaid
+sequenceDiagram
+  participant R as Trusted Agent Runtime
+  participant M as SkillManifest + GoalTask stores
+  participant C as ChildAgentRunStore
+  participant L as Ledger
+  R->>M: resolve(workspace, skill, goal, task, assigned Agent)
+  M-->>R: active eligible manifest or reject
+  R->>C: create(parent envelope, requested child bounds)
+  Note over C: intersect authority, Skills, data, budget, review, taint; cap depth; require future deadline
+  C->>L: append attributable create audit
+  C-->>R: persisted running child
+  loop each child Action
+    R->>C: validate + atomically reserve call/cost budget
+    R->>R: propose through Universal Action Pipeline with child Run context
+  end
+  R->>C: complete/fail, or Governance/Human cancel
+  C->>L: guarded transition + append lifecycle audit
+```
+
+Public tRPC exposes inspect/list/cancel only after authentication + workspace membership. Child creation accepts no client-supplied parent ceiling.
+
+## 3. Plane gate crossing (authority.ts; @bridge/local)
 
 ```mermaid
 sequenceDiagram
@@ -56,7 +87,7 @@ sequenceDiagram
 
 Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Touchpoints/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
 
-## 3. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
+## 4. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
 
 ```mermaid
 sequenceDiagram
@@ -69,7 +100,7 @@ sequenceDiagram
   E->>R: load definition; params shallow-merge over step inputs; mint runId [110-126]
   E->>Rec: start(runId,...) [138]
   loop each step, sequentially [141]
-    E->>P: propose(step, context:{type:"ritual",id,runId}) — every step = governed mutation [143-158]
+    E->>P: propose(step + goalTaskRef, context:{type:"ritual",id,runId}) — same Skill gate as direct Agent work
     alt step rejected
       E->>Rec: finish(halted, haltedAtStep:i) — NO rollback of prior committed steps
     else pending_review
@@ -79,7 +110,7 @@ sequenceDiagram
   E->>Rec: finish(completed, steps) [168]
 ```
 
-## 4. Schema ER sketch (docs/raw/SCHEMA.sql · db/src/schema.ts, 56 tables — top slice)
+## 5. Schema ER sketch (db/src/schema.ts, 58 tables — top slice)
 
 ```mermaid
 erDiagram
@@ -93,6 +124,12 @@ erDiagram
   initiatives ||--o{ rituals : supports_initiative
   rituals ||--o{ ritual_runs : ritual_id
   users ||--o{ agents : owner_user_id
+  workspaces ||--o{ goals : workspace_id
+  goals ||--o{ tasks : "same-workspace composite FK"
+  agents ||--o{ tasks : "assigned Agent, same workspace"
+  workspaces ||--o{ skill_manifests : workspace_id
+  tasks ||--o{ child_agent_runs : "same-workspace composite FK"
+  agents ||--o{ child_agent_runs : "parent Agent, same workspace"
   ledger ||--o{ ledger : "ref_ledger_id (decision→proposal, append-only spine)"
   ledger ||--o{ decision_traces : ledger_id
   delegations ||--o{ ledger : delegation_id
@@ -103,4 +140,4 @@ erDiagram
   integrations ||--o{ integration_sync_state : integration_id
 ```
 
-Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` (shared SELECT, no tenant FK, client writes revoked) · **local/private** = `people`, `communities` per-(workspace,user) + everything physically in `@bridge/local` (tokens, bodies, derived T/M/S) · **operational** = the rest, RLS by `workspace_id` (⚠ RLS not actually enabled yet — BUGS.md). Governance cluster: roles/permissions/ephemeral_grants/delegations/policies + capability_manifests/states/trust_grants.
+Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities` per-(workspace,user) + Local Plane tokens/bodies/derived data · **operational** = workspace-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.

@@ -14,7 +14,8 @@
  * store, no I/O, no model call performed here.
  *
  * Naming note: `types.ts` already exports a `RunContext` interface (ephemeral-grant
- * context: `{ type: "initiative" | "community" | "ritual", id, runId }`, used by the
+ * context: `{ type: "initiative" | "community" | "ritual" | "child_agent_run", id, runId }`,
+ * used by the
  * Authority resolver / EphemeralQuery). This module's `ModelRunContext` is a DIFFERENT,
  * much larger concept (everything a model run needs) — deliberately named to avoid
  * colliding with that existing export; `ModelRunContext.governance.ephemeralContext`
@@ -118,8 +119,9 @@ export interface RunGovernanceState {
    * through for audit/explainability, not re-evaluated by this module. */
   trustGrants: TrustGrantView[];
   /** The existing ephemeral-grant `RunContext` (types.ts) this run executes under, when
-   * one applies (initiative/community/ritual + runId) — composed in unchanged, never
-   * redefined; see this module's header comment on the naming collision this avoids. */
+   * one applies (initiative/community/ritual/child_agent_run + runId) — composed in
+   * unchanged, never redefined; see this module's header comment on the naming
+   * collision this avoids. */
   ephemeralContext?: EphemeralRunContext;
 }
 

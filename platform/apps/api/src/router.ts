@@ -10,7 +10,23 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { IntegrationFloorScopeError } from "@bridge/db";
 import type { ApiContext } from "./context.js";
-import { LEARNING_AGENT, OUTREACH_AGENT, PILOT_WORKSPACE, type Wiring } from "./wiring.js";
+import {
+  LEARNING_AGENT,
+  OUTREACH_AGENT,
+  EGRESS_AGENT,
+  PILOT_WORKSPACE,
+  LEARNING_ROLE_MODEL_GOAL_TYPE,
+  PRODUCE_RECOMMENDATION_TASK_TYPE,
+  HELPDESK_ROUTING_GOAL_TYPE,
+  DRAFT_HELP_OFFER_TASK_TYPE,
+  DEALPILOT_SOURCING_GOAL_TYPE,
+  SOURCE_CANDIDATES_TASK_TYPE,
+  RELATIONSHIP_CAPTURE_GOAL_TYPE,
+  STAGE_CAPTURE_TASK_TYPE,
+  RELATIONSHIP_OUTREACH_GOAL_TYPE,
+  DRAFT_OUTREACH_TASK_TYPE,
+  type Wiring,
+} from "./wiring.js";
 import type {
   Action,
   ActorType,
@@ -67,6 +83,8 @@ import {
   promoteToAvailable,
   rollbackFromHistory,
   InvalidPackageTransitionError,
+  resolveSkillForTask,
+  cancelChildAgentRun,
   type CapabilityManifest,
   type CapabilityManifestRow,
   type CapabilityOrigin,
@@ -268,7 +286,7 @@ function cleanOnBehalfOf(
 }
 
 function cleanContext(
-  c: { type: "initiative" | "community" | "ritual"; id: string; runId?: string | undefined } | undefined,
+  c: { type: "initiative" | "community" | "ritual" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
 ): RunContext | undefined {
   if (!c) return undefined;
   return { type: c.type, id: c.id, ...(c.runId ? { runId: c.runId } : {}) };
@@ -296,6 +314,104 @@ class NonPilotWorkspaceError extends Error {
 
 function assertPilotWorkspace(workspaceId: string): void {
   if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
+}
+
+/**
+ * AGS1 (TASK-007) real-catalog migration — `stageLearningRecommendation` is a
+ * governed Skill now (see wiring.ts's `LEARNING_RECOMMENDATION_SKILL_MANIFEST`),
+ * so every `pipeline.propose` call naming it needs a resolved Goal/Task. This
+ * find-or-create helper keeps ONE durable Goal per workspace (reused across
+ * calls — a Goal is a durable intended outcome, not reminted per request) and
+ * mints one bounded Task per recommendation request (each recommendation IS
+ * its own bounded unit of work), assigned to `LEARNING_AGENT`.
+ */
+/**
+ * AGS1 (TASK-007) shared find-or-create Goal/Task provisioning — a Goal is a
+ * durable intended outcome reused across calls (find-or-create by type); a
+ * Task is a bounded unit of work minted fresh per call. Shared by every
+ * router procedure that must supply a real `goalTaskRef` to a governed Skill.
+ */
+async function provisionGoalTask(
+  wiring: Wiring,
+  workspaceId: string,
+  goalType: string,
+  goalTitle: string,
+  taskType: string,
+  assignedAgentId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
+  const existingGoals = await wiring.goalTasks.listGoals(workspaceId);
+  const goal =
+    existingGoals.find((g) => g.type === goalType) ??
+    (await wiring.goalTasks.createGoal({ workspaceId, type: goalType, title: goalTitle }, seam));
+  const task = await wiring.goalTasks.createTask({ workspaceId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
+  return { goalId: goal.id, taskId: task.id };
+}
+
+async function provisionRoleModelRecommendationTask(
+  wiring: Wiring,
+  workspaceId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    LEARNING_ROLE_MODEL_GOAL_TYPE,
+    "Role-model deliberate-practice recommendations",
+    PRODUCE_RECOMMENDATION_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
+async function provisionHelpdeskAnswerTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    HELPDESK_ROUTING_GOAL_TYPE,
+    "Helpdesk routing and Help Offer drafting",
+    DRAFT_HELP_OFFER_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — DealPilot sourcing is EGRESS_AGENT's Task (the
+ * same cloud/egress identity every Google external:fetch flow already uses). */
+async function provisionDealpilotSourcingTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    DEALPILOT_SOURCING_GOAL_TYPE,
+    "DealPilot candidate sourcing",
+    SOURCE_CANDIDATES_TASK_TYPE,
+    EGRESS_AGENT,
+  );
+}
+
+/** AGS1 (TASK-007 closure) — a raw human capture is modeled as Learning
+ * "observing authorized evidence" (its stated mandate). */
+async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    RELATIONSHIP_CAPTURE_GOAL_TYPE,
+    "Relationship evidence capture",
+    STAGE_CAPTURE_TASK_TYPE,
+    LEARNING_AGENT,
+  );
+}
+
+async function provisionOutreachDraftTask(
+  wiring: Wiring,
+  workspaceId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  return provisionGoalTask(
+    wiring,
+    workspaceId,
+    RELATIONSHIP_OUTREACH_GOAL_TYPE,
+    "Relationship outreach drafting",
+    DRAFT_OUTREACH_TASK_TYPE,
+    OUTREACH_AGENT,
+  );
 }
 
 /**
@@ -377,12 +493,16 @@ const proposeInput = z.object({
   dataScope: dataScopeEnum.optional(),
   context: z
     .object({
-      type: z.enum(["initiative", "community", "ritual"]),
+      type: z.enum(["initiative", "community", "ritual", "child_agent_run"]),
       id: z.string().min(1),
       runId: z.string().optional(),
     })
     .optional(),
   seed: z.string().optional(),
+  /** AGS1 (TASK-007) — binds this proposal to a resolved Goal/Task assignment.
+   * Required only for skills that have a registered SkillManifest; see
+   * `PipelineDeps.skillManifests`'s doc comment in @bridge/core's pipeline.ts. */
+  goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
 const decideInput = z.object({
@@ -408,6 +528,42 @@ const outreachDraftInput = z.object({
   }),
 });
 
+// ---------------------------------------------------------------------------
+// AGS0-AGS2 (TASK-007) — Goal/Task-bound Skill resolution + bounded child
+// Agent Runs. See @bridge/core's goal-task.ts / skill-manifest.ts /
+// child-agent-run.ts for the governed primitives these procedures wrap.
+// ---------------------------------------------------------------------------
+const goalCreateInput = z.object({
+  workspaceId: z.string().min(1),
+  type: z.string().min(1),
+  title: z.string().min(1),
+});
+
+const taskCreateInput = z.object({
+  workspaceId: z.string().min(1),
+  goalId: z.string().min(1),
+  type: z.string().min(1),
+  assignedAgentId: z.string().min(1),
+});
+
+const taskReassignInput = z.object({
+  workspaceId: z.string().min(1),
+  taskId: z.string().min(1),
+  assignedAgentId: z.string().min(1),
+});
+
+const resolveSkillInput = z.object({
+  workspaceId: z.string().min(1),
+  goalId: z.string().min(1),
+  taskId: z.string().min(1),
+  /** The Agent attempting to use a Skill for this Task — server-resolved
+   * authority (capabilityScope/plane/dataScope) always comes from
+   * `ctx.wiring.agents`, never client-asserted. */
+  agentId: z.string().min(1),
+  skillId: z.string().min(1).optional(),
+  requestedDataScope: dataScopeEnum.optional(),
+});
+
 const ritualStep = z.object({
   skill: z.string().min(1),
   action: actionEnum,
@@ -415,6 +571,8 @@ const ritualStep = z.object({
   resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
   dataScope: dataScopeEnum.optional(),
+  /** AGS1/TASK-007 — see RitualStepDef.goalTaskRef's doc comment (@bridge/core's ports.ts). */
+  goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
 const ritualRunInput = z.object({
@@ -984,6 +1142,7 @@ export const appRouter = t.router({
           ...(input.dataScope ? { dataScope: input.dataScope as DataScope } : {}),
           ...(cleanContext(input.context) ? { context: cleanContext(input.context)! } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
+          ...(input.goalTaskRef ? { goalTaskRef: input.goalTaskRef } : {}),
         },
         ctx.run,
       );
@@ -1034,6 +1193,10 @@ export const appRouter = t.router({
             if (pending.items.length === 0 || offset >= pending.total) break;
           }
 
+          const goalTaskRef = await provisionOutreachDraftTask(
+            ctx.wiring,
+            input.workspaceId,
+          );
           try {
             return await ctx.wiring.pipeline.propose(
               {
@@ -1058,8 +1221,9 @@ export const appRouter = t.router({
                     trace: input.trace,
                   },
                 },
-                skill: "stageMutation",
+                skill: "outreach.stageDraft",
                 dataScope: "public",
+                goalTaskRef,
                 ...(input.runId
                   ? { context: { type: "ritual", id: input.runId, runId: input.runId } }
                   : {}),
@@ -1275,9 +1439,56 @@ export const appRouter = t.router({
    * only add surface area without closing a real gap; if a caller ever needs
    * multi-workspace Google integration, that's the same Phase 5 multi-tenancy work
    * the rest of this fix explicitly defers, not a one-off param here. */
+  /**
+   * AGS1 (TASK-007 closure) — raw human capture (camera tool), migrated off a
+   * client-constructed `action.propose` call (which previously sent a raw
+   * `actor:{type:"user"}` for `skill:"stageCapture"`) onto a dedicated
+   * procedure: the SERVER, never the client, decides the invoking Agent
+   * (LEARNING_AGENT — "observes authorized evidence") and provisions the
+   * Goal/Task `stageCapture`'s manifest requires (see wiring.ts's
+   * STAGE_CAPTURE_SKILL_MANIFEST).
+   */
+  capture: t.router({
+    stage: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          localMediaId: z.string().min(1),
+          kind: z.enum(["photo", "video"]).optional(),
+          caption: z.string().optional(),
+          ocrText: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goalTaskRef = await provisionCaptureTask(ctx.wiring, input.workspaceId);
+        return ctx.wiring.pipeline.propose(
+          {
+            workspaceId: input.workspaceId,
+            actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+            onBehalfOf: { type: "user", id: ctx.identity.id },
+            action: "write",
+            resourceType: "touchpoint",
+            dataScope: "private" as DataScope,
+            skill: "stageCapture",
+            inputs: {
+              local_media_id: input.localMediaId,
+              ...(input.kind ? { kind: input.kind } : {}),
+              ...(input.caption ? { caption: input.caption } : {}),
+              ...(input.ocrText ? { ocrText: input.ocrText } : {}),
+            },
+            goalTaskRef,
+          },
+          ctx.run,
+        );
+      }),
+  }),
+
   google: t.router({
     /** Connection + manifest surfaces for the Integrations UI. */
-    list: procedure.query(async ({ ctx }) => {
+    list: authenticatedProcedure.query(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       const info = await ctx.wiring.google.connectionInfo();
       const m = ctx.wiring.googleManifest;
       return {
@@ -1294,7 +1505,8 @@ export const appRouter = t.router({
     }),
 
     /** The Google consent URL (read AND write scopes, offline). */
-    connectUrl: procedure.mutation(async ({ ctx }) => {
+    connectUrl: authenticatedProcedure.mutation(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
@@ -1302,15 +1514,17 @@ export const appRouter = t.router({
     }),
 
     /** Revoke locally (delete the local token). */
-    disconnect: procedure.mutation(async ({ ctx }) => {
+    disconnect: authenticatedProcedure.mutation(async ({ ctx }) => {
+      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
       await ctx.wiring.google.disconnect();
       return { ok: true };
     }),
 
     /** Source Gmail through the gate → propose Touchpoints/Memories/Signals. */
-    syncGmail: procedure
+    syncGmail: authenticatedProcedure
       .input(z.object({ maxResults: z.number().int().positive().max(100).optional(), query: z.string().optional() }).optional())
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.syncGmail(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.query ? { query: input.query } : {}),
@@ -1318,7 +1532,7 @@ export const appRouter = t.router({
       }),
 
     /** Source Calendar through the gate → propose Touchpoints. */
-    syncCalendar: procedure
+    syncCalendar: authenticatedProcedure
       .input(
         z
           .object({
@@ -1329,6 +1543,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.syncCalendar(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -1338,7 +1553,7 @@ export const appRouter = t.router({
 
     /** Read-only projection: FULL Calendar events for the Calendar surface (gated
      * external:fetch, auto-approved as the user's own view). No Touchpoint proposals. */
-    listEvents: procedure
+    listEvents: authenticatedProcedure
       .input(
         z
           .object({
@@ -1349,6 +1564,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         const events = await ctx.wiring.google.listCalendarEvents(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -1360,7 +1576,7 @@ export const appRouter = t.router({
     /** Compose an outbound email/event as a DRAFT → external:send proposal (>= L2).
      * For calendar, `action` = create (default) | update | delete. The real Google
      * write runs in the EgressExecutor only after a human approves. */
-    proposeSend: procedure
+    proposeSend: authenticatedProcedure
       .input(
         z.object({
           kind: z.enum(["email", "calendar"]),
@@ -1369,6 +1585,7 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
+        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
         return ctx.wiring.google.proposeSend(ctx.run, {
           kind: input.kind,
           ...(input.action ? { action: input.action } : {}),
@@ -1469,6 +1686,7 @@ export const appRouter = t.router({
           ...(s.resourceId ? { resourceId: s.resourceId } : {}),
           ...(s.inputs !== undefined ? { inputs: s.inputs as Record<string, unknown> } : {}),
           ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
+          ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
         })),
       });
       return { ok: true as const, ritualId, agentId, agentIds: [agentId] };
@@ -1501,6 +1719,7 @@ export const appRouter = t.router({
             ...(s.resourceId ? { resourceId: s.resourceId } : {}),
             inputs: s.inputs,
             ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
+            ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
           })),
           ...(input.seed ? { seed: input.seed } : {}),
         },
@@ -1572,18 +1791,31 @@ export const appRouter = t.router({
    * (wiring.ts) — no thesis-management UI yet, that's a separate future item.
    */
   dealpilot: t.router({
-    source: procedure
+    source: authenticatedProcedure
       .input(z.object({ workspaceId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        // AGS1 (TASK-007 closure) — sourcing external candidates is now
+        // EGRESS_AGENT-mediated (the same cloud/egress identity every Google
+        // external:fetch flow uses), matching this platform's plane-gate
+        // philosophy ("local agents REQUEST; a cloud agent SOURCES" —
+        // authority.ts's planeGate doc comment). The frontend already
+        // branches on pending_review/applied/rejected and reads
+        // output.proposedOutput regardless of status, so no client change
+        // was needed — see wiring.ts's DEALPILOT_SOURCE_SKILL_MANIFEST.
+        const goalTaskRef = await provisionDealpilotSourcingTask(ctx.wiring, input.workspaceId);
         return ctx.wiring.pipeline.propose(
           {
             workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            actor: { type: "agent", id: EGRESS_AGENT, plane: "cloud" },
+            onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
             action: "read" as Action,
             resourceType: "external:fetch" as ResourceType,
             skill: "dealpilot.source",
+            dataScope: "public" as DataScope,
             inputs: { kind: "company", hints: {} },
+            goalTaskRef,
           },
           ctx.run,
         );
@@ -1927,6 +2159,7 @@ export const appRouter = t.router({
         )
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
           const source = await researchPublicFigure(input.figure);
           const recommendation = {
             kind: "learning_recommendation" as const,
@@ -1951,6 +2184,7 @@ export const appRouter = t.router({
               inputs: recommendation,
               skill: "stageLearningRecommendation",
               trustOrigin: "untrusted_external",
+              goalTaskRef: await provisionRoleModelRecommendationTask(ctx.wiring, input.workspaceId),
             },
             ctx.run,
           );
@@ -2692,15 +2926,21 @@ export const appRouter = t.router({
           route,
           input.draftBody,
         );
+        // AGS1 (TASK-007 closure) — a real governed Skill: LEARNING_AGENT drafts
+        // the Help Offer, never the Human directly (helpdesk.stageAnswer's own
+        // manifest requires it — see wiring.ts's HELPDESK_ANSWER_SKILL_MANIFEST).
+        const goalTaskRef = await provisionHelpdeskAnswerTask(ctx.wiring, input.workspaceId);
         const proposal = await ctx.wiring.pipeline.propose(
           {
             workspaceId: input.workspaceId,
-            actor: { type: ctx.identity.type, id: ctx.identity.id },
+            actor: { type: "agent", id: LEARNING_AGENT },
+            onBehalfOf: { type: "user", id: ctx.identity.id },
             action: "write",
             resourceType: "signal",
             resourceId: input.routedToPersonId,
             inputs: { ...offer },
-            skill: "stageMutation",
+            skill: "helpdesk.stageAnswer",
+            goalTaskRef,
           },
           ctx.run,
         );
@@ -4129,6 +4369,160 @@ export const appRouter = t.router({
         agent: "chief_of_staff" as const,
         persona: personaCard,
       };
+    }),
+  }),
+
+  /**
+   * AGS0-AGS2 (TASK-007) — typed Goals/Tasks, the fail-closed Goal/Task-bound
+   * Skill resolver, and bounded child Agent Runs. `skill.resolve` is a
+   * read-only preview (never invokes anything); `skill.invoke` is the real
+   * governed call — it goes through the SAME `pipeline.propose` every other
+   * mutation uses, so a direct Human/Automation invocation of a governed
+   * Skill fails closed there exactly as it would through `action.propose`
+   * (see pipeline.ts's AGS1 gate) — this router adds no separate enforcement
+   * path, only a more ergonomic Goal/Task-shaped surface over the same gate.
+   */
+  agentOrchestration: t.router({
+    goal: t.router({
+      create: authenticatedProcedure.input(goalCreateInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.goalTasks.createGoal(
+          { workspaceId: input.workspaceId, type: input.type, title: input.title },
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      }),
+      list: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.goalTasks.listGoals(input.workspaceId);
+      }),
+    }),
+
+    task: t.router({
+      create: authenticatedProcedure.input(taskCreateInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
+        const [agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+          ctx.wiring.agents.isActive(input.assignedAgentId),
+        ]);
+        if (!goal) {
+          throw new TRPCError({ code: "NOT_FOUND", message: `unknown goal ${input.goalId}` });
+        }
+        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        }
+        return ctx.wiring.goalTasks.createTask(
+          {
+            workspaceId: input.workspaceId,
+            goalId: input.goalId,
+            type: input.type,
+            assignedAgentId: input.assignedAgentId,
+          },
+          { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
+        );
+      }),
+      listByGoal: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), goalId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.goalTasks.listTasksByGoal(input.workspaceId, input.goalId);
+        }),
+      /** The ONLY thing that changes governed-Skill eligibility for a Task —
+       * never a Skill manifest's `defaultAgents` preference list. */
+      reassign: authenticatedProcedure.input(taskReassignInput).mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const [agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+          ctx.wiring.agents.isActive(input.assignedAgentId),
+        ]);
+        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        }
+        return ctx.wiring.goalTasks.reassignTask(
+          input.workspaceId,
+          input.taskId,
+          input.assignedAgentId,
+        );
+      }),
+    }),
+
+    skill: t.router({
+      /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
+       * the UI show WHY an Agent is (or is not) eligible before a real call. */
+      resolve: authenticatedProcedure.input(resolveSkillInput).query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
+        const task = await ctx.wiring.goalTasks.getTask(input.workspaceId, input.taskId);
+        if (!goal || !task || task.goalId !== goal.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown or mismatched Goal/Task" });
+        }
+        const [agentScope, agentDataScope, agentWorkspaceId, agentActive] = await Promise.all([
+          ctx.wiring.agents.capabilityScope(input.agentId),
+          ctx.wiring.agents.dataScope(input.agentId),
+          ctx.wiring.agents.workspaceId(input.agentId),
+          ctx.wiring.agents.isActive(input.agentId),
+        ]);
+        const candidates = input.skillId
+          ? ctx.wiring.skillManifests.forSkill(input.workspaceId, input.skillId)
+          : ctx.wiring.skillManifests.all(input.workspaceId);
+        return resolveSkillForTask(candidates, {
+          goal,
+          task,
+          agent: {
+            id: input.agentId,
+            workspaceId: agentWorkspaceId,
+            active: agentActive,
+            capabilityScope: agentScope,
+            plane: "local",
+            dataScope: agentDataScope,
+          },
+          ...(input.skillId ? { skillId: input.skillId } : {}),
+          ...(input.requestedDataScope ? { requestedDataScope: input.requestedDataScope as DataScope } : {}),
+        });
+      }),
+    }),
+
+    childRun: t.router({
+      get: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.get(input.workspaceId, input.childRunId);
+        }),
+
+      listByParentRun: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), parentRunId: z.string().min(1) }))
+        .query(async ({ input, ctx }) => {
+          assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+        }),
+
+      /** Governance/Human may stop any child Run within policy. The acting
+       * identity is SERVER-RESOLVED (`ctx.identity`), never client-asserted —
+       * same rule every mutation in this router follows. */
+      cancel: authenticatedProcedure
+        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return cancelChildAgentRun(
+          { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
+          input.workspaceId,
+          input.childRunId,
+          { type: ctx.identity.type, id: ctx.identity.id },
+          ctx.run,
+        );
+      }),
     }),
   }),
 });

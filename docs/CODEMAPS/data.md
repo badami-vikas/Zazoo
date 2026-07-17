@@ -1,4 +1,4 @@
-<!-- Generated: 2026-07-04 | Files scanned: platform/packages/db/src, migrations/, docs/raw/SCHEMA.sql | Token estimate: ~450 -->
+<!-- Updated: 2026-07-17 | Files scanned: platform/packages/db/src, migrations/, docs/raw/SCHEMA.sql | Token estimate: ~550 -->
 
 # Data Codemap
 
@@ -6,19 +6,19 @@ Drizzle ORM + Supabase Postgres (pgvector, pg_trgm). `packages/db/src/schema.ts`
 source of truth; `docs/raw/SCHEMA.sql` is a design doc that has **drifted stale** (missing v1.1
 recon/social columns — see known-issues).
 
-## Migration state (fragile — see known-issues P0 batch)
+## Migration state
 
 ```
-migrations/meta/_journal.json   tracks ONLY 0000_amazing_betty_brant
-migrations/0000_...sql          base schema (drizzle-tracked)
-migrations/0001_governance_seed.sql   NOT in journal; agent-floor DENY block is a documented
-                                       template, "not executed" — no DB-level backstop
-migrations/001_add_recon_columns.sql NOT in journal; different numbering scheme entirely
+migrations/meta/_journal.json   linear Drizzle high-water through 0014
+migrations/0008_rls_as_code.sql FORCE-RLS + workspace/user policies
+migrations/0011_same_cyclops.sql signed package/install persistence
+migrations/0013_uneven_dragon_lord.sql singular Automation Agent ownership + Skill-name migration
+migrations/0014_task007_...sql  Goal/Task/SkillManifest/child Agent Run persistence
 ```
 
-`drizzle-kit migrate` on a fresh DB today applies only `0000` — governance seed + recon columns
-silently missing. **RLS policies are not in any migration file at all** — applied out-of-band
-directly to the live Supabase project. Fresh provision = zero RLS.
+Journal timestamps are strictly increasing. `0014` is after already-released `0013`, so both
+fresh installs and databases already at the prior high-water mark receive orchestration DDL.
+`drizzle-kit generate` reports no schema drift.
 
 ## Table groups (`schema.ts`)
 
@@ -27,8 +27,8 @@ Tenancy          workspaces, teams, integrations
 Two-tier network people_canonical / communities_canonical (global, dedup_key nullable-unique)
                  people / communities (per-workspace mirror + overrides)
 Governance       roles, role_permissions, permissions (effect=deny default),
-                 agents, ephemeral_grants, delegations, ledger (append-only, __refLedgerId
-                 jsonb hack for resolution linkage — no real column, no index)
+                 agents, ephemeral_grants, delegations, ledger (append-only resolution spine)
+Orchestration     goals, tasks, skill_manifests, child_agent_runs
 Operational      touchpoints (parent_touchpoint_id/sort_order/depth — Taskade-style tree,
                  no traversal code yet), initiatives, files, timeline_entries
                  (⚠ NO index at all beyond PK — full scan for any workspace timeline query)
@@ -44,7 +44,7 @@ Events           events (workspace_id+created_at indexed), signals (read-only, +
 
 - `dedup_key` nullable-unique on both canonical tables — NULL rows never dedupe.
 - Polymorphic type+id pairs (edges, touchpoints.assignee, file_refs) have zero FK/CHECK.
-- Enum-as-text everywhere, zod-guarded at the API only — direct DB writes have no guardrail.
+- Enum-as-text remains common; security-sensitive orchestration states now have DB checks.
 - No `updated_at` on most mutable tables; two competing soft-delete idioms (`archived_at` vs
   `status` text) with no documented rule for which table uses which.
 - `recon_signals` jsonb column has a GIN index and zero code reading or writing it.
