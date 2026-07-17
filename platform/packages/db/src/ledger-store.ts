@@ -174,6 +174,13 @@ export class DrizzleLedgerStore implements LedgerStore {
       );
     }
     this.#assertActiveWorkspace(entry.workspaceId);
+    if (
+      entry.userDecision !== null &&
+      entry.userDecision !== "auto" &&
+      !entry.refLedgerId
+    ) {
+      throw new Error("Resolving ledger decisions require refLedgerId");
+    }
     try {
       if (
         entry.refLedgerId &&
@@ -236,8 +243,10 @@ export class DrizzleLedgerStore implements LedgerStore {
         store.decisionFor(proposalId),
       );
     }
-    // Decision rows carry a real ref_ledger_id column and a non-null user_decision
-    // (see migrations/0003_ledger_ref_column.sql). This SELECT is a fast, indexed
+    // Decision rows carry a real ref_ledger_id column and a non-null user_decision.
+    // Migration 0015 backfills the narrowly verified legacy shape once; runtime
+    // resolution never infers authority from caller-controlled JSON inputs.
+    // This SELECT is a fast, indexed
     // pre-check for the pipeline's early-exit path; it is NOT itself the atomicity
     // guarantee — the partial unique index on (ref_ledger_id) WHERE user_decision
     // IS NOT NULL is, enforced by Postgres regardless of any race between this
@@ -248,28 +257,17 @@ export class DrizzleLedgerStore implements LedgerStore {
       .where(
         and(
           isNotNull(ledger.userDecision),
-          or(
-            eq(ledger.refLedgerId, proposalId),
-            sql`lower(coalesce(
-              ${ledger.inputs}->>'proposalId',
-              ${ledger.inputs}->>'proposal_id'
-            )) = lower(${proposalId})`,
-          ),
+          eq(ledger.refLedgerId, proposalId),
         ),
       )
       .orderBy(
-        sql`CASE WHEN ${ledger.refLedgerId} IS NULL THEN 1 ELSE 0 END`,
         sql`${ledger.appendSequence} ASC NULLS LAST`,
         ledger.createdAt,
         ledger.id,
       )
       .limit(1);
     const row = rows[0];
-    if (!row) return null;
-    const entry = unpack(row);
-    return entry.refLedgerId
-      ? entry
-      : { ...entry, refLedgerId: proposalId.toLowerCase() };
+    return row ? unpack(row) : null;
   }
 
   async listPending(
@@ -295,13 +293,7 @@ export class DrizzleLedgerStore implements LedgerStore {
           .from(resolvingRows)
           .where(
             and(
-              or(
-                eq(resolvingRows.refLedgerId, ledger.id),
-                sql`lower(coalesce(
-                  ${resolvingRows.inputs}->>'proposalId',
-                  ${resolvingRows.inputs}->>'proposal_id'
-                )) = lower(${ledger.id}::text)`,
-              ),
+              eq(resolvingRows.refLedgerId, ledger.id),
               isNotNull(resolvingRows.userDecision),
             ),
           ),

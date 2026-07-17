@@ -1,5 +1,95 @@
 ALTER TABLE "edges" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "ledger" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+WITH "ref_column_migration" AS (
+  SELECT "migration".xmin::text::bigint AS "migration_txid"
+  FROM "drizzle"."__drizzle_migrations" AS "migration"
+  WHERE "migration"."created_at" = 1780342914819
+  ORDER BY "migration"."id"
+  LIMIT 1
+),
+"legacy_candidates" AS (
+  SELECT
+    "decision"."id",
+    "decision"."workspace_id",
+    COALESCE(
+      NULLIF("decision"."inputs"->>'proposalId', ''),
+      NULLIF("decision"."inputs"->>'proposal_id', '')
+    ) AS "proposal_id",
+    "decision"."actor_type",
+    "decision"."actor_id",
+    "decision"."on_behalf_of_type",
+    "decision"."on_behalf_of_id",
+    "decision"."delegation_id",
+    "decision"."action",
+    "decision"."resource_type",
+    "decision"."resource_id",
+    "decision".xmin::text::bigint AS "decision_txid",
+    "ref_column_migration"."migration_txid"
+  FROM "ledger" AS "decision"
+  CROSS JOIN "ref_column_migration"
+  WHERE "decision"."ref_ledger_id" IS NULL
+    AND "decision"."user_decision" IN ('approve', 'veto', 'edit')
+    -- Only physical rows committed before 0003 introduced authoritative references qualify.
+    AND "decision".xmin::text::bigint < "ref_column_migration"."migration_txid"
+    AND NOT COALESCE(("decision"."diff" ? 'rejected'), false)
+    AND jsonb_typeof("decision"."inputs") = 'object'
+    AND (
+      SELECT count(*)
+      FROM jsonb_object_keys("decision"."inputs")
+    ) = 1
+    AND (
+      ("decision"."inputs" ? 'proposalId')
+      <> ("decision"."inputs" ? 'proposal_id')
+    )
+    AND jsonb_typeof(
+      COALESCE(
+        "decision"."inputs"->'proposalId',
+        "decision"."inputs"->'proposal_id'
+      )
+    ) = 'string'
+),
+"legacy_grouped" AS (
+  SELECT
+    "legacy_candidates".*,
+    lower("proposal_id")::uuid AS "verified_proposal_id",
+    count(*) OVER (
+      PARTITION BY "workspace_id", lower("proposal_id")::uuid
+    ) AS "candidate_count"
+  FROM "legacy_candidates"
+  WHERE "proposal_id" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+),
+"legacy_backfill" AS (
+  SELECT "legacy_grouped"."id", "legacy_grouped"."verified_proposal_id"
+  FROM "legacy_grouped"
+  JOIN "ledger" AS "proposal"
+    ON "proposal"."id" = "legacy_grouped"."verified_proposal_id"
+   AND "proposal"."workspace_id" = "legacy_grouped"."workspace_id"
+   AND "proposal"."user_decision" IS NULL
+   AND "proposal"."ref_ledger_id" IS NULL
+   AND "proposal".xmin::text::bigint < "legacy_grouped"."migration_txid"
+   AND "proposal".xmin::text::bigint <= "legacy_grouped"."decision_txid"
+   AND "proposal"."actor_type" = "legacy_grouped"."actor_type"
+   AND "proposal"."actor_id" = "legacy_grouped"."actor_id"
+   AND "proposal"."on_behalf_of_type" IS NOT DISTINCT FROM "legacy_grouped"."on_behalf_of_type"
+   AND "proposal"."on_behalf_of_id" IS NOT DISTINCT FROM "legacy_grouped"."on_behalf_of_id"
+   AND "proposal"."delegation_id" IS NOT DISTINCT FROM "legacy_grouped"."delegation_id"
+   AND "proposal"."action" = "legacy_grouped"."action"
+   AND "proposal"."resource_type" = "legacy_grouped"."resource_type"
+   AND "proposal"."resource_id" IS NOT DISTINCT FROM "legacy_grouped"."resource_id"
+   AND NOT COALESCE(("proposal"."diff" ? 'rejected'), false)
+  WHERE "legacy_grouped"."candidate_count" = 1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "ledger" AS "resolved"
+      WHERE "resolved"."ref_ledger_id" = "legacy_grouped"."verified_proposal_id"
+        AND "resolved"."workspace_id" = "legacy_grouped"."workspace_id"
+        AND "resolved"."user_decision" IS NOT NULL
+    )
+)
+UPDATE "ledger" AS "decision"
+SET "ref_ledger_id" = "legacy_backfill"."verified_proposal_id"
+FROM "legacy_backfill"
+WHERE "decision"."id" = "legacy_backfill"."id";--> statement-breakpoint
 ALTER TABLE "ledger" DROP CONSTRAINT IF EXISTS "ledger_user_decision_check";--> statement-breakpoint
 ALTER TABLE "ledger" ADD CONSTRAINT "ledger_user_decision_check" CHECK ("user_decision" IS NULL OR "user_decision" IN ('approve', 'veto', 'edit', 'auto'));--> statement-breakpoint
 ALTER TABLE "edges" ADD COLUMN "evidence_refs" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
@@ -45,51 +135,6 @@ SELECT setval(
 )
 FROM "ledger_watermark";--> statement-breakpoint
 ALTER TABLE "ledger" ALTER COLUMN "append_sequence" SET NOT NULL;--> statement-breakpoint
-WITH "legacy_candidates" AS (
-  SELECT
-    "id",
-    "workspace_id",
-    COALESCE(
-      NULLIF("inputs"->>'proposalId', ''),
-      NULLIF("inputs"->>'proposal_id', '')
-    ) AS "proposal_id",
-    "created_at"
-  FROM "ledger"
-  WHERE "ref_ledger_id" IS NULL
-    AND "user_decision" IS NOT NULL
-    AND jsonb_typeof("inputs") = 'object'
-),
-"legacy_ranked" AS (
-  SELECT
-    "id",
-    "workspace_id",
-    lower("proposal_id")::uuid AS "proposal_id",
-    row_number() OVER (
-      PARTITION BY "workspace_id", lower("proposal_id")::uuid
-      ORDER BY "created_at", "id"
-    ) AS "decision_rank"
-  FROM "legacy_candidates"
-  WHERE "proposal_id" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-),
-"legacy_backfill" AS (
-  SELECT "legacy_ranked"."id", "legacy_ranked"."proposal_id"
-  FROM "legacy_ranked"
-  JOIN "ledger" AS "proposal"
-    ON "proposal"."id" = "legacy_ranked"."proposal_id"
-   AND "proposal"."workspace_id" = "legacy_ranked"."workspace_id"
-   AND "proposal"."user_decision" IS NULL
-  WHERE "legacy_ranked"."decision_rank" = 1
-    AND NOT EXISTS (
-      SELECT 1
-      FROM "ledger" AS "resolved"
-      WHERE "resolved"."ref_ledger_id" = "legacy_ranked"."proposal_id"
-        AND "resolved"."user_decision" IS NOT NULL
-    )
-)
-UPDATE "ledger" AS "decision"
-SET "ref_ledger_id" = "legacy_backfill"."proposal_id"
-FROM "legacy_backfill"
-WHERE "decision"."id" = "legacy_backfill"."id";--> statement-breakpoint
 ALTER TABLE "ledger" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "node_types" ADD COLUMN "owning_module" text;--> statement-breakpoint
 INSERT INTO "node_types" ("type", "plane", "owning_module")

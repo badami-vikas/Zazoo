@@ -24,6 +24,12 @@ async function legacyDatabase(): Promise<PGlite> {
     CREATE ROLE anon;
     CREATE ROLE authenticated;
     CREATE ROLE migration_owner;
+    CREATE SCHEMA "drizzle";
+    CREATE TABLE "drizzle"."__drizzle_migrations" (
+      "id" serial PRIMARY KEY,
+      "hash" text NOT NULL,
+      "created_at" bigint
+    );
     CREATE TABLE "users" (
       "id" uuid PRIMARY KEY,
       "email" text NOT NULL
@@ -39,8 +45,17 @@ async function legacyDatabase(): Promise<PGlite> {
     CREATE TABLE "ledger" (
       "id" uuid PRIMARY KEY,
       "workspace_id" uuid NOT NULL,
+      "actor_type" text DEFAULT 'user' NOT NULL,
+      "actor_id" uuid DEFAULT '20000000-0000-4000-8000-000000000001' NOT NULL,
+      "on_behalf_of_type" text,
+      "on_behalf_of_id" uuid,
+      "delegation_id" uuid,
+      "action" text DEFAULT 'write' NOT NULL,
+      "resource_type" text DEFAULT 'relation' NOT NULL,
+      "resource_id" uuid DEFAULT '30000000-0000-4000-8000-000000000001',
       "inputs" jsonb,
       "user_decision" text,
+      "diff" jsonb,
       "ref_ledger_id" uuid,
       "created_at" timestamp with time zone DEFAULT now() NOT NULL
     );
@@ -87,6 +102,7 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
   const db = await legacyDatabase();
   try {
     const workspaceId = "10000000-0000-4000-8000-000000000001";
+    const secondWorkspaceId = "10000000-0000-4000-8000-000000000002";
     const ownerId = "20000000-0000-4000-8000-000000000001";
     const secondOwnerId = "20000000-0000-4000-8000-000000000002";
     const eventId = "30000000-0000-4000-8000-000000000001";
@@ -99,8 +115,10 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
     );
     await db.query(
       `INSERT INTO "workspaces" ("id", "name")
-       VALUES ($1, 'test_fixture_migration_relation_workspace')`,
-      [workspaceId],
+       VALUES
+         ($1, 'test_fixture_migration_relation_workspace'),
+         ($2, 'test_fixture_migration_cross_workspace')`,
+      [workspaceId, secondWorkspaceId],
     );
     await db.exec(`
       INSERT INTO "node_types" ("type", "plane") VALUES
@@ -120,29 +138,214 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
     );
     await db.exec(`
       INSERT INTO "ledger" (
-        "id", "workspace_id", "inputs", "user_decision", "created_at"
+        "id", "workspace_id", "resource_type", "inputs", "user_decision", "created_at"
       ) VALUES
         (
           '6a000000-0000-4000-8000-0000000000a1',
           '${workspaceId}',
+          'relation',
           '{"kind":"relationship_signal_evidence"}',
           NULL,
-          '2020-01-02T03:04:05.000Z'
+          '2026-07-05T00:00:00.000Z'
         ),
         (
           '60000000-0000-4000-8000-000000000002',
           '${workspaceId}',
+          'relation',
           '{"proposal_id":"6a000000-0000-4000-8000-0000000000a1"}',
           'approve',
-          '2020-01-02T03:04:06.000Z'
+          '2026-07-05T00:01:00.000Z'
         ),
         (
-          '60000000-0000-4000-8000-000000000003',
+          '6b000000-0000-4000-8000-0000000000b2',
           '${workspaceId}',
-          '{"proposalId":"6A000000-0000-4000-8000-0000000000A1"}',
+          'relation',
+          '{"kind":"relationship_signal_evidence"}',
+          NULL,
+          '2020-01-02T03:04:05.100Z'
+        ),
+        (
+          '61000000-0000-4000-8000-000000000001',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6B000000-0000-4000-8000-0000000000B2"}',
           'approve',
           '2020-01-02T03:04:07.000Z'
+        ),
+        (
+          '61000000-0000-4000-8000-000000000002',
+          '${workspaceId}',
+          'relation',
+          '{"proposal_id":"6b000000-0000-4000-8000-0000000000b2"}',
+          'veto',
+          '2020-01-02T03:04:08.000Z'
+        ),
+        (
+          '6c000000-0000-4000-8000-0000000000c3',
+          '${workspaceId}',
+          'relation',
+          '{"kind":"relationship_signal_evidence"}',
+          NULL,
+          '2020-01-02T03:04:05.200Z'
+        ),
+        (
+          '62000000-0000-4000-8000-000000000001',
+          '${secondWorkspaceId}',
+          'relation',
+          '{"proposalId":"6c000000-0000-4000-8000-0000000000c3"}',
+          'approve',
+          '2020-01-02T03:04:09.000Z'
+        ),
+        (
+          '62000000-0000-4000-8000-000000000002',
+          '${workspaceId}',
+          'person',
+          '{"proposalId":"6c000000-0000-4000-8000-0000000000c3"}',
+          'approve',
+          '2020-01-02T03:04:10.000Z'
+        ),
+        (
+          '62000000-0000-4000-8000-000000000004',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6d000000-0000-4000-8000-0000000000d4"}',
+          'approve',
+          '2020-01-02T03:04:11.000Z'
         );
+      INSERT INTO "ledger" (
+        "id", "workspace_id", "resource_type", "inputs", "user_decision", "diff", "created_at"
+      ) VALUES
+        (
+          '6e000000-0000-4000-8000-0000000000e5',
+          '${workspaceId}',
+          'relation',
+          '{"kind":"relationship_signal_evidence"}',
+          NULL,
+          NULL,
+          '2020-01-02T03:04:05.300Z'
+        ),
+        (
+          '63000000-0000-4000-8000-000000000001',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6e000000-0000-4000-8000-0000000000e5"}',
+          'approve',
+          '{"rejected":null}',
+          '2020-01-02T03:04:12.000Z'
+        ),
+        (
+          '6f000000-0000-4000-8000-0000000000f6',
+          '${workspaceId}',
+          'relation',
+          '{"kind":"relationship_signal_evidence"}',
+          NULL,
+          NULL,
+          '2020-01-02T03:04:05.400Z'
+        ),
+        (
+          '63000000-0000-4000-8000-000000000002',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6f000000-0000-4000-8000-0000000000f6"}',
+          'approve',
+          '{"rejected":""}',
+          '2020-01-02T03:04:13.000Z'
+        ),
+        (
+          '64000000-0000-4000-8000-000000000001',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6c000000-0000-4000-8000-0000000000c3","proposal_id":"6c000000-0000-4000-8000-0000000000c3"}',
+          'approve',
+          NULL,
+          '2020-01-02T03:04:14.000Z'
+        ),
+        (
+          '64000000-0000-4000-8000-000000000002',
+          '${workspaceId}',
+          'relation',
+          '{"proposalId":"6c000000-0000-4000-8000-0000000000c3","unexpected":"value"}',
+          'approve',
+          NULL,
+          '2020-01-02T03:04:15.000Z'
+        );
+    `);
+    await db.exec(`
+      INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
+      VALUES ('test_fixture_0003_hash', 1780342914819);
+    `);
+    await db.exec(`
+      INSERT INTO "ledger" (
+        "id", "workspace_id", "resource_type", "inputs", "user_decision", "created_at"
+      ) VALUES (
+        '62000000-0000-4000-8000-000000000003',
+        '${workspaceId}',
+        'relation',
+        '{"proposalId":"6c000000-0000-4000-8000-0000000000c3"}',
+        'approve',
+        '2020-01-01T00:00:00.000Z'
+      );
+    `);
+    const fixtureEra = await db.query<{
+      id: string;
+      predates_ref_column: boolean;
+    }>(
+      `SELECT candidate.id::text AS id,
+              candidate.xmin::text::bigint < migration.xmin::text::bigint
+                AS predates_ref_column
+       FROM ledger AS candidate
+       CROSS JOIN drizzle.__drizzle_migrations AS migration
+       WHERE migration.created_at = 1780342914819
+         AND candidate.id IN (
+           '60000000-0000-4000-8000-000000000002',
+           '62000000-0000-4000-8000-000000000003'
+         )
+       ORDER BY candidate.id`,
+    );
+    assert.deepEqual(fixtureEra.rows, [
+      {
+        id: "60000000-0000-4000-8000-000000000002",
+        predates_ref_column: true,
+      },
+      {
+        id: "62000000-0000-4000-8000-000000000003",
+        predates_ref_column: false,
+      },
+    ]);
+    const validLegacyEligibility = await db.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+       FROM ledger AS decision
+       CROSS JOIN drizzle.__drizzle_migrations AS migration
+       JOIN ledger AS proposal
+         ON proposal.id = lower(decision.inputs->>'proposal_id')::uuid
+        AND proposal.workspace_id = decision.workspace_id
+        AND proposal.user_decision IS NULL
+        AND proposal.ref_ledger_id IS NULL
+        AND proposal.xmin::text::bigint < migration.xmin::text::bigint
+        AND proposal.xmin::text::bigint <= decision.xmin::text::bigint
+        AND proposal.actor_type = decision.actor_type
+        AND proposal.actor_id = decision.actor_id
+        AND proposal.on_behalf_of_type IS NOT DISTINCT FROM decision.on_behalf_of_type
+        AND proposal.on_behalf_of_id IS NOT DISTINCT FROM decision.on_behalf_of_id
+        AND proposal.delegation_id IS NOT DISTINCT FROM decision.delegation_id
+        AND proposal.action = decision.action
+        AND proposal.resource_type = decision.resource_type
+        AND proposal.resource_id IS NOT DISTINCT FROM decision.resource_id
+        AND NOT COALESCE((proposal.diff ? 'rejected'), false)
+       WHERE migration.created_at = 1780342914819
+         AND decision.id = '60000000-0000-4000-8000-000000000002'
+         AND decision.ref_ledger_id IS NULL
+         AND decision.user_decision IN ('approve', 'veto', 'edit')
+         AND decision.xmin::text::bigint < migration.xmin::text::bigint
+         AND NOT COALESCE((decision.diff ? 'rejected'), false)
+         AND jsonb_typeof(decision.inputs) = 'object'
+         AND (decision.inputs ? 'proposalId') <> (decision.inputs ? 'proposal_id')
+         AND jsonb_typeof(decision.inputs->'proposal_id') = 'string'
+         AND (decision.inputs->>'proposal_id')
+           ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    );
+    assert.deepEqual(validLegacyEligibility.rows, [{ count: 1 }]);
+    await db.exec(`
       ALTER TABLE "edges" FORCE ROW LEVEL SECURITY;
       ALTER TABLE "ledger" ENABLE ROW LEVEL SECURITY;
       ALTER TABLE "ledger" FORCE ROW LEVEL SECURITY;
@@ -152,6 +355,8 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
       GRANT REFERENCES ON TABLE "users", "workspaces" TO migration_owner;
       GRANT USAGE, CREATE ON SCHEMA public TO migration_owner;
       GRANT USAGE ON SCHEMA app_private TO migration_owner;
+      GRANT USAGE ON SCHEMA drizzle TO migration_owner;
+      GRANT SELECT ON TABLE drizzle."__drizzle_migrations" TO migration_owner;
       SET ROLE migration_owner;
       ALTER DEFAULT PRIVILEGES GRANT ALL ON SEQUENCES TO anon, authenticated;
     `);
@@ -266,7 +471,15 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
       ledger_append_sequences: string;
       ledger_append_sequence_nullable: string;
       legacy_decision_ref: string;
-      duplicate_legacy_decision_ref: string | null;
+      ambiguous_legacy_unresolved: boolean;
+      cross_workspace_unresolved: boolean;
+      mismatched_shape_unresolved: boolean;
+      post_migration_backdated_unresolved: boolean;
+      missing_proposal_unresolved: boolean;
+      rejected_null_unresolved: boolean;
+      rejected_empty_unresolved: boolean;
+      dual_key_unresolved: boolean;
+      extra_key_unresolved: boolean;
     }>(
       `SELECT
               (SELECT relforcerowsecurity FROM pg_class
@@ -284,8 +497,30 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
                  AND column_name = 'append_sequence') AS ledger_append_sequence_nullable,
               (SELECT "ref_ledger_id"::text FROM "ledger"
                WHERE "id" = '60000000-0000-4000-8000-000000000002') AS legacy_decision_ref,
-              (SELECT "ref_ledger_id"::text FROM "ledger"
-               WHERE "id" = '60000000-0000-4000-8000-000000000003') AS duplicate_legacy_decision_ref
+              NOT EXISTS (
+                SELECT 1 FROM "ledger"
+                WHERE "id" IN (
+                  '61000000-0000-4000-8000-000000000001',
+                  '61000000-0000-4000-8000-000000000002'
+                )
+                  AND "ref_ledger_id" IS NOT NULL
+              ) AS ambiguous_legacy_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '62000000-0000-4000-8000-000000000001') AS cross_workspace_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '62000000-0000-4000-8000-000000000002') AS mismatched_shape_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '62000000-0000-4000-8000-000000000003') AS post_migration_backdated_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '62000000-0000-4000-8000-000000000004') AS missing_proposal_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '63000000-0000-4000-8000-000000000001') AS rejected_null_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '63000000-0000-4000-8000-000000000002') AS rejected_empty_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '64000000-0000-4000-8000-000000000001') AS dual_key_unresolved,
+              (SELECT "ref_ledger_id" IS NULL FROM "ledger"
+               WHERE "id" = '64000000-0000-4000-8000-000000000002') AS extra_key_unresolved
       `,
     );
     assert.deepEqual(migrationPosture.rows, [
@@ -293,10 +528,19 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
         edges_force_rls: true,
         ledger_force_rls: true,
         effects_force_rls: true,
-        ledger_append_sequences: "1,2,3",
+        ledger_append_sequences:
+          "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16",
         ledger_append_sequence_nullable: "NO",
         legacy_decision_ref: "6a000000-0000-4000-8000-0000000000a1",
-        duplicate_legacy_decision_ref: null,
+        ambiguous_legacy_unresolved: true,
+        cross_workspace_unresolved: true,
+        mismatched_shape_unresolved: true,
+        post_migration_backdated_unresolved: true,
+        missing_proposal_unresolved: true,
+        rejected_null_unresolved: true,
+        rejected_empty_unresolved: true,
+        dual_key_unresolved: true,
+        extra_key_unresolved: true,
       },
     ]);
 
@@ -403,7 +647,7 @@ test("migration 0015 preserves legacy edges and installs the owner-scoped Relati
        RETURNING "append_sequence"::text`,
       [workspaceId],
     );
-    assert.equal(nextAppend.rows[0]!.append_sequence, "4");
+    assert.equal(nextAppend.rows[0]!.append_sequence, "17");
     await assert.doesNotReject(() =>
       db.query(
         `INSERT INTO "ledger" ("id", "workspace_id", "user_decision")

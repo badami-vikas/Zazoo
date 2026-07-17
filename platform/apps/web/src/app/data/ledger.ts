@@ -142,10 +142,6 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function proposalReferenceFromInputs(inputs: Record<string, unknown> | null): string | null {
-  return asString(inputs?.proposalId) ?? asString(inputs?.proposal_id);
-}
-
 function canonicalDecisionPrecedes(
   candidate: LedgerHistoryRow,
   current: LedgerHistoryRow,
@@ -396,13 +392,12 @@ export async function loadLedger(): Promise<{
     );
     const data = window.items;
 
-    // Fold current refLedgerId decisions and both historical JSON reference keys.
+    // Fold only decisions linked by the server-owned refLedgerId column.
     // Null-decision referenced rows are blocked-attempt audits, not resolutions.
     const appendByProposal = new Map<string, LedgerHistoryRow>();
     const resolvingRowIds = new Set<string>();
     for (const row of data) {
-      const inputs = asRecord(row.inputs);
-      const proposalId = row.refLedgerId ?? proposalReferenceFromInputs(inputs);
+      const proposalId = row.refLedgerId;
       if (proposalId && isReviewDecision(row.userDecision)) {
         const current = appendByProposal.get(proposalId);
         if (!current || canonicalDecisionPrecedes(row, current)) {
@@ -424,10 +419,8 @@ export async function loadLedger(): Promise<{
     const pending = data
       .filter(
         row => {
-          const inputs = asRecord(row.inputs);
           return (
             !row.refLedgerId &&
-            !proposalReferenceFromInputs(inputs) &&
             normalizeDecision(row.userDecision) === null &&
             !isRejectedAuditRow(row) &&
             !appendByProposal.has(row.id)

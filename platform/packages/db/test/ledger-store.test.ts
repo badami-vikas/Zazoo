@@ -294,76 +294,78 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       }
     });
 
-    test("ledger: historical proposal references stay resolved and cannot be approved again", async () => {
+    test("ledger: JSON proposal ids cannot resolve or hide another proposal", async () => {
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
           .insert(schema.workspaces)
-          .values({ name: "test_fixture_legacy_ledger_resolution" })
+          .values({ name: "test_fixture_ledger_reference_spoofing" })
           .returning({ id: schema.workspaces.id });
         assert.ok(ws);
         const store = new DrizzleLedgerStore(db);
-        const legacyKeys = ["proposalId", "proposal_id"] as const;
-
-        for (const [index, legacyKey] of legacyKeys.entries()) {
-          const proposalId =
-            index === 0
-              ? "6a000000-0000-4000-8000-0000000000a1"
-              : "6b000000-0000-4000-8000-0000000000b2";
-          const decisionId = `62000000-0000-4000-8000-00000000000${index + 1}`;
-          const retryId = `63000000-0000-4000-8000-00000000000${index + 1}`;
-          await store.append({
-            id: proposalId,
-            workspaceId: ws.id,
-            actorType: "user",
-            actorId: NIL_ACTOR,
-            action: "write",
-            resourceType: "relation",
-            inputs: { kind: "relationship_signal_evidence" },
-            userDecision: null,
-            policyResults: [],
-            createdAt: `2026-07-05T00:00:0${index}.000Z`,
-          });
-          await db.insert(schema.ledger).values({
-            id: decisionId,
-            workspaceId: ws.id,
-            actorType: "user",
-            actorId: NIL_ACTOR,
-            action: "write",
-            resourceType: "relation",
-            inputs: { [legacyKey]: proposalId.toUpperCase() },
-            userDecision: "approve",
-            policyResults: [],
-            createdAt: new Date(`2026-07-05T00:00:1${index}.000Z`),
-          });
-          const resolved = await store.decisionFor(proposalId);
-          assert.equal(resolved?.id, decisionId);
-          assert.equal(resolved?.refLedgerId, proposalId);
-          assert.ok((resolved?.appendSequence ?? 0) > 0);
-          const history = await store.listHistory(ws.id, { limit: 50, offset: 0 });
-          assert.equal(
-            history.items.find((entry) => entry.id === decisionId)?.refLedgerId,
-            undefined,
-            "history preserves whether a proposal reference came from legacy inputs",
-          );
-          await assert.rejects(
-            () =>
-              store.append(
-                decisionRow({
-                  id: retryId,
-                  workspaceId: ws.id,
-                  refLedgerId: proposalId,
-                  resourceType: "relation",
-                }),
-              ),
-            AlreadyResolvedError,
-          );
-        }
-
-        assert.deepEqual(await store.listPending(ws.id, { limit: 50, offset: 0 }), {
-          items: [],
-          total: 0,
+        const victim = await store.append({
+          id: "6a000000-0000-4000-8000-0000000000a1",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: "50000000-0000-4000-8000-000000000001",
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-05T00:00:00.000Z",
         });
+        const attackerProposal = await store.append({
+          id: "6b000000-0000-4000-8000-0000000000b2",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: "50000000-0000-4000-8000-000000000002",
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-05T00:00:01.000Z",
+        });
+        const attackerDecision = await store.append(
+          decisionRow({
+            id: "62000000-0000-4000-8000-000000000001",
+            workspaceId: ws.id,
+            actorId: "50000000-0000-4000-8000-000000000002",
+            refLedgerId: attackerProposal.id,
+            resourceType: "relation",
+            inputs: { proposalId: victim.id },
+            createdAt: "2026-07-05T00:00:02.000Z",
+          }),
+        );
+
+        assert.equal(await store.decisionFor(victim.id), null);
+        assert.equal(
+          (await store.decisionFor(attackerProposal.id))?.id,
+          attackerDecision.id,
+        );
+        assert.deepEqual(
+          (await store.listPending(ws.id, { limit: 50, offset: 0 })).items.map(
+            (entry) => entry.id,
+          ),
+          [victim.id],
+        );
+        await assert.rejects(
+          () =>
+            store.append({
+              id: "62000000-0000-4000-8000-000000000002",
+              workspaceId: ws.id,
+              actorType: "user",
+              actorId: NIL_ACTOR,
+              action: "approve",
+              resourceType: "relation",
+              inputs: {},
+              userDecision: "approve",
+              policyResults: [],
+              createdAt: "2026-07-05T00:00:03.000Z",
+            }),
+          /require refLedgerId/,
+        );
       } finally {
         await close();
       }

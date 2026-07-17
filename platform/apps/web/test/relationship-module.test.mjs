@@ -66,7 +66,7 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.doesNotMatch(approvalsPage, /API_ENABLED/);
   assert.match(ledgerData, /trpc\.action\.listHistory/);
   assert.match(ledgerData, /refLedgerId/);
-  assert.match(ledgerData, /proposal_id/);
+  assert.doesNotMatch(ledgerData, /proposalReferenceFromInputs|proposal_id/);
   assert.match(ledgerData, /canonicalDecisionPrecedes/);
   assert.match(ledgerData, /candidateSequence < currentSequence/);
   assert.match(ledgerData, /LEDGER_READ_WINDOW = 500/);
