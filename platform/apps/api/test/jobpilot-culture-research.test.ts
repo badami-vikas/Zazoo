@@ -447,13 +447,25 @@ test("cancel landing during the reservation window (before the AbortController i
     // AbortController was registered AFTER `reserveChildRunAction` resolved,
     // so a `cancelCultureSourceFetch` landing during this delay found
     // nothing to abort and the real fetch ran to completion regardless.
-    const delayedChildAgentRuns: typeof wiring.childAgentRuns = {
-      ...wiring.childAgentRuns,
-      get: async (workspaceId: string, id: string) => {
-        await new Promise((resolve) => setTimeout(resolve, 80));
-        return wiring.childAgentRuns.get(workspaceId, id);
+    // A real `Proxy` (not object spread, which only copies OWN properties
+    // and silently drops a class's prototype methods like `consumeBudget`/
+    // `updateStatus`/`create`/`listByParentRun`) so every OTHER method still
+    // correctly delegates to the real store.
+    const delayedChildAgentRuns: typeof wiring.childAgentRuns = new Proxy(wiring.childAgentRuns, {
+      get(target, prop, receiver) {
+        if (prop === "get") {
+          return async (workspaceId: string, id: string) => {
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            return target.get(workspaceId, id);
+          };
+        }
+        // Bind every other forwarded method to the REAL target — a Proxy's
+        // default receiver would otherwise be the proxy itself, which class
+        // methods relying on private (`#`) fields cannot tolerate.
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
       },
-    };
+    });
 
     const materializePromise = materializeCultureSourceFetch(
       { childAgentRuns: delayedChildAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore, abortControllers: wiring.cultureFetchAbortControllers },
@@ -484,6 +496,89 @@ test("cancel landing during the reservation window (before the AbortController i
 
     const finalRecord = await wiring.cultureFetchStore.getByProposal(PILOT_WORKSPACE, proposalId, childRunId);
     assert.equal(finalRecord?.status, "cancelled");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("a cancel completing between materialize's reservation success and its pre-flight durable-status re-check still guarantees zero network calls (TASK-011 remediation, 2026-07-18 fifth review) — the AbortController map alone is not sufficient; the fresh durable-status read right before guardedFetch is the authoritative guard", async () => {
+  let serverGotFullRequest = false;
+  const server = await startTestServer((_req, res) => {
+    serverGotFullRequest = true;
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("should never be fully received");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    // Delay ONLY `get()` on materialize's OWN fetchStore dependency — this
+    // is exactly where the pre-flight re-check (right before `guardedFetch`
+    // is ever called) reads the durable record. Reservation succeeds
+    // quickly against the REAL (undelayed) childAgentRuns store, so
+    // materialize reaches the pre-flight check with the child Run still
+    // "running" — a genuinely different interleaving than the
+    // reservation-window test above, which relies on the child Run itself
+    // already being cancelled by the time reservation is checked. Here, a
+    // real `cancelCultureSourceFetch` call (using the REAL, undelayed store)
+    // completes its OWN durable transition ("fetching" -> "cancelled")
+    // WHILE materialize's pre-flight `get()` is artificially delayed —
+    // proving the pre-flight re-check (not `abortController.signal.aborted`,
+    // which this scenario does NOT rely on) is what catches this. A real
+    // `Proxy` (not object spread, which drops `DurableCultureFetchStore`'s
+    // private `#memory`/`#mutex` fields entirely) with every OTHER forwarded
+    // method explicitly bound to the real target — a Proxy's own methods
+    // called with the proxy as `this` cannot access private class fields.
+    const delayedFetchStore: typeof wiring.cultureFetchStore = new Proxy(wiring.cultureFetchStore, {
+      get(target, prop, receiver) {
+        if (prop === "get") {
+          // The ONLY call that reaches this override is materialize's own
+          // DIRECT `deps.fetchStore.get(...)` pre-flight check — `getByProposal`'s
+          // internal `this.get(...)` call is bound to `target` and never
+          // passes through this Proxy trap at all.
+          return async (workspaceId: string, id: string) => {
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            return target.get(workspaceId, id);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    const materializePromise = materializeCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: delayedFetchStore, abortControllers: wiring.cultureFetchAbortControllers },
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+    // Give materialize enough time to complete its "pending"->"fetching"
+    // transition, register its AbortController, and pass reservation
+    // (all fast, real in-memory/local operations) before firing cancel —
+    // landing cancel squarely inside the artificially widened pre-flight
+    // `get()` delay above.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const cancelled = await cancelCultureSourceFetch(
+      cultureFetchDeps(wiring),
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      { type: "user", id: PILOT_USER },
+      makeRun(),
+    );
+    assert.equal(cancelled.status, "cancelled");
+
+    const materialized = await materializePromise;
+    assert.equal(materialized.status, "cancelled");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(serverGotFullRequest, false, "the pre-flight durable-status re-check must prevent the fetch from ever starting once a concurrent cancel has already committed");
   } finally {
     await server.close();
     await wiring.close();

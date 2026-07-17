@@ -559,3 +559,53 @@ monorepo build 21/21, eslint clean (same 2 pre-existing, unrelated issues confir
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped).
+
+## Sixth review — 1 deeper issue found in the round-5 cancellation fix itself
+
+A SIXTH, narrowly-scoped confirmation review (of `fa2bf92`) confirmed fix #2 (typed
+`ChildRunAlreadyTerminalError` from the real CAS-mismatch branch) is correct and complete in both
+store implementations (traced the Drizzle follow-up-SELECT's own theoretical TOCTOU window and
+confirmed every caller only does `instanceof` checks, never inspects the carried status, so it has
+no behavioral consequence). It found fix #1 (the cancellation race) was **incomplete**: moving the
+`AbortController` registration to immediately after the "fetching" CAS closed the gap *within*
+`materializeCultureSourceFetch`'s own code, but `cancelCultureSourceFetch`'s check for that
+controller (`deps.abortControllers.get(childRunId)`) is a plain, unsynchronized map read that is
+not itself coupled to the SAME mutex boundary as the durable-record transition — a concurrent
+cancel's controller-lookup can still run and find nothing *before* materialize's registration
+lands, even though materialize's own transition-then-register step has no internal gap. The
+reviewer empirically reproduced this (4/4 runs) with a scratch copy of `fa2bf92`, delaying
+`memoryStore.retrieve()` to widen the window, and confirmed the server received the full request
+despite the record correctly reading `"cancelled"`.
+
+**Fixed**: `materializeCultureSourceFetch` now performs an authoritative, DURABLE-STATE pre-flight
+re-check (`deps.fetchStore.get(...)`) — not `abortController.signal.aborted` — immediately before
+ever calling `guardedFetch`. If the record no longer reads `"fetching"` (a concurrent cancel has
+already won, regardless of `abortControllers` map timing), it bails out without starting the real
+network request. `cancelCultureSourceFetch` also now re-checks for a controller *after* its own
+transition succeeds (in addition to before), as best-effort defense in depth for aborting an
+already-in-flight connection sooner. Also fixed the reservation-violation branch to return the
+current record (rather than always throwing) when the violation-path transition itself reveals a
+concurrent cancel already won.
+
+A genuine bug was found and fixed while writing the new regression test for this: both this test
+and the round-5 reservation-window test used `{...store, method: override}` object-spread to build
+a delayed test double — spread only copies an instance's OWN enumerable properties, silently
+dropping a class's *prototype* methods (`consumeBudget`/`updateStatus`/`create`/`listByParentRun`
+for `ChildAgentRunStore`; every method at all for `DurableCultureFetchStore`, which has no public
+instance fields). TypeScript's structural typing did not catch this for interface-typed
+dependencies (only for `DurableCultureFetchStore`, a class with private fields, where it correctly
+rejected the spread at compile time). Both test doubles were rewritten as real `Proxy` wrappers
+with every non-overridden method explicitly `.bind(target)`'d back to the real instance (a Proxy's
+default receiver is otherwise the proxy itself, which breaks classes relying on private `#` fields).
+The new test was verified genuinely load-bearing by temporarily reverting the pre-flight-check fix
+in a scratch copy and confirming the test fails (`materialized.status` reads `"fetched"`, proving
+the real network fetch completed, instead of `"cancelled"`) — then restoring the fix and confirming
+it passes again.
+
+Re-verified after this fix: `@bridge/core` 429/429, `@bridge/db` 107/107, `@bridge/jobpilot`
+120/120, `@bridge/net-guard` 22/22, `@bridge/api` 31/31 in `jobpilot-culture-research.test.ts` +
+`agent-eligibility.test.ts` (1 more new regression test), `@bridge/web` 55/55, full monorepo build
+21/21, eslint clean (same 2 pre-existing, unrelated issues), no-dummy-runtime clean.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped).

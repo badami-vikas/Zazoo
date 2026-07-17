@@ -1088,15 +1088,28 @@ export async function materializeCultureSourceFetch(
     }
     throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
   }
-  // A cancel landing during the reservation await above already aborted
-  // `abortController.signal` (it found the entry this time) — re-check the
-  // durable record before ever calling `guardedFetch`, so an already-lost
-  // race short-circuits here instead of relying solely on `guardedFetch`
-  // rejecting an aborted signal (defense in depth; both close the same gap).
-  if (abortController.signal.aborted) {
+  // TASK-011 remediation (2026-07-18, fifth review) — re-check the DURABLE
+  // record's status directly (not `abortController.signal.aborted`) as the
+  // authoritative pre-flight gate before ever calling `guardedFetch`. The
+  // signal alone is not sufficient: `cancelCultureSourceFetch`'s own
+  // check-for-a-controller step can itself race with THIS function's
+  // controller registration above (both are plain, unsynchronized
+  // reads/writes on `abortControllers`, not covered by the same mutex as the
+  // durable-record transition) — a concurrent cancel can find no controller
+  // to abort yet, complete its OWN durable transition to "cancelled"
+  // regardless (since "fetching" is a valid source state for cancel), and
+  // this function would then proceed to fetch anyway if it trusted the
+  // signal alone. Reading the durable record fresh here is authoritative
+  // and independent of that timing: if it no longer reads "fetching" (this
+  // call no longer "owns" the fetch), bail out without ever starting the
+  // real network request.
+  const preFlight = await deps.fetchStore.get(workspaceId, childRunId);
+  if (!preFlight) {
+    throw new Error(`materializeCultureSourceFetch: culture-fetch intent for child Run ${childRunId} vanished unexpectedly`);
+  }
+  if (preFlight.status !== "fetching") {
     deps.abortControllers.delete(childRunId);
-    const current = await deps.fetchStore.get(workspaceId, childRunId);
-    if (current) return current;
+    return preFlight;
   }
 
   try {
@@ -1191,12 +1204,12 @@ export async function cancelCultureSourceFetch(
     throw new Error(`cancelCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
 
-  // Abort a real in-flight fetch FIRST, before flipping the durable status —
-  // so `materializeCultureSourceFetch`'s own catch block observes
+  // Abort a real in-flight fetch FIRST if one is already registered — so
+  // `materializeCultureSourceFetch`'s own catch block observes
   // `abortController.signal.aborted` and correctly attributes the abort to
   // cancellation rather than a timeout/other failure.
-  const controller = deps.abortControllers.get(childRunId);
-  if (controller) controller.abort();
+  const earlyController = deps.abortControllers.get(childRunId);
+  if (earlyController) earlyController.abort();
 
   let result: CultureFetchIntentRecord;
   try {
@@ -1210,6 +1223,28 @@ export async function cancelCultureSourceFetch(
       if (current) return current;
     }
     throw error;
+  }
+
+  // TASK-011 remediation (2026-07-18, fifth review) — re-check for a
+  // controller AFTER our own transition succeeded, not only beforehand.
+  // `materializeCultureSourceFetch` registers its `AbortController` only
+  // AFTER its "pending"→"fetching" transition commits; that registration is
+  // a plain, unsynchronized map write, not covered by the same mutex as the
+  // durable-record transition above. If OUR transition just moved the
+  // record from "fetching" to "cancelled" (proving materialize's own CAS
+  // had already landed), materialize's controller registration is very
+  // likely to have ALSO already happened by now — but the two are not
+  // guaranteed-ordered relative to each other by the mutex alone, so the
+  // early check above can miss a controller that appears moments later.
+  // Checking again now catches that case; `materializeCultureSourceFetch`'s
+  // own fresh durable-status pre-flight check (immediately before it calls
+  // `guardedFetch`) is what provides the AUTHORITATIVE guarantee regardless
+  // of this map's timing — this second check is best-effort defense in
+  // depth to abort an ALREADY-in-flight connection sooner rather than
+  // relying solely on that pre-flight check to prevent one from starting.
+  if (result.status === "cancelled") {
+    const lateController = deps.abortControllers.get(childRunId);
+    if (lateController && lateController !== earlyController) lateController.abort();
   }
 
   await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch((error) => {
