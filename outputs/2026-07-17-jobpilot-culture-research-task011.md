@@ -1033,11 +1033,11 @@ synthesize test (post-push independent review hardening)**, ledger-row-never-emb
 test, trustOrigin threading test. `culture-research-client.test.mjs` [web] (+5): bounded-quote-length
 test, 4 `isArtifactUsable` unit tests (null, purged, expired, usable).
 
-### Post-push independent review — 1 genuine defect found and fixed before this report
+### Post-push independent review — 2 rounds, 2 genuine defects found and fixed before this report
 
-A fresh, adversarial independent review of the pushed commit found the item-7 self-heal check
-(above) was itself unsafe: it treated "the pointer's proposalId doesn't resolve in the ledger yet"
-as proof of death, but that is indistinguishable from a genuinely live, in-flight concurrent
+**Round 1**: A fresh, adversarial independent review of the pushed commit found the item-7 self-heal
+check (above) was itself unsafe: it treated "the pointer's proposalId doesn't resolve in the ledger
+yet" as proof of death, but that is indistinguishable from a genuinely live, in-flight concurrent
 `synthesize()` call for the same `parentRunId` whose `pipeline.propose` simply hadn't reached
 `#appendLedger` yet (real awaits: authority/policy checks, the Skill's own artifact resolution,
 fabrication guard). A second request landing in that window could self-heal (release + rebind) the
@@ -1046,9 +1046,23 @@ against the new `assertCultureProposalBindingValid` backstop — no test exercis
 `synthesize()` calls racing this exact path. Fixed by extracting `selfHealDeadSynthesisPointer`
 (now requiring the pointer to be older than a 30s grace period before ever releasing it) and adding
 a regression test proving a young, unresolved pointer survives a concurrent `synthesize()` attempt
-completely untouched (the second caller instead gets the ordinary `CONFLICT` outcome). Full affected
-gate rerun clean after the fix (see Verification below); this is included in the pushed commit
-this report is based on, not a separate follow-up round.
+completely untouched (the second caller instead gets the ordinary `CONFLICT` outcome).
+
+**Round 2**: A SECOND fresh independent review of that fix (commit `7849039`) confirmed the
+grace-period logic is sound for realistic timings (this Skill's `pipeline.propose` does no network
+I/O, so 30s is a safe margin) but found a genuinely narrower residual gap: `selfHealDeadSynthesisPointer`'s
+own `ledger.get(...)` check and the subsequent `releaseIfMatching` call are two separate round-trips
+to two different stores — a `pipeline.propose` call that happened to complete in the microsecond
+window between them could still have its pointer wrongly released (the same bug class, window
+shrunk from "the entire `propose()` duration" to a couple of sequential awaits). Fixed by folding a
+FINAL ledger re-check into `releaseIfMatching` itself, immediately adjacent to the actual `forget()`
+write — minimizing (architecturally cannot fully eliminate across two independent, non-transactional
+stores without a disproportionate distributed-lock addition for a race this narrow) the window to
+the smallest achievable. No behavior change for `releaseIfMatching`'s other two call sites (the
+immediate-release-of-caller's-own-pointer paths on a failed/rejected `propose` — those already knew
+their own attempt was resolved with certainty; the extra recheck there is harmless, not required for
+correctness). Both post-push review rounds' fixes are included in the commit this report is based
+on, not a separate follow-up round.
 
 ### Verification
 

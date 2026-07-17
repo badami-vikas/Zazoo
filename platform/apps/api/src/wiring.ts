@@ -1491,8 +1491,21 @@ export class DurableCultureSynthesisPointerStore {
    * legitimate retry. Only releases the row if it STILL points to exactly
    * the id this caller itself just bound — never a different (later, or
    * concurrently-won) pointer — so a genuine race winner is never disturbed.
+   *
+   * TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review round 2, issue 7 — hardened AGAIN after a second independent
+   * review found even the grace-period fix left a narrow gap: the caller's
+   * own separate `ledger.get(...)` check and this method's row-fetch are two
+   * independent round-trips, so a `pipeline.propose` call that happens to
+   * complete in the microsecond window between them could still have its
+   * pointer wrongly released. The `ledger` param below makes THIS method
+   * perform its OWN final `ledger.get` check, immediately adjacent to the
+   * actual `forget()` write — minimizing (not eliminating; these are two
+   * genuinely separate stores with no shared transaction) the window to the
+   * smallest achievable without a cross-store distributed lock, which is
+   * disproportionate for a race this narrow.
    */
-  async releaseIfMatching(workspaceId: string, parentRunId: string, proposalId: string): Promise<void> {
+  async releaseIfMatching(workspaceId: string, parentRunId: string, proposalId: string, ledger: LedgerStore): Promise<void> {
     const rows = await this.#memory.retrieve(
       { subjectElementId: parentRunId, includeSuperseded: false, limit: 1 },
       this.#authScope(workspaceId),
@@ -1505,9 +1518,12 @@ export class DurableCultureSynthesisPointerStore {
     } catch {
       return;
     }
-    if (parsed.kind === "culture_synthesis_pointer" && parsed.proposalId === proposalId) {
-      await this.#memory.forget(row.id, this.#authScope(workspaceId));
-    }
+    if (parsed.kind !== "culture_synthesis_pointer" || parsed.proposalId !== proposalId) return;
+    // Final, last-possible-moment re-check — the proposal may have been
+    // created by its owner's `pipeline.propose` call in the time since the
+    // caller's own earlier check.
+    if (await ledger.get(proposalId)) return;
+    await this.#memory.forget(row.id, this.#authScope(workspaceId));
   }
 }
 
@@ -1538,7 +1554,9 @@ export async function selfHealDeadSynthesisPointer(
   const ageMs = Date.parse(nowISO) - Date.parse(existingPointer.createdAt);
   if (ageMs < CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS) return; // too young to safely presume dead — a live propose() may still be in flight
   if (await deps.ledger.get(existingPointer.proposalId)) return; // resolves in the ledger — genuinely live (or was already properly decided), not dead
-  await deps.cultureSynthesisPointerStore.releaseIfMatching(workspaceId, parentRunId, existingPointer.proposalId).catch(() => {});
+  // `releaseIfMatching` performs its OWN final ledger re-check immediately
+  // before the actual release write — see its doc comment.
+  await deps.cultureSynthesisPointerStore.releaseIfMatching(workspaceId, parentRunId, existingPointer.proposalId, deps.ledger).catch(() => {});
 }
 
 /**

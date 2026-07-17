@@ -3711,7 +3711,7 @@ export const appRouter = t.router({
             // preallocated pointer binding (never a different, concurrently-
             // won one) so a legitimate retry for this parentRunId is not
             // permanently blocked by a doomed attempt.
-            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId).catch(() => {});
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
           }
           if (synthesisProposal.status === "rejected") {
@@ -3719,7 +3719,7 @@ export const appRouter = t.router({
             // OUR preallocated one — release it the same way, for the same
             // reason (an authority/policy rejection must not permanently
             // consume the pointer for this parentRunId either).
-            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId).catch(() => {});
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
           }
           return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
