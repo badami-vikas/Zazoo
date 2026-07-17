@@ -66,13 +66,17 @@ async function startTestServer(handler: http.RequestListener): Promise<{ url: st
 }
 
 let testSourceCounter = 0;
-function registerTestSource(url: string, sourceType: "company_official_page" | "glassdoor" | "reddit" | "google_reviews" = "company_official_page") {
+function registerTestSource(
+  url: string,
+  sourceType: "company_official_page" | "glassdoor" | "reddit" | "google_reviews" = "company_official_page",
+  company: string = TEST_COMPANY,
+) {
   testSourceCounter += 1;
   const id = `test-fixture-source-${testSourceCounter}`;
   unsafeRegisterTestOnlyCultureSource({
     id,
     workspaceId: PILOT_WORKSPACE,
-    company: TEST_COMPANY,
+    company,
     sourceType,
     sourceLabel: `test_fixture source ${testSourceCounter}`,
     url,
@@ -364,6 +368,105 @@ test("cancelCultureSourceFetch aborts a REAL in-flight fetch (server observes th
   }
 });
 
+test("materializeCultureSourceFetch rejects a childRunId that does not match the one recorded for the proposal (TASK-011 remediation, 2026-07-17 security review, issue 3)", async () => {
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("should never be fetched");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const idA = registerTestSource(server.url);
+    const idB = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA, idB] });
+    const [a, b] = proposed.pending;
+    await caller.action.decide({ proposalId: a!.proposalId, decision: "approve" });
+
+    // Attempt to materialize proposal A's approval using proposal B's child
+    // Run id — must be rejected, never silently charge B's budget instead.
+    await assert.rejects(
+      () =>
+        materializeCultureSourceFetch(
+          { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+          PILOT_WORKSPACE,
+          a!.proposalId,
+          b!.childRunId,
+          makeRun(),
+          allowLoopback,
+        ),
+      /does not match the child Run recorded/,
+    );
+    const childRunB = await wiring.childAgentRuns.get(PILOT_WORKSPACE, b!.childRunId);
+    assert.equal(childRunB?.callsUsed, 0, "the mismatched child Run's budget must be untouched");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
+test("materializeCultureSourceFetch: a cancellation that lands during the approval/reservation window is honored, never silently overridden by the fetch that follows (TASK-011 remediation, 2026-07-17 security review, issue 2)", async () => {
+  let requestCount = 0;
+  const server = await startTestServer((_req, res) => {
+    requestCount += 1;
+    res.end("should never be reached");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const id = registerTestSource(server.url);
+    const proposed = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [id] });
+    const { proposalId, childRunId } = proposed.pending[0]!;
+    await caller.action.decide({ proposalId, decision: "approve" });
+
+    // Wrap the ledger so `decisionFor` (materialize's first await) is
+    // artificially delayed, opening a window equivalent to the one the
+    // review found between approval-checking and the synchronous
+    // `record.status = "fetching"` flip.
+    const realLedger = wiring.ledger;
+    const delayedLedger: typeof realLedger = new Proxy(realLedger, {
+      get(target, prop, receiver) {
+        if (prop === "decisionFor") {
+          return async (id2: string) => {
+            await new Promise((r) => setTimeout(r, 40));
+            return target.decisionFor(id2);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    const materializePromise = materializeCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: delayedLedger, fetchStore: wiring.cultureFetchStore },
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+    // Cancel while materialize is still awaiting the delayed decisionFor —
+    // before it has reserved budget or flipped status to "fetching".
+    await new Promise((r) => setTimeout(r, 10));
+    await cancelCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+      PILOT_WORKSPACE,
+      proposalId,
+      childRunId,
+      { type: "user", id: PILOT_USER },
+      makeRun(),
+    );
+
+    await assert.rejects(() => materializePromise);
+    assert.equal(requestCount, 0, "no fetch should ever have been attempted once cancelled");
+    const record = wiring.cultureFetchStore.get(proposalId);
+    assert.notEqual(record?.status, "fetching", "the cancellation must never be silently overridden by an in-progress fetch state");
+    assert.notEqual(record?.status, "fetched", "the cancellation must never be silently overridden by a completed fetch");
+  } finally {
+    await server.close();
+    await wiring.close();
+  }
+});
+
 test("materializeCultureSourceFetch rejects a non-text content-type response and fails the child Run closed with audit evidence", async () => {
   const server = await startTestServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/octet-stream" });
@@ -585,6 +688,61 @@ test("cultureResearch.synthesize: a well-grounded claim (real quote + real conte
     assert.equal(output.partition.facts.length, 1);
   } finally {
     await server.close();
+    await wiring.close();
+  }
+});
+
+test("cultureResearch.synthesize: artifacts fetched for a DIFFERENT company in the same workspace are never available for grounding (TASK-011 remediation, 2026-07-17 security review, issue 4)", async () => {
+  const OTHER_COMPANY = "test_fixture Other Co";
+  const serverA = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Company A culture: trust and collaboration.");
+  });
+  const serverB = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Company B culture: speed and ownership.");
+  });
+  const wiring = await buildWiring();
+  try {
+    const caller = await makeCaller(wiring);
+    const idA = registerTestSource(serverA.url, "company_official_page", TEST_COMPANY);
+    const idB = registerTestSource(serverB.url, "company_official_page", OTHER_COMPANY);
+
+    const proposedA = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY, sourceIds: [idA] });
+    await caller.action.decide({ proposalId: proposedA.pending[0]!.proposalId, decision: "approve" });
+    await materializeCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+      PILOT_WORKSPACE,
+      proposedA.pending[0]!.proposalId,
+      proposedA.pending[0]!.childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+
+    const proposedB = await caller.jobpilot.cultureResearch.propose({ workspaceId: PILOT_WORKSPACE, company: OTHER_COMPANY, sourceIds: [idB] });
+    await caller.action.decide({ proposalId: proposedB.pending[0]!.proposalId, decision: "approve" });
+    const recordB = await materializeCultureSourceFetch(
+      { childAgentRuns: wiring.childAgentRuns, ledger: wiring.ledger, fetchStore: wiring.cultureFetchStore },
+      PILOT_WORKSPACE,
+      proposedB.pending[0]!.proposalId,
+      proposedB.pending[0]!.childRunId,
+      makeRun(),
+      allowLoopback,
+    );
+
+    // Both companies now have a "fetched" artifact in the SAME workspace.
+    // Synthesizing for company A with a claim citing company B's sourceId
+    // must fail — company B's artifact must not be poolable into A's run.
+    await assert.rejects(() =>
+      caller.jobpilot.cultureResearch.synthesize({
+        workspaceId: PILOT_WORKSPACE,
+        company: TEST_COMPANY,
+        claims: [{ id: "cross-company", claimType: "fact", sourceId: idB, quote: "speed and ownership", contentHash: recordB.artifact!.contentHash }],
+      }),
+    );
+  } finally {
+    await serverA.close();
+    await serverB.close();
     await wiring.close();
   }
 });

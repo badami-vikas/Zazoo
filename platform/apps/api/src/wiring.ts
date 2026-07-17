@@ -757,6 +757,14 @@ export async function materializeCultureSourceFetch(
   if (existing && existing.status !== "pending") {
     return existing; // idempotent — never refetch an already-resolved source
   }
+  // TASK-011 remediation (2026-07-17 security review, issue 3) — never trust
+  // a caller-supplied `childRunId` on its own: it must match the SAME child
+  // Run `propose()` actually created and recorded for this proposal, or a
+  // caller juggling several pending proposals from one batch could charge a
+  // reservation against a DIFFERENT (unrelated) child Run's budget.
+  if (existing && existing.childRunId !== childRunId) {
+    throw new Error(`materializeCultureSourceFetch: childRunId "${childRunId}" does not match the child Run recorded for proposal ${proposalId}`);
+  }
 
   const decisionRow = await deps.ledger.decisionFor(proposalId);
   if (!decisionRow || decisionRow.userDecision !== "approve") {
@@ -781,6 +789,18 @@ export async function materializeCultureSourceFetch(
   );
   if (violation) {
     throw new Error(`materializeCultureSourceFetch: child Run rejected the fetch — ${violation.reason}: ${violation.detail}`);
+  }
+
+  // TASK-011 remediation (2026-07-17 security review, issue 2) — re-check
+  // `record.status` immediately before claiming it: the awaits above
+  // (`decisionFor`, `ledger.get`, `reserveChildRunAction`) are genuine
+  // suspension points, during which `cancelCultureSourceFetch` could have
+  // already transitioned this SAME record to "cancelled". Without this
+  // re-check, that cancellation would be silently clobbered by the
+  // unconditional `record.status = "fetching"` below, and the fetch would
+  // proceed anyway — defeating "cancel guarantees the fetch never starts."
+  if (record.status !== "pending") {
+    return record;
   }
 
   const abortController = new AbortController();

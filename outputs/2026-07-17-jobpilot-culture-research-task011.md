@@ -184,11 +184,13 @@ legitimate in-memory seeds (`seedGovernance` in `wiring.ts`) already explicitly 
 |---|---|
 | `platform/packages/net-guard/src/index.ts` | Replaced `assertOutboundAllowed` + plain fetch with the single `guardedFetch` primitive (pinned DNS, manual bounded redirects, byte-cap streaming, credential rejection, AbortSignal) |
 | `platform/packages/net-guard/test/net-guard.test.ts` | 17 tests, including real local-server redirect/cycle/byte-cap/abort/rebinding-pin proofs |
+| `platform/packages/core/src/child-agent-run.ts` | Fixed `InMemoryChildAgentRunStore.consumeBudget`'s non-atomic check-then-act race (found by the fresh post-remediation review) |
+| `platform/packages/core/test/child-agent-run.test.ts` | +2 concurrent-reservation atomicity regression tests |
 | `platform/tools/jobpilot/src/culture-research.ts` | Added `MAX_CULTURE_SOURCES_PER_RUN`, `CultureArtifactRef`, `GroundedClaimInput`, `groundClaims` |
 | `platform/tools/jobpilot/test/culture-research.test.ts` | +12 `groundClaims` tests |
-| `platform/apps/api/src/wiring.ts` | Server-owned `CULTURE_SOURCE_REGISTRY` + `resolveAuthorizedCultureSource`; PURE `jobpilot.researchCultureSource` skill; new `materializeCultureSourceFetch`/`cancelCultureSourceFetch`/`InMemoryCultureFetchStore`; `jobpilot.synthesizeCultureProfile` now calls `groundClaims` first |
-| `platform/apps/api/src/router.ts` | Replaced the single `researchCulture` procedure with `cultureResearch.{propose,materialize,cancel,status,synthesize}` |
-| `platform/apps/api/test/jobpilot-culture-research.test.ts` | 18 tests covering every defect above end-to-end |
+| `platform/apps/api/src/wiring.ts` | Server-owned `CULTURE_SOURCE_REGISTRY` + `resolveAuthorizedCultureSource`; PURE `jobpilot.researchCultureSource` skill; new `materializeCultureSourceFetch`/`cancelCultureSourceFetch`/`InMemoryCultureFetchStore`; `jobpilot.synthesizeCultureProfile` now calls `groundClaims` first; childRunId/proposalId cross-check; mid-function cancellation re-check |
+| `platform/apps/api/src/router.ts` | Replaced the single `researchCulture` procedure with `cultureResearch.{propose,materialize,cancel,status,synthesize}`; `synthesize` now scopes fetched artifacts to the requested company |
+| `platform/apps/api/test/jobpilot-culture-research.test.ts` | 21 tests covering every defect above end-to-end, including the 4 issues from the fresh review |
 
 ## Verification (live evidence, this remediation pass)
 
@@ -216,6 +218,47 @@ legitimate in-memory seeds (`seedGovernance` in `wiring.ts`) already explicitly 
   (`docs/wiki/learning-agent.md`: "PromptAssembler unbuilt") — `groundClaims` verifies
   authorship against real fetched bytes; it does not itself generate claims.
 - Google Places API (for a lawful, narrow Google-reviews path) remains unintegrated.
+
+## Independent fresh review (after remediation) — 4 additional issues found and fixed
+
+A second, read-only code-review pass over commit `e40d741..0cd5aaa` (the remediation above)
+confirmed all 7 original defects were convincingly fixed, but found 4 further issues in the
+remediation itself — all fixed in a follow-up commit on this branch:
+
+1. **`consumeBudget` was not actually atomic (High)** — `platform/packages/core/src/child-agent-run.ts`'s
+   `InMemoryChildAgentRunStore.consumeBudget` read its pre-write state via `await this.get(...)`
+   — a distinct async call that still yields a microtask tick even with no internal `await` of
+   its own — opening a genuine check-then-act race: two concurrent reservations against the
+   same `maxCalls:1` child Run could both read the same stale snapshot and both "succeed."
+   **Fixed** by reading via a direct synchronous `this.runs.get(id)`, matching `updateStatus`'s
+   already-atomic pattern in the same file. Regression tests added
+   (`child-agent-run.test.ts`): 2 and 10 concurrent reservations against a `maxCalls:1` budget
+   — exactly one ever succeeds.
+2. **A cancellation landing during `materialize`'s approval/reservation window could be silently
+   overridden (Medium)** — `materializeCultureSourceFetch` only checked the fetch record's
+   status once, at the top; the unconditional `record.status = "fetching"` several awaits later
+   could clobber an intervening cancellation. **Fixed** by re-checking `record.status ===
+   "pending"` immediately before that assignment (no intervening `await`), short-circuiting if
+   cancelled. In practice the child-Run-status check inside `reserveChildRunAction` (itself
+   fixed by #1) already closes most of this window; this re-check closes the remainder as
+   defense in depth. Regression test added exercising the exact timing with a deliberately
+   delayed `ledger.decisionFor`.
+3. **`materialize` didn't validate that the caller-supplied `childRunId` belongs to the given
+   `proposalId` (Medium)** — a caller juggling several pending proposals from one batch could
+   materialize an approved proposal while charging a DIFFERENT (unrelated) child Run's budget.
+   **Fixed** by rejecting when the stored record's `childRunId` doesn't match. Regression test
+   added proving the mismatched child Run's budget stays untouched.
+4. **`synthesize` pooled fetched artifacts workspace-wide, not scoped to the requested company
+   (Medium)** — a workspace with fetched artifacts for two different companies could ground
+   company A's claims against company B's evidence, since `groundClaims` only matches by
+   `sourceId`. **Fixed** by cross-referencing each candidate artifact's `sourceId` against
+   `CULTURE_SOURCE_REGISTRY` entries scoped to the requested `(workspaceId, company)` pair
+   before making it available for grounding. Regression test added with two real companies'
+   fetched artifacts present simultaneously in one workspace.
+
+Re-verified after these 4 fixes: `@bridge/core` 429/429 (2 new atomicity tests), `@bridge/api`
+all tests including 21 in `jobpilot-culture-research.test.ts` (4 new regression tests), full
+monorepo build 21/21, eslint clean, no-dummy-runtime clean.
 
 ## Blockers / proposed ledger changes (still NOT applied — for the coordinator)
 

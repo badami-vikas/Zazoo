@@ -327,8 +327,22 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
   }
 
   async consumeBudget(workspaceId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun> {
-    const existing = await this.get(workspaceId, id);
-    if (!existing) throw new Error(`child-agent-run: unknown run ${id}`);
+    // TASK-011 remediation (2026-07-17 security review) — this MUST read
+    // synchronously (`this.runs.get`, never `await this.get(...)`). `await`ing
+    // a distinct async call — even one with no internal `await` of its own —
+    // still yields a microtask tick before the result is observed, opening a
+    // check-then-act race: two concurrent `consumeBudget` calls for the SAME
+    // run can both read the pre-write budget snapshot before either writes,
+    // and both pass validation, double-spending a `maxCalls: 1` budget.
+    // `updateStatus` above already reads synchronously for exactly this
+    // reason; this function previously did not, and was the one place that
+    // race was reachable (`reserveChildRunAction`'s atomicity claim depends
+    // on this). An `async` function with no internal `await` runs its whole
+    // body to completion before yielding to any other queued microtask, which
+    // is what makes this synchronous read-check-write a genuine atomic
+    // section in single-process JS.
+    const existing = this.runs.get(id);
+    if (!existing || existing.workspaceId !== workspaceId) throw new Error(`child-agent-run: unknown run ${id}`);
     if (
       existing.status !== "running" ||
       Date.parse(nowISO) >= Date.parse(existing.deadline) ||

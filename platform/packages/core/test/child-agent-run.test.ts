@@ -284,6 +284,40 @@ test("concurrent terminal transitions audit only the winning compare-and-set", a
   assert.equal((ledger.entries[0]!.proposedOutput as ChildAgentRun).status, (await store.get("ws-1", run.id))?.status);
 });
 
+test("consumeBudget: concurrent reservations against a maxCalls:1 budget — only ONE may succeed (TASK-011 remediation, 2026-07-17 security review)", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  const run = await store.create(
+    deriveChildAgentRun(parent(), childReq({ budget: { maxCalls: 1, maxCost: 1 } }), c.ids, c.clock),
+  );
+
+  const outcomes = await Promise.allSettled([
+    store.consumeBudget("ws-1", run.id, 1, c.clock.nowISO()),
+    store.consumeBudget("ws-1", run.id, 1, c.clock.nowISO()),
+  ]);
+
+  assert.equal(outcomes.filter((o) => o.status === "fulfilled").length, 1, "exactly one reservation should succeed");
+  assert.equal(outcomes.filter((o) => o.status === "rejected").length, 1, "the other must be rejected as budget-exhausted");
+  const final = await store.get("ws-1", run.id);
+  assert.equal(final?.callsUsed, 1, "the budget must reflect exactly one consumed call, never double-spent");
+});
+
+test("consumeBudget: many concurrent reservations against a maxCalls:1 budget — never more than one wins, regardless of count", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  const run = await store.create(
+    deriveChildAgentRun(parent(), childReq({ budget: { maxCalls: 1, maxCost: 1 } }), c.ids, c.clock),
+  );
+
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: 10 }, () => store.consumeBudget("ws-1", run.id, 1, c.clock.nowISO())),
+  );
+
+  assert.equal(outcomes.filter((o) => o.status === "fulfilled").length, 1);
+  const final = await store.get("ws-1", run.id);
+  assert.equal(final?.callsUsed, 1);
+});
+
 test("a lifecycle audit failure rolls the winning transition back to running", async () => {
   class FailingLedger extends InMemoryLedger {
     override async append(): Promise<never> {

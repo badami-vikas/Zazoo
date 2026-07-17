@@ -3298,8 +3298,19 @@ export const appRouter = t.router({
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
 
+          // TASK-011 remediation (2026-07-17 security review, issue 4) — scope
+          // fetched artifacts to the REQUESTED company, not just the
+          // workspace. Without this, a workspace that has already fetched
+          // culture-research artifacts for more than one company could have
+          // `synthesize` for company A ground claims against (and surface in
+          // company A's disclosure) evidence actually fetched for company B —
+          // `groundClaims` only matches by `sourceId`, which is not itself
+          // company-scoped once pulled out of the registry.
+          const companySourceIds = new Set(
+            CULTURE_SOURCE_REGISTRY.filter((s) => s.workspaceId === input.workspaceId && s.company === input.company).map((s) => s.id),
+          );
           const fetchedArtifacts = Array.from(ctx.wiring.cultureFetchStore.records.values())
-            .filter((r) => r.workspaceId === input.workspaceId && r.status === "fetched" && r.artifact)
+            .filter((r) => r.workspaceId === input.workspaceId && r.status === "fetched" && r.artifact && companySourceIds.has(r.sourceId))
             .map((r) => r.artifact!);
           const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
             (s) => s.workspaceId === input.workspaceId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
