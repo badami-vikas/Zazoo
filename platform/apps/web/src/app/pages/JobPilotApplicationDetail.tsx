@@ -3,9 +3,9 @@ import { Link, useParams } from 'react-router';
 import {
   AlertTriangle, ArrowLeft, Bot, BriefcaseBusiness, Check, CheckCircle2, ChevronDown,
   ChevronRight, ChevronUp, Clipboard, ExternalLink, FileCheck2, FileText, Flag, Lightbulb,
-  LockKeyhole, MessageSquareText, ShieldCheck, Sparkles, Target, Users, XCircle,
+  LockKeyhole, MessageSquareText, Quote, ShieldCheck, ShieldAlert, Sparkles, Target, Users, XCircle,
 } from 'lucide-react';
-import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus } from '../data/bcg-application';
+import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus, type CultureClaimType } from '../data/bcg-application';
 import { EditableField } from '../components/shared/EditableField';
 import { useLocalEdits } from '../lib/useLocalEdits';
 
@@ -255,6 +255,140 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/* ── Culture Research (JP3B, TASK-011) ───────────────────────────────── */
+
+const CULTURE_GROUP_META: { type: CultureClaimType; label: string; emptyNote: string }[] = [
+  { type: 'fact', label: 'Facts', emptyNote: 'No documented facts identified yet.' },
+  { type: 'theme', label: 'Repeated themes', emptyNote: 'No repeated theme identified yet.' },
+  { type: 'opinion', label: 'Attributed opinions', emptyNote: 'No attributed opinions identified yet.' },
+  { type: 'contradiction', label: 'Contradictions', emptyNote: 'No contradicting accounts found among the permitted sources used for this run — this is an honest empty result, not a fabricated one. Reddit and Glassdoor reviews (a likelier source of disputing accounts) are currently skipped; see the disclosure above.' },
+  { type: 'inference', label: 'Agent inference', emptyNote: 'No inference offered yet.' },
+];
+
+function CultureResearchSection() {
+  const [disclosureOpen, setDisclosureOpen] = useState(false);
+  const research = BCG_APPLICATION.cultureResearch;
+
+  const usedSources = useMemo(() => {
+    const seen = new Map<string, { sourceLabel: string; sourceUrl: string }>();
+    for (const claim of research.claims) {
+      if (!seen.has(claim.sourceUrl)) seen.set(claim.sourceUrl, { sourceLabel: claim.sourceLabel, sourceUrl: claim.sourceUrl });
+    }
+    return Array.from(seen.values());
+  }, [research.claims]);
+
+  const claimsByType = (type: CultureClaimType) =>
+    type === 'contradiction' ? research.contradictions : research.claims.filter((c) => c.claimType === type);
+
+  return (
+    <SectionCard title="Culture research">
+      <p className="mb-4 text-xs" style={{ color: 'var(--color-warm-gray)' }}>
+        {research.researchAgent} Agent · {research.researchSkill} Skill → {research.synthesisAgent} Agent · {research.synthesisSkill} Skill
+      </p>
+
+      {/* Source-rights disclosure — clickable, gates the evidence below (JP3B exit:
+          "the user sees citations and a rights/access warning BEFORE using recommendations"). */}
+      <button
+        onClick={() => setDisclosureOpen((o) => !o)}
+        className="flex w-full items-center gap-2 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-[var(--color-surface)]"
+        style={{ borderColor: '#E7C978', backgroundColor: '#FFFBEE' }}
+      >
+        <ShieldAlert className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />
+        <span className="flex-1 text-sm font-semibold" style={{ color: '#8A5A00' }}>
+          Source rights &amp; access — review before using these suggestions
+        </span>
+        {disclosureOpen ? <ChevronUp className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} /> : <ChevronDown className="h-4 w-4 shrink-0" style={{ color: '#8A5A00' }} />}
+      </button>
+
+      {!disclosureOpen && (
+        <p className="mt-3 text-xs italic" style={{ color: 'var(--color-warm-gray)' }}>
+          Open the disclosure above to see exactly which sources were used and which were skipped (and why) before viewing culture-informed evidence.
+        </p>
+      )}
+
+      {disclosureOpen && (
+        <div className="mt-3 space-y-4 rounded-lg border p-4" style={{ borderColor: 'var(--color-border)', backgroundColor: '#FAFAF7' }}>
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
+              Sources used ({usedSources.length})
+            </p>
+            {usedSources.map((s) => (
+              <a
+                key={s.sourceUrl}
+                href={s.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mb-1 flex items-center gap-1.5 text-xs font-medium hover:underline"
+                style={{ color: 'var(--color-steel)' }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--success)' }} />
+                {s.sourceLabel} <ExternalLink className="h-3 w-3" />
+              </a>
+            ))}
+          </div>
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warm-gray)' }}>
+              Sources skipped ({research.skippedSources.length}) — no access, no fetch, no bypass
+            </p>
+            <div className="space-y-2">
+              {research.skippedSources.map((s) => (
+                <div key={s.sourceLabel} className="flex items-start gap-2">
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: 'var(--danger)' }} />
+                  <div>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--color-navy)' }}>{s.sourceLabel}</span>
+                    <p className="text-xs leading-5" style={{ color: 'var(--color-warm-gray)' }}>{s.reason}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {disclosureOpen && (
+        <div className="mt-5 space-y-5">
+          {CULTURE_GROUP_META.map((group) => {
+            const items = claimsByType(group.type);
+            return (
+              <div key={group.type}>
+                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-navy-mid)' }}>
+                  {group.label} ({items.length})
+                </h3>
+                {items.length === 0 ? (
+                  <p className="text-xs leading-5 italic" style={{ color: 'var(--color-warm-gray)' }}>{group.emptyNote}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {items.map((item) => (
+                      <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border)', backgroundColor: 'white' }}>
+                        {item.agentInference && (
+                          <span className="mb-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: 'var(--color-steel)', backgroundColor: '#EEF4F7' }}>
+                            <Bot className="h-3 w-3" /> Agent inference — not a verified fact
+                          </span>
+                        )}
+                        <p className="flex items-start gap-1.5 text-sm leading-6" style={{ color: 'var(--color-navy)' }}>
+                          {item.claimType === 'opinion' && <Quote className="mt-1 h-3 w-3 shrink-0" style={{ color: 'var(--color-warm-gray)' }} />}
+                          {item.claimText}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" style={{ color: 'var(--color-warm-gray)' }}>
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline" style={{ color: 'var(--color-steel)' }}>
+                            {item.sourceLabel} <ExternalLink className="h-3 w-3" />
+                          </a>
+                          <span>Retrieved {item.retrievedAt}</span>
+                          {item.authorContext && <span>{item.authorContext}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
@@ -535,6 +669,7 @@ export function JobPilotApplicationDetail() {
                 })}
               </div>
               <ArtifactViewer artifact={artifactById('case-prep') as ApplicationArtifact} />
+              <CultureResearchSection />
             </div>
           )}
 

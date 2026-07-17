@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T00:10:35.275Z",
+  "generatedAt": "2026-07-17T03:46:06.398Z",
   "items": [
     {
       "id": "TASK-001",
@@ -257,18 +257,24 @@
     {
       "id": "TASK-007",
       "title": "TASK-007 — Agent, Skill, and child-Run orchestration",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "CoS, Learning, Internal Strategist, Governance, and Builder have durable boundaries; Skills resolve from Goals/Tasks; bounded child Agent Runs inherit ceilings; non-Agent Skill invocation fails closed.",
-      "prototypeTest": "Assign a typed Task to a non-default eligible Agent, resolve the required Skill, create a bounded child Run, preserve authority/budget/taint/audit limits, and reject direct Human/Automation Skill execution.",
+      "prototypeTest": "✅ Assigned active Agents resolve matching workspace Goal/Task Skills; unauthorized/missing/inactive/cross-workspace invocation fails closed; a server-owned child Run narrows authority/budget/taint/depth, records lifecycle audit, and can be stopped by Governance/Human.",
       "scope": [
         "docs/raw/agent-goal-skill-orchestration-plan-2026-07.md AGS0–AGS3",
         "docs/raw/bridge-foundational-agents-onboarding-2026-07.md"
       ],
       "evidence": [
-        "BUGS standalone Skills/non-Agent invocation",
-        "specialist-agent overfit review"
+        "RESOLVED BUGS standalone Skills/non-Agent invocation",
+        "specialist-agent overfit review",
+        "[TASK-007 output](../outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md)",
+        "core 421, DB 106, API 161, Google 35, web 43 tests",
+        "monorepo typecheck/build",
+        "changed-file lint",
+        "migration no-drift",
+        "four independent security/correctness reviews, final no findings."
       ],
       "requests": [
         "R-019",
@@ -276,11 +282,11 @@
         "R-029",
         "agent redesign directive 2026-07-15"
       ],
-      "approval": "AP-021, AP-023, and AP-029 applied",
+      "approval": "AP-021, AP-023, AP-029, and AP-032 applied",
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 131,

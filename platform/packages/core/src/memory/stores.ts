@@ -63,6 +63,13 @@ export class InMemoryAgentStore implements AgentQuery {
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
+  /** Owning workspace per agent (AgentQuery.workspaceId — added alongside
+   * relationship-module trust boundaries; unset = unknown, never guessed). */
+  readonly workspaces = new Map<string, string>();
+  /** Active/inactive per agent (AgentQuery.isActive). Unset defaults to
+   * INACTIVE (fail closed — an agent must be explicitly seeded active, mirrors
+   * `DrizzleAgentStore.isActive`'s real-row-or-false shape, never assumes). */
+  readonly statuses = new Map<string, "active" | "inactive">();
 
   async assumedRole(agentId: string): Promise<string | null> {
     return this.assumed.get(agentId) ?? null;
@@ -75,6 +82,12 @@ export class InMemoryAgentStore implements AgentQuery {
   }
   async allowedSkills(agentId: string): Promise<string[]> {
     return this.skills.get(agentId) ?? [];
+  }
+  async workspaceId(agentId: string): Promise<string | null> {
+    return this.workspaces.get(agentId) ?? null;
+  }
+  async isActive(agentId: string): Promise<boolean> {
+    return this.statuses.get(agentId) === "active";
   }
 }
 

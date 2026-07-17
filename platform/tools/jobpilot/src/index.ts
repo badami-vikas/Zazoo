@@ -34,3 +34,28 @@ export type { FormField, FormMapping, ApplyOutcome, DispatchAction } from "./app
 export { resolveEntryTier, mapAnswersToForm, nextDispatchAction, assertApprovedForSubmit } from "./apply.js";
 export type { PacingLimits, PacingGate } from "./pacing.js";
 export { createPacingGate } from "./pacing.js";
+// JP3B (TASK-011) — culture-research source classification, evidence separation, disclosure, and
+// fabrication guard. Pure logic only; see culture-research.ts's header comment on the `Skill`
+// naming collision with resume-schema.ts's export above before importing both in one file.
+export {
+  CULTURE_SOURCE_CATALOG,
+  classifyCultureSource,
+  planCultureSources,
+  partitionCultureEvidence,
+  buildSourceDisclosure,
+  assertNoFabricatedAffinityOrInsiderClaim,
+} from "./culture-research.js";
+export type {
+  CultureSourceType,
+  CultureSourceEligibility,
+  CultureSourceClassification,
+  CultureSourceCandidate,
+  CulturePermittedSource,
+  CultureSkippedSource,
+  CultureSourcePlan,
+  CultureClaimType,
+  CultureEvidence,
+  CultureEvidencePartition,
+  CultureSourceDisclosure,
+  FabricationCheckResult,
+} from "./culture-research.js";

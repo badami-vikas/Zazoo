@@ -96,6 +96,18 @@ import {
   type SkillManifest,
   uuidv7,
 } from "@bridge/core";
+import { assertOutboundAllowed } from "@bridge/net-guard";
+import {
+  classifyCultureSource,
+  partitionCultureEvidence,
+  buildSourceDisclosure,
+  assertNoFabricatedAffinityOrInsiderClaim,
+  type CultureSourceType,
+  type CultureEvidence,
+  type CultureSkippedSource,
+  type CultureEvidencePartition,
+  type CultureSourceDisclosure,
+} from "@bridge/jobpilot";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
@@ -425,6 +437,191 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
 } as const;
 
 /**
+ * TASK-011 (JP3B) — JobPilot culture research. Per the TASK-007 handoff
+ * ("TASK-011 handoff" section of
+ * outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md), these
+ * are JobPilot's OWN Goal/Task types and governed Skills, wired against the
+ * SAME reusable Goal/Task/SkillManifest/child-Agent-Run primitives every
+ * other governed Skill in this file uses — no new pipeline mechanism, no new
+ * physical Agent identity (reuses LEARNING_AGENT/INTERNAL_STRATEGIST_AGENT).
+ *
+ * Two Skills, matching BRD `agents.Learning.default_skills`/
+ * `agents.Internal_Strategist.default_skills` exactly:
+ *  - `jobpilot.researchCultureSource` (Learning, one bounded child Run per
+ *    PERMITTED source — @bridge/jobpilot's `planCultureSources` gate runs
+ *    BEFORE any of this is ever invoked, so a `do_not_use`/`research_only`/
+ *    `not_yet_integrated` source never reaches a child Run, a fetch, or this
+ *    Skill at all): performs the REAL, SSRF-guarded (`assertOutboundAllowed`)
+ *    outbound fetch and returns a plain-text excerpt. `riskBand: "external"`
+ *    is JP3B's "stop for user/counsel permission; no bypass path" — this
+ *    Skill's proposal still drafts `pending_review` like every other governed
+ *    mutation, and the caller sets `touchesExternalRisk: true` on its child
+ *    Run per the handoff's recipe, forcing at least `"approve"` review.
+ *  - `jobpilot.synthesizeCultureProfile` (Internal Strategist, local plane,
+ *    no network access of its own): partitions gathered evidence into
+ *    fact/opinion/theme/contradiction/inference and builds the source-rights
+ *    disclosure — pure synthesis over what Learning already gathered, per
+ *    Internal Strategist's `agents.ts` boundary ("never invents evidence").
+ */
+export const JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE = "jobpilot.culture_research";
+export const RESEARCH_CULTURE_SOURCE_TASK_TYPE = "research_culture_source";
+export const SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE = "synthesize_culture_profile";
+
+/** Injectable so tests never perform a real network call (mirrors this file's
+ * own `provisionRoleModelRecommendationTask`/Wikipedia-fetch precedent in
+ * router.ts, which tests by stubbing `globalThis.fetch`, not by threading a
+ * fetcher param — either shape works; this Skill takes an explicit fetcher
+ * parameter so a caller CAN swap it without touching global state, while
+ * `buildWiring()` below always registers the REAL default in production). */
+export type CultureSourceFetcher = (url: string) => Promise<string>;
+
+const CULTURE_FETCH_TIMEOUT_MS = 8_000;
+const MAX_CULTURE_EXCERPT_CHARS = 6_000;
+const CULTURE_RESEARCH_USER_AGENT =
+  "Bridge/0.1 jobpilot-culture-research (research; see docs/raw/brd-jobpilot-2026-07.md)";
+
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The REAL fetcher: SSRF-guarded (guard runs immediately before the call,
+ * since DNS answers can change between calls — see net-guard.ts's doc
+ * comment), timeout-bounded, and returns raw response text for the caller to
+ * reduce to a plain-text excerpt. */
+export async function defaultCultureSourceFetcher(url: string): Promise<string> {
+  await assertOutboundAllowed(url);
+  const response = await fetch(url, {
+    headers: { "user-agent": CULTURE_RESEARCH_USER_AGENT },
+    redirect: "follow",
+    signal: AbortSignal.timeout(CULTURE_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`jobpilot.researchCultureSource: fetch failed with ${response.status} ${response.statusText}`);
+  }
+  return response.text();
+}
+
+export interface ResearchCultureSourceInput {
+  sourceType: CultureSourceType;
+  sourceLabel: string;
+  url: string;
+}
+
+export interface ResearchCultureSourceOutput {
+  sourceType: CultureSourceType;
+  sourceLabel: string;
+  url: string;
+  retrievedAt: string;
+  excerpt: string;
+}
+
+/**
+ * Builds the Learning culture-source-research Skill. Re-checks source-type
+ * eligibility at the Skill boundary too (defense in depth) — the router's
+ * `planCultureSources` gate is the PRIMARY enforcement (it never even calls
+ * this Skill for a non-`permitted` source), but this Skill must not silently
+ * trust that every future caller remembered to gate first.
+ */
+export function createResearchCultureSourceSkill(fetcher: CultureSourceFetcher = defaultCultureSourceFetcher): Skill {
+  return {
+    name: "jobpilot.researchCultureSource",
+    async run(inputs) {
+      const input = inputs as ResearchCultureSourceInput;
+      const classification = classifyCultureSource(input.sourceType);
+      if (classification.eligibility !== "permitted") {
+        throw new Error(
+          `jobpilot.researchCultureSource: source type "${input.sourceType}" is "${classification.eligibility}" — ${classification.reason}`,
+        );
+      }
+      const html = await fetcher(input.url);
+      const excerpt = stripHtmlToText(html).slice(0, MAX_CULTURE_EXCERPT_CHARS);
+      const output: ResearchCultureSourceOutput = {
+        sourceType: input.sourceType,
+        sourceLabel: input.sourceLabel,
+        url: input.url,
+        retrievedAt: new Date().toISOString(),
+        excerpt,
+      };
+      return { proposedOutput: output, diff: { to: output } };
+    },
+  };
+}
+
+export interface SynthesizeCultureProfileInput {
+  evidence: CultureEvidence[];
+  skippedSources: CultureSkippedSource[];
+}
+
+export interface SynthesizeCultureProfileOutput {
+  partition: CultureEvidencePartition;
+  disclosure: CultureSourceDisclosure;
+}
+
+/**
+ * Internal Strategist's synthesis Skill — no network access, no invented
+ * evidence: partitions exactly the evidence it was given and builds the
+ * rights/access disclosure. Fails closed (throws, never silently drops) if
+ * ANY claim fails the fabrication/insider-claim guard — JP3B exit criterion
+ * "generated materials contain no invented personal affinity, insider claim,
+ * or defamatory assertion" is enforced HERE, not left to a downstream reviewer
+ * to catch after the fact.
+ */
+const synthesizeCultureProfile: Skill = {
+  name: "jobpilot.synthesizeCultureProfile",
+  async run(inputs) {
+    const input = inputs as SynthesizeCultureProfileInput;
+    for (const item of input.evidence) {
+      const check = assertNoFabricatedAffinityOrInsiderClaim(item.claimText);
+      if (!check.clean) {
+        throw new Error(
+          `jobpilot.synthesizeCultureProfile: claim "${item.id}" failed the fabrication/insider-claim guard: ${check.violations.join(", ")}`,
+        );
+      }
+    }
+    const partition = partitionCultureEvidence(input.evidence);
+    const disclosure = buildSourceDisclosure(input.evidence, input.skippedSources);
+    const output: SynthesizeCultureProfileOutput = { partition, disclosure };
+    return { proposedOutput: output, diff: { to: output } };
+  },
+};
+
+export const JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST = {
+  workspaceId: PILOT_WORKSPACE,
+  skillId: "jobpilot.researchCultureSource",
+  version: "1.0.0",
+  goalTypes: [JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE],
+  taskTypes: [RESEARCH_CULTURE_SOURCE_TASK_TYPE],
+  permissions: ["external:fetch:read"],
+  plane: "cloud",
+  dataScopes: ["public"],
+  riskBand: "external",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "allowed",
+} as const;
+
+export const JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST = {
+  workspaceId: PILOT_WORKSPACE,
+  skillId: "jobpilot.synthesizeCultureProfile",
+  version: "1.0.0",
+  goalTypes: [JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE],
+  taskTypes: [SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["internal_strategist"],
+  childRunPolicy: "forbidden",
+} as const;
+
+/**
  * AGS1 real-catalog migration (TASK-007 closure) — Help Offer drafting was
  * previously staged via the generic `stageMutation` kernel passthrough
  * (resourceType `"signal"`, action `"write"`, a Human actor) — the ONE
@@ -623,6 +820,8 @@ export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
   STAGE_CAPTURE_SKILL_MANIFEST,
+  JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST,
+  JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST,
   ...GOOGLE_SKILL_MANIFESTS,
 ];
 
@@ -688,17 +887,27 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   ]);
 
   agents.assumed.set(LEARNING_AGENT, "role-learning");
-  agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write"]);
+  // AGS1 (TASK-011) — "external:fetch:read" added so Learning may perform its
+  // OWN culture-research sourcing (BRD agents.Learning: "research company,
+  // culture... with provenance and rights controls"), the same permission
+  // shape EGRESS_AGENT already holds for DealPilot/Google sourcing. Learning
+  // still only reaches "cloud" plane for this ONE Task type when the actor
+  // itself declares plane:"cloud" on the call (see
+  // JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST) — it gains no standing
+  // internet access for anything else.
+  agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write", "external:fetch:read"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
     "stageLearningRecommendation",
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
+    "jobpilot.researchCultureSource",
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
   ]);
 
   // Internal Strategist (AGS0/AGS1, TASK-007) — local, analysis/synthesis only.
@@ -1062,7 +1271,9 @@ export async function buildWiring(): Promise<Wiring> {
     .register(stageLearningRecommendation)
     .register(stageStrategicRecommendation)
     .register(stageHelpdeskAnswer)
-    .register(stageOutreachDraft);
+    .register(stageOutreachDraft)
+    .register(createResearchCultureSourceSkill())
+    .register(synthesizeCultureProfile);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;

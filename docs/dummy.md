@@ -35,6 +35,22 @@ its real data source exists, and an empty state would hide the thing being revie
   **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
   data for product demonstrations and future end-to-end child-executor evidence.
 
+- **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`).
+  **Reason:** the end-to-end governed-Skill test must never make a real network call in CI. `globalThis.fetch`
+  is stubbed (same convention as `security-hardening.test.ts`'s onboarding role-model test) so no live HTTP
+  request happens; the ONE candidate "permitted" source's test URL uses a real, non-reserved public IP
+  literal (`1.1.1.1`) rather than a hostname so the actual (unstubbed) SSRF guard's DNS-independent
+  literal-IP path is exercised fully offline; the "skipped" candidate sources (Glassdoor/Reddit/Google
+  reviews) likewise use real public IP literals since they are classified and rejected before any network
+  access is attempted. All test-only company/claim text is `test_fixture_`-prefixed in spirit (labelled
+  "test_fixture Co"/"test_fixture Careers" etc.) even though it is plain string data, not a `dummy_`
+  identifier.
+  **Real elements they stand in for:** a real candidate company's official careers page fetch, a real
+  Learning-Agent-owned bounded child Agent Run, and a real Internal-Strategist culture-evidence synthesis.
+  **Removal condition:** retain as the permanent deterministic regression suite for this Skill; the BCG
+  Application Record's own `cultureResearch` data (`platform/apps/web/src/app/data/bcg-application.ts`) is
+  the real, live-fetched product-surface counterpart and carries no dummy/test-fixture data itself.
+
 - **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
   `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).
   **Reason:** deterministic pre-migration UUID Skill allowlists and singular/ambiguous Automation ownership
