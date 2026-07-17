@@ -8,6 +8,15 @@ export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-
 export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
+  DrizzleRelationMaterializationStore,
+  type EnsureRelationMaterializationInput,
+  type RelationMaterializationAttempt,
+  type RelationMaterializationCursor,
+  type RelationMaterializationEffect,
+  type RelationMaterializationPage,
+  type RelationMaterializationStatus,
+} from "./relation-materialization-store.js";
+export {
   DrizzleRoleStore,
   DrizzleAgentStore,
   DrizzleEphemeralStore,
@@ -15,12 +24,14 @@ export {
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureRelationshipUserGovernance,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
   type InternalStrategistGovernanceConfig,
+  type RelationshipUserGovernanceConfig,
   type FoundationalAgentGovernanceConfig,
   type LearningAgentGovernanceConfig,
   type OutreachAgentGovernanceConfig,
@@ -47,11 +58,20 @@ export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./work
 export {
   DrizzleGraphStore,
   type CommunityRecord,
+  type MaterializeSignalEvidenceInput,
+  type NodeTypeOwner,
   type PageOpts,
   type Page,
   type PersonRecord,
+  type RelationCursor,
+  type RelationPage,
+  type RelationRecord,
+  type RelationVisibility,
   type SignalDetail,
+  type SignalEvidenceAnchor,
   type SignalParticipant,
+  type SignalParticipantRelationInput,
+  type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";
 export {
@@ -80,6 +100,7 @@ export { DrizzleChildAgentRunStore } from "./child-agent-run-store.js";
 
 import type { Database as Db } from "./client.js";
 import { DrizzleLedgerStore } from "./ledger-store.js";
+import { DrizzleRelationMaterializationStore } from "./relation-materialization-store.js";
 import {
   DrizzleAgentStore,
   DrizzleEphemeralStore,
@@ -94,13 +115,17 @@ import {
 import { DrizzleWorkspaceStore } from "./workspace-store.js";
 
 /** All Drizzle-backed ports, ready to hand to the core pipeline + executor. */
-export function createDrizzlePorts(db: Db) {
+export function createDrizzlePorts(
+  db: Db,
+  options: { defaultWorkspaceId?: string } = {},
+) {
   return {
     roles: new DrizzleRoleStore(db),
     agents: new DrizzleAgentStore(db),
     ephemeral: new DrizzleEphemeralStore(db),
     policies: new DrizzlePolicyStore(db),
-    ledger: new DrizzleLedgerStore(db),
+    ledger: new DrizzleLedgerStore(db, options),
+    relationMaterializations: new DrizzleRelationMaterializationStore(db),
     ritualRegistry: new DrizzleRitualRegistry(db),
     toolRegistry: new DrizzleToolRegistry(db),
     ritualRunRecorder: new DrizzleRitualRunRecorder(db),
