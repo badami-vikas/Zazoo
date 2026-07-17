@@ -32,6 +32,8 @@ export interface LocalDbConfig {
    * (dist) layouts.
    */
   migrationsFolder?: string;
+  /** Optional query observer used by bounded-query regression tests. */
+  queryLogger?: { logQuery(query: string, params: unknown[]): void };
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,7 +65,10 @@ export async function createLocalDb(
       : { extensions: { vector } }, // no dataDir => in-memory
   );
   await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
-  const db = drizzle(client, { schema });
+  const db = drizzle(client, {
+    schema,
+    ...(config.queryLogger ? { logger: config.queryLogger } : {}),
+  });
   await migrate(db, {
     migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
   });

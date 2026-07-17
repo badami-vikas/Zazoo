@@ -347,7 +347,7 @@ export function SignalDetailPage() {
 
   const actionable =
     detail.signal.id === signalId &&
-    detail.participants.length > 0 &&
+    detail.participants.some(participant => participant.relationType === "participant" && participant.relationId) &&
     detail.sourceEvent !== null;
   return (
     <div className="flex-1 overflow-auto">
