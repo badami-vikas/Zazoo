@@ -48,8 +48,11 @@ superseded.** Since then:
   evidence/provenance/visibility/validity/owner fields, owning-Module node
   types, owner-scoped uniqueness, `materializeSignalEvidence`/`upsertRelation`/
   bounded Relation reads, and approved-proposal materialization/reconciliation
-  — proven on audit branch `db2b19c` but not yet reconciled onto `main`
-  (planned as migration `0015`+, after TASK-007's `0014`).
+  — implemented on the active, reviewed RM4 branch
+  `manishsbhoopalam8498-implement-rm4-relations` (currently `488d1e4`, plus one
+  final ledger-integrity fix in progress), as migration
+  `0015_task008_relation_contract.sql`, pending central integration onto
+  `main`.
 
 ## 1. Exact post-RM4 data contract
 
@@ -57,14 +60,23 @@ superseded.** Since then:
 `212e65f`) remains the Relation table: `id, workspaceId, srcType, srcId,
 dstType, dstId, edgeType, properties jsonb, createdAt`, indexed both
 directions (`edges_src_idx`, `edges_dst_idx`), RLS-enabled
-(`migrations/0008_rls_as_code.sql`). **RM4 (branch `db2b19c`, not yet on
-`main`) adds exactly what Second Brain/Graph-view needs and must not
-re-invent:**
+(`migrations/0008_rls_as_code.sql`). **RM4 — active, reviewed branch
+`manishsbhoopalam8498-implement-rm4-relations`, currently `488d1e4` plus one
+final ledger-integrity fix in progress, migration
+`0015_task008_relation_contract.sql`, pending central integration onto
+`main`** — adds exactly what Second Brain/Graph-view needs and must not
+re-invent:
 
 - Relation **evidence/provenance/visibility/validity/owner fields** on the
-  Relation model (exact column set to be confirmed at RM4 merge — do not
-  guess the shape further than BUGS.md's list; the merge PR is the source of
-  truth).
+  `edges` table, confirmed by reading the active branch's `schema.ts`:
+  `evidenceRefs` (jsonb array of typed evidence refs), `confidence` (numeric),
+  `observedAt`/`validFrom`/`validTo` (timestamps), `userConfirmed` (boolean),
+  `visibility`, `source`, `sourceModule` (text), `ownerUserId` (FK to
+  `users`), and `decisionLedgerId`/`decisionSequence`/`decisionAt` (the
+  approved-proposal↔ledger reconciliation fields). Named here for planning
+  accuracy, but treat as **pending final integration** — the branch carries
+  one more in-progress ledger-integrity fix, and the merged shape on `main`
+  is the eventual source of truth, not this branch snapshot.
 - **Owning-Module node types** — RM4 introduces the mapping from a
   `srcType`/`dstType` string to the Module that owns that Record type. This
   is precisely the "node-type → owning-Module registry" gap the prior plan
@@ -336,10 +348,13 @@ before RM4/TASK-014 land:
    graphs need real rendering too, independent of Second Brain).
 2. Drafting the Relation-type filter UI/interaction design (works the same
    at any scope, doesn't need RM4's exact schema to sketch).
-3. Reviewing RM4's merge PR (branch `db2b19c`) once posted, specifically for
-   whether its owning-Module node-type registry and bounded-read shape match
-   what Graph view's scope selector needs — flag mismatches early rather than
-   after TASK-014 starts building against it.
+3. Reviewing the active RM4 branch
+   (`manishsbhoopalam8498-implement-rm4-relations`, currently `488d1e4` plus
+   one final ledger-integrity fix in progress) before/at its central
+   integration onto `main`, specifically for whether its owning-Module
+   node-type registry and bounded-read shape match what Graph view's scope
+   selector needs — flag mismatches early rather than after TASK-014 starts
+   building against it.
 
 Everything else — the traversal query, the scope selector, the renderer, the
 authority contract for bounded/full-scope reads — is TASK-014 execution,
@@ -355,10 +370,15 @@ gated on RM4.
   TASK-014 Graph-renderer implementation at `multi_database`/`full` scope —
   recommend it gets its own ADR at or before RM4's merge, not discovered
   mid-implementation.
-- **RM4's exact evidence/provenance/validity/owner column names** are not
-  yet visible from `main` (branch-only). This handoff deliberately avoids
-  guessing them further than BUGS.md's list to prevent TASK-014 building
-  against a fictional shape — confirm against the actual RM4 merge diff.
+- **RM4's evidence/provenance/validity/owner column names** are now confirmed
+  by reading the active branch (§1: `evidenceRefs`, `confidence`,
+  `observedAt`/`validFrom`/`validTo`, `userConfirmed`, `visibility`, `source`,
+  `sourceModule`, `ownerUserId`, `decisionLedgerId`/`decisionSequence`/
+  `decisionAt`) — no longer an unresolved guess. What remains open is only
+  whether central integration changes this shape: the branch has one more
+  ledger-integrity fix in progress, so confirm the final merged column set
+  against `main` once RM4 lands rather than assuming this branch snapshot is
+  final.
 - **Virtualization for `full`-scope large node sets** (§7) has no chosen
   library or approach yet, shared with `TableView`'s own gap — worth deciding
   once, not twice, when TASK-014 starts.
