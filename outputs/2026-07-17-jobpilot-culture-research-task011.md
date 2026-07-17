@@ -813,3 +813,13 @@ cleanly in this run too), `@bridge/web` 55/55 + clean build/typecheck, full mono
 
 Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
 `docs/log.md` remain untouched (status NOT flipped).
+
+## Ninth review — clean
+
+A final independent adversarial re-review of `b4134b8` (including empirical fix-reversion
+testing of `writeIfAbsent`, `recordProposal`'s reconciliation check, and the `requestCancel`
+retry loop — each temporarily reverted in a scratch copy and confirmed the corresponding new
+test then fails) found **no security vulnerabilities**. It also confirmed the round-7 SSRF/
+redirect-origin allowlist, source-policy snapshot pinning, IPv6 hardening, cross-origin header
+allowlist, budget bounds, and deterministic derived-claim text are all untouched and unregressed
+by round 8's changes. Current head: `b4134b8`.
