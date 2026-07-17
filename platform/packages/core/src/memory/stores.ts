@@ -59,19 +59,26 @@ export class InMemoryRoleStore implements RoleQuery {
 export class InMemoryAgentStore implements AgentQuery {
   readonly assumed = new Map<string, string | null>();
   readonly scope = new Map<string, string[]>();
+  /** Owning workspace per agent (AgentQuery.workspaceId — added alongside
+   * relationship-module trust boundaries; unset = unknown, never guessed). */
   readonly workspaces = new Map<string, string>();
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — the canonical Agent status vocabulary (`active` | `paused`
+   * | `retired`) used by `AgentQuery`/entities elsewhere in this codebase,
+   * not a narrower ad hoc `active`/`inactive` pair. Unset defaults to
+   * effectively-inactive (fail closed — an agent must be explicitly seeded
+   * `active`, mirrors `DrizzleAgentStore.isActive`'s real-row-or-false
+   * shape, never assumes). Merging `origin/main`'s independent
+   * `fail-closed-for-unseeded-agents` fix (`212e65f`) found it used a
+   * WEAKER `"active" | "inactive"` vocabulary — this branch's richer
+   * vocabulary is authoritative (see this file's own git history/PR
+   * discussion): `assumedRole` existing must never, by itself, make an
+   * unknown/unseeded/paused/retired agent look active. */
   readonly statuses = new Map<string, "active" | "paused" | "retired">();
   /** Per-agent data-tier ceiling. Default 'all' when unset. */
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
-  /** Owning workspace per agent (AgentQuery.workspaceId — added alongside
-   * relationship-module trust boundaries; unset = unknown, never guessed). */
-  readonly workspaces = new Map<string, string>();
-  /** Active/inactive per agent (AgentQuery.isActive). Unset defaults to
-   * INACTIVE (fail closed — an agent must be explicitly seeded active, mirrors
-   * `DrizzleAgentStore.isActive`'s real-row-or-false shape, never assumes). */
-  readonly statuses = new Map<string, "active" | "inactive">();
 
   async workspaceId(agentId: string): Promise<string | null> {
     return this.workspaces.get(agentId) ?? null;
@@ -90,12 +97,6 @@ export class InMemoryAgentStore implements AgentQuery {
   }
   async allowedSkills(agentId: string): Promise<string[]> {
     return this.skills.get(agentId) ?? [];
-  }
-  async workspaceId(agentId: string): Promise<string | null> {
-    return this.workspaces.get(agentId) ?? null;
-  }
-  async isActive(agentId: string): Promise<boolean> {
-    return this.statuses.get(agentId) === "active";
   }
 }
 
