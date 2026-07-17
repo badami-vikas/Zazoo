@@ -1645,3 +1645,10 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - `docs/requests.md`: R-039 added.
 - 2026-07-17 — LLM inference optimization audit: verified zero runtime prompt optimization (no cache_control/batching/tiering; model = providers[0]); rejected text-as-image token hack; free-first stack map + ordered proposal recorded in outputs/2026-07-17-llm-inference-optimization-audit.md
 - 2026-07-17 — AP-038 applied: queued TASK-022 (inference cost optimization: prompt caching + model tiering) into docs/TASKS.md, appended to execution order after TASK-019; scope in outputs/2026-07-17-llm-inference-optimization-audit.md
+
+# 2026-07-18 — TASK-008 RM4 Relation contract completed and merged
+- Merged reviewed RM4 branch at `ff98c20` into `main` as `590cca6`, preserving DealPilot validation/effects, Relationship retry/reconciliation, Google/Package effects, and both persistent governance seeders.
+- Migration `0015_task008_relation_contract` adds evidence-bearing owner-scoped Relations, authoritative decision references, deterministic keyset reads, batched permission pruning, and durable pending/applied/failed materialization effects with bounded retry and stale-lease recovery.
+- Closed the RM4 omission bug under AP-030 after desktop/375px evidence plus core 422, DB 123, API 164, web 43, desktop 28, monorepo build/typecheck, migration no-drift, lint, no-dummy, and independent central-merge review. TASK-008 remains `in_progress` for its still-canonical RM1–RM6 Person/Timeline/Memory/Map/introductions/team scope; TASK-014/TASK-009 own the cross-Module Graph renderer.
+- ADR-111 records decision-before-effect, database-sequence convergence, and `ref_ledger_id`-only proposal identity. Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
+- Blast-radius fix: the Task Manager prebuild parser now accepts canonical `## title` + `- ID: TASK-NNN` sections as well as legacy headings. Before the fix, every build silently generated zero task rows after the heading refactor. Added ordering/current-format regression coverage and regenerated all 22 records.
