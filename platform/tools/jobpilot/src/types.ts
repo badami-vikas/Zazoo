@@ -22,13 +22,17 @@ export interface JobProfile {
   [field: string]: unknown;
 }
 
-export type FlagColor = "green" | "yellow" | "red";
+// AP-023 (2026-07-15) / docs/raw/ui-architecture-rules-2026-07.md §5d — Green/yellow
+// feedback flags are removed platform-wide; "Red Flag" is the one reserved platform
+// feedback primitive (docs/glossary.md). This is a domain FIT recommendation, not
+// feedback — it gets an explicit label, never color-only semantics.
+export type FitRecommendation = "pursue" | "review" | "pass";
 
 export interface FitResult {
   score: number; // 0..1
-  flag: FlagColor;
-  greenFlags: string[];
-  redFlags: string[];
+  flag: FitRecommendation;
+  strengths: string[];
+  concerns: string[];
 }
 
 // Deterministic fabrication-guard verdict (architecture doc S4.2 stage 1) — the LLM-judge stage

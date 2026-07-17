@@ -387,6 +387,7 @@ export async function ensureLearningAgentGovernance(
       "stageStrategicRecommendation",
       "helpdesk.stageAnswer",
       "stageCapture",
+      "learning.proposePreferenceAdjustment",
     ],
     dataScope: "all",
   });

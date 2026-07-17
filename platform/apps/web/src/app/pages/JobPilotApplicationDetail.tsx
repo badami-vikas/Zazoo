@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { BCG_APPLICATION, artifactById, type ApplicationArtifact, type ArtifactStatus } from '../data/bcg-application';
 import { EditableField } from '../components/shared/EditableField';
+import { RedFlagControl } from '../components/shared/RedFlagControl';
 import { useLocalEdits } from '../lib/useLocalEdits';
 
 type TabId = 'overview' | 'artifacts' | 'interview' | 'evidence';
@@ -237,18 +238,23 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
             />
             {section.bullets && (
               <ul className="mt-3 space-y-2">
-                {section.bullets.map((bullet, j) => (
-                  <li key={j} className="flex gap-2 text-sm leading-6" style={{ color: 'var(--color-navy-mid)' }}>
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />
-                    <EditableField
-                      value={fieldValue(`s${i}.b${j}`, bullet)}
-                      baseValue={bullet}
-                      onSave={(v) => setEdit(`s${i}.b${j}`, v)}
-                      as="span"
-                      className="flex-1 text-sm leading-6"
-                    />
-                  </li>
-                ))}
+                {section.bullets.map((bullet, j) => {
+                  const bulletValue = fieldValue(`s${i}.b${j}`, bullet);
+                  return (
+                    <li key={j} className="flex gap-2 text-sm leading-6" style={{ color: 'var(--color-navy-mid)' }}>
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />
+                      <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: artifact.id, bulletPath: `s${i}.b${j}` }} renderedValue={bulletValue} className="flex-1">
+                        <EditableField
+                          value={bulletValue}
+                          baseValue={bullet}
+                          onSave={(v) => setEdit(`s${i}.b${j}`, v)}
+                          as="span"
+                          className="flex-1 text-sm leading-6"
+                        />
+                      </RedFlagControl>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -364,18 +370,23 @@ export function JobPilotApplicationDetail() {
                         <CheckCircle2 className="h-4 w-4" />Why pursue
                       </h3>
                       <ul className="space-y-2">
-                        {application.fit.strengths.map((item, i) => (
-                          <li key={i}>
-                            <EditableField
-                              value={overviewEdits.fieldValue(`fit.strength.${i}`, item)}
-                              baseValue={item}
-                              onSave={(v) => overviewEdits.setEdit(`fit.strength.${i}`, v)}
-                              as="span"
-                              className="text-sm leading-5"
-                              style={{ color: 'var(--color-navy-mid)' }}
-                            />
-                          </li>
-                        ))}
+                        {application.fit.strengths.map((item, i) => {
+                          const strengthValue = overviewEdits.fieldValue(`fit.strength.${i}`, item);
+                          return (
+                            <li key={i}>
+                              <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: application.id, bulletPath: `fit.strength.${i}` }} renderedValue={strengthValue}>
+                                <EditableField
+                                  value={strengthValue}
+                                  baseValue={item}
+                                  onSave={(v) => overviewEdits.setEdit(`fit.strength.${i}`, v)}
+                                  as="span"
+                                  className="text-sm leading-5"
+                                  style={{ color: 'var(--color-navy-mid)' }}
+                                />
+                              </RedFlagControl>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                     <div>
@@ -383,18 +394,23 @@ export function JobPilotApplicationDetail() {
                         <AlertTriangle className="h-4 w-4" />Resolve first
                       </h3>
                       <ul className="space-y-2">
-                        {application.fit.concerns.map((item, i) => (
-                          <li key={i}>
-                            <EditableField
-                              value={overviewEdits.fieldValue(`fit.concern.${i}`, item)}
-                              baseValue={item}
-                              onSave={(v) => overviewEdits.setEdit(`fit.concern.${i}`, v)}
-                              as="span"
-                              className="text-sm leading-5"
-                              style={{ color: 'var(--color-navy-mid)' }}
-                            />
-                          </li>
-                        ))}
+                        {application.fit.concerns.map((item, i) => {
+                          const concernValue = overviewEdits.fieldValue(`fit.concern.${i}`, item);
+                          return (
+                            <li key={i}>
+                              <RedFlagControl anchor={{ moduleId: 'job-pilot', recordId: application.id, bulletPath: `fit.concern.${i}` }} renderedValue={concernValue}>
+                                <EditableField
+                                  value={concernValue}
+                                  baseValue={item}
+                                  onSave={(v) => overviewEdits.setEdit(`fit.concern.${i}`, v)}
+                                  as="span"
+                                  className="text-sm leading-5"
+                                  style={{ color: 'var(--color-navy-mid)' }}
+                                />
+                              </RedFlagControl>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   </div>

@@ -166,13 +166,13 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Dependencies: TASK-008
 
 ## TASK-010 — Platform red-flag correction feedback
-- Status: ready
+- Status: in_progress
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.
 - Prototype test: Hover/focus a cell and bullet, flag each, explain scope, undo it, inspect the audit evidence, and verify no green/yellow feedback semantics remain.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md §5d; docs/raw/agent-goal-skill-orchestration-plan-2026-07.md
-- Evidence: user feedback-mechanism correction 2026-07-15
+- Evidence: user feedback-mechanism correction 2026-07-15; [TASK-010 output](../outputs/2026-07-17-task010-red-flag-feedback.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells) and JobPilotApplicationDetail.tsx (rendered bullets), plus a Settings > Learning "Red flags" audit section; `redFlag.create/clear/reopen/updateReason/forget/listForAnchor/listAll` write Human-authored correction Memory directly (never through the Agent/Skill pipeline) and separately start a governed `learning.proposePreferenceAdjustment` Skill run (Goal/Task-resolved, always drafts, never auto-applies); DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023) and the orphaned pre-canon `FlagIcon.tsx` deleted; core 421, DB 107, API 177 (incl. 7 new redFlag tests), JobPilot 93, DealPilot 72, Commons 22, web 56 (incl. 7 new) tests, full monorepo typecheck/build (40/40), changed-file lint, and no-dummy-runtime all pass clean; live HTTP smoke test against a running API server confirmed create/clear/reopen/listAll/fail-closed-direct-invocation end-to-end. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click interaction (only source-level and HTTP-level verification done so far).
 - Requests: red-flag directive 2026-07-15
 - Approval: AP-023 and AP-029 applied
 - Dependencies: TASK-001; TASK-007

@@ -63,6 +63,12 @@ export class InMemoryAgentStore implements AgentQuery {
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
+  /** Owning workspace per physical Agent identity. Default null (unknown) when unset. */
+  readonly workspaces = new Map<string, string>();
+  /** Active/inactive per physical Agent identity. Default "active" when unset — a
+   * permissive default matching every other unset-ceiling default on this class,
+   * so tests/call sites predating AGS1's `isActive` gate keep working unchanged. */
+  readonly statuses = new Map<string, "active" | "inactive">();
 
   async assumedRole(agentId: string): Promise<string | null> {
     return this.assumed.get(agentId) ?? null;
@@ -75,6 +81,12 @@ export class InMemoryAgentStore implements AgentQuery {
   }
   async allowedSkills(agentId: string): Promise<string[]> {
     return this.skills.get(agentId) ?? [];
+  }
+  async workspaceId(agentId: string): Promise<string | null> {
+    return this.workspaces.get(agentId) ?? null;
+  }
+  async isActive(agentId: string): Promise<boolean> {
+    return (this.statuses.get(agentId) ?? "active") === "active";
   }
 }
 

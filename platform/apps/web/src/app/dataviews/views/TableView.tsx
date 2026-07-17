@@ -10,6 +10,8 @@
  */
 import { applyFilters, applySorts } from "@bridge/tables";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table.js";
+import { RedFlagControl } from "../../components/shared/RedFlagControl.js";
+import { isFlaggableValue } from "../eligibility.js";
 import type { DataViewProps } from "../types.js";
 
 export function TableView({ spec, view, data, onViewChange }: DataViewProps) {
@@ -52,13 +54,28 @@ export function TableView({ spec, view, data, onViewChange }: DataViewProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sorted.map((row, i) => (
-            <TableRow key={String(row["id"] ?? i)}>
-              {spec.columns.map((col) => (
-                <TableCell key={col.id}>{formatCell(row[col.id])}</TableCell>
-              ))}
-            </TableRow>
-          ))}
+          {sorted.map((row, i) => {
+            const recordId = String(row["id"] ?? i);
+            return (
+              <TableRow key={recordId}>
+                {spec.columns.map((col) => {
+                  const value = row[col.id];
+                  const cell = formatCell(value);
+                  return (
+                    <TableCell key={col.id}>
+                      {isFlaggableValue(value) ? (
+                        <RedFlagControl anchor={{ moduleId: spec.id, recordId, fieldId: col.id }} renderedValue={cell}>
+                          {cell}
+                        </RedFlagControl>
+                      ) : (
+                        cell
+                      )}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

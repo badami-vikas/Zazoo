@@ -65,3 +65,18 @@ export function computeEligibleKinds(spec: TableSpec, isRelationship = false): V
   kinds.push("form");
   return kinds;
 }
+
+/**
+ * TASK-010 (docs/raw/ui-architecture-rules-2026-07.md §5d) — whether a
+ * rendered cell/bullet value is "eligible" for the platform Red Flag control.
+ * Mirrors TableView.tsx's own emptiness check (`formatCell`'s "—" fallback)
+ * so eligibility never drifts from what's actually shown: an empty/absent
+ * value, a control/action element, or a column header is not a data value a
+ * Human could meaningfully flag as incorrect.
+ */
+export function isFlaggableValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}

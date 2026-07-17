@@ -813,7 +813,7 @@ export const jobpilotApplications = pgTable(
     workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
     jobId: uuid("job_id").notNull().references(() => jobpilotJobs.id),
     stage: text("stage").notNull().default("queued"),
-    flag: text("flag"), // green | yellow | red
+    flag: text("flag"), // pursue | review | pass (AP-023 — no green/yellow feedback semantics)
     fitScore: numeric("fit_score"),
     createdAt: now(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
