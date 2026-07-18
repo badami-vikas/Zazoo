@@ -1675,7 +1675,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 # 2026-07-18 — TASK-008 Relationship continuity checkpoint
 - Candidate A now carries RM1-RM2 plus an independently mergeable RM3/RM4/RM5 continuation: owner-scoped Memory correction/forget, commitment Event snapshots, grounded meeting preparation/follow-up, bounded visibility-pruned paths, Community composition, and double-consent Introduction Event snapshots.
 - Introductions cannot complete before both recorded consents. Decline-reason contents remain private. The surface records state only and has no external-send path.
-- Existing Memory, Event, Relation, Action Pipeline, and Local Plane seams were reused. No migration was added; TASK-010's `0016` remains untouched. ADR-113 records the storage/lifecycle call.
+- Existing Memory, Event, Relation, Action Pipeline, and Local Plane seams were reused. No migration was added; TASK-010's `0016` remains untouched. ADR-115 records the storage/lifecycle call.
 - DB 130, API 176, web 51, typecheck 37/37, build 20/20, focused lint, no-dummy, live desktop/exact-375px honest-empty People evidence, and independent correctness/security review passed. The monorepo-wide aggregate test command still exposes the unrelated Sensors package's pre-existing 38% coverage-threshold failure (36.92%).
 - TASK-008 remains `in_progress`. Persistent user-defined Automations, runtime-wired team delegation, export/disconnect/forget orchestration, and held-out eval execution remain explicit. Durable outcome: `outputs/2026-07-18-task-008-relationship-continuity.md`.
 
@@ -1683,3 +1683,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Compared all reachable refs and landed `main` history by author identity, additions/deletions, unique files, active days, and explicit Claude/Copilot coauthor trailers.
 - Found lower cumulative Manish churn but higher time-normalized current churn; kept Vikas-authored and Claude-coauthored credits overlapping to avoid falsely assigning shared-commit lines.
 - Durable outcome: `outputs/2026-07-18-coding-pace-comparison.md`.
+
+# 2026-07-18 — TASK-003 failed-session recovery and review (AP-040, ADR-114)
+- Recovered the failed certification work from a read-only worktree onto current `origin/main`; independently reviewed every code, test, generated projection, and evidence change instead of merging the snapshot.
+- Accepted the tagged logical macOS coordinate model, native `Moved`-event debounce, launch-topology preservation, and NSPanel→Tauri-window close conversion.
+- Review hardening resolves the current same-label window at save time, flushes positions on exit, retries incomplete startup membership without re-anchoring valid restores, uses current expanded geometry when re-anchoring, and safely closes an ordinary Tauri window when panel registration never completed.
+- Preserved the reported real Retina-plus-two-external-display, extend→mirror→extend 3→2→3, Accessibility-driven move/relaunch, VoiceOver navigation, and fullscreen evidence without relabelling it as physical pointer drag, physical VoiceOver activation, or cable detach.
+- TASK-003 remains `blocked`. Recovery gates passed: desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, dependency/web build, web typecheck, targeted Avatar ESLint, and runtime no-dummy.
+- Durable outcome: `outputs/2026-07-18-task-003-avatar-certification.md`.

@@ -19,17 +19,13 @@
  * bottom-right corner pinned) — the panel is real OS chrome, not a div
  * overflowing a fixed window.
  *
- * **Drag (TASK-003)**: The collapsed avatar has a drag handle at its top with
- * `data-tauri-drag-region`. Tauri routes that attribute to the OS window-move
- * primitive (works on all platforms, no macOS-only dep). On drag end
- * (pointerup), `overlay_save_position` persists the physical window position;
- * `overlay_get_position` is called on mount to confirm the Rust-side restore
- * succeeded.
+ * **Drag (TASK-003)**: The collapsed avatar uses Tauri's native drag-region
+ * hook. Rust debounces the resulting native move events and saves the
+ * reconciled position. `overlay_get_position` is called on mount to confirm
+ * the Rust-side restore succeeded.
  *
- * **macOS Spaces / fullscreen (NOT implemented — local macOS session required)**
- * See overlay.rs module doc for the three specific macOS blockers
- * (tauri-nspanel, NSWindowCollectionBehaviorCanJoinAllSpaces,
- * NSWindowCollectionBehaviorFullScreenAuxiliary).
+ * On macOS the Rust window is an NSPanel configured for all Spaces and
+ * fullscreen auxiliary presence.
  */
 import { useEffect, useRef, useState } from "react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
@@ -109,9 +105,6 @@ export function OverlayApp() {
   const [chatSending, setChatSending] = useState(false);
   const [chatChainDepth, setChatChainDepth] = useState(0);
 
-  // Drag state — ref (not state) to avoid a re-render mid-drag.
-  const dragActiveRef = useRef(false);
-
   const expanded = panel !== "none";
 
   // Derived companion state (the machine's read model).
@@ -154,21 +147,6 @@ export function OverlayApp() {
       }
     });
   }, []);
-
-  // Drag end handler — attached once per pointerdown on the drag handle.
-  // Saves the window's new physical position after the OS drag completes.
-  function handleDragHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0) return;
-    dragActiveRef.current = true;
-    const onUp = () => {
-      if (dragActiveRef.current) {
-        dragActiveRef.current = false;
-        void tauriInvoke("overlay_save_position");
-      }
-      document.removeEventListener("pointerup", onUp);
-    };
-    document.addEventListener("pointerup", onUp, { once: true });
-  }
 
   // Window chrome follows the state machine. The right-click menu takes
   // priority over everything else — it's a modal-ish overlay on top of
@@ -455,10 +433,8 @@ export function OverlayApp() {
            * so the two hit areas are non-overlapping — the drag handle is for
            * moving the window; the button is for opening the status panel.
            *
-           * `data-tauri-drag-region` on the drag handle tells Tauri to initiate
-           * an OS-level window move when the user presses on it. This is the
-           * cross-platform-safe drag primitive (works on macOS, Windows, Linux).
-           * The `pointerdown` handler saves the position when the drag ends.
+           * Tauri's drag-region hook starts the native drag; Rust saves the
+           * final position from the resulting debounced window-move events.
            *
            * The handle is hidden while a panel is expanded — the window is
            * larger then and the user is interacting with content, not dragging.
@@ -467,7 +443,6 @@ export function OverlayApp() {
             {!expanded && (
               <div
                 data-tauri-drag-region
-                onPointerDown={handleDragHandlePointerDown}
                 role="button"
                 tabIndex={0}
                 aria-label={`Drag to move ${name}`}

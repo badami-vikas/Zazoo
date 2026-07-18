@@ -34,7 +34,7 @@ The implementation reuses:
 - RM4 Relation evidence/access pruning;
 - existing Module routes and shared UI grammar.
 
-ADR-113 records why continuity state remains in existing Memory/Event/Relation stores instead of adding mutable parallel tables.
+ADR-115 records why continuity state remains in existing Memory/Event/Relation stores instead of adding mutable parallel tables.
 
 ## Validation
 

@@ -74,11 +74,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md` (live NSPanel, single-display Space/fullscreen, pointer/keyboard/Accessibility controls, and deterministic topology evidence — physical drag/relaunch, VoiceOver, and extended-display matrix still unavailable)
+- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (reported real three-display mixed-DPI placement, Accessibility-driven cross-display move/native-event save/relaunch, actual VoiceOver navigation, fullscreen presence, external-display reposition, and extend→mirror→extend 3→2→3 pass — physical pointer drag/relaunch, human VoiceOver activation, and literal cable/power detach remain unclaimed)
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
-- Approval: AP-020 applied
+- Approval: AP-020, AP-026, and AP-040 applied
 - Dependencies: none
-- Unblock: Implementation is complete. Perform a human physical drag→save→relaunch, an actual VoiceOver control pass, and the external-display attach/detach/reposition/cross-display matrix. Space/fullscreen plus pointer/keyboard/Accessibility control paths now pass on the single-display host.
+- Unblock: Code defects found on the real three-display host are fixed. A human must still perform physical pointer drag→save→quit/relaunch and activate close/minimize/zoom with physical VoiceOver input; perform a literal cable/power detach→attach too if the acceptance phrase requires that rather than the passing real-hardware extend→mirror→extend topology removal/re-add. Existing Space/fullscreen and pointer/keyboard/Accessibility paths remain passing.
 
 ## Commons install and trust prototype
 - ID: TASK-004

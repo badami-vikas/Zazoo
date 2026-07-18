@@ -4,7 +4,7 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
-## 2026-07-18 — Relationship continuity storage (ADR-113)
+## 2026-07-18 — Relationship continuity storage (ADR-115)
 - Memory stays Memory. Corrections append. Forget removes lineage.
 - Commitments + Introductions = private Event snapshots + evidence Relations.
 - Intro completes only after two recorded consents. No send.
