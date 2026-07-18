@@ -2,6 +2,8 @@
 
 Historical batch detail moved to [`docs/raw/progress-archive-2026-07.md`](raw/progress-archive-2026-07.md). It remains available for audit; it is not an execution queue.
 
+User-requested paused-session/subagent restart context lives in [`docs/Progress from Manish/README.md`](<Progress from Manish/README.md>). It is a resume aid, not an execution queue.
+
 ## Rules
 
 - Active execution order lives only in [`docs/TASKS.md`](TASKS.md).
