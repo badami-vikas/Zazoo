@@ -173,6 +173,8 @@ import type { DedupeCandidate } from "@bridge/dedupe";
 import {
   BUILT_IN_PACKAGES,
   DEALPILOT_SOURCING_AGENT_ID,
+  LEARNING_AGENT_RUNTIME_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
@@ -186,7 +188,7 @@ export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
-export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
+export const LEARNING_AGENT = LEARNING_AGENT_RUNTIME_ID;
 export const EGRESS_AGENT = DEALPILOT_SOURCING_AGENT_ID;
 const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
 const EGRESS_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c7";
@@ -374,7 +376,7 @@ const stageMutation: Skill = {
 };
 
 const stageLearningRecommendation: Skill = {
-  name: "stageLearningRecommendation",
+  name: LEARNING_RECOMMENDATION_SKILL_ID,
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -436,7 +438,7 @@ export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
-  skillId: "stageLearningRecommendation",
+  skillId: LEARNING_RECOMMENDATION_SKILL_ID,
   version: "1.0.0",
   goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
   taskTypes: [PRODUCE_RECOMMENDATION_TASK_TYPE],
@@ -727,7 +729,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
-    "stageLearningRecommendation",
+    LEARNING_RECOMMENDATION_SKILL_ID,
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",

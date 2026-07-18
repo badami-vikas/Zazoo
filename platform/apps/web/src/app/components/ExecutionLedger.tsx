@@ -276,7 +276,15 @@ export function ExecutionLedger() {
                 </Section>
 
                 {/* proposed + diff */}
-                <Section title={open.prior ? 'Proposed · diff vs prior' : 'Proposed'}>
+                <Section
+                  title={
+                    open.decision === 'edited_approved'
+                      ? 'Applied after correction'
+                      : open.prior
+                        ? 'Proposed · diff vs prior'
+                        : 'Proposed'
+                  }
+                >
                   <div className="text-xs whitespace-pre-wrap leading-relaxed font-sans">
                     {diffLines(open.prior, open.proposed).map((l, i) => (
                       <div key={i} className="px-1.5 -mx-1.5 rounded" style={{

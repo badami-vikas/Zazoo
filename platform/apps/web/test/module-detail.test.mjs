@@ -231,3 +231,14 @@ test("Module Automation Run delegates to server-owned ritual execution and exist
   assert.match(source, /to="\/approvals"/);
   assert.match(source, /Review or correct in Approvals/);
 });
+
+test("installed Commons Skill Run uses the server-owned Agent binding and existing correction surface", () => {
+  const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
+  assert.match(source, /attachment\.runtimeSkillIds\.includes\(capability\.id\)/);
+  assert.match(source, /trpc\.commons\.runInstalledSkill\.mutate/);
+  assert.match(source, /installationId:\s*attachment\.id/);
+  assert.match(source, /Run with \$\{agent\.name\}/);
+  assert.match(source, /to="\/approvals"/);
+  assert.match(source, /Review or correct in Approvals/);
+  assert.doesNotMatch(source, /actor:\s*\{/);
+});

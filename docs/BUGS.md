@@ -18,6 +18,19 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-18 — TASK-005 installed Commons Skills had no attributable Run path
+Module Detail rendered a signed Commons Skill beneath its owning Agent but exposed no Action that could
+invoke that exact installation. The existing Learning Agent recommendation carried Agent and Action
+Pipeline provenance, but no installed package identity, content hash, Module need, or owning-Agent
+attachment, so it could not satisfy TASK-005's installed-capability execution gate. FIX: a signed
+Commons package now attaches the existing governed Learning recommendation Skill to Relationship's
+Learning Agent; the package-gated Run verifies the signed root, content hash, active Module need,
+installation state, and runtime Agent binding before proposing. Approvals and the append-only
+Execution Ledger preserve the package/capability/attachment/Agent identity across edit or veto;
+server-side edits cannot replace Commons provenance, and corrected decisions display the applied
+output instead of the original draft. Desktop and exact-375px Runs showed attributable Agent,
+Action Pipeline, correction/veto, zero-overflow, and zero-runtime-error evidence. Attached to TASK-005.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
@@ -1110,6 +1123,7 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 
 ## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
+TASK-005 preflight reproduced the same known gate on 2026-07-18 after the floor had been recalibrated to 38%: all 7 Sensor tests passed, but imported Core growth reduced the aggregate to 36.97%. The full platform typecheck, build, no-dummy gate, and all 36 non-Sensor test tasks passed; only this already-attached TASK-017 coverage debt keeps unfiltered `pnpm test` red.
 
 ## RESOLVED 2026-07-17 — DealPilot discovery could omit Sources, Relations, alerts, and spend
 TASK-006 merge review found four coupled integrity gaps: Thesis discovery stopped at 200 Sources;

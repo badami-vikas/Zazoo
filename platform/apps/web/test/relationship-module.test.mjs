@@ -12,6 +12,7 @@ const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "
 const trpcClient = readFileSync(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
 const pagination = readFileSync(new URL("../src/app/lib/pagination.ts", import.meta.url), "utf8");
 const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta.url), "utf8");
+const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
 const toolDetail = readFileSync(new URL("../src/app/pages/ToolDetail.tsx", import.meta.url), "utf8");
 const builtIns = readFileSync(new URL("../../api/src/built-in-packages.ts", import.meta.url), "utf8");
 
@@ -83,6 +84,10 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(ledgerData, /trpc\.relationship\.retryMaterialization/);
   assert.match(ledgerData, /normalizeDecision\(result\.recordedDecision\)/);
   assert.match(ledgerData, /decision: persistedDecision/);
+  assert.match(ledgerData, /originalRecord\?\.kind === 'learning_recommendation'/);
+  assert.match(ledgerData, /entry\.proposalOutput = applied\.proposalOutput/);
+  assert.match(ledgerData, /commonsAgentActorLabel/);
+  assert.match(executionLedger, /Applied after correction/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);

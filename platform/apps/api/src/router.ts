@@ -126,6 +126,7 @@ import { getIntegrationStore } from "./social/integration-service.js";
 import {
   COMMONS_BUILT_IN_PACKAGES,
   DEALPILOT_SOURCE_RITUAL_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeRitualId,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
@@ -375,6 +376,81 @@ async function provisionRoleModelRecommendationTask(
     PRODUCE_RECOMMENDATION_TASK_TYPE,
     LEARNING_AGENT,
   );
+}
+
+interface CommonsSkillInvocation {
+  source: "commons";
+  installationId: string;
+  packageName: string;
+  packageVersion: string;
+  contentHash: string;
+  modulePackageName: string;
+  moduleAgentId: string;
+  runtimeAgentId: string;
+  capabilityId: string;
+}
+
+async function proposeRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  input: { workspaceId: string; figure: string; admiredFor: string },
+  commonsInvocation?: CommonsSkillInvocation,
+) {
+  const source = await researchPublicFigure(input.figure);
+  const recommendation = {
+    kind: "learning_recommendation" as const,
+    title: `Practice ${input.admiredFor} deliberately`,
+    summary:
+      `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
+      "your preparation or communication. Review the outcome before repeating it.",
+    documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
+    interpretation:
+      `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
+    citation: { label: source.title, url: source.url },
+    cadence: "weekly",
+    stopCondition: "Pause or remove it whenever it stops being useful.",
+  };
+  const proposal = await wiring.pipeline.propose(
+    {
+      workspaceId: input.workspaceId,
+      actor: { type: "agent", id: LEARNING_AGENT },
+      onBehalfOf: { type: "user", id: identityId },
+      action: "write",
+      resourceType: "signal",
+      inputs: {
+        ...recommendation,
+        ...(commonsInvocation ? { commonsInvocation } : {}),
+      },
+      skill: LEARNING_RECOMMENDATION_SKILL_ID,
+      trustOrigin: "untrusted_external",
+      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, input.workspaceId),
+    },
+    run,
+  );
+  const existing = await wiring.memoryStore.retrieve(
+    { limit: 100 },
+    { workspaceId: input.workspaceId, userId: wiring.pilotUserId },
+  );
+  if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
+    await wiring.memoryStore.write({
+      id: uuidv7(),
+      workspaceId: input.workspaceId,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({
+        kind: "onboarding_preference",
+        figure: input.figure,
+        admiredFor: input.admiredFor,
+      }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: identityId,
+      ownerUserId: wiring.pilotUserId,
+    });
+  }
+  return { recommendation, proposal };
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
@@ -1618,6 +1694,38 @@ export const appRouter = t.router({
         }
       }
       let committedEditedOutput = input.editedOutput;
+      if (input.decision === "edit") {
+        const originalInputs =
+          typeof original.inputs === "object" &&
+          original.inputs !== null &&
+          !Array.isArray(original.inputs)
+            ? (original.inputs as Record<string, unknown>)
+            : null;
+        if (originalInputs?.kind === "learning_recommendation") {
+          if (
+            typeof committedEditedOutput !== "object" ||
+            committedEditedOutput === null ||
+            Array.isArray(committedEditedOutput) ||
+            (committedEditedOutput as Record<string, unknown>).kind !==
+              "learning_recommendation"
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Learning output must remain a learning recommendation object",
+            });
+          }
+          const canonical = {
+            ...(committedEditedOutput as Record<string, unknown>),
+          };
+          if (originalInputs.commonsInvocation === undefined) {
+            delete canonical.commonsInvocation;
+          } else {
+            canonical.commonsInvocation = originalInputs.commonsInvocation;
+          }
+          committedEditedOutput = canonical;
+        }
+      }
       if (
         !resolved &&
         input.decision === "edit" &&
@@ -3169,53 +3277,12 @@ export const appRouter = t.router({
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const source = await researchPublicFigure(input.figure);
-          const recommendation = {
-            kind: "learning_recommendation" as const,
-            title: `Practice ${input.admiredFor} deliberately`,
-            summary:
-              `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
-              "your preparation or communication. Review the outcome before repeating it.",
-            documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
-            interpretation:
-              `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
-            citation: { label: source.title, url: source.url },
-            cadence: "weekly",
-            stopCondition: "Pause or remove it whenever it stops being useful.",
-          };
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: "agent", id: LEARNING_AGENT },
-              onBehalfOf: { type: "user", id: ctx.identity.id },
-              action: "write",
-              resourceType: "signal",
-              inputs: recommendation,
-              skill: "stageLearningRecommendation",
-              trustOrigin: "untrusted_external",
-              goalTaskRef: await provisionRoleModelRecommendationTask(ctx.wiring, input.workspaceId),
-            },
+          return proposeRoleModelRecommendation(
+            ctx.wiring,
             ctx.run,
+            ctx.identity.id,
+            input,
           );
-          const existing = await ctx.wiring.memoryStore.retrieve(
-            { limit: 100 },
-            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
-          );
-          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
-            await ctx.wiring.memoryStore.write({
-              id: uuidv7(),
-              workspaceId: input.workspaceId,
-              type: "preference",
-              scope: "private",
-              content: JSON.stringify({ kind: "onboarding_preference", figure: input.figure, admiredFor: input.admiredFor }),
-              confidence: 1,
-              trustOrigin: "user_content",
-              plane: "local",
-              createdBy: ctx.identity.id,
-              ownerUserId: ctx.wiring.pilotUserId,
-            });
-          }
-          return { recommendation, proposal };
         }),
 
     correctMemory: procedure
@@ -4831,6 +4898,7 @@ export const appRouter = t.router({
       const itemsWithRuntimeBindings = await Promise.all(
         items.map(async (installation) => {
           const runtimeAutomationIds: string[] = [];
+          const runtimeSkillIds: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
             if (!automation.ritualId) continue;
             const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
@@ -4842,7 +4910,23 @@ export const appRouter = t.router({
               runtimeAutomationIds.push(automation.id);
             }
           }
-          return { ...installation, runtimeAutomationIds };
+          const attachment = installation.moduleAttachment;
+          if (
+            attachment &&
+            installation.state === "available" &&
+            installation.status === "installed" &&
+            resolveModuleAgentRuntimeId(attachment.modulePackageName, attachment.agentId) === LEARNING_AGENT
+          ) {
+            for (const capability of installation.manifest.capabilities) {
+              if (
+                capability.capabilityType === "skill" &&
+                capability.id === LEARNING_RECOMMENDATION_SKILL_ID
+              ) {
+                runtimeSkillIds.push(capability.id);
+              }
+            }
+          }
+          return { ...installation, runtimeAutomationIds, runtimeSkillIds };
         }),
       );
       return {
@@ -5136,6 +5220,86 @@ export const appRouter = t.router({
         });
 
         return { installation: created };
+      }),
+
+    runInstalledSkill: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          installationId: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const installation = await ctx.wiring.packageStore.get(input.installationId);
+        if (!installation || installation.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown Commons installation" });
+        }
+        if (installation.state !== "available" || installation.status !== "installed") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Commons capability must be installed and available before it can run",
+          });
+        }
+        const attachment = installation.moduleAttachment;
+        const entry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
+        if (!attachment || !entry) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "capability is not attached from Commons to a Module Agent",
+          });
+        }
+        const skillCapabilities = entry.manifest.capabilities.filter(
+          (capability) => capability.capabilityType === "skill",
+        );
+        if (
+          skillCapabilities.length !== 1 ||
+          skillCapabilities[0]?.id !== LEARNING_RECOMMENDATION_SKILL_ID
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill has no supported runtime binding",
+          });
+        }
+        const runtimeAgentId = resolveModuleAgentRuntimeId(
+          attachment.modulePackageName,
+          attachment.agentId,
+        );
+        if (runtimeAgentId !== LEARNING_AGENT) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill is not bound to its attributable runtime Agent",
+          });
+        }
+        const profile = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+        const rawFigure = profile?.answers.role_model;
+        const rawAdmiredFor = profile?.answers.role_model_why;
+        const figure = typeof rawFigure === "string" ? rawFigure.trim() : "";
+        const admiredFor = typeof rawAdmiredFor === "string" ? rawAdmiredFor.trim() : "";
+        if (figure.length < 2 || admiredFor.length < 2) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Complete the role-model onboarding questions before running this Skill",
+          });
+        }
+        return proposeRoleModelRecommendation(
+          ctx.wiring,
+          ctx.run,
+          ctx.identity.id,
+          { workspaceId: input.workspaceId, figure, admiredFor },
+          {
+            source: "commons",
+            installationId: installation.id,
+            packageName: entry.name,
+            packageVersion: entry.version,
+            contentHash: attachment.contentHash,
+            modulePackageName: attachment.modulePackageName,
+            moduleAgentId: attachment.agentId,
+            runtimeAgentId,
+            capabilityId: LEARNING_RECOMMENDATION_SKILL_ID,
+          },
+        );
       }),
 
     /**

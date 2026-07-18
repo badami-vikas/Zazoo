@@ -19,6 +19,8 @@ type CommonsBuiltInPackage = BuiltInPackage & {
 export const DEALPILOT_SOURCING_AGENT_ID = "b0000000-0000-4000-a000-0000000000e1";
 export const DEALPILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1";
 export const DEALPILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
+export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
+export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 
 export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
   return packageName === "deal-pilot" && manifestRitualId === DEALPILOT_SOURCE_RITUAL_KEY
@@ -31,9 +33,13 @@ export function isModuleRuntimeRitualId(ritualId: string): boolean {
 }
 
 export function resolveModuleAgentRuntimeId(packageName: string, manifestAgentId: string): string | undefined {
-  return packageName === "deal-pilot" && manifestAgentId === "sourcing-agent"
-    ? DEALPILOT_SOURCING_AGENT_ID
-    : undefined;
+  if (packageName === "deal-pilot" && manifestAgentId === "sourcing-agent") {
+    return DEALPILOT_SOURCING_AGENT_ID;
+  }
+  if (packageName === "relationship" && manifestAgentId === "learning-agent") {
+    return LEARNING_AGENT_RUNTIME_ID;
+  }
+  return undefined;
 }
 
 const SOURCE_REPOSITORY = "https://github.com/badami-vikas/relationship-os";
@@ -245,6 +251,12 @@ const relationshipCapabilities = [
     [{ manifestId: "relationship.skill.help-routing", versionRange: "0.2.0" }],
   ),
   capability(
+    "relationship.agent.learning",
+    "Learning Agent",
+    "agent",
+    [writePrivate("signal")],
+  ),
+  capability(
     "relationship.automation.meeting-prep",
     "Pre-meeting relationship review",
     "workflow",
@@ -435,7 +447,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
     computedRisk: "external",
     manifest: {
       name: "relationship",
-      version: "0.2.0",
+      version: "0.2.1",
       kind: "workspace_definition",
       summary: "Signals, People, Communities, and governed relationship continuity.",
       description:
@@ -491,6 +503,12 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
             capabilityId: "relationship.agent.community-steward",
             skillIds: ["relationship.skill.help-routing"],
           },
+          {
+            id: "learning-agent",
+            name: "Learning Agent",
+            capabilityId: "relationship.agent.learning",
+            skillIds: [],
+          },
         ],
         automations: [{
           id: "meeting-prep",
@@ -499,6 +517,15 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           agentId: "steward",
           trigger: "Upcoming meeting Event",
           procedure: "relationship.prepareMeeting",
+        }],
+        commonsNeeds: [{
+          id: "cited-role-model-practice",
+          title: "Cited role-model practice",
+          description:
+            "Let the Learning Agent turn your saved role-model preference into a cited recommendation for review.",
+          agentId: "learning-agent",
+          kind: "skill",
+          tags: ["need:cited-role-model-practice"],
         }],
       },
     },
@@ -569,6 +596,35 @@ const interviewCalendarAvailability: BuiltInPackage = {
   },
 };
 
+const citedRoleModelPractice: BuiltInPackage = {
+  computedRisk: "advisory",
+  manifest: {
+    name: "cited-role-model-practice",
+    version: "1.0.0",
+    kind: "skill",
+    summary: "Stage a cited role-model practice recommendation for review.",
+    description:
+      "Reuses Bridge's governed Learning Agent Skill to turn the user's saved onboarding preference into a cited recommendation that remains editable or vetoable in Approvals.",
+    lineageManifestId: null,
+    dependencies: [],
+    capabilities: [
+      {
+        id: LEARNING_RECOMMENDATION_SKILL_ID,
+        name: "Stage cited role-model practice",
+        version: "1.0.0",
+        capabilityType: "skill",
+        origin: "built_in",
+        audience: "private",
+        permissions: [writePrivate("signal")],
+        connectors: [],
+        dependencies: [],
+      },
+    ],
+    contextProviders: [],
+    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+  },
+};
+
 export const COMMONS_BUILT_IN_PACKAGES: readonly CommonsBuiltInPackage[] = [
   // Relationship's current full capability union forms the lethal trifecta.
   // It remains a local built-in Module but cannot enter Commons until split
@@ -585,6 +641,13 @@ export const COMMONS_BUILT_IN_PACKAGES: readonly CommonsBuiltInPackage[] = [
     commons: {
       provenance: provenance("platform/packages/integrations-google/src/skills.ts"),
       tags: ["built-in", "calendar", "interview", "need:interview-calendar-availability"],
+    },
+  },
+  {
+    ...citedRoleModelPractice,
+    commons: {
+      provenance: provenance("platform/apps/api/src/wiring.ts"),
+      tags: ["built-in", "learning", "role-model", "need:cited-role-model-practice"],
     },
   },
 ];
