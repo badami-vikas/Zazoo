@@ -46,8 +46,10 @@ Totals: 4 done, 2 in progress, 4 blocked, and 13 ready.
 
 ## Resume order
 
-Per the user's 2026-07-18 directive, all remaining P0 work completes before any
-P1 implementation resumes. TASK-003 must first clear its physical macOS
-drag/relaunch, VoiceOver, and external-display evidence. TASK-005 then runs the
-complete desktop and 375px combined certification. Paused P1 worktrees remain
-untouched until both P0 tasks are complete.
+Per the user's 2026-07-18 directives, P0 retains completion and merge priority.
+TASK-003 must first clear its physical macOS drag/relaunch, VoiceOver, and
+external-display evidence. TASK-005 then runs the complete desktop and 375px
+combined certification. Two dependency-ready P1 implementations may proceed in
+parallel within the four-session cap: TASK-008 RM1-RM2 candidate A and TASK-006
+DealPilot durability. They may commit and push completed branches while waiting
+for the coordinator to finish the P0 merges before P1 integration.
