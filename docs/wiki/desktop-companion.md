@@ -8,7 +8,7 @@ Floating always-on-top avatar that annotates the screen + helps in-context.
 - One 96×96 Avatar panel per connected monitor. macOS = non-activating NSPanel, all Spaces, fullscreen auxiliary.
 - Position save = native `Moved` event → one debounced worker per label; save resolves current window; quit flushes. macOS persistence = tagged logical desktop coordinates. Mixed-DPI screens no longer overlap.
 - Reported real 3-display pass: anchors right; Accessibility-driven move/save/relaunch right; external reposition right; extend→mirror→extend 3→2→3 right; no crash. Recovery review fixed expanded re-anchor + missing-startup retry. Direct NSPanel close was wrong; convert back first.
-- Actual VoiceOver found native close/minimize/fullscreen controls in Sidebar lane. Human physical activation + pointer drag/relaunch still block TASK-003. Literal cable/power detach remains if acceptance requires it.
+- Human certification complete: physical cross-display pointer drag + quit/relaunch restoration, VoiceOver activation of native close/minimize/fullscreen, and physical display detach/reconnect pass. TASK-003 done.
 - Hover chat and right-click Hide/Meditate/Observe remain. CSP remains closed.
 
 **Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from

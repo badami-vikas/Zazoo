@@ -2,7 +2,7 @@
  * LOCAL plane ports — the customer-controlled private tier.
  *
  * Residency invariant (decisions.md): EVERYTHING is local by default. OAuth tokens,
- * raw Gmail/Calendar bodies, and the derived Touchpoints/Memories/Signals/warmth
+ * raw Gmail/Calendar bodies, and the derived Events/Memories/Signals/warmth
  * live ONLY here (pglite/Postgres on the machine/VPC). They NEVER cross the gate to
  * cloud canonical. The ONLY thing dual-written outward is a counterparty's
  * public/identity-grade fact (see CanonicalIdentityStore in @bridge/db).
@@ -35,6 +35,20 @@ export interface SecretStore {
   putToken(rec: OAuthTokenRecord): Promise<void>;
   getToken(integrationId: string): Promise<OAuthTokenRecord | null>;
   deleteToken(integrationId: string): Promise<void>;
+  compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean>;
+  /**
+   * Keep a replacement invisible to every token reader/writer until both
+   * authorization checks pass. A failed or throwing post-write check restores
+   * the exact prior token before the per-Integration lock is released.
+   */
+  finalizeToken(
+    replacement: OAuthTokenRecord,
+    stillAuthorized: () => Promise<boolean>,
+  ): Promise<boolean>;
 }
 
 // ── Body store: raw private Gmail thread / Calendar event content ──────────────
@@ -70,11 +84,12 @@ export interface LocalPerson {
   canonicalPersonId?: string;
 }
 
-/** A committed graph entry. Vocabulary: Touchpoint | Memory | Signal — never Lead/Deal/Contact. */
+/** A committed graph entry. New interactions are Events. `touchpoint` is read
+ * compatibility for records written before VOCAB4; runtime writers use `event`. */
 export interface LocalEntityRecord {
   id: string;
   workspaceId: string;
-  kind: "touchpoint" | "memory" | "signal";
+  kind: "event" | "memory" | "signal" | "touchpoint";
   /** The Person this entry is about, when matched. */
   personId?: string;
   payload: unknown;
@@ -113,10 +128,36 @@ export interface LocalGraphStore {
   setSyncCursor(integrationId: string, source: string, cursor: string): Promise<void>;
 }
 
-/** The three local-plane stores, assembled. */
+// ── Atomic state store: module-private durable aggregates ─────────────────────
+
+export interface LocalStateMutation<T> {
+  state: unknown;
+  result: T;
+}
+
+/**
+ * Workspace-scoped atomic JSON state for Local Plane modules whose canonical
+ * relational schema has not yet entered the numbered migration stream.
+ *
+ * Reducers are synchronous and may be retried after cross-process contention;
+ * they must not perform side effects. A thrown reducer leaves the previous
+ * value untouched.
+ */
+export interface LocalStateStore {
+  read(workspaceId: string, namespace: string): Promise<unknown | null>;
+  update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T>;
+}
+
+/** The Local Plane stores, assembled. */
 export interface LocalPlane {
   secrets: SecretStore;
   bodies: BodyStore;
   graph: LocalGraphStore;
+  state: LocalStateStore;
   close(): Promise<void>;
 }

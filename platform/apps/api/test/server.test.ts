@@ -1,13 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import Fastify from "fastify";
 import { SignJWT } from "jose";
 import {
   assertProductionEnv,
   buildServer,
+  closeServerWithDeadline,
   corsOriginConfig,
+  desktopOAuthRedirectUri,
+  inheritedListenFd,
+  listenServer,
   rateLimitBucket,
   rateLimitConfig,
   serverHostConfig,
+  watchParentLiveness,
 } from "../src/server.js";
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
@@ -120,6 +127,162 @@ test("assertProductionEnv: no-op outside production even without DATABASE_URL", 
   withEnv({ NODE_ENV: "development", DATABASE_URL: undefined }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
   });
+});
+
+test("server host: a managed sidecar is loopback-only even with shared deployment settings", () => {
+  withEnv(
+    {
+      BRIDGE_SIDECAR_TOKEN: "a".repeat(64),
+      API_HOST: "0.0.0.0",
+      DATABASE_URL: "postgres://test_fixture",
+    },
+    () => {
+      assert.equal(serverHostConfig(), "127.0.0.1");
+    },
+  );
+});
+
+test("managed sidecar listeners are inherited and fail closed without a reservation", async () => {
+  if (process.platform !== "win32") {
+    withEnv({ BRIDGE_LISTEN_FD: "12" }, () => {
+      assert.equal(inheritedListenFd(), 12);
+    });
+  }
+  withEnv({ BRIDGE_LISTEN_FD: "not-a-descriptor" }, () => {
+    assert.throws(
+      () => inheritedListenFd(),
+      process.platform === "win32"
+        ? /unsupported on Windows/
+        : /numeric file descriptor/,
+    );
+  });
+  await withEnvAsync(
+    {
+      BRIDGE_LISTEN_FD: undefined,
+      BRIDGE_SIDECAR_TOKEN: "a".repeat(64),
+    },
+    async () => {
+      const app = Fastify();
+      try {
+        await assert.rejects(
+          listenServer(app, 0),
+          /parent-retained inherited loopback listener/,
+        );
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
+test("desktop OAuth redirect uses the API's child-bound loopback port", () => {
+  assert.equal(
+    desktopOAuthRedirectUri({
+      address: "127.0.0.1",
+      family: "IPv4",
+      port: 43123,
+    }),
+    "http://127.0.0.1:43123/integrations/google/callback",
+  );
+  assert.throws(
+    () =>
+      desktopOAuthRedirectUri({
+        address: "0.0.0.0",
+        family: "IPv4",
+        port: 43123,
+      }),
+    /bound loopback TCP address/,
+  );
+});
+
+test("desktop sidecar shuts down when its inherited parent-liveness pipe closes", async () => {
+  const pipe = new PassThrough();
+  let shutdowns = 0;
+  const stop = watchParentLiveness(pipe, () => {
+    shutdowns += 1;
+  });
+  try {
+    pipe.end();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(shutdowns, 1);
+  } finally {
+    stop();
+    pipe.destroy();
+  }
+});
+
+test("sidecar shutdown exits on completion and has an independent deadline", async (t) => {
+  const gracefulExits: number[] = [];
+  closeServerWithDeadline(
+    { close: async () => {} },
+    (code) => gracefulExits.push(code),
+    50,
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(gracefulExits, [0]);
+
+  const forcedExits: number[] = [];
+  let idleSweeps = 0;
+  const error = t.mock.method(console, "error", () => {});
+  closeServerWithDeadline(
+    {
+      close: () => new Promise<void>(() => {}),
+      server: {
+        closeIdleConnections: () => {
+          idleSweeps += 1;
+        },
+      },
+    },
+    (code) => forcedExits.push(code),
+    20,
+    5,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(forcedExits, [1]);
+  assert.ok(idleSweeps > 1);
+  assert.match(
+    String(error.mock.calls[0]?.arguments[0]),
+    /graceful shutdown timed out/,
+  );
+});
+
+test("desktop sidecar capability protects loopback routes and accepts only the exact token", async () => {
+  const sidecarToken = "a".repeat(64);
+  await withEnvAsync(
+    {
+      BRIDGE_SIDECAR_TOKEN: sidecarToken,
+      SUPABASE_JWT_SECRET: undefined,
+      SUPABASE_URL: undefined,
+    },
+    async () => {
+      const app = await buildServer();
+      try {
+        const missing = await app.inject({ method: "GET", url: "/health" });
+        assert.equal(missing.statusCode, 401);
+        const invalid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": "b".repeat(64) },
+        });
+        assert.equal(invalid.statusCode, 401);
+        const valid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(valid.statusCode, 200);
+        const shutdown = await app.inject({
+          method: "POST",
+          url: "/internal/sidecar/shutdown",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(shutdown.statusCode, 202);
+        assert.deepEqual(shutdown.json(), { stopping: true });
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });
 
 test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled rejection — even when the tRPC procedure itself needs no auth", async () => {

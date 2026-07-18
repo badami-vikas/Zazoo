@@ -10,6 +10,13 @@ export {
   InMemorySecretStore,
   InMemoryBodyStore,
   InMemoryLocalGraphStore,
+  InMemoryLocalStateStore,
   createMemoryLocalPlane,
 } from "./stores/memory.js";
-export { createPgliteLocalPlane, type PgliteLocalPlaneConfig } from "./stores/pglite.js";
+export {
+  acquirePgliteDirectoryOwnership,
+  createPgliteLocalPlane,
+  type PgliteDirectoryOwnership,
+  type PgliteLocalPlane,
+  type PgliteLocalPlaneConfig,
+} from "./stores/pglite.js";

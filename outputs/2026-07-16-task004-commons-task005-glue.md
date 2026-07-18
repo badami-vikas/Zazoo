@@ -34,7 +34,7 @@ TASK-005 remains blocked; it is not certified or marked done.
 - Inventory-only Automations say runtime binding pending instead of exposing fake Actions.
 - Pending-review Runs route to the existing Approvals provenance/edit/veto surfaces; no duplicate correction UI was added.
 
-Full TASK-005 still requires TASK-003 physical macOS evidence and the combined desktop+375px Onboarding, Avatar, Module, Commons, Agent/Automation, provenance, correction, and undo certification.
+TASK-003 physical macOS evidence completed on 2026-07-18. Full TASK-005 still requires the combined desktop+375px Onboarding, Avatar, Module, Commons, Agent/Automation, provenance, correction, and undo certification.
 
 ## Files
 

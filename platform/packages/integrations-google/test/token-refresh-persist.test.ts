@@ -19,6 +19,14 @@ class RejectingSecretStore implements SecretStore {
   async deleteToken(integrationId: string): Promise<void> {
     this.tokens.delete(integrationId);
   }
+
+  async compareAndSwapToken(): Promise<boolean> {
+    throw new Error("test_fixture_compare_and_swap_rejected");
+  }
+
+  async finalizeToken(): Promise<boolean> {
+    throw new Error("test_fixture_finalize_token_rejected");
+  }
 }
 
 function testFixtureToken(integrationId: string): OAuthTokenRecord {
@@ -85,6 +93,10 @@ test("token refresh persist failures are logged and do not become unhandled reje
 
     assert.equal(errSpy.mock.callCount(), 1);
     assert.match(String(errSpy.mock.calls[0]?.arguments[0]), /failed to persist refreshed token/);
+    assert.match(
+      String(errSpy.mock.calls[0]?.arguments[1]),
+      /test_fixture_compare_and_swap_rejected/,
+    );
     assert.equal(sawUnhandledRejection, false);
   } finally {
     process.removeListener("unhandledRejection", onUnhandledRejection);

@@ -1,9 +1,8 @@
 // LOCAL plane for the Camera tool. Blobs + capture metadata + the governed intake
-// ledger live in IndexedDB on this device — NEVER Supabase/cloud (private relationship
-// data, dataScope:'private', private ∩ egress = none). Mirrors @bridge/core's
-// LocalMediaStore port + the propose→decide→append-only-ledger pipeline contract so the
-// full capture → pending → approve flow runs in-browser. When VITE_API_URL is set, the
-// camera also routes a no-blob proposal to the real platform pipeline (see CameraCaptures).
+// review mirror live in IndexedDB on this device — NEVER Supabase/cloud (private
+// relationship data, dataScope:'private', private ∩ egress = none). The server Action
+// Pipeline remains authoritative for capture proposals and decisions; this store only
+// tracks Local Media state after those governed operations succeed.
 import { openDB, type IDBPDatabase } from 'idb';
 
 export type MediaKind = 'photo' | 'video';
@@ -23,7 +22,7 @@ export interface MediaCaptureRecord {
   thumbnailDataUrl?: string;
   status: MediaStatus;
   ledgerId?: string;
-  linkedEntity?: { type: 'person' | 'memory' | 'touchpoint'; id: string } | null;
+  linkedEntity?: { type: 'person' | 'memory' | 'event' | 'touchpoint'; id: string } | null;
   provenance: { tool: string; version: string; model?: string };
   capturedAt: string;
   archivedAt?: string | null;
@@ -34,7 +33,7 @@ export type Decision = 'approve' | 'veto' | 'edit';
 export interface MediaLedgerEntry {
   id: string;
   mediaId: string;
-  resourceType: 'touchpoint' | 'signal';
+  resourceType: 'event' | 'touchpoint' | 'signal';
   proposedOutput: unknown;
   userDecision: Decision | 'auto' | null; // null = pending_review
   refLedgerId?: string;                    // decision row → proposal row
@@ -113,11 +112,11 @@ export async function archiveCapture(id: string): Promise<void> {
   await patchCapture(id, { status: 'archived', archivedAt: new Date().toISOString() });
 }
 
-// ── Governed intake (local mini-pipeline; mirrors core propose/decide/ledger) ────
+// ── Local review mirror (the server Action Pipeline is authoritative) ───────────
 export interface ProposalView {
   id: string;
   mediaId: string;
-  resourceType: 'touchpoint' | 'signal';
+  resourceType: 'event';
   proposedOutput: unknown;
   status: 'pending_review' | 'applied' | 'rejected';
 }
@@ -134,73 +133,79 @@ export async function listLedger(): Promise<MediaLedgerEntry[]> {
 }
 export async function listProposals(): Promise<ProposalView[]> {
   const led = await listLedger();
-  const proposals = led.filter((e) => e.userDecision === null && !e.refLedgerId);
+  const proposals = led.filter(
+    (entry) =>
+      entry.resourceType === 'event' &&
+      entry.userDecision === null &&
+      !entry.refLedgerId,
+  );
   return proposals.map((p) => {
     const decided = led.find((e) => e.refLedgerId === p.id);
     const status: ProposalView['status'] = !decided
       ? 'pending_review'
       : decided.userDecision === 'veto' ? 'rejected' : 'applied';
-    return { id: p.id, mediaId: p.mediaId, resourceType: p.resourceType, proposedOutput: p.proposedOutput, status };
+    return { id: p.id, mediaId: p.mediaId, resourceType: 'event', proposedOutput: p.proposedOutput, status };
   });
 }
 
-/** Raise a governed proposal for a capture. Capture ≠ commit — media stays `pending`. */
-export async function proposeCapture(
+/** Mirror a server-owned pending capture proposal without claiming local authority. */
+export async function mirrorCaptureProposal(
+  proposalId: string,
   mediaId: string,
-  opts: { caption?: string; ocrText?: string; link?: MediaCaptureRecord['linkedEntity'] } = {},
+  proposedOutput: unknown,
 ): Promise<ProposalView> {
-  const media = await getCapture(mediaId);
-  if (!media) throw new Error(`propose: no capture ${mediaId}`);
-  const noun = media.kind === 'video' ? 'video' : 'photo';
-  const proposedOutput = {
-    type: 'touchpoint',
-    text: `Captured a ${noun}${opts.caption ? ` — ${opts.caption}` : ''}`,
-    local_media_id: mediaId,
-    ...(opts.ocrText ? { notes: opts.ocrText } : {}),
-    ...(opts.link ? { link: opts.link } : {}),
-  };
+  if (!(await getCapture(mediaId))) throw new Error(`proposal mirror: no capture ${mediaId}`);
+  const existing = (await listLedger()).find((entry) => entry.id === proposalId);
+  if (existing) {
+    if (existing.mediaId !== mediaId || existing.resourceType !== 'event') {
+      throw new Error(`proposal mirror: conflicting proposal ${proposalId}`);
+    }
+    return { id: proposalId, mediaId, resourceType: 'event', proposedOutput: existing.proposedOutput, status: 'pending_review' };
+  }
   const entry = await appendLedger({
-    id: uid('led'), mediaId, resourceType: 'touchpoint', proposedOutput,
+    id: proposalId, mediaId, resourceType: 'event', proposedOutput,
     userDecision: null, createdAt: new Date().toISOString(),
   });
-  return { id: entry.id, mediaId, resourceType: 'touchpoint', proposedOutput, status: 'pending_review' };
+  return { id: entry.id, mediaId, resourceType: 'event', proposedOutput, status: 'pending_review' };
 }
 
-/** File a possible_link Signal — uncertain person matches are NEVER auto-linked. */
-export async function flagPossibleLink(mediaId: string, candidate: string): Promise<ProposalView> {
-  const proposedOutput = { type: 'signal', signal: 'possible_link', local_media_id: mediaId, candidate,
-    text: `Possible link for a capture — confirm manually: ${candidate}` };
-  const entry = await appendLedger({
-    id: uid('led'), mediaId, resourceType: 'signal', proposedOutput,
-    userDecision: null, createdAt: new Date().toISOString(),
-  });
-  return { id: entry.id, mediaId, resourceType: 'signal', proposedOutput, status: 'pending_review' };
-}
-
-/** Resolve a pending proposal (append-only decision row). approve/edit commit the
- * capture (media → committed, ledgerId set + optional link); veto commits nothing. */
-export async function decideCapture(
-  proposalId: string, decision: Decision, editedOutput?: unknown,
+/** Mirror a successful server decision, then update only the device-local media row. */
+export async function mirrorCaptureDecision(
+  proposalId: string,
+  decision: Exclude<Decision, 'edit'>,
+  decisionLedgerId: string,
+  eventId: string,
 ): Promise<ProposalView> {
   const led = await listLedger();
   const proposal = led.find((e) => e.id === proposalId && e.userDecision === null);
-  if (!proposal) throw new Error(`decide: no pending proposal ${proposalId}`);
-  if (led.some((e) => e.refLedgerId === proposalId)) throw new Error(`decide: ${proposalId} already resolved`);
-  const committed = decision === 'edit' ? editedOutput : proposal.proposedOutput;
-  const decisionRow = await appendLedger({
-    id: uid('led'), mediaId: proposal.mediaId, resourceType: proposal.resourceType,
-    proposedOutput: committed, userDecision: decision, refLedgerId: proposalId,
+  if (!proposal || proposal.resourceType !== 'event') {
+    throw new Error(`decision mirror: no pending Event proposal ${proposalId}`);
+  }
+  const priorDecision = led.find((entry) => entry.refLedgerId === proposalId);
+  if (priorDecision && priorDecision.userDecision !== decision) {
+    throw new Error(`decision mirror: ${proposalId} has a conflicting decision`);
+  }
+  const decisionRow = priorDecision ?? await appendLedger({
+    id: decisionLedgerId,
+    mediaId: proposal.mediaId,
+    resourceType: 'event',
+    proposedOutput: proposal.proposedOutput,
+    userDecision: decision,
+    refLedgerId: proposalId,
     createdAt: new Date().toISOString(),
   });
-  if (decision !== 'veto' && proposal.resourceType === 'touchpoint') {
-    const out = committed as { link?: MediaCaptureRecord['linkedEntity'] };
+  if (decision === 'approve') {
     await patchCapture(proposal.mediaId, {
-      status: 'committed', ledgerId: decisionRow.id,
-      ...(out?.link ? { linkedEntity: out.link } : {}),
+      status: 'committed',
+      ledgerId: decisionRow.id,
+      linkedEntity: { type: 'event', id: eventId },
     });
   }
   return {
-    id: decisionRow.id, mediaId: proposal.mediaId, resourceType: proposal.resourceType,
-    proposedOutput: committed, status: decision === 'veto' ? 'rejected' : 'applied',
+    id: decisionRow.id,
+    mediaId: proposal.mediaId,
+    resourceType: 'event',
+    proposedOutput: proposal.proposedOutput,
+    status: decision === 'veto' ? 'rejected' : 'applied',
   };
 }

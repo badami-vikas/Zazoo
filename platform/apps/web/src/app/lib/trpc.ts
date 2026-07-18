@@ -13,28 +13,47 @@ import { supabase } from "./supabase";
  *     initialization script, pointing at the managed API sidecar it spawned
  *     on a free localhost port. Runs before this module evaluates.
  *  2. `VITE_API_URL` — build-time env (browser deploys, dev).
- *  3. localhost:4000 — the API's dev default.
+ *  3. localhost:4000 only in an explicit Vite development build.
  */
-const API_URL =
+const CONFIGURED_API_URL =
   (typeof window !== "undefined" && window.__BRIDGE_API_URL__) ||
   import.meta.env.VITE_API_URL ||
-  "http://localhost:4000";
+  (import.meta.env.DEV ? "http://localhost:4000" : "") ||
+  "";
+export const API_TRANSPORT_CONFIGURED = Boolean(CONFIGURED_API_URL);
+export const API_URL = CONFIGURED_API_URL;
 
 export async function trpcAuthorizationHeaders(): Promise<Record<string, string>> {
+  if (!API_TRANSPORT_CONFIGURED) {
+    throw new Error("Bridge API transport is not configured");
+  }
   const { data, error } = await supabase.auth.getSession();
   if (error) {
     throw new Error(`Could not read the authenticated Supabase session: ${error.message}`);
   }
   const token = data.session?.access_token;
-  return token ? { authorization: `Bearer ${token}` } : {};
+  return {
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(typeof window !== "undefined" && window.__BRIDGE_SIDECAR_TOKEN__
+      ? { "x-bridge-sidecar-token": window.__BRIDGE_SIDECAR_TOKEN__ }
+      : {}),
+  };
 }
 
 export const trpc = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
-      url: `${API_URL}/trpc`,
+      url: API_TRANSPORT_CONFIGURED
+        ? `${API_URL}/trpc`
+        : "http://bridge-api.invalid/trpc",
       methodOverride: "POST",
       headers: trpcAuthorizationHeaders,
+      fetch: async (input, init) => {
+        if (!API_TRANSPORT_CONFIGURED) {
+          throw new Error("Bridge API transport is not configured");
+        }
+        return globalThis.fetch(input, init);
+      },
     }),
   ],
 });

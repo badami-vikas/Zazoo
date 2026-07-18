@@ -88,11 +88,15 @@ its real data source exists, and an empty state would hide the thing being revie
   user-approved, local-only labeled real-document corpus when JP1 ingestion is exercised.
 
 - **2026-07-15 — DealPilot DP0 domain test fixtures** (`platform/tools/dealpilot/test/deal.test.ts`,
-  `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`;
-  `platform/apps/api/test/dealpilot-core.test.ts`).
+  `projections.test.ts`, `table.test.ts`, `domain.test.ts`, `credentials.test.ts`,
+  `keyring-credentials.test.ts`, `runtime-store.test.ts`;
+  `platform/apps/api/test/dealpilot-core.test.ts`, `dealpilot-durability.test.ts`;
+  `platform/packages/local/test/memory.test.ts`, `pglite.test.ts`).
   **Reason:** deterministic stage/projection tests need stable synthetic Deal shells, facts, flags, documents,
-  and activity events; repository tests cannot depend on private live deal data.
-  **Real element they stand in for:** Deal records and append-only facts from the governed sourcing pipeline.
+  activity events, restart state, concurrent writes, and credential-provider behavior; repository tests cannot
+  depend on private live deal data or mutate a developer's OS keychain.
+  **Real element they stand in for:** Deal records, append-only facts, Local Plane state, and keychain entries
+  from the governed sourcing pipeline.
   **Removal condition:** retain only as isolated unit fixtures; add local-only real-store/browser evidence
   before DP0 can be proposed DONE.
 
@@ -136,6 +140,23 @@ its real data source exists, and an empty state would hide the thing being revie
   reads (pending).
   **Removal condition:** each page wired to real endpoints in the shell-v2 pass — a module's
   entry moves to Resolved when its consuming page(s) read tRPC instead of the module.
+
+- **2026-07-17 — `JobPilotApplicationDetail.tsx`'s `BCG_APPLICATION` fixture**
+  (`platform/apps/web/src/app/data/bcg-application.ts`, pre-existing since commit `aa88865`,
+  discovered during TASK-010 round-4 while adding server-side red-flag anchor validation).
+  **Reason it can't be real yet:** the page is currently UNROUTED (no entry in `routes.tsx` —
+  only the real, real-data-backed `/jobpilot` list page (`JobPilotPage.tsx`) is reachable), so
+  it was never wired to `jobpilotStore`'s real application rows; its hardcoded `id:
+  'bcg-consultant-mba-2026'` and bullet content are display-only demo content.
+  **Real element it stands in for:** a real `jobpilotApplications` row (via
+  `jobpilotStore.getApplication`) and its persisted fit-recommendation bullets.
+  **Interaction with TASK-010:** round-5 removed the `RedFlagControl`/`RedFlagProvider` wiring
+  this page previously had (round 1-4) — the fixture bullets are no longer flaggable at all,
+  closing the round-4-noted `NOT_FOUND` risk outright rather than leaving a control that could
+  never actually succeed (AP-021: an interactive-looking control must work). If this page is
+  ever routed to real data, red-flag wiring should be re-added pointing at the real anchor.
+  **Removal condition:** either route this page to a real, `jobpilotStore`-backed application
+  detail view, or delete it if `JobPilotPage.tsx`'s own detail affordance supersedes it.
 
 ## Resolved
 

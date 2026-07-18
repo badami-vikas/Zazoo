@@ -6,17 +6,22 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
-- HEAD and `origin/main`: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`
+- Latest `main` baseline merged for this handoff:
+  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
+- TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
-## TASK-006 durability
+## TASK-006 durability — MERGED 2026-07-19
 
 - Session: `19b390c3-6551-4672-ae41-67735b71ff71`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-fuzzy-meme`
-- Branch/head: `manishsbhoopalam8498-persist-dealpilot-locally` / `7f93f03`
-- Existing commits: `91a0462` and `7f93f03`
-- Dirty snapshot: 30 tracked files and 3 untracked files, approximately +1052/-104.
+- Branch: `manishsbhoopalam8498-persist-dealpilot-locally`
+- Validated implementation/integration head: `2f85dc7` (normally merged `origin/main` `bab32ea`)
+- Final reviewed source head: `adf6c95`
+- Landed `main` integration: `7f44186`
+- Existing durability chain: `91a0462`, `7f93f03`, `b93d558`, `7652a43`, and `2f85dc7`
+- Integration: user authorized AP-045; fast-forwarded into `main` at `7f44186`.
 
 Implemented:
 
@@ -25,51 +30,37 @@ Implemented:
 - MIT `@napi-rs/keyring` adapter behind the vault port.
 - Owner-scoped credential reveal/copy/revoke with value-free audit.
 - Fail-closed runtime storage/vault wiring.
-- Desktop app-data lifecycle, parent-PID shutdown, loopback capability, trusted-origin checks.
-- Hashed, single-use Google OAuth state and system-browser consent flow.
+- Parent-retained desktop socket activation, authenticated readiness/shutdown, terminal child-loss
+  handling, trusted-origin webviews, and panel-safe companion retirement.
+- Hashed, single-use Google OAuth state, PKCE S256, serialized provisional-token finalization,
+  refresh CAS, and system-browser consent.
+- Crash-recoverable opaque keyring create/revoke journals and pre-Drizzle legacy Local Plane import.
 
 Reported validation:
 
 - Typecheck 37/37; build 20/20.
-- API 183; DealPilot 84; Local 6; DB 124; Core 423; Sourcing 7; Google 35; Web 50.
-- Desktop `cargo check`, 33 Rust tests, Clippy, and scoped rustfmt.
-- Security review’s sidecar/OAuth/webview findings fixed; follow-up reported no vulnerabilities.
+- API 239; DealPilot 90; Local 8; DB 155; Core 430; Sourcing 7; Company Sourcing 4;
+  Google 39; Web 70.
+- Desktop `cargo check`, 44 Rust tests, strict Clippy, and rustfmt.
+- Changed-file ESLint, no-runtime-dummy, task parser, build/typecheck, migration-delta, and diff
+  integrity checks passed.
+- Final security review reported no vulnerabilities. The only correctness suggestion—release
+  ownership after failed client close—was deliberately rejected and regression-tested because the
+  embedded client may remain live.
+- Live host evidence exists for a macOS keyring round-trip, release-sidecar readiness/child-loss
+  recovery with retained-port protection, and Chrome `/dealpilot/sources` at 375x812 without
+  horizontal overflow.
 
 Remaining:
 
-- Review the current uncommitted diff centrally and ensure canonical status remains honest.
-- Commit/push if accepted.
-- Do not claim live Google, real OS-keychain/OS re-authentication, signing, physical desktop, or 375px evidence.
+- Live Google/BizBuySell credentials and verified OS/application Human re-authentication remain
+  unavailable. Signing and physical-mobile certification remain unclaimed.
+- Keep TASK-006 `in_progress`; do not infer those external gates from code or host-local evidence.
 - No numbered migration was added.
 
-## TASK-010 red-flag correction
+## TASK-010 red-flag correction — MERGED 2026-07-18
 
-- Session: `942759c5-c407-4918-8d12-05284f4709ad`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-stunning-fortnight`
-- Branch/head: `manishsbhoopalam8498-platform-red-flag-feedback` / `58df729`
-- Dirty snapshot: 10 tracked files and 4 untracked paths, including migration `0016_new_ink.sql`.
-
-Previously completed and reviewed:
-
-- Owner-private correction Memories and proposals.
-- Approval-gated enact/revoke, replay-safe sagas, lineage-wide forget, canonical anchors.
-- Store-side filters/keyset pagination, cross-process idempotency, provider loading/error integrity.
-- Application-layer tests and full affected gates at the pre-RM4 head.
-
-Current post-RM4 work:
-
-- Owner-aware ledger/Memory RLS.
-- Authenticated/paginated ledger-history path.
-- DB-backed lineage revision.
-- JobPilot `green/yellow/red` to `pursue/review/pass` migration and constraint.
-
-Resume:
-
-1. Treat `0016` as reserved.
-2. Remove only proven temporary `.commons-signing-test-*` output.
-3. Inspect the generated pending-work deletion before accepting it.
-4. Run fresh/upgrade/no-drift, two-member RLS, CAS/concurrency, API/web, lint, and no-dummy gates.
-5. Run central security/correctness review before commit.
+TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. `docs/TASKS.md` TASK-010 `Status` remains `in_progress` (no live desktop/375px browser evidence yet); `ledger`'s own RLS and any further live-evidence gathering are the only remaining open items, not a resumable dirty worktree state.
 
 ## TASK-011 culture research
 
@@ -144,26 +135,21 @@ Remaining: post-migration API/full gates, docs/evidence, independent security re
 
 Compare candidate A and B feature-by-feature and choose one implementation. Candidate A has the stronger completed handoff; candidate B has a different package shape and the Onboarding migration. Do not merge both or cherry-pick overlapping security primitives without a deliberate reconciliation review.
 
-## TASK-008 RM1-RM2 candidate A
+## TASK-008 Relationship continuation — MERGED 2026-07-19
 
-- Session: `b6486e55-47b5-43f7-9a34-eb84ecc578ce`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-symmetrical-spork`
-- Branch/head: `manishsbhoopalam8498-complete-relationship-records` / `631aa9f`
-- Dirty snapshot: 30 tracked and 2 untracked files, approximately +3801/-360.
+- Candidate A session: `b6486e55-47b5-43f7-9a34-eb84ecc578ce`
+- Source branch: `manishsbhoopalam8498-complete-relationship-records`
+- Integrated head: `905aee9`
+- Implementation: `cbda8d6` and `f409777`
+- Central hardening: `71368fe`
 
-Reported validation: typecheck 37/37, build 20/20, core/Google/local/DB pass; API 174/175 because one test expects retired `touchpoint` instead of canonical `event`; web did not run.
+The validated continuation is on `main`: owner-safe Person/Community CRUD/search/detail, one participant
+Timeline, bounded Google/capture and identity review, Memory/commitment/meeting flows, bounded paths and
+Community composition, and double-consent Introduction snapshots. Its prior lifecycle-receipt and central
+authority/privacy/durability findings were fixed before AP-043 integration.
 
-Known defect: stale/no-op auto Record updates and already-archived retries omit lifecycle Event receipts, allowing `listUnmaterializedAutoMutationIds` to select them forever.
-
-## TASK-008 RM1-RM2 candidate B
-
-- Session: `e859579b-a865-4ad3-b16c-e4d8cbccf17d`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-upgraded-system`
-- Branch/head: `manishsbhoopalam8498-implement-relationship-rm1-rm2` / `631aa9f`
-- Dirty snapshot: 27 tracked files, approximately +4184/-354.
-
-Large graph/API/UI/Google/local-store implementation exists. No completed handoff, security review, or final validation is recorded.
-
-### RM1-RM2 selection rule
-
-Compare both implementations against canonical RM1-RM2 scope and current RM4 contracts. Candidate A has a concrete validation/review handoff and known liveness defect; candidate B has a broader local-store delta but less evidence. Select one owner and archive the other only after preserving any uniquely correct tests or contracts.
+Candidate B session `e859579b-a865-4ad3-b16c-e4d8cbccf17d` remains a superseded historical dirty
+worktree. Do not merge either candidate again. TASK-008 is `done` for its exact prototype; persistent
+user-defined Automations/Agent Runs, advanced RM6 team permission/delegation,
+export/disconnect/forget, held-out evaluation, and TASK-014/TASK-009's shared Graph renderer remain
+future scope rather than resume blockers.

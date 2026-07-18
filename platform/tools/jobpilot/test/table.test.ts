@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { jobsTableSpec, jobsCardFeedView, jobsTrackerView } from "../src/table.js";
 
-test("jobsTableSpec: declares the flag column with green/yellow/red options", () => {
+test("jobsTableSpec: declares the flag column with explicit pursue/review/pass labels (AP-023 — no green/yellow feedback semantics)", () => {
   const flagCol = jobsTableSpec.columns.find((c) => c.id === "flag");
-  assert.deepEqual(flagCol?.options, ["green", "yellow", "red"]);
+  assert.deepEqual(flagCol?.options, ["pursue", "review", "pass"]);
 });
 
 test("jobsCardFeedView: groups by flag, kind gallery", () => {

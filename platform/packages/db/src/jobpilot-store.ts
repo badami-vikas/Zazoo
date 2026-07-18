@@ -12,6 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, count } from "drizzle-orm";
+import { normalizeLegacyFitFlag } from "@bridge/jobpilot";
 import type { Database } from "./client.js";
 import { jobpilotJobs, jobpilotApplications } from "./schema.js";
 
@@ -35,6 +36,23 @@ export interface CreateJobInput {
   salaryMax?: number;
   url?: string;
   source?: string;
+}
+
+/**
+ * TASK-010 review round-4 item 11 — applied at EVERY store-level read
+ * boundary (not only a test-only helper): `applications.flag` is a plain
+ * `text` column with no CHECK constraint yet (TASK-008 RM4 owns migration
+ * `0015`; the real backfill + constraint is deferred to `0016+` once that
+ * lands — see `outputs/2026-07-17-task010-review-remediation.md`), so a row
+ * persisted before the AP-023 green/yellow/red -> pursue/review/pass rename
+ * still carries its OLD value until backfilled. Normalizing HERE (rather
+ * than leaving it to each individual router procedure) means no caller of
+ * this store — present or future — can forget the step and leak a legacy
+ * value to a client.
+ */
+function normalizeApplicationRow(row: ApplicationRow): ApplicationRow {
+  const normalized = normalizeLegacyFitFlag(row.flag);
+  return normalized === row.flag ? row : { ...row, flag: normalized };
 }
 
 export class DrizzleJobPilotStore {
@@ -64,7 +82,7 @@ export class DrizzleJobPilotStore {
       .insert(jobpilotApplications)
       .values({ id: randomUUID(), workspaceId: input.workspaceId, jobId })
       .returning();
-    return { job: job!, application: application! };
+    return { job: job!, application: normalizeApplicationRow(application!) };
   }
 
   async listJobs(workspaceId: string, opts: PageOpts): Promise<Page<JobRow & { application: ApplicationRow | null }>> {
@@ -81,7 +99,7 @@ export class DrizzleJobPilotStore {
       this.#db.select({ value: count() }).from(jobpilotJobs).where(where),
     ]);
     return {
-      items: rows.map((r) => ({ ...r.job, application: r.application })),
+      items: rows.map((r) => ({ ...r.job, application: r.application ? normalizeApplicationRow(r.application) : null })),
       total: Number(totalRows[0]?.value ?? 0),
     };
   }
@@ -103,7 +121,7 @@ export class DrizzleJobPilotStore {
       })
       .where(eq(jobpilotApplications.id, applicationId))
       .returning();
-    return row ?? null;
+    return row ? normalizeApplicationRow(row) : null;
   }
 
   async getApplication(applicationId: string, workspaceId: string): Promise<ApplicationRow | null> {
@@ -112,6 +130,6 @@ export class DrizzleJobPilotStore {
       .from(jobpilotApplications)
       .where(and(eq(jobpilotApplications.id, applicationId), eq(jobpilotApplications.workspaceId, workspaceId)))
       .limit(1);
-    return rows[0] ?? null;
+    return rows[0] ? normalizeApplicationRow(rows[0]) : null;
   }
 }

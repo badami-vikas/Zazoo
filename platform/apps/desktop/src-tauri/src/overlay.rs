@@ -329,7 +329,7 @@ fn label_for_monitor(index: usize) -> String {
     }
 }
 
-fn is_overlay_label(label: &str) -> bool {
+pub(crate) fn is_overlay_label(label: &str) -> bool {
     label == OVERLAY_LABEL
         || label
             .strip_prefix(&format!("{OVERLAY_LABEL}-"))
@@ -679,7 +679,7 @@ pub fn flush_overlay_positions(app: &AppHandle) -> Result<(), String> {
     first_error.map_or(Ok(()), Err)
 }
 
-fn close_overlay_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
+pub(crate) fn close_overlay_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     {
         use tauri_nspanel::ManagerExt;
@@ -930,6 +930,13 @@ pub fn start_display_topology_watcher(app: AppHandle, init_script: String) {
         let handle = app.clone();
         let init_script = Arc::clone(&init_script);
         if let Err(error) = app.run_on_main_thread(move || {
+            if !handle
+                .state::<DisplayTopologyState>()
+                .running
+                .load(Ordering::SeqCst)
+            {
+                return;
+            }
             if let Err(error) = reconcile_display_topology(&handle, init_script.as_str()) {
                 eprintln!("[bridge-desktop] display topology reconciliation failed: {error}");
             }
