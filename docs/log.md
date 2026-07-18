@@ -1671,3 +1671,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - The package inventories every roadmap child session, merged source branch, paused dirty worktree, grouped reviewer result, validation handoff, blocker, duplicate implementation, migration reservation, ADR collision, and central merge rule.
 - Linked it from `docs/INDEX.md` and the retired `docs/PROGRESS.md` pointer while retaining `docs/TASKS.md` as the sole execution queue.
 - Durable user-facing pointer: `outputs/2026-07-18-subagent-progress-context.md`.
+
+# 2026-07-18 — TASK-003 failed-session recovery and review (AP-040, ADR-114)
+- Recovered the failed certification work from a read-only worktree onto current `origin/main`; independently reviewed every code, test, generated projection, and evidence change instead of merging the snapshot.
+- Accepted the tagged logical macOS coordinate model, native `Moved`-event debounce, launch-topology preservation, and NSPanel→Tauri-window close conversion.
+- Review hardening resolves the current same-label window at save time, flushes positions on exit, retries incomplete startup membership without re-anchoring valid restores, uses current expanded geometry when re-anchoring, and safely closes an ordinary Tauri window when panel registration never completed.
+- Preserved the reported real Retina-plus-two-external-display, extend→mirror→extend 3→2→3, Accessibility-driven move/relaunch, VoiceOver navigation, and fullscreen evidence without relabelling it as physical pointer drag, physical VoiceOver activation, or cable detach.
+- TASK-003 remains `blocked`. Recovery gates passed: desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, dependency/web build, web typecheck, targeted Avatar ESLint, and runtime no-dummy.
+- Durable outcome: `outputs/2026-07-18-task-003-avatar-certification.md`.
