@@ -1,5 +1,11 @@
 # Change Log
 
+- **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
+  fast-forwarding the fully validated durability/vault branch into `main`. Integration preserves
+  TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified OS/application Human
+  re-authentication as honest external blockers, retains TASK-010 migration `0016`, and adds no
+  TASK-006 numbered migration.
+
 - **2026-07-19** — **TASK-008 validated main integration authorized (AP-043)**: user approved merging the independently reviewed Relationship branch after its normal `origin/main` reconciliation and 910-test affected gate. Integration preserves TASK-008 as `in_progress`, adds no Relationship migration, and leaves TASK-010's `0016` unchanged.
 
 - **2026-07-18** — **TASK-008 Relationship central-review hardening (AP-042, ADR-116)**: closed 16 named authority, residency, durability, concurrency, query, and UI blockers. Browser authority is server-resolved and Local; private PII/Event detail stays owner-scoped; Google/capture staging and effects are owner-bound, durable, and replay-safe; capture approval creates one Event; Introduction/Memory transitions serialize; datetime and explicit-clear contracts converge; Community composition and snapshot-watermarked context pagination are complete. No Relationship migration was added; TASK-010's `0016` merged unchanged from `main`. Post-merge core 430, DB 154, Google 39, API 218, and web 69 tests pass (910 total) with monorepo typecheck/build, changed-file lint, no-dummy, no migration delta, diff integrity, and final independent correctness/security reviews. TASK-008 remains `in_progress`.

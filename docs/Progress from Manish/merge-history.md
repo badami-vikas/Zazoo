@@ -4,8 +4,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- `main` and `origin/main` as of this package's creation: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`.
-- Updated 2026-07-18 after TASK-010's round-7 merge: `main` and `origin/main` are now `e532b158864ad870b8252912561d151f809398ef` (fast-forward from `631aa9f` through `d75d26f` TASK-003 certification and `e532b15` TASK-010 post-RM4 migration — see the landed-history table below for both).
+- TASK-006 integration fetched and validated `origin/main` at
+  `bab32ea4a7917a273ee91f7c5df520a775301083`. AP-045 fast-forwards this merge-ledger commit as the
+  next `main` head.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -26,6 +27,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `631aa9f` | Latest combined roadmap/provider documentation baseline. |
 | `d75d26f` | TASK-003 human physical-input certification merge (unrelated to red-flag work). |
 | `e532b15` | TASK-010 round-7 post-RM4 migration `0016_new_ink`: JobPilot flag backfill+constraint, owner-aware `memories` RLS, DB-backed `lineage_revision` wired end-to-end; merged fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback` after two intermediate `origin/main` merges (RM4, then the TASK-003 recovery/cert chain) reconciled surgically. |
+| `adf6c95` | TASK-006 final reviewed durability/vault source; user-authorized AP-045 integration fast-forwarded its follow-up merge-ledger commit into `main`. |
 
 ## Historical source branches
 
@@ -39,8 +41,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
 - TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
-  `7652a43`, plus a normal merge of `origin/main` `bab32ea`. Ready for coordinator merge; not yet
-  represented on `main`.
+  `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
+  Merged into `main` on 2026-07-19 under AP-045; do not merge again.
 
 ## Migration sequence
 
@@ -66,6 +68,7 @@ Next new migration allocates `0017`; do not reuse `0016`.
 - AP-039: TASK-023.
 - AP-044: TASK-006 durability and OS credential vault; DealPilot ADRs are ADR-117–ADR-120 after
   reconciling current `main`'s Relationship ADR-115/ADR-116.
+- AP-045: TASK-006 validated main integration.
 
 Known current branch-local collision:
 

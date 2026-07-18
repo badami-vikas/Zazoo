@@ -17,7 +17,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Central HEAD and `origin/main` when this package was written: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`. **Updated 2026-07-18**: `main`/`origin/main` have since advanced to `e532b158864ad870b8252912561d151f809398ef` via two fast-forward merges — `d75d26f` (TASK-003 human certification) and `e532b15` (TASK-010 round-7 post-RM4 migration `0016_new_ink`). Always re-fetch and compare against the CURRENT `origin/main`, not the `631aa9f` baseline below, before resuming any worktree.
+- TASK-006 integration fetched and validated `origin/main` at
+  `bab32ea4a7917a273ee91f7c5df520a775301083`; AP-045 fast-forwards this merge-ledger commit as the
+  next `main` head. Always re-fetch before resuming any worktree.
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
@@ -29,10 +31,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint). The next NEW migration allocates `0017`.
 - TASK-011 requires no new migration unless its final implementation changes schema.
 - TASK-006 durability added no numbered Drizzle migration.
-- TASK-006 durability is committed and validated on
-  `manishsbhoopalam8498-persist-dealpilot-locally` at implementation/integration head `2f85dc7`,
-  ready for coordinator merge. Live Google/BizBuySell and verified OS/application re-authentication
-  remain external, so canonical status stays `in_progress`.
+- TASK-006 durability is merged into `main` on 2026-07-19 from
+  `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
+  `2f85dc7` and final reviewed source head `adf6c95`. Live Google/BizBuySell and verified
+  OS/application re-authentication remain external, so canonical status stays `in_progress`.
 - TASK-008 RM1-RM2 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
