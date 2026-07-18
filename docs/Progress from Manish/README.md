@@ -9,7 +9,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the current documented baseline `5091dae`.
+4. Fetch `origin/main` and compare it with the current documented baseline `3741a41`.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,7 +17,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Current documented `main`: `5091dae3dee47a0fce57548136e0b83a3fbddca4`. Always re-fetch
+- Current documented `main`: `3741a4144544a4a60bb06bec32b5e9dc17b693cd`. Always re-fetch
   before resuming any worktree.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
@@ -41,6 +41,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
   Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
   status stays `in_progress`.
+- TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
+  Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 and external provider/keychain/device evidence remain honestly blocked.

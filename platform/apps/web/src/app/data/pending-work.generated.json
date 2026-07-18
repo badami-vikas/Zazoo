@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:04:40.033Z",
+  "generatedAt": "2026-07-18T21:30:55.740Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "completed",
+      "status": "blocked",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -49,9 +49,10 @@
       ],
       "evidence": [
         "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
+        "BUGS 2026-07-18 physical Avatar drag inert (live retest pending)",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
         "`outputs/2026-07-16-task-003-macos-avatar.md`",
-        "`outputs/2026-07-18-task-003-avatar-certification.md` (real three-display mixed-DPI placement, cross-display move/native-event save/relaunch, VoiceOver navigation and physical activation, fullscreen/Spaces presence, external-display reposition, extend→mirror→extend 3→2→3, and physical detach/reconnect all pass)"
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)"
       ],
       "requests": [
         "R-001",
@@ -61,7 +62,7 @@
       ],
       "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "done",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -95,7 +96,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 84,
+      "sourceLine": 85,
       "rank": 3
     },
     {
@@ -128,7 +129,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 97,
+      "sourceLine": 98,
       "rank": 4
     },
     {
@@ -159,7 +160,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 112,
+      "sourceLine": 113,
       "rank": 5
     },
     {
@@ -192,7 +193,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 125,
+      "sourceLine": 126,
       "rank": 6
     },
     {
@@ -244,7 +245,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 138,
+      "sourceLine": 139,
       "rank": 7
     },
     {
@@ -272,7 +273,7 @@
         "explicit clears, canonical datetime input, and route-safe snapshot pagination. Final evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
         "post-main-merge core 430, DB 154, Google 39, API 218, web 69 (910 affected tests)",
         "monorepo typecheck/build",
-        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
+        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. Historical RM4 worktree reconciliation landed at `3741a41`, confirming `ff98c20` and `905aee9` were already ancestors and regenerating fresh-session Task Manager evidence without re-merging code. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
         "advanced RM6/evaluation capabilities remain future plan scope, not blockers for this completed TASK-008 prototype."
       ],
       "requests": [
@@ -285,7 +286,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 151,
+      "sourceLine": 152,
       "rank": 8
     },
     {
@@ -323,7 +324,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 164,
+      "sourceLine": 165,
       "rank": 9
     },
     {
@@ -361,7 +362,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
+      "sourceLine": 178,
       "rank": 10
     },
     {
@@ -400,7 +401,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 190,
+      "sourceLine": 191,
       "rank": 11
     },
     {
@@ -436,7 +437,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 203,
+      "sourceLine": 204,
       "rank": 12
     },
     {
@@ -465,7 +466,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 216,
+      "sourceLine": 217,
       "rank": 13
     },
     {
@@ -498,7 +499,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 229,
+      "sourceLine": 230,
       "rank": 14
     },
     {
@@ -526,7 +527,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 242,
+      "sourceLine": 243,
       "rank": 15
     },
     {
@@ -554,7 +555,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 256,
+      "sourceLine": 257,
       "rank": 16
     },
     {
@@ -586,7 +587,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 269,
+      "sourceLine": 270,
       "rank": 17
     },
     {
@@ -619,7 +620,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
+      "sourceLine": 283,
       "rank": 18
     },
     {
@@ -650,7 +651,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 295,
+      "sourceLine": 296,
       "rank": 19
     },
     {
@@ -678,7 +679,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 308,
+      "sourceLine": 309,
       "rank": 20
     },
     {
@@ -705,7 +706,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 321,
+      "sourceLine": 322,
       "rank": 21
     },
     {
@@ -736,7 +737,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 335,
       "rank": 22
     },
     {
@@ -763,7 +764,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 347,
+      "sourceLine": 348,
       "rank": 23
     }
   ]

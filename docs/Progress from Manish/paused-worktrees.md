@@ -6,8 +6,9 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
-- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
-  validating and normally merging base `bab32ea`.
+- Latest `main` baseline merged for this handoff:
+  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
+- TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -134,26 +135,21 @@ Remaining: post-migration API/full gates, docs/evidence, independent security re
 
 Compare candidate A and B feature-by-feature and choose one implementation. Candidate A has the stronger completed handoff; candidate B has a different package shape and the Onboarding migration. Do not merge both or cherry-pick overlapping security primitives without a deliberate reconciliation review.
 
-## TASK-008 RM1-RM2 candidate A
+## TASK-008 Relationship continuation — MERGED 2026-07-19
 
-- Session: `b6486e55-47b5-43f7-9a34-eb84ecc578ce`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-symmetrical-spork`
-- Branch/head: `manishsbhoopalam8498-complete-relationship-records` / `631aa9f`
-- Dirty snapshot: 30 tracked and 2 untracked files, approximately +3801/-360.
+- Candidate A session: `b6486e55-47b5-43f7-9a34-eb84ecc578ce`
+- Source branch: `manishsbhoopalam8498-complete-relationship-records`
+- Integrated head: `905aee9`
+- Implementation: `cbda8d6` and `f409777`
+- Central hardening: `71368fe`
 
-Reported validation: typecheck 37/37, build 20/20, core/Google/local/DB pass; API 174/175 because one test expects retired `touchpoint` instead of canonical `event`; web did not run.
+The validated continuation is on `main`: owner-safe Person/Community CRUD/search/detail, one participant
+Timeline, bounded Google/capture and identity review, Memory/commitment/meeting flows, bounded paths and
+Community composition, and double-consent Introduction snapshots. Its prior lifecycle-receipt and central
+authority/privacy/durability findings were fixed before AP-043 integration.
 
-Known defect: stale/no-op auto Record updates and already-archived retries omit lifecycle Event receipts, allowing `listUnmaterializedAutoMutationIds` to select them forever.
-
-## TASK-008 RM1-RM2 candidate B
-
-- Session: `e859579b-a865-4ad3-b16c-e4d8cbccf17d`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-upgraded-system`
-- Branch/head: `manishsbhoopalam8498-implement-relationship-rm1-rm2` / `631aa9f`
-- Dirty snapshot: 27 tracked files, approximately +4184/-354.
-
-Large graph/API/UI/Google/local-store implementation exists. No completed handoff, security review, or final validation is recorded.
-
-### RM1-RM2 selection rule
-
-Compare both implementations against canonical RM1-RM2 scope and current RM4 contracts. Candidate A has a concrete validation/review handoff and known liveness defect; candidate B has a broader local-store delta but less evidence. Select one owner and archive the other only after preserving any uniquely correct tests or contracts.
+Candidate B session `e859579b-a865-4ad3-b16c-e4d8cbccf17d` remains a superseded historical dirty
+worktree. Do not merge either candidate again. TASK-008 is `done` for its exact prototype; persistent
+user-defined Automations/Agent Runs, advanced RM6 team permission/delegation,
+export/disconnect/forget, held-out evaluation, and TASK-014/TASK-009's shared Graph renderer remain
+future scope rather than resume blockers.

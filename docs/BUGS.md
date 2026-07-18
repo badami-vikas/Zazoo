@@ -129,6 +129,15 @@ server-side edits cannot replace Commons provenance, and corrected decisions dis
 output instead of the original draft. Desktop and exact-375px Runs showed attributable Agent,
 Action Pipeline, correction/veto, zero-overflow, and zero-runtime-error evidence. Attached to TASK-005.
 
+## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
+User report (verbatim): “avatar dragging is not working.”
+The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
+while the Avatar itself remained a click-only button. That fails TASK-003's physical
+“Drag the Avatar” acceptance path even if the narrow handle works. The Avatar surface now
+uses a movement threshold before invoking a server-owned native window drag, preserving
+ordinary click/keyboard activation. Physical retest is pending before this evidence closes.
+Attached to canonical TASK-003.
+
 ## RESOLVED 2026-07-18 — release desktop bootstrap failed and sidecar loss aborted on macOS
 The asynchronous release lifecycle created tokenless bootstrap/unavailable pages with `data:` URLs
 but did not enable Tauri's `webview-data-url` feature, so a real release launch displayed neither

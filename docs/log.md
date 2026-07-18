@@ -1,5 +1,12 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 historical worktree reconciliation landed**: merged the historical
+  RM4 worktree through current `main` at `3741a41` after confirming source heads `ff98c20` and
+  `905aee9` were already ancestors. Preserved the canonical `done` prototype closure from
+  `f78e47c`, marked the competing candidate B superseded, refreshed `docs/Progress from Manish/`,
+  and regenerated Task Manager data. The task parser passed 4/4 and a fresh independent
+  documentation review found no material issue; no RM4 code or migration was re-merged.
+
 - **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
   the implementation already landed through `bab32ea`. The exact installed Relationship →
   Signals/People/Communities → Signal → Person/Community participants → source Event → governed
@@ -1629,6 +1636,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - 2026-07-17 — TASK-004 second merge review closed migration compatibility edges. `0011` now deduplicates only exact legacy package-install retries, repoints lineage, and aborts on conflicting identities. `0013` assigns explicit Local Plane only to same-workspace singular, fully valid, non-egress legacy Automations; external, malformed, cross-workspace, and ambiguous rows remain unbound until Human rebind, with no runtime fallback to deprecated owner arrays. Added real pglite and store regressions; ADR-102 and Commons wiki/output updated.
 - 2026-07-17 — TASK-004 blast-radius follow-up made package-install retry convergence content-safe: matching attachment identity now returns an existing row only when canonical manifest, computed risk, lineage, and full content-hash attachment match; changed immutable content throws instead of masquerading as success.
 - 2026-07-17 — TASK-007 completed and integrated under AP-032. Added workspace-scoped persistent Goal/Task/SkillManifest contracts; active assigned-Agent Skill resolution with authority/Plane/data-scope fail-closed gates; five durable foundational Agent identities; governed Learning/Outreach/capture/Helpdesk/DealPilot/Google Skills; server-only bounded child Agent Runs with atomic budget/lifecycle state and attributable audit; authenticated membership-before-provisioning APIs; and Automation Goal/Task bindings. Resequenced orchestration DDL to post-release migration `0014`, preserving fresh and already-migrated upgrades with composite tenant constraints/checks/FORCE-RLS. Core 421, DB 106, API 161, Google 35, web 43 tests plus monorepo typecheck/build, changed-file lint, migration no-drift, no-dummy, and final independent review passed. ADR-104; durable outcome: `outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md`.
+
+# 2026-07-19 — TASK-008 historical worktree reconciliation
+- Fetched `origin/main` at `7f44186` and confirmed RM4 source `ff98c20` plus Relationship continuation `905aee9` are already ancestors of `main`; the historical RM4 worktree fast-forwarded cleanly, so no code conflict or duplicate merge remained.
+- Corrected `docs/Progress from Manish/` to mark the validated continuation merged, candidate B superseded, and the next new migration as `0017`. During reconciliation, concurrent canonical closure `f78e47c` marked TASK-008 `done` for its exact prototype; advanced Automations/RM6/evaluation and the cross-Module Graph renderer remain future scope.
+- Durable reconciliation evidence appended to `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
 - 2026-07-17 — TASK-006 DealPilot DP0-DP1 integrated on main but remains `in_progress`. Delivered Deals/Sources/Theses Records and details, symmetric/backfilled Relations, manifest-owned Egress-Agent discovery, rights/spend/membership gates, cursor-safe bounded/resumable Gmail alerts with original-checkpoint/token-history carry-forward, failed-token reset, and post-persistence acknowledgment, attempted-message spend accounting, governed capture materialization, real password re-authentication, CSPRNG credential sessions, stale-route guards, and complete UI pagination. DealPilot 72, Google 35, focused API 8, web 49, core 421, and DB 107 tests plus builds/typechecks, changed-file lint, no-dummy, and final review regressions passed. Durable Local Plane Records/vault, live provider/re-auth, and physical desktop/375px evidence remain blockers. ADR-109; durable outcome: `outputs/2026-07-16-task-006-dealpilot-core-prototype.md`.
 
 # 2026-07-16 — Task Manager Module: plan + BRD + roadmap addition (TASK-021)
