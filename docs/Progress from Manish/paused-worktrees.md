@@ -60,7 +60,7 @@ Remaining:
 
 ## TASK-010 red-flag correction — MERGED 2026-07-18
 
-TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. `docs/TASKS.md` TASK-010 `Status` remains `in_progress` (no live desktop/375px browser evidence yet); `ledger`'s own RLS and any further live-evidence gathering are the only remaining open items, not a resumable dirty worktree state.
+TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. Authenticated desktop and 375px live certification closed the exact Prototype test on 2026-07-19 after fixing the missing JobPilot default-table cell controls; this historical worktree must not be resumed or merged again.
 
 ## TASK-011 culture research
 

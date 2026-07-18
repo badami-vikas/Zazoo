@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:30:55.740Z",
+  "generatedAt": "2026-07-18T21:48:59.723Z",
   "items": [
     {
       "id": "TASK-001",
@@ -199,7 +199,7 @@
     {
       "id": "TASK-010",
       "title": "TASK-010 — Platform red-flag correction feedback",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.",
@@ -210,6 +210,8 @@
       ],
       "evidence": [
         "user feedback-mechanism correction 2026-07-15",
+        "RESOLVED BUGS 2026-07-19 JobPilot table cells lacked Red Flag controls",
+        "[TASK-010 live-certification output](../outputs/2026-07-19-task010-live-certification.md)",
         "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md), [round-5 remediation](../outputs/2026-07-17-task010-round5-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells), JobPilotPage.tsx card view (real, persisted-application-backed rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
         "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Four coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
         "round 2's own idempotency-check and CAS `.cause`-unwrap bugs (round 3)",
@@ -237,12 +239,12 @@
       "requests": [
         "red-flag directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-046 applied",
       "dependencies": [
         "TASK-001",
         "TASK-007"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 139,
@@ -286,7 +288,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 152,
+      "sourceLine": 153,
       "rank": 8
     },
     {
@@ -324,7 +326,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 165,
+      "sourceLine": 166,
       "rank": 9
     },
     {
@@ -362,7 +364,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 178,
+      "sourceLine": 179,
       "rank": 10
     },
     {
@@ -401,7 +403,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 191,
+      "sourceLine": 192,
       "rank": 11
     },
     {
@@ -437,7 +439,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 204,
+      "sourceLine": 205,
       "rank": 12
     },
     {
@@ -466,7 +468,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 217,
+      "sourceLine": 218,
       "rank": 13
     },
     {
@@ -499,7 +501,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 230,
+      "sourceLine": 231,
       "rank": 14
     },
     {
@@ -527,7 +529,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 243,
+      "sourceLine": 244,
       "rank": 15
     },
     {
@@ -555,7 +557,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 257,
+      "sourceLine": 258,
       "rank": 16
     },
     {
@@ -587,7 +589,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 270,
+      "sourceLine": 271,
       "rank": 17
     },
     {
@@ -620,7 +622,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 283,
+      "sourceLine": 284,
       "rank": 18
     },
     {
@@ -651,7 +653,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 296,
+      "sourceLine": 297,
       "rank": 19
     },
     {
@@ -679,7 +681,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 309,
+      "sourceLine": 310,
       "rank": 20
     },
     {
@@ -706,7 +708,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 322,
+      "sourceLine": 323,
       "rank": 21
     },
     {
@@ -737,7 +739,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 335,
+      "sourceLine": 336,
       "rank": 22
     },
     {
@@ -764,7 +766,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 348,
+      "sourceLine": 349,
       "rank": 23
     }
   ]

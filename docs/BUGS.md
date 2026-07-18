@@ -18,6 +18,15 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — TASK-010 JobPilot table cells lacked Red Flag controls
+Live certification found that the default JobPilot table rendered persisted Role, Company, and Stage
+values as plain text even though TASK-010 requires every eligible data cell to expose the shared,
+reversible Red Flag correction path. Only generated `TableView` cells and JobPilot card bullets were
+wired. The default table now uses one batched `RedFlagProvider`, with all three cells anchored to the
+real persisted application Record. Desktop focus/hover and 375px coarse-pointer touch flows flagged,
+explained, cleared, and surfaced audit evidence without green/yellow feedback semantics. Attached to
+TASK-010.
+
 - **RESOLVED (2026-07-18): latest-main reconciliation could truncate an unrecognized legacy Local Plane table during compatibility migration.** Evidence: independent TASK-005 merge-boundary review reproduced `external_records` with an extra payload column being copied without that column and then dropped. Resolution: both DB bootstrap and Local Plane import now require the exact six-column legacy schema, distinguish the current canonical table, fail closed on any unsupported shape, preserve the source table, and cover the extra-column case with file-backed regressions. Attached canonical task: `TASK-005`.
 
 - **RESOLVED (2026-07-18): fresh mobile reload emitted a React `console.error` because the shared Radix `DialogOverlay` wrapper did not forward its ref.** Evidence: TASK-005's post-merge `375×812` certification monitor caught `Function components cannot be given refs` on initial render. Resolution: `DialogOverlay` now uses `React.forwardRef`, retains its display name, and has a source regression. Attached canonical task: `TASK-005`.
@@ -128,7 +137,6 @@ Execution Ledger preserve the package/capability/attachment/Agent identity acros
 server-side edits cannot replace Commons provenance, and corrected decisions display the applied
 output instead of the original draft. Desktop and exact-375px Runs showed attributable Agent,
 Action Pipeline, correction/veto, zero-overflow, and zero-runtime-error evidence. Attached to TASK-005.
-
 ## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
 User report (verbatim): “avatar dragging is not working.”
 The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
