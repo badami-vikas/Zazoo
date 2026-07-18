@@ -2,7 +2,7 @@
 title: TASK-011 — JobPilot Culture-Research Slice (JP3B)
 date: 2026-07-17
 task: TASK-011
-status: implemented (remediated after NINE rounds of independent/coordinator security review), migration items 1-2 blocked on origin/main RM4/TASK-010 sequencing
+status: implemented (remediated after 12+ rounds of independent/coordinator security review); migration/durability blockers closed via TASK-008's migration 0015; pending final coordinator review before any status flip
 ---
 
 # TASK-011 — JobPilot culture-research slice (JP3B)
@@ -1108,4 +1108,92 @@ touches agent-authority logic), found no functional defects but caught the resol
 explanatory comment inverting which side actually introduced which status vocabulary (verified
 directly against the commit objects). Fixed in commit `923dbf1` — comment/attribution correction
 only, no behavior change, re-verified (`@bridge/core` 431/431).
+
+## 2026-07-18 migration-sequencing round 3 — TASK-008/RM4 landed migration 0015; ledger durability
+closed, no new migration needed
+
+Coordinator unblock: TASK-008 RM4 merged and pushed to `origin/main` at `590cca6` with migration
+`0015_task008_relation_contract.sql`, which already permits `ledger_user_decision_check` to accept
+`'auto'`. Resumed from clean pushed head `d9d20bf`.
+
+**Migration determination (per explicit instruction: check before allocating anything)**: NO new
+migration is needed. `0015`'s `ALTER TABLE "ledger" ... ADD CONSTRAINT "ledger_user_decision_check"
+CHECK (... IN ('approve', 'veto', 'edit', 'auto'))` already closes the exact gap this task's prior
+rounds disclosed. Confirmed via `pnpm --filter @bridge/db generate`: "No schema changes, nothing to
+migrate" — the current `schema.ts` has zero drift against the migration history through `0015`.
+RM4's own `packages/db/test/migration-0015.test.ts` (fresh-migrate test, includes a direct
+`userDecision = 'auto'` insert proving the constraint) and `migration-journal.test.ts` (upgrade/
+no-drift) already cover the fresh+upgrade/no-drift requirement — both pass as part of the confirmed
+`@bridge/db` 129/129 suite below.
+
+**Merge with `origin/main` (fetch + merge, not rebase)** — genuine conflicts this time (unlike the
+prior round's auto-clean merge), in 2 files:
+- `platform/apps/api/src/router.ts`: TASK-008 independently added `relationshipEffectView`/
+  `approvedRelationshipResolution`/`retryApprovedRelationship` at the exact same insertion point
+  (right after `materializeDealPilotApproval`) where this branch's `cultureEvidenceSchema`/
+  `synthesizeCultureProfileOutputSchema`/`assertCultureProposalBindingValid` already lived, AND
+  TASK-008 substantially rewrote `action.decide`'s handler body (idempotent relationship-proposal
+  retry/reconciliation logic) starting from the exact same line this branch's
+  `assertCultureProposalBindingValid` call was inserted at. Resolved by keeping BOTH sets of
+  functions (verified via a line-by-line diff against a reconstructed expected-merge script, not
+  just visual inspection) and re-inserting the single `assertCultureProposalBindingValid` call at
+  the correct point inside TASK-008's new `decide` handler structure — one closing-brace slip during
+  manual resolution was caught by `tsc` (`'}' expected` at EOF) and fixed by a careful brace-matching
+  script (respecting strings/comments/template literals) that pinpointed the exact missing `}`.
+- `platform/apps/api/test/wiring.test.ts`: import-list conflict (both sides added different new
+  imports at the same block) — resolved by keeping the union of both sides' imports.
+- `packages/core/test/child-agent-run.test.ts` (not conflict-marked, but broken by the merge):
+  TASK-008 added a new required `listHistory` method to the core `LedgerStore` interface; a
+  pre-existing mock `LedgerStore` object in this TASK-011 test didn't implement it. Added the
+  missing mock method (test-only, no production code change).
+
+**BRIDGE_LOCAL_DIR ledger/proposals/decisions durability — now closed**: TASK-008 independently
+needed `ledger` itself to be restart-durable under `BRIDGE_LOCAL_DIR` for its own relationship-
+materialization retry flow, and (now that `0015` permits `'auto'`) bound it to the real
+`DrizzleLedgerStore` whenever `env.localDir` is set — exactly the fix this task's prior round
+disclosed as blocked. Updated the stale `wiring.ts` doc comment (which still explained the OLD,
+now-obsolete reasoning for why `ledger` stayed in-memory) to reflect the current, closed state, and
+fixed this task's own stale test asserting `ledger instanceof InMemoryLedger` under
+`BRIDGE_LOCAL_DIR` (now correctly asserts `instanceof DrizzleLedgerStore`).
+
+**New restart-durability test (the coordinator's specific ask)**: added a test proving a PENDING
+research proposal and an APPROVED-BUT-UNMATERIALIZED fetch both survive a genuine close-then-rebuild
+restart, then confirming the approved one is still genuinely actionable (materialize succeeds using
+ONLY the fresh instance's own budget/lease/ledger state) and the pending one is still genuinely
+governable (a fresh decision can still be recorded against it). Uses `buildInMemoryPorts()` directly
+(twice, against the same on-disk directory) — the SAME proven-safe technique the sibling
+"BRIDGE_LOCAL_DIR restart durability" test and TASK-008's own `wiring.test.ts` restart test already
+use. A literal `buildWiring()` (the full production composition) called twice in one process was
+tried FIRST and hits a genuine, pre-existing, unrelated pglite/migration-rerun limitation — its
+separate local-plane setup re-runs its own migrations on every call and errors with `relation
+"external_records" already exists` on the second call within one process; `buildInMemoryPorts()`
+avoids this because it's what this fix's own durable stores actually depend on, and is the
+established pattern for this exact kind of test in this codebase (matches RM4's own precedent). This
+is a genuine tooling/pglite characteristic, not a TASK-011 logic defect — documented in place rather
+than silently worked around, and out of scope to fix this round (unrelated to ledger/proposal/
+decision durability itself, which the test fully proves).
+
+### Verification
+
+`@bridge/core` 432/432 (includes TASK-008's own tests), `@bridge/db` 129/129 (includes RM4's
+migration-0015/migration-journal fresh+upgrade/no-drift tests), `@bridge/net-guard` 24/24,
+`@bridge/jobpilot` 124/124, `@bridge/api` 234/234 (full suite, rerun after one incidental single-test
+flake in the same pre-existing timing-sensitive real-socket test under full-suite load — confirmed
+non-regression via a clean full rerun), `@bridge/web` 61/61 + clean build/typecheck, full monorepo
+build 21/21, eslint clean (same 2 pre-existing, unrelated issues in
+`ZazooAvatar.tsx`/`determinism.ts`), no-dummy-runtime clean, `pnpm --filter @bridge/db generate`
+confirms zero schema drift.
+
+`origin/main` merged forward to `590cca6` (TASK-008/RM4 relationship materialization, migration
+`0015`) — conflicts resolved as described above, `git merge-base --is-ancestor origin/main HEAD`
+confirms fully merged with no further conflicts.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` remain untouched (status NOT flipped) this round — the merge brought forward
+`origin/main`'s OWN edits to `TASKS.md`/`APPROVALS.md`/`docs/log.md`; this branch authored no
+changes to them.
+
+**No remaining migration/durability blockers.** Both previously-disclosed items (1: ledger
+constraint; 2: BRIDGE_LOCAL_DIR ledger durability) are now closed via TASK-008's migration `0015`
+plus this round's wiring/test updates and new restart-durability proof.
 

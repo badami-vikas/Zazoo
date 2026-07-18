@@ -142,6 +142,8 @@ import {
   DrizzleWorkspaceDefinitionStore,
   DrizzlePackageStore,
   DrizzleMemoryStore,
+  DrizzleLedgerStore,
+  DrizzleRelationMaterializationStore,
   DrizzleGoalTaskStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
@@ -155,6 +157,7 @@ import {
   ensureInternalStrategistGovernance,
   ensureGovernanceAgentGovernance,
   ensureCapabilityBuilderGovernance,
+  ensureRelationshipUserGovernance,
   type CanonicalIdentityStore,
 } from "@bridge/db";
 import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
@@ -270,6 +273,7 @@ export interface Wiring {
   ephemeral: EphemeralQuery;
   policies: PolicyStore;
   ledger: LedgerStore;
+  relationMaterializations: DrizzleRelationMaterializationStore;
   events: InMemoryEventBus;
   /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
   localMedia: LocalMediaStore;
@@ -2781,6 +2785,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
   ]);
@@ -2793,6 +2799,7 @@ export interface ModePorts {
   ephemeral: EphemeralQuery;
   policyStore: PolicyStore;
   ledger: LedgerStore;
+  relationMaterializations: DrizzleRelationMaterializationStore;
   ritualRegistry: RitualRegistry;
   toolRegistry: ToolRegistry;
   ritualRunRecorder: RitualRunRecorder;
@@ -2844,6 +2851,7 @@ export interface ModePorts {
   ensureInternalStrategistGovernance?: () => Promise<void>;
   ensureGovernanceAgentGovernance?: () => Promise<void>;
   ensureCapabilityBuilderGovernance?: () => Promise<void>;
+  ensureRelationshipUserGovernance?: () => Promise<void>;
   /**
    * TASK-007 (AGS1) — persistent-mode only. Idempotently seeds the code-declared
    * `GOVERNED_SKILL_MANIFEST_CATALOG` into `skill_manifests`, then refreshes the
@@ -2881,7 +2889,9 @@ export interface ModePorts {
  */
 export function buildPersistentPorts(env: { url: string }): ModePorts {
   const { db, close } = createDb({ url: env.url });
-  const ports = createDrizzlePorts(db);
+  const ports = createDrizzlePorts(db, {
+    defaultWorkspaceId: PILOT_WORKSPACE,
+  });
   // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
   // once DATABASE_URL is set. `skillManifestRegistry`'s `refresh()` is awaited
   // inside `ensureSkillManifestCatalog` below (called once at boot, before the
@@ -2911,6 +2921,7 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     ephemeral: ports.ephemeral,
     policyStore: ports.policies,
     ledger: ports.ledger,
+    relationMaterializations: ports.relationMaterializations,
     ritualRegistry: ports.ritualRegistry,
     toolRegistry: ports.toolRegistry,
     ritualRunRecorder: ports.ritualRunRecorder,
@@ -2989,6 +3000,11 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
         roleId: CAPABILITY_BUILDER_ROLE,
         permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
       }),
+    ensureRelationshipUserGovernance: () =>
+      ensureRelationshipUserGovernance(db, {
+        workspaceId: PILOT_WORKSPACE,
+        userId: PILOT_USER,
+      }),
     ensureSkillManifestCatalog: async () => {
       await seedSkillManifests(db, GOVERNED_SKILL_MANIFEST_CATALOG);
       await skillManifestRegistry.refresh();
@@ -3028,54 +3044,69 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
   const { db: localDb, close: closeLocalDb } = await createLocalDb(
     env.localDir ? { dataDir: env.localDir } : {},
   );
+  const graphStore = new DrizzleGraphStore(localDb);
+  const relationDecisionSequenceFloor =
+    await graphStore.getMaxRelationDecisionSequence();
+  const ledger: LedgerStore = env.localDir
+    ? new DrizzleLedgerStore(localDb, {
+        defaultWorkspaceId: PILOT_WORKSPACE,
+      })
+    : new InMemoryLedger(relationDecisionSequenceFloor);
+  if (ledger instanceof DrizzleLedgerStore) {
+    await ledger.ensureAppendSequenceFloor(relationDecisionSequenceFloor);
+  }
 
   // TASK-011 remediation (2026-07-19 coordinator distributed-defects
-  // RE-review, issue 6) — `ledger`/`goalTasks`/`childAgentRuns` were pure
-  // in-memory JS objects EVEN WHEN `BRIDGE_LOCAL_DIR` is set, unlike every
-  // other store here (`workspaceStore`/`graphStore`/`jobpilotStore`/etc,
-  // already always Drizzle-backed against `localDb`) and unlike
-  // `memoryStore` (the culture-fetch/synthesis-pointer durability this
-  // whole feature's restart guarantees were built on). This meant a REAL
-  // process restart with `BRIDGE_LOCAL_DIR` set — the explicit signal an
-  // operator wants local-plane durability — still silently lost every
-  // pending decision, child-Run status/budget, and Goal/Task binding: the
-  // culture-fetch INTENT record would durably resume, but the ledger
-  // proposal/decision and child-Run state it depends on would not, leaving
-  // an orphaned intent no caller could ever act on again.
+  // RE-review, issue 6; landed originally without `ledger`) —
+  // `ledger`/`goalTasks`/`childAgentRuns` were pure in-memory JS objects
+  // EVEN WHEN `BRIDGE_LOCAL_DIR` is set, unlike every other store here
+  // (`workspaceStore`/`graphStore`/`jobpilotStore`/etc, already always
+  // Drizzle-backed against `localDb`) and unlike `memoryStore` (the
+  // culture-fetch/synthesis-pointer durability this whole feature's restart
+  // guarantees were built on). This meant a REAL process restart with
+  // `BRIDGE_LOCAL_DIR` set — the explicit signal an operator wants
+  // local-plane durability — still silently lost every pending decision,
+  // child-Run status/budget, and Goal/Task binding: the culture-fetch
+  // INTENT record would durably resume, but the ledger proposal/decision
+  // and child-Run state it depends on would not, leaving an orphaned
+  // intent no caller could ever act on again.
   //
-  // Scoped fix: bind `goalTasks`/`childAgentRuns` to their real Drizzle-
-  // backed equivalents (the SAME ones `buildPersistentPorts` uses) ONLY
-  // when `env.localDir` is actually set. When it is NOT set (the default
-  // for the vast majority of existing tests, which call
+  // Scoped fix (this round): bind `goalTasks`/`childAgentRuns` to their
+  // real Drizzle-backed equivalents (the SAME ones `buildPersistentPorts`
+  // uses) ONLY when `env.localDir` is actually set. When it is NOT set (the
+  // default for the vast majority of existing tests, which call
   // `buildWiring()`/`buildInMemoryPorts()` with no `BRIDGE_LOCAL_DIR`),
   // behavior is COMPLETELY UNCHANGED — pure in-memory objects, zero risk to
   // existing test timing/semantics. This mirrors the exact pattern
   // `createLocalDb` itself already uses (in-memory pglite vs file-backed
   // pglite) for the SAME `localDb` instance both branches share.
   //
-  // `ledger` is DELIBERATELY NOT included in this fix, and stays in-memory
-  // even under `BRIDGE_LOCAL_DIR` — a genuine, PRE-EXISTING, unrelated bug
-  // was discovered while testing this change: `DrizzleLedgerStore.append`
-  // writes `userDecision` verbatim, but migration 0004's
-  // `ledger_user_decision_check` constraint only permits NULL/'approve'/
-  // 'veto'/'edit' — NOT 'auto', a value the CORE `LedgerEntry.userDecision`
-  // type (`Decision | "auto" | null`) has always legitimately allowed (used
-  // e.g. by `recordChildAgentRunTransition` and Relationship's
-  // signal-action flow). Switching `ledger` to Drizzle-backed here made
-  // EVERY existing `BRIDGE_LOCAL_DIR`-mode caller that legitimately writes
-  // `userDecision: "auto"` start failing with a real constraint violation
-  // (confirmed via `graph-people-communities.test.ts`, unrelated to
-  // culture-research) — a genuine regression, not a false alarm. Fixing
-  // the constraint itself requires a schema migration, which is explicitly
-  // out of scope this round (RM4 owns migration 0015; TASK-010 owns the
-  // next one) — flagged to the coordinator as a discovered, documented
-  // follow-up blocker rather than silently worked around. Until that
-  // migration lands, ledger/proposal/decision state under
-  // `BRIDGE_LOCAL_DIR` remains process-local — a real, disclosed limit on
-  // this fix's restart-durability guarantee (culture-fetch intents,
-  // Goal/Task bindings, and child-Run status/budget/leases DO durably
-  // resume; the ledger proposal/decision row for an in-flight approval
-  // does not).
+  // `ledger` was DELIBERATELY excluded from that original fix: a genuine,
+  // pre-existing, unrelated bug was found while testing it —
+  // `DrizzleLedgerStore.append` writes `userDecision` verbatim, but
+  // migration 0004's `ledger_user_decision_check` constraint only permitted
+  // NULL/'approve'/'veto'/'edit' — NOT 'auto', a value the CORE
+  // `LedgerEntry.userDecision` type (`Decision | "auto" | null`) has always
+  // legitimately allowed (used e.g. by `recordChildAgentRunTransition` and
+  // Relationship's signal-action flow). Switching `ledger` to Drizzle-backed
+  // then made every existing `BRIDGE_LOCAL_DIR`-mode caller that
+  // legitimately writes `userDecision: "auto"` fail with a real constraint
+  // violation — a genuine regression, disclosed as an explicit follow-up
+  // blocker pending a schema migration, rather than silently worked around.
+  //
+  // TASK-008 (RM4, migration `0015_task008_relation_contract`) has SINCE
+  // landed exactly that constraint fix — `ledger_user_decision_check` now
+  // permits `'approve' | 'veto' | 'edit' | 'auto'` — and, independently,
+  // needed `ledger` itself to be genuinely restart-durable under
+  // `BRIDGE_LOCAL_DIR` for its OWN relationship-materialization retry/
+  // reconciliation flow, so `ledger` above is now unconditionally bound to
+  // `DrizzleLedgerStore` whenever `env.localDir` is set (mirroring
+  // `goalTasks`/`childAgentRuns`) — the ONE remaining blocker this fix's
+  // own doc history disclosed is now closed. TASK-011's own
+  // restart-durability tests (see `jobpilot-culture-research.test.ts`)
+  // verify the SAME guarantee holds for a pending research-proposal
+  // approval and an approved-but-unmaterialized fetch specifically, not
+  // just the generic relation-decision case RM4's own tests cover.
   const localDirDurable = Boolean(env.localDir);
 
   return {
@@ -3083,7 +3114,8 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     agents: mAgents,
     ephemeral: mEphemeral,
     policyStore: new InMemoryPolicyStore(policies),
-    ledger: new InMemoryLedger(),
+    ledger,
+    relationMaterializations: new DrizzleRelationMaterializationStore(localDb),
     // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
     // ritual.create (validated ritual ⊆ agent) and persist here for the session.
     ritualRegistry: new InMemoryRitualRegistry(),
@@ -3092,7 +3124,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     canonical: new InMemoryCanonicalIdentityStore(),
     dealPilotCaptures: createInMemoryCaptureStore(),
     workspaceStore: new DrizzleWorkspaceStore(localDb),
-    graphStore: new DrizzleGraphStore(localDb),
+    graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
     resourcesStore: new DrizzleResourcesStore(localDb),
@@ -3267,6 +3299,7 @@ export async function buildWiring(): Promise<Wiring> {
     ephemeral,
     policyStore,
     ledger,
+    relationMaterializations,
     ritualRegistry,
     toolRegistry,
     ritualRunRecorder,
@@ -3600,6 +3633,7 @@ export async function buildWiring(): Promise<Wiring> {
   await modePorts.ensureInternalStrategistGovernance?.();
   await modePorts.ensureGovernanceAgentGovernance?.();
   await modePorts.ensureCapabilityBuilderGovernance?.();
+  await modePorts.ensureRelationshipUserGovernance?.();
   await modePorts.ensureEgressGovernance?.();
   await modePorts.ensureIntakeGovernance?.();
   await modePorts.ensureDealPilotPrincipalGovernance?.();
@@ -3767,6 +3801,7 @@ export async function buildWiring(): Promise<Wiring> {
     ephemeral,
     policies: effectivePolicyStore,
     ledger,
+    relationMaterializations,
     events,
     persistent: Boolean(url),
     localPlane,

@@ -17,15 +17,15 @@
 import assert from "node:assert/strict";
 import * as http from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
-import { SeededRng, SystemClock, FixedClock, UuidGen, reserveChildRunAction, InMemoryChildAgentRunStore, InMemoryGoalTaskStore, InMemoryLedger, createChildAgentRun, completeChildAgentRun, type RunCtx } from "@bridge/core";
-import { DrizzleGoalTaskStore, DrizzleChildAgentRunStore } from "@bridge/db";
-import { MAX_CULTURE_SOURCES_PER_RUN } from "@bridge/jobpilot";
+import { SeededRng, SystemClock, FixedClock, UuidGen, reserveChildRunAction, InMemoryChildAgentRunStore, InMemoryGoalTaskStore, createChildAgentRun, completeChildAgentRun, type RunCtx } from "@bridge/core";
+import { DrizzleGoalTaskStore, DrizzleChildAgentRunStore, DrizzleLedgerStore } from "@bridge/db";
+import { classifyCultureSource, MAX_CULTURE_SOURCES_PER_RUN } from "@bridge/jobpilot";
 import { appRouter } from "../src/router.js";
 import {
   INTERNAL_STRATEGIST_AGENT,
@@ -41,6 +41,8 @@ import {
   DurableCultureFetchStore,
   CultureFetchStaleLeaseError,
   CultureFetchCancelledRaceError,
+  resolveAuthorizedCultureSource,
+  computeSourcePolicyHash,
   type Wiring,
 } from "../src/wiring.js";
 
@@ -2217,12 +2219,17 @@ test("BRIDGE_LOCAL_DIR durability: goalTasks/childAgentRuns are bound to their R
     durablePorts = await buildInMemoryPorts({ localDir: dir });
     assert.ok(durablePorts.goalTasks instanceof DrizzleGoalTaskStore, "goalTasks must be the REAL Drizzle-backed store when BRIDGE_LOCAL_DIR is set");
     assert.ok(durablePorts.childAgentRuns instanceof DrizzleChildAgentRunStore, "childAgentRuns must be the REAL Drizzle-backed store when BRIDGE_LOCAL_DIR is set");
-    // The ledger is DELIBERATELY still in-memory (see the wiring.ts doc
-    // comment on `buildInMemoryPorts` for why: a pre-existing, unrelated
-    // `ledger_user_decision_check` constraint mismatch with the core
-    // `LedgerEntry.userDecision` type's `"auto"` value blocks this — a
-    // documented, disclosed follow-up blocker, not silently worked around).
-    assert.ok(durablePorts.ledger instanceof InMemoryLedger);
+    // TASK-011 remediation (2026-07-19, migration-sequencing round 3) —
+    // TASK-008's migration `0015_task008_relation_contract` landed on
+    // `origin/main` permitting `ledger_user_decision_check` to accept
+    // `'auto'`, and TASK-008 independently needed `ledger` itself to be
+    // genuinely restart-durable under `BRIDGE_LOCAL_DIR` for its own
+    // relationship-materialization retry flow — `ledger` is now bound to
+    // the REAL `DrizzleLedgerStore` here too, exactly like
+    // `goalTasks`/`childAgentRuns`, closing the ONE remaining blocker this
+    // fix's own doc history disclosed (see `wiring.ts`'s
+    // `buildInMemoryPorts` doc comment for the full history).
+    assert.ok(durablePorts.ledger instanceof DrizzleLedgerStore, "ledger must be the REAL Drizzle-backed store when BRIDGE_LOCAL_DIR is set — TASK-008's migration 0015 closed the ledger_user_decision_check 'auto' blocker");
 
     // Prove the seeded governance hooks are ALSO wired (needed for the
     // Drizzle stores' own foreign-key integrity against `agents`).
@@ -2319,6 +2326,207 @@ test("BRIDGE_LOCAL_DIR restart durability: Goal/Task bindings and child-Run stat
     assert.equal(resumedChildRun!.callsUsed, 1);
   } finally {
     if (ports) await ports.closeDb();
+  }
+});
+
+test("BRIDGE_LOCAL_DIR genuine process restart: a PENDING research proposal and an APPROVED-BUT-UNMATERIALIZED fetch both survive a real close-then-rebuild restart, using ONLY the fresh instance's own budget/lease/ledger machinery afterward — TASK-011 remediation (2026-07-19, migration-sequencing round 3, coordinator-requested proof now that TASK-008's migration 0015 closed the ledger_user_decision_check 'auto' blocker). Uses buildInMemoryPorts() directly (twice, against the SAME on-disk directory) — the SAME proven-safe restart-simulation technique the sibling 'BRIDGE_LOCAL_DIR restart durability' test and TASK-008's own wiring.test.ts restart test already use; a literal buildWiring() (which additionally re-runs the SEPARATE local-plane's own migrations on every call) hits a genuine, pre-existing, unrelated pglite/migration-rerun limitation when invoked twice within one process — buildInMemoryPorts() avoids it entirely, and is what this fix's OWN durable stores actually depend on.", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-culture-research-full-restart-"));
+  const server = await startTestServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("Our culture values durability across restarts.");
+  });
+  let first: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
+  let second: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
+  try {
+    first = await buildInMemoryPorts({ localDir: dir });
+    assert.ok(first.ledger instanceof DrizzleLedgerStore, "sanity: ledger is genuinely Drizzle-backed under BRIDGE_LOCAL_DIR");
+    await first.workspaceStore.bootstrapPilotIdentities({
+      workspaceId: PILOT_WORKSPACE,
+      userId: PILOT_USER,
+      userEmail: "test_fixture_pilot_restart@example.com",
+    });
+    await first.ensureLearningGovernance?.();
+    const c = makeRun();
+
+    const idPending = registerTestSource(server.url);
+    const idApproved = registerTestSource(server.url);
+    const sourcePending = resolveAuthorizedCultureSource(PILOT_WORKSPACE, TEST_COMPANY, idPending)!;
+    const sourceApproved = resolveAuthorizedCultureSource(PILOT_WORKSPACE, TEST_COMPANY, idApproved)!;
+
+    const goal = await first.goalTasks.createGoal(
+      { workspaceId: PILOT_WORKSPACE, type: "culture_research", title: "test_fixture restart research goal" },
+      { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
+    );
+    const task = await first.goalTasks.createTask(
+      { workspaceId: PILOT_WORKSPACE, goalId: goal.id, type: "research_culture_source", assignedAgentId: LEARNING_AGENT },
+      { nextId: () => c.ids.next(), nowISO: () => c.clock.nowISO() },
+    );
+    const parentRunId = c.ids.next();
+    const parentEnvelope = {
+      runId: parentRunId,
+      agentId: LEARNING_AGENT,
+      workspaceId: PILOT_WORKSPACE,
+      authorityScope: ["external:fetch:read"],
+      eligibleSkills: ["jobpilot.researchCultureSource"],
+      dataScope: "public" as const,
+      plane: "cloud" as const,
+      budgetRemaining: { calls: 2, cost: 2 },
+      reviewMode: "approve" as const,
+      childRunPolicy: "allowed" as const,
+      delegationDepth: 0,
+      onBehalfOf: { type: "user" as const, id: PILOT_USER },
+    };
+
+    // Mirrors EXACTLY what `jobpilot.cultureResearch.propose`'s router
+    // handler does per source — a durable culture-fetch intent record
+    // created and bound to a real ledger proposal — but constructed
+    // directly against the raw ports (no full Wiring/pipeline available at
+    // this level), the SAME technique the sibling restart test above uses
+    // for Goal/Task/child-Run state.
+    async function proposeOneSource(source: typeof sourcePending) {
+      const childRun = await createChildAgentRun(
+        { store: first!.childAgentRuns, ledger: first!.ledger },
+        parentEnvelope,
+        {
+          goalId: goal.id,
+          taskId: task.id,
+          delegatedScope: ["external:fetch:read"],
+          selectedSkills: ["jobpilot.researchCultureSource"],
+          budget: { maxCalls: 1, maxCost: 1 },
+          deadline: new Date(Date.now() + 5 * 60_000).toISOString(),
+          stopCondition: "test_fixture restart research",
+          requestedDataScope: "public",
+          touchesExternalRisk: true,
+        },
+        c,
+      );
+      const fetchStore = new DurableCultureFetchStore(first!.memoryStore);
+      await fetchStore.create({
+        childRunId: childRun.id,
+        parentRunId,
+        workspaceId: PILOT_WORKSPACE,
+        company: TEST_COMPANY,
+        sourceId: source.id,
+        sourceType: source.sourceType,
+        sourceLabel: source.sourceLabel,
+        canonicalUrl: source.url,
+        allowedRedirectOrigins: source.allowedRedirectOrigins,
+        policySnapshot: { registryVersion: computeSourcePolicyHash(source), eligibility: classifyCultureSource(source.sourceType).eligibility },
+        goalId: goal.id,
+        taskId: task.id,
+        skill: "jobpilot.researchCultureSource",
+        action: "read",
+        actorId: LEARNING_AGENT,
+      });
+      const proposalId = c.ids.next();
+      await fetchStore.attachProposal(PILOT_WORKSPACE, childRun.id, proposalId);
+      await first!.ledger.append({
+        id: proposalId,
+        workspaceId: PILOT_WORKSPACE,
+        actorType: "agent",
+        actorId: LEARNING_AGENT,
+        action: "read",
+        resourceType: "external:fetch",
+        inputs: { sourceId: source.id, workspaceId: PILOT_WORKSPACE, company: TEST_COMPANY },
+        proposedOutput: { sourceId: source.id, sourceType: source.sourceType, sourceLabel: source.sourceLabel, url: source.url, plannedAt: c.clock.nowISO() },
+        userDecision: null,
+        policyResults: [],
+        context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
+        createdAt: c.clock.nowISO(),
+      });
+      return { proposalId, childRunId: childRun.id };
+    }
+
+    const pendingEntry = await proposeOneSource(sourcePending);
+    const approvedEntry = await proposeOneSource(sourceApproved);
+    // Approve the second proposal's decision row directly (mirrors
+    // `pipeline.decide`'s own ledger effect at the storage layer this test
+    // operates at) — leave the fetch itself UNMATERIALIZED.
+    await first.ledger.append({
+      id: c.ids.next(),
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "read",
+      resourceType: "external:fetch",
+      inputs: {},
+      userDecision: "approve",
+      policyResults: [],
+      refLedgerId: approvedEntry.proposalId,
+      createdAt: c.clock.nowISO(),
+    });
+
+    // Sanity, BEFORE the restart.
+    assert.equal(await first.ledger.decisionFor(pendingEntry.proposalId), null, "sanity: pending proposal has no decision yet");
+    assert.equal((await first.ledger.decisionFor(approvedEntry.proposalId))?.userDecision, "approve", "sanity: approved proposal has a real decision row");
+    const fetchStoreBefore = new DurableCultureFetchStore(first.memoryStore);
+    const approvedRecordBefore = await fetchStoreBefore.get(PILOT_WORKSPACE, approvedEntry.childRunId);
+    assert.equal(approvedRecordBefore?.status, "pending", "sanity: approved-but-unmaterialized — the fetch has NOT run yet");
+
+    // THE RESTART: close every port this process holds and build a BRAND
+    // NEW `buildInMemoryPorts()` instance from scratch against the SAME
+    // on-disk directory — genuinely reloading from durable storage, not
+    // reusing any in-process object.
+    await first.closeDb();
+    first = undefined;
+    second = await buildInMemoryPorts({ localDir: dir });
+
+    // The PENDING proposal must still be pending — durably, not merely "not
+    // yet garbage collected in this process".
+    assert.equal(await second.ledger.decisionFor(pendingEntry.proposalId), null, "a pending research proposal's absence of a decision must survive a genuine process restart");
+    const pendingProposalAfter = await second.ledger.get(pendingEntry.proposalId);
+    assert.ok(pendingProposalAfter, "the pending proposal's own ledger row must still exist after restart");
+
+    // The APPROVED-BUT-UNMATERIALIZED fetch must still show its decision AND
+    // its intent record, both from the FRESH instance's own stores only.
+    const approvedDecisionAfter = await second.ledger.decisionFor(approvedEntry.proposalId);
+    assert.equal(approvedDecisionAfter?.userDecision, "approve", "the approved decision must survive the restart");
+    const fetchStoreAfter = new DurableCultureFetchStore(second.memoryStore);
+    const approvedRecordAfter = await fetchStoreAfter.get(PILOT_WORKSPACE, approvedEntry.childRunId);
+    assert.equal(approvedRecordAfter?.status, "pending", "the approved-but-unmaterialized fetch intent must survive the restart in its exact pre-restart state");
+    assert.equal(approvedRecordAfter?.proposalId, approvedEntry.proposalId);
+
+    // The restart must not just LOOK durable — the approved decision must
+    // still be genuinely actionable: `materializeCultureSourceFetch` must
+    // succeed using ONLY the fresh, post-restart instance's own
+    // childAgentRuns/ledger/fetchStore, proving the child Run's budget and
+    // the ledger's approve decision both survived intact, not just the
+    // intent record's own fields.
+    const materialized = await materializeCultureSourceFetch(
+      { childAgentRuns: second.childAgentRuns, ledger: second.ledger, fetchStore: fetchStoreAfter, abortControllers: new Map() },
+      PILOT_WORKSPACE,
+      approvedEntry.proposalId,
+      approvedEntry.childRunId,
+      c,
+      allowLoopback,
+    );
+    assert.equal(materialized.status, "fetched");
+    assert.equal(materialized.artifact?.content, "Our culture values durability across restarts.");
+
+    // The still-pending source must remain fully vetoable post-restart too —
+    // proves the pending proposal isn't just visible but genuinely still
+    // governed correctly by the fresh instance (a real decision row can
+    // still be appended against it).
+    await second.ledger.append({
+      id: c.ids.next(),
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "read",
+      resourceType: "external:fetch",
+      inputs: {},
+      userDecision: "veto",
+      policyResults: [],
+      refLedgerId: pendingEntry.proposalId,
+      createdAt: c.clock.nowISO(),
+    });
+    const pendingDecisionAfterVeto = await second.ledger.decisionFor(pendingEntry.proposalId);
+    assert.equal(pendingDecisionAfterVeto?.userDecision, "veto");
+  } finally {
+    if (first) await first.closeDb();
+    if (second) await second.closeDb();
+    await server.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

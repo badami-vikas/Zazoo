@@ -339,6 +339,7 @@ test("child-run terminal transition: if the audit ledger append fails, the run's
     get: async () => null,
     decisionFor: async () => null,
     listPending: async () => ({ items: [], total: 0 }),
+    listHistory: async () => ({ items: [], total: 0 }),
   };
   const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
   const actor: Actor = { type: "agent", id: "internal_strategist" };

@@ -35,3 +35,23 @@ test("TASK-007 orchestration migration is after the released 0013 high-water mar
     "TASK-007 must apply to databases already migrated through released 0013",
   );
 });
+
+test("TASK-008 Relation migration is ordered after TASK-007", () => {
+  const journal = JSON.parse(
+    readFileSync(resolve(here, "../../migrations/meta/_journal.json"), "utf8"),
+  ) as { entries: Array<{ idx: number; when: number; tag: string }> };
+  const orchestration = journal.entries.find(
+    (entry) => entry.tag === "0014_task007_goal_task_skill_manifest_child_run",
+  );
+  const relations = journal.entries.find(
+    (entry) => entry.tag === "0015_task008_relation_contract",
+  );
+
+  assert.ok(orchestration, "TASK-007 migration must remain in the journal");
+  assert.ok(relations, "TASK-008 Relation migration must remain in the journal");
+  assert.equal(relations.idx, 15);
+  assert.ok(
+    relations.when > orchestration.when,
+    "TASK-008 Relation migration must apply after TASK-007",
+  );
+});

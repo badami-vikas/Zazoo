@@ -1,17 +1,15 @@
-// Governance data-access seam — reads the append-only `ledger` from Supabase when reachable, else
-// falls back to the local governance demo data. Mirrors data/db.ts. The live `ledger` table has only
-// SELECT + INSERT RLS policies (no UPDATE/DELETE) — it is append-only at the database layer — so a
-// decision is recorded by APPENDING a decision row that references the proposal, never by mutating it.
+// Governance data-access seam — reads the append-only ledger through authenticated
+// Action Pipeline APIs. Browsers never query or mutate the ledger table directly.
 //
 // Display fields live in the row's jsonb (`inputs.display`, `proposed_output.text`) so the UI doesn't
 // have to resolve actor_id/resource_id uuids — the same shape the real app would project server-side.
 import { useSyncExternalStore } from 'react';
-import { collectAllPages } from '../lib/pagination';
-import { supabase } from '../lib/supabase';
 import { PILOT_WORKSPACE, trpc } from '../lib/trpc';
 import { pendingApprovals, allLedger, type LedgerEntry, type Decision } from './governance';
 
-export type LedgerSource = 'api' | 'supabase' | 'local';
+export type LedgerSource = 'api' | 'local';
+const LEDGER_PAGE_SIZE = 100;
+const LEDGER_READ_WINDOW = 500;
 
 // Reactive count of pending ledger rows, so the nav badge matches the Approvals page (single source).
 let livePendingCount = pendingApprovals.length;
@@ -28,9 +26,6 @@ export function useLivePendingCount(): number {
     () => livePendingCount,
   );
 }
-
-const LEDGER_COLS =
-  'id, actor_type, action, resource_type, on_behalf_of_type, inputs, proposed_output, user_decision, policy_results, ref_ledger_id, diff, created_at';
 
 function relAge(iso: string): string {
   const then = new Date(iso).getTime();
@@ -73,32 +68,65 @@ function isReviewDecision(value: unknown): boolean {
   return decision === 'approved' || decision === 'vetoed' || decision === 'edited_approved';
 }
 
-function isRejectedAuditRow(row: any): boolean {
+function isRejectedAuditRow(row: { diff?: unknown }): boolean {
   return Boolean(asRecord(row.diff)?.rejected);
 }
 
-// One ledger row (jsonb display payload) → the UI's LedgerEntry shape.
-function rowToEntry(r: any): LedgerEntry {
-  const d = (r.inputs && r.inputs.display) || {};
+type LedgerHistoryPage = Awaited<ReturnType<typeof trpc.action.listHistory.query>>;
+type LedgerHistoryRow = LedgerHistoryPage['items'][number];
+
+function historyRowToEntry(row: LedgerHistoryRow): LedgerEntry {
+  const inputs = asRecord(row.inputs);
+  const display = asRecord(inputs?.display);
+  const proposedOutput = row.proposedOutput;
+  const proposedRecord = asRecord(proposedOutput);
+  const trace = asRecord(display?.trace);
+  const resource =
+    asString(display?.resource) ??
+    `${row.resourceType}${row.resourceId ? ` · ${row.resourceId}` : ''}`;
+  const policy =
+    asString(display?.policy) ??
+    (row.policyResults
+      .filter(result => result.effect === 'require_approval' || result.effect === 'block')
+      .map(result => result.reason)
+      .join('; ') || 'Governed action');
+  const proposed =
+    asString(proposedRecord?.draftBody) ??
+    asString(proposedRecord?.text) ??
+    (typeof proposedOutput === 'string'
+      ? proposedOutput
+      : JSON.stringify(proposedOutput ?? {}, null, 2));
   return {
-    id: r.id,
-    ts: shortTs(r.created_at),
-    age: relAge(r.created_at),
-    actorKind: d.actorKind || r.actor_type || 'agent',
-    actor: d.actor || r.actor_type || 'Agent',
-    onBehalfOfType: r.on_behalf_of_type || null,
-    onBehalfOf: d.onBehalfOf ?? null,
-    delegationId: null,
-    runId: (r.inputs && r.inputs.runId) || null,
-    action: r.action,
-    resourceType: r.resource_type,
-    resource: d.resource || '',
-    policy: d.policy || '—',
-    decision: normalizeDecision(r.user_decision),
-    channel: d.channel,
-    prior: d.prior ?? null,
-    proposed: (r.proposed_output && r.proposed_output.text) || '',
-    trace: d.trace || { signals: [], context: '', reasoning: '' },
+    id: row.id,
+    sourceId: asString(inputs?.sourceId) ?? undefined,
+    ts: shortTs(row.createdAt),
+    age: relAge(row.createdAt),
+    actorKind: row.actorType === 'user' ? 'human' : 'agent',
+    actor: asString(display?.actor) ?? `${row.actorType} · ${row.actorId}`,
+    onBehalfOfType: row.onBehalfOfType === 'user' ? 'user' : null,
+    onBehalfOf:
+      asString(display?.onBehalfOf) ??
+      (row.onBehalfOfType === 'user' ? row.onBehalfOfId ?? null : null),
+    delegationId: row.delegationId ?? asString(inputs?.delegationId),
+    runId: asString(inputs?.runId),
+    action: asString(display?.action) ?? row.action,
+    resourceType: displayResourceType(row.resourceType),
+    resource,
+    policy,
+    decision: normalizeDecision(row.userDecision),
+    channel: asString(display?.channel) ?? undefined,
+    prior: asString(display?.prior),
+    proposed,
+    proposalOutput: proposedOutput,
+    trace: {
+      signals: Array.isArray(trace?.signals)
+        ? trace.signals.filter((signal): signal is string => typeof signal === 'string')
+        : [],
+      context:
+        asString(trace?.context) ??
+        `Governed ${row.action} ${normalizeDecision(row.userDecision) ? 'decision' : 'proposal'}.`,
+      reasoning: asString(trace?.reasoning) ?? policy,
+    },
   };
 }
 
@@ -114,11 +142,28 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function canonicalDecisionPrecedes(
+  candidate: LedgerHistoryRow,
+  current: LedgerHistoryRow,
+): boolean {
+  if (Boolean(candidate.refLedgerId) !== Boolean(current.refLedgerId)) {
+    return Boolean(candidate.refLedgerId);
+  }
+  const candidateSequence =
+    typeof candidate.appendSequence === 'number' ? candidate.appendSequence : Number.MAX_SAFE_INTEGER;
+  const currentSequence =
+    typeof current.appendSequence === 'number' ? current.appendSequence : Number.MAX_SAFE_INTEGER;
+  if (candidateSequence !== currentSequence) return candidateSequence < currentSequence;
+  const createdOrder = candidate.createdAt.localeCompare(current.createdAt);
+  return createdOrder !== 0 ? createdOrder < 0 : candidate.id.localeCompare(current.id) < 0;
+}
+
 function displayResourceType(value: PendingProposal['request']['resourceType']): LedgerEntry['resourceType'] {
   switch (value) {
     case 'person':
     case 'initiative':
     case 'community':
+    case 'relation':
     case 'ritual':
     case 'signal':
       return value;
@@ -199,36 +244,129 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
   };
 }
 
-const localFallback = () => ({ pending: pendingApprovals, all: allLedger, source: 'local' as LedgerSource });
+async function collectLedgerWindow<T>(
+  load: (offset: number, limit: number) => Promise<{ items: T[]; total: number }>,
+): Promise<{ items: T[]; total: number; truncated: boolean }> {
+  const items: T[] = [];
+  let total = 0;
+  while (items.length < LEDGER_READ_WINDOW) {
+    const limit = Math.min(LEDGER_PAGE_SIZE, LEDGER_READ_WINDOW - items.length);
+    const page = await load(items.length, limit);
+    total = page.total;
+    items.push(...page.items);
+    if (items.length >= total) break;
+    if (page.items.length === 0) {
+      throw new Error(`Ledger pagination did not advance at offset ${items.length} of ${total}`);
+    }
+  }
+  return { items, total, truncated: items.length < total };
+}
+
+const localFallback = () => ({
+  pending: pendingApprovals,
+  all: allLedger,
+  source: 'local' as LedgerSource,
+  truncated: false,
+});
 
 export async function loadPendingApprovals(): Promise<{
   pending: LedgerEntry[];
   source: LedgerSource;
+  total: number;
+  truncated: boolean;
   error?: string;
 }> {
   try {
-    const proposals = await collectAllPages(async (offset, limit) => {
-      const page = await trpc.action.listPending.query({
+    const window = await collectLedgerWindow((offset, limit) =>
+      trpc.action.listPending.query({
         workspaceId: PILOT_WORKSPACE,
         limit,
         offset,
-      });
-      return {
-        ...page,
-        hasMore: offset + page.items.length < page.total,
-      };
-    });
-    const pending = proposals.map(proposalToEntry);
-    setLivePendingCount(pending.length);
-    return { pending, source: 'api' };
+      }),
+    );
+    const pending = window.items.map(proposalToEntry);
+    setLivePendingCount(window.total);
+    return {
+      pending,
+      source: 'api',
+      total: window.total,
+      truncated: window.truncated,
+      ...(window.truncated
+        ? { error: `Showing the newest ${pending.length} of ${window.total} pending approvals.` }
+        : {}),
+    };
   } catch (cause) {
     setLivePendingCount(pendingApprovals.length);
     return {
       pending: pendingApprovals,
       source: 'local',
+      total: pendingApprovals.length,
+      truncated: false,
       error: cause instanceof Error ? cause.message : String(cause),
     };
   }
+}
+
+export type OutstandingRelationshipMaterialization = Awaited<
+  ReturnType<typeof trpc.relationship.outstandingMaterializations.query>
+>['items'][number];
+
+export async function loadOutstandingRelationshipMaterializations(): Promise<{
+  items: OutstandingRelationshipMaterialization[];
+  error?: string;
+}> {
+  try {
+    const items: OutstandingRelationshipMaterialization[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: { id: string } | undefined;
+    do {
+      const page = await trpc.relationship.outstandingMaterializations.query({
+        workspaceId: PILOT_WORKSPACE,
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
+      });
+      items.push(...page.items);
+      if (!page.nextCursor) return { items };
+      if (seenCursors.has(page.nextCursor.id)) {
+        throw new Error("Outstanding Relationship pagination did not advance");
+      }
+      seenCursors.add(page.nextCursor.id);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return { items };
+  } catch (cause) {
+    return {
+      items: [],
+      error: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
+export async function retryRelationshipMaterialization(proposalId: string) {
+  return trpc.relationship.retryMaterialization.mutate({
+    workspaceId: PILOT_WORKSPACE,
+    proposalId,
+  });
+}
+
+function editedProposalOutput(
+  originalRecord: Record<string, unknown> | null,
+  nextText: string,
+): unknown {
+  if (originalRecord?.kind === 'help_offer') {
+    return { ...originalRecord, draftBody: nextText };
+  }
+  if (originalRecord?.kind === 'relationship_signal_evidence') {
+    const parsed = JSON.parse(nextText) as unknown;
+    if (asRecord(parsed)?.kind !== 'relationship_signal_evidence') {
+      throw new Error('Edited Relationship output must remain a Signal evidence Relation object.');
+    }
+    return parsed;
+  }
+  if (originalRecord && 'text' in originalRecord) {
+    return { ...originalRecord, text: nextText };
+  }
+  return nextText;
 }
 
 /**
@@ -236,47 +374,62 @@ export async function loadPendingApprovals(): Promise<{
  *  - `pending`: proposals awaiting review (user_decision null, no decision-append references them)
  *  - `all`: every proposal with its decision folded in (decision-append rows are hidden, their
  *           decision reflected on the proposal) — what the Execution Ledger shows
- *  - `source`: 'supabase' | 'local'
+ *  - `source`: authenticated API or honest local empty fallback
  */
-export async function loadLedger(): Promise<{ pending: LedgerEntry[]; all: LedgerEntry[]; source: LedgerSource }> {
+export async function loadLedger(): Promise<{
+  pending: LedgerEntry[];
+  all: LedgerEntry[];
+  source: LedgerSource;
+  truncated: boolean;
+}> {
   try {
-    const { data, error } = await supabase
-      .from('ledger')
-      .select(LEDGER_COLS)
-      .order('created_at', { ascending: false });
-    if (error || !data || data.length === 0) { setLivePendingCount(pendingApprovals.length); return localFallback(); }
+    const window = await collectLedgerWindow((offset, limit) =>
+      trpc.action.listHistory.query({
+        workspaceId: PILOT_WORKSPACE,
+        limit,
+        offset,
+      }),
+    );
+    const data = window.items;
 
-    // Fold current ref_ledger_id decisions and legacy inputs.proposal_id decisions.
+    // Fold only decisions linked by the server-owned refLedgerId column.
     // Null-decision referenced rows are blocked-attempt audits, not resolutions.
-    const appendByProposal = new Map<string, any>();
+    const appendByProposal = new Map<string, LedgerHistoryRow>();
     const resolvingRowIds = new Set<string>();
-    for (const r of data) {
-      const pid = r.ref_ledger_id || (r.inputs && r.inputs.proposal_id);
-      if (pid && isReviewDecision(r.user_decision)) {
-        if (!appendByProposal.has(pid)) appendByProposal.set(pid, r);
-        resolvingRowIds.add(r.id);
+    for (const row of data) {
+      const proposalId = row.refLedgerId;
+      if (proposalId && isReviewDecision(row.userDecision)) {
+        const current = appendByProposal.get(proposalId);
+        if (!current || canonicalDecisionPrecedes(row, current)) {
+          appendByProposal.set(proposalId, row);
+        }
+        resolvingRowIds.add(row.id);
       }
     }
     const all = data
-      .filter(r => !resolvingRowIds.has(r.id))
-      .map(r => {
-        const e = rowToEntry(r);
-        const ap = appendByProposal.get(r.id);
-        if (ap && e.decision === null) e.decision = normalizeDecision(ap.user_decision);
-        return e;
+      .filter(row => !resolvingRowIds.has(row.id))
+      .map(row => {
+        const entry = historyRowToEntry(row);
+        const decision = appendByProposal.get(row.id);
+        if (decision && entry.decision === null) {
+          entry.decision = normalizeDecision(decision.userDecision);
+        }
+        return entry;
       });
     const pending = data
       .filter(
-        r =>
-          !r.ref_ledger_id &&
-          !(r.inputs && r.inputs.proposal_id) &&
-          normalizeDecision(r.user_decision) === null &&
-          !isRejectedAuditRow(r) &&
-          !appendByProposal.has(r.id),
+        row => {
+          return (
+            !row.refLedgerId &&
+            normalizeDecision(row.userDecision) === null &&
+            !isRejectedAuditRow(row) &&
+            !appendByProposal.has(row.id)
+          );
+        },
       )
-      .map(rowToEntry);
+      .map(historyRowToEntry);
     setLivePendingCount(pending.length);
-    return { pending, all, source: 'supabase' };
+    return { pending, all, source: 'api', truncated: window.truncated };
   } catch {
     setLivePendingCount(pendingApprovals.length);
     return localFallback();
@@ -295,7 +448,7 @@ export async function recordDecisionAppend(
 ): Promise<{
   recorded: boolean;
   decision?: Decision;
-  execution?: 'confirmed' | 'failed' | 'unconfirmed';
+  execution?: 'confirmed' | 'pending' | 'failed' | 'unconfirmed';
   executionError?: string;
 }> {
   if (!decision) return { recorded: false };
@@ -305,11 +458,7 @@ export async function recordDecisionAppend(
     const nextText = editedValue ?? entry.proposed;
     const editedOutput =
       decision === 'edited_approved'
-        ? originalRecord?.kind === 'help_offer'
-          ? { ...originalRecord, draftBody: nextText }
-          : originalRecord && 'text' in originalRecord
-            ? { ...originalRecord, text: nextText }
-            : nextText
+        ? editedProposalOutput(originalRecord, nextText)
         : undefined;
     const result = await trpc.action.decide.mutate({
       proposalId: entry.id,
@@ -322,21 +471,72 @@ export async function recordDecisionAppend(
       ...(editedOutput !== undefined ? { editedOutput } : {}),
       ...(reason ? { reason } : {}),
     });
+    const persistedDecision = normalizeDecision(result.recordedDecision);
+    if (!persistedDecision) {
+      throw new Error("The Action Pipeline did not return its persisted decision");
+    }
     setLivePendingCount(Math.max(0, livePendingCount - 1));
+    const relationshipStatus =
+      'relationshipMaterialization' in result
+        ? result.relationshipMaterialization?.status
+        : undefined;
+    const execution =
+      relationshipStatus === 'pending'
+        ? ('pending' as const)
+        : result.effectsStatus;
     return {
       recorded: true,
-      decision,
-      execution: result.effectsStatus,
-      ...("effectsError" in result && result.effectsError ? { executionError: result.effectsError } : {}),
+      decision: persistedDecision,
+      execution,
+      ...(execution === 'failed' && 'effectsError' in result && result.effectsError
+        ? { executionError: result.effectsError }
+        : {}),
     };
   } catch {
     try {
       const resolution = await trpc.action.resolution.query({ proposalId: entry.id });
       if (resolution.status === 'resolved') {
         setLivePendingCount(Math.max(0, livePendingCount - 1));
+        const recordedDecision = normalizeDecision(resolution.decision);
+        if (
+          entry.resourceType === 'relation' &&
+          (recordedDecision === 'approved' ||
+            recordedDecision === 'edited_approved')
+        ) {
+          try {
+            const reconciliation =
+              await trpc.relationship.reconcileApproved.mutate({
+                workspaceId: PILOT_WORKSPACE,
+                proposalId: entry.id,
+              });
+            return {
+              recorded: true,
+              decision: recordedDecision,
+              execution:
+                reconciliation.status === 'confirmed'
+                  ? ('confirmed' as const)
+                  : reconciliation.status === 'pending'
+                    ? ('pending' as const)
+                    : ('failed' as const),
+              ...(reconciliation.status === 'failed'
+                ? { executionError: reconciliation.error }
+                : {}),
+            };
+          } catch (reconcileCause) {
+            return {
+              recorded: true,
+              decision: recordedDecision,
+              execution: 'unconfirmed',
+              executionError:
+                reconcileCause instanceof Error
+                  ? reconcileCause.message
+                  : String(reconcileCause),
+            };
+          }
+        }
         return {
           recorded: true,
-          decision: normalizeDecision(resolution.decision),
+          decision: recordedDecision,
           execution: 'unconfirmed',
         };
       }

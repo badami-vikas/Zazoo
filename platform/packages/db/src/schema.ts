@@ -12,7 +12,9 @@
  * Drizzle owns table shape; the database owns enforcement.
  */
 import {
+  bigint,
   boolean,
+  check,
   customType,
   date,
   doublePrecision,
@@ -261,7 +263,14 @@ export const communityMembers = pgTable(
 export const nodeTypes = pgTable("node_types", {
   type: text("type").primaryKey(),
   plane: text("plane").notNull(), // mirror | operational | infra
+  owningModule: text("owning_module"),
 });
+
+export interface RelationEvidenceRef {
+  entityType: string;
+  entityId: string;
+  source?: string;
+}
 
 export const edges = pgTable(
   "edges",
@@ -274,11 +283,52 @@ export const edges = pgTable(
     dstId: uuid("dst_id").notNull(),
     edgeType: text("edge_type").notNull(),
     properties: jsonb("properties").notNull().default({}),
-    createdAt: now(),
+    evidenceRefs: jsonb("evidence_refs").$type<RelationEvidenceRef[]>().notNull().default([]),
+    confidence: numeric("confidence", { precision: 5, scale: 4 }).notNull().default(sql`1`),
+    observedAt: timestamp("observed_at", {
+      withTimezone: true,
+      precision: 3,
+    }).notNull().defaultNow(),
+    validFrom: timestamp("valid_from", { withTimezone: true }),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    userConfirmed: boolean("user_confirmed").notNull().default(false),
+    visibility: text("visibility").notNull().default("private"),
+    source: text("source").notNull().default("user"),
+    sourceModule: text("source_module").notNull().default("legacy"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id),
+    decisionLedgerId: uuid("decision_ledger_id"),
+    decisionSequence: bigint("decision_sequence", { mode: "number" }),
+    decisionAt: timestamp("decision_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      precision: 3,
+    }).notNull().defaultNow(),
   },
   (t) => [
     index("edges_src_idx").on(t.workspaceId, t.srcType, t.srcId),
     index("edges_dst_idx").on(t.workspaceId, t.dstType, t.dstId),
+    index("edges_relation_page_idx").on(t.workspaceId, t.observedAt, t.createdAt, t.id),
+    uniqueIndex("edges_semantic_uq").on(
+      t.workspaceId,
+      t.srcType,
+      t.srcId,
+      t.dstType,
+      t.dstId,
+      t.edgeType,
+      t.ownerUserId,
+    ),
+    check("edges_confidence_check", sql`${t.confidence} >= 0 AND ${t.confidence} <= 1`),
+    check("edges_evidence_refs_array_check", sql`jsonb_typeof(${t.evidenceRefs}) = 'array'`),
+    check(
+      "edges_valid_range_check",
+      sql`${t.validTo} IS NULL OR ${t.validFrom} IS NULL OR ${t.validTo} >= ${t.validFrom}`,
+    ),
+    check("edges_visibility_check", sql`${t.visibility} IN ('private', 'workspace', 'public')`),
+    check("edges_source_module_check", sql`length(trim(${t.sourceModule})) > 0`),
+    check(
+      "edges_decision_provenance_check",
+      sql`(${t.decisionLedgerId} IS NULL AND ${t.decisionSequence} IS NULL AND ${t.decisionAt} IS NULL) OR (${t.decisionLedgerId} IS NOT NULL AND ${t.decisionSequence} IS NOT NULL AND ${t.decisionAt} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -696,6 +746,9 @@ export const ledger = pgTable("ledger", {
   // Append-only, high-write table — UUIDv7 keeps new rows physically adjacent
   // (see uuidPkV7's doc comment; migrations/0004_schema_hardening.sql item 2).
   id: uuidPkV7(),
+  appendSequence: bigint("append_sequence", { mode: "number" }).default(
+    sql`nextval('ledger_append_sequence_seq'::regclass)`,
+  ).notNull(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
   actorType: text("actor_type").notNull(),
   actorId: uuid("actor_id").notNull(),
@@ -729,6 +782,76 @@ export const ledger = pgTable("ledger", {
   trustOrigin: text("trust_origin"),
   createdAt: now(),
 });
+
+export const relationMaterializationEffects = pgTable(
+  "relation_materialization_effects",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    proposalLedgerId: uuid("proposal_ledger_id").notNull(),
+    decisionLedgerId: uuid("decision_ledger_id").notNull(),
+    status: text("status")
+      .$type<"pending" | "applied" | "failed">()
+      .notNull()
+      .default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    leaseRecoveryCount: integer("lease_recovery_count").notNull().default(0),
+    maxLeaseRecoveries: integer("max_lease_recoveries").notNull().default(3),
+    relationCount: integer("relation_count"),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: now(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("relation_materialization_effects_proposal_uq").on(
+      t.workspaceId,
+      t.proposalLedgerId,
+    ),
+    unique("relation_materialization_effects_decision_uq").on(
+      t.workspaceId,
+      t.decisionLedgerId,
+    ),
+    index("relation_materialization_effects_retry_idx").on(
+      t.workspaceId,
+      t.ownerUserId,
+      t.status,
+      t.nextRetryAt,
+      t.leaseExpiresAt,
+    ),
+    index("relation_materialization_effects_outstanding_idx").on(
+      t.workspaceId,
+      t.ownerUserId,
+      t.id,
+    ).where(sql`${t.status} IN ('pending', 'failed')`),
+    check(
+      "relation_materialization_effects_status_check",
+      sql`${t.status} IN ('pending', 'applied', 'failed')`,
+    ),
+    check(
+      "relation_materialization_effects_attempts_check",
+      sql`${t.attemptCount} >= 0 AND ${t.maxAttempts} > 0 AND ${t.attemptCount} <= ${t.maxAttempts} AND ${t.leaseRecoveryCount} >= 0 AND ${t.maxLeaseRecoveries} > 0 AND ${t.leaseRecoveryCount} <= ${t.maxLeaseRecoveries}`,
+    ),
+    check(
+      "relation_materialization_effects_relation_count_check",
+      sql`${t.relationCount} IS NULL OR ${t.relationCount} >= 0`,
+    ),
+    check(
+      "relation_materialization_effects_decision_check",
+      sql`${t.proposalLedgerId} <> ${t.decisionLedgerId}`,
+    ),
+    check(
+      "relation_materialization_effects_state_check",
+      sql`(${t.status} = 'pending' AND ${t.appliedAt} IS NULL AND ${t.lastError} IS NULL AND ((${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL) OR (${t.leaseToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL))) OR (${t.status} = 'failed' AND ${t.appliedAt} IS NULL AND ${t.lastError} IS NOT NULL AND ${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL) OR (${t.status} = 'applied' AND ${t.appliedAt} IS NOT NULL AND ${t.lastError} IS NULL AND ${t.nextRetryAt} IS NULL AND ${t.relationCount} IS NOT NULL AND ${t.leaseToken} IS NULL AND ${t.leaseExpiresAt} IS NULL)`,
+    ),
+  ],
+);
 
 export const decisionTraces = pgTable("decision_traces", {
   id: uuidPk(),

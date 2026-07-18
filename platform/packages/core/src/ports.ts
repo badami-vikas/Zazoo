@@ -109,7 +109,16 @@ export interface LedgerStore {
    * audit rows may also carry `refLedgerId`, so neither predicate alone is sufficient.
    * Ordered newest-first; paginated by the caller (offset/limit).
    */
-  listPending(workspaceId: string, opts: { limit: number; offset: number }): Promise<{ items: LedgerEntry[]; total: number }>;
+  listPending(
+    workspaceId: string,
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
+  ): Promise<{ items: LedgerEntry[]; total: number }>;
+  /** Bounded append-only history. Private Relation rows remain visible only to
+   * their effective owning user; other resource types retain workspace scope. */
+  listHistory(
+    workspaceId: string,
+    opts: { limit: number; offset: number; privateOwnerUserId?: string },
+  ): Promise<{ items: LedgerEntry[]; total: number }>;
 }
 
 /** Media capture kind — photo or video. */

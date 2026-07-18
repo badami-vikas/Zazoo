@@ -1,6 +1,6 @@
 # TASK-008 — Relationship Module consolidation
 
-Date: 2026-07-16
+Date: 2026-07-17
 
 ## Outcome
 
@@ -127,3 +127,59 @@ Affected core, DB, API, and web suites; platform build/typecheck; web production
 ## Post-integration audit correction
 
 After the hardened slice reached `main`, audit commit `db2b19c` proved that the branch-only RM4 Relation persistence/materialization contract had not been integrated. TASK-008 is therefore reopened until that schema/store/materializer/API/test slice lands without overwriting the hardened UI, Approvals, or public Helpdesk. TASK-009 still owns the cross-Module graph; TASK-017 owns durable retry of failed approved external effects.
+
+## RM4 Relation persistence/materialization completion
+
+The missing RM4 contract is implemented without replacing the hardened Relationship shell, public Helpdesk, Approvals surface, or TASK-007 orchestration:
+
+- Relations now carry bounded evidence references, confidence, observed/valid time, confirmation, visibility, source, source Module, owner, and decision provenance.
+- Person, Community, Signal, and source Event node types map to the Relationship Module.
+- Semantic uniqueness is workspace- and owner-scoped. Materialization is atomic, retry-idempotent, and monotonic by database append sequence. Under a transaction-scoped Signal lock, the winning decision updates retained Relations and removes omitted older participant/source Relations. Applying newer-then-older or older-then-newer therefore converges on the same state. Superseded and exact same-decision retries return canonical state before revalidating mutable inputs, so recovery still succeeds after an obsolete source Event or participant Record is removed.
+- Approved decisions have a durable `relation_materialization_effects` record with pending/applied/failed state, attempts, bounded automatic retry, separately bounded stale-lease recovery, errors, retry time, lease token/expiry, and applied Relation count. A file-backed Local Plane restart preserves both the decision and its effect. Token-guarded terminal writes make canonical database state win response-loss races.
+- Server startup/periodic reconciliation discovers approved proposals oldest-first, cursor-pages every owner, and retries bounded work. Authenticated owners can explicitly retry exhausted effects without another approval. Approvals continues showing resolved pending/failed applications until applied, cursor-pages the complete retry set, and does not render pending work as failure.
+- Repeated `action.decide` after response loss rereads the durable decision before mutable edit validation, returns the persisted decision ID/output/diff/classification, and reconciles that decision. Invalid replacement edit payloads and stale requested decisions cannot rewrite the recorded approval.
+- `DrizzleGraphStore` exposes owner-scoped `upsertRelation`, approved Signal-evidence materialization, composite `(observedAt, createdAt, id)` keyset reads, bounded visibility/endpoint/evidence pruning, and node-type ownership. Evidence authorization targets and Signal participants/source Events are deduplicated and batch-authorized while distinct evidence-source provenance is preserved; the 100 Relations × 100 references regression keeps repeated source Events to one access check per request. Unknown or inherited object-property node types fail closed.
+- The authenticated `relationship` API stages only the bounded Signal-evidence proposal shape, always forces Human review, hides private Relation proposals from other workspace members, persists sanitized edits, validates the exact append-only decision boundary, materializes approved/edited decisions, exposes owner-scoped status/retry/reconcile contracts, and cursor-pages outstanding effects.
+- Generic public `action.propose` does not accept `resourceType: relation`. Browser database roles have no direct `edges`, `ledger`, or ledger-sequence privileges. Execution Ledger history now uses an authenticated, workspace-scoped API with a disclosed 500-row newest-first window that preserves private Relation owner isolation.
+- Runtime proposal resolution now uses only the server-owned `ref_ledger_id` column. Caller-controlled `inputs.proposalId`/`proposal_id` values cannot resolve or hide another proposal, browser pending projection has the same boundary, and the database adapter rejects every new non-`auto` decision without `refLedgerId`.
+- Migration `0015_task008_relation_contract` follows post-release migration 0014, preserves legacy `created_at` as equal millisecond-truncated `observed_at`, keeps legacy ownerless rows workspace-visible, and installs Relation/effect constraints, indexes, and RLS. Its one-time reference backfill runs before any ledger rewrite and accepts only an unambiguous one-key UUID reference from a physical row predating migration 0003, with a real earlier same-workspace proposal and matching actor/delegation/action/resource identity. Rejected, malformed, ambiguous, cross-workspace, mismatched, missing-proposal, and physically post-0003 rows remain non-resolving. Existing ledger rows then receive unique monotonic append sequences ordered by `(created_at, id)` before the column becomes non-null; the sequence resumes above that watermark. Outstanding effects use a partial `(workspace_id, owner_user_id, id)` pending/failed cursor index. The generated snapshot and schema declaration match; Drizzle generation reports no drift.
+
+Primary implementation files:
+
+- `platform/packages/db/src/schema.ts`
+- `platform/packages/db/src/graph-store.ts`
+- `platform/packages/db/src/ledger-store.ts`
+- `platform/packages/db/src/relation-materialization-store.ts`
+- `platform/packages/db/migrations/0015_task008_relation_contract.sql`
+- `platform/apps/api/src/relationship-materializer.ts`
+- `platform/apps/api/src/router.ts`
+- `platform/apps/api/src/server.ts`
+- `platform/apps/api/src/wiring.ts`
+- `platform/apps/web/src/app/data/ledger.ts`
+- `platform/apps/web/src/app/pages/ApprovalsPage.tsx`
+
+Verification:
+
+- Core: 422 tests passed.
+- DB: 123 tests passed, including proposal-reference spoofing, verified legacy reference backfill and fail-closed malformed/cross-workspace/post-0003 cases, forced-RLS migration, monotonic legacy sequence backfill, order-independent canonical materialization, 101-effect retry pagination, owner precedence, exact Event binding, evidence pruning, leases, restart, and atomic/idempotent materialization.
+- API: 164 tests passed, including authenticated owner-filtered ledger history, pending/failed/applied effect contracts, lost-response decision replay, owner retry, multi-owner reconciliation, and Local Plane restart ordering.
+- Web: 43 tests passed; typecheck and production build passed.
+- Desktop: `cargo check` and 28 Rust tests passed.
+- Migration 0015 fresh-apply compatibility and schema no-drift checks passed.
+- Changed-file lint and the runtime dummy-data check passed.
+- Independent review findings covering canonical application order, legacy sequence collisions, persisted-decision UI classification, unreachable retries beyond page one, immutable stale recovery, partial-index cursor shape, inherited node keys, provenance preservation, migration precision, and latest-decision confirmation replacement were corrected with focused regressions. A final focused security review of the authoritative-reference hardening found no remaining issue after the legacy backfill was moved ahead of the append-sequence rewrite.
+- Final whitespace and conflict-marker checks passed.
+
+The feature base has a pre-existing TASK-007 compile blocker: `AgentQuery` requires `workspaceId` and `isActive`, while `InMemoryAgentStore` lacks those methods/maps. Cross-package TypeScript gates and the full suites pass with that isolated compatibility shim, which is not included in this TASK-008 change. Full lint is also blocked by the pre-existing missing `react-hooks/exhaustive-deps` rule in `ZazooAvatar.tsx`; TASK-008 changed-file lint is separate.
+
+`origin/main` was fetched at `1b9301b` before delivery. Per the no-merge directive, main was not merged or rebased. A synthetic merge-tree check identifies content conflicts in `platform/apps/api/src/router.ts`, `platform/apps/api/src/wiring.ts`, `platform/packages/db/src/governance-stores.ts`, and `platform/packages/db/test/local-store.test.ts`; the other overlapping files auto-merge.
+
+### Proposed shared-ledger updates
+
+Coordinator should:
+
+- attach this RM4 evidence to TASK-008 and mark the missing Relation contract resolved after merge;
+- record the pre-existing TASK-007 `InMemoryAgentStore` compile blocker against its existing canonical task/evidence rather than creating a duplicate work row;
+- append the schema/API/materialization summary to `docs/log.md`;
+- record the monotonic decision-provenance rationale in `docs/raw/decisions-log.md`;
+- regenerate structural CODEMAPS after integration.

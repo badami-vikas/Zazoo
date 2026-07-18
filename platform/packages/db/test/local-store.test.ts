@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sql } from "drizzle-orm";
 import {
   createDrizzlePorts,
   createLocalDb,
@@ -18,6 +19,7 @@ import {
   ensureEgressAgentGovernance,
   ensureIntakeAgentGovernance,
   ensureDealPilotPrincipalGovernance,
+  ensureRelationshipUserGovernance,
   schema,
 } from "../src/index.js";
 
@@ -107,6 +109,66 @@ test("persistent governance provisions and verifies the attributable Learning Ag
       1,
     );
   } finally {
+    await close();
+  }
+});
+
+test("persistent governance idempotently provisions Human Relation read/write authority", async () => {
+  const workspaceId = "b0000000-0000-4000-a000-000000000021";
+  const userId = "e0f0053b-fc44-476e-be27-1371e179e921";
+  const { db, close } = await createLocalDb();
+  let roleAssumed = false;
+  try {
+    await db.insert(schema.users).values({
+      id: userId,
+      email: "test_fixture_relation_governance@example.com",
+    });
+    await db.insert(schema.workspaces).values({
+      id: workspaceId,
+      name: "Relation governance test",
+    });
+    const config = { workspaceId, userId };
+    await db.execute(sql.raw("CREATE ROLE test_fixture_relation_governance_app"));
+    await db.execute(
+      sql.raw(
+        "GRANT USAGE ON SCHEMA public, app_private TO test_fixture_relation_governance_app",
+      ),
+    );
+    await db.execute(
+      sql.raw(
+        "GRANT SELECT, INSERT ON TABLE permissions TO test_fixture_relation_governance_app",
+      ),
+    );
+    await db.execute(sql.raw("SET ROLE test_fixture_relation_governance_app"));
+    roleAssumed = true;
+    await Promise.all(
+      Array.from({ length: 10 }, () => ensureRelationshipUserGovernance(db, config)),
+    );
+    await ensureRelationshipUserGovernance(db, config);
+    await db.execute(sql.raw("RESET ROLE"));
+    roleAssumed = false;
+
+    const grants = await createDrizzlePorts(db).roles.directGrants(
+      workspaceId,
+      { type: "user", id: userId },
+    );
+    assert.deepEqual(
+      grants
+        .filter((grant) => grant.resourceType === "relation")
+        .map((grant) => `${grant.action}:${grant.effect}`)
+        .sort(),
+      ["read:allow", "write:allow"],
+    );
+    const rows = (await db.select().from(schema.permissions)).filter(
+      (row) =>
+        row.workspaceId === workspaceId &&
+        row.actorType === "user" &&
+        row.actorId === userId &&
+        row.resourceType === "relation",
+    );
+    assert.equal(rows.length, 2);
+  } finally {
+    if (roleAssumed) await db.execute(sql.raw("RESET ROLE"));
     await close();
   }
 });
