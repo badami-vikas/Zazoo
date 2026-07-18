@@ -1,6 +1,7 @@
 import type { LedgerEntry } from "@bridge/core";
 import type { DrizzleGraphStore, TimelineItem } from "@bridge/db";
 import { z } from "zod";
+import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 
@@ -11,15 +12,24 @@ const googleInteractionEntitySchema = z.object({
   payload: z.object({
     interactionKind: z.string().trim().min(1).max(100),
     subject: z.string().max(5_000),
-    occurredAt: z.string().datetime(),
+    occurredAt: relationshipDateTimeSchema,
   }).passthrough(),
   source: z.enum(["gmail", "google-calendar"]),
   sourceRecordId: z.string().trim().min(1).max(500),
 }).passthrough();
 
+const googlePersonDirectiveSchema = z.object({
+  localPersonId: canonicalUuidSchema,
+  canonicalIdIfNew: canonicalUuidSchema.optional(),
+  fullName: z.string().trim().min(1).max(500).optional(),
+  emails: z.array(z.string().trim().min(1).max(500)).min(1).max(100),
+  dedupKey: z.string().trim().min(1).max(500),
+  company: z.string().trim().min(1).max(500).optional(),
+});
+
 const googleIntakePayloadSchema = z.object({
   directive: z.object({
-    person: z.never().optional(),
+    person: googlePersonDirectiveSchema.optional(),
     entities: z.array(z.unknown()).min(1).max(100),
     external: z.array(z.unknown()).max(100),
   }).passthrough(),
@@ -28,6 +38,7 @@ const googleIntakePayloadSchema = z.object({
 export interface GoogleInteractionIntake {
   payload: z.infer<typeof googleIntakePayloadSchema>;
   event: z.infer<typeof googleInteractionEntitySchema>;
+  person?: z.infer<typeof googlePersonDirectiveSchema>;
 }
 
 export function parseGoogleLinkedInteractionIntake(
@@ -41,7 +52,12 @@ export function parseGoogleLinkedInteractionIntake(
   if (events.length !== 1) {
     throw new Error("Google Interaction intake requires exactly one linked Event");
   }
-  return { payload, event: events[0]! };
+  const event = events[0]!;
+  const person = payload.directive.person;
+  if (person && person.localPersonId !== event.personId) {
+    throw new Error("Google Interaction intake Person must own the linked Event identity");
+  }
+  return { payload, event, ...(person ? { person } : {}) };
 }
 
 export function isGoogleLinkedInteractionIntake(value: unknown): boolean {
@@ -69,6 +85,9 @@ export function validateGoogleInteractionEdit(
     throw new Error(
       "Google intake review edits cannot retarget the participant or source Event",
     );
+  }
+  if (JSON.stringify(edited.person ?? null) !== JSON.stringify(original.person ?? null)) {
+    throw new Error("Google intake review edits cannot change private identity data");
   }
   return edited.payload;
 }
@@ -126,6 +145,31 @@ export async function materializeApprovedGoogleInteraction(
     (parsed.event.source === "gmail"
       ? "Email interaction"
       : "Calendar interaction");
+  if (parsed.person) {
+    await graphStore.createPerson({
+      id: parsed.person.localPersonId,
+      workspaceId: original.workspaceId,
+      ownerUserId,
+      displayName: parsed.person.fullName ?? parsed.person.emails[0]!,
+      ...(parsed.person.company ? { currentTitle: parsed.person.company } : {}),
+      emails: parsed.person.emails,
+      visibility: "private",
+      source: "google_approved_intake",
+      decisionLedgerId: resolution.id,
+      decisionSequence: resolution.appendSequence!,
+      decisionAt,
+    });
+  }
+  const participant = await graphStore.getPerson(
+    original.workspaceId,
+    ownerUserId,
+    parsed.event.personId,
+  );
+  if (!participant) {
+    throw new Error(
+      "Google Interaction materialization requires an owner-scoped Person participant",
+    );
+  }
   return graphStore.createInteraction({
     id: parsed.event.localId,
     workspaceId: original.workspaceId,

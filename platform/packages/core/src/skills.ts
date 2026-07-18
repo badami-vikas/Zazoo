@@ -2,7 +2,7 @@
  * Capture skills — map a no-blob `media.v1` capture envelope to a proposed graph
  * output. The blob NEVER enters the pipeline: inputs carry only `local_media_id`
  * + facts (caption, ocrText, optional link). The capture event commits as a
- * Touchpoint; an uncertain person match is filed as a `possible_link` Signal,
+ * Event; an uncertain person match is filed as a `possible_link` Signal,
  * never an auto person-link (ambiguous-duplicates rule).
  */
 import type { Skill } from "./ports.js";

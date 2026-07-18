@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T12:31:31.503Z",
+  "generatedAt": "2026-07-18T18:03:46.999Z",
   "items": [
     {
       "id": "TASK-001",
@@ -245,10 +245,10 @@
         "RM2 one participant Timeline plus bounded Google/capture and identity review",
         "RM3 Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
         "RM4 visibility-pruned bounded paths and Community composition",
-        "RM5 double-consent Introduction Event snapshots with private decline handling and no send. Evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
+        "RM5 double-consent Introduction Event snapshots with private decline handling and no send. Central-review hardening makes browser authority self-only/Local, keeps private PII and Event detail owner-scoped, makes Google/capture staging and materialization durable/replay-safe, serializes Introduction/Memory transitions, supports explicit clears and canonical datetime input, and adds route-safe snapshot pagination. Evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
         "live desktop + exact 375px honest-empty People evidence",
-        "DB 130, API 176, web 51",
-        "37/37 typecheck and 20/20 build",
+        "core 423, DB 134, Google 39, API 177, web 54",
+        "monorepo typecheck/build",
         "changed-file lint, no-dummy, diff integrity, and independent correctness/security review. No migration added",
         "`0016` remains TASK-010's. Remaining exact plan scope: persistent user-defined Automations/Agent Runs",
         "RM6 team permission/delegation, export/disconnect/forget, and held-out eval execution. TASK-014/TASK-009 own the cross-Module Graph renderer."

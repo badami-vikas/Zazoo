@@ -55,6 +55,14 @@ export class GoogleService {
     return `${this.deps.identities.workspaceId}:google`;
   }
 
+  get ownerUserId(): string {
+    return this.deps.identities.userId;
+  }
+
+  get workspaceId(): string {
+    return this.deps.identities.workspaceId;
+  }
+
   async isConnected(): Promise<boolean> {
     return (await this.deps.secrets.getToken(this.integrationId)) !== null;
   }
@@ -202,16 +210,49 @@ export class GoogleService {
    * external:send through the gate. No-op for unrelated proposals.
    */
   async onApproved(originalProposalId: string, resolved: Proposal, ctx: RunCtx): Promise<{ materialized: boolean; sent: boolean }> {
-    // Free up the propose-time dedup slot (see IntakeService.pendingSeeds) now that this
-    // proposal has resolved — whether it ends up materializing or not.
-    this.deps.intake.clearPendingSeed(resolved.request.seed);
-    if (resolved.status !== "applied") return { materialized: false, sent: false };
+    const inputs =
+      typeof resolved.request.inputs === "object" &&
+      resolved.request.inputs !== null &&
+      !Array.isArray(resolved.request.inputs)
+        ? resolved.request.inputs as Record<string, unknown>
+        : {};
+    const googleOwned =
+      "directive" in inputs ||
+      inputs.integrationId === this.integrationId ||
+      (
+        typeof inputs.input === "object" &&
+        inputs.input !== null &&
+        !Array.isArray(inputs.input) &&
+        (inputs.input as Record<string, unknown>).integrationId === this.integrationId
+      );
+    const effectiveOwnerId =
+      resolved.request.onBehalfOf?.type === "user"
+        ? resolved.request.onBehalfOf.id
+        : resolved.request.actor.type === "user"
+          ? resolved.request.actor.id
+          : null;
+    if (
+      googleOwned &&
+      (
+        resolved.request.workspaceId !== this.workspaceId ||
+        effectiveOwnerId !== this.ownerUserId
+      )
+    ) {
+      throw new Error("Google effect authority does not match the integration owner");
+    }
+    if (resolved.status !== "applied") {
+      this.deps.intake.clearPendingSeed(resolved.request.seed);
+      return { materialized: false, sent: false };
+    }
     const materialized = await this.deps.materializer.applyApproved(resolved, ctx);
     let sent = false;
     if (resolved.request.resourceType === "external:send") {
       const outcome = await this.deps.egress.executeApprovedSend(originalProposalId, ctx);
       sent = outcome.executed;
     }
+    // A failed materialization/send must retain the pending seed so a replay of the
+    // already-recorded decision converges instead of allowing a duplicate proposal.
+    this.deps.intake.clearPendingSeed(resolved.request.seed);
     return { materialized, sent };
   }
 }

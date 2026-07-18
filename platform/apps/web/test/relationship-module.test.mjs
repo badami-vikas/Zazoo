@@ -13,6 +13,8 @@ const trpcClient = readFileSync(new URL("../src/app/lib/trpc.ts", import.meta.ur
 const pagination = readFileSync(new URL("../src/app/lib/pagination.ts", import.meta.url), "utf8");
 const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta.url), "utf8");
 const toolDetail = readFileSync(new URL("../src/app/pages/ToolDetail.tsx", import.meta.url), "utf8");
+const cameraCaptures = readFileSync(new URL("../src/app/components/tools/camera/CameraCaptures.tsx", import.meta.url), "utf8");
+const localMedia = readFileSync(new URL("../src/app/data/localMedia.ts", import.meta.url), "utf8");
 const builtIns = readFileSync(new URL("../../api/src/built-in-packages.ts", import.meta.url), "utf8");
 
 test("Relationship is one installed Module with canonical primary Pages", () => {
@@ -110,6 +112,19 @@ test("failed capture adoption remains pending and exposes an actionable error", 
   assert.doesNotMatch(toolDetail, /Routed \$\{c\.person\.name \|\| 'capture'\} \(local\)/);
 });
 
+test("camera capture review uses the server Action Pipeline and canonical Events", () => {
+  assert.match(cameraCaptures, /trpc\.capture\.stage\.mutate/);
+  assert.match(cameraCaptures, /trpc\.capture\.status\.query/);
+  assert.match(cameraCaptures, /trpc\.action\.decide\.mutate/);
+  assert.match(cameraCaptures, /result\.effectsStatus !== 'confirmed'/);
+  assert.match(cameraCaptures, /mirrorCaptureDecision/);
+  assert.match(cameraCaptures, /capturedAt: r\.capturedAt/);
+  assert.match(cameraCaptures, /Resolve the governed review before archiving/);
+  assert.doesNotMatch(cameraCaptures, /Touchpoint|API_ENABLED|fetch\(/);
+  assert.match(localMedia, /resourceType: 'event'/);
+  assert.doesNotMatch(localMedia, /type: 'touchpoint'/);
+});
+
 test("Signal detail exposes participant, Event, and governed Action paths", () => {
   assert.match(relationshipPage, /detail\.participants\.map/);
   assert.match(relationshipPage, /detail\.sourceEvent/);
@@ -200,4 +215,28 @@ test("Relationship forms and detail remain responsive and accessible", () => {
   assert.match(relationshipPage, /role="status"/);
   assert.match(relationshipPage, /role="alert"/);
   assert.match(relationshipPage, /aria-expanded=\{editing\}/);
+});
+
+test("Relationship Record navigation resets and guards bounded context", () => {
+  assert.match(relationshipPage, /const contextGeneration = useRef\(0\)/);
+  assert.match(relationshipPage, /requestGeneration\.current !== generation/);
+  assert.match(relationshipPage, /const reloadCurrentRecord = \(\) =>/);
+  assert.match(relationshipPage, /requestGeneration\.current !== activeGeneration/);
+  assert.match(relationshipPage, /contextGeneration\.current !== generation/);
+  assert.match(relationshipPage, /setMemories\(\[\]\)/);
+  assert.match(relationshipPage, /setCommitmentDraft\(""\)/);
+  assert.match(relationshipPage, /key=\{`\$\{kind\}:\$\{recordId\}`\}/);
+  assert.match(relationshipPage, /Load more Memory/);
+  assert.match(relationshipPage, /Load more commitments/);
+  assert.match(relationshipPage, /Load more introductions/);
+  assert.match(relationshipPage, /memorySnapshotAt/);
+  assert.match(relationshipPage, /commitmentSnapshotAt/);
+  assert.match(relationshipPage, /introductionSnapshotAt/);
+});
+
+test("datetime-local defaults preserve the browser wall clock", () => {
+  assert.match(relationshipPage, /function toDatetimeLocal/);
+  assert.match(relationshipPage, /date\.getHours\(\)/);
+  assert.match(relationshipPage, /useState\(\(\) => toDatetimeLocal\(new Date\(\)\)\)/);
+  assert.doesNotMatch(relationshipPage, /new Date\(\)\.toISOString\(\)\.slice\(0, 16\)/);
 });

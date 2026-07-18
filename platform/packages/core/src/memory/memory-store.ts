@@ -79,6 +79,8 @@ export interface MemoryQuery {
   /** Include rows that have been superseded by a newer row. Default false —
    * retrieval returns only the CURRENT set of facts. */
   includeSuperseded?: boolean;
+  /** Inclusive read watermark used to keep offset pages stable while newer rows arrive. */
+  snapshotAt?: string;
   limit?: number;
   offset?: number;
 }
@@ -146,6 +148,28 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
       throw new Error("memory store: a correction cannot change workspace or owner");
     }
+    const successor = this.entries.find((entry) => entry.supersedesId === id);
+    if (successor) {
+      if (
+        successor.id === next.id &&
+        successor.workspaceId === next.workspaceId &&
+        successor.type === next.type &&
+        successor.subjectElementId === next.subjectElementId &&
+        successor.scope === next.scope &&
+        successor.content === next.content &&
+        successor.sourceRefType === next.sourceRefType &&
+        successor.sourceRefId === next.sourceRefId &&
+        successor.confidence === next.confidence &&
+        successor.trustOrigin === next.trustOrigin &&
+        successor.plane === next.plane &&
+        successor.createdBy === next.createdBy &&
+        successor.ownerUserId === next.ownerUserId &&
+        successor.createdAt === (next.createdAt ?? successor.createdAt)
+      ) {
+        return { ...successor };
+      }
+      throw new Error(`memory store: ${id} already has a different successor`);
+    }
     return this.#insert(next, id);
   }
 
@@ -156,14 +180,19 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   async retrieve(query: MemoryQuery, authScope: MemoryAuthScope): Promise<MemoryEntry[]> {
+    const snapshotEntries = query.snapshotAt
+      ? this.entries.filter((entry) => entry.createdAt <= query.snapshotAt!)
+      : this.entries;
     const superseded = new Set(
-      this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null),
+      snapshotEntries.map((e) => e.supersedesId).filter((v): v is string => v != null),
     );
-    let rows = this.entries.filter((e) => memoryVisible(e, authScope));
+    let rows = snapshotEntries.filter((e) => memoryVisible(e, authScope));
     if (!query.includeSuperseded) rows = rows.filter((e) => !superseded.has(e.id));
     if (query.type) rows = rows.filter((e) => e.type === query.type);
     if (query.subjectElementId) rows = rows.filter((e) => e.subjectElementId === query.subjectElementId);
-    rows = rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    rows = rows.sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    );
     const offset = query.offset ?? 0;
     const limit = query.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map((e) => ({ ...e }));

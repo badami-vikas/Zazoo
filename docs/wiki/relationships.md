@@ -7,7 +7,8 @@ full plan: [../raw/relationship-module-plan-2026-07.md](../raw/relationship-modu
 - RM1-2 built: owner-safe Person/Community CRUD/search/detail. One Timeline. Bounded Google/capture + identity review.
 - RM3 built: Memory correct/forget. Commitment Event snapshots. Grounded meeting prep + follow-up.
 - RM4 done: evidence-bearing owner Relations, durable effects, bounded paths, Community composition. Graph renderer stays TASK-014/TASK-009.
-- RM5 intro built: private Event snapshots. Two recorded consents before complete. Decline text hidden. No send.
+- RM5 intro built: private Event lifecycle. Snapshot + decline text sit on owner-filtered Relations. Two consents before complete. No send.
+- Hardening: browser delegation self-only. Private Event content absent from workspace Event rows. Google/capture retries durable + owner-bound. Capture approval makes one Event. Snapshot pages load beyond 25.
 - Trust: server-owned Outreach Agent. Authenticated Approvals. Append-only decisions. `ref_ledger_id` only. Rejected/audit rows never pending.
 - Public Helpdesk: bounded + rate-limited. Token hash only. Retry-safe ticket/reply operation IDs. Selectable recovery key fallback.
 - TASK-008 stays in progress: user Automations, team delegation, export/disconnect/forget, evals. Cross-Module Graph = TASK-014/TASK-009.

@@ -1174,7 +1174,6 @@ export async function buildWiring(): Promise<Wiring> {
     ritualRegistry,
     toolRegistry,
     ritualRunRecorder,
-    canonical,
     dealPilotCaptures,
     workspaceStore,
     graphStore,
@@ -1632,23 +1631,13 @@ export async function buildWiring(): Promise<Wiring> {
     graph: {
       hasExternal: (workspaceId, source, sourceRecordId) =>
         localPlane.graph.hasExternal(workspaceId, source, sourceRecordId),
-      findPeopleByEmail: async (workspaceId, email) => {
-        const matches = await graphStore.findPeopleByEmail(
-          workspaceId,
-          PILOT_USER,
-          email,
-        );
-        return matches.map((person) => ({
-          id: person.id,
-          workspaceId: person.workspaceId,
-          ...(person.displayName ? { fullName: person.displayName } : {}),
-          emails: person.emails,
-        }));
-      },
+      findPeopleByEmail: (workspaceId, email) =>
+        localPlane.graph.findPeopleByEmail(workspaceId, email),
     },
+    pendingLedger: ledger,
     goalTasks,
   });
-  const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
+  const materializer = new IntakeMaterializer({ graph: localPlane.graph });
   const egress = new EgressExecutor({ ledger, gateways, graph: localPlane.graph });
   const selfEmails = (process.env.BRIDGE_SELF_EMAILS ?? "")
     .split(",")

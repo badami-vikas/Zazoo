@@ -8,6 +8,7 @@ import type {
   TimelineItem,
 } from "@bridge/db";
 import { z } from "zod";
+import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 const visibilitySchema = z.enum(["private", "workspace"]);
@@ -102,7 +103,7 @@ export const interactionParticipantSchema = z.object({
 
 export const interactionCreateFieldsSchema = z.object({
   kind: z.string().trim().min(1).max(100),
-  occurredAt: z.string().datetime(),
+  occurredAt: relationshipDateTimeSchema,
   summary: z.string().trim().min(1).max(5_000),
   source: z.enum(["user", "gmail", "google_calendar", "capture"]).default("user"),
   sourceRecordId: z.string().trim().min(1).max(500).nullable().optional(),
@@ -161,7 +162,7 @@ const memoryForgetPayloadSchema = z.object({
 
 const commitmentValuesSchema = z.object({
   text: z.string().trim().min(1).max(2_000),
-  dueAt: z.string().datetime().nullable().optional(),
+  dueAt: relationshipDateTimeSchema.nullable().optional(),
   status: z.enum(["pending", "completed", "cancelled"]),
 });
 
@@ -194,7 +195,7 @@ const commitmentArchivePayloadSchema = z.object({
   sourceEventId: canonicalUuidSchema.nullable().optional(),
   values: z.object({
     text: z.string().trim().min(1).max(2_000),
-    dueAt: z.string().datetime().nullable().optional(),
+    dueAt: relationshipDateTimeSchema.nullable().optional(),
     status: z.literal("archived"),
   }),
 });
@@ -643,55 +644,7 @@ export async function materializeRelationshipMutation(
     if (!sourcePerson?.isOwner || !targetPerson) {
       throw new Error("Introduction People are not accessible to the owner");
     }
-    const existing = await graphStore.listIntroductions(
-      original.workspaceId,
-      ownerUserId,
-      payload.sourcePersonId,
-      {
-        limit: 1,
-        offset: 0,
-        introductionId: payload.introductionId,
-      },
-    );
-    const current = existing.items[0] ?? null;
-    const terminal = current?.status === "declined" ||
-      current?.status === "cancelled" ||
-      current?.status === "introduced";
-    if (payload.operation === "create") {
-      if (
-        current ||
-        !payload.values.initiatorConsent ||
-        payload.values.recipientConsent ||
-        payload.values.status !== "awaiting_consents" ||
-        payload.values.declineReason
-      ) {
-        throw new Error("Introduction creation requires only the initiator's explicit consent");
-      }
-    } else {
-      if (
-        !current ||
-        current.targetPersonId !== payload.targetPersonId ||
-        terminal
-      ) {
-        throw new Error("Introduction is not in an actionable state");
-      }
-      if (payload.operation === "consent") {
-        const expectedStatus = payload.values.declineReason
-          ? "declined"
-          : payload.values.initiatorConsent && payload.values.recipientConsent
-            ? "ready"
-            : "awaiting_consents";
-        if (payload.values.status !== expectedStatus) {
-          throw new Error("Introduction consent state is inconsistent");
-        }
-      } else if (
-        payload.operation === "complete"
-          ? current.status !== "ready" || payload.values.status !== "introduced"
-          : payload.values.status !== "cancelled"
-      ) {
-        throw new Error("Introduction transition is invalid");
-      }
-    }
+    const declineReason = payload.values.declineReason?.trim() ?? "";
     return graphStore.materializeIntroduction({
       ...provenance,
       operation: payload.operation,
@@ -704,7 +657,7 @@ export async function materializeRelationshipMutation(
       initiatorConsent: payload.values.initiatorConsent,
       recipientConsent: payload.values.recipientConsent,
       status: payload.values.status,
-      declineReason: payload.values.declineReason ?? null,
+      ...(declineReason ? { privateDeclineReason: declineReason } : {}),
     });
   }
   if (payload.recordType === "person") {

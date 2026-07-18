@@ -73,6 +73,7 @@ async function seedFixtures(
   signalId: string;
   eventId: string;
   personId: string;
+  memberPersonId: string;
   communityId: string;
   otherMemberId: string;
   otherSignalId: string;
@@ -101,6 +102,7 @@ async function seedFixtures(
       userId: otherMember.id,
     });
     let firstPersonId: string | null = null;
+    let memberPersonId: string | null = null;
     let firstCommunityId: string | null = null;
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
       const [person] = await db
@@ -112,6 +114,7 @@ async function seedFixtures(
         })
         .returning({ id: schema.people.id });
       if (i === 0) firstPersonId = person?.id ?? null;
+      if (i === 1) memberPersonId = person?.id ?? null;
       const [community] = await db
         .insert(schema.communities)
         .values({
@@ -123,7 +126,14 @@ async function seedFixtures(
       if (i === 0) firstCommunityId = community?.id ?? null;
     }
     assert.ok(firstPersonId);
+    assert.ok(memberPersonId);
     assert.ok(firstCommunityId);
+    await db.insert(schema.communityMembers).values({
+      communityId: firstCommunityId,
+      personId: memberPersonId,
+      role: "member",
+      confidence: "1",
+    });
     const [signal] = await db
       .insert(schema.signals)
       .values({
@@ -172,6 +182,12 @@ async function seedFixtures(
       })
       .returning({ id: schema.people.id });
     assert.ok(otherPerson);
+    await db.insert(schema.communityMembers).values({
+      communityId: firstCommunityId,
+      personId: otherPerson.id,
+      role: "private member",
+      confidence: "1",
+    });
     const [otherSignal] = await db
       .insert(schema.signals)
       .values({
@@ -234,6 +250,7 @@ async function seedFixtures(
       signalId: signal.id,
       eventId: event.id,
       personId: firstPersonId,
+      memberPersonId,
       communityId: firstCommunityId,
       otherMemberId: otherMember.id,
       otherSignalId: otherSignal.id,
@@ -679,6 +696,11 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       type: "user",
       id: fixture.otherMemberId,
     });
+    await assert.rejects(
+      () => otherMemberCaller.google.list(),
+      /NOT_FOUND|integration not found/,
+      "a workspace member cannot operate another user's Google integration",
+    );
     assert.equal(
       (
         await otherMemberCaller.action.listPending({
@@ -1420,6 +1442,50 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       id: fixture.otherMemberId,
     });
 
+    const impersonatedPersonId = "71000000-0000-4000-8000-000000000099";
+    const victimHistoryBefore = await wiring.ledger.listHistory(PILOT_WORKSPACE, {
+      limit: 200,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () =>
+        otherMemberCaller.action.propose({
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: fixture.otherMemberId },
+          onBehalfOf: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "person",
+          resourceId: impersonatedPersonId,
+          inputs: {
+            kind: "relationship_record_mutation",
+            recordType: "person",
+            operation: "create",
+            recordId: impersonatedPersonId,
+            values: {
+              displayName: "Forged owner",
+              visibility: "private",
+            },
+          },
+          skill: "stageMutation",
+          dataScope: "private",
+        }),
+      /cannot assert delegation|FORBIDDEN/i,
+    );
+    const victimHistoryAfter = await wiring.ledger.listHistory(PILOT_WORKSPACE, {
+      limit: 200,
+      offset: 0,
+      privateOwnerUserId: PILOT_USER,
+    });
+    assert.equal(victimHistoryAfter.total, victimHistoryBefore.total);
+    assert.equal(
+      await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: impersonatedPersonId,
+      }),
+      null,
+    );
+
     const personCreated = await caller.relationship.createPerson({
       workspaceId: PILOT_WORKSPACE,
       values: {
@@ -1704,6 +1770,15 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     });
     await assert.rejects(
       () =>
+        otherMemberCaller.action.decide({
+          proposalId: googleProposalId,
+          decision: "approve",
+        }),
+      /NOT_FOUND|proposal not found/,
+      "another member cannot approve the integration owner's Google intake",
+    );
+    await assert.rejects(
+      () =>
         caller.action.decide({
           proposalId: googleProposalId,
           decision: "edit",
@@ -1743,6 +1818,130 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     assert.deepEqual(
       googleInteraction.provenance.evidenceRefs,
       [{ entityType: "event", entityId: googleEventId, source: "gmail" }],
+    );
+
+    const googleNewPersonId = "79000000-0000-4000-8000-000000000001";
+    const googleNewEventId = "79000000-0000-4000-8000-000000000002";
+    const googleNewProposalId = "79000000-0000-4000-8000-000000000003";
+    const privateGoogleEmail = "private-google-person@example.com";
+    const googleNewDirective = {
+      person: {
+        localPersonId: googleNewPersonId,
+        fullName: "Private Google Person",
+        emails: [privateGoogleEmail],
+        dedupKey: privateGoogleEmail,
+      },
+      entities: [{
+        localId: googleNewEventId,
+        kind: "event",
+        personId: googleNewPersonId,
+        payload: {
+          interactionKind: "email",
+          subject: "First approved private identity interaction",
+          occurredAt: "2026-07-18T15:46:30.000Z",
+        },
+        source: "gmail",
+        sourceRecordId: "gmail-thread-new-person-1",
+      }],
+      external: [{
+        source: "gmail",
+        sourceRecordId: "gmail-thread-new-person-1",
+        entityType: "event",
+      }],
+    };
+    await wiring.ledger.append({
+      id: googleNewProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: { directive: googleNewDirective },
+      proposedOutput: { directive: googleNewDirective },
+      userDecision: null,
+      policyResults: [{
+        policyId: "test-fixture-google-intake-review",
+        phase: "pre",
+        effect: "require_approval",
+        reason: "Exercise private Google Person materialization.",
+      }],
+      seed: "gmail:gmail-thread-new-person-1",
+      dataScope: "private",
+      trustOrigin: "untrusted_external",
+      createdAt: "2026-07-18T15:46:31.000Z",
+    });
+    await caller.action.decide({
+      proposalId: googleNewProposalId,
+      decision: "approve",
+    });
+    const googlePerson = await caller.relationship.getPerson({
+      workspaceId: PILOT_WORKSPACE,
+      id: googleNewPersonId,
+    });
+    assert.equal(googlePerson?.displayName, "Private Google Person");
+    assert.deepEqual(googlePerson?.emails, [privateGoogleEmail]);
+    assert.equal(googlePerson?.visibility, "private");
+    assert.equal(googlePerson?.source, "google_approved_intake");
+
+    const googleLinkedEventId = "79000000-0000-4000-8000-000000000004";
+    const googleLinkedProposalId = "79000000-0000-4000-8000-000000000005";
+    const googleLinkedDirective = {
+      entities: [{
+        localId: googleLinkedEventId,
+        kind: "event",
+        personId: googleNewPersonId,
+        payload: {
+          interactionKind: "email",
+          subject: "Second linked private identity interaction",
+          occurredAt: "2026-07-18T15:46:45.000Z",
+        },
+        source: "gmail",
+        sourceRecordId: "gmail-thread-new-person-2",
+      }],
+      external: [{
+        source: "gmail",
+        sourceRecordId: "gmail-thread-new-person-2",
+        entityType: "event",
+      }],
+    };
+    await wiring.ledger.append({
+      id: googleLinkedProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: { directive: googleLinkedDirective },
+      proposedOutput: { directive: googleLinkedDirective },
+      userDecision: null,
+      policyResults: [{
+        policyId: "test-fixture-google-intake-review",
+        phase: "pre",
+        effect: "require_approval",
+        reason: "Exercise linked private Google Person materialization.",
+      }],
+      seed: "gmail:gmail-thread-new-person-2",
+      dataScope: "private",
+      trustOrigin: "untrusted_external",
+      createdAt: "2026-07-18T15:46:46.000Z",
+    });
+    await caller.action.decide({
+      proposalId: googleLinkedProposalId,
+      decision: "approve",
+    });
+    const linkedTimeline = await caller.relationship.timeline({
+      workspaceId: PILOT_WORKSPACE,
+      recordType: "person",
+      recordId: googleNewPersonId,
+      limit: 50,
+    });
+    assert.ok(
+      linkedTimeline.items.some((item) => item.id === googleLinkedEventId),
+      "the second source record links to the same owner-scoped Person",
     );
 
     const calendarEventId = "72000000-0000-4000-8000-000000000008";
@@ -2014,6 +2213,140 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
   }
 });
 
+test("approved capture materialization is durable, replayable, and emits one Local Event", async () => {
+  let wiring: Wiring | undefined;
+  try {
+    wiring = await buildWiring();
+    const caller = await makeCaller(wiring);
+    const mediaId = "local-media-capture-1";
+    await wiring.localMedia.put(
+      {
+        id: mediaId,
+        workspaceId: PILOT_WORKSPACE,
+        kind: "photo",
+        mimeType: "image/jpeg",
+        byteSize: 3,
+        caption: "Whiteboard notes",
+        status: "pending",
+        provenance: { tool: "camera", version: "1" },
+        capturedAt: "2026-07-18T16:00:00.000Z",
+      },
+      new Uint8Array([1, 2, 3]),
+    );
+    const staged = await caller.capture.stage({
+      workspaceId: PILOT_WORKSPACE,
+      localMediaId: mediaId,
+      kind: "photo",
+      caption: "Whiteboard notes",
+      capturedAt: "2026-07-18T16:00:00.000Z",
+    });
+    assert.equal(staged.status, "pending_review");
+    const duplicateStage = await caller.capture.stage({
+      workspaceId: PILOT_WORKSPACE,
+      localMediaId: mediaId,
+      kind: "photo",
+      caption: "Whiteboard notes",
+      capturedAt: "2026-07-18T16:00:00.000Z",
+    });
+    assert.equal(
+      duplicateStage.id,
+      staged.id,
+      "one Local Media record has at most one pending governed proposal",
+    );
+    assert.deepEqual(
+      await caller.capture.status({
+        workspaceId: PILOT_WORKSPACE,
+        localMediaIds: [mediaId],
+      }),
+      {
+        items: [{
+          localMediaId: mediaId,
+          status: "pending_review",
+          proposalId: staged.id,
+          decisionLedgerId: null,
+        }],
+      },
+    );
+
+    const commitEntity =
+      wiring.localPlane.graph.commitEntity.bind(wiring.localPlane.graph);
+    wiring.localPlane.graph.commitEntity = async () => {
+      throw new Error("test_fixture_capture_commit_failure");
+    };
+    const failed = await caller.action.decide({
+      proposalId: staged.id,
+      decision: "approve",
+    });
+    assert.equal(failed.effectsStatus, "failed");
+    assert.match(failed.effectsError ?? "", /capture_commit_failure/);
+    assert.equal((await wiring.localMedia.get(mediaId))?.status, "pending");
+
+    wiring.localPlane.graph.commitEntity = commitEntity;
+    const replayed = await caller.action.decide({
+      proposalId: staged.id,
+      decision: "approve",
+    });
+    assert.equal(replayed.effectsStatus, "confirmed");
+    const events = await wiring.localPlane.graph.listEntities(
+      PILOT_WORKSPACE,
+      "event",
+    );
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.source, "capture");
+    assert.equal(events[0]?.sourceRecordId, mediaId);
+    const committed = await wiring.localMedia.get(mediaId);
+    assert.equal(committed?.status, "committed");
+    assert.equal(committed?.ledgerId, replayed.id);
+    assert.deepEqual(committed?.linkedEntity, {
+      type: "event",
+      id: events[0]?.id,
+    });
+    assert.equal(
+      await wiring.localPlane.graph.hasExternal(
+        PILOT_WORKSPACE,
+        "capture",
+        mediaId,
+      ),
+      true,
+    );
+
+    await caller.action.decide({
+      proposalId: staged.id,
+      decision: "approve",
+    });
+    assert.equal(
+      (
+        await wiring.localPlane.graph.listEntities(
+          PILOT_WORKSPACE,
+          "event",
+        )
+      ).length,
+      1,
+      "replaying the recorded decision cannot duplicate the capture Event",
+    );
+    const appliedStatus = await caller.capture.status({
+      workspaceId: PILOT_WORKSPACE,
+      localMediaIds: [mediaId],
+    });
+    assert.equal(appliedStatus.items[0]?.status, "applied");
+    assert.equal(appliedStatus.items[0]?.decisionLedgerId, replayed.id);
+    await assert.rejects(
+      () =>
+        caller.capture.stage({
+          workspaceId: PILOT_WORKSPACE,
+          localMediaId: "test_fixture_capture_oversized",
+          kind: "photo",
+          caption: "x".repeat(4_001),
+          capturedAt: "2026-07-18T16:00:00.000Z",
+        }),
+      /too_big|maximum|4000/i,
+      "oversized caption text cannot evade capture proposal classification",
+    );
+  } finally {
+    if (wiring) await wiring.close();
+  }
+});
+
 test("Relationship intake review is bounded, owner-scoped, and content-sanitized", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-relationship-intake-review-test-"));
   const fixture = await seedFixtures(dir);
@@ -2193,16 +2526,22 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(memoryPage.items.length, 1);
     assert.equal(memoryPage.items[0]?.content, "Prefers a written agenda before meetings.");
     assert.equal(memoryPage.items[0]?.sourceRefType, "feedback");
-    await assert.rejects(
-      () =>
-        otherMemberCaller.relationship.memories({
-          workspaceId: PILOT_WORKSPACE,
-          personId: fixture.personId,
-          limit: 25,
-          offset: 0,
-        }),
-      /NOT_FOUND|Person not found/,
-    );
+    let otherMemberMemoryBlocked = false;
+    try {
+      await otherMemberCaller.relationship.memories({
+        workspaceId: PILOT_WORKSPACE,
+        personId: fixture.personId,
+        limit: 25,
+        offset: 0,
+      });
+    } catch (cause) {
+      otherMemberMemoryBlocked =
+        typeof cause === "object" &&
+        cause !== null &&
+        "code" in cause &&
+        cause.code === "NOT_FOUND";
+    }
+    assert.equal(otherMemberMemoryBlocked, true);
 
     const corrected = await caller.relationship.correctMemory({
       workspaceId: PILOT_WORKSPACE,
@@ -2225,7 +2564,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       workspaceId: PILOT_WORKSPACE,
       personId: fixture.personId,
       text: "Send the agenda",
-      dueAt: "2026-07-25T12:00:00.000Z",
+      dueAt: "2026-07-25",
     });
     assert.equal(createdCommitment.materialization.status, "applied");
     const commitmentId = createdCommitment.proposal.request.resourceId;
@@ -2285,6 +2624,21 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       communityWorkspace.people.some((person) => person.id === fixture.personId),
     );
     assert.ok(
+      communityWorkspace.people.some(
+        (person) =>
+          person.id === fixture.memberPersonId &&
+          person.source === "membership",
+      ),
+      "community_members contributes bounded visible People",
+    );
+    assert.equal(
+      communityWorkspace.people.some(
+        (person) => person.id === fixture.otherPersonId,
+      ),
+      false,
+      "another owner's private community member is pruned",
+    );
+    assert.ok(
       communityWorkspace.events.some((event) => event.kind === "gathering"),
     );
     assert.deepEqual(communityWorkspace.files, []);
@@ -2317,15 +2671,36 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
     assert.equal(completedPage.items[0]?.text, "Sent the agenda");
     assert.equal(completedPage.items[0]?.status, "completed");
-    assert.deepEqual(
-      await otherMemberCaller.relationship.commitments({
-        workspaceId: PILOT_WORKSPACE,
-        personId: fixture.personId,
-        limit: 25,
-        offset: 0,
-      }),
-      { items: [], total: 0, hasMore: false },
+    const laterPending = await caller.relationship.createCommitment({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      text: "Confirm the next meeting",
+      dueAt: "2026-07-30T12:00:00+05:30",
+    });
+    assert.equal(laterPending.materialization.status, "applied");
+    const laterPendingCommitmentId =
+      laterPending.proposal.request.resourceId;
+    assert.ok(laterPendingCommitmentId);
+    const mixedPrep = await caller.relationship.meetingPrep({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 1,
+    });
+    assert.equal(mixedPrep.context.commitments[0]?.status, "completed");
+    assert.match(
+      mixedPrep.recommendedActions[0]?.label ?? "",
+      /Confirm the next meeting/,
+      "pending recommendations are queried before applying the bound",
     );
+    const otherCommitments = await otherMemberCaller.relationship.commitments({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.deepEqual(otherCommitments.items, []);
+    assert.equal(otherCommitments.total, 0);
+    assert.equal(otherCommitments.hasMore, false);
 
     const targetPersonResult = await caller.relationship.createPerson({
       workspaceId: PILOT_WORKSPACE,
@@ -2371,16 +2746,19 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
     assert.equal(readyIntroductions.items[0]?.status, "ready");
     assert.equal(readyIntroductions.items[0]?.counterpart?.id, targetPersonId);
+    const otherIntroductions = await otherMemberCaller.relationship.introductions({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
     assert.deepEqual(
-      await otherMemberCaller.relationship.introductions({
-        workspaceId: PILOT_WORKSPACE,
-        personId: fixture.personId,
-        limit: 25,
-        offset: 0,
-      }),
-      { items: [], total: 0, hasMore: false },
+      otherIntroductions.items,
+      [],
       "private Introduction state does not leak to another member",
     );
+    assert.equal(otherIntroductions.total, 0);
+    assert.equal(otherIntroductions.hasMore, false);
     const completedIntroduction = await caller.relationship.transitionIntroduction({
       workspaceId: PILOT_WORKSPACE,
       personId: fixture.personId,
@@ -2421,6 +2799,29 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       false,
       "private decline reason contents stay outside the API projection",
     );
+    const privateDeclineMemories = await caller.relationship.memories({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(
+      privateDeclineMemories.items.some(
+        (memory) => memory.content === "Not the right time",
+      ),
+      false,
+      "decline reason never enters the workspace-readable Memory table",
+    );
+    await assert.rejects(
+      () => otherMemberCaller.relationship.memories({
+        workspaceId: PILOT_WORKSPACE,
+        personId: fixture.personId,
+        limit: 25,
+        offset: 0,
+      }),
+      /Person not found/,
+      "another workspace member cannot read the private Person or decline Memory",
+    );
     await assert.rejects(
       () => otherMemberCaller.relationship.createIntroduction({
         workspaceId: PILOT_WORKSPACE,
@@ -2437,17 +2838,20 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       memoryId: correctedPage.items[0]!.id,
     });
     assert.equal(forgotten.materialization.status, "applied");
+    const memoriesAfterForget = await caller.relationship.memories({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
     assert.equal(
-      (
-        await caller.relationship.memories({
-          workspaceId: PILOT_WORKSPACE,
-          personId: fixture.personId,
-          limit: 25,
-          offset: 0,
-        })
-      ).items.length,
-      0,
-      "forget removes the complete correction lineage",
+      memoriesAfterForget.items.some((memory) =>
+        memory.id === correctedPage.items[0]!.id ||
+        memory.id === memoryId ||
+        memory.supersedesId === memoryId
+      ),
+      false,
+      "forget removes the complete correction lineage without deleting unrelated private Memory",
     );
     const archived = await caller.relationship.archiveCommitment({
       workspaceId: PILOT_WORKSPACE,
@@ -2455,16 +2859,15 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       commitmentId,
     });
     assert.equal(archived.materialization.status, "applied");
-    assert.equal(
-      (
-        await caller.relationship.commitments({
-          workspaceId: PILOT_WORKSPACE,
-          personId: fixture.personId,
-          limit: 25,
-          offset: 0,
-        })
-      ).total,
-      0,
+    const commitmentsAfterArchive = await caller.relationship.commitments({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.deepEqual(
+      commitmentsAfterArchive.items.map((item) => item.id),
+      [laterPendingCommitmentId],
     );
   } finally {
     if (wiring) await wiring.close();

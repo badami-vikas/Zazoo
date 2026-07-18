@@ -38,6 +38,7 @@ import {
   parseGoogleLinkedInteractionIntake,
   validateGoogleInteractionEdit,
 } from "./relationship-intake-materializer.js";
+import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 import {
   LEARNING_AGENT,
   OUTREACH_AGENT,
@@ -118,6 +119,7 @@ import {
   type CapabilityHealthRecord,
   type PendingProposalRecord,
   type Proposal,
+  type RunCtx,
   type WorkspaceBlueprint,
   type RoutableCapability,
   type PackageInstallationRow,
@@ -129,6 +131,7 @@ import {
   uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
+import { issueGoogleOAuthState } from "./google-oauth-routes.js";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
   CredentialAccessError,
@@ -316,6 +319,28 @@ function cleanOnBehalfOf(
 ): OnBehalfOf | undefined {
   if (!o) return undefined;
   return { type: o.type, id: o.id, ...(o.delegationId ? { delegationId: o.delegationId } : {}) };
+}
+
+function resolveClientOnBehalfOf(
+  identity: { type: ActorType; id: string },
+  value: { type: "user" | "team"; id: string; delegationId?: string | undefined } | undefined,
+): OnBehalfOf | undefined {
+  const onBehalfOf = cleanOnBehalfOf(value);
+  if (
+    identity.type === "user" &&
+    onBehalfOf &&
+    (
+      onBehalfOf.type !== "user" ||
+      onBehalfOf.id !== identity.id ||
+      onBehalfOf.delegationId !== undefined
+    )
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Human browser actions cannot assert delegation for another owner",
+    });
+  }
+  return onBehalfOf;
 }
 
 function cleanContext(
@@ -559,23 +584,201 @@ const humanInteractionFieldsSchema = interactionCreateFieldsSchema.omit({
   source: true,
   sourceRecordId: true,
 });
+const captureProposalInputSchema = z.object({
+  local_media_id: z.string().trim().min(1).max(500),
+}).passthrough();
+const captureProposalOutputSchema = z.object({
+  type: z.literal("event"),
+  text: z.string().trim().min(1).max(5_000),
+  local_media_id: z.string().trim().min(1).max(500),
+  notes: z.string().max(20_000).optional(),
+  link: z.object({
+    type: z.enum(["person", "memory", "event"]),
+    id: z.string().trim().min(1).max(500),
+  }).optional(),
+}).passthrough();
+const captureReviewEnvelopeSchema = z.object({
+  kind: z.literal("capture_review_envelope"),
+  localMediaId: z.string().trim().min(1).max(500),
+  ownerUserId: z.string().trim().min(1).max(500),
+  capturedAt: z.string().datetime({ offset: true }),
+  receivedAt: z.string().datetime({ offset: true }),
+  status: z.enum(["staging", "pending_review", "applied", "rejected"]),
+  proposalId: z.string().trim().min(1).optional(),
+  decisionLedgerId: z.string().trim().min(1).optional(),
+});
+const CAPTURE_REVIEW_BODY_SOURCE = "capture-review";
+
+function isCaptureProposal(proposal: LedgerEntry): boolean {
+  return (
+    proposal.resourceType === "event" &&
+    proposal.dataScope === "private" &&
+    captureProposalInputSchema.safeParse(proposal.inputs).success &&
+    captureProposalOutputSchema.safeParse(proposal.proposedOutput).success
+  );
+}
+
+const captureStageLocks = new Map<string, Promise<void>>();
+
+async function withCaptureStageLock<T>(
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previous = captureStageLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const current = previous.then(() => gate);
+  captureStageLocks.set(key, current);
+  await previous;
+  try {
+    return await run();
+  } finally {
+    release();
+    if (captureStageLocks.get(key) === current) captureStageLocks.delete(key);
+  }
+}
+
+async function findPendingCaptureProposal(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerUserId: string,
+  localMediaId: string,
+): Promise<LedgerEntry | null> {
+  const pageSize = 100;
+  const maxRows = 1_000;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const page = await wiring.ledger.listPending(workspaceId, {
+      limit: pageSize,
+      offset,
+      privateOwnerUserId: ownerUserId,
+    });
+    const match = page.items.find((entry) => {
+      const parsed = captureProposalInputSchema.safeParse(entry.inputs);
+      return parsed.success && parsed.data.local_media_id === localMediaId;
+    });
+    if (match) return match;
+    if (offset + page.items.length >= page.total) return null;
+  }
+  throw new Error(
+    "Capture cannot be staged safely while more than 1,000 proposals await review",
+  );
+}
+
+function pendingProposalFromLedger(entry: LedgerEntry): Proposal {
+  return {
+    id: entry.id,
+    status: "pending_review",
+    request: {
+      workspaceId: entry.workspaceId,
+      actor: { type: entry.actorType, id: entry.actorId, plane: "local" },
+      ...(entry.onBehalfOfType && entry.onBehalfOfId
+        ? { onBehalfOf: { type: entry.onBehalfOfType, id: entry.onBehalfOfId } }
+        : {}),
+      action: entry.action,
+      resourceType: entry.resourceType,
+      ...(entry.resourceId ? { resourceId: entry.resourceId } : {}),
+      inputs: entry.inputs,
+      skill: "stageCapture",
+      ...(entry.dataScope ? { dataScope: entry.dataScope } : {}),
+      ...(entry.seed ? { seed: entry.seed } : {}),
+    },
+    authority: {
+      allowed: true,
+      reason: "Persisted governed proposal",
+      basis: "role",
+      dataScope: "private",
+    },
+    policyResults: entry.policyResults,
+    ...(entry.proposedOutput !== undefined
+      ? { output: { proposedOutput: entry.proposedOutput } }
+      : {}),
+  };
+}
+
+async function putCaptureReviewEnvelope(
+  wiring: Wiring,
+  workspaceId: string,
+  envelope: z.infer<typeof captureReviewEnvelopeSchema>,
+): Promise<void> {
+  await wiring.localPlane.bodies.put({
+    workspaceId,
+    source: CAPTURE_REVIEW_BODY_SOURCE,
+    sourceRecordId: envelope.localMediaId,
+    dataScope: "private",
+    content: envelope,
+    capturedAt: envelope.receivedAt,
+  });
+}
+
+async function getCaptureReviewEnvelope(
+  wiring: Wiring,
+  workspaceId: string,
+  localMediaId: string,
+): Promise<z.infer<typeof captureReviewEnvelopeSchema> | null> {
+  const body = await wiring.localPlane.bodies.get(
+    workspaceId,
+    CAPTURE_REVIEW_BODY_SOURCE,
+    localMediaId,
+  );
+  if (!body) return null;
+  return captureReviewEnvelopeSchema.parse(body.content);
+}
 
 function assertRelationshipProposalOwner(
   proposal: LedgerEntry,
   identity: { type: ActorType; id: string },
+  google: ApiContext["wiring"]["google"],
 ): void {
+  const inputs =
+    typeof proposal.inputs === "object" &&
+    proposal.inputs !== null &&
+    !Array.isArray(proposal.inputs)
+      ? proposal.inputs as Record<string, unknown>
+      : {};
+  const googleProposal =
+    "directive" in inputs ||
+    inputs.integrationId === google.integrationId ||
+    (
+      typeof inputs.input === "object" &&
+      inputs.input !== null &&
+      !Array.isArray(inputs.input) &&
+      (inputs.input as Record<string, unknown>).integrationId === google.integrationId
+    );
   if (
     (
+      proposal.dataScope === "private" ||
       proposal.resourceType === "relation" ||
       isRelationshipMutation(proposal.inputs) ||
-      (
-        proposal.dataScope === "private" &&
-        isGoogleLinkedInteractionIntake(proposal.inputs)
-      )
+      googleProposal
     ) &&
-    (identity.type !== "user" || relationshipOwnerFromLedger(proposal) !== identity.id)
+    (
+      identity.type !== "user" ||
+      relationshipOwnerFromLedger(proposal) !== identity.id ||
+      (googleProposal && (
+        proposal.workspaceId !== google.workspaceId ||
+        identity.id !== google.ownerUserId
+      ))
+    )
   ) {
     throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+  }
+}
+
+async function assertGoogleIntegrationOwner(
+  ctx: Pick<ApiContext, "wiring" | "identity">,
+): Promise<void> {
+  await assertMembership(
+    ctx.wiring.workspaceStore,
+    ctx.wiring.google.workspaceId,
+    ctx.identity.id,
+  );
+  if (
+    ctx.identity.type !== "user" ||
+    ctx.identity.id !== ctx.wiring.google.ownerUserId
+  ) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "integration not found" });
   }
 }
 
@@ -648,6 +851,138 @@ async function proposeRelationshipMutation(
     proposal,
     materialization: { status: "applied" as const, value },
   };
+}
+
+async function materializeApprovedCapture(
+  wiring: Wiring,
+  original: LedgerEntry,
+  resolved: Proposal,
+  run: RunCtx,
+): Promise<string> {
+  if (resolved.status !== "applied") {
+    throw new Error("Capture materialization requires an applied decision");
+  }
+  const inputs = captureProposalInputSchema.parse(original.inputs);
+  const output = captureProposalOutputSchema.parse(
+    resolved.output?.proposedOutput,
+  );
+  if (output.local_media_id !== inputs.local_media_id) {
+    throw new Error("Capture review cannot retarget Local Media");
+  }
+  const ownerUserId = relationshipOwnerFromLedger(original);
+  if (!ownerUserId) {
+    throw new Error("Capture materialization requires a Human owner");
+  }
+  const envelope = await getCaptureReviewEnvelope(
+    wiring,
+    original.workspaceId,
+    inputs.local_media_id,
+  );
+  const eventId =
+    `capture:${original.workspaceId}:${inputs.local_media_id}`;
+  if (
+    envelope?.status === "applied" &&
+    envelope.ownerUserId === ownerUserId &&
+    envelope.proposalId === original.id &&
+    envelope.decisionLedgerId === resolved.id
+  ) {
+    return eventId;
+  }
+  if (
+    !envelope ||
+    envelope.ownerUserId !== ownerUserId ||
+    envelope.localMediaId !== inputs.local_media_id ||
+    envelope.proposalId !== original.id ||
+    envelope.status !== "pending_review"
+  ) {
+    throw new Error(
+      "Capture materialization requires its owner-bound pending Local metadata envelope",
+    );
+  }
+  const media = await wiring.localMedia.get(inputs.local_media_id);
+  if (media && media.workspaceId !== original.workspaceId) {
+    throw new Error("Capture Local Media belongs to a different workspace");
+  }
+  if (media?.status === "archived" || media?.archivedAt) {
+    throw new Error("Archived Local Media cannot be materialized");
+  }
+  if (media?.status === "committed" && media.ledgerId !== resolved.id) {
+    throw new Error("Capture Local Media was committed by a different decision");
+  }
+  const occurredAt = envelope.capturedAt;
+  await wiring.localPlane.graph.commitEntity({
+    id: eventId,
+    workspaceId: original.workspaceId,
+    kind: "event",
+    ...(output.link?.type === "person"
+      ? { personId: output.link.id }
+      : {}),
+    payload: {
+      interactionKind: "capture",
+      subject: output.text,
+      occurredAt,
+      localMediaId: inputs.local_media_id,
+      ...(output.notes ? { notes: output.notes } : {}),
+      ...(output.link ? { link: output.link } : {}),
+      ownerUserId,
+      visibility: "private",
+      decisionLedgerId: resolved.id,
+    },
+    source: "capture",
+    sourceRecordId: inputs.local_media_id,
+    createdAt: occurredAt,
+  });
+  if (media && media.status !== "committed") {
+    await wiring.localMedia.update(media.id, {
+      status: "committed",
+      ledgerId: resolved.id,
+      linkedEntity: { type: "event", id: eventId },
+    });
+  }
+  await wiring.localPlane.graph.recordExternal({
+    workspaceId: original.workspaceId,
+    source: "capture",
+    sourceRecordId: inputs.local_media_id,
+    entityType: "event",
+    entityId: eventId,
+    createdAt: run.clock.nowISO(),
+  });
+  await putCaptureReviewEnvelope(wiring, original.workspaceId, {
+    ...envelope,
+    status: "applied",
+    decisionLedgerId: resolved.id,
+  });
+  return eventId;
+}
+
+async function recordRejectedCapture(
+  wiring: Wiring,
+  original: LedgerEntry,
+  decision: LedgerEntry,
+): Promise<void> {
+  const inputs = captureProposalInputSchema.parse(original.inputs);
+  const ownerUserId = relationshipOwnerFromLedger(original);
+  const envelope = await getCaptureReviewEnvelope(
+    wiring,
+    original.workspaceId,
+    inputs.local_media_id,
+  );
+  if (
+    !ownerUserId ||
+    !envelope ||
+    envelope.ownerUserId !== ownerUserId ||
+    envelope.proposalId !== original.id ||
+    envelope.status !== "pending_review"
+  ) {
+    throw new Error(
+      "Capture rejection requires its owner-bound pending Local metadata envelope",
+    );
+  }
+  await putCaptureReviewEnvelope(wiring, original.workspaceId, {
+    ...envelope,
+    status: "rejected",
+    decisionLedgerId: decision.id,
+  });
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1559,13 +1894,14 @@ export const appRouter = t.router({
       const actor = {
         type: ctx.identity.type,
         id: ctx.identity.id,
-        ...(input.actor.plane ? { plane: input.actor.plane } : {}),
+        plane: "local" as const,
       };
+      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       return ctx.wiring.pipeline.propose(
         {
           workspaceId: input.workspaceId,
           actor,
-          ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
+          ...(onBehalfOf ? { onBehalfOf } : {}),
           action: input.action as Action,
           resourceType: input.resourceType as ResourceType,
           ...(input.resourceId ? { resourceId: input.resourceId } : {}),
@@ -1767,7 +2103,7 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
-        assertRelationshipProposalOwner(proposal, ctx.identity);
+        assertRelationshipProposalOwner(proposal, ctx.identity, ctx.wiring.google);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -1791,7 +2127,7 @@ export const appRouter = t.router({
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
-      assertRelationshipProposalOwner(original, ctx.identity);
+      assertRelationshipProposalOwner(original, ctx.identity, ctx.wiring.google);
       const isSignalEvidenceProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -1799,16 +2135,19 @@ export const appRouter = t.router({
       const isGoogleInteractionIntakeProposal =
         original.dataScope === "private" &&
         isGoogleLinkedInteractionIntake(original.inputs);
+      const isCaptureIntakeProposal = isCaptureProposal(original);
       const isRelationshipProposal =
         isSignalEvidenceProposal ||
         isRecordMutationProposal ||
         isGoogleInteractionIntakeProposal;
+      const isRetryablePostDecisionProposal =
+        isRelationshipProposal || isCaptureIntakeProposal;
       let resolved: Proposal | null = null;
       let postDecisionPipelineError: unknown;
       let relationshipDecision: LedgerEntry | null = null;
       let ownerInitiatedRelationshipRetry = false;
       let recordedDecision = input.decision;
-      if (isRelationshipProposal) {
+      if (isRetryablePostDecisionProposal) {
         const existingDecision = await ctx.wiring.ledger.decisionFor(
           input.proposalId,
         );
@@ -1963,7 +2302,10 @@ export const appRouter = t.router({
             ctx.identity.id,
             edited.event.personId,
           );
-          if (!participant) {
+          if (
+            !participant &&
+            edited.person?.localPersonId !== edited.event.personId
+          ) {
             throw new Error(
               "Google intake review requires an accessible Person participant",
             );
@@ -1975,6 +2317,28 @@ export const appRouter = t.router({
               cause instanceof Error
                 ? cause.message
                 : "Edited Google intake output is invalid",
+          });
+        }
+      }
+      if (
+        !resolved &&
+        input.decision === "edit" &&
+        isCaptureIntakeProposal
+      ) {
+        try {
+          const edited = captureProposalOutputSchema.parse(input.editedOutput);
+          const originalCapture = captureProposalInputSchema.parse(original.inputs);
+          if (edited.local_media_id !== originalCapture.local_media_id) {
+            throw new Error("Capture review cannot retarget Local Media");
+          }
+          committedEditedOutput = edited;
+        } catch (cause) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              cause instanceof Error
+                ? cause.message
+                : "Edited capture output is invalid",
           });
         }
       }
@@ -1997,7 +2361,7 @@ export const appRouter = t.router({
         } catch (err) {
           if (err instanceof AlreadyResolvedError) {
             const persistedDecision =
-              isRelationshipProposal
+              isRetryablePostDecisionProposal
                 ? await ctx.wiring.ledger.decisionFor(input.proposalId)
                 : null;
             if (
@@ -2021,7 +2385,7 @@ export const appRouter = t.router({
               throw new TRPCError({ code: "FORBIDDEN", message: err.message });
             }
             const persistedDecision =
-              isRelationshipProposal
+              isRetryablePostDecisionProposal
                 ? await ctx.wiring.ledger.decisionFor(input.proposalId)
                 : null;
             if (
@@ -2044,7 +2408,7 @@ export const appRouter = t.router({
       if (!resolved) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Relationship decision did not resolve",
+          message: "Action decision did not resolve",
         });
       }
       // Post-approval Google side effects (no-op for unrelated proposals):
@@ -2103,6 +2467,30 @@ export const appRouter = t.router({
             : null;
         relationshipApplicationReturned =
           persistedRelationshipDecision !== null && isRelationshipProposal;
+        const captureDecisionCandidate =
+          isCaptureIntakeProposal
+            ? relationshipDecision ??
+              await ctx.wiring.ledger.decisionFor(input.proposalId)
+            : null;
+        if (
+          captureDecisionCandidate?.userDecision === "approve" ||
+          captureDecisionCandidate?.userDecision === "edit"
+        ) {
+          recordedDecision = captureDecisionCandidate.userDecision;
+          await materializeApprovedCapture(
+            ctx.wiring,
+            original,
+            resolved,
+            ctx.run,
+          );
+        } else if (captureDecisionCandidate?.userDecision === "veto") {
+          recordedDecision = "veto";
+          await recordRejectedCapture(
+            ctx.wiring,
+            original,
+            captureDecisionCandidate,
+          );
+        }
         const effects = await ctx.wiring.google.onApproved(input.proposalId, resolved, ctx.run);
         const dealPilotEffects =
           resolved.status === "applied"
@@ -2312,42 +2700,172 @@ export const appRouter = t.router({
       .input(
         z.object({
           workspaceId: z.string().min(1),
-          localMediaId: z.string().min(1),
+          localMediaId: z.string().trim().min(1).max(500),
           kind: z.enum(["photo", "video"]).optional(),
-          caption: z.string().optional(),
-          ocrText: z.string().optional(),
+          caption: z.string().trim().max(4_000).optional(),
+          ocrText: z.string().max(20_000).optional(),
+          capturedAt: z.string().datetime({ offset: true }),
         }),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const goalTaskRef = await provisionCaptureTask(ctx.wiring, input.workspaceId);
-        return ctx.wiring.pipeline.propose(
-          {
-            workspaceId: input.workspaceId,
-            actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
-            onBehalfOf: { type: "user", id: ctx.identity.id },
-            action: "write",
-            resourceType: "event",
-            dataScope: "private" as DataScope,
-            skill: "stageCapture",
-            inputs: {
-              local_media_id: input.localMediaId,
-              ...(input.kind ? { kind: input.kind } : {}),
-              ...(input.caption ? { caption: input.caption } : {}),
-              ...(input.ocrText ? { ocrText: input.ocrText } : {}),
-            },
-            goalTaskRef,
+        return withCaptureStageLock(
+          `${input.workspaceId}:${ctx.identity.id}:${input.localMediaId}`,
+          async () => {
+            const receivedAt = ctx.run.clock.nowISO();
+            const existingEnvelope = await getCaptureReviewEnvelope(
+              ctx.wiring,
+              input.workspaceId,
+              input.localMediaId,
+            );
+            if (
+              existingEnvelope &&
+              existingEnvelope.ownerUserId !== ctx.identity.id
+            ) {
+              throw new TRPCError({
+                code: "NOT_FOUND",
+                message: "Local Media not found",
+              });
+            }
+            if (existingEnvelope?.status === "applied") {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Local Media was already materialized",
+              });
+            }
+
+            let pending = await findPendingCaptureProposal(
+              ctx.wiring,
+              input.workspaceId,
+              ctx.identity.id,
+              input.localMediaId,
+            );
+            if (
+              !pending &&
+              existingEnvelope?.status === "pending_review" &&
+              existingEnvelope.proposalId
+            ) {
+              const candidate = await ctx.wiring.ledger.get(
+                existingEnvelope.proposalId,
+              );
+              if (candidate) {
+                const decision = await ctx.wiring.ledger.decisionFor(candidate.id);
+                if (decision) {
+                  throw new TRPCError({
+                    code: "CONFLICT",
+                    message:
+                      "The recorded capture decision still requires effect reconciliation",
+                  });
+                }
+                pending = candidate;
+              }
+            }
+            if (pending) {
+              await putCaptureReviewEnvelope(ctx.wiring, input.workspaceId, {
+                kind: "capture_review_envelope",
+                localMediaId: input.localMediaId,
+                ownerUserId: ctx.identity.id,
+                capturedAt: existingEnvelope?.capturedAt ?? input.capturedAt,
+                receivedAt: existingEnvelope?.receivedAt ?? receivedAt,
+                status: "pending_review",
+                proposalId: pending.id,
+              });
+              return pendingProposalFromLedger(pending);
+            }
+
+            const stagingEnvelope = {
+              kind: "capture_review_envelope" as const,
+              localMediaId: input.localMediaId,
+              ownerUserId: ctx.identity.id,
+              capturedAt: input.capturedAt,
+              receivedAt,
+              status: "staging" as const,
+            };
+            await putCaptureReviewEnvelope(
+              ctx.wiring,
+              input.workspaceId,
+              stagingEnvelope,
+            );
+            const goalTaskRef = await provisionCaptureTask(
+              ctx.wiring,
+              input.workspaceId,
+            );
+            const proposal = await ctx.wiring.pipeline.propose(
+              {
+                workspaceId: input.workspaceId,
+                actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
+                onBehalfOf: { type: "user", id: ctx.identity.id },
+                action: "write",
+                resourceType: "event",
+                dataScope: "private" as DataScope,
+                skill: "stageCapture",
+                seed: `capture:${input.workspaceId}:${input.localMediaId}`,
+                inputs: {
+                  local_media_id: input.localMediaId,
+                  ...(input.kind ? { kind: input.kind } : {}),
+                  ...(input.caption ? { caption: input.caption } : {}),
+                  ...(input.ocrText ? { ocrText: input.ocrText } : {}),
+                },
+                goalTaskRef,
+              },
+              ctx.run,
+            );
+            if (proposal.status === "applied") {
+              throw new Error(
+                "Capture staging bypassed its required review policy",
+              );
+            }
+            await putCaptureReviewEnvelope(ctx.wiring, input.workspaceId, {
+              ...stagingEnvelope,
+              status:
+                proposal.status === "pending_review"
+                  ? "pending_review"
+                  : "rejected",
+              proposalId: proposal.id,
+            });
+            return proposal;
           },
-          ctx.run,
         );
+      }),
+    status: authenticatedProcedure
+      .input(z.object({
+        workspaceId: z.string().min(1),
+        localMediaIds: z.array(z.string().trim().min(1).max(500)).max(100),
+      }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(
+          ctx.wiring.workspaceStore,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        const items = await Promise.all(
+          input.localMediaIds.map(async (localMediaId) => {
+            const envelope = await getCaptureReviewEnvelope(
+              ctx.wiring,
+              input.workspaceId,
+              localMediaId,
+            );
+            if (!envelope || envelope.ownerUserId !== ctx.identity.id) {
+              return { localMediaId, status: "not_found" as const };
+            }
+            return {
+              localMediaId,
+              status: envelope.status,
+              proposalId: envelope.proposalId ?? null,
+              decisionLedgerId: envelope.decisionLedgerId ?? null,
+            };
+          }),
+        );
+        return { items };
       }),
   }),
 
   google: t.router({
     /** Connection + manifest surfaces for the Integrations UI. */
     list: authenticatedProcedure.query(async ({ ctx }) => {
-      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+      await assertGoogleIntegrationOwner(ctx);
       const info = await ctx.wiring.google.connectionInfo();
       const m = ctx.wiring.googleManifest;
       return {
@@ -2365,16 +2883,20 @@ export const appRouter = t.router({
 
     /** The Google consent URL (read AND write scopes, offline). */
     connectUrl: authenticatedProcedure.mutation(async ({ ctx }) => {
-      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+      await assertGoogleIntegrationOwner(ctx);
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
-      return { url: authUrl(ctx.wiring.googleOAuth, ctx.wiring.google.integrationId) };
+      const state = issueGoogleOAuthState(
+        ctx.wiring.google.integrationId,
+        ctx.wiring.google.ownerUserId,
+      );
+      return { url: authUrl(ctx.wiring.googleOAuth, state) };
     }),
 
     /** Revoke locally (delete the local token). */
     disconnect: authenticatedProcedure.mutation(async ({ ctx }) => {
-      await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+      await assertGoogleIntegrationOwner(ctx);
       await ctx.wiring.google.disconnect();
       return { ok: true };
     }),
@@ -2383,7 +2905,7 @@ export const appRouter = t.router({
     syncGmail: authenticatedProcedure
       .input(z.object({ maxResults: z.number().int().positive().max(100).optional(), query: z.string().optional() }).optional())
       .mutation(async ({ input, ctx }) => {
-        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+        await assertGoogleIntegrationOwner(ctx);
         return ctx.wiring.google.syncGmail(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.query ? { query: input.query } : {}),
@@ -2402,7 +2924,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
-        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+        await assertGoogleIntegrationOwner(ctx);
         return ctx.wiring.google.syncCalendar(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -2423,7 +2945,7 @@ export const appRouter = t.router({
           .optional(),
       )
       .mutation(async ({ input, ctx }) => {
-        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+        await assertGoogleIntegrationOwner(ctx);
         const events = await ctx.wiring.google.listCalendarEvents(ctx.run, {
           ...(input?.maxResults ? { maxResults: input.maxResults } : {}),
           ...(input?.timeMin ? { timeMin: input.timeMin } : {}),
@@ -2444,7 +2966,7 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+        await assertGoogleIntegrationOwner(ctx);
         return ctx.wiring.google.proposeSend(ctx.run, {
           kind: input.kind,
           ...(input.action ? { action: input.action } : {}),
@@ -2561,6 +3083,7 @@ export const appRouter = t.router({
           message: "ritual.run actor must match the authenticated workspace member",
         });
       }
+      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       return ctx.wiring.ritualExecutor.run(
         {
           workspaceId: input.workspaceId,
@@ -2570,7 +3093,7 @@ export const appRouter = t.router({
             id: input.actor.id,
             plane: "local",
           },
-          ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
+          ...(onBehalfOf ? { onBehalfOf } : {}),
           steps: input.steps.map((s) => ({
             skill: s.skill,
             action: s.action as Action,
@@ -2590,6 +3113,16 @@ export const appRouter = t.router({
     runById: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      if (
+        input.actor &&
+        (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id)
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "ritual.runById actor must match the authenticated workspace member",
+        });
+      }
+      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       if (isModuleRuntimeRitualId(input.ritualId)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -2633,7 +3166,7 @@ export const appRouter = t.router({
                 },
               }
             : {}),
-          ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
+          ...(onBehalfOf ? { onBehalfOf } : {}),
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
         },
@@ -2860,6 +3393,7 @@ export const appRouter = t.router({
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
+        snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
@@ -2873,9 +3407,11 @@ export const appRouter = t.router({
           input.personId,
         );
         if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "Person not found" });
+        const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const rows = await ctx.wiring.memoryStore.retrieve(
           {
             subjectElementId: input.personId,
+            snapshotAt,
             limit: input.limit + 1,
             offset: input.offset,
           },
@@ -2885,6 +3421,7 @@ export const appRouter = t.router({
           items: rows.slice(0, input.limit),
           nextOffset: rows.length > input.limit ? input.offset + input.limit : null,
           hasMore: rows.length > input.limit,
+          snapshotAt,
         };
       }),
 
@@ -3001,10 +3538,12 @@ export const appRouter = t.router({
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
         includeArchived: z.boolean().default(false),
+        snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const page = await ctx.wiring.graphStore.listCommitments(
           input.workspaceId,
           ctx.identity.id,
@@ -3013,6 +3552,7 @@ export const appRouter = t.router({
             limit: input.limit,
             offset: input.offset,
             includeArchived: input.includeArchived,
+            snapshotAt: new Date(snapshotAt),
           },
         );
         return {
@@ -3024,6 +3564,7 @@ export const appRouter = t.router({
           })),
           total: page.total,
           hasMore: input.offset + page.items.length < page.total,
+          snapshotAt,
         };
       }),
 
@@ -3032,7 +3573,7 @@ export const appRouter = t.router({
         workspaceId: z.string().uuid(),
         personId: z.string().uuid(),
         text: z.string().trim().min(1).max(2_000),
-        dueAt: z.string().datetime().nullable().optional(),
+        dueAt: relationshipDateTimeSchema.nullable().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
@@ -3065,7 +3606,7 @@ export const appRouter = t.router({
         personId: z.string().uuid(),
         commitmentId: z.string().uuid(),
         text: z.string().trim().min(1).max(2_000),
-        dueAt: z.string().datetime().nullable().optional(),
+        dueAt: relationshipDateTimeSchema.nullable().optional(),
         status: z.enum(["pending", "completed", "cancelled"]),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -3147,15 +3688,21 @@ export const appRouter = t.router({
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
+        snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const page = await ctx.wiring.graphStore.listIntroductions(
           input.workspaceId,
           ctx.identity.id,
           input.personId,
-          { limit: input.limit, offset: input.offset },
+          {
+            limit: input.limit,
+            offset: input.offset,
+            snapshotAt: new Date(snapshotAt),
+          },
         );
         const items = await Promise.all(page.items.map(async (item) => {
           const counterpartId = item.sourcePersonId === input.personId
@@ -3179,6 +3726,7 @@ export const appRouter = t.router({
           items,
           total: page.total,
           hasMore: input.offset + page.items.length < page.total,
+          snapshotAt,
         };
       }),
 
@@ -3340,7 +3888,7 @@ export const appRouter = t.router({
           input.personId,
         );
         if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "Person not found" });
-        const [timeline, memories, commitments] = await Promise.all([
+        const [timeline, memories, commitments, pendingCommitments] = await Promise.all([
           ctx.wiring.graphStore.listTimeline(
             input.workspaceId,
             ctx.identity.id,
@@ -3358,8 +3906,13 @@ export const appRouter = t.router({
             input.personId,
             { limit: input.limit, offset: 0 },
           ),
+          ctx.wiring.graphStore.listCommitments(
+            input.workspaceId,
+            ctx.identity.id,
+            input.personId,
+            { limit: 5, offset: 0, status: "pending" },
+          ),
         ]);
-        const openCommitments = commitments.items.filter((item) => item.status === "pending");
         return {
           person: {
             id: person.id,
@@ -3381,7 +3934,7 @@ export const appRouter = t.router({
               createdAt: item.createdAt.toISOString(),
             })),
           },
-          recommendedActions: openCommitments.slice(0, 5).map((item) => ({
+          recommendedActions: pendingCommitments.items.map((item) => ({
             kind: "log_follow_up" as const,
             commitmentId: item.id,
             label: `Log follow-up: ${item.text}`,
@@ -3585,7 +4138,7 @@ export const appRouter = t.router({
           input.communityId,
         );
         if (!community) throw new TRPCError({ code: "NOT_FOUND", message: "Community not found" });
-        const [timeline, relationPage, signalPage] = await Promise.all([
+        const [timeline, relationPage, signalPage, memberPage] = await Promise.all([
           ctx.wiring.graphStore.listTimeline(
             input.workspaceId,
             ctx.identity.id,
@@ -3608,6 +4161,12 @@ export const appRouter = t.router({
               subjectType: "community",
               subjectId: input.communityId,
             },
+          ),
+          ctx.wiring.graphStore.listCommunityMembers(
+            input.workspaceId,
+            ctx.identity.id,
+            input.communityId,
+            { limit: input.limit, offset: 0 },
           ),
         ]);
         const directlyRelatedPersonIds = relationPage.items.flatMap((relation) => {
@@ -3651,6 +4210,13 @@ export const appRouter = t.router({
         const people = [
           ...timelinePeople,
           ...directPeople.filter((person): person is NonNullable<typeof person> => person !== null),
+          ...memberPage.items.map((person) => ({
+            id: person.id,
+            displayName: person.displayName,
+            relationId: null,
+            source: "membership" as const,
+            role: person.role,
+          })),
         ];
         return {
           community,
@@ -3669,6 +4235,7 @@ export const appRouter = t.router({
             relationTruncated: relationPage.nextCursor !== null,
             eventTruncated: timeline.nextCursor !== null,
             signalTruncated: signalPage.total > signalPage.items.length,
+            memberTruncated: memberPage.total > memberPage.items.length,
           },
         };
       }),
@@ -4154,6 +4721,7 @@ export const appRouter = t.router({
           message: "tool.run actor must match the authenticated workspace member",
         });
       }
+      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       return ctx.wiring.ritualExecutor.runTool(
         {
           workspaceId: input.workspaceId,
@@ -4163,7 +4731,7 @@ export const appRouter = t.router({
             id: input.actor.id,
             plane: "local",
           },
-          ...(cleanOnBehalfOf(input.onBehalfOf) ? { onBehalfOf: cleanOnBehalfOf(input.onBehalfOf)! } : {}),
+          ...(onBehalfOf ? { onBehalfOf } : {}),
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
         },

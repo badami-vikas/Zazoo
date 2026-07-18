@@ -13,7 +13,7 @@
  * `confidence` is a numeric column (Drizzle surfaces it as a string): unpack
  * Number()-izes on read, `#insert` stringifies on write.
  */
-import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import type {
   MemoryAuthScope,
   MemoryClassification,
@@ -73,16 +73,65 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    const current = await this.#db
-      .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
-      .from(memories)
-      .where(eq(memories.id, id))
-      .limit(1);
-    if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
-    if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
-      throw new Error("memory store: a correction cannot change workspace or owner");
-    }
-    return this.#insert(next, id);
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 0::bigint))`,
+      );
+      const current = await tx
+        .select({
+          workspaceId: memories.workspaceId,
+          ownerUserId: memories.ownerUserId,
+        })
+        .from(memories)
+        .where(eq(memories.id, id))
+        .for("update", { of: memories })
+        .limit(1);
+      if (current.length === 0) {
+        throw new Error(`memory store: cannot supersede unknown id ${id}`);
+      }
+      if (
+        current[0]!.workspaceId !== next.workspaceId ||
+        current[0]!.ownerUserId !== (next.ownerUserId ?? null)
+      ) {
+        throw new Error(
+          "memory store: a correction cannot change workspace or owner",
+        );
+      }
+      const existingSuccessors = await tx
+        .select()
+        .from(memories)
+        .where(eq(memories.supersedesId, id))
+        .orderBy(memories.id)
+        .limit(2);
+      const existing = existingSuccessors[0];
+      if (existing) {
+        const sameReplay =
+          existingSuccessors.length === 1 &&
+          existing.id === next.id &&
+          existing.workspaceId === next.workspaceId &&
+          existing.type === next.type &&
+          existing.subjectElementId === (next.subjectElementId ?? null) &&
+          existing.scope === next.scope &&
+          existing.content === next.content &&
+          existing.sourceRefType === (next.sourceRefType ?? null) &&
+          existing.sourceRefId === (next.sourceRefId ?? null) &&
+          Number(existing.confidence) === next.confidence &&
+          existing.trustOrigin === next.trustOrigin &&
+          existing.plane === next.plane &&
+          existing.createdBy === next.createdBy &&
+          existing.ownerUserId === (next.ownerUserId ?? null) &&
+          (
+            next.createdAt === undefined ||
+            existing.createdAt.toISOString() ===
+              new Date(next.createdAt).toISOString()
+          );
+        if (sameReplay) return unpack(existing);
+        throw new Error(
+          "memory store: a Memory can have only one current correction",
+        );
+      }
+      return new DrizzleMemoryStore(tx).#insert(next, id);
+    });
   }
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
@@ -98,15 +147,25 @@ export class DrizzleMemoryStore implements MemoryStore {
   async retrieve(query: MemoryQuery, authScope: MemoryAuthScope): Promise<MemoryEntry[]> {
     const conds: SQL[] = [visibilityWhere(authScope)];
     if (!query.includeSuperseded) {
-      conds.push(sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`);
+      conds.push(sql`NOT EXISTS (
+        SELECT 1
+        FROM ${memories} AS m2
+        WHERE m2.supersedes_id = ${memories.id}
+          ${query.snapshotAt
+            ? sql`AND m2.created_at <= ${new Date(query.snapshotAt)}`
+            : sql``}
+      )`);
     }
     if (query.type) conds.push(eq(memories.type, query.type));
     if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
+    if (query.snapshotAt) {
+      conds.push(lte(memories.createdAt, new Date(query.snapshotAt)));
+    }
     let q = this.#db
       .select()
       .from(memories)
       .where(and(...conds))
-      .orderBy(desc(memories.createdAt))
+      .orderBy(desc(memories.createdAt), desc(memories.id))
       .$dynamic();
     if (query.limit != null) q = q.limit(query.limit);
     if (query.offset != null) q = q.offset(query.offset);

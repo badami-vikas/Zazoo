@@ -15,6 +15,7 @@ import type { Database } from "./client.js";
 import {
   communities,
   communitiesCanonical,
+  communityMembers,
   edges,
   events,
   initiatives,
@@ -107,6 +108,11 @@ export interface PersonDetail extends PersonRecord {
 }
 
 export interface CommunityDetail extends CommunityRecord {}
+
+export interface CommunityMemberRecord extends PersonRecord {
+  role: string | null;
+  confidence: number | null;
+}
 
 export type RelationshipRecordVisibility = "private" | "workspace";
 
@@ -300,7 +306,7 @@ export interface MaterializeIntroductionInput extends DecisionProvenance {
   initiatorConsent: boolean;
   recipientConsent: boolean;
   status: IntroductionStatus;
-  declineReason?: string | null;
+  privateDeclineReason?: string | null;
 }
 
 export interface SignalParticipant {
@@ -509,6 +515,22 @@ function payloadRecord(payload: unknown): Record<string, unknown> {
   return typeof payload === "object" && payload !== null && !Array.isArray(payload)
     ? payload as Record<string, unknown>
     : {};
+}
+
+function eventPayloadForProjection(
+  eventPayload: unknown,
+  relations: RelationRecord[],
+): Record<string, unknown> {
+  const stored = payloadRecord(eventPayload);
+  for (const relation of relations) {
+    const privatePayload = payloadRecord(
+      payloadRecord(relation.properties).privateEventPayload,
+    );
+    if (Object.keys(privatePayload).length > 0) {
+      return { ...stored, ...privatePayload };
+    }
+  }
+  return stored;
 }
 
 function payloadString(
@@ -1197,7 +1219,10 @@ export class DrizzleGraphStore {
               isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
               visibility: people.visibility,
               displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-              currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+              currentTitle: sql<string | null>`CASE
+                WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+                ELSE nullif(${people.currentTitleOverride}, '')
+              END`,
               currentCommunityId: people.currentCommunityId,
               source: people.source,
               lastInteractionAt: people.lastInteractionAt,
@@ -1233,8 +1258,14 @@ export class DrizzleGraphStore {
               isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
               visibility: communities.visibility,
               displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-              description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-              kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+              description: sql<string | null>`CASE
+                WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+                ELSE nullif(${communities.descriptionOverride}, '')
+              END`,
+              kind: sql<string | null>`CASE
+                WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+                ELSE nullif(${communities.kind}, '')
+              END`,
               source: communities.source,
               isUserConfirmed: communities.isUserConfirmed,
               memberCount: sql<number>`0`,
@@ -2199,7 +2230,13 @@ export class DrizzleGraphStore {
       pattern
         ? sql<boolean>`(
             coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, '') ILIKE ${pattern} ESCAPE '!'
-            OR coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(
+              CASE
+                WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+                ELSE nullif(${people.currentTitleOverride}, '')
+              END,
+              ''
+            ) ILIKE ${pattern} ESCAPE '!'
           )`
         : undefined,
     );
@@ -2212,7 +2249,10 @@ export class DrizzleGraphStore {
           isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
           visibility: people.visibility,
           displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-          currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+          currentTitle: sql<string | null>`CASE
+            WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+            ELSE nullif(${people.currentTitleOverride}, '')
+          END`,
           currentCommunityId: people.currentCommunityId,
           source: people.source,
           lastInteractionAt: people.lastInteractionAt,
@@ -2255,13 +2295,19 @@ export class DrizzleGraphStore {
         isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
         displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-        currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+        currentTitle: sql<string | null>`CASE
+          WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+          ELSE nullif(${people.currentTitleOverride}, '')
+        END`,
         currentCommunityId: people.currentCommunityId,
         source: people.source,
         lastInteractionAt: people.lastInteractionAt,
         contextFreshnessAt: people.contextFreshnessAt,
         createdAt: people.createdAt,
-        bio: sql<string | null>`coalesce(${people.bioOverride}, ${peopleCanonical.bio})`,
+        bio: sql<string | null>`CASE
+          WHEN ${people.bioOverride} IS NULL THEN ${peopleCanonical.bio}
+          ELSE nullif(${people.bioOverride}, '')
+        END`,
         avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
         emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
       })
@@ -2306,13 +2352,19 @@ export class DrizzleGraphStore {
         isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
         displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
-        currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+        currentTitle: sql<string | null>`CASE
+          WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+          ELSE nullif(${people.currentTitleOverride}, '')
+        END`,
         currentCommunityId: people.currentCommunityId,
         source: people.source,
         lastInteractionAt: people.lastInteractionAt,
         contextFreshnessAt: people.contextFreshnessAt,
         createdAt: people.createdAt,
-        bio: sql<string | null>`coalesce(${people.bioOverride}, ${peopleCanonical.bio})`,
+        bio: sql<string | null>`CASE
+          WHEN ${people.bioOverride} IS NULL THEN ${peopleCanonical.bio}
+          ELSE nullif(${people.bioOverride}, '')
+        END`,
         avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
         emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
       })
@@ -2374,7 +2426,13 @@ export class DrizzleGraphStore {
       pattern
         ? sql<boolean>`(
             coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, '') ILIKE ${pattern} ESCAPE '!'
-            OR coalesce(${communities.kind}, ${communitiesCanonical.kind}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(
+              CASE
+                WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+                ELSE nullif(${communities.kind}, '')
+              END,
+              ''
+            ) ILIKE ${pattern} ESCAPE '!'
           )`
         : undefined,
     );
@@ -2403,8 +2461,14 @@ export class DrizzleGraphStore {
           isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
           visibility: communities.visibility,
           displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-          description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-          kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+          description: sql<string | null>`CASE
+            WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+            ELSE nullif(${communities.descriptionOverride}, '')
+          END`,
+          kind: sql<string | null>`CASE
+            WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+            ELSE nullif(${communities.kind}, '')
+          END`,
           source: communities.source,
           isUserConfirmed: communities.isUserConfirmed,
           memberCount,
@@ -2445,8 +2509,14 @@ export class DrizzleGraphStore {
         isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
         visibility: communities.visibility,
         displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
-        description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
-        kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
+        description: sql<string | null>`CASE
+          WHEN ${communities.descriptionOverride} IS NULL THEN ${communitiesCanonical.description}
+          ELSE nullif(${communities.descriptionOverride}, '')
+        END`,
+        kind: sql<string | null>`CASE
+          WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
+          ELSE nullif(${communities.kind}, '')
+        END`,
         source: communities.source,
         isUserConfirmed: communities.isUserConfirmed,
         memberCount: sql<number>`(
@@ -2486,6 +2556,94 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
+  async listCommunityMembers(
+    workspaceId: string,
+    viewerUserId: string,
+    communityId: string,
+    opts: PageOpts,
+  ): Promise<Page<CommunityMemberRecord>> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listCommunityMembers(
+          workspaceId,
+          viewerUserId,
+          communityId,
+          opts,
+        ),
+      );
+    }
+    if (!await this.getCommunity(workspaceId, viewerUserId, communityId)) {
+      return { items: [], total: 0 };
+    }
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const readable = and(
+      eq(communityMembers.communityId, communityId),
+      eq(people.workspaceId, workspaceId),
+      or(
+        eq(people.visibility, "workspace"),
+        and(
+          or(eq(people.visibility, "private"), eq(people.visibility, "team")),
+          eq(people.userId, viewerUserId),
+        ),
+      ),
+      isNull(people.archivedAt),
+    );
+    const [rows, totalRows] = await Promise.all([
+      this.#db
+        .select({
+          id: people.id,
+          workspaceId: people.workspaceId,
+          ownerUserId: people.userId,
+          isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
+          visibility: people.visibility,
+          displayName: sql<string | null>`coalesce(
+            ${people.fullNameOverride},
+            ${peopleCanonical.preferredName},
+            ${peopleCanonical.fullName}
+          )`,
+          currentTitle: sql<string | null>`CASE
+            WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
+            ELSE nullif(${people.currentTitleOverride}, '')
+          END`,
+          currentCommunityId: people.currentCommunityId,
+          source: people.source,
+          lastInteractionAt: people.lastInteractionAt,
+          contextFreshnessAt: people.contextFreshnessAt,
+          createdAt: people.createdAt,
+          role: communityMembers.role,
+          confidence: sql<number | null>`CASE
+            WHEN ${communityMembers.confidence} IS NULL THEN NULL
+            ELSE ${communityMembers.confidence}::double precision
+          END`,
+        })
+        .from(communityMembers)
+        .innerJoin(people, eq(communityMembers.personId, people.id))
+        .leftJoin(
+          peopleCanonical,
+          eq(people.canonicalPersonId, peopleCanonical.id),
+        )
+        .where(readable)
+        .orderBy(
+          sql`lower(coalesce(
+            ${people.fullNameOverride},
+            ${peopleCanonical.preferredName},
+            ${peopleCanonical.fullName},
+            ''
+          ))`,
+          people.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(communityMembers)
+        .innerJoin(people, eq(communityMembers.personId, people.id))
+        .where(readable),
+    ]);
+    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+  }
+
   async createPerson(input: CreatePersonInput): Promise<PersonDetail> {
     if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
       return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
@@ -2494,23 +2652,12 @@ export class DrizzleGraphStore {
     }
     const emails = normalizeEmails(input.emails);
     await this.#db
-      .insert(peopleCanonical)
-      .values({
-        id: input.id,
-        fullName: input.displayName.trim(),
-        preferredName: input.displayName.trim(),
-        currentTitle: input.currentTitle?.trim() || null,
-        bio: input.bio?.trim() || null,
-        emails,
-      })
-      .onConflictDoNothing();
-    await this.#db
       .insert(people)
       .values({
         id: input.id,
         workspaceId: input.workspaceId,
         userId: input.ownerUserId,
-        canonicalPersonId: input.id,
+        canonicalPersonId: null,
         visibility: input.visibility,
         fullNameOverride: input.displayName.trim(),
         currentTitleOverride: input.currentTitle?.trim() || null,
@@ -2540,8 +2687,10 @@ export class DrizzleGraphStore {
     }
     const values: Partial<typeof people.$inferInsert> = {};
     if (input.displayName !== undefined) values.fullNameOverride = input.displayName.trim();
-    if (input.currentTitle !== undefined) values.currentTitleOverride = input.currentTitle?.trim() || null;
-    if (input.bio !== undefined) values.bioOverride = input.bio?.trim() || null;
+    if (input.currentTitle !== undefined) {
+      values.currentTitleOverride = input.currentTitle?.trim() ?? "";
+    }
+    if (input.bio !== undefined) values.bioOverride = input.bio?.trim() ?? "";
     if (input.emails !== undefined) values.emailsOverride = normalizeEmails(input.emails);
     if (input.visibility !== undefined) values.visibility = input.visibility;
     if (Object.keys(values).length === 0) throw new Error("Person update requires at least one field");
@@ -2681,21 +2830,12 @@ export class DrizzleGraphStore {
       );
     }
     await this.#db
-      .insert(communitiesCanonical)
-      .values({
-        id: input.id,
-        name: input.displayName.trim(),
-        description: input.description?.trim() || null,
-        kind: input.kind?.trim() || null,
-      })
-      .onConflictDoNothing();
-    await this.#db
       .insert(communities)
       .values({
         id: input.id,
         workspaceId: input.workspaceId,
         userId: input.ownerUserId,
-        canonicalCommunityId: input.id,
+        canonicalCommunityId: null,
         visibility: input.visibility,
         nameOverride: input.displayName.trim(),
         descriptionOverride: input.description?.trim() || null,
@@ -2725,8 +2865,10 @@ export class DrizzleGraphStore {
     }
     const values: Partial<typeof communities.$inferInsert> = {};
     if (input.displayName !== undefined) values.nameOverride = input.displayName.trim();
-    if (input.description !== undefined) values.descriptionOverride = input.description?.trim() || null;
-    if (input.kind !== undefined) values.kind = input.kind?.trim() || null;
+    if (input.description !== undefined) {
+      values.descriptionOverride = input.description?.trim() ?? "";
+    }
+    if (input.kind !== undefined) values.kind = input.kind?.trim() ?? "";
     if (input.visibility !== undefined) values.visibility = input.visibility;
     if (Object.keys(values).length === 0) throw new Error("Community update requires at least one field");
     const locked = await this.#db
@@ -3040,6 +3182,21 @@ export class DrizzleGraphStore {
       ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(options.recordMutationLifecycle ? { recordMutationLifecycle: true } : {}),
     };
+    const storedPayload = visibility === "private"
+      ? {
+          kind: payload.kind,
+          occurredAt: payload.occurredAt,
+          ownerUserId: payload.ownerUserId,
+          visibility: payload.visibility,
+          decisionLedgerId: payload.decisionLedgerId,
+          decisionSequence: payload.decisionSequence,
+          decisionAt: payload.decisionAt,
+          privatePayloadStoredInRelations: true,
+          ...(options.recordMutationLifecycle
+            ? { recordMutationLifecycle: true }
+            : {}),
+        }
+      : payload;
     await this.#db
       .insert(events)
       .values({
@@ -3048,7 +3205,7 @@ export class DrizzleGraphStore {
         type: `relationship.${input.kind.trim()}`,
         entityType: "interaction",
         entityId: input.id,
-        payload,
+        payload: storedPayload,
       })
       .onConflictDoNothing();
     const event = await this.getEvent(input.workspaceId, input.id);
@@ -3059,7 +3216,9 @@ export class DrizzleGraphStore {
       payloadString(existingPayload, "ownerUserId") !== input.ownerUserId ||
       payloadString(existingPayload, "decisionLedgerId") !== input.decisionLedgerId
     ) {
-      throw new Error("Interaction id conflicts with a different Event");
+      throw new Error(
+        `Interaction ${input.id} conflicts with a different Event receipt`,
+      );
     }
     const relations: RelationRecord[] = [];
     for (const participant of participants.values()) {
@@ -3074,6 +3233,9 @@ export class DrizzleGraphStore {
         properties: {
           role: participant.role?.trim() || null,
           attendanceState: participant.attendanceState?.trim() || null,
+          ...(visibility === "private"
+            ? { privateEventPayload: payload }
+            : {}),
         },
         evidenceRefs: [{ entityType: "event", entityId: input.id, source: input.source }],
         confidence: 1,
@@ -3177,6 +3339,7 @@ export class DrizzleGraphStore {
         text: input.text,
         dueAt: input.dueAt?.toISOString() ?? null,
         status: input.status,
+        sourceEventId: input.sourceEventId ?? null,
       },
       evidenceRefs,
       confidence: 1,
@@ -3213,7 +3376,12 @@ export class DrizzleGraphStore {
     workspaceId: string,
     viewerUserId: string,
     personId: string,
-    opts: PageOpts & { includeArchived?: boolean; commitmentId?: string },
+    opts: PageOpts & {
+      includeArchived?: boolean;
+      commitmentId?: string;
+      status?: CommitmentStatus;
+      snapshotAt?: Date;
+    },
   ): Promise<CommitmentPage> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
@@ -3227,14 +3395,32 @@ export class DrizzleGraphStore {
     const result = await this.#db.execute(sql`
       WITH latest AS (
         SELECT DISTINCT ON (
-          transition.payload #>> '{metadata,commitmentId}'
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          )
         )
-          transition.payload #>> '{metadata,commitmentId}' AS commitment_id,
-          transition.payload #>> '{metadata,personId}' AS person_id,
-          transition.payload #>> '{metadata,text}' AS text,
-          transition.payload #>> '{metadata,dueAt}' AS due_at,
-          transition.payload #>> '{metadata,status}' AS status,
-          transition.payload #>> '{metadata,sourceEventId}' AS source_event_id,
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ) AS commitment_id,
+          commitment.dst_id::text AS person_id,
+          coalesce(
+            commitment.properties ->> 'text',
+            transition.payload #>> '{metadata,text}'
+          ) AS text,
+          coalesce(
+            commitment.properties ->> 'dueAt',
+            transition.payload #>> '{metadata,dueAt}'
+          ) AS due_at,
+          coalesce(
+            commitment.properties ->> 'status',
+            transition.payload #>> '{metadata,status}'
+          ) AS status,
+          coalesce(
+            commitment.properties ->> 'sourceEventId',
+            transition.payload #>> '{metadata,sourceEventId}'
+          ) AS source_event_id,
           transition.id::text AS transition_event_id,
           (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
           transition.created_at AS created_at,
@@ -3253,14 +3439,25 @@ export class DrizzleGraphStore {
           AND commitment.owner_user_id = ${viewerUserId}::uuid
         WHERE transition.workspace_id = ${workspaceId}::uuid
           AND transition.entity_type = 'interaction'
-          AND transition.payload #>> '{metadata,artifact}' = 'commitment'
-          AND transition.payload #>> '{metadata,personId}' = ${personId}
+          ${opts.snapshotAt
+            ? sql`AND transition.created_at <= ${opts.snapshotAt}`
+            : sql``}
+          AND coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ) IS NOT NULL
           AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
           ${opts.commitmentId
-            ? sql`AND transition.payload #>> '{metadata,commitmentId}' = ${opts.commitmentId}`
+            ? sql`AND coalesce(
+                commitment.properties ->> 'commitmentId',
+                transition.payload #>> '{metadata,commitmentId}'
+              ) = ${opts.commitmentId}`
             : sql``}
         ORDER BY
-          transition.payload #>> '{metadata,commitmentId}',
+          coalesce(
+            commitment.properties ->> 'commitmentId',
+            transition.payload #>> '{metadata,commitmentId}'
+          ),
           (transition.payload ->> 'decisionSequence')::bigint DESC,
           (transition.payload ->> 'occurredAt')::timestamptz DESC,
           transition.id DESC
@@ -3270,6 +3467,7 @@ export class DrizzleGraphStore {
         FROM latest
         WHERE commitment_id IS NOT NULL
           ${opts.includeArchived ? sql`` : sql`AND status <> 'archived'`}
+          ${opts.status ? sql`AND status = ${opts.status}` : sql``}
       )
       SELECT *, count(*) OVER() AS total_count
       FROM visible
@@ -3334,6 +3532,130 @@ export class DrizzleGraphStore {
     if (input.sourcePersonId === input.targetPersonId) {
       throw new Error("An Introduction requires two different People");
     }
+    await this.#db.execute(
+      sql`SELECT pg_advisory_xact_lock(
+        hashtextextended(
+          ${`${input.workspaceId}:${input.ownerUserId}:${input.introductionId}`},
+          0::bigint
+        )
+      )`,
+    );
+    const currentPage = await this.listIntroductions(
+      input.workspaceId,
+      input.ownerUserId,
+      input.sourcePersonId,
+      {
+        limit: 1,
+        offset: 0,
+        introductionId: input.introductionId,
+      },
+    );
+    const current = currentPage.items[0] ?? null;
+    const declineReason = input.privateDeclineReason?.trim() ?? "";
+    const declineReasonRecorded = declineReason.length > 0;
+    const sameSnapshot =
+      current?.sourcePersonId === input.sourcePersonId &&
+      current.targetPersonId === input.targetPersonId &&
+      current.initiatorConsent === input.initiatorConsent &&
+      current.recipientConsent === input.recipientConsent &&
+      current.status === input.status &&
+      current.declineReasonRecorded === declineReasonRecorded;
+    if (current) {
+      if (current.provenance.decisionSequence > input.decisionSequence) {
+        return current;
+      }
+      if (current.provenance.decisionSequence === input.decisionSequence) {
+        if (
+          current.provenance.decisionLedgerId !== input.decisionLedgerId ||
+          !sameSnapshot
+        ) {
+          throw new Error(
+            "Introduction decision sequence conflicts with another transition",
+          );
+        }
+        if (
+          declineReason &&
+          current.transitionEventId === input.transitionEventId
+        ) {
+          const [existingReason] = await this.#db
+            .select({ properties: edges.properties })
+            .from(edges)
+            .where(and(
+              eq(edges.workspaceId, input.workspaceId),
+              eq(edges.ownerUserId, input.ownerUserId),
+              eq(edges.srcType, "event"),
+              eq(edges.srcId, input.transitionEventId),
+              eq(edges.dstType, "person"),
+              eq(edges.dstId, input.sourcePersonId),
+              eq(edges.edgeType, "introduction"),
+              eq(edges.visibility, "private"),
+            ))
+            .limit(1);
+          if (
+            !existingReason ||
+            payloadString(
+              payloadRecord(existingReason.properties),
+              "privateDeclineReason",
+            ) !== declineReason
+          ) {
+            throw new Error(
+              "Introduction private decline reason conflicts with its transition",
+            );
+          }
+        }
+        return current;
+      }
+      if (sameSnapshot) return current;
+      if (
+        current.sourcePersonId !== input.sourcePersonId ||
+        current.targetPersonId !== input.targetPersonId
+      ) {
+        throw new Error("Introduction transition cannot retarget People");
+      }
+    }
+    const terminal =
+      current?.status === "declined" ||
+      current?.status === "cancelled" ||
+      current?.status === "introduced";
+    if (input.operation === "create") {
+      if (
+        current ||
+        !input.initiatorConsent ||
+        input.recipientConsent ||
+        input.status !== "awaiting_consents" ||
+        declineReasonRecorded
+      ) {
+        throw new Error(
+          "Introduction creation requires only the initiator's explicit consent",
+        );
+      }
+    } else {
+      if (!current || terminal) {
+        throw new Error("Introduction is not in an actionable state");
+      }
+      if (input.operation === "consent") {
+        if (
+          (current.initiatorConsent && !input.initiatorConsent) ||
+          (current.recipientConsent && !input.recipientConsent)
+        ) {
+          throw new Error("Introduction consent cannot be revoked");
+        }
+        const expectedStatus = declineReasonRecorded
+          ? "declined"
+          : input.initiatorConsent && input.recipientConsent
+            ? "ready"
+            : "awaiting_consents";
+        if (input.status !== expectedStatus) {
+          throw new Error("Introduction consent state is inconsistent");
+        }
+      } else if (
+        input.operation === "complete"
+          ? current.status !== "ready" || input.status !== "introduced"
+          : input.status !== "cancelled"
+      ) {
+        throw new Error("Introduction transition is invalid");
+      }
+    }
     const statusLabel = input.status.replace(/_/g, " ");
     await this.#createInteractionInContext({
       id: input.transitionEventId,
@@ -3366,7 +3688,7 @@ export class DrizzleGraphStore {
         initiatorConsent: input.initiatorConsent,
         recipientConsent: input.recipientConsent,
         status: input.status,
-        ...(input.declineReason ? { declineReason: input.declineReason } : {}),
+        declineReasonRecorded,
       },
       decisionLedgerId: input.decisionLedgerId,
       decisionSequence: input.decisionSequence,
@@ -3384,7 +3706,15 @@ export class DrizzleGraphStore {
           relationType: "introduction",
           properties: {
             introductionId: input.introductionId,
+            sourcePersonId: input.sourcePersonId,
+            targetPersonId: input.targetPersonId,
+            initiatorConsent: input.initiatorConsent,
+            recipientConsent: input.recipientConsent,
             status: input.status,
+            declineReasonRecorded,
+            ...(personId === input.sourcePersonId && declineReason
+              ? { privateDeclineReason: declineReason }
+              : {}),
           },
           evidenceRefs: [{
             entityType: "event",
@@ -3411,7 +3741,7 @@ export class DrizzleGraphStore {
       initiatorConsent: input.initiatorConsent,
       recipientConsent: input.recipientConsent,
       status: input.status,
-      declineReasonRecorded: Boolean(input.declineReason),
+      declineReasonRecorded,
       transitionEventId: input.transitionEventId,
       occurredAt: input.decisionAt,
       createdAt: input.decisionAt,
@@ -3428,7 +3758,7 @@ export class DrizzleGraphStore {
     workspaceId: string,
     viewerUserId: string,
     personId: string,
-    opts: PageOpts & { introductionId?: string },
+    opts: PageOpts & { introductionId?: string; snapshotAt?: Date },
   ): Promise<IntroductionPage> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
@@ -3442,15 +3772,43 @@ export class DrizzleGraphStore {
     const result = await this.#db.execute(sql`
       WITH latest AS (
         SELECT DISTINCT ON (
-          transition.payload #>> '{metadata,introductionId}'
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          )
         )
-          transition.payload #>> '{metadata,introductionId}' AS introduction_id,
-          transition.payload #>> '{metadata,sourcePersonId}' AS source_person_id,
-          transition.payload #>> '{metadata,targetPersonId}' AS target_person_id,
-          (transition.payload #>> '{metadata,initiatorConsent}')::boolean AS initiator_consent,
-          (transition.payload #>> '{metadata,recipientConsent}')::boolean AS recipient_consent,
-          transition.payload #>> '{metadata,status}' AS status,
-          coalesce(transition.payload #>> '{metadata,declineReason}', '') <> '' AS decline_reason_recorded,
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ) AS introduction_id,
+          coalesce(
+            anchor.properties ->> 'sourcePersonId',
+            transition.payload #>> '{metadata,sourcePersonId}'
+          ) AS source_person_id,
+          coalesce(
+            anchor.properties ->> 'targetPersonId',
+            transition.payload #>> '{metadata,targetPersonId}'
+          ) AS target_person_id,
+          coalesce(
+            (anchor.properties ->> 'initiatorConsent')::boolean,
+            (transition.payload #>> '{metadata,initiatorConsent}')::boolean
+          ) AS initiator_consent,
+          coalesce(
+            (anchor.properties ->> 'recipientConsent')::boolean,
+            (transition.payload #>> '{metadata,recipientConsent}')::boolean
+          ) AS recipient_consent,
+          coalesce(
+            anchor.properties ->> 'status',
+            transition.payload #>> '{metadata,status}'
+          ) AS status,
+          (
+            coalesce(
+              (anchor.properties ->> 'declineReasonRecorded')::boolean,
+              (transition.payload #>> '{metadata,declineReasonRecorded}')::boolean,
+              false
+            )
+            OR coalesce(transition.payload #>> '{metadata,declineReason}', '') <> ''
+          ) AS decline_reason_recorded,
           transition.id::text AS transition_event_id,
           (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
           transition.created_at AS created_at,
@@ -3478,13 +3836,25 @@ export class DrizzleGraphStore {
           AND anchor.owner_user_id = ${viewerUserId}::uuid
         WHERE transition.workspace_id = ${workspaceId}::uuid
           AND transition.entity_type = 'interaction'
-          AND transition.payload #>> '{metadata,artifact}' = 'introduction'
+          ${opts.snapshotAt
+            ? sql`AND transition.created_at <= ${opts.snapshotAt}`
+            : sql``}
+          AND coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ) IS NOT NULL
           AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
           ${opts.introductionId
-            ? sql`AND transition.payload #>> '{metadata,introductionId}' = ${opts.introductionId}`
+            ? sql`AND coalesce(
+                anchor.properties ->> 'introductionId',
+                transition.payload #>> '{metadata,introductionId}'
+              ) = ${opts.introductionId}`
             : sql``}
         ORDER BY
-          transition.payload #>> '{metadata,introductionId}',
+          coalesce(
+            anchor.properties ->> 'introductionId',
+            transition.payload #>> '{metadata,introductionId}'
+          ),
           (transition.payload ->> 'decisionSequence')::bigint DESC,
           (transition.payload ->> 'occurredAt')::timestamptz DESC,
           transition.id DESC
@@ -3681,7 +4051,7 @@ export class DrizzleGraphStore {
     relations: RelationRecord[],
     nodeMap: AccessibleNodes,
   ): TimelineItem {
-    const payload = payloadRecord(event.payload);
+    const payload = eventPayloadForProjection(event.payload, relations);
     const participants: TimelineParticipant[] = [];
     for (const relation of relations) {
       const recordType = relation.srcType === "event" ? relation.dstType : relation.srcType;

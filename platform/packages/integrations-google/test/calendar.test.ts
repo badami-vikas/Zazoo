@@ -29,7 +29,6 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { createMemoryLocalPlane, type LocalPlane } from "@bridge/local";
-import { InMemoryCanonicalIdentityStore } from "@bridge/db";
 
 import {
   EgressExecutor,
@@ -154,7 +153,6 @@ async function build(): Promise<{
   const gw = new test_fixture_FakeGateway();
   const gateways = new test_fixture_FakeFactory(gw);
   const localPlane = await createMemoryLocalPlane();
-  const canonical = new InMemoryCanonicalIdentityStore();
 
   const skills = new InMemorySkillRegistry();
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skills.register(s);
@@ -170,8 +168,8 @@ async function build(): Promise<{
 
   const google = new GoogleService({
     pipeline,
-    intake: new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph }),
-    materializer: new IntakeMaterializer({ graph: localPlane.graph, canonical }),
+    intake: new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph, pendingLedger: ledger }),
+    materializer: new IntakeMaterializer({ graph: localPlane.graph }),
     egress: new EgressExecutor({ ledger, gateways, graph: localPlane.graph }),
     secrets: localPlane.secrets,
     identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },

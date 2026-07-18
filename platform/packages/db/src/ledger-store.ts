@@ -101,7 +101,8 @@ function privateRelationshipOwnerScope(privateOwnerUserId: string | undefined) {
   );
   return or(
     and(
-      notInArray(ledger.resourceType, ["relation", "person", "community", "event"]),
+      or(isNull(ledger.dataScope), ne(ledger.dataScope, "private")),
+      notInArray(ledger.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
       sql`${ledger.inputs}->'directive' IS NULL`,
     ),
     ownerScope,

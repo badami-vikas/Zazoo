@@ -21,6 +21,15 @@ Implemented:
 
 The Introduction surface never sends a message. It records consent and lifecycle state only.
 
+Central-review hardening additionally:
+
+- resolves browser actors and delegation from the authenticated user, forces browser proposals onto the Local Plane, and owner-filters private plus legacy Relationship ledger rows;
+- keeps private Person/Community PII out of ownerless canonical rows and stores private Event detail, including Introduction decline text, only on owner-RLS Relations;
+- binds Google OAuth, intake decisions, and effects to the configured integration owner; durable bounded reservations survive restart; approved identities converge on one private Person and the Local Graph;
+- stages capture metadata in the server Local Plane, deduplicates pending review durably, materializes exactly one Event after approval, and reconciles device status after replay or another client decision;
+- accepts RFC3339 offsets and all-day dates, preserves explicit nullable clears, serializes Introduction and Memory successor transitions, and queries pending meeting-prep commitments directly;
+- resets and generation-guards Record UI state, preserves browser wall-clock defaults, and uses independent snapshot watermarks for bounded Memory, commitment, and Introduction pagination.
+
 ## Architecture
 
 No numbered migration was required or allocated. TASK-010 still owns migration `0016`.
@@ -34,30 +43,27 @@ The implementation reuses:
 - RM4 Relation evidence/access pruning;
 - existing Module routes and shared UI grammar.
 
-ADR-115 records why continuity state remains in existing Memory/Event/Relation stores instead of adding mutable parallel tables.
+ADR-115 records why continuity state remains in existing Memory/Event/Relation stores instead of adding mutable parallel tables. ADR-116 records why sensitive private Event detail lives on existing owner-filtered Relations.
 
 ## Validation
 
-- DB full suite: 130 passed.
-- API full suite: 176 passed.
-- Web full suite: 51 passed.
-- Focused Relationship DB: 17 passed.
-- Focused Relationship API: 11 passed.
-- Focused Relationship web: 13 passed.
-- Monorepo typecheck: 37/37 tasks.
-- Monorepo build: 20/20 tasks.
+- Core full suite: 423 passed.
+- DB full suite: 134 passed.
+- Google integration full suite: 39 passed.
+- API full suite: 177 passed.
+- Web full suite: 54 passed.
+- Affected total: 827 passed.
+- Monorepo typecheck and build passed.
 - Changed-file lint, runtime no-dummy, and diff integrity passed.
-- Independent correctness review: no high-confidence finding.
-- Independent security review: no vulnerability found.
-
-The aggregate monorepo test command is not fully green because the unrelated Sensors package reports 36.92% line coverage against its 38% threshold. Its seven tests pass; this branch does not change Sensors or Core.
+- Independent correctness review found one stale DealPilot assertion after browser proposals became Local-Plane-only; the assertion now proves a client-selected Cloud Plane is ignored, and the full API suite passes.
+- Independent security review: no merge-blocking finding. It confirmed owner/workspace pruning, private Event Relation storage, Google/capture authority, OAuth state, replay boundaries, and bounded reads. General Memory table isolation remains the pre-existing application-filter posture; this change adds no new direct/service-role access.
 
 Headless Chrome exercised the live in-memory API and web app with no seeded Records. The Relationship People Page rendered its honest empty state, bounded intake/identity review, Files Section, governed create/source Actions, and responsive Module navigation at both viewports:
 
 - desktop: `/Users/manishsbhoopalam/.copilot/session-state/84c5e1f2-a40f-4250-9981-692f1f0ca96f/files/browser-evidence/relationship-people-desktop.png`
 - exact 375px: `/Users/manishsbhoopalam/.copilot/session-state/84c5e1f2-a40f-4250-9981-692f1f0ca96f/files/browser-evidence/relationship-people-375.png`
 
-No runtime dummy data was introduced to manufacture populated detail evidence. RM3-RM5 detail/action surfaces remain covered by responsive structural tests plus DB/API lifecycle and negative-authority tests.
+No runtime dummy data was introduced to manufacture populated detail evidence. The live honest-empty screenshots predate the review-only hardening; changed UI behavior is covered by responsive structural tests plus DB/API lifecycle, snapshot-pagination, and negative-authority tests.
 
 ## Remaining TASK-008 scope
 

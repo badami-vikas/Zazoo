@@ -1563,6 +1563,26 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     });
     assert.equal(created.ownerUserId, ownerUserId);
     assert.deepEqual(created.emails, ["lifecycle@example.com"]);
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, personId))
+      ).length,
+      0,
+      "owner-scoped Person values must not be copied to canonical identity",
+    );
+    assert.equal(
+      (
+        await db
+          .select({ canonicalPersonId: schema.people.canonicalPersonId })
+          .from(schema.people)
+          .where(eq(schema.people.id, personId))
+          .limit(1)
+      )[0]?.canonicalPersonId,
+      null,
+    );
     assert.equal((await store.getPerson(workspaceId, viewer.id, personId))?.isOwner, false);
 
     const deniedUpdate = await store.updatePerson({
@@ -1765,6 +1785,131 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
   }
 });
 
+test("Relationship Records keep private values out of canonical identity and preserve explicit clears", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const store = new DrizzleGraphStore(db);
+    const canonicalPersonId = randomUUID();
+    const personId = randomUUID();
+    await db.insert(schema.peopleCanonical).values({
+      id: canonicalPersonId,
+      fullName: "Canonical Person",
+      currentTitle: "Canonical title",
+      bio: "Canonical bio",
+    });
+    await db.insert(schema.people).values({
+      id: personId,
+      workspaceId,
+      userId: ownerUserId,
+      canonicalPersonId,
+      visibility: "private",
+      fullNameOverride: "Owner Person",
+    });
+    assert.equal(
+      (await store.getPerson(workspaceId, ownerUserId, personId))?.currentTitle,
+      "Canonical title",
+    );
+    const clearedPerson = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      currentTitle: null,
+      bio: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T13:00:00.000Z"),
+    });
+    assert.equal(clearedPerson?.currentTitle, null);
+    assert.equal(clearedPerson?.bio, null);
+    const [personOverrides] = await db
+      .select({
+        currentTitle: schema.people.currentTitleOverride,
+        bio: schema.people.bioOverride,
+      })
+      .from(schema.people)
+      .where(eq(schema.people.id, personId))
+      .limit(1);
+    assert.deepEqual(personOverrides, { currentTitle: "", bio: "" });
+
+    const canonicalCommunityId = randomUUID();
+    const communityId = randomUUID();
+    await db.insert(schema.communitiesCanonical).values({
+      id: canonicalCommunityId,
+      name: "Canonical Community",
+      description: "Canonical description",
+      kind: "Canonical kind",
+    });
+    await db.insert(schema.communities).values({
+      id: communityId,
+      workspaceId,
+      userId: ownerUserId,
+      canonicalCommunityId,
+      visibility: "private",
+      nameOverride: "Owner Community",
+    });
+    const clearedCommunity = await store.updateCommunity({
+      id: communityId,
+      workspaceId,
+      ownerUserId,
+      description: null,
+      kind: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T13:01:00.000Z"),
+    });
+    assert.equal(clearedCommunity?.description, null);
+    assert.equal(clearedCommunity?.kind, null);
+
+    const ownerPersonId = randomUUID();
+    await store.createPerson({
+      id: ownerPersonId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Private owner value",
+      emails: ["private-owner@example.com"],
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T13:02:00.000Z"),
+    });
+    const ownerCommunityId = randomUUID();
+    await store.createCommunity({
+      id: ownerCommunityId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Private owner community",
+      description: "Private owner description",
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T13:03:00.000Z"),
+    });
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, ownerPersonId))
+      ).length,
+      0,
+    );
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.communitiesCanonical.id })
+          .from(schema.communitiesCanonical)
+          .where(eq(schema.communitiesCanonical.id, ownerCommunityId))
+      ).length,
+      0,
+    );
+  } finally {
+    await close();
+  }
+});
+
 test("Interaction participants drive one bounded Timeline with pruned provenance", async () => {
   const { db, close } = await createLocalDb();
   try {
@@ -1864,6 +2009,36 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
       decisionSequence: 3,
       decisionAt: new Date("2026-07-18T12:01:00.000Z"),
     });
+    const [privateEventRow] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, privateEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(privateEventRow?.payload).includes(
+        "Private participant context.",
+      ),
+      false,
+      "private Event content is absent from the workspace-scoped Event row",
+    );
+    const privateParticipantRelations = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcType, "event"),
+        eq(schema.edges.srcId, privateEventId),
+        eq(schema.edges.edgeType, "participant"),
+      ));
+    assert.ok(
+      privateParticipantRelations.every((relation) =>
+        JSON.stringify(relation.properties).includes(
+          "Private participant context.",
+        ),
+      ),
+      "private Event content is stored only on owner-filtered Relations",
+    );
 
     const firstPage = await store.listTimeline(
       workspaceId,
@@ -1910,6 +2085,10 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     assert.equal(
       ownerTimeline.items.find((item) => item.id === privateEventId)?.visibility,
       "private",
+    );
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.summary,
+      "Private participant context.",
     );
   } finally {
     await close();
@@ -2040,6 +2219,83 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       ).items[0]?.status,
       "archived",
     );
+
+    const firstPageCommitmentId = randomUUID();
+    const secondPageCommitmentId = randomUUID();
+    for (const [id, text, dueAt, createdAt] of [
+      [
+        firstPageCommitmentId,
+        "First snapshot commitment",
+        "2026-07-26T12:00:00.000Z",
+        "2026-07-22T10:00:00.000Z",
+      ],
+      [
+        secondPageCommitmentId,
+        "Second snapshot commitment",
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-22T10:01:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeCommitment({
+        operation: "create",
+        commitmentId: id,
+        transitionEventId: id,
+        workspaceId,
+        ownerUserId,
+        personId: person.id,
+        text,
+        dueAt: new Date(dueAt),
+        status: "pending",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(createdAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const commitmentSnapshotAt = new Date("2026-07-22T10:02:00.000Z");
+    const firstCommitmentPage = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 0, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(firstCommitmentPage.items[0]?.id, firstPageCommitmentId);
+    assert.equal(firstCommitmentPage.total, 2);
+
+    const laterCommitmentId = randomUUID();
+    await store.materializeCommitment({
+      operation: "create",
+      commitmentId: laterCommitmentId,
+      transitionEventId: laterCommitmentId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Later snapshot commitment",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-22T10:03:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-22T10:03:00.000Z") })
+      .where(eq(schema.events.id, laterCommitmentId));
+    const secondCommitmentPage = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 1, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(
+      secondCommitmentPage.items[0]?.id,
+      secondPageCommitmentId,
+      "a post-snapshot insert cannot shift commitment offset pages",
+    );
+    assert.equal(secondCommitmentPage.total, 2);
   } finally {
     await close();
   }
@@ -2135,6 +2391,85 @@ test("Introductions require double consent and keep decline reasons private", as
       "a different member cannot read the owner's private Introduction",
     );
 
+    const concurrentIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 10,
+      decisionAt: new Date("2026-07-19T13:00:00.000Z"),
+    });
+    const firstConcurrentConsent = {
+      operation: "consent" as const,
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready" as const,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 11,
+      decisionAt: new Date("2026-07-19T13:01:00.000Z"),
+    };
+    const secondConcurrentConsent = {
+      ...firstConcurrentConsent,
+      transitionEventId: randomUUID(),
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 12,
+      decisionAt: new Date("2026-07-19T13:02:00.000Z"),
+    };
+    const concurrentResults = await Promise.all([
+      store.materializeIntroduction(firstConcurrentConsent),
+      store.materializeIntroduction(secondConcurrentConsent),
+    ]);
+    assert.ok(concurrentResults.every((result) => result.status === "ready"));
+    const introductionEventCount = async () => {
+      const rows = await db.execute(sql`
+        SELECT count(*)::int AS value
+        FROM ${schema.events} AS transition
+        WHERE transition.workspace_id = ${workspaceId}::uuid
+          AND EXISTS (
+            SELECT 1
+            FROM ${schema.edges} AS introduction
+            WHERE introduction.workspace_id = transition.workspace_id
+              AND introduction.src_type = 'event'
+              AND introduction.src_id = transition.id
+              AND introduction.edge_type = 'introduction'
+              AND introduction.properties ->> 'introductionId' =
+                ${concurrentIntroductionId}
+          )
+      `);
+      return Number(
+        (
+          Array.isArray(rows)
+            ? rows
+            : (rows as unknown as { rows?: Array<{ value: number }> }).rows ?? []
+        )[0]?.value ?? 0,
+      );
+    };
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "concurrent equivalent consents produce one transition Event",
+    );
+    await store.materializeIntroduction(firstConcurrentConsent);
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "replaying a recorded consent is an idempotent no-op",
+    );
+
     const declinedIntroductionId = randomUUID();
     await store.materializeIntroduction({
       operation: "create",
@@ -2163,7 +2498,7 @@ test("Introductions require double consent and keep decline reasons private", as
       initiatorConsent: true,
       recipientConsent: false,
       status: "declined",
-      declineReason: "Not the right time",
+      privateDeclineReason: "Not the right time",
       decisionLedgerId: declinedEventId,
       decisionSequence: 4,
       decisionAt: new Date("2026-07-21T12:00:00.000Z"),
@@ -2181,6 +2516,143 @@ test("Introductions require double consent and keep decline reasons private", as
       false,
       "decline reason contents are not returned by Relationship projections",
     );
+    const [declineEvent] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, declinedEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes("Not the right time"),
+      false,
+      "private decline text is never copied into the workspace-scoped Event table",
+    );
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes(declinedIntroductionId),
+      false,
+      "private Introduction details stay on owner-filtered Relations",
+    );
+    const declineMemories = await db
+      .select({ id: schema.memories.id })
+      .from(schema.memories)
+      .where(eq(schema.memories.id, declinedEventId));
+    assert.equal(
+      declineMemories.length,
+      0,
+      "decline text never enters the workspace-readable Memory table",
+    );
+    const [privateReasonRelation] = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcId, declinedEventId),
+        eq(schema.edges.dstId, source.id),
+        eq(schema.edges.edgeType, "introduction"),
+      ))
+      .limit(1);
+    assert.equal(
+      (privateReasonRelation?.properties as { privateDeclineReason?: string })
+        ?.privateDeclineReason,
+      "Not the right time",
+      "decline text is retained only on the owner's private Relation",
+    );
+
+    const [paginationSource, paginationTarget] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Introduction Pagination Source",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Introduction Pagination Target",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    assert.ok(paginationSource);
+    assert.ok(paginationTarget);
+    const firstPageIntroductionId = randomUUID();
+    const secondPageIntroductionId = randomUUID();
+    for (const [id, decisionAt, createdAt] of [
+      [
+        firstPageIntroductionId,
+        "2026-07-23T12:00:00.000Z",
+        "2026-07-23T12:01:00.000Z",
+      ],
+      [
+        secondPageIntroductionId,
+        "2026-07-23T11:00:00.000Z",
+        "2026-07-23T12:02:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeIntroduction({
+        operation: "create",
+        introductionId: id,
+        transitionEventId: id,
+        workspaceId,
+        ownerUserId,
+        sourcePersonId: paginationSource.id,
+        targetPersonId: paginationTarget.id,
+        initiatorConsent: true,
+        recipientConsent: false,
+        status: "awaiting_consents",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(decisionAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const introductionSnapshotAt = new Date("2026-07-23T12:03:00.000Z");
+    const firstIntroductionPage = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 0, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(firstIntroductionPage.items[0]?.id, firstPageIntroductionId);
+    assert.equal(firstIntroductionPage.total, 2);
+
+    const laterIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: laterIntroductionId,
+      transitionEventId: laterIntroductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: paginationSource.id,
+      targetPersonId: paginationTarget.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-23T13:00:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-23T13:01:00.000Z") })
+      .where(eq(schema.events.id, laterIntroductionId));
+    const secondIntroductionPage = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 1, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(
+      secondIntroductionPage.items[0]?.id,
+      secondPageIntroductionId,
+      "a post-snapshot insert cannot shift Introduction offset pages",
+    );
+    assert.equal(secondIntroductionPage.total, 2);
   } finally {
     await close();
   }

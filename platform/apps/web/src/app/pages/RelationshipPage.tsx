@@ -52,6 +52,7 @@ const VIEWS: ToolbarView[] = [
   { id: "list", label: "List", icon: ListIcon },
   { id: "form", label: "Form", icon: FormInput },
 ];
+const CONTEXT_PAGE_SIZE = 25;
 
 function isPage(value: string | undefined): value is RelationshipPageId {
   return value === "signals" || value === "people" || value === "communities";
@@ -61,6 +62,13 @@ function displayDate(value: string | Date | null | undefined): string {
   if (!value) return "Not recorded";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Not recorded" : date.toLocaleString();
+}
+
+function toDatetimeLocal(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function recommendedActionLabel(recommendedAction: unknown): string {
@@ -794,7 +802,7 @@ function InteractionForm({
 }) {
   const [summary, setSummary] = useState("");
   const [interactionKind, setInteractionKind] = useState("meeting");
-  const [occurredAt, setOccurredAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [occurredAt, setOccurredAt] = useState(() => toDatetimeLocal(new Date()));
   const [visibility, setVisibility] = useState<"private" | "workspace">("private");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -871,6 +879,12 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   const [memories, setMemories] = useState<RelationshipMemoryPage["items"]>([]);
   const [commitments, setCommitments] = useState<RelationshipCommitmentPage["items"]>([]);
   const [introductions, setIntroductions] = useState<RelationshipIntroductionPage["items"]>([]);
+  const [memoriesHaveMore, setMemoriesHaveMore] = useState(false);
+  const [commitmentsHaveMore, setCommitmentsHaveMore] = useState(false);
+  const [introductionsHaveMore, setIntroductionsHaveMore] = useState(false);
+  const [memorySnapshotAt, setMemorySnapshotAt] = useState<string | null>(null);
+  const [commitmentSnapshotAt, setCommitmentSnapshotAt] = useState<string | null>(null);
+  const [introductionSnapshotAt, setIntroductionSnapshotAt] = useState<string | null>(null);
   const [meetingPrep, setMeetingPrep] = useState<RelationshipMeetingPrep | null>(null);
   const [communityWorkspace, setCommunityWorkspace] = useState<RelationshipCommunityWorkspace | null>(null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -888,12 +902,14 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const requestGeneration = useRef(0);
+  const contextGeneration = useRef(0);
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
     setRecord(undefined);
     setTimeline([]);
     setNextCursor(null);
+    setTimelineLoading(false);
     setError(null);
     const recordRequest = kind === "person"
       ? trpc.relationship.getPerson.query({ workspaceId: PILOT_WORKSPACE, id: recordId })
@@ -914,6 +930,9 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     }).catch((cause) => {
       if (requestGeneration.current === generation) setError(String(cause));
     });
+    return () => {
+      if (requestGeneration.current === generation) requestGeneration.current += 1;
+    };
   }, [kind, recordId, reload]);
 
   useEffect(() => {
@@ -921,6 +940,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
       setCommunityWorkspace(null);
       return;
     }
+    setCommunityWorkspace(null);
     let active = true;
     void trpc.relationship.communityWorkspace.query({
       workspaceId: PILOT_WORKSPACE,
@@ -937,40 +957,54 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   }, [kind, recordId, reload]);
 
   useEffect(() => {
+    setEditing(false);
+    setMemoryDraft("");
+    setMemoryScope("private");
+    setCommitmentDraft("");
+    setCommitmentDueAt("");
+    setActionStatus(null);
+    setContextBusy(false);
     setPathQuery("");
     setPathCandidates([]);
     setPathResult(null);
+    setPathLoading(false);
   }, [kind, recordId]);
 
   useEffect(() => {
+    const generation = ++contextGeneration.current;
+    setMemories([]);
+    setCommitments([]);
+    setIntroductions([]);
+    setMemoriesHaveMore(false);
+    setCommitmentsHaveMore(false);
+    setIntroductionsHaveMore(false);
+    setMemorySnapshotAt(null);
+    setCommitmentSnapshotAt(null);
+    setIntroductionSnapshotAt(null);
+    setMeetingPrep(null);
     if (kind !== "person") {
-      setMemories([]);
-      setCommitments([]);
-      setIntroductions([]);
-      setMeetingPrep(null);
       setContextLoading(false);
       return;
     }
-    let active = true;
     setContextLoading(true);
     void Promise.all([
       trpc.relationship.memories.query({
         workspaceId: PILOT_WORKSPACE,
         personId: recordId,
-        limit: 25,
+        limit: CONTEXT_PAGE_SIZE,
         offset: 0,
       }),
       trpc.relationship.commitments.query({
         workspaceId: PILOT_WORKSPACE,
         personId: recordId,
-        limit: 25,
+        limit: CONTEXT_PAGE_SIZE,
         offset: 0,
         includeArchived: false,
       }),
       trpc.relationship.introductions.query({
         workspaceId: PILOT_WORKSPACE,
         personId: recordId,
-        limit: 25,
+        limit: CONTEXT_PAGE_SIZE,
         offset: 0,
       }),
       trpc.relationship.meetingPrep.query({
@@ -979,23 +1013,31 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         limit: 10,
       }),
     ]).then(([memoryPage, commitmentPage, introductionPage, prep]) => {
-      if (!active) return;
+      if (contextGeneration.current !== generation) return;
       setMemories(memoryPage.items);
       setCommitments(commitmentPage.items);
       setIntroductions(introductionPage.items);
+      setMemoriesHaveMore(memoryPage.hasMore);
+      setCommitmentsHaveMore(commitmentPage.hasMore);
+      setIntroductionsHaveMore(introductionPage.hasMore);
+      setMemorySnapshotAt(memoryPage.snapshotAt);
+      setCommitmentSnapshotAt(commitmentPage.snapshotAt);
+      setIntroductionSnapshotAt(introductionPage.snapshotAt);
       setMeetingPrep(prep);
     }).catch((cause) => {
-      if (active) setError(String(cause));
+      if (contextGeneration.current === generation) setError(String(cause));
     }).finally(() => {
-      if (active) setContextLoading(false);
+      if (contextGeneration.current === generation) setContextLoading(false);
     });
     return () => {
-      active = false;
+      if (contextGeneration.current === generation) contextGeneration.current += 1;
     };
   }, [kind, recordId, reload]);
 
   async function loadMoreTimeline() {
     if (!nextCursor || timelineLoading) return;
+    const generation = requestGeneration.current;
+    const cursor = nextCursor;
     setTimelineLoading(true);
     setError(null);
     try {
@@ -1004,20 +1046,107 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         recordType: kind,
         recordId,
         limit: 25,
-        cursor: nextCursor,
+        cursor,
       });
+      if (requestGeneration.current !== generation) return;
       setTimeline((items) => [...items, ...page.items]);
       setNextCursor(page.nextCursor);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setTimelineLoading(false);
+      if (requestGeneration.current === generation) setTimelineLoading(false);
+    }
+  }
+
+  async function loadMoreMemories() {
+    if (kind !== "person" || !memoriesHaveMore || contextLoading) return;
+    const generation = contextGeneration.current;
+    const offset = memories.length;
+    setContextLoading(true);
+    setError(null);
+    try {
+      const page = await trpc.relationship.memories.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: CONTEXT_PAGE_SIZE,
+        offset,
+        ...(memorySnapshotAt ? { snapshotAt: memorySnapshotAt } : {}),
+      });
+      if (contextGeneration.current !== generation) return;
+      setMemories((items) => [
+        ...new Map(
+          [...items, ...page.items].map((item) => [item.id, item]),
+        ).values(),
+      ]);
+      setMemoriesHaveMore(page.hasMore);
+    } catch (cause) {
+      if (contextGeneration.current === generation) setError(String(cause));
+    } finally {
+      if (contextGeneration.current === generation) setContextLoading(false);
+    }
+  }
+
+  async function loadMoreCommitments() {
+    if (kind !== "person" || !commitmentsHaveMore || contextLoading) return;
+    const generation = contextGeneration.current;
+    const offset = commitments.length;
+    setContextLoading(true);
+    setError(null);
+    try {
+      const page = await trpc.relationship.commitments.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: CONTEXT_PAGE_SIZE,
+        offset,
+        includeArchived: false,
+        ...(commitmentSnapshotAt ? { snapshotAt: commitmentSnapshotAt } : {}),
+      });
+      if (contextGeneration.current !== generation) return;
+      setCommitments((items) => [
+        ...new Map(
+          [...items, ...page.items].map((item) => [item.id, item]),
+        ).values(),
+      ]);
+      setCommitmentsHaveMore(page.hasMore);
+    } catch (cause) {
+      if (contextGeneration.current === generation) setError(String(cause));
+    } finally {
+      if (contextGeneration.current === generation) setContextLoading(false);
+    }
+  }
+
+  async function loadMoreIntroductions() {
+    if (kind !== "person" || !introductionsHaveMore || contextLoading) return;
+    const generation = contextGeneration.current;
+    const offset = introductions.length;
+    setContextLoading(true);
+    setError(null);
+    try {
+      const page = await trpc.relationship.introductions.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: CONTEXT_PAGE_SIZE,
+        offset,
+        ...(introductionSnapshotAt ? { snapshotAt: introductionSnapshotAt } : {}),
+      });
+      if (contextGeneration.current !== generation) return;
+      setIntroductions((items) => [
+        ...new Map(
+          [...items, ...page.items].map((item) => [item.id, item]),
+        ).values(),
+      ]);
+      setIntroductionsHaveMore(page.hasMore);
+    } catch (cause) {
+      if (contextGeneration.current === generation) setError(String(cause));
+    } finally {
+      if (contextGeneration.current === generation) setContextLoading(false);
     }
   }
 
   async function addMemory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!memoryDraft.trim() || contextBusy) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1028,21 +1157,23 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         content: memoryDraft,
         scope: memoryScope,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") {
         setMemoryDraft("");
         setReload((value) => value + 1);
       }
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function correctMemory(memory: RelationshipMemoryPage["items"][number]) {
     const content = window.prompt("Correct what Bridge knows", memory.content);
     if (content === null || !content.trim() || content.trim() === memory.content) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1052,17 +1183,19 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         memoryId: memory.id,
         content,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function forgetMemory(memoryId: string) {
     if (!window.confirm("Forget this Memory and its correction history?")) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1071,18 +1204,20 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         personId: recordId,
         memoryId,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function createCommitment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!commitmentDraft.trim() || contextBusy) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1092,6 +1227,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         text: commitmentDraft,
         dueAt: commitmentDueAt ? new Date(commitmentDueAt).toISOString() : null,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") {
         setCommitmentDraft("");
@@ -1099,9 +1235,9 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         setReload((value) => value + 1);
       }
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
@@ -1109,6 +1245,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     commitment: RelationshipCommitmentPage["items"][number],
     status: "pending" | "completed" | "cancelled",
   ) {
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1120,17 +1257,19 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         dueAt: commitment.dueAt,
         status,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function archiveCommitment(commitmentId: string) {
     if (!window.confirm("Archive this commitment?")) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1139,17 +1278,19 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         personId: recordId,
         commitmentId,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function createIntroduction(targetPersonId: string) {
     if (kind !== "person" || contextBusy) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1158,12 +1299,13 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         sourcePersonId: recordId,
         targetPersonId,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
@@ -1175,6 +1317,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
       ? window.prompt("Private decline reason (visible only to you)")
       : null;
     if (decision === "decline" && !declineReason?.trim()) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1186,12 +1329,13 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         decision,
         ...(declineReason ? { declineReason } : {}),
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
@@ -1203,6 +1347,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
       ? window.confirm("Record that the introduction happened? This does not send a message.")
       : window.confirm("Cancel this introduction?");
     if (!confirmed) return;
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1212,16 +1357,18 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         introductionId,
         transition,
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function logFollowUp(label: string) {
+    const generation = requestGeneration.current;
     setContextBusy(true);
     setError(null);
     try {
@@ -1235,28 +1382,32 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
           participants: [{ recordType: "person", recordId }],
         },
       });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") setReload((value) => value + 1);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setContextBusy(false);
+      if (requestGeneration.current === generation) setContextBusy(false);
     }
   }
 
   async function searchPathTargets(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pathQuery.trim() || pathLoading) return;
+    const generation = requestGeneration.current;
+    const query = pathQuery.trim();
     setPathLoading(true);
     setError(null);
     setPathResult(null);
     try {
       const page = await trpc.relationship.listPeople.query({
         workspaceId: PILOT_WORKSPACE,
-        query: pathQuery.trim(),
+        query,
         limit: 10,
         offset: 0,
       });
+      if (requestGeneration.current !== generation) return;
       setPathCandidates(
         page.items
           .filter((person) => kind !== "person" || person.id !== recordId)
@@ -1270,13 +1421,14 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
           })),
       );
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setPathLoading(false);
+      if (requestGeneration.current === generation) setPathLoading(false);
     }
   }
 
   async function findPathTo(targetId: string) {
+    const generation = requestGeneration.current;
     setPathLoading(true);
     setError(null);
     try {
@@ -1287,38 +1439,46 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         maxDepth: 4,
         maxPaths: 3,
       });
-      setPathResult(result);
+      if (requestGeneration.current === generation) setPathResult(result);
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     } finally {
-      setPathLoading(false);
+      if (requestGeneration.current === generation) setPathLoading(false);
     }
   }
 
   async function archiveRecord() {
     if (!record?.isOwner || !window.confirm(`Archive ${record.displayName || kind}?`)) return;
+    const generation = requestGeneration.current;
     setError(null);
     try {
       const result = kind === "person"
         ? await trpc.relationship.archivePerson.mutate({ workspaceId: PILOT_WORKSPACE, id: recordId })
         : await trpc.relationship.archiveCommunity.mutate({ workspaceId: PILOT_WORKSPACE, id: recordId });
+      if (requestGeneration.current !== generation) return;
       setActionStatus(result.materialization.status.replace("_", " "));
       if (result.materialization.status === "applied") {
         navigate(`/module/relationship/${kind === "person" ? "people" : "communities"}`);
       }
     } catch (cause) {
-      setError(String(cause));
+      if (requestGeneration.current === generation) setError(String(cause));
     }
   }
 
   if (error && record === undefined) return <div className="p-4 sm:p-6 text-sm text-red-600 break-words">{error}</div>;
-  if (record === undefined) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading Record…</div>;
+  if (record === undefined || (record !== null && record.id !== recordId)) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading Record…</div>;
   if (record === null) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Record not found or not accessible.</div>;
 
   const isPerson = kind === "person";
   const person = isPerson ? record as PersonDetail : null;
   const community = !isPerson ? record as CommunityDetail : null;
   const name = record.displayName || `Unnamed ${kind}`;
+  const activeGeneration = requestGeneration.current;
+  const reloadCurrentRecord = () => {
+    if (requestGeneration.current !== activeGeneration) return;
+    setEditing(false);
+    setReload((value) => value + 1);
+  };
   const sourceRows = [
     { key: `record:${record.source}`, source: record.source || "Not recorded", sourceRecordId: null as string | null, eventId: null as string | null },
     ...timeline.map((item) => ({
@@ -1355,8 +1515,8 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
         {error && <p role="alert" className="text-sm text-red-600 break-words">{error}</p>}
         {editing && (
           isPerson
-            ? <RecordEditForm kind="person" record={person!} onCancel={() => setEditing(false)} onApplied={() => { setEditing(false); setReload((value) => value + 1); }} />
-            : <RecordEditForm kind="community" record={community!} onCancel={() => setEditing(false)} onApplied={() => { setEditing(false); setReload((value) => value + 1); }} />
+            ? <RecordEditForm key={`person:${recordId}`} kind="person" record={person!} onCancel={() => setEditing(false)} onApplied={reloadCurrentRecord} />
+            : <RecordEditForm key={`community:${recordId}`} kind="community" record={community!} onCancel={() => setEditing(false)} onApplied={reloadCurrentRecord} />
         )}
         <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-overview-title">
           <h2 id="record-overview-title" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Overview</h2>
@@ -1534,6 +1694,11 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                 ))}
               </ul>
             )}
+            {memoriesHaveMore && (
+              <Button className="mt-3" size="sm" variant="outline" disabled={contextLoading} onClick={loadMoreMemories}>
+                {contextLoading ? "Loading…" : "Load more Memory"}
+              </Button>
+            )}
             {record.isOwner && (
               <form onSubmit={addMemory} className="mt-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
                 <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
@@ -1612,6 +1777,11 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                   </li>
                 ))}
               </ul>
+            )}
+            {commitmentsHaveMore && (
+              <Button className="mt-3" size="sm" variant="outline" disabled={contextLoading} onClick={loadMoreCommitments}>
+                {contextLoading ? "Loading…" : "Load more commitments"}
+              </Button>
             )}
             {record.isOwner && (
               <form onSubmit={createCommitment} className="mt-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
@@ -1710,6 +1880,11 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
                 ))}
               </ul>
             )}
+            {introductionsHaveMore && (
+              <Button className="mt-3" size="sm" variant="outline" disabled={contextLoading} onClick={loadMoreIntroductions}>
+                {contextLoading ? "Loading…" : "Load more introductions"}
+              </Button>
+            )}
           </section>
         )}
         <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-connections-title">
@@ -1783,7 +1958,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
             </p>
           )}
         </section>
-        {record.isOwner && <InteractionForm kind={kind} recordId={recordId} onApplied={() => setReload((value) => value + 1)} />}
+        {record.isOwner && <InteractionForm key={`${kind}:${recordId}`} kind={kind} recordId={recordId} onApplied={reloadCurrentRecord} />}
         <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-timeline-title">
           <h2 id="record-timeline-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}><CalendarClock className="w-4 h-4" /> Timeline</h2>
           {timeline.length === 0 ? (

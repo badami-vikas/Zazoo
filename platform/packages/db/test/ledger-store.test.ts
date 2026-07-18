@@ -208,7 +208,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       createdAt: "2026-07-05T00:00:00.000Z",
     });
 
-    test("ledger: pending Relation projection is owner-scoped without hiding shared proposal types", async () => {
+    test("ledger: pending private proposals and legacy Relationship rows are owner-scoped", async () => {
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
@@ -257,13 +257,38 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           policyResults: [],
           createdAt: "2026-07-17T00:00:00.000Z",
         });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000004",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: ownerId,
+          action: "write",
+          resourceType: "touchpoint",
+          inputs: { kind: "legacy_private_interaction" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:03.000Z",
+        });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000005",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: ownerId,
+          action: "write",
+          resourceType: "signal",
+          inputs: { kind: "private_non_relationship_proposal" },
+          userDecision: null,
+          policyResults: [],
+          dataScope: "private",
+          createdAt: "2026-07-17T00:00:04.000Z",
+        });
 
         const owner = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(owner.total, 3);
+        assert.equal(owner.total, 5);
         const other = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
@@ -277,8 +302,8 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(ownerHistory.total, 3);
-        assert.equal(ownerHistory.items[0]?.resourceType, "signal");
+        assert.equal(ownerHistory.total, 5);
+        assert.equal(ownerHistory.items[0]?.id, "51000000-0000-4000-8000-000000000005");
         const otherHistory = await store.listHistory(ws.id, {
           limit: 10,
           offset: 0,

@@ -10,8 +10,6 @@ import assert from "node:assert/strict";
 
 import { FixedClock, SeededRng, UuidGen, type Proposal, type RunCtx } from "@bridge/core";
 import { createMemoryLocalPlane, type LocalPlane } from "@bridge/local";
-import { InMemoryCanonicalIdentityStore } from "@bridge/db";
-
 import { IntakeMaterializer, type IntakeDirective } from "../src/intake.js";
 
 function ctx(): RunCtx {
@@ -40,7 +38,6 @@ function resolvedProposal(directive: IntakeDirective): Proposal {
 
 test("applyApproved recovers from a transient commitEntity failure via bounded retry (idempotent end state)", async () => {
   const localPlane: LocalPlane = createMemoryLocalPlane();
-  const canonical = new InMemoryCanonicalIdentityStore();
 
   let commitCalls = 0;
   const realCommitEntity = localPlane.graph.commitEntity.bind(localPlane.graph);
@@ -52,12 +49,11 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
     return realCommitEntity(entry);
   };
 
-  const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
+  const materializer = new IntakeMaterializer({ graph: localPlane.graph });
 
   const directive: IntakeDirective = {
     person: {
       localPersonId: "local-person-1",
-      canonicalIdIfNew: "canon-person-1",
       fullName: "test_fixture_ Priya",
       emails: ["test_fixture_priya@example.com"],
       dedupKey: "test_fixture_priya@example.com",
@@ -78,7 +74,7 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
   const applied = await materializer.applyApproved(resolvedProposal(directive), ctx());
   assert.equal(applied, true);
 
-  // The whole dual-write body ran twice (attempt 1 failed on commitEntity, attempt 2
+  // The whole local materialization ran twice (attempt 1 failed on commitEntity, attempt 2
   // succeeded end to end) — but the end state has exactly one entity, no duplicates.
   assert.equal(commitCalls, 2, "commitEntity was retried after the first transient failure");
   const entities = await localPlane.graph.listEntities("ws-1", "event");
@@ -93,13 +89,12 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
 
 test("applyApproved gives up after exhausting retries and surfaces the error", async () => {
   const localPlane: LocalPlane = createMemoryLocalPlane();
-  const canonical = new InMemoryCanonicalIdentityStore();
 
   localPlane.graph.commitEntity = async () => {
     throw new Error("test_fixture_ persistent failure");
   };
 
-  const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
+  const materializer = new IntakeMaterializer({ graph: localPlane.graph });
 
   const directive: IntakeDirective = {
     entities: [

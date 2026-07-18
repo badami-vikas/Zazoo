@@ -289,10 +289,7 @@ test("syncGmail can stage a self-only thread without creating a new Person direc
 
 test("IntakeMaterializer ignores non-intake proposals with no directive", async () => {
   const graph = new test_fixture_Graph();
-  const materializer = new IntakeMaterializer({
-    graph,
-    canonical: { upsertPersonIdentity: async () => ({ canonicalPersonId: "test_fixture_canonical" }) } as never,
-  });
+  const materializer = new IntakeMaterializer({ graph });
   const proposal = {
     id: "test_fixture_non_intake",
     status: "applied",

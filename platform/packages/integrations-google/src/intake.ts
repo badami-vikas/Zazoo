@@ -11,12 +11,11 @@
  *        - many matches       → possible_duplicate Signal (NEVER auto-linked)
  *        - no match           → new counterparty identity + Interaction Event
  *   3. The user approves in the Approvals inbox; IntakeMaterializer commits the
- *      entries to the LOCAL graph and dual-writes ONLY the public identity to cloud
- *      canonical. Every step is append-only audited in the (local) ledger.
+ *      entries to the LOCAL graph. Shared owner-scoped Relationship Records are
+ *      materialized by the API from the same governed decision.
  */
-import type { GoalTaskStore, Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
+import type { GoalTaskStore, LedgerEntry, LedgerStore, Proposal, ProposalStatus, ResourceType, RunCtx, TrustOrigin, UniversalActionPipeline } from "@bridge/core";
 import type { BodyStore, LocalGraphStore } from "@bridge/local";
-import type { CanonicalIdentityStore } from "@bridge/db";
 import {
   CALENDAR_SOURCE,
   GMAIL_SOURCE,
@@ -31,8 +30,8 @@ import { SKILL_SOURCE_CALENDAR, SKILL_SOURCE_GMAIL, SKILL_STAGE } from "./skills
 
 export interface PersonDirective {
   localPersonId: string;
-  /** Canonical id to use if the identity is new (caller-minted, replayable). */
-  canonicalIdIfNew: string;
+  /** Retained only for replaying proposals created before owner-scoped identity storage. */
+  canonicalIdIfNew?: string;
   fullName?: string;
   emails: string[];
   dedupKey: string;
@@ -54,7 +53,7 @@ export interface ExternalDirective {
   entityType: string;
 }
 export interface IntakeDirective {
-  /** Public identity to dual-write (cloud canonical + local). The ONLY outward fact. */
+  /** Private identity to persist locally and in the owner's Relationship Module. */
   person?: PersonDirective;
   /** Local-only graph commits (Events / Memories / Signals). */
   entities: EntityDirective[];
@@ -109,6 +108,8 @@ export interface IntakeServiceDeps {
   pipeline: UniversalActionPipeline;
   bodies: BodyStore;
   graph: Pick<LocalGraphStore, "findPeopleByEmail" | "hasExternal">;
+  /** Durable source/identity reservations. Required by production wiring. */
+  pendingLedger?: Pick<LedgerStore, "listPending">;
   /**
    * AGS1 (TASK-007 closure) — optional Goal/Task provisioning for the 3
    * governed skills this service invokes (`SKILL_SOURCE_GMAIL`,
@@ -158,27 +159,9 @@ function counterpartyOf(participants: EmailAddress[], selfEmails: string[]): Ema
 }
 
 export class IntakeService {
-  /**
-   * Propose-time dedup: `graph.hasExternal` (checked below) only excludes items that
-   * have already been MATERIALIZED (i.e. an approved proposal has committed). It does
-   * NOT see proposals that are staged but still `pending_review` in the Approvals
-   * inbox. Without this, running syncGmail/syncCalendar twice before the user gets to
-   * the inbox stages a second PENDING proposal for the same thread/event, and if both
-   * are later approved you get duplicate Events/Memories (no dedup key on the
-   * entities themselves at commit time).
-   *
-   * `@bridge/core`'s `LedgerStore`/`UniversalActionPipeline` expose no query surface
-   * for "list pending proposals by seed" (only `get(id)` / `decisionFor(proposalId)`),
-   * and `IntakeServiceDeps` is intentionally narrow (pipeline/bodies/graph only) — so
-   * this tracks in-process which (source, sourceRecordId) seeds currently have an
-   * unresolved PENDING proposal outstanding, keyed by the same `seed` string already
-   * passed to `pipeline.propose()` (`stage()` below). Entries are added when `stage()`
-   * returns `pending_review` and removed once `IntakeMaterializer.applyApproved`
-   * resolves that seed (see `IntakeMaterializer#clearPendingSeed` wiring) — so the
-   * window this closes is exactly the "two syncs before approval" race described above.
-   * Scoped to this file/package only; no core change.
-   */
+  /** Fast cache backed by a bounded durable pending-ledger scan on every locked stage. */
   private readonly pendingSeeds = new Map<string, string>(); // seed -> proposalId
+  private readonly stageLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: IntakeServiceDeps) {}
 
@@ -487,7 +470,6 @@ export class IntakeService {
   private newPersonDirective(cp: EmailAddress, ctx: RunCtx): PersonDirective {
     return {
       localPersonId: ctx.ids.next(),
-      canonicalIdIfNew: ctx.ids.next(),
       ...(cp.name ? { fullName: cp.name } : {}),
       emails: [cp.email],
       dedupKey: norm(cp.email),
@@ -510,12 +492,33 @@ export class IntakeService {
     ctx: RunCtx,
   ): Promise<IntakeProposalSummary> {
     const seed = `${args.directive.external[0]?.source}:${args.sourceRecordId}`;
-    const trustOrigin = args.directive.entities.find((e) => e.trustOrigin)?.trustOrigin;
+    const lockKey =
+      `${args.workspaceId}:${args.userId}:${args.directive.person?.dedupKey ?? seed}`;
+    return this.withStageLock(lockKey, () => this.stageLocked(args, seed, ctx));
+  }
 
-    // Propose-time dedup: a proposal for this exact external item is already sitting
-    // PENDING in the Approvals inbox (staged by an earlier sync in this process). Don't
-    // stage a second one — return the existing pending proposal's summary instead.
-    const existingPendingId = this.pendingSeeds.get(seed);
+  private async stageLocked(
+    args: {
+      workspaceId: string;
+      intakeAgentId: string;
+      userId: string;
+      resourceType: ResourceType;
+      resource: string;
+      channel: string;
+      match: MatchOutcome;
+      sourceRecordId: string;
+      directive: IntakeDirective;
+      trace: { signals: string[]; context: string; reasoning: string };
+    },
+    seed: string,
+    ctx: RunCtx,
+  ): Promise<IntakeProposalSummary> {
+    let directive = args.directive;
+    const trustOrigin = directive.entities.find((e) => e.trustOrigin)?.trustOrigin;
+    const pending = await this.pendingIntakeEntries(args.workspaceId, args.userId);
+    const existingPendingId =
+      pending.find((entry) => entry.seed === seed)?.id ??
+      this.pendingSeeds.get(seed);
     if (existingPendingId) {
       return {
         proposalId: existingPendingId,
@@ -525,6 +528,25 @@ export class IntakeService {
         match: args.match,
         resource: args.resource,
       };
+    }
+
+    const requestedPerson = directive.person;
+    if (requestedPerson) {
+      const reserved = pending
+        .map((entry) => this.intakeDirective(entry))
+        .find((candidate) => candidate?.person?.dedupKey === requestedPerson.dedupKey)
+        ?.person;
+      if (reserved) {
+        directive = {
+          ...directive,
+          person: reserved,
+          entities: directive.entities.map((entity) =>
+            entity.personId === requestedPerson.localPersonId
+              ? { ...entity, personId: reserved.localPersonId }
+              : entity
+          ),
+        };
+      }
     }
 
     const stageGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, args.workspaceId, "stage_google_data", args.intakeAgentId, ctx);
@@ -540,7 +562,7 @@ export class IntakeService {
         seed,
         ...(trustOrigin ? { trustOrigin } : {}),
         inputs: {
-          directive: args.directive,
+          directive,
           display: {
             actor: "Inbox Intake Agent",
             actorKind: "agent",
@@ -568,18 +590,73 @@ export class IntakeService {
       resource: args.resource,
     };
   }
+
+  private async pendingIntakeEntries(
+    workspaceId: string,
+    ownerUserId: string,
+  ): Promise<LedgerEntry[]> {
+    if (!this.deps.pendingLedger) return [];
+    const rows: LedgerEntry[] = [];
+    const pageSize = 100;
+    const maxRows = 1_000;
+    for (let offset = 0; offset < maxRows; offset += pageSize) {
+      const page = await this.deps.pendingLedger.listPending(workspaceId, {
+        limit: pageSize,
+        offset,
+        privateOwnerUserId: ownerUserId,
+      });
+      rows.push(...page.items);
+      if (rows.length >= page.total) return rows;
+    }
+    throw new Error(
+      "Google intake cannot safely reserve an identity while more than 1,000 proposals await review",
+    );
+  }
+
+  private intakeDirective(entry: LedgerEntry): IntakeDirective | null {
+    if (
+      typeof entry.inputs !== "object" ||
+      entry.inputs === null ||
+      Array.isArray(entry.inputs) ||
+      !("directive" in entry.inputs)
+    ) {
+      return null;
+    }
+    const directive = (entry.inputs as { directive?: IntakeDirective }).directive;
+    return directive &&
+      Array.isArray(directive.entities) &&
+      Array.isArray(directive.external)
+      ? directive
+      : null;
+  }
+
+  private async withStageLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.stageLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = previous.then(() => gate);
+    this.stageLocks.set(key, current);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.stageLocks.get(key) === current) this.stageLocks.delete(key);
+    }
+  }
 }
 
 // ── Materializer (post-approval commit) ─────────────────────────────────────────
 
 export interface IntakeMaterializerDeps {
   graph: LocalGraphStore;
-  canonical: CanonicalIdentityStore;
 }
 
-/** Bounded retries for a TRANSIENT failure in the dual-write (network blip, local
- * pglite hiccup). Every step `applyApproved` performs is idempotent (upsertPersonIdentity
- * / upsertPerson: ON CONFLICT DO UPDATE; commitEntity: ON CONFLICT DO NOTHING;
+/** Bounded retries for a TRANSIENT local persistence failure. Every step
+ * `applyApproved` performs is idempotent (upsertPerson: ON CONFLICT DO UPDATE;
+ * commitEntity: ON CONFLICT DO NOTHING;
  * recordExternal: ON CONFLICT DO NOTHING), so retrying the whole method from scratch
  * is safe and far simpler than per-step retry logic. */
 async function withRetry<T>(label: string, attempts: number, delayMs: number, fn: () => Promise<T>): Promise<T> {
@@ -601,8 +678,7 @@ export class IntakeMaterializer {
   constructor(private readonly deps: IntakeMaterializerDeps) {}
 
   /** Apply a resolved (approved/edited) intake proposal to the LOCAL graph.
-   * Dual-writes ONLY the public identity to cloud canonical. Returns true if it
-   * was a Google intake proposal (and was applied), false otherwise.
+   * Returns true if it was a Google intake proposal (and was applied), false otherwise.
    *
    * The dual-write body is retried (bounded, idempotent) on transient failure —
    * see withRetry above. */
@@ -622,22 +698,11 @@ export class IntakeMaterializer {
 
     if (directive.person) {
       const p = directive.person;
-      const { canonicalPersonId } = await this.deps.canonical.upsertPersonIdentity(
-        {
-          dedupKey: p.dedupKey,
-          ...(p.fullName ? { fullName: p.fullName } : {}),
-          emails: p.emails,
-          ...(p.company ? { currentCompanyName: p.company } : {}),
-          enrichmentSource: "google",
-        },
-        p.canonicalIdIfNew,
-      );
       await this.deps.graph.upsertPerson({
         id: p.localPersonId,
         workspaceId,
         ...(p.fullName ? { fullName: p.fullName } : {}),
         emails: p.emails,
-        canonicalPersonId,
       });
     }
 
