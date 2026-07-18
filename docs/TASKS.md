@@ -6,7 +6,7 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
 Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
 
@@ -355,3 +355,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
 - Approval: AP-039 applied
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
+
+## Path-scoped Copilot instructions for developed Modules
+- ID: TASK-024
+- Status: in_progress
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.
+- Prototype test: Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.
+- Scope: `.github/instructions/module-development.instructions.md`; developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk
+- Evidence: user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns
+- Requests: module instruction-file directive 2026-07-18
+- Approval: AP-040 applied
+- Dependencies: none
