@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T12:16:27.051Z",
+  "generatedAt": "2026-07-18T14:23:51.238Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -48,11 +48,10 @@
         "docs/raw/egg-commons-feature-roadmap-2026-07.md AV0"
       ],
       "evidence": [
-        "BUGS 2026-07-14 companion mobility",
-        "BUGS 2026-07-14 desktop chrome",
+        "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
         "`outputs/2026-07-16-task-003-macos-avatar.md`",
-        "`outputs/2026-07-18-task-003-avatar-certification.md` (reported real three-display mixed-DPI placement, Accessibility-driven cross-display move/native-event save/relaunch, actual VoiceOver navigation, fullscreen presence, external-display reposition, and extend→mirror→extend 3→2→3 pass — physical pointer drag/relaunch, human VoiceOver activation, and literal cable/power detach remain unclaimed)"
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (real three-display mixed-DPI placement, cross-display move/native-event save/relaunch, VoiceOver navigation and physical activation, fullscreen/Spaces presence, external-display reposition, extend→mirror→extend 3→2→3, and physical detach/reconnect all pass)"
       ],
       "requests": [
         "R-001",
@@ -60,9 +59,9 @@
         "R-016",
         "desktop overlay/chrome directive 2026-07-14"
       ],
-      "approval": "AP-020, AP-026, and AP-040 applied",
+      "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -113,7 +112,8 @@
       ],
       "evidence": [
         "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md"
+        "TASK-003 physical Avatar certification completed 2026-07-18",
+        "outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"

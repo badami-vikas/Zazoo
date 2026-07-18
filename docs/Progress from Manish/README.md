@@ -31,7 +31,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-008 RM1-RM2 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
-- TASK-003/TASK-005 and external provider/keychain/device evidence remain honestly blocked.
+- TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 and external provider/keychain/device evidence remain honestly blocked.
 - TASK-008 remains incomplete after RM0 and RM4; TASK-014/TASK-009 own the shared Graph renderer.
 
 ## Files
