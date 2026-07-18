@@ -948,6 +948,13 @@ pub fn stop_display_topology_watcher(app: &AppHandle) {
         .store(false, Ordering::SeqCst);
 }
 
+/// Start a native drag for the calling overlay after the frontend observes
+/// intentional pointer movement on the Avatar surface.
+#[tauri::command]
+pub fn overlay_start_dragging(window: WebviewWindow) -> Result<(), String> {
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
 /// Resize the CALLING overlay window (whichever monitor's instance the user
 /// is interacting with — Tauri injects it via the `WebviewWindow` param,
 /// resolved from the IPC message's originating webview, never a fixed

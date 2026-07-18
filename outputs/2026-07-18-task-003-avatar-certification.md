@@ -15,6 +15,7 @@ The real macOS/display/VoiceOver observations below were produced by the failed 
 
 ## Defects fixed
 
+- **Direct Avatar drag target:** the first human physical check found the Avatar button itself inert because only a 10px handle carried Tauri's drag-region hook. Pointer movement on the Avatar now crosses a threshold before invoking native dragging, while ordinary click and keyboard activation still open the panel. Live retest is pending.
 - **Mixed-DPI placement:** Tao's per-monitor physical coordinates overlap on macOS. macOS persistence and placement now use tagged logical desktop coordinates; other platforms retain physical coordinates.
 - **Drag persistence:** a native window drag need not return `pointerup` to the webview. Native `Moved` events now feed one debounced save worker per overlay label.
 - **Topology removal crash:** directly closing a converted `AvatarPanel` aborted with `Rust cannot catch foreign exceptions`. The panel now converts back to its Tauri window before close.

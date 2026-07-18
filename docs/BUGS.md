@@ -18,6 +18,15 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
+User report (verbatim): “avatar dragging is not working.”
+The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
+while the Avatar itself remained a click-only button. That fails TASK-003's physical
+“Drag the Avatar” acceptance path even if the narrow handle works. The Avatar surface now
+uses a movement threshold before invoking a server-owned native window drag, preserving
+ordinary click/keyboard activation. Physical retest is pending before this evidence closes.
+Attached to canonical TASK-003.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
