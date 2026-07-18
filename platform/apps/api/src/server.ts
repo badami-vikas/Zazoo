@@ -145,6 +145,9 @@ export async function buildServer() {
   const createContext = makeContextFactory(wiring);
 
   const app = Fastify({ logger: loggerOptions, maxParamLength: 5000 });
+  app.addHook("onClose", async () => {
+    await wiring.close();
+  });
   const origin = corsOriginConfig();
   if (origin === true) {
     app.log.warn("CORS: no API_ALLOWED_ORIGINS set — allowing all origins (dev default). Set API_ALLOWED_ORIGINS in any shared/production environment.");
@@ -241,8 +244,33 @@ const isMain = entry !== undefined && import.meta.url === pathToFileURL(entry).h
 if (isMain) {
   const port = Number(process.env.PORT ?? 4000);
   buildServer()
-    .then((app) => app.listen({ port, host: serverHostConfig() }))
-    .then((addr) => console.log(`bridge-api listening at ${addr}`))
+    .then(async (app) => {
+      let stopping = false;
+      let parentWatch: NodeJS.Timeout | undefined;
+      const shutdown = () => {
+        if (stopping) return;
+        stopping = true;
+        if (parentWatch) clearInterval(parentWatch);
+        void app.close().then(
+          () => process.exit(0),
+          (error: unknown) => {
+            console.error("bridge-api shutdown failed", error);
+            process.exit(1);
+          },
+        );
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
+      const expectedParentPid = Number(process.env.BRIDGE_PARENT_PID);
+      if (Number.isSafeInteger(expectedParentPid) && expectedParentPid > 0) {
+        parentWatch = setInterval(() => {
+          if (process.ppid !== expectedParentPid) shutdown();
+        }, 1_000);
+        parentWatch.unref();
+      }
+      const addr = await app.listen({ port, host: serverHostConfig() });
+      console.log(`bridge-api listening at ${addr}`);
+    })
     .catch((err) => {
       console.error(err);
       process.exit(1);

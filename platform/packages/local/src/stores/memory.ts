@@ -10,6 +10,8 @@ import type {
   LocalGraphStore,
   LocalPerson,
   LocalPlane,
+  LocalStateMutation,
+  LocalStateStore,
   OAuthTokenRecord,
   SecretStore,
   StoredBody,
@@ -91,12 +93,59 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
   }
 }
 
+function stateKey(workspaceId: string, namespace: string): string {
+  return `${workspaceId}::${namespace}`;
+}
+
+export class InMemoryLocalStateStore implements LocalStateStore {
+  readonly rows = new Map<string, unknown>();
+  readonly #tails = new Map<string, Promise<void>>();
+
+  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
+    const value = this.rows.get(stateKey(workspaceId, namespace));
+    return value === undefined ? null : structuredClone(value);
+  }
+
+  async update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T> {
+    const key = stateKey(workspaceId, namespace);
+    return this.#exclusive(key, async () => {
+      const current = this.rows.has(key) ? this.rows.get(key) : initialState;
+      const mutation = reduce(structuredClone(current));
+      this.rows.set(key, structuredClone(mutation.state));
+      return mutation.result;
+    });
+  }
+
+  async #exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(key, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(key) === tail) this.#tails.delete(key);
+    }
+  }
+}
+
 /** Assemble an in-memory LocalPlane (tests / zero-infra dev). */
 export function createMemoryLocalPlane(): LocalPlane {
   return {
     secrets: new InMemorySecretStore(),
     bodies: new InMemoryBodyStore(),
     graph: new InMemoryLocalGraphStore(),
+    state: new InMemoryLocalStateStore(),
     close: async () => {},
   };
 }

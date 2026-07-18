@@ -10,7 +10,7 @@ import {
 
 test("credential projection never exposes raw values", async () => {
   const vault = new InMemorySourceCredentialVault();
-  const reference = await vault.put("test_fixture_source", {
+  const reference = await vault.put({ workspaceId: "test_fixture_workspace", sourceId: "test_fixture_source" }, {
     userId: "test_fixture_user@example.invalid",
     password: "test_fixture_secret",
   });
@@ -19,7 +19,10 @@ test("credential projection never exposes raw values", async () => {
     new HumanReauthentication(),
     new InMemoryCredentialAuditSink(),
   );
-  const projection = await service.project(reference);
+  const projection = await service.project(
+    { workspaceId: "test_fixture_workspace", sourceId: "test_fixture_source" },
+    reference,
+  );
 
   assert.equal(projection.userId.state, "available");
   assert.notEqual(projection.userId.masked, "test_fixture_user@example.invalid");
@@ -30,7 +33,7 @@ test("credential projection never exposes raw values", async () => {
 test("reveal and copy require a Human's recent re-authentication and audit without secret values", async () => {
   let now = Date.parse("2026-07-16T00:00:00.000Z");
   const vault = new InMemorySourceCredentialVault();
-  const reference = await vault.put("test_fixture_source", {
+  const reference = await vault.put({ workspaceId: "test_fixture_workspace", sourceId: "test_fixture_source" }, {
     userId: "test_fixture_user",
     password: "test_fixture_secret",
   });
@@ -48,6 +51,7 @@ test("reveal and copy require a Human's recent re-authentication and audit witho
       service.reauthenticate({
         actorType: "user",
         actorId: "test_fixture_human",
+        workspaceId: "test_fixture_workspace",
         sourceId: "test_fixture_source",
       }),
     (error: unknown) => {
@@ -61,6 +65,7 @@ test("reveal and copy require a Human's recent re-authentication and audit witho
       service.reauthenticate({
         actorType: "agent",
         actorId: "test_fixture_agent",
+        workspaceId: "test_fixture_workspace",
         sourceId: "test_fixture_source",
         reauthenticatedAt: now,
       }),
@@ -70,12 +75,14 @@ test("reveal and copy require a Human's recent re-authentication and audit witho
   const session = service.reauthenticate({
     actorType: "user",
     actorId: "test_fixture_human",
+    workspaceId: "test_fixture_workspace",
     sourceId: "test_fixture_source",
     reauthenticatedAt: now,
   });
   assert.match(session.token, /^reauth_[0-9a-f]{64}$/);
   const revealed = await service.access({
     reference,
+    workspaceId: "test_fixture_workspace",
     sourceId: "test_fixture_source",
     actorType: "user",
     actorId: "test_fixture_human",
@@ -86,6 +93,7 @@ test("reveal and copy require a Human's recent re-authentication and audit witho
   assert.equal(revealed.value, "test_fixture_secret");
   assert.deepEqual(audit.events, [
     {
+      workspaceId: "test_fixture_workspace",
       sourceId: "test_fixture_source",
       actorId: "test_fixture_human",
       action: "reveal",
@@ -95,10 +103,29 @@ test("reveal and copy require a Human's recent re-authentication and audit witho
   ]);
   assert.equal(JSON.stringify(audit.events).includes("test_fixture_secret"), false);
 
+  await assert.rejects(
+    service.access({
+      reference,
+      workspaceId: "test_fixture_other_workspace",
+      sourceId: "test_fixture_source",
+      actorType: "user",
+      actorId: "test_fixture_human",
+      token: session.token,
+      field: "password",
+      action: "reveal",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CredentialAccessError);
+      assert.equal(error.code, "reauthentication_required");
+      return true;
+    },
+  );
+
   now += 1_001;
   await assert.rejects(
     service.access({
       reference,
+      workspaceId: "test_fixture_workspace",
       sourceId: "test_fixture_source",
       actorType: "user",
       actorId: "test_fixture_human",

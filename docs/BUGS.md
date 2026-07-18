@@ -652,7 +652,7 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      `IntegrationFloorScopeError`). New concurrent-decide tests in `pipeline.test.ts` (in-memory)
      and `packages/db/test/ledger-store.test.ts` (real pglite) both prove exactly one of two
      "concurrent" decides succeeds. See `All fixes.md` Phase 1 item 4 for the full writeup.
-  4. **DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
+  4. **RESOLVED 2026-07-18 (TASK-006) — DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
      **PARTIALLY RESOLVED 2026-07-05.** `dealpilot.list` now takes an optional `workspaceId` and
      REJECTS (403 FORBIDDEN, via `router.ts`'s `withPilotWorkspaceGuard` middleware) any value
      that isn't the pilot workspace, instead of silently ignoring it — closes the cross-tenant
@@ -667,11 +667,16 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      ever attempts to pass one — see `All fixes.md` Phase 3 item 11a and decisions-log
      2026-07-05 for the full reasoning. **Still open:** per-workspace data isolation in the
      backing stores themselves (Phase 5, full multi-tenancy, pilot-recruitment-driven).
-     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys now include
-     workspace identity, DealPilot procedures require authenticated membership in verifying or
-     persistent mode, and Record/capture writes no longer collide across workspaces. The store,
-     capture index, and Source credential vault are still process-local and startup says so;
-     durable Local Plane persistence/keychain adapters remain the explicit TASK-006 blocker.
+     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys gained
+     workspace identity and DealPilot procedures gained authenticated membership checks.
+     **RESOLVED 2026-07-18:** Records, Relations, captures, candidate profiles, Gmail
+     cursor/continuation/checkpoint/receipt state, spend settlement, and credential audit now use
+     atomic Organization-scoped Local Plane state. File-backed PGlite state survives reopen, shares
+     one client with Drizzle, and refuses a second process owner; retries and concurrent writes are
+     idempotent. Source secrets use an explicit OS-keyring adapter with scoped opaque references,
+     masked projections, Human/owner/membership/re-auth gates, and no plaintext DB/file fallback.
+     Actual OS-keychain/re-auth and live Google evidence remain TASK-006 external gates; the broader
+     Phase-5 multi-tenant store audit remains separate from this process-local DealPilot defect.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates

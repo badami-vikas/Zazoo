@@ -4,7 +4,12 @@
  */
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
-export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
+export {
+  createLocalDb,
+  LocalDbInitializationCleanupError,
+  type LocalDatabase,
+  type LocalDbConfig,
+} from "./client-local.js";
 export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {

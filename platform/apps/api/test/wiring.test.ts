@@ -2,9 +2,8 @@
  * `buildPersistentPorts` / `buildInMemoryPorts` (All fixes.md section 1's `wiring.ts`
  * god-composition-root P0, feeding Phase 2 item 8) — proves each factory produces the
  * correct, fully-typed port set for its mode, with no `let`-sprawl reassignment, and
- * that the two ports which are still honest-lies in persistent mode (the ledger's
- * residency guarantee, and DealPilot's `ToolCaptureStore`) log a loud warning at boot
- * instead of silently pretending to be real.
+ * that the ledger residency guarantee which is still an honest-lie in persistent mode
+ * logs a loud warning at boot instead of silently pretending to be real.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -73,11 +72,10 @@ test("buildPersistentPorts: logs a loud, specific warning for the ledger-residen
   assert.match(hit!, /Phase 1 item 7/, "warning should point at the tracked, still-open decision item");
 });
 
-test("buildPersistentPorts: logs a loud, specific warning for DealPilot's ToolCaptureStore honest-lie", () => {
+test("buildPersistentPorts: does not report the resolved DealPilot ToolCaptureStore gap", () => {
   const { warnings } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
   const hit = warnings.find((w) => w.includes("ToolCaptureStore"));
-  assert.ok(hit, `expected a boot warning naming the ToolCaptureStore gap; got: ${JSON.stringify(warnings)}`);
-  assert.match(hit!, /Phase 3 item 11b/, "warning should point at the tracked, still-open backlog item");
+  assert.equal(hit, undefined, `resolved ToolCaptureStore gap must not be reported: ${JSON.stringify(warnings)}`);
 });
 
 test("buildPersistentPorts: exposes ensureInternalStrategistGovernance (TASK-007 persistent-mode governance seed hook)", () => {

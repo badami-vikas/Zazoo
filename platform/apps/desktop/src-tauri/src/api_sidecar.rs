@@ -16,18 +16,16 @@
 //!  - Debug builds (`tauri dev`) NEVER spawn the sidecar — dev keeps external
 //!    servers (Vite 5173 + API 4000) exactly as before.
 //!
-//! PERSISTENCE IS HONEST, NOT PRETTY: without DATABASE_URL the API runs its
-//! in-memory wiring, so ALL workspace state is lost when the app quits. The
-//! child inherits this process's environment, so a user with local Postgres
-//! can set DATABASE_URL (or BRIDGE_DATABASE_URL) before launching Bridge and
-//! get real persistence with zero code changes here.
+//! The Local Plane is always file-backed under Tauri's app-data directory.
+//! Cloud/control-plane persistence remains independently configured through
+//! DATABASE_URL.
 
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Managed handle to the spawned API child so app-exit can kill it. `None`
 /// in dev mode / when the spawn failed.
@@ -77,16 +75,23 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
     None
 }
 
-/// Spawn `node server.js` with PORT set. Environment is inherited, which is
-/// exactly the DATABASE_URL passthrough contract described in the module doc.
-pub fn spawn_api(entry: &PathBuf, port: u16) -> std::io::Result<Child> {
+fn api_command(entry: &PathBuf, port: u16, local_dir: &PathBuf) -> Command {
     let node = std::env::var("BRIDGE_NODE_BIN").unwrap_or_else(|_| "node".to_string());
-    Command::new(node)
+    let mut command = Command::new(node);
+    command
         .arg(entry)
         .env("PORT", port.to_string())
         // Bind loopback only — never expose the kernel API on the LAN.
         .env("HOST", "127.0.0.1")
-        .spawn()
+        .env("BRIDGE_LOCAL_DIR", local_dir)
+        .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
+        .env("BRIDGE_PARENT_PID", std::process::id().to_string());
+    command
+}
+
+/// Spawn `node server.js` with a durable Local Plane directory.
+pub fn spawn_api(entry: &PathBuf, port: u16, local_dir: &PathBuf) -> std::io::Result<Child> {
+    api_command(entry, port, local_dir).spawn()
 }
 
 /// Minimal HTTP/1.0 GET against the API's `/health` route (apps/api
@@ -154,7 +159,7 @@ fn monitor_health(port: u16) {
 /// 20-second launch stall. Returns None (with a logged reason) when the API
 /// build or Node itself is missing; the shell still opens and surfaces the
 /// connection error.
-pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
+pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<SpawnedApi> {
     let Some(entry) = resolve_api_entry(resource_dir) else {
         eprintln!(
             "[bridge-desktop] api sidecar: no API build found \
@@ -169,7 +174,14 @@ pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
             return None;
         }
     };
-    let child = match spawn_api(&entry, port) {
+    if let Err(err) = std::fs::create_dir_all(&local_dir) {
+        eprintln!(
+            "[bridge-desktop] api sidecar: could not create Local Plane directory \
+             {local_dir:?}: {err}. Refusing an ephemeral API."
+        );
+        return None;
+    }
+    let child = match spawn_api(&entry, port, &local_dir) {
         Ok(c) => c,
         Err(err) => {
             eprintln!(
@@ -183,12 +195,74 @@ pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
     Some(SpawnedApi { port, child })
 }
 
-/// Kill the child (called from the RunEvent::Exit handler in lib.rs).
+#[cfg(unix)]
+fn request_graceful_stop(child: &Child) -> std::io::Result<()> {
+    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(unix))]
+fn request_graceful_stop(child: &mut Child) -> std::io::Result<()> {
+    child.kill()
+}
+
+fn stop_child(mut child: Child) {
+    match child.try_wait() {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not inspect child before shutdown: {error}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    let graceful_stop_result = request_graceful_stop(&child);
+    #[cfg(not(unix))]
+    let graceful_stop_result = request_graceful_stop(&mut child);
+
+    if let Err(error) = graceful_stop_result {
+        eprintln!(
+            "[bridge-desktop] api sidecar: graceful shutdown signal failed: {error}; forcing exit"
+        );
+        let _ = child.kill();
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                eprintln!(
+                    "[bridge-desktop] api sidecar: graceful shutdown timed out; forcing exit"
+                );
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+            Err(error) => {
+                eprintln!("[bridge-desktop] api sidecar: shutdown wait failed: {error}");
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
+}
+
+/// Gracefully stop the child, with a bounded force-kill fallback.
 pub fn shutdown(state: &ApiSidecarState) {
     if let Ok(mut guard) = state.0.lock() {
-        if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(child) = guard.take() {
+            stop_child(child);
         }
     }
 }
@@ -196,6 +270,7 @@ pub fn shutdown(state: &ApiSidecarState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::time::Instant;
 
     #[test]
@@ -208,6 +283,38 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(1),
             "health monitoring must stay detached from the caller"
+        );
+    }
+
+    #[test]
+    fn sidecar_command_sets_durable_local_plane_directory() {
+        let entry = PathBuf::from("server.js");
+        let local_dir = PathBuf::from("/test/bridge/local-plane");
+        let command = api_command(&entry, 4123, &local_dir);
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_LOCAL_DIR"))
+                .and_then(|value| value.as_deref()),
+            Some(local_dir.as_os_str())
+        );
+        assert_eq!(
+            envs.get(OsStr::new("PORT"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("4123"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_DEALPILOT_CREDENTIAL_VAULT"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("os-keyring"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_PARENT_PID"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(&std::process::id().to_string()))
         );
     }
 }

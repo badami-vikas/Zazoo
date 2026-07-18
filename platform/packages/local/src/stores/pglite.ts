@@ -7,6 +7,9 @@
  * HERE, in a local Postgres, never in Supabase. A file path persists across
  * restarts; omit it for an ephemeral in-memory DB (still a real local plane).
  */
+import { mkdir, realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { withLock } from "@ster5/global-mutex";
 import { PGlite } from "@electric-sql/pglite";
 import type {
   BodyStore,
@@ -15,6 +18,8 @@ import type {
   LocalGraphStore,
   LocalPerson,
   LocalPlane,
+  LocalStateMutation,
+  LocalStateStore,
   OAuthTokenRecord,
   SecretStore,
   StoredBody,
@@ -73,6 +78,14 @@ CREATE TABLE IF NOT EXISTS sync_state (
   last_cursor text,
   updated_at text NOT NULL,
   PRIMARY KEY (integration_id, source)
+);
+CREATE TABLE IF NOT EXISTS local_state (
+  workspace_id text NOT NULL,
+  namespace text NOT NULL,
+  state jsonb NOT NULL,
+  revision bigint NOT NULL DEFAULT 1,
+  updated_at text NOT NULL,
+  PRIMARY KEY (workspace_id, namespace)
 );
 `;
 
@@ -308,19 +321,196 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
 }
 
+class PgliteLocalStateStore implements LocalStateStore {
+  readonly #tails = new Map<string, Promise<void>>();
+
+  constructor(private readonly db: PGlite) {}
+
+  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
+    const result = await this.db.query<{ state: unknown }>(
+      `SELECT state FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
+      [workspaceId, namespace],
+    );
+    const state = result.rows[0]?.state;
+    return state === undefined ? null : structuredClone(state);
+  }
+
+  async update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T> {
+    const key = `${workspaceId}::${namespace}`;
+    return this.#exclusive(key, async () => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const current = await this.db.query<{ state: unknown; revision: string | number }>(
+          `SELECT state, revision FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
+          [workspaceId, namespace],
+        );
+        const row = current.rows[0];
+        const mutation = reduce(structuredClone(row?.state ?? initialState));
+        const updatedAt = new Date().toISOString();
+        if (!row) {
+          const inserted = await this.db.query<{ revision: string | number }>(
+            `INSERT INTO local_state (workspace_id, namespace, state, revision, updated_at)
+             VALUES ($1,$2,$3::jsonb,1,$4)
+             ON CONFLICT (workspace_id, namespace) DO NOTHING
+             RETURNING revision`,
+            [workspaceId, namespace, JSON.stringify(mutation.state), updatedAt],
+          );
+          if (inserted.rows.length > 0) return mutation.result;
+          continue;
+        }
+        const updated = await this.db.query<{ revision: string | number }>(
+          `UPDATE local_state
+           SET state=$3::jsonb, revision=revision + 1, updated_at=$4
+           WHERE workspace_id=$1 AND namespace=$2 AND revision=$5
+           RETURNING revision`,
+          [
+            workspaceId,
+            namespace,
+            JSON.stringify(mutation.state),
+            updatedAt,
+            row.revision,
+          ],
+        );
+        if (updated.rows.length > 0) return mutation.result;
+      }
+      throw new Error(
+        `Local state update for workspace "${workspaceId}" namespace "${namespace}" exceeded its contention retry limit`,
+      );
+    });
+  }
+
+  async #exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(key, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(key) === tail) this.#tails.delete(key);
+    }
+  }
+}
+
 export interface PgliteLocalPlaneConfig {
   /** Filesystem dir for persistence (e.g. "./.bridge-local"). Omit = in-memory. */
   dataDir?: string;
+  /** Existing client shared with another approved Local Plane adapter. */
+  client?: PGlite;
+}
+
+export interface PgliteDirectoryOwnership {
+  /** Canonical directory used for both the lock and PGlite. */
+  dataDir: string;
+  release(): Promise<void>;
+}
+
+export async function acquirePgliteDirectoryOwnership(
+  dataDir: string,
+): Promise<PgliteDirectoryOwnership> {
+  const absoluteDataDir = resolve(dataDir);
+  await mkdir(absoluteDataDir, { recursive: true });
+  const canonicalDataDir = await realpath(absoluteDataDir);
+  const ownerFile = `${canonicalDataDir}.bridge-owner`;
+  await mkdir(dirname(ownerFile), { recursive: true });
+  let acquiredResolve: (() => void) | undefined;
+  let acquiredReject: ((error: unknown) => void) | undefined;
+  const acquired = new Promise<void>((resolve, reject) => {
+    acquiredResolve = resolve;
+    acquiredReject = reject;
+  });
+  let releaseHold: (() => void) | undefined;
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  const lifetime = withLock(
+    {
+      fileToLock: ownerFile,
+      stale: 3_000,
+      retries: { retries: 3, minTimeout: 1_000, maxTimeout: 1_000, randomize: false },
+      onCompromised(error) {
+        throw new Error(`Exclusive Local Plane ownership for "${canonicalDataDir}" was compromised`, {
+          cause: error,
+        });
+      },
+    },
+    async () => {
+      acquiredResolve?.();
+      await hold;
+    },
+  );
+  void lifetime.catch((error: unknown) => acquiredReject?.(error));
+  try {
+    await acquired;
+  } catch (error) {
+    throw new Error(
+      `Refusing to open Local Plane directory "${canonicalDataDir}" while another process owns it`,
+      { cause: error },
+    );
+  }
+
+  let released = false;
+  return {
+    dataDir: canonicalDataDir,
+    async release() {
+      if (released) return;
+      released = true;
+      releaseHold?.();
+      await lifetime;
+    },
+  };
+}
+
+export interface PgliteLocalPlane extends LocalPlane {
+  readonly client: PGlite;
 }
 
 /** Assemble a pglite-backed LocalPlane (the real persisted local tier). */
-export async function createPgliteLocalPlane(config: PgliteLocalPlaneConfig = {}): Promise<LocalPlane> {
-  const db = config.dataDir ? new PGlite(config.dataDir) : new PGlite();
-  await db.exec(INIT_SQL);
+export async function createPgliteLocalPlane(
+  config: PgliteLocalPlaneConfig = {},
+): Promise<PgliteLocalPlane> {
+  if (config.dataDir && config.client) {
+    throw new Error("PGlite Local Plane accepts either dataDir or client, not both");
+  }
+  const ownership = config.dataDir
+    ? await acquirePgliteDirectoryOwnership(config.dataDir)
+    : undefined;
+  const ownsClient = config.client === undefined;
+  const db =
+    config.client ??
+    (ownership ? new PGlite(ownership.dataDir) : new PGlite());
+  try {
+    await db.exec(INIT_SQL);
+  } catch (error) {
+    if (ownsClient) await db.close();
+    await ownership?.release();
+    throw error;
+  }
+  let closePromise: Promise<void> | undefined;
   return {
+    client: db,
     secrets: new PgliteSecretStore(db),
     bodies: new PgliteBodyStore(db),
     graph: new PgliteLocalGraphStore(db),
-    close: () => db.close(),
+    state: new PgliteLocalStateStore(db),
+    close: () => {
+      closePromise ??= (async () => {
+        try {
+          if (ownsClient) await db.close();
+        } finally {
+          await ownership?.release();
+        }
+      })();
+      return closePromise;
+    },
   };
 }

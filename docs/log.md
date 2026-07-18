@@ -1643,3 +1643,19 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - `docs/raw/decisions-log.md`: ADR-109 appended.
 - `docs/APPROVALS.md`: AP-037 added.
 - `docs/requests.md`: R-039 added.
+
+# 2026-07-18 — TASK-006 DealPilot durable Local Plane and explicit OS vault
+
+- Replaced process-local DealPilot Records, Relations, captures, candidate profiles, Gmail
+  continuation/checkpoint/receipt state, settlements, spend, dedupe, and credential audit with one
+  atomic Organization-scoped Local Plane aggregate.
+- Added shared-client PGlite state, canonical-path cross-process ownership, restart recovery,
+  idempotent materialization/backfill, startup cleanup, and desktop parent-loss/shutdown handling.
+- Added maintained MIT `@napi-rs/keyring` behind the Source credential-vault port with unique
+  per-write accounts, opaque Organization/Source-bound references, masked projections, and
+  fail-closed runtime configuration.
+- Added restart, concurrency, compensation, ownership, recovery, and credential non-disclosure
+  coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
+- TASK-006 remains `in_progress` for live Google, verified OS re-auth/keychain, and physical
+  desktop/375px evidence. Durable outcome:
+  `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.

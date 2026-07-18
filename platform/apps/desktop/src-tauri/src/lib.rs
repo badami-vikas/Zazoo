@@ -116,10 +116,21 @@ pub fn run() {
                 None
             } else {
                 let resource_dir = app.path().resource_dir().ok();
+                let local_dir = match app.path().app_data_dir() {
+                    Ok(dir) => dir.join("bridge").join("local-plane"),
+                    Err(error) => {
+                        eprintln!(
+                            "[bridge-desktop] api sidecar: app-data directory is unavailable: \
+                             {error}. Refusing an ephemeral API."
+                        );
+                        create_windows(app.handle(), &build_init_script(None));
+                        return Ok(());
+                    }
+                };
                 // start() only resolves/spawns the child; its bounded health
                 // probe runs on a named background thread. setup must return
                 // promptly so the Tauri event loop can service this window.
-                api_sidecar::start(resource_dir).map(|spawned| {
+                api_sidecar::start(resource_dir, local_dir).map(|spawned| {
                     let url = format!("http://127.0.0.1:{}", spawned.port);
                     let state = app.state::<api_sidecar::ApiSidecarState>();
                     if let Ok(mut guard) = state.0.lock() {
@@ -138,9 +149,9 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
             overlay::stop_display_topology_watcher(app_handle);
-            // Kill the API child on quit — otherwise it would leak and hold
-            // the port. (If the shell CRASHES this never runs; known gap,
-            // acceptable for a localhost-bound, in-memory-by-default process.)
+            // Request a graceful API shutdown so PGlite releases its directory
+            // before the bounded force-kill fallback. The child also watches
+            // BRIDGE_PARENT_PID so a crashed shell cannot orphan the lock owner.
             api_sidecar::shutdown(&app_handle.state::<api_sidecar::ApiSidecarState>());
         }
     });

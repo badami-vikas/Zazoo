@@ -113,10 +113,36 @@ export interface LocalGraphStore {
   setSyncCursor(integrationId: string, source: string, cursor: string): Promise<void>;
 }
 
-/** The three local-plane stores, assembled. */
+// ── Atomic state store: module-private durable aggregates ─────────────────────
+
+export interface LocalStateMutation<T> {
+  state: unknown;
+  result: T;
+}
+
+/**
+ * Workspace-scoped atomic JSON state for Local Plane modules whose canonical
+ * relational schema has not yet entered the numbered migration stream.
+ *
+ * Reducers are synchronous and may be retried after cross-process contention;
+ * they must not perform side effects. A thrown reducer leaves the previous
+ * value untouched.
+ */
+export interface LocalStateStore {
+  read(workspaceId: string, namespace: string): Promise<unknown | null>;
+  update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T>;
+}
+
+/** The Local Plane stores, assembled. */
 export interface LocalPlane {
   secrets: SecretStore;
   bodies: BodyStore;
   graph: LocalGraphStore;
+  state: LocalStateStore;
   close(): Promise<void>;
 }

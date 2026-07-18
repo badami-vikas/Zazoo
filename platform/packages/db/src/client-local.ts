@@ -34,6 +34,16 @@ export interface LocalDbConfig {
   migrationsFolder?: string;
 }
 
+export class LocalDbInitializationCleanupError extends AggregateError {
+  constructor(initializationError: unknown, closeError: unknown) {
+    super(
+      [initializationError, closeError],
+      "Local Plane database initialization failed and its PGlite client could not be closed",
+    );
+    this.name = "LocalDbInitializationCleanupError";
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** Resolve packages/db/migrations whether running from src/ (vitest) or dist/src/. */
@@ -52,7 +62,7 @@ function defaultMigrationsFolder(): string {
  */
 export async function createLocalDb(
   config: LocalDbConfig = {},
-): Promise<{ db: LocalDatabase; close: () => Promise<void> }> {
+): Promise<{ db: LocalDatabase; client: PGlite; close: () => Promise<void> }> {
   // pgvector lives in the cloud schema (embedding columns). pglite ships it as a
   // loadable extension; register it and CREATE it before migrations run, because
   // the generated DDL (0000) references vector(768) without creating the extension
@@ -62,10 +72,19 @@ export async function createLocalDb(
       ? { dataDir: config.dataDir, extensions: { vector } }
       : { extensions: { vector } }, // no dataDir => in-memory
   );
-  await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
-  const db = drizzle(client, { schema });
-  await migrate(db, {
-    migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
-  });
-  return { db, close: () => client.close() };
+  try {
+    await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
+    const db = drizzle(client, { schema });
+    await migrate(db, {
+      migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
+    });
+    return { db, client, close: () => client.close() };
+  } catch (error) {
+    try {
+      await client.close();
+    } catch (closeError) {
+      throw new LocalDbInitializationCleanupError(error, closeError);
+    }
+    throw error;
+  }
 }

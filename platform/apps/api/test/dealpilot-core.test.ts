@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
+import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_WORKSPACE } from "../src/wiring.js";
 
@@ -10,8 +11,12 @@ function runContext(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
+function buildTestWiring() {
+  return buildWiring({ dealPilotCredentialVault: new InMemorySourceCredentialVault() });
+}
+
 test("DealPilot creates its three real Record types and applies reviewed Thesis-to-Source discovery", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -87,7 +92,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       /supports Deal discovery only for an authorized BizBuySell email-alert Source/,
     );
 
-    await wiring.dealpilot.captures.put({
+    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
       captureId: "test_fixture_capture",
       toolId: "dealpilot",
       sourceToolId: "test_fixture_connector",
@@ -104,7 +109,6 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       capturedAt: "2026-07-16T00:00:00.000Z",
       trustOrigin: "untrusted_external",
     });
-    wiring.dealpilot.captureSources.set("test_fixture_capture", source.id);
     const concurrentCommits = await Promise.allSettled([
       caller.dealpilot.commit({
         workspaceId: PILOT_WORKSPACE,
@@ -130,7 +134,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       offset: 0,
     });
     assert.equal(deals.total, 1);
-    await wiring.dealpilot.captures.put({
+    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
       captureId: "test_fixture_capture_update",
       toolId: "dealpilot",
       sourceToolId: "test_fixture_connector",
@@ -147,7 +151,6 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       capturedAt: "2026-07-16T01:00:00.000Z",
       trustOrigin: "untrusted_external",
     });
-    wiring.dealpilot.captureSources.set("test_fixture_capture_update", source.id);
     const updatedCommit = await caller.dealpilot.commit({
       workspaceId: PILOT_WORKSPACE,
       captureId: "test_fixture_capture_update",
@@ -169,6 +172,50 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       id: deal.id,
     });
     assert.deepEqual(new Set(dealDetail.relatedRecords.map((record) => record.kind)), new Set(["source", "thesis"]));
+
+    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+      captureId: "test_fixture_capture_restart",
+      toolId: "dealpilot",
+      sourceToolId: "test_fixture_connector",
+      tier: "email",
+      query: { kind: "company", hints: { sourceId: source.id } },
+      payload: { name: "test_fixture_restart_company" },
+      confidence: 0.9,
+      costUnits: 0,
+      capturedAt: "2026-07-16T02:00:00.000Z",
+      trustOrigin: "untrusted_external",
+    });
+    const commitCapture = wiring.dealpilot.store.commitCapture.bind(
+      wiring.dealpilot.store,
+    );
+    wiring.dealpilot.store.commitCapture = async () => {
+      throw new Error("test_fixture_process_stopped_after_governed_proposal");
+    };
+    try {
+      await assert.rejects(
+        caller.dealpilot.commit({
+          workspaceId: PILOT_WORKSPACE,
+          captureId: "test_fixture_capture_restart",
+        }),
+        /process_stopped_after_governed_proposal/,
+      );
+    } finally {
+      wiring.dealpilot.store.commitCapture = commitCapture;
+    }
+    const recoveredCommit = await caller.dealpilot.commit({
+      workspaceId: PILOT_WORKSPACE,
+      captureId: "test_fixture_capture_restart",
+    });
+    assert.equal(recoveredCommit.committed, true);
+    assert.equal(
+      recoveredCommit.committed &&
+        recoveredCommit.proposal &&
+        "recovered" in recoveredCommit.proposal
+        ? recoveredCommit.proposal.recovered
+        : false,
+      true,
+    );
+
     assert.equal((await caller.dealpilot.captures({ workspaceId: PILOT_WORKSPACE })).length, 0);
     assert.deepEqual(
       await caller.dealpilot.commit({
@@ -183,7 +230,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
 });
 
 test("DealPilot credential access requires re-authentication and records value-free audit events", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -225,15 +272,16 @@ test("DealPilot credential access requires re-authentication and records value-f
       action: "reveal",
     });
     assert.equal(revealed.value, "test_fixture_secret");
-    assert.equal(wiring.dealpilot.credentialAudit.events.length, 1);
-    assert.equal(JSON.stringify(wiring.dealpilot.credentialAudit.events).includes("test_fixture_secret"), false);
+    const auditEvents = await wiring.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE);
+    assert.equal(auditEvents.length, 1);
+    assert.equal(JSON.stringify(auditEvents).includes("test_fixture_secret"), false);
   } finally {
     await wiring.close();
   }
 });
 
 test("Deal discovery fails closed before connector access when Source rights are unattested", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -273,7 +321,7 @@ test("Deal discovery fails closed before connector access when Source rights are
 });
 
 test("Deal discovery derives spend server-side and blocks before connector access when the cap is exhausted", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -303,7 +351,7 @@ test("Deal discovery derives spend server-side and blocks before connector acces
 });
 
 test("DealPilot rejects authenticated non-members before Records or credentials are exposed", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const attacker = appRouter.createCaller({
       wiring,
@@ -332,7 +380,7 @@ test("DealPilot rejects authenticated non-members before Records or credentials 
 });
 
 test("DealPilot rejects unauthenticated reads whenever persistence is enabled", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     wiring.persistent = true;
     const anonymous = appRouter.createCaller({
@@ -357,7 +405,7 @@ test("DealPilot rejects unauthenticated reads whenever persistence is enabled", 
 });
 
 test("edited discovery approval cannot attach an unattested Source", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -411,7 +459,7 @@ test("edited discovery approval cannot attach an unattested Source", async () =>
 });
 
 test("concurrent distinct captures for one company materialize one Deal", async () => {
-  const wiring = await buildWiring();
+  const wiring = await buildTestWiring();
   try {
     const caller = appRouter.createCaller({
       wiring,
@@ -420,11 +468,19 @@ test("concurrent distinct captures for one company materialize one Deal", async 
       authenticated: true,
       verifying: false,
     });
+    const source = await caller.dealpilot.createSource({
+      workspaceId: PILOT_WORKSPACE,
+      name: "test_fixture_concurrent_source",
+      link: "https://example.invalid/concurrent-source",
+      connectionType: "email_alert",
+      spendCap: 0,
+      rightsAttested: true,
+    });
     for (const [captureId, company, revenue] of [
       ["test_fixture_concurrent_a", "test_fixture_concurrent_company", 1_000_000],
       ["test_fixture_concurrent_b", "test_fixture_concurrent_company_holdings", 1_100_000],
     ] as const) {
-      await wiring.dealpilot.captures.put({
+      await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
         captureId,
         toolId: "dealpilot",
         sourceToolId: "test_fixture_connector",

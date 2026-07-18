@@ -24,6 +24,9 @@ tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Apple-only capture crates, gated to macOS so the shell still `cargo check`s on
 # Linux + Windows (XP-1). These are the actual cross-OS-compile blocker: the
 # only code that touches them is itself `#[cfg(target_os = "macos")]`

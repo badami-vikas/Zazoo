@@ -107,13 +107,161 @@ export function parseBizBuySellAlert(message: { subject: string; body: string })
  */
 type AlertMessage = { id?: string; subject: string; body: string };
 
+export interface GmailContinuation {
+  cursorKey: string;
+  pageToken?: string;
+  checkpointAt?: string;
+  visitedPageTokens?: string[];
+}
+
+export interface GmailFetchReceipt {
+  workspaceId: string;
+  sourceId: string;
+  batchId: string;
+  ownerId: string;
+  complete: boolean;
+  checkpointAt?: string;
+}
+
+export interface GmailFetchState {
+  seenMessageIds: string[];
+  continuation?: GmailContinuation;
+  lastFetchComplete: boolean;
+  lastCheckpointAt?: string;
+  pending?: {
+    batchId: string;
+    ownerId: string;
+    seenMessageIds: string[];
+    continuation: GmailContinuation | null;
+    complete: boolean;
+    checkpointAt?: string;
+  };
+}
+
+export interface GmailFetchStateStore {
+  load(workspaceId: string, sourceId: string): Promise<GmailFetchState>;
+  stage(receipt: GmailFetchReceipt, seenMessageIds: string[], continuation: GmailContinuation | null): Promise<void>;
+  acknowledge(receipt: GmailFetchReceipt): Promise<void>;
+  discard(receipt: GmailFetchReceipt): Promise<void>;
+  fail(input: {
+    workspaceId: string;
+    sourceId: string;
+    batchId: string;
+    ownerId: string;
+    cursorKey: string;
+  }): Promise<void>;
+}
+
+const MAX_SEEN_MESSAGE_IDS = 10_000;
+
+function emptyGmailFetchState(): GmailFetchState {
+  return { seenMessageIds: [], lastFetchComplete: false };
+}
+
+function gmailStateKey(workspaceId: string, sourceId: string): string {
+  return JSON.stringify([workspaceId, sourceId]);
+}
+
+export class InMemoryGmailFetchStateStore implements GmailFetchStateStore {
+  readonly rows = new Map<string, GmailFetchState>();
+
+  async load(workspaceId: string, sourceId: string): Promise<GmailFetchState> {
+    return structuredClone(this.rows.get(gmailStateKey(workspaceId, sourceId)) ?? emptyGmailFetchState());
+  }
+
+  async stage(
+    receipt: GmailFetchReceipt,
+    seenMessageIds: string[],
+    continuation: GmailContinuation | null,
+  ): Promise<void> {
+    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const current = this.rows.get(key) ?? emptyGmailFetchState();
+    if (current.pending) {
+      throw new Error(`Gmail fetch for Source "${receipt.sourceId}" must be acknowledged or discarded before retry`);
+    }
+    this.rows.set(key, {
+      ...current,
+      pending: {
+        batchId: receipt.batchId,
+        ownerId: receipt.ownerId,
+        seenMessageIds: [...seenMessageIds],
+        continuation: continuation ? structuredClone(continuation) : null,
+        complete: receipt.complete,
+        ...(receipt.checkpointAt ? { checkpointAt: receipt.checkpointAt } : {}),
+      },
+    });
+  }
+
+  async acknowledge(receipt: GmailFetchReceipt): Promise<void> {
+    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const current = this.rows.get(key) ?? emptyGmailFetchState();
+    const pending = current.pending;
+    if (
+      !pending ||
+      pending.batchId !== receipt.batchId ||
+      pending.ownerId !== receipt.ownerId ||
+      pending.complete !== receipt.complete ||
+      pending.checkpointAt !== receipt.checkpointAt
+    ) {
+      throw new Error(`Gmail fetch acknowledgement for Source "${receipt.sourceId}" is stale`);
+    }
+    const seen = [...new Set([...current.seenMessageIds, ...pending.seenMessageIds])].slice(
+      -MAX_SEEN_MESSAGE_IDS,
+    );
+    this.rows.set(key, {
+      seenMessageIds: seen,
+      ...(pending.continuation ? { continuation: structuredClone(pending.continuation) } : {}),
+      lastFetchComplete: pending.complete,
+      ...(pending.checkpointAt ? { lastCheckpointAt: pending.checkpointAt } : {}),
+    });
+  }
+
+  async discard(receipt: GmailFetchReceipt): Promise<void> {
+    const key = gmailStateKey(receipt.workspaceId, receipt.sourceId);
+    const current = this.rows.get(key);
+    if (!current?.pending) return;
+    if (
+      current.pending.batchId !== receipt.batchId ||
+      current.pending.ownerId !== receipt.ownerId ||
+      current.pending.complete !== receipt.complete ||
+      current.pending.checkpointAt !== receipt.checkpointAt
+    ) {
+      throw new Error(`Gmail fetch discard for Source "${receipt.sourceId}" is stale`);
+    }
+    const { pending: _pending, ...committed } = current;
+    this.rows.set(key, committed);
+  }
+
+  async fail(input: {
+    workspaceId: string;
+    sourceId: string;
+    batchId: string;
+    ownerId: string;
+    cursorKey: string;
+  }): Promise<void> {
+    const key = gmailStateKey(input.workspaceId, input.sourceId);
+    const current = this.rows.get(key) ?? emptyGmailFetchState();
+    const { pending, continuation, ...rest } = current;
+    this.rows.set(key, {
+      ...rest,
+      ...(continuation?.cursorKey !== input.cursorKey ? { continuation } : {}),
+      ...(pending &&
+      (pending.batchId !== input.batchId || pending.ownerId !== input.ownerId)
+        ? { pending }
+        : {}),
+      lastFetchComplete: false,
+    });
+  }
+}
+
 export type AlertMessageFetcher = ((
   sourceQuery: SourceQuery,
 ) => Promise<AlertMessage[]>) & {
-  lastFetchComplete?(sourceId: string): boolean;
-  lastCheckpointAt?(sourceId: string): string | undefined;
-  acknowledge?(sourceId: string): void;
-  discard?(sourceId: string): void;
+  lastFetchComplete?(sourceId: string, workspaceId?: string): boolean;
+  lastCheckpointAt?(sourceId: string, workspaceId?: string): string | undefined;
+  lastReceipt?(sourceId: string, workspaceId?: string): GmailFetchReceipt | undefined;
+  acknowledge?(sourceId: string, workspaceId?: string): Promise<void>;
+  discard?(sourceId: string, workspaceId?: string): Promise<void>;
 };
 
 const BIZBUYSELL_ALERT_SENDERS = new Set([
@@ -128,27 +276,36 @@ export function createGmailFetchMessages(
   gateways: GoogleGatewayFactory,
   integrationId: string,
   query = "from:(alerts@bizbuysell.com OR noreply@bizbuysell.com OR savedsearch@bizbuysell.com)",
+  options: {
+    stateStore?: GmailFetchStateStore;
+    instanceId?: string;
+  } = {},
 ): AlertMessageFetcher {
-  interface Continuation {
-    cursorKey: string;
-    pageToken?: string;
-    checkpointAt?: string;
-    visitedPageTokens?: string[];
-  }
-  interface PendingFetch {
-    seenIds: Set<string>;
-    continuation: Continuation | null;
-  }
-
-  const seenMessageIdsBySource = new Map<string, Set<string>>();
-  const lastFetchCompleteBySource = new Map<string, boolean>();
-  const lastCheckpointAtBySource = new Map<string, string>();
-  const continuationBySource = new Map<string, Continuation>();
-  const pendingBySource = new Map<string, PendingFetch>();
+  const stateStore = options.stateStore ?? new InMemoryGmailFetchStateStore();
+  const ownerId = options.instanceId ?? globalThis.crypto.randomUUID();
+  const receiptsBySource = new Map<string, GmailFetchReceipt>();
+  const summariesBySource = new Map<
+    string,
+    { complete: boolean; checkpointAt?: string }
+  >();
   const fetcher: AlertMessageFetcher = async (sourceQuery) => {
     const sourceId = sourceQuery.hints.sourceId ?? "default";
-    if (pendingBySource.has(sourceId)) {
+    const workspaceId = sourceQuery.hints.workspaceId ?? "default";
+    const receiptKey = gmailStateKey(workspaceId, sourceId);
+    let committed = await stateStore.load(workspaceId, sourceId);
+    if (committed.pending?.ownerId === ownerId) {
       throw new Error(`Gmail fetch for Source "${sourceId}" must be acknowledged or discarded before retry`);
+    }
+    if (committed.pending) {
+      await stateStore.discard({
+        workspaceId,
+        sourceId,
+        batchId: committed.pending.batchId,
+        ownerId: committed.pending.ownerId,
+        complete: committed.pending.complete,
+        ...(committed.pending.checkpointAt ? { checkpointAt: committed.pending.checkpointAt } : {}),
+      });
+      committed = await stateStore.load(workspaceId, sourceId);
     }
     const gateway = await gateways.forIntegration(integrationId);
     const requestedMax = Number(sourceQuery.hints.maxResults);
@@ -164,15 +321,15 @@ export function createGmailFetchMessages(
     const effectiveQuery = Number.isFinite(scanAfter)
       ? `${query} after:${Math.floor(scanAfter / 1_000)}`
       : query;
-    const seen = seenMessageIdsBySource.get(sourceId) ?? new Set<string>();
+    const seen = new Set(committed.seenMessageIds);
     const stagedSeen = new Set<string>();
     const unseen: AlertMessage[] = [];
-    const committedContinuation = continuationBySource.get(sourceId);
+    const committedContinuation = committed.continuation;
     const continuationMatches = committedContinuation?.cursorKey === cursorKey;
     const checkpointAt = continuationMatches
       ? committedContinuation?.checkpointAt ?? sourceQuery.hints.scanStartedAt
       : sourceQuery.hints.scanStartedAt;
-    const continuationFor = (token?: string): Continuation => ({
+    const continuationFor = (token?: string): GmailContinuation => ({
       cursorKey,
       ...(token ? { pageToken: token } : {}),
       ...(checkpointAt ? { checkpointAt } : {}),
@@ -181,13 +338,14 @@ export function createGmailFetchMessages(
       continuationMatches
         ? committedContinuation.pageToken
         : undefined;
-    let nextContinuation: Continuation | null = null;
-    let firstIncompletePage: Continuation | null = null;
+    let nextContinuation: GmailContinuation | null = null;
+    let firstIncompletePage: GmailContinuation | null = null;
     const visitedPageTokens = new Set<string>(
       continuationMatches ? committedContinuation?.visitedPageTokens ?? [] : [],
     );
     let pagesFetched = 0;
     let complete = true;
+    const batchId = globalThis.crypto.randomUUID();
     try {
       do {
         const currentPageToken = pageToken;
@@ -270,37 +428,57 @@ export function createGmailFetchMessages(
           visitedPageTokens: [...persistedVisited],
         };
       }
-      pendingBySource.set(sourceId, {
-        seenIds: stagedSeen,
-        continuation: pendingContinuation,
+      const receipt: GmailFetchReceipt = {
+        workspaceId,
+        sourceId,
+        batchId,
+        ownerId,
+        complete,
+        ...(checkpointAt ? { checkpointAt } : {}),
+      };
+      await stateStore.stage(receipt, [...stagedSeen], pendingContinuation);
+      receiptsBySource.set(receiptKey, receipt);
+      summariesBySource.set(receiptKey, {
+        complete,
+        ...(checkpointAt ? { checkpointAt } : {}),
       });
-      lastFetchCompleteBySource.set(sourceId, complete);
-      if (checkpointAt) lastCheckpointAtBySource.set(sourceId, checkpointAt);
       return unseen;
     } catch (error) {
-      pendingBySource.delete(sourceId);
-      lastFetchCompleteBySource.set(sourceId, false);
-      if (continuationMatches) continuationBySource.delete(sourceId);
+      if (receiptsBySource.get(receiptKey)?.batchId === batchId) {
+        receiptsBySource.delete(receiptKey);
+      }
+      const priorSummary = summariesBySource.get(receiptKey);
+      summariesBySource.set(receiptKey, {
+        complete: false,
+        ...(priorSummary?.checkpointAt
+          ? { checkpointAt: priorSummary.checkpointAt }
+          : {}),
+      });
+      await stateStore.fail({ workspaceId, sourceId, batchId, ownerId, cursorKey });
       throw error;
     }
   };
-  fetcher.lastFetchComplete = (sourceId) => lastFetchCompleteBySource.get(sourceId) ?? false;
-  fetcher.lastCheckpointAt = (sourceId) => lastCheckpointAtBySource.get(sourceId);
-  fetcher.acknowledge = (sourceId) => {
-    const pending = pendingBySource.get(sourceId);
-    if (!pending) return;
-    const seen = seenMessageIdsBySource.get(sourceId) ?? new Set<string>();
-    for (const id of pending.seenIds) seen.add(id);
-    seenMessageIdsBySource.set(sourceId, seen);
-    if (pending.continuation) {
-      continuationBySource.set(sourceId, pending.continuation);
-    } else {
-      continuationBySource.delete(sourceId);
-    }
-    pendingBySource.delete(sourceId);
+  const receiptKey = (sourceId: string, workspaceId = "default") =>
+    gmailStateKey(workspaceId, sourceId);
+  fetcher.lastFetchComplete = (sourceId, workspaceId) =>
+    summariesBySource.get(receiptKey(sourceId, workspaceId))?.complete ?? false;
+  fetcher.lastCheckpointAt = (sourceId, workspaceId) =>
+    summariesBySource.get(receiptKey(sourceId, workspaceId))?.checkpointAt;
+  fetcher.lastReceipt = (sourceId, workspaceId) =>
+    receiptsBySource.get(receiptKey(sourceId, workspaceId));
+  fetcher.acknowledge = async (sourceId, workspaceId) => {
+    const key = receiptKey(sourceId, workspaceId);
+    const receipt = receiptsBySource.get(key);
+    if (!receipt) return;
+    await stateStore.acknowledge(receipt);
+    receiptsBySource.delete(key);
   };
-  fetcher.discard = (sourceId) => {
-    pendingBySource.delete(sourceId);
+  fetcher.discard = async (sourceId, workspaceId) => {
+    const key = receiptKey(sourceId, workspaceId);
+    const receipt = receiptsBySource.get(key);
+    if (!receipt) return;
+    await stateStore.discard(receipt);
+    receiptsBySource.delete(key);
   };
   return fetcher;
 }
@@ -368,10 +546,14 @@ export function parseBizBuySellAlertBatch(
 export interface BizBuySellAlertConnector extends SourceConnector {
   fetchWithSummary(query: SourceQuery): Promise<{
     envelopes: CaptureEnvelope[];
-    summary: ParseBatchSummary & { complete: boolean; checkpointAt?: string };
+    summary: ParseBatchSummary & {
+      complete: boolean;
+      checkpointAt?: string;
+      receipt?: GmailFetchReceipt;
+    };
   }>;
-  acknowledge(query: SourceQuery): void;
-  discard(query: SourceQuery): void;
+  acknowledge(query: SourceQuery): Promise<void>;
+  discard(query: SourceQuery): Promise<void>;
 }
 
 export function createBizBuySellAlertConnector(
@@ -380,8 +562,13 @@ export function createBizBuySellAlertConnector(
 ): BizBuySellAlertConnector {
   const costPerMessage = 0.5;
   const sourceId = (query: SourceQuery) => query.hints.sourceId ?? "default";
-  const acknowledge = (query: SourceQuery) => fetchMessages.acknowledge?.(sourceId(query));
-  const discard = (query: SourceQuery) => fetchMessages.discard?.(sourceId(query));
+  const workspaceId = (query: SourceQuery) => query.hints.workspaceId ?? "default";
+  const acknowledge = async (query: SourceQuery) => {
+    await fetchMessages.acknowledge?.(sourceId(query), workspaceId(query));
+  };
+  const discard = async (query: SourceQuery) => {
+    await fetchMessages.discard?.(sourceId(query), workspaceId(query));
+  };
   const fetchWithSummary = async (query: SourceQuery) => {
     const batchTally = { attempted: 0, parsed: 0 };
     const connector = createEmailAlertConnector({
@@ -399,15 +586,17 @@ export function createBizBuySellAlertConnector(
     try {
       envelopes = await connector.fetch(query);
     } catch (error) {
-      discard(query);
+      await discard(query);
       throw error;
     }
-    const checkpointAt = fetchMessages.lastCheckpointAt?.(sourceId(query));
+    const checkpointAt = fetchMessages.lastCheckpointAt?.(sourceId(query), workspaceId(query));
+    const receipt = fetchMessages.lastReceipt?.(sourceId(query), workspaceId(query));
     const summary = {
       ...batchTally,
       parseRate: batchTally.attempted === 0 ? 1 : batchTally.parsed / batchTally.attempted,
-      complete: fetchMessages.lastFetchComplete?.(sourceId(query)) ?? true,
+      complete: fetchMessages.lastFetchComplete?.(sourceId(query), workspaceId(query)) ?? true,
       ...(checkpointAt ? { checkpointAt } : {}),
+      ...(receipt ? { receipt } : {}),
     };
     warnIfLowParseRate(summary.attempted, summary.parsed);
     return { envelopes, summary };
@@ -418,7 +607,7 @@ export function createBizBuySellAlertConnector(
     estimateCost: () => costPerMessage,
     async fetch(query) {
       const batch = await fetchWithSummary(query);
-      acknowledge(query);
+      await acknowledge(query);
       return batch.envelopes;
     },
     fetchWithSummary,

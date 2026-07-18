@@ -1,7 +1,8 @@
 /**
  * tRPC request context. Carries the assembled pipeline + a per-request RunCtx
- * (determinism seams). At the system boundary we use the wall clock; the RNG is
- * seeded from the clock so engine code stays deterministic and replayable.
+ * (determinism seams). At the system boundary we use the wall clock and a
+ * request-scoped deterministic RNG. Persisted IDs use independent cryptographic
+ * entropy so same-millisecond requests in different processes cannot collide.
  *
  * `identity` is the SERVER-RESOLVED actor for the request — never client-asserted.
  * Governed control-plane calls (e.g. approving a proposal) authorize against this,
@@ -22,7 +23,7 @@
  */
 import { TRPCError } from "@trpc/server";
 import { decodeJwt } from "jose";
-import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
+import { SeededRng, SystemClock, UuidGen, type Actor, type Rng, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
 
@@ -44,6 +45,14 @@ export interface ApiContext {
   /** Server-derived auth_time from the already-verified bearer. Credential
    * reveal/copy accepts it only while it remains within the recent-auth window. */
   reauthenticatedAt?: number;
+}
+
+class CryptographicRng implements Rng {
+  next(): number {
+    const value = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(value);
+    return value[0]! / 4_294_967_296;
+  }
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -112,9 +121,10 @@ export function makeContextFactory(wiring: Wiring) {
       reauthenticatedAt = verifiedReauthenticationAt(payload);
     }
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
+    // Its entropy must not repeat when two request contexts start in one millisecond.
     return {
       wiring,
-      run: { clock, rng, ids: new UuidGen(clock, rng) },
+      run: { clock, rng, ids: new UuidGen(clock, new CryptographicRng()) },
       identity,
       authenticated,
       verifying,
