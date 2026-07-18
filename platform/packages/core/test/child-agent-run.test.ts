@@ -19,6 +19,7 @@ import {
   ChildRunDepthExceededError,
   ChildRunAuthorityExceededError,
   ChildRunAlreadyTerminalError,
+  ChildRunTerminalAuditPendingError,
   InMemoryChildAgentRunStore,
   type Actor,
   type ParentRunEnvelope,
@@ -354,6 +355,120 @@ test("child-run terminal transition: if the audit ledger append fails, the run's
   // to observe.
   const after = await store.get("ws-1", run.id);
   assert.equal(after?.status, "running", "a failed audit append must leave the run's status completely untouched, never terminal");
+});
+
+test("child-run terminal transition: CAS commits but the CONFIRMING outcome-audit append fails after retries — throws ChildRunTerminalAuditPendingError (never a generic error, never silently swallowed), and the run IS durably terminal despite the missing audit row (TASK-011 remediation, coordinator central-merge review, issue 1)", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  let appendCount = 0;
+  const appended: unknown[] = [];
+  const phase1OnlyLedger: LedgerStore = {
+    append: async (entry) => {
+      appendCount += 1;
+      if (appendCount === 1) {
+        // Phase-1 "attempt" row succeeds — the CAS is about to run.
+        appended.push(entry);
+        return entry;
+      }
+      // Every attempt at the CONFIRMING phase-2 outcome row fails — this is
+      // the exact crash-window scenario: the CAS (below) has ALREADY
+      // committed by the time this is called.
+      throw new Error("test_fixture outcome-audit append unavailable");
+    },
+    get: async () => null,
+    decisionFor: async () => null,
+    listPending: async () => ({ items: [], total: 0 }),
+    listHistory: async () => ({ items: [], total: 0 }),
+  };
+  const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
+  const actor: Actor = { type: "agent", id: "internal_strategist" };
+
+  await assert.rejects(
+    () => completeChildAgentRun({ store, ledger: phase1OnlyLedger }, "ws-1", run.id, actor, c),
+    (error: unknown) => {
+      assert.ok(error instanceof ChildRunTerminalAuditPendingError, `expected ChildRunTerminalAuditPendingError, got ${error}`);
+      assert.equal((error as ChildRunTerminalAuditPendingError).runId, run.id);
+      assert.equal((error as ChildRunTerminalAuditPendingError).currentStatus, "completed");
+      return true;
+    },
+  );
+  // The transition itself REALLY DID succeed — the CAS is not rolled back
+  // just because the confirming audit append failed.
+  const after = await store.get("ws-1", run.id);
+  assert.equal(after?.status, "completed", "the CAS must remain committed — only the audit append failed, not the transition itself");
+  // Exactly 1 (phase-1 attempt) + 3 (retried, all-failing phase-2 attempts)
+  // append calls were made — the retry bound is respected, not unbounded.
+  assert.equal(appendCount, 4);
+  assert.equal(appended.length, 1, "only the phase-1 attempt row was ever actually recorded — every phase-2 attempt failed");
+});
+
+test("child-run terminal transition: a SUBSEQUENT attempt with the SAME target status self-heals a missing outcome-audit row (simulating a crash between the CAS and its confirming append) before reporting ChildRunAlreadyTerminalError — the audit trail is complete by the time ANY caller observes 'already terminal' (TASK-011 remediation, coordinator central-merge review, issue 1)", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  const ledger = new InMemoryLedger();
+  const actor: Actor = { type: "agent", id: "internal_strategist" };
+  const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
+
+  // Simulate the EXACT crash window directly: the CAS committed (status is
+  // "completed" in the store) but NO outcome-audit row was ever appended —
+  // as if the process died right after `store.updateStatus` succeeded and
+  // before `ensureTerminalOutcomeAudit` ever ran. Bypasses
+  // `completeChildAgentRun` entirely to construct this state precisely.
+  await store.updateStatus("ws-1", run.id, "running", "completed");
+  assert.equal(ledger.entries.length, 0, "sanity: no audit row exists yet — the exact crash-orphaned state");
+
+  // A SUBSEQUENT call — exactly what a naive retry (unaware the earlier
+  // attempt already won) would do — must self-heal the missing row before
+  // reporting the expected, swallowable "already terminal" race.
+  await assert.rejects(
+    () => completeChildAgentRun({ store, ledger }, "ws-1", run.id, actor, c),
+    (error: unknown) => {
+      assert.ok(error instanceof ChildRunAlreadyTerminalError);
+      assert.equal((error as ChildRunAlreadyTerminalError).currentStatus, "completed");
+      return true;
+    },
+  );
+
+  // The missing outcome-audit row must now exist, reconciled — never
+  // duplicated, never claiming a fabricated "attempt" provenance it never
+  // actually had.
+  assert.equal(ledger.entries.length, 1, "the repair must append EXACTLY the one missing outcome row, nothing else");
+  const repaired = ledger.entries[0]!;
+  assert.equal((repaired.inputs as { event: string }).event, "complete");
+  assert.equal((repaired.inputs as { reconciled?: boolean }).reconciled, true, "a repaired row is distinguishable from a normal attempt-linked outcome row");
+  assert.equal((repaired.proposedOutput as ChildAgentRun).status, "completed");
+
+  // Idempotence: a THIRD call (another naive retry) must NOT duplicate the
+  // repair — the row already exists.
+  await assert.rejects(() => completeChildAgentRun({ store, ledger }, "ws-1", run.id, actor, c));
+  assert.equal(ledger.entries.length, 1, "a further retry must never duplicate the already-repaired outcome row");
+});
+
+test("child-run terminal transition: self-heal is scoped to the EXACT status a retry targets — a losing transition attempting a DIFFERENT status than the run's real current status never fabricates an outcome row for its own target", async () => {
+  const c = ctx();
+  const store = new InMemoryChildAgentRunStore();
+  const ledger = new InMemoryLedger();
+  const actor: Actor = { type: "agent", id: "internal_strategist" };
+  const run = await store.create(deriveChildAgentRun(parent(), childReq(), c.ids, c.clock));
+
+  // The run genuinely completes (through the normal path, full audit).
+  await completeChildAgentRun({ store, ledger }, "ws-1", run.id, actor, c);
+  const entriesAfterCompletion = ledger.entries.length;
+
+  // A LATE caller tries to FAIL the same (already completed) run — a
+  // genuinely different status than what actually happened. This must NOT
+  // be treated as "my own crash-orphaned attempt" and must NOT fabricate a
+  // "failed" outcome row — only a real "failed" transition may ever produce
+  // one.
+  await assert.rejects(
+    () => failChildAgentRun({ store, ledger }, "ws-1", run.id, actor, c),
+    (error: unknown) => {
+      assert.ok(error instanceof ChildRunAlreadyTerminalError);
+      assert.equal((error as ChildRunAlreadyTerminalError).currentStatus, "completed");
+      return true;
+    },
+  );
+  assert.equal(ledger.entries.length, entriesAfterCompletion, "a mismatched-status retry must append NOTHING — it is not this run's real outcome to record");
 });
 
 test("consumeBudget: concurrent reservations against a maxCalls:1 budget — only ONE may succeed (TASK-011 remediation, 2026-07-17 security review)", async () => {

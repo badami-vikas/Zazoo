@@ -104,6 +104,7 @@ import {
   cancelChildAgentRun,
   failChildAgentRun,
   ChildRunAlreadyTerminalError,
+  ChildRunTerminalAuditPendingError,
   MemoryConflictError,
   uuidv7,
 } from "@bridge/core";
@@ -1771,8 +1772,14 @@ export async function reconcileIntentChildConsistency(
     // The child Run may have reached SOME OTHER terminal status via a
     // legitimate concurrent transition (e.g. a genuine cancel racing this
     // repair) — that is itself a resolved, consistent-enough state; only an
-    // unexpected error needs to surface.
-    if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+    // unexpected error needs to surface. TASK-011 remediation (coordinator
+    // central-merge review, issue 1): also swallow
+    // `ChildRunTerminalAuditPendingError` — it means the underlying
+    // transition genuinely SUCCEEDED and only its confirming audit append
+    // is pending (self-heals the next time this run is touched); treating
+    // it as a real failure here would wrongly surface a successful effect
+    // as an error.
+    if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
   });
 }
 
@@ -2062,7 +2069,7 @@ export async function materializeCultureSourceFetch(
         // that responsibility instead.
         if (committed) {
           await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+            if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
         if (current) return current;
@@ -2080,7 +2087,7 @@ export async function materializeCultureSourceFetch(
       );
       if (fetchedResult.committed) {
         await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-          if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+          if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
         });
         if (fetchedResult.record) return fetchedResult.record;
       }
@@ -2107,7 +2114,7 @@ export async function materializeCultureSourceFetch(
         );
         if (cancelCommitted) {
           await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+            if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
         if (cancelledRecord) return cancelledRecord;
@@ -2144,7 +2151,7 @@ export async function materializeCultureSourceFetch(
           );
           if (committed) {
             await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-              if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+              if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
             });
           }
           if (cancelled) return cancelled;
@@ -2174,7 +2181,7 @@ export async function materializeCultureSourceFetch(
           // The child Run may already be terminal (e.g. concurrently cancelled) —
           // that is itself a legitimate terminal state, not a reason to mask the
           // original fetch failure below. Surface any OTHER failure.
-          if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+          if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
         });
       } else if (
         failedResult.record?.status === "fetching" &&
@@ -2194,7 +2201,7 @@ export async function materializeCultureSourceFetch(
         );
         if (cancelCommitted) {
           await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
-            if (!(e instanceof ChildRunAlreadyTerminalError)) throw e;
+            if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
       }
@@ -2264,7 +2271,7 @@ export async function cancelCultureSourceFetch(
     await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch((error) => {
       // Already terminal (completed/failed/cancelled) — fine, cancellation is
       // idempotent. Surface any OTHER failure (e.g. a ledger append error).
-      if (!(error instanceof ChildRunAlreadyTerminalError)) throw error;
+      if (!(error instanceof ChildRunAlreadyTerminalError) && !(error instanceof ChildRunTerminalAuditPendingError)) throw error;
     });
   }
   return result;
