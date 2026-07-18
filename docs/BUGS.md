@@ -1178,3 +1178,8 @@ Affected-neighbour review found the file-backed ledger restart regression declar
 sequence-floor test without awaiting the nested test. The check is now an independent top-level test,
 so API validation reliably proves both restart persistence and Relation ordering instead of depending
 on parent-test timing.
+
+## RESOLVED 2026-07-18 — Fresh web loads requested a missing favicon
+Post-fix browser diagnostics found every fresh web load returned 404 for `/favicon.ico`. The web app
+now declares and ships a Bridge SVG favicon, eliminating the failed resource without adding a runtime
+dependency or placeholder data.
