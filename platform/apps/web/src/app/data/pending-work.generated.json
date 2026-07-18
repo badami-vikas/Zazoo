@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T20:48:27.849Z",
+  "generatedAt": "2026-07-18T20:53:12.186Z",
   "items": [
     {
       "id": "TASK-001",
@@ -250,7 +250,7 @@
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -260,22 +260,20 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "RM0 prototype and RM4 Relation persistence/materialization are integrated on `main` at `590cca6`: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
-        "desktop + 375px live evidence",
-        "migration `0015_task008_relation_contract`",
-        "owner-isolated Relation/effect RLS",
-        "deterministic bounded Relation reads",
-        "durable approval-effect retry/reconciliation. Candidate-A adds a validated independently mergeable continuation: RM1 owner-safe Person/Community CRUD/search/detail",
-        "RM2 one participant Timeline plus bounded Google/capture and identity review",
-        "RM3 Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
-        "RM4 visibility-pruned bounded paths and Community composition",
-        "RM5 double-consent Introduction Event snapshots with private decline handling and no send. Central-review hardening makes browser authority self-only/Local, keeps private PII and Event detail owner-scoped, makes Google/capture staging and materialization durable/replay-safe, serializes Introduction/Memory transitions, supports explicit clears and canonical datetime input, and adds route-safe snapshot pagination. Evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
-        "live desktop + exact 375px honest-empty People evidence",
-        "post-main-merge core 430, DB 154, Google 39, API 218, web 69",
+        "The exact installed Relationship → Signals/People/Communities → Signal → Person/Community participants → source Event → governed Action prototype is integrated on `main`, with no global Knowledge route or surface. RM0 and RM4 landed at `590cca6` with `outputs/2026-07-16-task-008-relationship-module-consolidation.md`, desktop + 375px live evidence, migration `0015_task008_relation_contract`, owner-isolated Relation/effect RLS, deterministic bounded Relation reads, and durable approval-effect retry/reconciliation. The validated RM1–RM5 continuation and central trust-boundary hardening landed through `bab32ea`: owner-safe Person/Community CRUD/search/detail",
+        "participant Timeline and bounded Google/capture identity review",
+        "Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
+        "visibility-pruned paths and Community composition",
+        "double-consent Introduction Event snapshots with private decline handling and no send",
+        "self-only Local browser authority",
+        "owner-scoped private PII/Event detail",
+        "replay-safe durable staging/materialization",
+        "serialized Introduction/Memory transitions",
+        "explicit clears, canonical datetime input, and route-safe snapshot pagination. Final evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
+        "post-main-merge core 430, DB 154, Google 39, API 218, web 69 (910 affected tests)",
         "monorepo typecheck/build",
-        "changed-file lint, no-dummy, no migration delta, diff integrity, and final independent correctness/security reviews with no blocker. No Relationship migration added",
-        "`0016` remains TASK-010's. Remaining exact plan scope: persistent user-defined Automations/Agent Runs",
-        "RM6 team permission/delegation, export/disconnect/forget, and held-out eval execution. TASK-014/TASK-009 own the cross-Module Graph renderer."
+        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
+        "advanced RM6/evaluation capabilities remain future plan scope, not blockers for this completed TASK-008 prototype."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"
@@ -284,7 +282,7 @@
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 151,

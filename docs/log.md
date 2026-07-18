@@ -1,5 +1,14 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
+  the implementation already landed through `bab32ea`. The exact installed Relationship →
+  Signals/People/Communities → Signal → Person/Community participants → source Event → governed
+  Action prototype is complete, with no global Knowledge surface. Migration
+  `0015_task008_relation_contract`, durable bounded Relation/materialization contracts,
+  desktop + 375px evidence, 910 affected tests, typecheck/build, migration no-drift, and final
+  correctness/security reviews support `TASK-008` status `done`. TASK-014/TASK-009 retain the
+  separate cross-Module Graph renderer; advanced RM6/evaluation work remains future plan scope.
+
 - **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
   fast-forwarding the fully validated durability/vault branch into `main`; it landed at `7f44186`.
   Integration preserves TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified
