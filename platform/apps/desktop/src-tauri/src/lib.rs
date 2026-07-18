@@ -135,13 +135,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Bridge desktop shell");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } => {
+            if let Err(error) = overlay::flush_overlay_positions(app_handle) {
+                eprintln!("[bridge-desktop] failed to flush overlay positions on exit: {error}");
+            }
+        }
+        tauri::RunEvent::Exit => {
             overlay::stop_display_topology_watcher(app_handle);
             // Kill the API child on quit — otherwise it would leak and hold
             // the port. (If the shell CRASHES this never runs; known gap,
             // acceptable for a localhost-bound, in-memory-by-default process.)
             api_sidecar::shutdown(&app_handle.state::<api_sidecar::ApiSidecarState>());
         }
+        _ => {}
     });
 }
