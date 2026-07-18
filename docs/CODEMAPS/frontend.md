@@ -1,36 +1,42 @@
-<!-- Generated: 2026-07-04 | Files scanned: Design Bridge AI Interface (Copy)/src/app | Token estimate: ~350 -->
+<!-- Updated: 2026-07-18 | Files scanned: platform/apps/web/src/app/{routes,Layout,pages,components,data,dataviews} | Token estimate: ~500 -->
 
 # Frontend Codemap
 
-React + Vite prototype (`Design Bridge AI Interface (Copy)/`). Router in `routes.tsx`;
-`Layout.tsx`/`StandaloneLayout.tsx` shells; `AuthGate.tsx` is a hardcoded demo credential
-check, not real auth.
+React + Vite thin client lives at `platform/apps/web`. `app/routes.tsx` owns routes;
+`app/Layout.tsx` owns the shared shell. Tauri desktop hosts this same build.
+`Design Bridge AI Interface (Copy)/` is historical reference, not the runtime entry point.
 
-## Page → data-source map
+## Main surfaces → governed data seams
 
 ```
-DataEngine (People/Communities table+gallery+kanban) → data/network.ts (dummy_ stub, real
-    file gitignored) → data/db.ts falls back Supabase canonical → local stub, silently
-DealPilotPage      → data/dealpilot.ts, real API when VITE_API_URL set (dealpilot.source/
-                     commit/list), else dummy_dealCandidates demo set
-JobPilotPage       → data/jobpilot.ts — 100% local dummy data, NOT wired to the real
-                     @bridge/jobpilot backend at all
-CalendarPage       → real Google Calendar API (P0-P2 shipped), dummy_ fallback if API off
-HelpdeskPage       → local store; public /help/:slug works outside AuthGate; Supabase anon
-                     RLS model designed, not live
-SettingsPage       → local; API-Keys tab has a dummy-row duplicate-React-key bug (known-issues)
+ApprovalsPage             → data/governance.ts + data/ledger.ts
+                            action.pending/resolution/decide/listHistory
+                            relationship outstanding/retry/reconcile
+
+RelationshipPage          → graph APIs for Signals/People/Communities, participant Relations,
+                            source Events, and governed Signal Actions
+
+DealPilotPage/detail      → dealpilot tRPC records, discovery, relation and credential seams
+
+ModuleDetailPage          → installed manifest inventory; Pages, Agents→Skills, Automations,
+                            Integrations, Files/Results, settings
+
+DataEngine/dataviews      → shared View registry; table/board/gallery/form/calendar/map/
+                            graph/tree convergence remains TASK-014
 ```
 
-## Persistence
+## Relationship decision recovery (RM4)
 
-Every table edit (add row, cell override, custom fields, saved lists, sort/filter/group state)
-goes through `lib/persist.ts`'s `usePersistentState` → **localStorage only**, explicitly
-documented as "prototype-tier; swap for a DB" — this is the intended swap point once the
-platform API is live for these surfaces.
+The browser never infers a decision link from proposal JSON. It reads server-owned resolution
+and materialization state. Pending/failed Relationship effects remain visible in Approvals with
+an explicit owner retry; applied effects disappear from outstanding work. Execution Ledger
+history comes through bounded authenticated tRPC, not direct browser access to the ledger table.
 
-## Known structural issues (see ../BUGS.md)
+## Persistence boundaries
 
-Duplicate merge-artifact config files at prototype root (`package-1.json`, `vite.config-1.ts`,
-`postcss.config-1.mjs`, `ATTRIBUTIONS-1.md`) — stale copies, not the live config.
+Server-owned Records, Relations, approvals, and effect state use API/DB adapters. Local UI
+preferences still use browser persistence where explicitly implemented; do not treat those as
+authoritative domain state. Runtime surfaces must render connected data or honest empty states.
 
-See also: [architecture.md](architecture.md).
+See also: [architecture.md](architecture.md), [backend.md](backend.md),
+[../wiki/ui-architecture.md](../wiki/ui-architecture.md).

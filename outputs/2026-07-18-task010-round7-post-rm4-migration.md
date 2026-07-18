@@ -134,6 +134,16 @@ revision, never a duplicate).
    preceding task). Updated the parser's test fixture to the new canonical shape and added a
    dedicated non-task-heading-reset regression test. Regenerated the file (22 records, correct order).
    Logged to `docs/BUGS.md`.
+
+   **Addendum (post-second-merge)**: before this round could push, `origin/main` moved to `da25b97`
+   (a TASK-003 recovery merge that also carried a parallel `TASK-023` addition). Merging it revealed
+   that ANOTHER session had independently discovered and fixed this exact same parser bug — their
+   version is a strict superset of this round's fix (it ALSO accepts the legacy `## TASK-XXX — Title`
+   heading for backward compatibility, and throws on a section whose `## Title` and `- ID:` line name
+   two different, conflicting task IDs). Adopted `origin/main`'s implementation wholesale over this
+   round's own narrower one; kept both test suites (no assertions overlapped) — 4 tests total.
+   Regenerated `pending-work.generated.json` again against the fully-merged `docs/TASKS.md`: 23
+   records (one more than this round's own 22, since the second merge's `TASK-023` is now included).
 2. **`services/commons/test/signing.test.ts` created its temp fixture dirs inside the repo tree**
    (`process.cwd()`) instead of the OS tmpdir, unlike its sibling `registry.test.ts` — any interrupted
    test run left `.commons-signing-test-*`/`.commons-restart-test-*` debris as untracked repo litter.

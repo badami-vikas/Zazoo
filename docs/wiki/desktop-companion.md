@@ -4,23 +4,18 @@ full: [../raw/desktop-companion-agent-roadmap-2026-07.md](../raw/desktop-compani
 
 Floating always-on-top avatar that annotates the screen + helps in-context.
 
-**Current state (2026-07-10)**: `overlay.rs` now creates ONE overlay window PER CONNECTED MONITOR
-(labels `overlay`, `overlay-1`, …), each 96×96 transparent always-on-top anchored bottom-right of its
-own screen; `overlay_resize`/`overlay_hide` take the CALLING window as a Tauri-injected param (works
-correctly per-instance without knowing which monitor). Frontend (`OverlayApp.tsx`) gained a hover chat
-bubble → compact inline chat (real `chiefOfStaff.converse` round-trip, verified live against a running
-API) and a right-click menu (Hide / Meditate / Observe — Observe triggers
-`capture_screenshot_on_demand`). CSP fixed (SEC-4 — was `csp: null`, now a real policy scoped to
-`'self'` + the sidecar's dynamic local port). **OUTPUT half of annotation now exists**: a 3rd Tauri
-window per monitor (`annotate.rs`), display-sized, transparent, **click-through**
-(`set_ignore_cursor_events(true)` from creation), rendering a constrained typed mark vocab
-(highlight/arrow/callout/spotlight) via SVG in `AnnotateApp.tsx`. Marks are a Rust enum
-(`AnnotationMark`/`MarkKind`), validated in Rust (finite geometry, positive size, ≤12 marks, ≤120-char
-labels) BEFORE `annotate_show` emits them — the frontend only ever receives this typed shape over a
-Tauri event, never HTML/model-text (extends the un-spoofable rule; this is why CSP had to land first).
-Build-verified (cargo check/clippy/test all green) + visually verified in a browser preview with
-synthetic marks (real Tauri GUI/multi-monitor behavior still build-verified-not-GUI-verified, same
-honesty caveat as the pre-existing overlay window).
+**Current state (2026-07-18)**:
+- One 96×96 Avatar panel per connected monitor. macOS = non-activating NSPanel, all Spaces, fullscreen auxiliary.
+- Position save = native `Moved` event → one debounced worker per label; save resolves current window; quit flushes. macOS persistence = tagged logical desktop coordinates. Mixed-DPI screens no longer overlap.
+- Reported real 3-display pass: anchors right; Accessibility-driven move/save/relaunch right; external reposition right; extend→mirror→extend 3→2→3 right; no crash. Recovery review fixed expanded re-anchor + missing-startup retry. Direct NSPanel close was wrong; convert back first.
+- Actual VoiceOver found native close/minimize/fullscreen controls in Sidebar lane. Human physical activation + pointer drag/relaunch still block TASK-003. Literal cable/power detach remains if acceptance requires it.
+- Hover chat and right-click Hide/Meditate/Observe remain. CSP remains closed.
+
+**Annotation output exists**: one display-sized `annotate.rs` window per monitor; click-through from
+creation (`set_ignore_cursor_events(true)`). Typed highlight/arrow/callout/spotlight marks only.
+Rust validates finite geometry, positive size, ≤12 marks, and ≤120-char labels before emit. Frontend
+receives the typed shape over a Tauri event — no HTML/model-text injection. Build-verified and browser
+previewed with synthetic marks; annotation multi-monitor GUI behavior still lacks its own hardware pass.
 
 **INPUT half still a gap, by design**: `providers/accessibility.rs` ships ONLY
 `ax_permission_status` (`AXIsProcessTrusted()` — a single safe no-argument FFI call, genuinely
@@ -47,9 +42,9 @@ voice. (Each carries a one-line actualization brief + required tier + trust band
 (2026-07-10)** — annotation WINDOW done (multi-monitor overlay + click-through annotate window + typed
 mark rendering); AX-tree lookup (the piece that resolves "the Send button" → a rect) still open, only
 the permission check shipped. P2 Tier-1 local help · P3 real `screen` + on-device VLM · P4
-voice/walkthroughs · P5 proactive/ambient · P6 workflow synthesis + form-fill. Risks: multi-monitor/DPI
-coord accuracy (build-verified, not GUI-verified against real hardware) · click-through correctness
-(same caveat) · VLM footprint · AXUIElement retain/release safety (why tree-walking waited).
+voice/walkthroughs · P5 proactive/ambient · P6 workflow synthesis + form-fill. Risks: annotation
+multi-monitor/DPI still needs its own real-hardware pass · click-through correctness · VLM footprint ·
+AXUIElement retain/release safety (why tree-walking waited).
 
 ## Zazoo character (2026-07-15)
 

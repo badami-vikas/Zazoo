@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-17 | Files scanned: platform/apps/api/src, platform/packages/core/src, platform/packages/db/src orchestration stores | Token estimate: ~700 -->
+<!-- Updated: 2026-07-18 | Files scanned: platform/apps/api/src/{server,context,router,wiring,relationship-materializer}.ts, platform/packages/core/src, platform/packages/db/src/{graph,ledger,relation-materialization,governance-stores}.ts | Token estimate: ~850 -->
 
 # Backend Codemap
 
@@ -11,8 +11,9 @@ No REST layer — tRPC is the sole API surface. `onError` in server.ts only logs
 ```
 health.query                        → { ok: true }
 
-action.propose  → core.pipeline.propose   → Authority+Policy+Goal/Task Skill gates, Ledger append
-action.decide   → core.pipeline.decide    → one append-only resolution, commit, emit event
+action.propose                       → Authority+Policy+Goal/Task Skill gates, Ledger append
+action.decide                        → append decision first; validate/materialize domain effects
+action.pending/listHistory/resolution→ authenticated bounded Ledger projections; private-owner filter
 
 google.list/connectUrl/disconnect          → GoogleService (packages/integrations-google)
 google.syncGmail/syncCalendar/listEvents   → IntakeService (poll-only, no webhooks)
@@ -29,9 +30,14 @@ agent.create/update                        → governance-stores.ts, capability 
 ritual.create/run/runById                  → InProcessRitualExecutor (packages/core) — sync,
                                                in-request, no queue, no resume on crash
 
-dealpilot.source/commit/list                → @bridge/tool-kit intake seam + DealPilot pipeline
-                                               ⚠ workspaceId param accepted but ignored —
-                                               single global in-memory capture store
+relationship.nodeTypeOwner/listRelations   → owner-aware graph reads; composite keyset cursor
+relationship.proposeSignalEvidence         → Human-only private Relation proposal
+relationship.materializationStatus/
+  outstandingMaterializations/
+  retryMaterialization/reconcileApproved   → durable decision-effect status and replay
+
+dealpilot.module/records/record/...         → Deals/Sources/Theses store + governed discovery
+dealpilot.source/commit/list                → @bridge/tool-kit quarantine/commit seam
 
 tool.run                                    → generic ritual-run-by-id wrapper
 
@@ -59,15 +65,17 @@ skill-manifest.ts     workspace manifest registry + fail-closed Agent/Task/autho
 child-agent-run.ts    parent-ceiling intersection, deadline/budget/lifecycle/audit contracts
 ```
 
-Persistent adapters: `db/src/goal-task-store.ts`, `skill-manifest-store.ts`, and
-`child-agent-run-store.ts`. Migration `0014` follows released `0013`; tenant-composite
-foreign keys/checks/FORCE-RLS protect orchestration state.
+Persistent adapters include `goal-task-store.ts`, `skill-manifest-store.ts`,
+`child-agent-run-store.ts`, `graph-store.ts`, `ledger-store.ts`, and
+`relation-materialization-store.ts`. Migration `0015` follows orchestration migration `0014`
+and adds Relation/effect owner constraints, RLS, indexes, and verified legacy linkage repair.
 
 ## Cross-cutting gaps (see ../BUGS.md for full detail)
 
-- No rate limiting, no caching layer (grep-confirmed zero hits in apps/api, packages/core).
 - CORS `origin: true` — any site can call the API.
 - No CI; turbo build cache has replayed stale cross-worktree logs (reproduced live 2026-07-04).
+- `router.ts` remains a large composition surface; domain routers share one decision/effect
+  orchestrator, so merge reviews must preserve every pre- and post-decision hook.
 
 See also: [architecture.md](architecture.md), [data.md](data.md),
 [../BUGS.md](../BUGS.md).
