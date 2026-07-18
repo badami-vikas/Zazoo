@@ -138,7 +138,6 @@ import {
   uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
-import { issueGoogleOAuthState } from "./google-oauth-routes.js";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
   CredentialAccessError,
@@ -150,7 +149,6 @@ import {
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
-import { getIntegrationStore } from "./social/integration-service.js";
 import {
   BUILT_IN_PACKAGES,
   COMMONS_BUILT_IN_PACKAGES,
@@ -281,6 +279,35 @@ async function currentSupportedRelationshipOwner(
     return null;
   }
   return ownerModule;
+}
+
+function stableDealPilotCaptureProposalId(workspaceId: string, captureId: string): string {
+  return stableProposalId(`dealpilot-capture:${workspaceId}:${captureId}`);
+}
+
+function isDealPilotCaptureProposal(
+  entry: LedgerEntry,
+  workspaceId: string,
+  captureId: string,
+): boolean {
+  if (
+    entry.id !== stableDealPilotCaptureProposalId(workspaceId, captureId) ||
+    entry.workspaceId !== workspaceId ||
+    entry.actorType !== "user" ||
+    entry.action !== "write" ||
+    entry.resourceType !== "tool" ||
+    entry.refLedgerId !== undefined ||
+    typeof entry.inputs !== "object" ||
+    entry.inputs === null ||
+    Array.isArray(entry.inputs)
+  ) {
+    return false;
+  }
+  const inputs = entry.inputs as Record<string, unknown>;
+  return (
+    inputs.kind === "dealpilot_capture_commit" &&
+    inputs.captureId === captureId
+  );
 }
 
 /**
@@ -3866,11 +3893,15 @@ export const appRouter = t.router({
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
-      const state = issueGoogleOAuthState(
+      const { state, codeChallenge } =
+        await ctx.wiring.googleOAuthStates.issue(
+        PILOT_WORKSPACE,
         ctx.wiring.google.integrationId,
-        ctx.wiring.google.ownerUserId,
+        ctx.identity.id,
       );
-      return { url: authUrl(ctx.wiring.googleOAuth, state) };
+      return {
+        url: authUrl(ctx.wiring.googleOAuth, state, codeChallenge),
+      };
     }),
 
     /** Revoke locally (delete the local token). */
@@ -5399,17 +5430,26 @@ export const appRouter = t.router({
           })
           .default({}),
       )
-      .query(({ input, ctx }) => {
+      .query(async ({ input, ctx }) => {
         if (input.workspaceId) assertPilotWorkspace(input.workspaceId);
-        const { facts, candidateIds } = ctx.wiring.dealpilot;
-        const total = candidateIds.length;
-        const ids = candidateIds.slice(input.offset, input.offset + input.limit);
-        const items = ids.map((id) => {
-          const profile = facts.livingProfile(id);
-          const flat = Object.fromEntries(Object.entries(profile).map(([key, value]) => [key, value.value]));
-          return { id, profile: flat, fit: scoreThesisFit(flat, { industries: [], geo: [] }) };
+        const workspaceId = input.workspaceId ?? PILOT_WORKSPACE;
+        const records = await ctx.wiring.dealpilot.store.list("deals", workspaceId, {
+          limit: input.limit,
+          offset: input.offset,
         });
-        return { items, total, hasMore: input.offset + items.length < total };
+        const items = await Promise.all(
+          records.items.map(async (record) => {
+            const profile = (await ctx.wiring.dealpilot.store.candidateProfile(workspaceId, record.id)) ?? {
+              name: record.kind === "deal" ? record.company : record.id,
+            };
+            return {
+              id: record.id,
+              profile,
+              fit: scoreThesisFit(profile, { industries: [], geo: [] }),
+            };
+          }),
+        );
+        return { items, total: records.total, hasMore: records.hasMore };
       }),
 
     detail: dealpilotProcedure
@@ -5432,7 +5472,14 @@ export const appRouter = t.router({
         if (detail.record.kind !== "source") return detail;
         return {
           ...detail,
-          credentialProjection: await ctx.wiring.dealpilot.credentials.project(detail.record.credentialRef),
+          credentialProjection: await ctx.wiring.dealpilot.credentials.project(
+            { workspaceId: input.workspaceId, sourceId: detail.record.id },
+            detail.record.credentialRef,
+          ),
+          credentialCleanupAvailable: Boolean(
+            detail.record.credentialRef &&
+              detail.record.credentialOwnerId === ctx.identity.id,
+          ),
         };
       }),
 
@@ -5474,22 +5521,73 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const source = await ctx.wiring.dealpilot.store.createSource({
+        const sourceId = ctx.run.ids.next();
+        const sourceInput = {
+          id: sourceId,
           workspaceId: input.workspaceId,
           name: input.name,
           link: input.link,
           connectionType: input.connectionType,
           spendCap: input.spendCap,
-          rightsState: input.rightsAttested ? "attested" : "unattested",
+          rightsState: input.rightsAttested ? "attested" as const : "unattested" as const,
           ...(input.rightsAttested ? { rightsAttestedBy: ctx.identity.id } : {}),
-          ...(input.userId || input.password ? { credentialOwnerId: ctx.identity.id } : {}),
+        };
+        if (!input.userId && !input.password) {
+          return ctx.wiring.dealpilot.store.createSource(sourceInput);
+        }
+        const scope = { workspaceId: input.workspaceId, sourceId };
+        const credentialRef =
+          ctx.wiring.dealpilot.credentialVault.reserve(scope);
+        await ctx.wiring.dealpilot.store.prepareCredentialCreate({
+          ...sourceInput,
+          credentialOwnerId: ctx.identity.id,
+          credentialRef,
         });
-        if (!input.userId && !input.password) return source;
-        const credentialRef = await ctx.wiring.dealpilot.credentialVault.put(source.id, {
-          ...(input.userId ? { userId: input.userId } : {}),
-          ...(input.password ? { password: input.password } : {}),
-        });
-        return ctx.wiring.dealpilot.store.updateSource(source.id, input.workspaceId, { credentialRef });
+        try {
+          await ctx.wiring.dealpilot.credentialVault.write(
+            scope,
+            credentialRef,
+            {
+              ...(input.userId ? { userId: input.userId } : {}),
+              ...(input.password ? { password: input.password } : {}),
+            },
+          );
+          return await ctx.wiring.dealpilot.store.completeCredentialCreate(
+            input.workspaceId,
+            sourceId,
+            credentialRef,
+          );
+        } catch (error) {
+          const cleanupErrors: unknown[] = [];
+          let credentialDeleted = false;
+          try {
+            await ctx.wiring.dealpilot.credentialVault.delete(
+              scope,
+              credentialRef,
+            );
+            credentialDeleted = true;
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          }
+          if (credentialDeleted) {
+            try {
+              await ctx.wiring.dealpilot.store.discardCredentialCreate(
+                input.workspaceId,
+                sourceId,
+                credentialRef,
+              );
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError);
+            }
+          }
+          if (cleanupErrors.length > 0) {
+            throw new AggregateError(
+              [error, ...cleanupErrors],
+              "Source creation failed and its pending OS credential operation could not be reconciled",
+            );
+          }
+          throw error;
+        }
       }),
 
     createThesis: dealpilotProcedure
@@ -5579,52 +5677,114 @@ export const appRouter = t.router({
       }),
 
     captures: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1).optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const captures = await ctx.wiring.dealpilot.captures.list("dealpilot");
-        return captures
-          .filter((capture) => !ctx.wiring.dealpilot.committedCaptureIds.has(capture.captureId))
-          .map((capture) => ({
-            ...capture,
-            sourceId: ctx.wiring.dealpilot.captureSources.get(capture.captureId) ?? null,
-          }));
+        return ctx.wiring.dealpilot.store.listPendingCaptures(input.workspaceId, {
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        });
       }),
 
     commit: dealpilotProcedure
       .input(z.object({ workspaceId: z.string().min(1), captureId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        if (ctx.wiring.dealpilot.committedCaptureIds.has(input.captureId)) {
+        const captureStatus = await ctx.wiring.dealpilot.store.captureStatus(
+          input.workspaceId,
+          input.captureId,
+        );
+        if (captureStatus === "committed") {
           return { committed: false, alreadyCommitted: true as const };
         }
-        if (ctx.wiring.dealpilot.committingCaptureIds.has(input.captureId)) {
-          throw new TRPCError({ code: "CONFLICT", message: "Capture commit is already in progress" });
+        if (captureStatus === null) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
         }
-        ctx.wiring.dealpilot.committingCaptureIds.add(input.captureId);
-        try {
-          const capture = await ctx.wiring.dealpilot.captures.get(input.captureId);
-          if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: ctx.identity.type, id: ctx.identity.id },
-              action: "write",
-              resourceType: "tool",
-              skill: "stageMutation",
-              inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
-              trustOrigin: capture.trustOrigin ?? "untrusted_external",
-            },
-            ctx.run,
+        const capture = await ctx.wiring.dealpilot.store.getCapture(input.workspaceId, input.captureId);
+        if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
+        const proposalId = stableDealPilotCaptureProposalId(
+          input.workspaceId,
+          input.captureId,
+        );
+        const request = {
+          workspaceId: input.workspaceId,
+          actor: { type: ctx.identity.type, id: ctx.identity.id },
+          action: "write" as const,
+          resourceType: "tool" as const,
+          skill: "stageMutation",
+          inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
+          trustOrigin: capture.trustOrigin ?? "untrusted_external",
+        };
+        const materialize = async (proposal?: Proposal) => {
+          const committed = await ctx.wiring.dealpilot.store.commitCapture(
+            input.workspaceId,
+            input.captureId,
           );
-          if (proposal.status !== "applied") return { committed: false, proposal };
+          if (!committed.committed && committed.alreadyCommitted) {
+            return { committed: false, alreadyCommitted: true as const };
+          }
+          if (!committed.committed) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
+          }
           return {
-            ...(await ctx.wiring.dealpilot.materializer.add(input.captureId)),
-            proposal,
+            committed: true,
+            captureId: input.captureId,
+            candidateId: committed.recordId,
+            proposal:
+              proposal ??
+              ({
+                id: proposalId,
+                status: "applied",
+                recovered: true,
+              } as const),
           };
-        } finally {
-          ctx.wiring.dealpilot.committingCaptureIds.delete(input.captureId);
+        };
+        const recoverProposal = async () => {
+          const existing = await ctx.wiring.ledger.get(proposalId);
+          if (!existing) return null;
+          if (!isDealPilotCaptureProposal(existing, input.workspaceId, input.captureId)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "DealPilot capture proposal identity collides with a different ledger entry",
+            });
+          }
+          const decision =
+            existing.userDecision ??
+            (await ctx.wiring.ledger.decisionFor(proposalId))?.userDecision ??
+            null;
+          if (decision === "auto" || decision === "approve" || decision === "edit") {
+            return materialize();
+          }
+          return {
+            committed: false,
+            proposal: {
+              id: proposalId,
+              status: decision === "veto" ? "rejected" : "pending_review",
+              recovered: true,
+            } as const,
+          };
+        };
+
+        const recovered = await recoverProposal();
+        if (recovered) return recovered;
+        let proposal: Proposal;
+        try {
+          proposal = await ctx.wiring.pipeline.propose(request, ctx.run, { proposalId });
+        } catch (cause) {
+          const winner = await recoverProposal();
+          if (winner) return winner;
+          throw cause;
         }
+        if (proposal.status !== "applied") return { committed: false, proposal };
+        return materialize(proposal);
       }),
 
     reauthenticateCredential: dealpilotProcedure
@@ -5640,6 +5800,7 @@ export const appRouter = t.router({
           return ctx.wiring.dealpilot.credentials.reauthenticate({
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
+            workspaceId: input.workspaceId,
             sourceId: input.sourceId,
             ...(ctx.reauthenticatedAt != null ? { reauthenticatedAt: ctx.reauthenticatedAt } : {}),
           });
@@ -5673,6 +5834,7 @@ export const appRouter = t.router({
         try {
           return await ctx.wiring.dealpilot.credentials.access({
             reference: source.credentialRef,
+            workspaceId: input.workspaceId,
             sourceId: source.id,
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
@@ -5680,6 +5842,78 @@ export const appRouter = t.router({
             field: input.field,
             action: input.action,
           });
+        } catch (error) {
+          if (error instanceof CredentialAccessError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    clearCredential: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1),
+          token: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.get(
+          "source",
+          input.workspaceId,
+          input.sourceId,
+        );
+        if (!source || source.kind !== "source") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
+        }
+        if (
+          source.credentialOwnerId !== ctx.identity.id ||
+          !source.credentialRef
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Source credential revocation is not authorized",
+          });
+        }
+        try {
+          const audit =
+            ctx.wiring.dealpilot.credentials.authorizeCredentialRevocation({
+            reference: source.credentialRef,
+            workspaceId: input.workspaceId,
+            sourceId: source.id,
+            actorType: ctx.identity.type,
+            actorId: ctx.identity.id,
+            token: input.token,
+          });
+          await ctx.wiring.dealpilot.store.prepareCredentialRevocation(
+            input.workspaceId,
+            source.id,
+            ctx.identity.id,
+            source.credentialRef,
+            audit,
+          );
+          await ctx.wiring.dealpilot.credentialVault.delete(
+            { workspaceId: input.workspaceId, sourceId: source.id },
+            source.credentialRef,
+          );
+          const revocation =
+            await ctx.wiring.dealpilot.store.completeCredentialRevocation(
+              input.workspaceId,
+              source.id,
+              ctx.identity.id,
+              source.credentialRef,
+            );
+          return {
+            revoked: true as const,
+            cleared: revocation.cleared,
+            credentialProjection:
+              await ctx.wiring.dealpilot.credentials.project(
+                { workspaceId: input.workspaceId, sourceId: source.id },
+                revocation.source.credentialRef,
+              ),
+          };
         } catch (error) {
           if (error instanceof CredentialAccessError) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
@@ -5744,10 +5978,9 @@ export const appRouter = t.router({
           offset: z.number().int().min(0).default(0),
         }),
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        const all = await store.list(input.workspaceId);
+        const all = await ctx.wiring.integrationStore.list(input.workspaceId);
         const total = all.length;
         const items = all.slice(input.offset, input.offset + input.limit);
         return { items, total, hasMore: input.offset + items.length < total };
@@ -5760,27 +5993,34 @@ export const appRouter = t.router({
           provider: z.enum(["x", "instagram", "facebook", "linkedin"]),
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        return store.connect(input.workspaceId, input.provider, oauthScopesFor(input.provider));
+        return ctx.wiring.integrationStore.connect(
+          input.workspaceId,
+          input.provider,
+          oauthScopesFor(input.provider),
+        );
       }),
 
     disconnect: procedure
       .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        await store.disconnect(input.workspaceId, input.integrationId);
+        await ctx.wiring.integrationStore.disconnect(
+          input.workspaceId,
+          input.integrationId,
+        );
         return { ok: true };
       }),
 
     listScopes: procedure
       .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        return store.listScopes(input.workspaceId, input.integrationId);
+        return ctx.wiring.integrationStore.listScopes(
+          input.workspaceId,
+          input.integrationId,
+        );
       }),
 
     grantScope: procedure
@@ -5792,11 +6032,10 @@ export const appRouter = t.router({
           action: actionEnum,
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
         try {
-          return await store.grantScope({
+          return await ctx.wiring.integrationStore.grantScope({
             workspaceId: input.workspaceId,
             integrationId: input.integrationId,
             resourceType: input.resourceType,
@@ -5813,10 +6052,12 @@ export const appRouter = t.router({
 
     revokeScope: procedure
       .input(z.object({ workspaceId: z.string().min(1), permissionId: z.string().uuid() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        await store.revokeScope(input.workspaceId, input.permissionId);
+        await ctx.wiring.integrationStore.revokeScope(
+          input.workspaceId,
+          input.permissionId,
+        );
         return { ok: true };
       }),
   }),

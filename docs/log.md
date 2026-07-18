@@ -1,5 +1,22 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
+  the implementation already landed through `bab32ea`. The exact installed Relationship →
+  Signals/People/Communities → Signal → Person/Community participants → source Event → governed
+  Action prototype is complete, with no global Knowledge surface. Migration
+  `0015_task008_relation_contract`, durable bounded Relation/materialization contracts,
+  desktop + 375px evidence, 910 affected tests, typecheck/build, migration no-drift, and final
+  correctness/security reviews support `TASK-008` status `done`. TASK-014/TASK-009 retain the
+  separate cross-Module Graph renderer; advanced RM6/evaluation work remains future plan scope.
+
+- **2026-07-19** — **TASK-015 planning session reconciled with `main`, no code delta**: the "Plan runtime taint" worktree (`manishsbhoopalam8498-bookish-umbrella`) had zero unique commits versus `origin/main` (correct for a planning-only session under AP-029) and was fast-forwarded to current `main` head `5091dae`. `docs/TASKS.md` TASK-015's Evidence line was enriched with the concrete RT0–RT4 gap audit (PI-1/PI-2/PI-3 already partially cover this — TrustOrigin tag, tainted-egress gate, ContentGuard quarantine exist; no taint field on Events/Signals/Files/SkillOutput/RitualStep, no lattice/join, no sink-coverage gate, `sourcing/types.ts` duplicates `TrustOrigin` by hand, and post-TASK-007 `ChildAgentRun.taint` is still the legacy 3-value type). `docs/Progress from Manish/subagent-progress.md`'s TASK-015 row updated to match. TASK-015 remains correctly blocked: TASK-007 landed since this plan was drafted, but TASK-012 (vocabulary migration) has not, and `ResourceType` still uses pre-pivot vocabulary confirming the gate.
+
+- **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
+  fast-forwarding the fully validated durability/vault branch into `main`; it landed at `7f44186`.
+  Integration preserves TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified
+  OS/application Human re-authentication as honest external blockers, retains TASK-010 migration
+  `0016`, and adds no TASK-006 numbered migration.
+
 - **2026-07-19** — **TASK-008 validated main integration authorized (AP-043)**: user approved merging the independently reviewed Relationship branch after its normal `origin/main` reconciliation and 910-test affected gate. Integration preserves TASK-008 as `in_progress`, adds no Relationship migration, and leaves TASK-010's `0016` unchanged.
 
 - **2026-07-18** — **TASK-008 Relationship central-review hardening (AP-042, ADR-116)**: closed 16 named authority, residency, durability, concurrency, query, and UI blockers. Browser authority is server-resolved and Local; private PII/Event detail stays owner-scoped; Google/capture staging and effects are owner-bound, durable, and replay-safe; capture approval creates one Event; Introduction/Memory transitions serialize; datetime and explicit-clear contracts converge; Community composition and snapshot-watermarked context pagination are complete. No Relationship migration was added; TASK-010's `0016` merged unchanged from `main`. Post-merge core 430, DB 154, Google 39, API 218, and web 69 tests pass (910 total) with monorepo typecheck/build, changed-file lint, no-dummy, no migration delta, diff integrity, and final independent correctness/security reviews. TASK-008 remains `in_progress`.
@@ -1712,17 +1729,79 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - TASK-003 remains `blocked`. Recovery gates passed: desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, dependency/web build, web typecheck, targeted Avatar ESLint, and runtime no-dummy.
 - Durable outcome: `outputs/2026-07-18-task-003-avatar-certification.md`.
 
+# 2026-07-18 — TASK-006 DealPilot durable Local Plane and explicit OS vault
+
+- Replaced process-local DealPilot Records, Relations, captures, candidate profiles, Gmail
+  continuation/checkpoint/receipt state, settlements, spend, dedupe, and credential audit with one
+  atomic Organization-scoped Local Plane aggregate.
+- Added shared-client PGlite state, canonical-path cross-process ownership, restart recovery,
+  idempotent materialization/backfill, startup cleanup, and desktop parent-loss/shutdown handling.
+- Added pre-Drizzle legacy adapter-table detection plus verified, resumable import into the
+  adapter-owned namespace, avoiding a numbered migration.
+- Added maintained MIT `@napi-rs/keyring` behind the Source credential-vault port with unique
+  per-write accounts, opaque Organization/Source-bound references, masked projections, and
+  fail-closed runtime configuration.
+- Added opaque crash-recovery journals for keyring create/revoke; values never enter Bridge
+  database, files, logs, audit, or the journal.
+- Added restart, concurrency, compensation, ownership, recovery, and credential non-disclosure
+  coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
+- Post-RM4 reconciliation retained its durable decision/effect ledger by binding file-backed
+  in-memory-mode ledgers to the same `localDir`; added password-AMR-only re-authentication,
+  single-current-session replacement, credential log redaction, bounded capture pagination, safe
+  clipboard clearing, and removal of sampled provider payloads from discovery output.
+- Added owner-scoped explicit credential revoke: secure-vault deletion, durable Source-projection
+  clearing across restart, value-free audit, re-auth session consumption, and honest unavailable UI.
+- Independent security review found the durable desktop sidecar trusted loopback. Fixed with a
+  per-launch 256-bit capability, constant-time API verification, closed Tauri-origin CORS,
+  file-backed-persistence auth posture, header redaction, and a hard separation from Human re-auth.
+- Follow-up review found predictable Google OAuth state could substitute an attacker's account.
+  Connect now issues a hashed-at-rest 256-bit state after authenticated membership; callback
+  atomically consumes the ten-minute state and Local Plane PKCE verifier before denial handling or
+  verifier-bound code exchange.
+- Final review pass found privileged-webview OAuth navigation could expose the launch capability.
+  Release webviews now reject external top-level navigation, token injection is trusted-origin and
+  main-only, and validated Google consent opens in the system browser.
+- Final central review then found packaged desktop Google calls bypassed injected sidecar transport,
+  the launcher set ignored `HOST` instead of `API_HOST`, and OAuth completion trusted stale
+  membership (including revocation during provider exchange). Shared transport headers, enforced
+  loopback, authenticated cross-platform shutdown, and pre/post-exchange membership checks close
+  those paths. Focused correctness/security re-review: no findings.
+- Later review hardening made all token operations per-Integration serialized, kept exchanged tokens
+  provisional until membership finalization with exact rollback, and made refresh persistence
+  ordered CAS. Rust now binds and retains the random loopback listener while Node inherits the same
+  descriptor; child death cannot donate the port. Active requests drain under an independent hard
+  deadline, and unsupported non-Unix release activation fails closed.
+- Live release validation found two lifecycle gaps: missing Tauri data-URL support prevented the
+  tokenless bootstrap, and uniform webview destruction aborted on a macOS `AvatarPanel`. The feature
+  is explicit, the bootstrap handle is retained and hidden before destruction, and sidecar-loss
+  cleanup uses panel-safe conversion. Simulated child death left the shell alive, displayed the
+  unavailable state, and kept the port unrebindable.
+- Final read-only security review found no vulnerabilities. Correctness review raised only releasing
+  ownership after a failed client close; the explicit retention regression remains because the
+  embedded client may still be live and admitting a second opener risks corruption.
+- Final post-merge verification: API 239, DealPilot 90, Local Plane 8, DB 155, Core 430, Sourcing 7,
+  Company Sourcing 4, Google 39, Web 70, and desktop Rust 44 tests; monorepo 37-task typecheck and
+  20-task build, changed-file lint, Clippy, no-runtime-dummy, and diff checks passed.
+- Normally merged `origin/main` `bab32ea` after preserving the implementation. Relationship
+  continuity and its landed `0016` migration remain intact; TASK-006 adds no migration delta.
+  Canon collisions were reconciled as AP-044 and ADR-117–ADR-120, and hardened PKCE/token
+  finalization was retained through the OAuth conflict.
+- Live host evidence: macOS keyring write/read/delete/missing; native DealPilot route plus final
+  release-sidecar readiness/failure recovery; Chrome `/dealpilot/sources` at 375x812 with no
+  horizontal overflow.
+- TASK-006 remains `in_progress` for live Google/BizBuySell and verified OS/application re-auth.
+  Signing and physical-mobile certification remain unclaimed. Durable outcome:
+  `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.
 - 2026-07-18 — TASK-010 round-7 independent review: verdict merge-ready, 2 non-blocking findings (both fixed same day). (1) `docs/BUGS.md`'s round-6 `loadLedger()` entry ended with a dangling "see the NEW entry below for that" cross-reference to an RLS-tracking entry that was never actually added — corrected to point at the round-7 migration/output doc directly. (2) The new `memories` RLS policy had no dedicated two-member/restricted-role test (all round-7 coverage ran under the default pglite connection, bypassing RLS) — added `packages/db/test/rls.test.ts`'s "RLS: memories isolate private/team/restricted owners..." test using the file's existing `bridge_rls_member` role pattern; proves public/workspace/team/private/restricted visibility AND that UPDATE/DELETE (not just SELECT) are owner-narrowed under a real restricted Postgres role. Re-verified: DB 144/144 (+1), full db typecheck/build clean, lint clean.
 
 # 2026-07-18 — TASK-003 human certification complete (AP-041)
 - The user confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect.
 - Marked TASK-003 `done` and resolved both Avatar mobility/native-control bug rows. TASK-005 remains `blocked` only on its separate combined desktop+375px Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals demo.
 - PR #18 merge-gate review exposed and recorded an unrelated `origin/main` baseline defect under TASK-013: the legacy prototype CI imports two PII-derived modules that clean checkouts intentionally omit. The closure changes no prototype files; the other seven CI jobs pass.
-
-# 2026-07-18 — TASK-005 combined demo certification complete (AP-044)
+# 2026-07-18 — TASK-005 combined demo certification complete (AP-046)
 - Completed fresh uninterrupted desktop `1440×913` and exact mobile `375×812` Onboarding→Owl Avatar→Relationship Module→signed Commons install→Learning Agent Run→provenance→correction/veto sequences on the final post-fix code with viewport-contained page/drawer geometry, no failed resources, runtime errors, retired visible vocabulary, fabricated runtime data, or dummy runtime data.
 - Installed and executed `cited-role-model-practice@1.0.0` only through Relationship's allowed Learning Agent. Approvals and the append-only Action Pipeline retained package/hash/Module/Agent provenance after correction, displayed the corrected monthly cadence, and proved a second veto emitted no downstream Event.
-- Hardened the trust boundary: exact stored/current signed Skill plus exact current Relationship Module contract, Module installation/version/manifest-hash provenance, migrated current/legacy private-owner isolation including linked rows, immutable correction provenance, and generation-tagged/fsynced Organization Files intents serialized and recovered under DB row locks across conflict, commit, crash, stale-cleanup, case-only, symlink, and legacy-bootstrap paths. Real-Module-only Settings inventory remains enforced. ADR-117/ADR-118 record the decisions.
+- Hardened the trust boundary: exact stored/current signed Skill plus exact current Relationship Module contract, Module installation/version/manifest-hash provenance, migrated current/legacy private-owner isolation including linked rows, immutable correction provenance, and generation-tagged/fsynced Organization Files intents serialized and recovered under DB row locks across conflict, commit, crash, stale-cleanup, case-only, symlink, and legacy-bootstrap paths. Real-Module-only Settings inventory remains enforced. ADR-121/ADR-122 record the decisions.
 - The responsive passes exposed a stale Settings → Capabilities route and then a deeper visual-only mobile defect: desktop Settings/Approvals layouts hid controls even while body width stayed `375`. Installed Module rows now open Module Detail; Settings uses a mobile section selector; Approvals stacks queue/detail; provenance wraps in its drawer. Fresh desktop/mobile reruns used the repaired controls without a 404 or off-screen action.
 - Built the release Tauri bundle and launched Bridge main, Companion, and Annotate windows with a healthy managed API sidecar on the currently connected display; TASK-003 retains the separate three-display mobility/topology proof. Final gates passed: API 33, focused web checks including the 375px regression, desktop Rust 31, typecheck 37/37 tasks, build 20/20 tasks, native release bundle, and all 36 non-Sensor test tasks. The existing TASK-017 Sensor coverage debt remains 7/7 tests passing at 36.97% against the 38% aggregate floor.
 - Marked TASK-005 `done`. Durable outcome: `outputs/2026-07-18-task-005-demo-certification.md`.

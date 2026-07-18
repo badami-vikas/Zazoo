@@ -20,9 +20,15 @@ tauri-build = { version = "2", features = [] }
 # with `#[cfg(target_os = "macos")]`, so it pulls no Apple-only native crate
 # and raises no error off-macOS. (Splitting it into a macОS-only target dep
 # instead makes tauri-build fail on macOS: the feature isn't seen as enabled.)
-tauri = { version = "2", features = ["macos-private-api"] }
+# `webview-data-url` supports the static, tokenless bootstrap and terminal
+# unavailable pages shown before/after the privileged Local Plane webview.
+tauri = { version = "2", features = ["macos-private-api", "webview-data-url"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+getrandom = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Apple-only capture crates, gated to macOS so the shell still `cargo check`s on
 # Linux + Windows (XP-1). These are the actual cross-OS-compile blocker: the

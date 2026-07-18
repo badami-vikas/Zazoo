@@ -6,17 +6,21 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
-- HEAD and `origin/main`: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
-## TASK-006 durability
+## TASK-006 durability — MERGED 2026-07-19
 
 - Session: `19b390c3-6551-4672-ae41-67735b71ff71`
 - Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-fuzzy-meme`
-- Branch/head: `manishsbhoopalam8498-persist-dealpilot-locally` / `7f93f03`
-- Existing commits: `91a0462` and `7f93f03`
-- Dirty snapshot: 30 tracked files and 3 untracked files, approximately +1052/-104.
+- Branch: `manishsbhoopalam8498-persist-dealpilot-locally`
+- Validated implementation/integration head: `2f85dc7` (normally merged `origin/main` `bab32ea`)
+- Final reviewed source head: `adf6c95`
+- Landed `main` integration: `7f44186`
+- Existing durability chain: `91a0462`, `7f93f03`, `b93d558`, `7652a43`, and `2f85dc7`
+- Integration: user authorized AP-045; fast-forwarded into `main` at `7f44186`.
 
 Implemented:
 
@@ -25,21 +29,32 @@ Implemented:
 - MIT `@napi-rs/keyring` adapter behind the vault port.
 - Owner-scoped credential reveal/copy/revoke with value-free audit.
 - Fail-closed runtime storage/vault wiring.
-- Desktop app-data lifecycle, parent-PID shutdown, loopback capability, trusted-origin checks.
-- Hashed, single-use Google OAuth state and system-browser consent flow.
+- Parent-retained desktop socket activation, authenticated readiness/shutdown, terminal child-loss
+  handling, trusted-origin webviews, and panel-safe companion retirement.
+- Hashed, single-use Google OAuth state, PKCE S256, serialized provisional-token finalization,
+  refresh CAS, and system-browser consent.
+- Crash-recoverable opaque keyring create/revoke journals and pre-Drizzle legacy Local Plane import.
 
 Reported validation:
 
 - Typecheck 37/37; build 20/20.
-- API 183; DealPilot 84; Local 6; DB 124; Core 423; Sourcing 7; Google 35; Web 50.
-- Desktop `cargo check`, 33 Rust tests, Clippy, and scoped rustfmt.
-- Security review’s sidecar/OAuth/webview findings fixed; follow-up reported no vulnerabilities.
+- API 239; DealPilot 90; Local 8; DB 155; Core 430; Sourcing 7; Company Sourcing 4;
+  Google 39; Web 70.
+- Desktop `cargo check`, 44 Rust tests, strict Clippy, and rustfmt.
+- Changed-file ESLint, no-runtime-dummy, task parser, build/typecheck, migration-delta, and diff
+  integrity checks passed.
+- Final security review reported no vulnerabilities. The only correctness suggestion—release
+  ownership after failed client close—was deliberately rejected and regression-tested because the
+  embedded client may remain live.
+- Live host evidence exists for a macOS keyring round-trip, release-sidecar readiness/child-loss
+  recovery with retained-port protection, and Chrome `/dealpilot/sources` at 375x812 without
+  horizontal overflow.
 
 Remaining:
 
-- Review the current uncommitted diff centrally and ensure canonical status remains honest.
-- Commit/push if accepted.
-- Do not claim live Google, real OS-keychain/OS re-authentication, signing, physical desktop, or 375px evidence.
+- Live Google/BizBuySell credentials and verified OS/application Human re-authentication remain
+  unavailable. Signing and physical-mobile certification remain unclaimed.
+- Keep TASK-006 `in_progress`; do not infer those external gates from code or host-local evidence.
 - No numbered migration was added.
 
 ## TASK-010 red-flag correction — MERGED 2026-07-18

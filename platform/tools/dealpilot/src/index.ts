@@ -4,13 +4,20 @@ export { scoreThesisFit } from "./scoring.js";
 export type { DealPipelineResult } from "./pipeline.js";
 export { processDealCandidate } from "./pipeline.js";
 export { dealsTableSpec, dealsKanbanView, dealsStageBoardView } from "./table.js";
-export type { ParseBatchSummary } from "./connectors.js";
+export type {
+  ParseBatchSummary,
+  GmailContinuation,
+  GmailFetchReceipt,
+  GmailFetchState,
+  GmailFetchStateStore,
+} from "./connectors.js";
 export {
   createBizBuySellAlertConnector,
   createBusinessBrokerNetConnector,
   parseBizBuySellAlert,
   parseBizBuySellAlertBatch,
   createGmailFetchMessages,
+  InMemoryGmailFetchStateStore,
   normalizeBusinessBrokerRow,
 } from "./connectors.js";
 export type {
@@ -80,6 +87,7 @@ export type {
   CredentialField,
   CredentialAccessAction,
   SourceCredential,
+  SourceCredentialScope,
   CredentialMetadata,
   SourceCredentialVault,
   CredentialAuditEvent,
@@ -91,4 +99,24 @@ export {
   CredentialAccessError,
   HumanReauthentication,
   SourceCredentialService,
+  metadataForCredential,
 } from "./credentials.js";
+export type { KeyringEntryFactory } from "./keyring-credentials.js";
+export {
+  KeyringCredentialError,
+  KeyringSourceCredentialVault,
+} from "./keyring-credentials.js";
+export type {
+  DealPilotStatePort,
+  DealPilotCaptureProjection,
+  DealPilotCapturePage,
+  DiscoverySettlement,
+  SettleDiscoveryBatchInput,
+  CommitCaptureResult,
+  DealPilotRuntimeStore,
+  PendingCredentialOperation,
+} from "./runtime-store.js";
+export {
+  LocalDealPilotStore,
+  reconcileCredentialOperations,
+} from "./runtime-store.js";

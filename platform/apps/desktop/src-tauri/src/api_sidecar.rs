@@ -1,52 +1,42 @@
 //! api_sidecar — the managed @bridge/api child process (R-001 offline desktop).
 //!
 //! The desktop shell is self-contained offline by spawning the Fastify API
-//! build (`apps/api/dist/src/server.js`) as a child Node process on a free
-//! localhost port, health-checking `/health` in the background, and injecting
+//! build (`apps/api/dist/src/server.js`) as a child Node process on a
+//! parent-reserved loopback listener, health-checking `/health`, and injecting
 //! the resolved URL into both webviews as `window.__BRIDGE_API_URL__` (an
-//! initialization script, so it exists before the tRPC client module
-//! evaluates).
+//! initialization script, so it exists before the tRPC client module evaluates).
 //!
 //! Decisions (ADR-024 in docs/raw/decisions-log.md):
 //!  - `std::process::Command` child, NOT a Tauri "sidecar" externalBin: the
 //!    API is a Node build, bundling a Node runtime per-arch is out of scope
 //!    while `bundle.active` is false. System `node` (override: BRIDGE_NODE_BIN).
-//!  - Free-port strategy: bind 127.0.0.1:0, take the kernel-assigned port,
-//!    release it, pass it as PORT. No fixed port to collide with a dev API.
+//!  - Rust binds 127.0.0.1:0, retains that listener for the webview lifetime,
+//!    and passes the same descriptor to Node. The child reports the inherited
+//!    port over stdout; a crashed child therefore cannot hand it to an attacker.
 //!  - Debug builds (`tauri dev`) NEVER spawn the sidecar — dev keeps external
 //!    servers (Vite 5173 + API 4000) exactly as before.
 //!
-//! PERSISTENCE IS HONEST, NOT PRETTY: without DATABASE_URL the API runs its
-//! in-memory wiring, so ALL workspace state is lost when the app quits. The
-//! child inherits this process's environment, so a user with local Postgres
-//! can set DATABASE_URL (or BRIDGE_DATABASE_URL) before launching Bridge and
-//! get real persistence with zero code changes here.
+//! The Local Plane is always file-backed under Tauri's app-data directory.
+//! Cloud/control-plane persistence remains independently configured through
+//! DATABASE_URL.
 
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::process::{Child, Command};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::sync::{mpsc, Mutex};
+use std::time::{Duration, Instant};
 
-/// Managed handle to the spawned API child so app-exit can kill it. `None`
-/// in dev mode / when the spawn failed.
+/// Managed API process and authenticated loopback shutdown material. `None` in
+/// dev mode / when the spawn failed.
 #[derive(Default)]
-pub struct ApiSidecarState(pub Mutex<Option<Child>>);
+pub struct ApiSidecarState(pub Mutex<Option<SpawnedApi>>);
 
 pub struct SpawnedApi {
     pub port: u16,
     pub child: Child,
-}
-
-/// Ask the kernel for a free localhost port (bind :0, read, release).
-/// Small race window between release and the Node process binding it —
-/// acceptable for a single-user desktop app on localhost.
-pub fn pick_free_port() -> std::io::Result<u16> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
-    Ok(port)
+    pub token: String,
+    listener_reservation: Option<TcpListener>,
 }
 
 /// Resolve the built API entrypoint. Order:
@@ -77,22 +67,161 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
     None
 }
 
-/// Spawn `node server.js` with PORT set. Environment is inherited, which is
-/// exactly the DATABASE_URL passthrough contract described in the module doc.
-pub fn spawn_api(entry: &PathBuf, port: u16) -> std::io::Result<Child> {
+fn generate_sidecar_token() -> std::io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| std::io::Error::other(error.to_string()))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn api_command(
+    entry: &PathBuf,
+    local_dir: &PathBuf,
+    token: &str,
+    inherited_listener: Option<&TcpListener>,
+) -> Command {
     let node = std::env::var("BRIDGE_NODE_BIN").unwrap_or_else(|_| "node".to_string());
-    Command::new(node)
+    let mut command = Command::new(node);
+    command
         .arg(entry)
-        .env("PORT", port.to_string())
+        .env("PORT", "0")
         // Bind loopback only — never expose the kernel API on the LAN.
-        .env("HOST", "127.0.0.1")
-        .spawn()
+        .env("API_HOST", "127.0.0.1")
+        .env("BRIDGE_LOCAL_DIR", local_dir)
+        .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
+        .env("BRIDGE_SIDECAR_TOKEN", token)
+        .env("BRIDGE_OAUTH_DESKTOP", "1")
+        .env(
+            "API_ALLOWED_ORIGINS",
+            "tauri://localhost,http://tauri.localhost,https://tauri.localhost",
+        )
+        .env("BRIDGE_PARENT_PID", std::process::id().to_string())
+        .env("BRIDGE_PARENT_LIVENESS", "stdin")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    #[cfg(unix)]
+    if let Some(listener) = inherited_listener {
+        use std::os::fd::AsRawFd as _;
+        use std::os::unix::process::CommandExt as _;
+
+        let listener_fd = listener.as_raw_fd();
+        command.env("BRIDGE_LISTEN_FD", listener_fd.to_string());
+        // SAFETY: this pre-exec closure makes one fcntl syscall and allocates
+        // nothing. It clears CLOEXEC only in the forked child, avoiding a
+        // process-wide inheritance race in the multi-threaded desktop shell.
+        unsafe {
+            command.pre_exec(move || {
+                let flags = libc::fcntl(listener_fd, libc::F_GETFD);
+                if flags == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::fcntl(listener_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = inherited_listener;
+    command
+}
+
+fn reserve_sidecar_listener() -> std::io::Result<TcpListener> {
+    #[cfg(unix)]
+    {
+        TcpListener::bind("127.0.0.1:0")
+    }
+    #[cfg(not(unix))]
+    {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "secure inherited-listener sidecars are not implemented on this operating system",
+        ))
+    }
+}
+
+/// Spawn `node server.js` with a durable Local Plane directory.
+pub fn spawn_api(
+    entry: &PathBuf,
+    local_dir: &PathBuf,
+    token: &str,
+    inherited_listener: Option<&TcpListener>,
+) -> std::io::Result<Child> {
+    api_command(entry, local_dir, token, inherited_listener).spawn()
+}
+
+const LISTENING_PREFIX: &str = "bridge-api listening at http://127.0.0.1:";
+
+fn reported_port(line: &str) -> Option<u16> {
+    line.trim()
+        .strip_prefix(LISTENING_PREFIX)?
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port > 0)
+}
+
+fn await_reported_port(child: &mut Child, timeout: Duration) -> std::io::Result<u16> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("sidecar stdout pipe is unavailable"))?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("bridge-api-stdout".to_string())
+        .spawn(move || {
+            let mut sent = false;
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(line) => {
+                        if !sent {
+                            if let Some(port) = reported_port(&line) {
+                                let _ = sender.send(port);
+                                sent = true;
+                            }
+                        }
+                        println!("{line}");
+                    }
+                    Err(error) => {
+                        eprintln!("[bridge-desktop] api sidecar stdout failed: {error}");
+                        break;
+                    }
+                }
+            }
+        })
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "sidecar did not report its bound port before the startup deadline",
+            ));
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(250))) {
+            Ok(port) => return Ok(port),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(status) = child.try_wait()? {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        format!("sidecar exited before reporting its port with status {status}"),
+                    ));
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "sidecar stdout closed before reporting its port",
+                ));
+            }
+        }
+    }
 }
 
 /// Minimal HTTP/1.0 GET against the API's `/health` route (apps/api
 /// src/server.js registers it). std-only on purpose: pulling reqwest+tokio
 /// into the shell for one localhost probe is not worth the dependency tree.
-pub fn health_ok(port: u16, timeout: Duration) -> bool {
+pub fn health_ok(port: u16, token: &str, timeout: Duration) -> bool {
     let addr = format!("127.0.0.1:{port}");
     let Ok(mut stream) = TcpStream::connect_timeout(
         &match addr.parse() {
@@ -105,8 +234,10 @@ pub fn health_ok(port: u16, timeout: Duration) -> bool {
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let req =
-        format!("GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    let req = format!(
+        "GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\
+         X-Bridge-Sidecar-Token: {token}\r\nConnection: close\r\n\r\n"
+    );
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -117,44 +248,38 @@ pub fn health_ok(port: u16, timeout: Duration) -> bool {
     buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200")
 }
 
-/// Retry `/health` until it answers 200 or the budget runs out.
-pub fn wait_healthy(port: u16, attempts: u32, interval: Duration) -> bool {
-    for _ in 0..attempts {
-        if health_ok(port, Duration::from_millis(750)) {
-            return true;
+/// Retry `/health` within one overall deadline while confirming that the exact
+/// child is still alive. The retained listener makes connect succeed even after
+/// child exit, so liveness must be checked between bounded reads.
+fn wait_child_healthy(
+    child: &mut Child,
+    port: u16,
+    token: &str,
+    timeout: Duration,
+) -> std::io::Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("sidecar exited during readiness with status {status}"),
+            ));
         }
-        std::thread::sleep(interval);
-    }
-    false
-}
-
-fn monitor_health(port: u16) {
-    let monitor = std::thread::Builder::new()
-        .name("bridge-api-health".to_string())
-        .spawn(move || {
-            // ~20s budget: cold Node + Fastify + in-memory wiring boots in well
-            // under that; DATABASE_URL wiring may take a few seconds on first
-            // connect. This must never block Tauri's setup/event-loop thread.
-            if wait_healthy(port, 80, Duration::from_millis(250)) {
-                println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
-            } else {
-                eprintln!(
-                    "[bridge-desktop] api sidecar: /health never answered on port {port}; \
-                     leaving process running and letting the UI surface connection errors"
-                );
-            }
-        });
-    if let Err(error) = monitor {
-        eprintln!("[bridge-desktop] api sidecar: could not start health monitor: {error}");
+        if health_ok(port, token, Duration::from_millis(250)) {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
-/// Spawn the API and return its URL material immediately. Readiness probing is
-/// detached so Tauri can create a window and start its event loop without a
-/// 20-second launch stall. Returns None (with a logged reason) when the API
-/// build or Node itself is missing; the shell still opens and surfaces the
-/// connection error.
-pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
+/// Spawn the API and return URL material only after its authenticated health
+/// route answers and the child is still alive. An unavailable sidecar leaves
+/// the release webview transport unconfigured instead of exposing credentials
+/// to an arbitrary localhost listener.
+pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<SpawnedApi> {
     let Some(entry) = resolve_api_entry(resource_dir) else {
         eprintln!(
             "[bridge-desktop] api sidecar: no API build found \
@@ -162,14 +287,43 @@ pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
         );
         return None;
     };
-    let port = match pick_free_port() {
-        Ok(p) => p,
+    if let Err(err) = std::fs::create_dir_all(&local_dir) {
+        eprintln!(
+            "[bridge-desktop] api sidecar: could not create Local Plane directory \
+             {local_dir:?}: {err}. Refusing an ephemeral API."
+        );
+        return None;
+    }
+    let token = match generate_sidecar_token() {
+        Ok(token) => token,
         Err(err) => {
-            eprintln!("[bridge-desktop] api sidecar: could not pick a free port: {err}");
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not generate a launch capability: {err}"
+            );
             return None;
         }
     };
-    let child = match spawn_api(&entry, port) {
+    let listener_reservation = match reserve_sidecar_listener() {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: secure loopback socket activation is unavailable: \
+                 {error}. Refusing a rebindable credential-bearing transport."
+            );
+            return None;
+        }
+    };
+    let reserved_port = match listener_reservation.local_addr() {
+        Ok(address) => address.port(),
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not inspect the reserved loopback socket: \
+                 {error}"
+            );
+            return None;
+        }
+    };
+    let mut child = match spawn_api(&entry, &local_dir, &token, Some(&listener_reservation)) {
         Ok(c) => c,
         Err(err) => {
             eprintln!(
@@ -179,16 +333,180 @@ pub fn start(resource_dir: Option<PathBuf>) -> Option<SpawnedApi> {
             return None;
         }
     };
-    monitor_health(port);
-    Some(SpawnedApi { port, child })
-}
-
-/// Kill the child (called from the RunEvent::Exit handler in lib.rs).
-pub fn shutdown(state: &ApiSidecarState) {
-    if let Ok(mut guard) = state.0.lock() {
-        if let Some(mut child) = guard.take() {
+    let port = match await_reported_port(&mut child, Duration::from_secs(60)) {
+        Ok(port) if port == reserved_port => port,
+        Ok(port) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: child reported port {port}, but the retained \
+                 loopback reservation is {reserved_port}; refusing the transport"
+            );
             let _ = child.kill();
             let _ = child.wait();
+            return None;
+        }
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not obtain the child-bound port: {error}; \
+                 refusing to configure the webview transport"
+            );
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    match wait_child_healthy(&mut child, port, &token, Duration::from_secs(10)) {
+        Ok(true) => {}
+        Ok(false) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: authenticated /health never answered on port \
+                 {port} within the readiness deadline; refusing the webview transport"
+            );
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: child failed during authenticated readiness: \
+                 {error}; refusing the webview transport"
+            );
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    }
+    match child.try_wait() {
+        Ok(None) => {
+            println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
+        }
+        Ok(Some(status)) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar exited during readiness with status {status}; \
+                 refusing to configure the webview transport"
+            );
+            return None;
+        }
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar readiness could not verify the child: {error}; \
+                 refusing to configure the webview transport"
+            );
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    }
+    Some(SpawnedApi {
+        port,
+        child,
+        token,
+        listener_reservation: Some(listener_reservation),
+    })
+}
+
+fn request_http_stop(port: u16, token: &str, timeout: Duration) -> std::io::Result<()> {
+    let addr = format!("127.0.0.1:{port}");
+    let mut stream = TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?,
+        timeout,
+    )?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    let request = format!(
+        "POST /internal/sidecar/shutdown HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\
+         X-Bridge-Sidecar-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes())?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    if response.starts_with("HTTP/1.1 202") || response.starts_with("HTTP/1.0 202") {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(
+            "sidecar rejected the authenticated shutdown request",
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn request_signal_stop(child: &Child) -> std::io::Result<()> {
+    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+fn stop_child(api: SpawnedApi) {
+    let SpawnedApi {
+        port,
+        mut child,
+        token,
+        listener_reservation: _listener_reservation,
+    } = api;
+    match child.try_wait() {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not inspect child before shutdown: {error}"
+            );
+        }
+    }
+
+    let mut graceful_stop_result = request_http_stop(port, &token, Duration::from_secs(1));
+    // The HTTP endpoint first stops new work; closing the inherited liveness
+    // pipe then drives the shared process-exit path instead of leaving resumed
+    // stdin to keep Node alive until the force-kill deadline.
+    let liveness_pipe_closed = child.stdin.take().is_some();
+    if graceful_stop_result.is_err() && liveness_pipe_closed {
+        graceful_stop_result = Ok(());
+    }
+    #[cfg(unix)]
+    if graceful_stop_result.is_err() {
+        graceful_stop_result = request_signal_stop(&child);
+    }
+
+    if let Err(error) = graceful_stop_result {
+        eprintln!(
+            "[bridge-desktop] api sidecar: graceful shutdown signal failed: {error}; forcing exit"
+        );
+        let _ = child.kill();
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None) => {
+                eprintln!(
+                    "[bridge-desktop] api sidecar: graceful shutdown timed out; forcing exit"
+                );
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+            Err(error) => {
+                eprintln!("[bridge-desktop] api sidecar: shutdown wait failed: {error}");
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
+}
+
+/// Gracefully stop the child, with a bounded force-kill fallback.
+pub fn shutdown(state: &ApiSidecarState) {
+    if let Ok(mut guard) = state.0.lock() {
+        if let Some(api) = guard.take() {
+            stop_child(api);
         }
     }
 }
@@ -196,18 +514,306 @@ pub fn shutdown(state: &ApiSidecarState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
+    use std::ffi::OsStr;
+    use std::net::TcpListener;
 
     #[test]
-    fn health_monitor_never_blocks_the_setup_caller() {
-        let port = pick_free_port().expect("test should obtain an unused loopback port");
+    fn sidecar_command_sets_durable_local_plane_directory() {
+        let entry = PathBuf::from("server.js");
+        let local_dir = PathBuf::from("/test/bridge/local-plane");
+        let command = api_command(&entry, &local_dir, "test-sidecar-token", None);
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_LOCAL_DIR"))
+                .and_then(|value| value.as_deref()),
+            Some(local_dir.as_os_str())
+        );
+        assert_eq!(
+            envs.get(OsStr::new("PORT"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("0"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("API_HOST"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("127.0.0.1"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_DEALPILOT_CREDENTIAL_VAULT"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("os-keyring"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_SIDECAR_TOKEN"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("test-sidecar-token"))
+        );
+        assert!(!envs.contains_key(OsStr::new("GOOGLE_REDIRECT_URI")));
+        assert_eq!(
+            envs.get(OsStr::new("API_ALLOWED_ORIGINS"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(
+                "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+            ))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_PARENT_PID"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(&std::process::id().to_string()))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_PARENT_LIVENESS"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("stdin"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidecar_command_inherits_the_retained_loopback_listener() {
+        use std::os::fd::AsRawFd as _;
+
+        let entry = PathBuf::from("server.js");
+        let local_dir = PathBuf::from("/test/bridge/local-plane");
+        let listener = reserve_sidecar_listener().expect("loopback listener should bind");
+        let command = api_command(&entry, &local_dir, "test-sidecar-token", Some(&listener));
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_LISTEN_FD"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(&listener.as_raw_fd().to_string()))
+        );
+    }
+
+    #[test]
+    fn retained_listener_prevents_port_rebinding_after_the_server_copy_closes() {
+        let reservation = TcpListener::bind("127.0.0.1:0").expect("reservation should bind");
+        let port = reservation
+            .local_addr()
+            .expect("reservation should expose its address")
+            .port();
+        let server_copy = reservation
+            .try_clone()
+            .expect("listener should be clonable");
+
+        drop(server_copy);
+        assert!(
+            TcpListener::bind(("127.0.0.1", port)).is_err(),
+            "the parent reservation must keep the credential-bearing port unavailable"
+        );
+    }
+
+    #[test]
+    fn launch_capabilities_are_random_and_256_bit() {
+        let first = generate_sidecar_token().expect("token generation should succeed");
+        let second = generate_sidecar_token().expect("token generation should succeed");
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn child_reported_port_parser_accepts_only_the_exact_loopback_marker() {
+        assert_eq!(
+            reported_port("bridge-api listening at http://127.0.0.1:4123"),
+            Some(4123)
+        );
+        assert_eq!(
+            reported_port("bridge-api listening at http://0.0.0.0:4123"),
+            None
+        );
+        assert_eq!(
+            reported_port("bridge-api listening at http://127.0.0.1:0"),
+            None
+        );
+        assert_eq!(reported_port("untrusted prefix 4123"), None);
+    }
+
+    #[test]
+    fn port_report_wait_stops_when_the_child_exits() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "exit 0"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            command
+        };
+        let mut child = command
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("exiting child should spawn");
+
         let started = Instant::now();
-
-        monitor_health(port);
-
+        assert!(await_reported_port(&mut child, Duration::from_secs(5)).is_err());
         assert!(
             started.elapsed() < Duration::from_secs(1),
-            "health monitoring must stay detached from the caller"
+            "port-report wait must observe child exit before its startup deadline"
         );
+    }
+
+    #[test]
+    fn inherited_parent_liveness_pipe_closes_the_child() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "more > NUL"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "cat >/dev/null"]);
+            command
+        };
+        let mut child = command
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("liveness probe child should spawn");
+        assert!(child
+            .try_wait()
+            .expect("liveness probe status should be readable")
+            .is_none());
+        drop(child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if child
+                .try_wait()
+                .expect("liveness probe status should be readable")
+                .is_some()
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child must exit when the owning parent closes the liveness pipe"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn readiness_stops_immediately_when_the_child_exits() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        #[cfg(windows)]
+        let mut child = Command::new("cmd")
+            .args(["/C", "exit 0"])
+            .spawn()
+            .expect("exiting child should spawn");
+        #[cfg(not(windows))]
+        let mut child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("exiting child should spawn");
+
+        let started = Instant::now();
+        assert!(wait_child_healthy(
+            &mut child,
+            port,
+            "test-sidecar-token",
+            Duration::from_secs(5),
+        )
+        .is_err());
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "readiness must observe child exit instead of waiting on the retained listener"
+        );
+    }
+
+    #[test]
+    fn graceful_shutdown_uses_the_authenticated_loopback_route() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request should connect");
+            let mut request = [0_u8; 1024];
+            let read = stream
+                .read(&mut request)
+                .expect("request should be readable");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /internal/sidecar/shutdown"));
+            assert!(request.contains("X-Bridge-Sidecar-Token: test-sidecar-token"));
+            stream
+                .write_all(
+                    b"HTTP/1.0 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("response should be writable");
+        });
+
+        request_http_stop(port, "test-sidecar-token", Duration::from_secs(1))
+            .expect("authenticated shutdown should succeed");
+        server.join().expect("test server should finish");
+    }
+
+    #[test]
+    fn successful_http_shutdown_also_closes_the_liveness_pipe() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request should connect");
+            let mut request = [0_u8; 1024];
+            let read = stream
+                .read(&mut request)
+                .expect("request should be readable");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /internal/sidecar/shutdown"));
+            stream
+                .write_all(
+                    b"HTTP/1.0 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("response should be writable");
+        });
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "more > NUL"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "cat >/dev/null"]);
+            command
+        };
+        let child = command
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("liveness probe child should spawn");
+
+        let started = Instant::now();
+        stop_child(SpawnedApi {
+            port,
+            child,
+            token: "test-sidecar-token".to_string(),
+            listener_reservation: None,
+        });
+
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "successful HTTP shutdown must not wait for the force-kill deadline"
+        );
+        server.join().expect("test server should finish");
     }
 }

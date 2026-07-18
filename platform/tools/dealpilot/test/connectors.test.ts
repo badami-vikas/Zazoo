@@ -5,6 +5,7 @@ import {
   parseBizBuySellAlert,
   parseBizBuySellAlertBatch,
   createGmailFetchMessages,
+  InMemoryGmailFetchStateStore,
   normalizeBusinessBrokerRow,
   createBizBuySellAlertConnector,
   createBusinessBrokerNetConnector,
@@ -98,12 +99,12 @@ test("createGmailFetchMessages: composes the governed Google gateway, never owns
     kind: "company",
     hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
   });
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
   const repeated = await fetchMessages({
     kind: "company",
     hints: { sourceId: "test_fixture_source", after: "2026-06-30T00:00:00.000Z" },
   });
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0]!.id, "m1");
@@ -162,9 +163,9 @@ test("createGmailFetchMessages: resumes a budget-limited backlog without advanci
 
   const first = await fetchMessages(query);
   const firstComplete = fetchMessages.lastFetchComplete?.("test_fixture_source");
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
   const second = await fetchMessages(query);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 
   assert.deepEqual(first.map((message) => message.id), ["m1"]);
   assert.equal(firstComplete, false);
@@ -209,7 +210,82 @@ test("createGmailFetchMessages: an incomplete provider page retains the Source c
 
   assert.deepEqual(messages.map((message) => message.id), ["m1"]);
   assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), false);
-  fetchMessages.discard?.("test_fixture_source");
+  await fetchMessages.discard?.("test_fixture_source");
+});
+
+test("createGmailFetchMessages: restart resumes an incomplete page before visiting later tokens", async () => {
+  const pageTokens: Array<string | undefined> = [];
+  let firstPageIncomplete = true;
+  const thread = (id: string) => ({
+    threadId: `thread_${id}`,
+    subject: `New Listing Alert: ${id}`,
+    participants: [],
+    lastMessageAt: "2026-07-01T00:00:00Z",
+    snippet: "",
+    messages: [
+      {
+        messageId: id,
+        from: { email: "alerts@bizbuysell.com" },
+        to: [],
+        receivedAt: "2026-07-01T00:00:00Z",
+        date: "2026-07-01T00:00:00Z",
+        subject: `New Listing Alert: ${id}`,
+        bodyText: "Asking Price: $500,000",
+      },
+    ],
+  });
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (options) => {
+      pageTokens.push(options.pageToken);
+      if (!options.pageToken) {
+        const incomplete = firstPageIncomplete;
+        firstPageIncomplete = false;
+        return {
+          incomplete,
+          threads: [thread("m1")],
+          nextPageToken: "page-2",
+        };
+      }
+      return { threads: [thread("m2")] };
+    },
+  };
+  const gateways: GoogleGatewayFactory = {
+    forIntegration: async () => fakeGateway as GoogleGateway,
+  };
+  const query = {
+    kind: "company" as const,
+    hints: {
+      sourceId: "test_fixture_source",
+      after: "2026-06-30T00:00:00.000Z",
+    },
+  };
+  const stateStore = new InMemoryGmailFetchStateStore();
+  const beforeRestart = createGmailFetchMessages(
+    gateways,
+    "integration_1",
+    undefined,
+    { stateStore, instanceId: "before-restart" },
+  );
+
+  assert.deepEqual(
+    (await beforeRestart(query)).map((message) => message.id),
+    ["m1"],
+  );
+  assert.deepEqual(pageTokens, [undefined]);
+  await beforeRestart.acknowledge?.("test_fixture_source");
+
+  const afterRestart = createGmailFetchMessages(
+    gateways,
+    "integration_1",
+    undefined,
+    { stateStore, instanceId: "after-restart" },
+  );
+  assert.deepEqual(
+    (await afterRestart(query)).map((message) => message.id),
+    ["m2"],
+  );
+  assert.deepEqual(pageTokens, [undefined, undefined, "page-2"]);
+  await afterRestart.acknowledge?.("test_fixture_source");
 });
 
 test("createGmailFetchMessages: a later-page failure does not acknowledge earlier messages", async () => {
@@ -251,7 +327,7 @@ test("createGmailFetchMessages: a later-page failure does not acknowledge earlie
   const retry = await fetchMessages(query);
 
   assert.deepEqual(retry.map((message) => message.id), ["m1", "m2"]);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 });
 
 test("createGmailFetchMessages: provider page calls are capped and resume from continuation", async () => {
@@ -325,7 +401,7 @@ test("createGmailFetchMessages: provider page calls are capped and resume from c
   assert.deepEqual(first, []);
   assert.equal(calls, 5);
   assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), false);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
   const second = await fetchMessages({
     ...query,
     hints: { ...query.hints, scanStartedAt: "2026-07-03T08:00:00.000Z" },
@@ -335,7 +411,7 @@ test("createGmailFetchMessages: provider page calls are capped and resume from c
   assert.equal(calls, 6);
   assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), true);
   assert.equal(fetchMessages.lastCheckpointAt?.("test_fixture_source"), "2026-07-01T08:00:00.000Z");
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 });
 
 test("createGmailFetchMessages: rejects repeated provider page tokens", async () => {
@@ -381,7 +457,7 @@ test("createGmailFetchMessages: rejects page-token cycles that cross continuatio
   };
 
   await fetchMessages(query);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 
   await assert.rejects(fetchMessages(query), /repeated page token/);
 });
@@ -409,14 +485,14 @@ test("createGmailFetchMessages: a failed saved continuation restarts from the fi
   };
 
   await fetchMessages(query);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
   mode = "invalid";
   await assert.rejects(fetchMessages(query), /test_fixture_invalid_page_token/);
   mode = "restart";
   await fetchMessages(query);
 
   assert.deepEqual(tokens, [undefined, "page-2", "page-3", "page-4", "page-5", "page-6", undefined]);
-  fetchMessages.acknowledge?.("test_fixture_source");
+  await fetchMessages.acknowledge?.("test_fixture_source");
 });
 
 test("createBizBuySellAlertConnector: end-to-end fetch -> parse -> CaptureEnvelope, using the real parser by default", async () => {

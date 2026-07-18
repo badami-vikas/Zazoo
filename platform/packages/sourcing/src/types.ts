@@ -21,6 +21,8 @@ export interface SourceQuery {
 
 export interface CaptureEnvelope {
   sourceToolId: string;
+  /** Stable provider id when one exists; drives restart-safe ingestion dedupe. */
+  sourceRecordId?: string;
   tier: ConnectorTier;
   query: SourceQuery;
   payload: Record<string, unknown>;

@@ -4,8 +4,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- `main` and `origin/main` as of this package's creation: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`.
-- Updated 2026-07-18 after TASK-010's round-7 merge: `main` and `origin/main` are now `e532b158864ad870b8252912561d151f809398ef` (fast-forward from `631aa9f` through `d75d26f` TASK-003 certification and `e532b15` TASK-010 post-RM4 migration — see the landed-history table below for both).
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -26,6 +26,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `631aa9f` | Latest combined roadmap/provider documentation baseline. |
 | `d75d26f` | TASK-003 human physical-input certification merge (unrelated to red-flag work). |
 | `e532b15` | TASK-010 round-7 post-RM4 migration `0016_new_ink`: JobPilot flag backfill+constraint, owner-aware `memories` RLS, DB-backed `lineage_revision` wired end-to-end; merged fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback` after two intermediate `origin/main` merges (RM4, then the TASK-003 recovery/cert chain) reconciled surgically. |
+| `7f44186` | TASK-006 durable Local Plane, OS vault, OAuth, and desktop lifecycle integration under AP-045; final reviewed source was `adf6c95`. |
 
 ## Historical source branches
 
@@ -37,7 +38,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-009 planning source: `manishsbhoopalam8498-plan-second-brain-graph` at `3b51aaf`; handoff merged, no implementation branch.
 - TASK-010 prior clean pushed milestone: `24e4eab`; final round-7 head merged into `main` as `e532b15` (branch `manishsbhoopalam8498-platform-red-flag-feedback` remains at the same commit, pushed).
 - TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
-- TASK-006 durability commits: `91a0462` and `7f93f03`; later security/OAuth/desktop work remains uncommitted.
+- TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
+  implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
+  `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
+  Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
 
 ## Migration sequence
 
@@ -61,12 +65,17 @@ Next new migration allocates `0017`; do not reuse `0016`.
 - AP-037: Graph scope/Second Brain convergence.
 - AP-038: TASK-022.
 - AP-039: TASK-023.
+- AP-044: TASK-006 durability and OS credential vault; DealPilot ADRs are ADR-117–ADR-120 after
+  reconciling current `main`'s Relationship ADR-115/ADR-116.
+- AP-045: TASK-006 validated main integration.
 
 Known current branch-local collision:
 
 - TASK-022 output claims ADR-113.
 - TASK-023 candidate A output also claims ADR-113.
-- Current `main` ends with ADR-112 for RM4. During integration, assign distinct next-free ADRs and update every companion reference atomically.
+- Current `main` includes Relationship ADR-115/ADR-116. During later integration, assign distinct
+  next-free ADRs and update every companion reference atomically; TASK-006 has already reserved
+  ADR-117–ADR-120 on its ready branch.
 
 ## Central merge protocol
 
