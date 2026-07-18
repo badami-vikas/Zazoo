@@ -10,6 +10,7 @@ const settingsUrl = new URL("../src/app/pages/SettingsPage.tsx", import.meta.url
 const layoutUrl = new URL("../src/app/Layout.tsx", import.meta.url);
 const homeUrl = new URL("../src/app/pages/HomePage.tsx", import.meta.url);
 const commonsPanelUrl = new URL("../src/app/components/CommonsCapabilityPanel.tsx", import.meta.url);
+const uiDialogUrl = new URL("../src/app/components/ui/dialog.tsx", import.meta.url);
 
 async function loadQuestionsModule() {
   const source = await readFile(questionsUrl, "utf8");
@@ -104,6 +105,12 @@ test("multi-select onboarding choices stay editable until Continue commits them"
   assert.match(source, /answer\(question\.id, multiDrafts\[question\.id\] \?\? \[\]\)/);
   const toggleBody = source.match(/function toggleMulti[\s\S]*?\n  \}/)?.[0] ?? "";
   assert.doesNotMatch(toggleBody, /setAnswers/);
+});
+
+test("dialog overlay forwards the Radix Presence ref", async () => {
+  const source = await readFile(uiDialogUrl, "utf8");
+  assert.match(source, /const DialogOverlay = React\.forwardRef</);
+  assert.match(source, /<DialogPrimitive\.Overlay\s+ref=\{ref\}/);
 });
 
 test("onboarding persists the chosen Organization name and refreshes the shell", async () => {
