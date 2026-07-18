@@ -207,10 +207,10 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Trust labels propagate monotonically across retrieval, prompts, models, Skills, Actions, Events, Results, Files, storage, serialization, caches, queues, retries, and governed declassification.
 - Prototype test: A tainted source traverses an Agent/Skill/Automation path without losing or weakening its label; unknown labels fail closed; sink traces explain the decision; deterministic or Human-approved declassification is audited.
 - Scope: docs/raw/learning-agent-roadmap-2026-07.md RT0–RT4; docs/wiki/roadmap.md
-- Evidence: root gap recorded ADR-088
+- Evidence: root gap recorded ADR-088. Planning session (`docs/Progress from Manish/subagent-progress.md` TASK-015 row) confirmed this is not greenfield: PI-1/PI-2/PI-3 already ship a partial version — `TrustOrigin` 3-value tag (`packages/core/src/types.ts`), an equality-based tainted-egress gate (`packages/core/src/policy/taint-egress.ts`), and a quarantine `ContentGuard` (`packages/core/src/guard/content-guard.ts`). Concrete gaps a future RT0–RT4 implementation must close: `DomainEvent`/`events`/`signals`/`files` carry no taint field at all today; `SkillOutput`/`RitualStep` carry none, so an Automation/Ritual step seeded from a tainted Signal can silently lose its label; there is no lattice/join (today's check is a single equality test, not a monotonic combine); no sink registry or CI coverage gate; no declassification audit trail; `packages/sourcing/src/types.ts` hand-duplicates the `TrustOrigin` union instead of importing it (drift risk); cache/retry paths in `integrations-google` are untested for taint preservation. Post-TASK-007 landing, `ChildAgentRun.taint` (`packages/db/src/child-agent-run-store.ts`) already exists but is still typed as the legacy 3-value `TrustOrigin` — RT0's lattice must upgrade this field additively, not replace it out from under TASK-007's landed contract.
 - Requests: runtime taint directive 2026-07-14
 - Approval: AP-020 and AP-029 applied
-- Dependencies: TASK-007; TASK-012
+- Dependencies: TASK-007 (done); TASK-012 (still `ready` — remains the blocking gate; `ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types against vocabulary TASK-012 is about to rename)
 
 ## Database and migration correctness backlog
 - ID: TASK-016
