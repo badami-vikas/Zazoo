@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T12:26:39.632Z",
+  "generatedAt": "2026-07-18T12:44:07.984Z",
   "items": [
     {
       "id": "TASK-001",
@@ -741,12 +741,14 @@
         "developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk"
       ],
       "evidence": [
-        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns"
+        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns",
+        "follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone"
       ],
       "requests": [
-        "module instruction-file directive 2026-07-18"
+        "module instruction-file directive 2026-07-18",
+        "current-code pattern elaboration directive 2026-07-18"
       ],
-      "approval": "AP-040 applied",
+      "approval": "AP-040 and AP-041 applied",
       "dependencies": [],
       "canonicalStatus": "done",
       "sourceType": "task",

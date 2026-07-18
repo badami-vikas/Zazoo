@@ -1682,3 +1682,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Kept `CLAUDE.md` as the sole canonical instruction source; adapters carry only path-scoped invariants and links to current wiki/task authority. Calendar is intentionally excluded as a Module because TASK-014/ADR-108 define it as a View kind.
 - Recorded TASK-024, AP-040, and ADR-113; regenerated the 24-task projection. Instruction validation passed and `@bridge/web` passed 49/49 tests.
 - Durable outcome: `outputs/2026-07-18-module-copilot-instructions.md`.
+
+# 2026-07-18 — Module instruction current-code elaboration
+- Reviewed the current shared Module contract plus DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk implementations; expanded each existing adapter with its actual domain seams, trust boundaries, deterministic behavior, persistence/UI separation, migration cautions, and validation matrix.
+- Expanded shared path coverage to installable `bridge.package.yaml` manifests and the manifest-driven Module Detail page. Recorded the user-directed refinement as AP-041 on TASK-024 and regenerated the 24-task projection.
+- Validation: instruction structure/canonical pointers passed; parser 3/3; projection IDs/ranks/source metadata matched `docs/TASKS.md`; `git diff --check` passed. Direct web-data tests were dependency-blocked in the fresh clone (`react` absent); the initial 49/49 web result remains the latest runtime evidence and runtime code was unchanged.
+- Durable outcome: `outputs/2026-07-18-module-copilot-instructions.md`.

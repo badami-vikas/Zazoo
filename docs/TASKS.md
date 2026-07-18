@@ -364,8 +364,8 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.
 - Prototype test: Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.
 - Scope: `.github/instructions/module-development.instructions.md`; developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk
-- Evidence: user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns
-- Requests: module instruction-file directive 2026-07-18
-- Approval: AP-040 applied
+- Evidence: user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns; follow-up directive required each adapter to be elaborated from the corresponding current code rather than high-level design alone
+- Requests: module instruction-file directive 2026-07-18; current-code pattern elaboration directive 2026-07-18
+- Approval: AP-040 and AP-041 applied
 - Dependencies: none
-- Verification: 2026-07-18 all six instruction files passed frontmatter/canonical-pointer/path-glob validation; every adapter matched current implementation paths; the regenerated Task Manager projection contains all 24 canonical tasks; `@bridge/web` passed 49/49 tests.
+- Verification: 2026-07-18 initial six adapters passed frontmatter/canonical-pointer/path-glob validation; every adapter matched current implementation paths; the regenerated Task Manager projection contained all 24 canonical tasks; `@bridge/web` passed 49/49 tests. AP-041 follow-up expands each adapter from current implementation evidence; follow-up verification is recorded in `outputs/2026-07-18-module-copilot-instructions.md`.
