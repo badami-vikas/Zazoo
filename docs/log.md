@@ -1,10 +1,10 @@
 # Change Log
 
 - **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
-  fast-forwarding the fully validated durability/vault branch into `main`. Integration preserves
-  TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified OS/application Human
-  re-authentication as honest external blockers, retains TASK-010 migration `0016`, and adds no
-  TASK-006 numbered migration.
+  fast-forwarding the fully validated durability/vault branch into `main`; it landed at `7f44186`.
+  Integration preserves TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified
+  OS/application Human re-authentication as honest external blockers, retains TASK-010 migration
+  `0016`, and adds no TASK-006 numbered migration.
 
 - **2026-07-19** — **TASK-008 validated main integration authorized (AP-043)**: user approved merging the independently reviewed Relationship branch after its normal `origin/main` reconciliation and 910-test affected gate. Integration preserves TASK-008 as `in_progress`, adds no Relationship migration, and leaves TASK-010's `0016` unchanged.
 

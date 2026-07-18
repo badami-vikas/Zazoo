@@ -9,7 +9,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the recorded clean baseline `7f44186`.
+4. Fetch `origin/main` and compare it with the recorded clean baseline `5091dae`.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,10 +17,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- The last code baseline verified for this handoff is
-  `7f441869d1d4bc3ca92f0c62aeff655f23b998ad`, including TASK-006 durability, TASK-008 RM4, the
-  validated Relationship continuation, and TASK-010 migration `0016`. Always re-fetch before
-  resuming any worktree.
+- The latest `main` baseline merged for this handoff is
+  `5091dae3dee47a0fce57548136e0b83a3fbddca4`. It includes TASK-006 durability (landed at
+  `7f44186`), TASK-008 RM4, the validated Relationship continuation, and TASK-010 migration
+  `0016`. Always re-fetch before resuming any worktree.
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
@@ -34,8 +34,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
-  `2f85dc7` and final reviewed source head `adf6c95`. Live Google/BizBuySell and verified
-  OS/application re-authentication remain external, so canonical status stays `in_progress`.
+  `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
+  Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
+  status stays `in_progress`.
 - TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
   Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.

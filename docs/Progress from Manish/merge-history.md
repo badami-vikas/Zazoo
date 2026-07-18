@@ -4,8 +4,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- Last code baseline verified before this docs-only handoff:
-  `7f441869d1d4bc3ca92f0c62aeff655f23b998ad`.
+- Latest `main` baseline merged for this handoff:
+  `5091dae3dee47a0fce57548136e0b83a3fbddca4`.
+- TASK-006 code landed at `7f44186` under AP-045 after validating and normally merging base
+  `bab32ea`.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -30,8 +32,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `f409777` | TASK-008 context paths, Community composition, Memory/commitment/meeting flows, and double-consent Introduction snapshots through RM5. |
 | `71368fe` | TASK-008 central authority, privacy, durability, replay, datetime, transition-serialization, and pagination hardening. |
 | `905aee9` | Recorded AP-043 and the validated TASK-008 continuation integration; TASK-008 remains `in_progress` for Automations/RM6/evaluation. |
-| `adf6c95` | TASK-006 final reviewed durability/vault source; user-authorized AP-045 integration fast-forwarded its follow-up merge-ledger commit into `main`. |
-| `7f44186` | Current central baseline after TASK-006 durability merge; contains RM4 source `ff98c20` and TASK-008 continuation `905aee9`. |
+| `7f44186` | TASK-006 durable Local Plane, OS vault, OAuth, and desktop lifecycle integration under AP-045; final reviewed source was `adf6c95`. |
+| `5091dae` | Recorded the landed TASK-006 integration and refreshed its canonical resume evidence. |
 
 ## Historical source branches
 
@@ -50,7 +52,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
   `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
-  Merged into `main` on 2026-07-19 under AP-045; do not merge again.
+  Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
 
 ## Migration sequence
 

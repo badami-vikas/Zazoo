@@ -99,9 +99,9 @@ device evidence.
   after preserving the implementation. Relationship continuity changes and migration `0016`
   remain intact; TASK-006 adds no migration delta. Approval/ADR collisions were reconciled as
   AP-044 and ADR-117–ADR-120, and hardened PKCE/token-finalization won the OAuth code conflict.
-- The user then authorized main integration under AP-045. The validated branch is fast-forwarded
-  into `main` with TASK-006 still `in_progress`; no external provider or re-authentication evidence
-  is inferred from that integration.
+- The user then authorized main integration under AP-045. The validated branch landed at
+  `7f44186` with TASK-006 still `in_progress`; no external provider or re-authentication evidence is
+  inferred from that integration.
 - A live macOS keyring write/read/delete/missing round-trip passed with an ephemeral random value;
   the value was not printed or written to Bridge storage.
 - Real Chrome rendered `/dealpilot/sources` at 375x812 CSS pixels with an honest empty state and no
