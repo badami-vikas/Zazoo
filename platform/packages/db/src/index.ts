@@ -57,12 +57,20 @@ export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
 export {
   DrizzleGraphStore,
+  type ArchiveRelationshipRecordInput,
+  type CommunityDetail,
   type CommunityRecord,
+  type CreateCommunityInput,
+  type CreateInteractionInput,
+  type CreatePersonInput,
+  type DecisionProvenance,
+  type InteractionParticipantInput,
   type MaterializeSignalEvidenceInput,
   type NodeTypeOwner,
   type PageOpts,
   type Page,
   type PersonRecord,
+  type PersonDetail,
   type RelationCursor,
   type RelationPage,
   type RelationRecord,
@@ -71,6 +79,12 @@ export {
   type SignalEvidenceAnchor,
   type SignalParticipant,
   type SignalParticipantRelationInput,
+  type TimelineCursor,
+  type TimelineItem,
+  type TimelinePage,
+  type TimelineParticipant,
+  type UpdateCommunityInput,
+  type UpdatePersonInput,
   type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";

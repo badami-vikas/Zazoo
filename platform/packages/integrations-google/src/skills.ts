@@ -5,7 +5,7 @@
  *   - Source skills (external:fetch) READ from Google and CACHE raw bodies to the
  *     LOCAL BodyStore (capture ≠ commit; bodies are private, local-only). Their
  *     proposedOutput is a light manifest — the audit trail rides the LOCAL ledger.
- *   - Stage skill echoes a typed local-graph directive for review (touchpoint /
+ *   - Stage skill echoes a typed local-graph directive for review (Event /
  *     memory / signal / person). Materialization happens post-approval.
  *   - Compose skills VALIDATE an outbound envelope and return it as a draft —
  *     they DO NOT send. The real send/create runs in the EgressExecutor only after
@@ -19,7 +19,7 @@ import type { GoogleGatewayFactory } from "./gateway.js";
 export const SKILL_SOURCE_GMAIL = "google.sourceGmail";
 export const SKILL_SOURCE_CALENDAR = "google.sourceCalendar";
 /** Read-only projection: fetch full Calendar events for DISPLAY (no caching, no
- * Touchpoint proposals). Distinct from sourceCalendar, which feeds the graph. */
+ * Event proposals). Distinct from sourceCalendar, which feeds the graph. */
 export const SKILL_LIST_CALENDAR = "google.listCalendarEvents";
 export const SKILL_STAGE = "google.stage";
 export const SKILL_COMPOSE_EMAIL = "google.composeEmail";
@@ -146,7 +146,7 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
 
 /**
  * Read-only projection for the Calendar surface: fetch FULL events for display.
- * Unlike sourceCalendar it does not cache bodies or propose Touchpoints — it just
+ * Unlike sourceCalendar it does not cache bodies or propose Events — it just
  * returns events. Still an external:fetch (gated); the user's own view authorizes it.
  */
 function listCalendarSkill(deps: GoogleSkillDeps): Skill {

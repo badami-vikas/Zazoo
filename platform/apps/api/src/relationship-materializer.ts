@@ -6,6 +6,15 @@ import type {
   RelationRecord,
 } from "@bridge/db";
 import { z } from "zod";
+import {
+  isRelationshipMutation,
+  materializeRelationshipMutation,
+  type RelationshipMutationMaterialization,
+} from "./relationship-record-materializer.js";
+import {
+  isGoogleLinkedInteractionIntake,
+  materializeApprovedGoogleInteraction,
+} from "./relationship-intake-materializer.js";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
 
@@ -54,7 +63,9 @@ export interface RelationshipMaterialization {
 
 export interface RelationshipMaterializationEffectResult {
   effect: RelationMaterializationEffect;
-  materialization: RelationshipMaterialization | null;
+  materialization:
+    | RelationshipMaterialization
+    | RelationshipMutationMaterialization;
 }
 
 function nextRelationshipRetryAt(
@@ -251,13 +262,24 @@ export async function applyApprovedRelationshipMaterialization(
     throw new Error("Approved Relationship materialization attempt has no lease");
   }
   try {
-    const materialization = await materializeApprovedRelationshipProposal(
-      graphStore,
-      proposalFromResolvedRelationshipLedger(original, decision),
-      original,
-      decision,
-    );
-    if (!materialization) {
+    const isSignalEvidence = isRelationshipSignalEvidence(original.inputs);
+    const materialization = isSignalEvidence
+      ? await materializeApprovedRelationshipProposal(
+          graphStore,
+          proposalFromResolvedRelationshipLedger(original, decision),
+          original,
+          decision,
+        )
+      : isRelationshipMutation(original.inputs)
+        ? await materializeRelationshipMutation(graphStore, original, decision)
+        : isGoogleLinkedInteractionIntake(original.inputs)
+          ? await materializeApprovedGoogleInteraction(
+              graphStore,
+              original,
+              decision,
+            )
+        : null;
+    if (materialization === null) {
       throw new Error(
         "Approved proposal did not produce Relationship materialization",
       );
@@ -267,7 +289,9 @@ export async function applyApprovedRelationshipMaterialization(
       original.workspaceId,
       ownerUserId,
       leaseToken,
-      1 + materialization.participants.length,
+      isSignalEvidence
+        ? 1 + (materialization as RelationshipMaterialization).participants.length
+        : 1,
       attemptedAt,
     );
     return { effect, materialization };
@@ -322,8 +346,44 @@ export async function reconcileRetryableRelationshipMaterializations(
     ownerUserId,
     { limit, now: attemptedAt },
   );
+  const autoMutationIds =
+    await effectStore.listUnmaterializedAutoMutationIds(
+      workspaceId,
+      ownerUserId,
+      { limit },
+    );
+  discovered += autoMutationIds.length;
   let applied = 0;
   let failed = 0;
+  for (const proposalId of autoMutationIds) {
+    try {
+      const original = await ledger.get(proposalId);
+      if (
+        !original ||
+        original.workspaceId !== workspaceId ||
+        original.userDecision !== "auto" ||
+        !isRelationshipMutation(original.inputs)
+      ) {
+        throw new Error(
+          "Auto-applied Relationship materialization has no matching ledger resolution",
+        );
+      }
+      const materialization = await materializeRelationshipMutation(
+        graphStore,
+        original,
+        original,
+      );
+      if (materialization === null) {
+        throw new Error(
+          "Auto-applied Relationship proposal did not produce materialization",
+        );
+      }
+      applied += 1;
+    } catch (cause) {
+      failed += 1;
+      errors.push(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
   for (const effect of retryable) {
     try {
       const original = await ledger.get(effect.proposalLedgerId);
@@ -384,7 +444,7 @@ export async function reconcileRetryableRelationshipMaterializations(
   }
   return {
     discovered,
-    attempted: retryable.length,
+    attempted: autoMutationIds.length + retryable.length,
     applied,
     failed,
     errors,

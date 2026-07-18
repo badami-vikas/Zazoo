@@ -16,7 +16,7 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, notExists, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
@@ -86,24 +86,25 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
-function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
+function privateRelationshipOwnerScope(privateOwnerUserId: string | undefined) {
   if (!privateOwnerUserId) return undefined;
-  return or(
-    ne(ledger.resourceType, "relation"),
+  const ownerScope = or(
     and(
-      eq(ledger.resourceType, "relation"),
-      or(
-        and(
-          eq(ledger.onBehalfOfType, "user"),
-          eq(ledger.onBehalfOfId, privateOwnerUserId),
-        ),
-        and(
-          or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
-          eq(ledger.actorType, "user"),
-          eq(ledger.actorId, privateOwnerUserId),
-        ),
-      ),
+      eq(ledger.onBehalfOfType, "user"),
+      eq(ledger.onBehalfOfId, privateOwnerUserId),
     ),
+    and(
+      or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
+      eq(ledger.actorType, "user"),
+      eq(ledger.actorId, privateOwnerUserId),
+    ),
+  );
+  return or(
+    and(
+      notInArray(ledger.resourceType, ["relation", "person", "community", "event"]),
+      sql`${ledger.inputs}->'directive' IS NULL`,
+    ),
+    ownerScope,
   );
 }
 
@@ -286,7 +287,7 @@ export class DrizzleLedgerStore implements LedgerStore {
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateRelationshipOwnerScope(opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -318,7 +319,7 @@ export class DrizzleLedgerStore implements LedgerStore {
     this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateRelationshipOwnerScope(opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db

@@ -138,9 +138,9 @@ async function build(): Promise<{
 
   // Intake agent (local) — drafts graph proposals.
   agents.assumed.set(INTAKE_AGENT, "role-intake");
-  agents.scope.set(INTAKE_AGENT, ["touchpoint:write", "signal:write", "person:write"]);
+  agents.scope.set(INTAKE_AGENT, ["event:write", "signal:write", "person:write"]);
   roles.roleGrants.set("role-intake", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);

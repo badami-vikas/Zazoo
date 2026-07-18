@@ -137,9 +137,41 @@ test("Signal list Actions open evidence detail and preserve the list on row fail
   assert.match(signalsPage, /actionErrors\[s\.id\]/);
 });
 
-test("Relationship lists paginate through the complete accessible result set", () => {
+test("Relationship Record lists use bounded server search and pagination", () => {
   assert.match(pagination, /while \(true\)/);
-  assert.match(relationshipPage, /collectAllPages/);
+  assert.doesNotMatch(relationshipPage, /collectAllPages/);
+  assert.match(relationshipPage, /trpc\.relationship\.listPeople\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.listCommunities\.query/);
+  assert.match(relationshipPage, /setQuery\(search\.trim\(\)\)/);
+  assert.match(relationshipPage, /\.\.\.\(query \? \{ query \} : \{\}\)/);
+  assert.match(relationshipPage, /setOffset\(offset \+ 50\)/);
   assert.match(relationshipHelpdesk, /collectAllPages/);
   assert.match(signalsPage, /collectAllPages/);
+});
+
+test("Relationship Record detail has standard sections and governed Actions", () => {
+  assert.match(relationshipPage, /\{ id: "form", label: "Form"/);
+  assert.match(relationshipPage, /trpc\.relationship\.createPerson\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.createCommunity\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.updatePerson\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.updateCommunity\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.archivePerson\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.archiveCommunity\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.createInteraction\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.timeline\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.intakeReview\.query/);
+  assert.match(relationshipPage, /id="record-overview-title"/);
+  assert.match(relationshipPage, /id="record-timeline-title"/);
+  assert.match(relationshipPage, /id="record-sources-title"/);
+  assert.match(relationshipPage, /provenance\.decisionLedgerIds/);
+});
+
+test("Relationship forms and detail remain responsive and accessible", () => {
+  assert.match(relationshipPage, /grid grid-cols-1 gap-4 sm:grid-cols-2/);
+  assert.match(relationshipPage, /flex flex-col gap-4 sm:flex-row/);
+  assert.match(relationshipPage, /aria-labelledby="identity-review-title"/);
+  assert.match(relationshipPage, /aria-label="Event participants"/);
+  assert.match(relationshipPage, /role="status"/);
+  assert.match(relationshipPage, /role="alert"/);
+  assert.match(relationshipPage, /aria-expanded=\{editing\}/);
 });

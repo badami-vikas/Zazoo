@@ -1,7 +1,7 @@
 /**
  * Tool manifest (edges only) — mirrors the Tools-model net-new surface from
  * wiki/tools.md. Declares run modes, model bindings, capabilities (with the gate's
- * egress flags), the typed output_contract (vocabulary: Person/Memory/Touchpoint/
+ * egress flags), the typed output_contract (vocabulary: Person/Memory/Event/
  * Signal — never Lead/Deal/Contact) and the gated intake_policy.
  */
 export interface ToolCapability {
@@ -12,7 +12,7 @@ export interface ToolCapability {
 }
 export interface ToolOutputMapping {
   from: string;
-  to: "Person" | "Memory" | "Touchpoint" | "Signal" | "Initiative";
+  to: "Person" | "Memory" | "Event" | "Signal" | "Initiative";
   note?: string;
 }
 export interface ToolManifest {
@@ -41,15 +41,15 @@ export const GOOGLE_MANIFEST: ToolManifest = {
     // Outbound send/write through the gate — agent-floor DENY; human >= L2 only.
     { resourceType: "external:send", action: "share", dataScope: "public", egress: true },
     // Local-plane writes from intake proposals (draft-then-approve).
-    { resourceType: "touchpoint", action: "write", dataScope: "all", egress: false },
+    { resourceType: "event", action: "write", dataScope: "all", egress: false },
     { resourceType: "signal", action: "write", dataScope: "all", egress: false },
     // Counterparty identity — the only public/identity fact dual-written outward.
     { resourceType: "person", action: "write", dataScope: "public", egress: false },
   ],
   output_contract: [
-    { from: "gmail.thread", to: "Touchpoint", note: "kind=email; linked to the matched Person" },
+    { from: "gmail.thread", to: "Event", note: "kind=email; linked to the matched Person" },
     { from: "gmail.thread", to: "Memory", note: "thread summary + body (local only)" },
-    { from: "calendar.event", to: "Touchpoint", note: "kind=meeting" },
+    { from: "calendar.event", to: "Event", note: "kind=meeting" },
     { from: "gmail.sender|calendar.attendee", to: "Person", note: "new counterparty identity (public, dual-written)" },
     { from: "ambiguous.match", to: "Signal", note: "possible_duplicate — manual confirmation, never auto-linked" },
   ],

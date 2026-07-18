@@ -1442,3 +1442,476 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     await close();
   }
 });
+
+test("Relationship search escapes wildcards and clamps page bounds", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_search_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    await db.insert(schema.people).values([
+      ...Array.from({ length: 103 }, (_, index) => ({
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: `Bounded Person ${String(index).padStart(3, "0")}`,
+        ...(index < 3
+          ? { emailsOverride: ["ambiguous-intake@example.com"] }
+          : {}),
+      })),
+      {
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: "Literal 100% Match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+      {
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: "Literal 100X Match",
+      },
+      {
+        workspaceId,
+        userId: otherUser.id,
+        visibility: "private",
+        fullNameOverride: "Hidden email match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+    ]);
+    const store = new DrizzleGraphStore(db);
+
+    const bounded = await store.listPeople(workspaceId, userId, {
+      limit: 1_000,
+      offset: -50,
+    });
+    assert.equal(bounded.items.length, 100);
+    assert.equal(bounded.total, 105);
+
+    const literalPercent = await store.listPeople(workspaceId, userId, {
+      limit: 50,
+      offset: 0,
+      query: "%",
+    });
+    assert.equal(literalPercent.total, 1);
+    assert.equal(literalPercent.items[0]?.displayName, "Literal 100% Match");
+    const exactEmail = await store.findPeopleByEmail(
+      workspaceId,
+      userId,
+      " INTAKE-MATCH@example.com ",
+    );
+    assert.deepEqual(
+      exactEmail.map((person) => person.displayName),
+      ["Literal 100% Match"],
+      "exact intake matching prunes another owner's private Person",
+    );
+    assert.equal(
+      (
+        await store.findPeopleByEmail(
+          workspaceId,
+          userId,
+          "ambiguous-intake@example.com",
+          50,
+        )
+      ).length,
+      2,
+      "identity ambiguity detection remains bounded",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship lifecycle is owner-only, decision-provenanced, and archive-idempotent", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_lifecycle_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const store = new DrizzleGraphStore(db);
+    const personId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const staleUpdateDecisionId = randomUUID();
+    const ordinaryInteractionId = randomUUID();
+    const laggingUpdateDecisionId = randomUUID();
+    const staleArchiveDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+    const archivedUpdateDecisionId = randomUUID();
+    const archivedRetryDecisionId = randomUUID();
+
+    const created = await store.createPerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Lifecycle Person",
+      currentTitle: "Builder",
+      bio: "Inspectably governed.",
+      emails: ["LIFECYCLE@example.com", "lifecycle@example.com"],
+      visibility: "workspace",
+      source: "user",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T10:00:00.000Z"),
+    });
+    assert.equal(created.ownerUserId, ownerUserId);
+    assert.deepEqual(created.emails, ["lifecycle@example.com"]);
+    assert.equal((await store.getPerson(workspaceId, viewer.id, personId))?.isOwner, false);
+
+    const deniedUpdate = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId: viewer.id,
+      displayName: "Unauthorized rename",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:00.000Z"),
+    });
+    assert.equal(deniedUpdate, null);
+    const deniedArchive = await store.archivePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId: viewer.id,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    assert.equal(deniedArchive, false);
+
+    const updated = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Lifecycle Person Updated",
+      visibility: "private",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T10:03:00.000Z"),
+    });
+    assert.equal(updated?.displayName, "Lifecycle Person Updated");
+    assert.equal(await store.getPerson(workspaceId, viewer.id, personId), null);
+    const staleReplay = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Stale replay must not win",
+      decisionLedgerId: staleUpdateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:30.000Z"),
+    });
+    assert.equal(
+      staleReplay?.displayName,
+      "Lifecycle Person Updated",
+      "an older durable effect cannot overwrite a newer Record decision",
+    );
+    await store.createInteraction({
+      id: ordinaryInteractionId,
+      workspaceId,
+      ownerUserId,
+      kind: "person_updated",
+      occurredAt: new Date("2026-07-18T10:02:00.000Z"),
+      summary: "Ordinary meeting after the queued Record update",
+      source: "user",
+      visibility: "private",
+      participants: [{ recordType: "person", recordId: personId }],
+      decisionLedgerId: ordinaryInteractionId,
+      decisionSequence: 6,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    const laggingUpdate = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      currentTitle: "Recovered after meeting",
+      decisionLedgerId: laggingUpdateDecisionId,
+      decisionSequence: 5,
+      decisionAt: new Date("2026-07-18T10:01:45.000Z"),
+    });
+    assert.equal(
+      laggingUpdate?.currentTitle,
+      "Recovered after meeting",
+      "even a colliding Interaction kind cannot supersede a delayed Record mutation",
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: staleArchiveDecisionId,
+        decisionSequence: 3,
+        decisionAt: new Date("2026-07-18T10:02:30.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      (await store.getPerson(workspaceId, ownerUserId, personId))?.displayName,
+      "Lifecycle Person Updated",
+      "an older archive cannot erase a newer Record decision",
+    );
+
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.updatePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        displayName: "Archived Record must stay archived",
+        decisionLedgerId: archivedUpdateDecisionId,
+        decisionSequence: 8,
+        decisionAt: new Date("2026-07-18T10:05:00.000Z"),
+      }),
+      null,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archivedRetryDecisionId,
+        decisionSequence: 9,
+        decisionAt: new Date("2026-07-18T10:06:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(await store.getPerson(workspaceId, ownerUserId, personId), null);
+
+    const lifecycleEvents = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "interaction"));
+    assert.deepEqual(
+      lifecycleEvents.map((event) => event.id).sort(),
+      [
+        archiveDecisionId,
+        createDecisionId,
+        laggingUpdateDecisionId,
+        ordinaryInteractionId,
+        updateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      lifecycleEvents.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return payload.decisionLedgerId === event.id;
+      }),
+    );
+    assert.equal(
+      (lifecycleEvents.find((event) => event.id === ordinaryInteractionId)?.payload as
+        | Record<string, unknown>
+        | undefined)?.recordMutationLifecycle,
+      undefined,
+    );
+    assert.ok(
+      lifecycleEvents
+        .filter((event) => event.id !== ordinaryInteractionId)
+        .every(
+          (event) =>
+            (event.payload as Record<string, unknown>).recordMutationLifecycle === true,
+        ),
+    );
+    const skippedReceipts = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "materialization_receipt"));
+    assert.deepEqual(
+      skippedReceipts.map((event) => event.id).sort(),
+      [
+        archivedRetryDecisionId,
+        archivedUpdateDecisionId,
+        staleArchiveDecisionId,
+        staleUpdateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      skippedReceipts.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return (
+          payload.outcome === "skipped" &&
+          (payload.reason === "record_archived" ||
+            payload.reason === "superseded_by_newer_decision")
+        );
+      }),
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Interaction participants drive one bounded Timeline with pruned provenance", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_timeline_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const [person, privatePerson] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Timeline Person",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "private",
+          fullNameOverride: "Private Timeline Person",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        workspaceId,
+        userId: ownerUserId,
+        visibility: "workspace",
+        nameOverride: "Timeline Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(person);
+    assert.ok(privatePerson);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    const visibleEventIds = [randomUUID(), randomUUID()];
+    const visibleDecisionIds = [randomUUID(), randomUUID()];
+
+    for (const [index, id] of visibleEventIds.entries()) {
+      const item = await store.createInteraction({
+        id,
+        workspaceId,
+        ownerUserId,
+        kind: index === 0 ? "meeting" : "email",
+        occurredAt: new Date(
+          index === 0
+            ? "2026-07-18T11:00:00.000Z"
+            : "2026-07-18T10:00:00.000Z",
+        ),
+        summary: index === 0 ? "Met at the community office." : "Sent a follow-up.",
+        source: index === 0 ? "calendar" : "gmail",
+        sourceRecordId: `source-${index}`,
+        visibility: "workspace",
+        participants: [
+          { recordType: "person", recordId: person.id, role: "attendee" },
+          { recordType: "community", recordId: community.id, role: "host" },
+        ],
+        decisionLedgerId: visibleDecisionIds[index]!,
+        decisionSequence: index + 1,
+        decisionAt: new Date(`2026-07-18T1${index}:01:00.000Z`),
+      });
+      assert.equal(item.participants.length, 2);
+      assert.deepEqual(item.provenance.decisionLedgerIds, [visibleDecisionIds[index]]);
+      assert.deepEqual(item.provenance.evidenceRefs, [
+        { entityType: "event", entityId: id, source: index === 0 ? "calendar" : "gmail" },
+      ]);
+    }
+    const personAfterInteractions = await store.getPerson(
+      workspaceId,
+      ownerUserId,
+      person.id,
+    );
+    assert.equal(
+      personAfterInteractions?.lastInteractionAt?.toISOString(),
+      "2026-07-18T11:00:00.000Z",
+      "the latest real Interaction advances Person freshness",
+    );
+    const privateEventId = randomUUID();
+    await store.createInteraction({
+      id: privateEventId,
+      workspaceId,
+      ownerUserId,
+      kind: "note",
+      occurredAt: new Date("2026-07-18T12:00:00.000Z"),
+      summary: "Private participant context.",
+      source: "capture",
+      visibility: "workspace",
+      participants: [
+        { recordType: "community", recordId: community.id },
+        { recordType: "person", recordId: privatePerson.id },
+      ],
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T12:01:00.000Z"),
+    });
+
+    const firstPage = await store.listTimeline(
+      workspaceId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1 },
+    );
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(
+      firstPage.items[0]?.id,
+      visibleEventIds[0],
+      "Timeline order follows occurrence time, not insertion time",
+    );
+    assert.ok(firstPage.nextCursor);
+    const secondPage = await store.listTimeline(
+      workspaceId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1, cursor: firstPage.nextCursor },
+    );
+    assert.equal(secondPage.items.length, 1);
+    assert.equal(secondPage.nextCursor, null);
+    assert.deepEqual(
+      new Set([...firstPage.items, ...secondPage.items].map((item) => item.id)),
+      new Set(visibleEventIds),
+    );
+    assert.ok(
+      [...firstPage.items, ...secondPage.items].every((item) =>
+        item.participants.every((participant) => participant.recordId !== privatePerson.id),
+      ),
+    );
+
+    const ownerTimeline = await store.listTimeline(
+      workspaceId,
+      ownerUserId,
+      "community",
+      community.id,
+      { limit: 100 },
+    );
+    assert.equal(ownerTimeline.items.length, 3);
+    assert.equal(ownerTimeline.nextCursor, null);
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.visibility,
+      "private",
+    );
+  } finally {
+    await close();
+  }
+});

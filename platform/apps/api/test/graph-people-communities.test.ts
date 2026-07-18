@@ -28,6 +28,7 @@ import {
 } from "@bridge/core";
 import { makeContextFactory } from "../src/context.js";
 import { reconcileWorkspaceRelationshipMaterializations } from "../src/relationship-materializer.js";
+import { materializeRelationshipMutation } from "../src/relationship-record-materializer.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_WORKSPACE, PILOT_USER, type Wiring } from "../src/wiring.js";
 
@@ -256,17 +257,17 @@ test("graph.listPeople: paginates people under the pilot workspace", async () =>
     wiring = await buildWiring();
     const caller = await makeCaller(wiring);
 
-    const page = await caller.graph.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 0 });
+    const page = await caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 0 });
     assert.equal(page.items.length, 2);
     assert.equal(page.total, FIXTURE_COUNT);
     assert.equal(page.hasMore, true);
 
-    const lastPage = await caller.graph.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 4 });
+    const lastPage = await caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 4 });
     assert.equal(lastPage.items.length, 1);
     assert.equal(lastPage.hasMore, false);
 
     await assert.rejects(() =>
-      caller.graph.listPeople({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
+      caller.relationship.listPeople({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
     );
   } finally {
     if (wiring) await wiring.close();
@@ -280,7 +281,7 @@ test("Relationship private reads reject an unverified pilot fallback", async () 
   try {
     const caller = await makeAnonymousVerifiedCaller(wiring);
     await assert.rejects(
-      () => caller.graph.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
+      () => caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
       /UNAUTHORIZED|authentication required/,
     );
   } finally {
@@ -313,7 +314,7 @@ test("Relationship private reads accept a verified bearer through the real API c
     assert.equal(context.reauthenticatedAt, passwordAuthenticatedAt * 1_000);
 
     const caller = appRouter.createCaller(context);
-    const page = await caller.graph.listPeople({
+    const page = await caller.relationship.listPeople({
       workspaceId: PILOT_WORKSPACE,
       limit: 10,
       offset: 0,
@@ -417,17 +418,17 @@ test("graph.listCommunities: paginates communities under the pilot workspace", a
     wiring = await buildWiring();
     const caller = await makeCaller(wiring);
 
-    const page = await caller.graph.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 0 });
+    const page = await caller.relationship.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 0 });
     assert.equal(page.items.length, 3);
     assert.equal(page.total, FIXTURE_COUNT);
     assert.equal(page.hasMore, true);
 
-    const lastPage = await caller.graph.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 3 });
+    const lastPage = await caller.relationship.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 3 });
     assert.equal(lastPage.items.length, 2);
     assert.equal(lastPage.hasMore, false);
 
     await assert.rejects(() =>
-      caller.graph.listCommunities({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
+      caller.relationship.listCommunities({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
     );
   } finally {
     if (wiring) await wiring.close();
@@ -1398,6 +1399,751 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
         limit: 10,
       });
     assert.equal(recoveredSource.items[0]?.dstId, fixture.newerEventId);
+  } finally {
+    if (wiring) await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;
+    else process.env.BRIDGE_LOCAL_DIR = prior;
+  }
+});
+
+test("Relationship Record and Interaction writes stay governed and owner-bound", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-relationship-record-api-test-"));
+  const fixture = await seedFixtures(dir);
+  const prior = process.env.BRIDGE_LOCAL_DIR;
+  process.env.BRIDGE_LOCAL_DIR = dir;
+  let wiring: Wiring | undefined;
+  try {
+    wiring = await buildWiring();
+    const caller = await makeCaller(wiring);
+    const otherMemberCaller = await makeCaller(wiring, {
+      type: "user",
+      id: fixture.otherMemberId,
+    });
+
+    const personCreated = await caller.relationship.createPerson({
+      workspaceId: PILOT_WORKSPACE,
+      values: {
+        displayName: "Governed Person",
+        currentTitle: "Operator",
+        bio: "Created through the Action Pipeline.",
+        emails: ["governed-person@example.com"],
+        visibility: "workspace",
+      },
+    });
+    assert.equal(personCreated.proposal.status, "applied");
+    assert.equal(personCreated.materialization.status, "applied");
+    const personId = personCreated.proposal.request.resourceId;
+    assert.ok(personId);
+    const person = await caller.relationship.getPerson({
+      workspaceId: PILOT_WORKSPACE,
+      id: personId,
+    });
+    assert.ok(person);
+    assert.equal(person.displayName, "Governed Person");
+    assert.equal(person.isOwner, true);
+
+    const communityCreated = await caller.relationship.createCommunity({
+      workspaceId: PILOT_WORKSPACE,
+      values: {
+        displayName: "Governed Community",
+        description: "A real governed Community.",
+        kind: "network",
+        visibility: "workspace",
+      },
+    });
+    assert.equal(communityCreated.materialization.status, "applied");
+    const communityId = communityCreated.proposal.request.resourceId;
+    assert.ok(communityId);
+    const community = await caller.relationship.getCommunity({
+      workspaceId: PILOT_WORKSPACE,
+      id: communityId,
+    });
+    assert.ok(community);
+
+    await assert.rejects(
+      () =>
+        otherMemberCaller.relationship.updatePerson({
+          workspaceId: PILOT_WORKSPACE,
+          id: person.id,
+          values: { displayName: "Unauthorized rename" },
+        }),
+      /NOT_FOUND|Person not found/,
+    );
+    await assert.rejects(
+      () =>
+        otherMemberCaller.relationship.archiveCommunity({
+          workspaceId: PILOT_WORKSPACE,
+          id: community.id,
+        }),
+      /NOT_FOUND|Community not found/,
+    );
+
+    const updateProposalId = "72000000-0000-4000-8000-000000000001";
+    await wiring.ledger.append({
+      id: updateProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "write",
+      resourceType: "person",
+      resourceId: person.id,
+      inputs: {
+        kind: "relationship_record_mutation",
+        recordType: "person",
+        operation: "update",
+        recordId: person.id,
+        values: { currentTitle: "Updated through review" },
+      },
+      proposedOutput: {
+        kind: "relationship_record_mutation",
+        recordType: "person",
+        operation: "update",
+        recordId: person.id,
+        values: { currentTitle: "Updated through review" },
+      },
+      userDecision: null,
+      policyResults: [{
+        policyId: "test-fixture-relationship-human-review",
+        phase: "pre",
+        effect: "require_approval",
+        reason: "Exercise the Human review path.",
+      }],
+      seed: person.id,
+      dataScope: "private",
+      createdAt: "2026-07-18T14:00:00.000Z",
+    });
+    await assert.rejects(
+      () =>
+        caller.action.decide({
+          proposalId: updateProposalId,
+          decision: "edit",
+          editedOutput: {
+            kind: "relationship_record_mutation",
+            recordType: "person",
+            operation: "update",
+            recordId: fixture.personId,
+            values: { currentTitle: "Retargeted" },
+          },
+        }),
+      /cannot retarget|target/i,
+    );
+    assert.equal(
+      (await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: person.id,
+      }))?.currentTitle,
+      "Operator",
+    );
+    await caller.action.decide({
+      proposalId: updateProposalId,
+      decision: "approve",
+    });
+    assert.equal(
+      (await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: person.id,
+      }))?.currentTitle,
+      "Updated through review",
+    );
+
+    const interactionCreated = await caller.relationship.createInteraction({
+      workspaceId: PILOT_WORKSPACE,
+      values: {
+        kind: "meeting",
+        occurredAt: "2026-07-18T15:00:00.000Z",
+        summary: "Created an RM1-RM2 Interaction.",
+        visibility: "workspace",
+        participants: [
+          { recordType: "person", recordId: person.id, role: "attendee" },
+          { recordType: "community", recordId: community.id, role: "host" },
+        ],
+      },
+    });
+    assert.equal(interactionCreated.proposal.status, "applied");
+    assert.equal(interactionCreated.materialization.status, "applied");
+
+    const reviewedEventId = "72000000-0000-4000-8000-000000000002";
+    const interactionProposalId = "72000000-0000-4000-8000-000000000003";
+    await wiring.ledger.append({
+      id: interactionProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      resourceId: reviewedEventId,
+      inputs: {
+        kind: "relationship_interaction_create",
+        recordId: reviewedEventId,
+        values: {
+          kind: "meeting",
+          occurredAt: "2026-07-18T15:30:00.000Z",
+          summary: "Reviewed an RM1-RM2 Interaction.",
+          source: "user",
+          sourceRecordId: "local-user-entry",
+          visibility: "workspace",
+          participants: [
+            { recordType: "person", recordId: person.id, role: "attendee" },
+            { recordType: "community", recordId: community.id, role: "host" },
+          ],
+        },
+      },
+      proposedOutput: {
+        kind: "relationship_interaction_create",
+        recordId: reviewedEventId,
+        values: {
+          kind: "meeting",
+          occurredAt: "2026-07-18T15:30:00.000Z",
+          summary: "Reviewed an RM1-RM2 Interaction.",
+          source: "user",
+          sourceRecordId: "local-user-entry",
+          visibility: "workspace",
+          participants: [
+            { recordType: "person", recordId: person.id, role: "attendee" },
+            { recordType: "community", recordId: community.id, role: "host" },
+          ],
+        },
+      },
+      userDecision: null,
+      policyResults: [{
+        policyId: "test-fixture-relationship-human-review",
+        phase: "pre",
+        effect: "require_approval",
+        reason: "Exercise the Human review path.",
+      }],
+      seed: reviewedEventId,
+      dataScope: "private",
+      createdAt: "2026-07-18T15:31:00.000Z",
+    });
+    await assert.rejects(
+      () =>
+        caller.action.decide({
+          proposalId: interactionProposalId,
+          decision: "edit",
+          editedOutput: {
+            kind: "relationship_interaction_create",
+            recordId: reviewedEventId,
+            values: {
+              kind: "meeting",
+              occurredAt: "2026-07-18T15:30:00.000Z",
+              summary: "Reviewed an RM1-RM2 Interaction.",
+              source: "gmail",
+              sourceRecordId: "local-user-entry",
+              visibility: "workspace",
+              participants: [
+                { recordType: "person", recordId: person.id, role: "attendee" },
+                { recordType: "community", recordId: community.id, role: "host" },
+              ],
+            },
+          },
+        }),
+      /cannot change Interaction source provenance|immutable/i,
+    );
+    await caller.action.decide({
+      proposalId: interactionProposalId,
+      decision: "approve",
+    });
+    const personTimeline = await caller.relationship.timeline({
+      workspaceId: PILOT_WORKSPACE,
+      recordType: "person",
+      recordId: person.id,
+      limit: 50,
+    });
+    const interaction = personTimeline.items.find(
+      (item) => item.id === reviewedEventId,
+    );
+    assert.ok(interaction);
+    assert.equal(interaction.source, "user");
+    assert.equal(interaction.participants.length, 2);
+    assert.ok(interaction.provenance.decisionLedgerIds.length > 0);
+
+    const googleEventId = "72000000-0000-4000-8000-000000000004";
+    const googleProposalId = "72000000-0000-4000-8000-000000000005";
+    const googleDirective = {
+      entities: [{
+        localId: googleEventId,
+        kind: "event",
+        personId: person.id,
+        payload: {
+          interactionKind: "email",
+          subject: "Approved Gmail follow-up",
+          occurredAt: "2026-07-18T15:45:00.000Z",
+          snippet: "Private source text stays in the Local Plane.",
+        },
+        source: "gmail",
+        sourceRecordId: "gmail-thread-1",
+      }],
+      external: [{
+        source: "gmail",
+        sourceRecordId: "gmail-thread-1",
+        entityType: "event",
+      }],
+    };
+    await wiring.ledger.append({
+      id: googleProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: { directive: googleDirective },
+      proposedOutput: { directive: googleDirective },
+      userDecision: null,
+      policyResults: [{
+        policyId: "test-fixture-google-intake-review",
+        phase: "pre",
+        effect: "require_approval",
+        reason: "Exercise approved Gmail Timeline intake.",
+      }],
+      seed: "gmail:gmail-thread-1",
+      dataScope: "private",
+      trustOrigin: "untrusted_external",
+      createdAt: "2026-07-18T15:46:00.000Z",
+    });
+    await assert.rejects(
+      () =>
+        caller.action.decide({
+          proposalId: googleProposalId,
+          decision: "edit",
+          editedOutput: {
+            directive: {
+              ...googleDirective,
+              entities: [{
+                ...googleDirective.entities[0],
+                personId: fixture.personId,
+              }],
+            },
+          },
+        }),
+      /cannot retarget the participant or source Event/i,
+    );
+    const googleApproved = await caller.action.decide({
+      proposalId: googleProposalId,
+      decision: "approve",
+    });
+    assert.ok("relationshipMaterialization" in googleApproved);
+    assert.equal(
+      googleApproved.relationshipMaterialization?.status,
+      "confirmed",
+    );
+    const timelineWithGoogle = await caller.relationship.timeline({
+      workspaceId: PILOT_WORKSPACE,
+      recordType: "person",
+      recordId: person.id,
+      limit: 50,
+    });
+    const googleInteraction = timelineWithGoogle.items.find(
+      (item) => item.id === googleEventId,
+    );
+    assert.ok(googleInteraction);
+    assert.equal(googleInteraction.source, "gmail");
+    assert.equal(googleInteraction.summary, "Approved Gmail follow-up");
+    assert.deepEqual(
+      googleInteraction.provenance.evidenceRefs,
+      [{ entityType: "event", entityId: googleEventId, source: "gmail" }],
+    );
+
+    const calendarEventId = "72000000-0000-4000-8000-000000000008";
+    const calendarProposalId = "72000000-0000-4000-8000-000000000009";
+    const calendarDecisionId = "72000000-0000-4000-8000-000000000010";
+    const calendarDirective = {
+      entities: [{
+        localId: calendarEventId,
+        kind: "event",
+        personId: person.id,
+        payload: {
+          interactionKind: "meeting",
+          subject: "Recovered Calendar meeting",
+          occurredAt: "2026-07-18T15:47:00.000Z",
+        },
+        source: "google-calendar",
+        sourceRecordId: "calendar-event-1",
+      }],
+      external: [{
+        source: "google-calendar",
+        sourceRecordId: "calendar-event-1",
+        entityType: "event",
+      }],
+    };
+    await wiring.ledger.append({
+      id: calendarProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: { directive: calendarDirective },
+      proposedOutput: { directive: calendarDirective },
+      userDecision: null,
+      policyResults: [],
+      dataScope: "private",
+      createdAt: "2026-07-18T15:47:30.000Z",
+    });
+    await wiring.ledger.append({
+      id: calendarDecisionId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: { directive: calendarDirective },
+      proposedOutput: { directive: calendarDirective },
+      userDecision: "approve",
+      refLedgerId: calendarProposalId,
+      policyResults: [],
+      dataScope: "private",
+      createdAt: "2026-07-18T15:48:00.000Z",
+    });
+    const recoveredCalendar =
+      await reconcileWorkspaceRelationshipMaterializations(
+        wiring.graphStore,
+        wiring.relationMaterializations,
+        wiring.ledger,
+        PILOT_WORKSPACE,
+        new Date("2026-07-18T15:49:00.000Z"),
+      );
+    assert.equal(recoveredCalendar.applied, 1);
+    assert.ok(
+      (
+        await caller.relationship.timeline({
+          workspaceId: PILOT_WORKSPACE,
+          recordType: "person",
+          recordId: person.id,
+          limit: 50,
+        })
+      ).items.some((item) => item.id === calendarEventId),
+      "startup reconciliation recovers an approved Calendar Event",
+    );
+
+    const recoveredPersonId = "72000000-0000-4000-8000-000000000006";
+    const recoveredProposalId = "72000000-0000-4000-8000-000000000007";
+    const recoveredPayload = {
+      kind: "relationship_record_mutation",
+      recordType: "person",
+      operation: "create",
+      recordId: recoveredPersonId,
+      values: {
+        displayName: "Recovered Person",
+        emails: ["recovered-person@example.com"],
+        visibility: "private",
+      },
+    };
+    await wiring.ledger.append({
+      id: recoveredProposalId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "write",
+      resourceType: "person",
+      resourceId: recoveredPersonId,
+      inputs: recoveredPayload,
+      proposedOutput: recoveredPayload,
+      userDecision: "auto",
+      policyResults: [],
+      seed: recoveredPersonId,
+      dataScope: "private",
+      createdAt: "2026-07-18T15:50:00.000Z",
+    });
+    const recovered = await reconcileWorkspaceRelationshipMaterializations(
+      wiring.graphStore,
+      wiring.relationMaterializations,
+      wiring.ledger,
+      PILOT_WORKSPACE,
+      new Date("2026-07-18T15:51:00.000Z"),
+    );
+    assert.equal(recovered.applied, 1);
+    assert.equal(
+      (await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: recoveredPersonId,
+      }))?.displayName,
+      "Recovered Person",
+      "startup reconciliation recovers an auto-applied ledger row after response loss",
+    );
+    const repeatedRecovery = await reconcileWorkspaceRelationshipMaterializations(
+      wiring.graphStore,
+      wiring.relationMaterializations,
+      wiring.ledger,
+      PILOT_WORKSPACE,
+      new Date("2026-07-18T15:52:00.000Z"),
+    );
+    assert.equal(repeatedRecovery.attempted, 0);
+
+    const staleUpdateId = "72000000-0000-4000-8000-000000000011";
+    const newestUpdateId = "72000000-0000-4000-8000-000000000012";
+    const staleUpdatePayload = {
+      kind: "relationship_record_mutation",
+      recordType: "person",
+      operation: "update",
+      recordId: recoveredPersonId,
+      values: { displayName: "Stale recovered update" },
+    };
+    const newestUpdatePayload = {
+      ...staleUpdatePayload,
+      values: { displayName: "Newest recovered update" },
+    };
+    for (const [id, payload, createdAt] of [
+      [staleUpdateId, staleUpdatePayload, "2026-07-18T15:53:00.000Z"],
+      [newestUpdateId, newestUpdatePayload, "2026-07-18T15:54:00.000Z"],
+    ] as const) {
+      await wiring.ledger.append({
+        id,
+        workspaceId: PILOT_WORKSPACE,
+        actorType: "user",
+        actorId: PILOT_USER,
+        action: "write",
+        resourceType: "person",
+        resourceId: recoveredPersonId,
+        inputs: payload,
+        proposedOutput: payload,
+        userDecision: "auto",
+        policyResults: [],
+        seed: recoveredPersonId,
+        dataScope: "private",
+        createdAt,
+      });
+    }
+    const newestUpdate = await wiring.ledger.get(newestUpdateId);
+    assert.ok(newestUpdate);
+    await materializeRelationshipMutation(
+      wiring.graphStore,
+      newestUpdate,
+      newestUpdate,
+    );
+    const staleRecovery = await reconcileWorkspaceRelationshipMaterializations(
+      wiring.graphStore,
+      wiring.relationMaterializations,
+      wiring.ledger,
+      PILOT_WORKSPACE,
+      new Date("2026-07-18T15:55:00.000Z"),
+    );
+    assert.equal(staleRecovery.attempted, 1);
+    assert.equal(staleRecovery.applied, 1);
+    assert.equal(
+      (await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: recoveredPersonId,
+      }))?.displayName,
+      "Newest recovered update",
+    );
+    assert.equal(
+      (
+        await reconcileWorkspaceRelationshipMaterializations(
+          wiring.graphStore,
+          wiring.relationMaterializations,
+          wiring.ledger,
+          PILOT_WORKSPACE,
+          new Date("2026-07-18T15:56:00.000Z"),
+        )
+      ).attempted,
+      0,
+      "a stale auto mutation writes a durable skip receipt and is not retried forever",
+    );
+
+    const archived = await caller.relationship.archivePerson({
+      workspaceId: PILOT_WORKSPACE,
+      id: person.id,
+    });
+    assert.equal(archived.proposal.status, "applied");
+    assert.equal(archived.materialization.status, "applied");
+    assert.equal(
+      await caller.relationship.getPerson({
+        workspaceId: PILOT_WORKSPACE,
+        id: person.id,
+      }),
+      null,
+    );
+    const archivedRetryId = "72000000-0000-4000-8000-000000000013";
+    const archivedRetryPayload = {
+      kind: "relationship_record_mutation",
+      recordType: "person",
+      operation: "archive",
+      recordId: person.id,
+    };
+    await wiring.ledger.append({
+      id: archivedRetryId,
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "user",
+      actorId: PILOT_USER,
+      action: "archive",
+      resourceType: "person",
+      resourceId: person.id,
+      inputs: archivedRetryPayload,
+      proposedOutput: archivedRetryPayload,
+      userDecision: "auto",
+      policyResults: [],
+      seed: person.id,
+      dataScope: "private",
+      createdAt: "2026-07-18T15:57:00.000Z",
+    });
+    assert.equal(
+      (
+        await reconcileWorkspaceRelationshipMaterializations(
+          wiring.graphStore,
+          wiring.relationMaterializations,
+          wiring.ledger,
+          PILOT_WORKSPACE,
+          new Date("2026-07-18T15:58:00.000Z"),
+        )
+      ).applied,
+      1,
+    );
+    assert.equal(
+      (
+        await reconcileWorkspaceRelationshipMaterializations(
+          wiring.graphStore,
+          wiring.relationMaterializations,
+          wiring.ledger,
+          PILOT_WORKSPACE,
+          new Date("2026-07-18T15:59:00.000Z"),
+        )
+      ).attempted,
+      0,
+      "an already-archived auto mutation writes a durable skip receipt",
+    );
+  } finally {
+    if (wiring) await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;
+    else process.env.BRIDGE_LOCAL_DIR = prior;
+  }
+});
+
+test("Relationship intake review is bounded, owner-scoped, and content-sanitized", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-relationship-intake-review-test-"));
+  const fixture = await seedFixtures(dir);
+  const prior = process.env.BRIDGE_LOCAL_DIR;
+  process.env.BRIDGE_LOCAL_DIR = dir;
+  let wiring: Wiring | undefined;
+  try {
+    wiring = await buildWiring();
+    const now = "2026-07-18T16:00:00.000Z";
+    await wiring.ledger.append({
+      id: "71000000-0000-4000-8000-000000000001",
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: {
+        directive: {
+          external: [{
+            source: "google:gmail",
+            subject: "SECRET SUBJECT MUST NOT LEAK",
+            body: "SECRET BODY MUST NOT LEAK",
+          }],
+          entities: [{
+            kind: "signal",
+            payload: {
+              type: "possible_duplicate",
+              email: "candidate@example.com",
+              reason: "Two accessible Person candidates share this address.",
+              candidates: [
+                { id: fixture.personId, name: "Candidate Person" },
+                { id: "not-a-uuid", name: "Invalid candidate" },
+              ],
+            },
+          }],
+        },
+        display: { channel: "Email", resource: "Candidate message" },
+      },
+      proposedOutput: { rawBody: "SECRET OUTPUT MUST NOT LEAK" },
+      userDecision: null,
+      policyResults: [],
+      dataScope: "private",
+      createdAt: now,
+    });
+    await wiring.ledger.append({
+      id: "71000000-0000-4000-8000-000000000002",
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: PILOT_USER,
+      action: "write",
+      resourceType: "event",
+      inputs: {
+        local_media_id: "local-media-1",
+        kind: "photo",
+        caption: "SECRET CAPTION MUST NOT LEAK",
+        ocrText: "SECRET OCR MUST NOT LEAK",
+      },
+      proposedOutput: { text: "SECRET CAPTURE OUTPUT MUST NOT LEAK" },
+      userDecision: null,
+      policyResults: [],
+      dataScope: "private",
+      createdAt: "2026-07-18T16:01:00.000Z",
+    });
+    await wiring.ledger.append({
+      id: "71000000-0000-4000-8000-000000000003",
+      workspaceId: PILOT_WORKSPACE,
+      actorType: "agent",
+      actorId: "b0000000-0000-4000-a000-0000000000e2",
+      onBehalfOfType: "user",
+      onBehalfOfId: fixture.otherMemberId,
+      action: "write",
+      resourceType: "event",
+      inputs: {
+        local_media_id: "other-owner-media",
+        kind: "photo",
+        caption: "OTHER OWNER SECRET",
+      },
+      userDecision: null,
+      policyResults: [],
+      dataScope: "private",
+      createdAt: "2026-07-18T16:02:00.000Z",
+    });
+
+    const caller = await makeCaller(wiring);
+    const firstPage = await caller.relationship.intakeReview({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 1,
+      offset: 0,
+    });
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(firstPage.scanned, 1);
+    assert.equal(firstPage.hasMore, true);
+    assert.equal(firstPage.nextOffset, 1);
+    const secondPage = await caller.relationship.intakeReview({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 1,
+      offset: firstPage.nextOffset!,
+    });
+    const items = [...firstPage.items, ...secondPage.items];
+    assert.deepEqual(new Set(items.map((item) => item.source)), new Set(["capture", "gmail"]));
+    const gmail = items.find((item) => item.source === "gmail");
+    assert.equal(gmail?.match, "ambiguous");
+    assert.equal(gmail?.candidateEmail, "candidate@example.com");
+    assert.deepEqual(gmail?.candidates, [{ id: fixture.personId, name: "Candidate Person" }]);
+    const serialized = JSON.stringify(items);
+    for (const secret of [
+      "SECRET SUBJECT",
+      "SECRET BODY",
+      "SECRET OUTPUT",
+      "SECRET CAPTION",
+      "SECRET OCR",
+      "OTHER OWNER SECRET",
+    ]) {
+      assert.equal(serialized.includes(secret), false);
+    }
+
+    const anonymous = await makeAnonymousVerifiedCaller(wiring);
+    await assert.rejects(
+      () =>
+        anonymous.relationship.intakeReview({
+          workspaceId: PILOT_WORKSPACE,
+          limit: 10,
+          offset: 0,
+        }),
+      /UNAUTHORIZED|authentication required/,
+    );
   } finally {
     if (wiring) await wiring.close();
     if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;

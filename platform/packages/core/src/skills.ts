@@ -12,7 +12,7 @@ interface CaptureInputs {
   kind?: "photo" | "video";
   caption?: string;
   ocrText?: string;
-  link?: { type: "person" | "memory" | "touchpoint"; id: string };
+  link?: { type: "person" | "memory" | "event"; id: string };
   signal?: string;
   candidate?: string;
 }
@@ -38,7 +38,7 @@ export const stageCapture: Skill = {
     const text = `Captured a ${noun}${i.caption ? ` — ${i.caption}` : ""}`;
     return {
       proposedOutput: {
-        type: "touchpoint",
+        type: "event",
         text,
         local_media_id: i.local_media_id,
         ...(i.ocrText ? { notes: i.ocrText } : {}),

@@ -1,14 +1,7 @@
 /**
- * DrizzleGraphStore — READ-only surface for Bridge's core vocabulary nouns
- * (Initiative/Touchpoint/Signal/Person/Community) that had zero tRPC coverage
- * (frontend-migration-scoping.md Phase 3). WRITES to `initiatives`/`touchpoints`
- * already flow through the governed pipeline generically (`action.propose` with
- * `resourceType: "initiative" | "touchpoint"`, see router.ts's `resourceTypeEnum`)
- * — this store exists only because the pipeline has no query-back path, the same
- * reason `dealpilot.list`/`integration.list` needed their own read stores.
- * `listPeople`/`listCommunities` were added later (KnowledgeBasePage's People/
- * Communities tabs) to the same store rather than a new one, since it's already
- * the generic home for workspace-scoped node reads.
+ * DrizzleGraphStore — bounded Relationship Record/Relation/Event access over the
+ * existing shared graph tables. Mutating methods are called only after the
+ * Universal Action Pipeline has applied a Human request or recorded approval.
  *
  * `signal_actions` (act/dismiss/save) is the one exception: it's the user's
  * reaction bookkeeping to a Signal, not a mutation of Person/Relationship data,
@@ -58,6 +51,8 @@ export interface RelationPage {
 export interface PersonRecord {
   id: string;
   workspaceId: string;
+  ownerUserId: string;
+  isOwner: boolean;
   visibility: string;
   displayName: string | null;
   currentTitle: string | null;
@@ -71,12 +66,140 @@ export interface PersonRecord {
 export interface CommunityRecord {
   id: string;
   workspaceId: string;
+  ownerUserId: string;
+  isOwner: boolean;
   visibility: string;
   displayName: string | null;
   description: string | null;
   kind: string | null;
   source: string;
   isUserConfirmed: boolean;
+  memberCount: number;
+}
+
+export interface PersonDetail extends PersonRecord {
+  bio: string | null;
+  avatarUrl: string | null;
+  emails: string[];
+}
+
+export interface CommunityDetail extends CommunityRecord {}
+
+export type RelationshipRecordVisibility = "private" | "workspace";
+
+export interface DecisionProvenance {
+  decisionLedgerId: string;
+  decisionSequence: number;
+  decisionAt: Date;
+}
+
+export interface CreatePersonInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  displayName: string;
+  currentTitle?: string | null;
+  bio?: string | null;
+  emails?: string[];
+  visibility: RelationshipRecordVisibility;
+  source: string;
+}
+
+export interface UpdatePersonInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  displayName?: string;
+  currentTitle?: string | null;
+  bio?: string | null;
+  emails?: string[];
+  visibility?: RelationshipRecordVisibility;
+}
+
+export interface CreateCommunityInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  displayName: string;
+  description?: string | null;
+  kind?: string | null;
+  visibility: RelationshipRecordVisibility;
+  source: string;
+}
+
+export interface UpdateCommunityInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  displayName?: string;
+  description?: string | null;
+  kind?: string | null;
+  visibility?: RelationshipRecordVisibility;
+}
+
+export interface ArchiveRelationshipRecordInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+}
+
+export interface InteractionParticipantInput {
+  recordType: "person" | "community";
+  recordId: string;
+  role?: string;
+  attendanceState?: string;
+}
+
+export interface CreateInteractionInput extends DecisionProvenance {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  kind: string;
+  occurredAt: Date;
+  summary: string;
+  source: string;
+  sourceRecordId?: string | null;
+  visibility: RelationshipRecordVisibility;
+  participants: InteractionParticipantInput[];
+  updatesPersonFreshness?: boolean;
+}
+
+export interface TimelineCursor {
+  occurredAt: Date;
+  id: string;
+}
+
+export interface TimelineParticipant {
+  relationId: string;
+  recordType: "person" | "community";
+  recordId: string;
+  displayName: string | null;
+  role: string | null;
+  attendanceState: string | null;
+}
+
+export interface TimelineItem {
+  id: string;
+  type: string;
+  kind: string;
+  summary: string | null;
+  source: string;
+  sourceRecordId: string | null;
+  visibility: RelationVisibility;
+  occurredAt: Date;
+  createdAt: Date;
+  participants: TimelineParticipant[];
+  provenance: {
+    eventId: string;
+    relationIds: string[];
+    evidenceRefs: RelationEvidenceRef[];
+    decisionLedgerIds: string[];
+  };
+}
+
+export interface TimelinePage {
+  items: TimelineItem[];
+  nextCursor: TimelineCursor | null;
 }
 
 export interface SignalParticipant {
@@ -124,6 +247,9 @@ export interface UpsertRelationInput {
   visibility: RelationVisibility;
   source: string;
   sourceModule: string;
+  decisionLedgerId?: string;
+  decisionSequence?: number;
+  decisionAt?: Date;
 }
 
 export interface SignalParticipantRelationInput {
@@ -164,6 +290,12 @@ const MAX_RELATION_EVIDENCE_REFS = 100;
 const MAX_RELATION_PAGE_SIZE = 100;
 const MAX_SIGNAL_RELATIONS = 200;
 const MAX_BATCH_NODE_REFS = 10_000;
+const MAX_TIMELINE_PAGE_SIZE = 50;
+const MAX_INTERACTION_PARTICIPANTS = 100;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 function compareRelationPreference(
   left: RelationRecord,
@@ -253,6 +385,57 @@ function assertRelationInput(input: UpsertRelationInput): void {
   if (input.validFrom && input.validTo && input.validTo < input.validFrom) {
     throw new Error("Relation validTo cannot precede validFrom");
   }
+  const hasDecisionProvenance =
+    input.decisionLedgerId !== undefined ||
+    input.decisionSequence !== undefined ||
+    input.decisionAt !== undefined;
+  if (
+    hasDecisionProvenance &&
+    (
+      !input.decisionLedgerId ||
+      !UUID_PATTERN.test(input.decisionLedgerId) ||
+      !Number.isSafeInteger(input.decisionSequence) ||
+      (input.decisionSequence ?? 0) < 0 ||
+      !input.decisionAt ||
+      Number.isNaN(input.decisionAt.getTime())
+    )
+  ) {
+    throw new Error("Relation decision provenance must include a ledger UUID, sequence, and timestamp");
+  }
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+}
+
+function payloadString(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function payloadDate(
+  payload: Record<string, unknown>,
+  key: string,
+  fallback: Date,
+): Date {
+  const value = payloadString(payload, key);
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function normalizeEmails(values: string[] | undefined): string[] {
+  if (!values) return [];
+  return [...new Set(
+    values
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  )];
 }
 
 function sourceEventIdFromPayload(payload: unknown): string | null {
@@ -497,7 +680,15 @@ export class DrizzleGraphStore {
     if (nodeType === "signal") return (await this.#getAccessibleSignal(workspaceId, viewerUserId, nodeId)) !== null;
     if (nodeType === "event") {
       const event = await this.getEvent(workspaceId, nodeId);
-      if (!event || event.entityType !== "signal") return false;
+      if (!event) return false;
+      if (event.entityType === "interaction") {
+        const payload = payloadRecord(event.payload);
+        return (
+          payloadString(payload, "ownerUserId") === viewerUserId ||
+          payloadString(payload, "visibility") === "workspace"
+        );
+      }
+      if (event.entityType !== "signal") return false;
       return (await this.#getAccessibleSignal(workspaceId, viewerUserId, event.entityId)) !== null;
     }
     return false;
@@ -577,41 +768,52 @@ export class DrizzleGraphStore {
       OR (${nodeType} = 'event' AND EXISTS (
         SELECT 1
         FROM "events" AS "relation_event"
-        JOIN "signals" AS "relation_event_signal"
+        LEFT JOIN "signals" AS "relation_event_signal"
           ON "relation_event_signal"."workspace_id" = "relation_event"."workspace_id"
          AND "relation_event_signal"."id" = "relation_event"."entity_id"
         WHERE "relation_event"."workspace_id" = ${workspaceId}
           AND "relation_event"."id" = ${nodeId}
-          AND "relation_event"."entity_type" = 'signal'
           AND (
-            ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
-              SELECT 1
-              FROM "people" AS "relation_event_person"
-              WHERE "relation_event_person"."workspace_id" = ${workspaceId}
-                AND "relation_event_person"."id" = "relation_event_signal"."subject_id"
-                AND "relation_event_person"."archived_at" IS NULL
-                AND (
-                  "relation_event_person"."visibility" = 'workspace'
-                  OR (
-                    "relation_event_person"."visibility" IN ('private', 'team')
-                    AND "relation_event_person"."user_id" = ${viewerUserId}
-                  )
-                )
-            ))
-            OR ("relation_event_signal"."subject_type" = 'community' AND EXISTS (
-              SELECT 1
-              FROM "communities" AS "relation_event_community"
-              WHERE "relation_event_community"."workspace_id" = ${workspaceId}
-                AND "relation_event_community"."id" = "relation_event_signal"."subject_id"
-                AND "relation_event_community"."archived_at" IS NULL
-                AND (
-                  "relation_event_community"."visibility" = 'workspace'
-                  OR (
-                    "relation_event_community"."visibility" IN ('private', 'team')
-                    AND "relation_event_community"."user_id" = ${viewerUserId}
-                  )
-                )
-            ))
+            (
+              "relation_event"."entity_type" = 'interaction'
+              AND (
+                "relation_event"."payload" ->> 'ownerUserId' = ${viewerUserId}
+                OR "relation_event"."payload" ->> 'visibility' = 'workspace'
+              )
+            )
+            OR (
+              "relation_event"."entity_type" = 'signal'
+              AND (
+                ("relation_event_signal"."subject_type" = 'person' AND EXISTS (
+                  SELECT 1
+                  FROM "people" AS "relation_event_person"
+                  WHERE "relation_event_person"."workspace_id" = ${workspaceId}
+                    AND "relation_event_person"."id" = "relation_event_signal"."subject_id"
+                    AND "relation_event_person"."archived_at" IS NULL
+                    AND (
+                      "relation_event_person"."visibility" = 'workspace'
+                      OR (
+                        "relation_event_person"."visibility" IN ('private', 'team')
+                        AND "relation_event_person"."user_id" = ${viewerUserId}
+                      )
+                    )
+                ))
+                OR ("relation_event_signal"."subject_type" = 'community' AND EXISTS (
+                  SELECT 1
+                  FROM "communities" AS "relation_event_community"
+                  WHERE "relation_event_community"."workspace_id" = ${workspaceId}
+                    AND "relation_event_community"."id" = "relation_event_signal"."subject_id"
+                    AND "relation_event_community"."archived_at" IS NULL
+                    AND (
+                      "relation_event_community"."visibility" = 'workspace'
+                      OR (
+                        "relation_event_community"."visibility" IN ('private', 'team')
+                        AND "relation_event_community"."user_id" = ${viewerUserId}
+                      )
+                    )
+                ))
+              )
+            )
           )
       ))
     )`;
@@ -890,6 +1092,8 @@ export class DrizzleGraphStore {
             .select({
               id: people.id,
               workspaceId: people.workspaceId,
+              ownerUserId: people.userId,
+              isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
               visibility: people.visibility,
               displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
               currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
@@ -924,12 +1128,15 @@ export class DrizzleGraphStore {
             .select({
               id: communities.id,
               workspaceId: communities.workspaceId,
+              ownerUserId: communities.userId,
+              isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
               visibility: communities.visibility,
               displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
               description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
               kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
               source: communities.source,
               isUserConfirmed: communities.isUserConfirmed,
+              memberCount: sql<number>`0`,
             })
             .from(communities)
             .leftJoin(
@@ -970,7 +1177,7 @@ export class DrizzleGraphStore {
         : this.#db
             .select({ id: events.id })
             .from(events)
-            .innerJoin(
+            .leftJoin(
               signals,
               and(
                 eq(signals.workspaceId, events.workspaceId),
@@ -981,10 +1188,21 @@ export class DrizzleGraphStore {
               and(
                 eq(events.workspaceId, workspaceId),
                 inArray(events.id, [...grouped.event]),
-                eq(events.entityType, "signal"),
-                this.#readableSignalSubjectCondition(
-                  workspaceId,
-                  viewerUserId,
+                or(
+                  and(
+                    eq(events.entityType, "interaction"),
+                    sql<boolean>`(
+                      ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
+                      OR ${events.payload} ->> 'visibility' = 'workspace'
+                    )`,
+                  ),
+                  and(
+                    eq(events.entityType, "signal"),
+                    this.#readableSignalSubjectCondition(
+                      workspaceId,
+                      viewerUserId,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1227,6 +1445,9 @@ export class DrizzleGraphStore {
         visibility: relationInput.visibility,
         source: relationInput.source.trim(),
         sourceModule: relationInput.sourceModule.trim(),
+        decisionLedgerId: relationInput.decisionLedgerId ?? null,
+        decisionSequence: relationInput.decisionSequence ?? null,
+        decisionAt: relationInput.decisionAt ?? null,
       })
       .onConflictDoUpdate({
         target: [
@@ -1258,6 +1479,9 @@ export class DrizzleGraphStore {
           visibility: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."visibility" ELSE ${edges.visibility} END`,
           source: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."source" ELSE ${edges.source} END`,
           sourceModule: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."source_module" ELSE ${edges.sourceModule} END`,
+          decisionLedgerId: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_ledger_id" ELSE ${edges.decisionLedgerId} END`,
+          decisionSequence: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_sequence" ELSE ${edges.decisionSequence} END`,
+          decisionAt: sql`CASE WHEN ${edges.decisionAt} IS NULL THEN excluded."decision_at" ELSE ${edges.decisionAt} END`,
         },
       })
       .returning();
@@ -1701,13 +1925,23 @@ export class DrizzleGraphStore {
     };
   }
 
-  async listPeople(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<PersonRecord>> {
+  async listPeople(
+    workspaceId: string,
+    viewerUserId: string,
+    opts: PageOpts & { query?: string },
+  ): Promise<Page<PersonRecord>> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.listPeople(workspaceId, viewerUserId, opts),
       );
     }
-    const where = and(
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = Math.max(0, opts.offset);
+    const query = opts.query?.trim().slice(0, 120);
+    const pattern = query
+      ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
+      : null;
+    const readable = and(
       eq(people.workspaceId, workspaceId),
       or(
         eq(people.visibility, "workspace"),
@@ -1718,11 +1952,22 @@ export class DrizzleGraphStore {
       ),
       isNull(people.archivedAt),
     );
+    const where = and(
+      readable,
+      pattern
+        ? sql<boolean>`(
+            coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle}, '') ILIKE ${pattern} ESCAPE '!'
+          )`
+        : undefined,
+    );
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select({
           id: people.id,
           workspaceId: people.workspaceId,
+          ownerUserId: people.userId,
+          isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
           visibility: people.visibility,
           displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
           currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
@@ -1735,15 +1980,26 @@ export class DrizzleGraphStore {
         .from(people)
         .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
         .where(where)
-        .orderBy(desc(people.createdAt))
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(people).where(where),
+        .orderBy(
+          sql`lower(coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName}, ''))`,
+          people.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(people)
+        .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+        .where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getPerson(workspaceId: string, viewerUserId: string, id: string): Promise<PersonRecord | null> {
+  async getPerson(
+    workspaceId: string,
+    viewerUserId: string,
+    id: string,
+  ): Promise<PersonDetail | null> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.getPerson(workspaceId, viewerUserId, id),
@@ -1753,6 +2009,8 @@ export class DrizzleGraphStore {
       .select({
         id: people.id,
         workspaceId: people.workspaceId,
+        ownerUserId: people.userId,
+        isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
         visibility: people.visibility,
         displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
         currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
@@ -1761,6 +2019,9 @@ export class DrizzleGraphStore {
         lastInteractionAt: people.lastInteractionAt,
         contextFreshnessAt: people.contextFreshnessAt,
         createdAt: people.createdAt,
+        bio: sql<string | null>`coalesce(${people.bioOverride}, ${peopleCanonical.bio})`,
+        avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
+        emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
       })
       .from(people)
       .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
@@ -1782,15 +2043,80 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
-  // `communities` has no `createdAt` column (unlike `people`/`initiatives`/`signals`),
-  // so pagination orders by `id` for a stable (if arbitrary) row order instead.
-  async listCommunities(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<CommunityRecord>> {
+  async findPeopleByEmail(
+    workspaceId: string,
+    viewerUserId: string,
+    email: string,
+    limit = 2,
+  ): Promise<PersonDetail[]> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.findPeopleByEmail(workspaceId, viewerUserId, email, limit),
+      );
+    }
+    const normalizedEmail = email.trim().toLowerCase().slice(0, 320);
+    if (!normalizedEmail) return [];
+    return this.#db
+      .select({
+        id: people.id,
+        workspaceId: people.workspaceId,
+        ownerUserId: people.userId,
+        isOwner: sql<boolean>`${people.userId} = ${viewerUserId}`,
+        visibility: people.visibility,
+        displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
+        currentTitle: sql<string | null>`coalesce(${people.currentTitleOverride}, ${peopleCanonical.currentTitle})`,
+        currentCommunityId: people.currentCommunityId,
+        source: people.source,
+        lastInteractionAt: people.lastInteractionAt,
+        contextFreshnessAt: people.contextFreshnessAt,
+        createdAt: people.createdAt,
+        bio: sql<string | null>`coalesce(${people.bioOverride}, ${peopleCanonical.bio})`,
+        avatarUrl: sql<string | null>`coalesce(${people.avatarUrlOverride}, ${peopleCanonical.avatarUrl})`,
+        emails: sql<string[]>`coalesce(${people.emailsOverride}, ${peopleCanonical.emails}, ARRAY[]::text[])`,
+      })
+      .from(people)
+      .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+      .where(and(
+        eq(people.workspaceId, workspaceId),
+        or(
+          eq(people.visibility, "workspace"),
+          and(
+            or(eq(people.visibility, "private"), eq(people.visibility, "team")),
+            eq(people.userId, viewerUserId),
+          ),
+        ),
+        isNull(people.archivedAt),
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM unnest(coalesce(
+            ${people.emailsOverride},
+            ${peopleCanonical.emails},
+            ARRAY[]::text[]
+          )) AS visible_email
+          WHERE lower(trim(visible_email)) = ${normalizedEmail}
+        )`,
+      ))
+      .orderBy(people.id)
+      .limit(clamp(limit, 1, 2));
+  }
+
+  async listCommunities(
+    workspaceId: string,
+    viewerUserId: string,
+    opts: PageOpts & { query?: string },
+  ): Promise<Page<CommunityRecord>> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.listCommunities(workspaceId, viewerUserId, opts),
       );
     }
-    const where = and(
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = Math.max(0, opts.offset);
+    const query = opts.query?.trim().slice(0, 120);
+    const pattern = query
+      ? `%${query.replace(/[!%_]/g, (value) => `!${value}`)}%`
+      : null;
+    const readable = and(
       eq(communities.workspaceId, workspaceId),
       or(
         eq(communities.visibility, "workspace"),
@@ -1801,30 +2127,69 @@ export class DrizzleGraphStore {
       ),
       isNull(communities.archivedAt),
     );
+    const where = and(
+      readable,
+      pattern
+        ? sql<boolean>`(
+            coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, '') ILIKE ${pattern} ESCAPE '!'
+            OR coalesce(${communities.kind}, ${communitiesCanonical.kind}, '') ILIKE ${pattern} ESCAPE '!'
+          )`
+        : undefined,
+    );
+    const memberCount = sql<number>`(
+      SELECT count(*)::int
+      FROM "community_members" AS "visible_community_member"
+      JOIN "people" AS "visible_community_person"
+        ON "visible_community_person"."id" = "visible_community_member"."person_id"
+      WHERE "visible_community_person"."workspace_id" = ${workspaceId}
+        AND "visible_community_member"."community_id" = ${communities.id}
+        AND "visible_community_person"."archived_at" IS NULL
+        AND (
+          "visible_community_person"."visibility" = 'workspace'
+          OR (
+            "visible_community_person"."visibility" IN ('private', 'team')
+            AND "visible_community_person"."user_id" = ${viewerUserId}
+          )
+        )
+    )`;
     const [rows, totalRows] = await Promise.all([
       this.#db
         .select({
           id: communities.id,
           workspaceId: communities.workspaceId,
+          ownerUserId: communities.userId,
+          isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
           visibility: communities.visibility,
           displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
           description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
           kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
           source: communities.source,
           isUserConfirmed: communities.isUserConfirmed,
+          memberCount,
         })
         .from(communities)
         .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
         .where(where)
-        .orderBy(communities.id)
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(communities).where(where),
+        .orderBy(
+          sql`lower(coalesce(${communities.nameOverride}, ${communitiesCanonical.name}, ''))`,
+          communities.id,
+        )
+        .limit(limit)
+        .offset(offset),
+      this.#db
+        .select({ value: count() })
+        .from(communities)
+        .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
+        .where(where),
     ]);
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async getCommunity(workspaceId: string, viewerUserId: string, id: string): Promise<CommunityRecord | null> {
+  async getCommunity(
+    workspaceId: string,
+    viewerUserId: string,
+    id: string,
+  ): Promise<CommunityDetail | null> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.getCommunity(workspaceId, viewerUserId, id),
@@ -1834,12 +2199,30 @@ export class DrizzleGraphStore {
       .select({
         id: communities.id,
         workspaceId: communities.workspaceId,
+        ownerUserId: communities.userId,
+        isOwner: sql<boolean>`${communities.userId} = ${viewerUserId}`,
         visibility: communities.visibility,
         displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
         description: sql<string | null>`coalesce(${communities.descriptionOverride}, ${communitiesCanonical.description})`,
         kind: sql<string | null>`coalesce(${communities.kind}, ${communitiesCanonical.kind})`,
         source: communities.source,
         isUserConfirmed: communities.isUserConfirmed,
+        memberCount: sql<number>`(
+          SELECT count(*)::int
+          FROM "community_members" AS "visible_community_member"
+          JOIN "people" AS "visible_community_person"
+            ON "visible_community_person"."id" = "visible_community_member"."person_id"
+          WHERE "visible_community_person"."workspace_id" = ${workspaceId}
+            AND "visible_community_member"."community_id" = ${communities.id}
+            AND "visible_community_person"."archived_at" IS NULL
+            AND (
+              "visible_community_person"."visibility" = 'workspace'
+              OR (
+                "visible_community_person"."visibility" IN ('private', 'team')
+                AND "visible_community_person"."user_id" = ${viewerUserId}
+              )
+            )
+        )`,
       })
       .from(communities)
       .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
@@ -1859,6 +2242,832 @@ export class DrizzleGraphStore {
       )
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  async createPerson(input: CreatePersonInput): Promise<PersonDetail> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.createPerson(input),
+      );
+    }
+    const emails = normalizeEmails(input.emails);
+    await this.#db
+      .insert(peopleCanonical)
+      .values({
+        id: input.id,
+        fullName: input.displayName.trim(),
+        preferredName: input.displayName.trim(),
+        currentTitle: input.currentTitle?.trim() || null,
+        bio: input.bio?.trim() || null,
+        emails,
+      })
+      .onConflictDoNothing();
+    await this.#db
+      .insert(people)
+      .values({
+        id: input.id,
+        workspaceId: input.workspaceId,
+        userId: input.ownerUserId,
+        canonicalPersonId: input.id,
+        visibility: input.visibility,
+        fullNameOverride: input.displayName.trim(),
+        currentTitleOverride: input.currentTitle?.trim() || null,
+        bioOverride: input.bio?.trim() || null,
+        emailsOverride: emails,
+        source: input.source.trim(),
+      })
+      .onConflictDoNothing();
+    const person = await this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+    if (!person || person.ownerUserId !== input.ownerUserId) {
+      throw new Error("Person create did not materialize an owner-readable Record");
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "created",
+      displayName: person.displayName,
+    });
+    return person;
+  }
+
+  async updatePerson(input: UpdatePersonInput): Promise<PersonDetail | null> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.updatePerson(input),
+      );
+    }
+    const values: Partial<typeof people.$inferInsert> = {};
+    if (input.displayName !== undefined) values.fullNameOverride = input.displayName.trim();
+    if (input.currentTitle !== undefined) values.currentTitleOverride = input.currentTitle?.trim() || null;
+    if (input.bio !== undefined) values.bioOverride = input.bio?.trim() || null;
+    if (input.emails !== undefined) values.emailsOverride = normalizeEmails(input.emails);
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (Object.keys(values).length === 0) throw new Error("Person update requires at least one field");
+    const locked = await this.#db
+      .select({ id: people.id, archivedAt: people.archivedAt })
+      .from(people)
+      .where(and(
+        eq(people.workspaceId, input.workspaceId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+      ))
+      .for("update", { of: people })
+      .limit(1);
+    if (!locked[0]) return null;
+    if (locked[0].archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "update",
+        reason: "record_archived",
+      });
+      return null;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.workspaceId,
+        input.ownerUserId,
+        "person",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "update",
+        reason: "superseded_by_newer_decision",
+      });
+      return this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+    }
+    const rows = await this.#db
+      .update(people)
+      .set(values)
+      .where(and(
+        eq(people.workspaceId, input.workspaceId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+        isNull(people.archivedAt),
+      ))
+      .returning();
+    if (!rows[0]) return null;
+    const person = await this.getPerson(input.workspaceId, input.ownerUserId, input.id);
+    if (!person) throw new Error("Updated Person became unreadable");
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "updated",
+      displayName: person.displayName,
+      visibility: person.visibility === "workspace" ? "workspace" : "private",
+    });
+    return person;
+  }
+
+  async archivePerson(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.archivePerson(input),
+      );
+    }
+    const [existing] = await this.#db
+      .select({
+        id: people.id,
+        archivedAt: people.archivedAt,
+        visibility: people.visibility,
+        displayName: sql<string | null>`coalesce(${people.fullNameOverride}, ${peopleCanonical.preferredName}, ${peopleCanonical.fullName})`,
+      })
+      .from(people)
+      .leftJoin(peopleCanonical, eq(people.canonicalPersonId, peopleCanonical.id))
+      .where(and(
+        eq(people.workspaceId, input.workspaceId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+      ))
+      .for("update", { of: people })
+      .limit(1);
+    if (!existing) return false;
+    if (existing.archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "archive",
+        reason: "record_archived",
+      });
+      return true;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.workspaceId,
+        input.ownerUserId,
+        "person",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "person",
+        operation: "archive",
+        reason: "superseded_by_newer_decision",
+      });
+      return true;
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "person",
+      operation: "archived",
+      displayName: existing.displayName,
+      visibility: existing.visibility === "workspace" ? "workspace" : "private",
+    });
+    const rows = await this.#db
+      .update(people)
+      .set({ archivedAt: input.decisionAt })
+      .where(and(
+        eq(people.workspaceId, input.workspaceId),
+        eq(people.id, input.id),
+        eq(people.userId, input.ownerUserId),
+        isNull(people.archivedAt),
+      ))
+      .returning();
+    return rows.length === 1;
+  }
+
+  async createCommunity(input: CreateCommunityInput): Promise<CommunityDetail> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.createCommunity(input),
+      );
+    }
+    await this.#db
+      .insert(communitiesCanonical)
+      .values({
+        id: input.id,
+        name: input.displayName.trim(),
+        description: input.description?.trim() || null,
+        kind: input.kind?.trim() || null,
+      })
+      .onConflictDoNothing();
+    await this.#db
+      .insert(communities)
+      .values({
+        id: input.id,
+        workspaceId: input.workspaceId,
+        userId: input.ownerUserId,
+        canonicalCommunityId: input.id,
+        visibility: input.visibility,
+        nameOverride: input.displayName.trim(),
+        descriptionOverride: input.description?.trim() || null,
+        kind: input.kind?.trim() || null,
+        source: input.source.trim(),
+        isUserConfirmed: true,
+      })
+      .onConflictDoNothing();
+    const community = await this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+    if (!community || community.ownerUserId !== input.ownerUserId) {
+      throw new Error("Community create did not materialize an owner-readable Record");
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "created",
+      displayName: community.displayName,
+    });
+    return community;
+  }
+
+  async updateCommunity(input: UpdateCommunityInput): Promise<CommunityDetail | null> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.updateCommunity(input),
+      );
+    }
+    const values: Partial<typeof communities.$inferInsert> = {};
+    if (input.displayName !== undefined) values.nameOverride = input.displayName.trim();
+    if (input.description !== undefined) values.descriptionOverride = input.description?.trim() || null;
+    if (input.kind !== undefined) values.kind = input.kind?.trim() || null;
+    if (input.visibility !== undefined) values.visibility = input.visibility;
+    if (Object.keys(values).length === 0) throw new Error("Community update requires at least one field");
+    const locked = await this.#db
+      .select({ id: communities.id, archivedAt: communities.archivedAt })
+      .from(communities)
+      .where(and(
+        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+      ))
+      .for("update", { of: communities })
+      .limit(1);
+    if (!locked[0]) return null;
+    if (locked[0].archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "update",
+        reason: "record_archived",
+      });
+      return null;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.workspaceId,
+        input.ownerUserId,
+        "community",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "update",
+        reason: "superseded_by_newer_decision",
+      });
+      return this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+    }
+    const rows = await this.#db
+      .update(communities)
+      .set(values)
+      .where(and(
+        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+        isNull(communities.archivedAt),
+      ))
+      .returning();
+    if (!rows[0]) return null;
+    const community = await this.getCommunity(input.workspaceId, input.ownerUserId, input.id);
+    if (!community) throw new Error("Updated Community became unreadable");
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "updated",
+      displayName: community.displayName,
+      visibility: community.visibility === "workspace" ? "workspace" : "private",
+    });
+    return community;
+  }
+
+  async archiveCommunity(input: ArchiveRelationshipRecordInput): Promise<boolean> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.archiveCommunity(input),
+      );
+    }
+    const [existing] = await this.#db
+      .select({
+        id: communities.id,
+        archivedAt: communities.archivedAt,
+        visibility: communities.visibility,
+        displayName: sql<string | null>`coalesce(${communities.nameOverride}, ${communitiesCanonical.name})`,
+      })
+      .from(communities)
+      .leftJoin(communitiesCanonical, eq(communities.canonicalCommunityId, communitiesCanonical.id))
+      .where(and(
+        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+      ))
+      .for("update", { of: communities })
+      .limit(1);
+    if (!existing) return false;
+    if (existing.archivedAt) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "archive",
+        reason: "record_archived",
+      });
+      return true;
+    }
+    if (
+      await this.#hasNewerRecordDecision(
+        input.workspaceId,
+        input.ownerUserId,
+        "community",
+        input.id,
+        input.decisionSequence,
+      )
+    ) {
+      await this.#recordSkippedMutationReceipt({
+        ...input,
+        recordType: "community",
+        operation: "archive",
+        reason: "superseded_by_newer_decision",
+      });
+      return true;
+    }
+    await this.#recordLifecycleEvent({
+      ...input,
+      recordType: "community",
+      operation: "archived",
+      displayName: existing.displayName,
+      visibility: existing.visibility === "workspace" ? "workspace" : "private",
+    });
+    const rows = await this.#db
+      .update(communities)
+      .set({ archivedAt: input.decisionAt })
+      .where(and(
+        eq(communities.workspaceId, input.workspaceId),
+        eq(communities.id, input.id),
+        eq(communities.userId, input.ownerUserId),
+        isNull(communities.archivedAt),
+      ))
+      .returning();
+    return rows.length === 1;
+  }
+
+  async #recordLifecycleEvent(input: DecisionProvenance & {
+    workspaceId: string;
+    ownerUserId: string;
+    recordType: "person" | "community";
+    id: string;
+    operation: "created" | "updated" | "archived";
+    displayName: string | null;
+    visibility: RelationshipRecordVisibility;
+  }): Promise<void> {
+    await this.#createInteractionInContext(
+      {
+        id: input.decisionLedgerId,
+        workspaceId: input.workspaceId,
+        ownerUserId: input.ownerUserId,
+        kind: `${input.recordType}_${input.operation}`,
+        occurredAt: input.decisionAt,
+        summary: `${input.operation[0]?.toUpperCase()}${input.operation.slice(1)} ${input.displayName ?? input.recordType}`,
+        source: "user",
+        sourceRecordId: input.decisionLedgerId,
+        visibility: input.visibility,
+        participants: [{ recordType: input.recordType, recordId: input.id }],
+        updatesPersonFreshness: false,
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        decisionAt: input.decisionAt,
+      },
+      { recordMutationLifecycle: true },
+    );
+  }
+
+  async #recordSkippedMutationReceipt(input: DecisionProvenance & {
+    workspaceId: string;
+    ownerUserId: string;
+    recordType: "person" | "community";
+    operation: "update" | "archive";
+    reason: "record_archived" | "superseded_by_newer_decision";
+  }): Promise<void> {
+    await this.#db
+      .insert(events)
+      .values({
+        id: input.decisionLedgerId,
+        workspaceId: input.workspaceId,
+        type: "relationship.materialization_skipped",
+        entityType: "materialization_receipt",
+        entityId: input.decisionLedgerId,
+        payload: {
+          kind: "relationship_record_mutation_receipt",
+          recordType: input.recordType,
+          operation: input.operation,
+          outcome: "skipped",
+          reason: input.reason,
+          ownerUserId: input.ownerUserId,
+          visibility: "private",
+          decisionLedgerId: input.decisionLedgerId,
+          decisionSequence: input.decisionSequence,
+          decisionAt: input.decisionAt.toISOString(),
+        },
+      })
+      .onConflictDoNothing();
+    const receipt = await this.getEvent(input.workspaceId, input.decisionLedgerId);
+    const payload = payloadRecord(receipt?.payload);
+    const expectedLifecycleKind =
+      `${input.recordType}_${input.operation === "archive" ? "archived" : "updated"}`;
+    const kind = payloadString(payload, "kind");
+    const decisionSequence = payload.decisionSequence;
+    if (
+      !receipt ||
+      payloadString(payload, "ownerUserId") !== input.ownerUserId ||
+      payloadString(payload, "decisionLedgerId") !== input.decisionLedgerId ||
+      typeof decisionSequence !== "number" ||
+      decisionSequence !== input.decisionSequence ||
+      (kind !== "relationship_record_mutation_receipt" && kind !== expectedLifecycleKind)
+    ) {
+      throw new Error("Relationship mutation receipt conflicts with a different Event");
+    }
+  }
+
+  async #hasNewerRecordDecision(
+    workspaceId: string,
+    ownerUserId: string,
+    recordType: "person" | "community",
+    recordId: string,
+    decisionSequence: number,
+  ): Promise<boolean> {
+    const rows = await this.#db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(
+        eq(events.workspaceId, workspaceId),
+        eq(events.entityType, "interaction"),
+        inArray(events.type, [
+          `relationship.${recordType}_created`,
+          `relationship.${recordType}_updated`,
+          `relationship.${recordType}_archived`,
+        ]),
+        sql<boolean>`${events.payload} ->> 'recordMutationLifecycle' = 'true'`,
+        sql<boolean>`${events.payload} ->> 'ownerUserId' = ${ownerUserId}`,
+        sql<boolean>`(${events.payload} ->> 'decisionSequence') ~ '^[0-9]+$'`,
+        sql<boolean>`(${events.payload} ->> 'decisionSequence')::bigint > ${decisionSequence}`,
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM "edges" AS "record_decision_participant"
+          WHERE "record_decision_participant"."workspace_id" = ${workspaceId}
+            AND "record_decision_participant"."owner_user_id" = ${ownerUserId}
+            AND "record_decision_participant"."edge_type" = 'participant'
+            AND "record_decision_participant"."src_type" = 'event'
+            AND "record_decision_participant"."src_id" = ${events.id}
+            AND "record_decision_participant"."dst_type" = ${recordType}
+            AND "record_decision_participant"."dst_id" = ${recordId}
+        )`,
+      ))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async createInteraction(input: CreateInteractionInput): Promise<TimelineItem> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.createInteraction(input),
+      );
+    }
+    return this.#createInteractionInContext(input);
+  }
+
+  async #createInteractionInContext(
+    input: CreateInteractionInput,
+    options: { recordMutationLifecycle?: boolean } = {},
+  ): Promise<TimelineItem> {
+    if (
+      !UUID_PATTERN.test(input.id) ||
+      !UUID_PATTERN.test(input.workspaceId) ||
+      !UUID_PATTERN.test(input.ownerUserId) ||
+      !UUID_PATTERN.test(input.decisionLedgerId)
+    ) {
+      throw new Error("Interaction identifiers must be UUIDs");
+    }
+    if (
+      input.participants.length === 0 ||
+      input.participants.length > MAX_INTERACTION_PARTICIPANTS
+    ) {
+      throw new Error(`An Interaction requires 1-${MAX_INTERACTION_PARTICIPANTS} participants`);
+    }
+    if (Number.isNaN(input.occurredAt.getTime())) {
+      throw new Error("Interaction occurredAt must be a valid timestamp");
+    }
+    const participants = new Map<string, InteractionParticipantInput>();
+    const participantNodes: AccessibleNodes = {
+      people: new Map(),
+      communities: new Map(),
+      signalIds: new Set(),
+      eventIds: new Set([input.id]),
+    };
+    let visibility = input.visibility;
+    for (const participant of input.participants) {
+      const key = `${participant.recordType}:${participant.recordId}`;
+      if (participants.has(key)) continue;
+      const record = participant.recordType === "person"
+        ? await this.getPerson(input.workspaceId, input.ownerUserId, participant.recordId)
+        : await this.getCommunity(input.workspaceId, input.ownerUserId, participant.recordId);
+      if (!record) throw new Error("Interaction participant is not readable");
+      if (record.visibility !== "workspace") visibility = "private";
+      participants.set(key, participant);
+      if (participant.recordType === "person") {
+        participantNodes.people.set(participant.recordId, record as PersonRecord);
+      } else {
+        participantNodes.communities.set(participant.recordId, record as CommunityRecord);
+      }
+    }
+    const payload = {
+      kind: input.kind.trim(),
+      occurredAt: input.occurredAt.toISOString(),
+      summary: input.summary.trim(),
+      source: input.source.trim(),
+      sourceRecordId: input.sourceRecordId?.trim() || null,
+      ownerUserId: input.ownerUserId,
+      visibility,
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt.toISOString(),
+      ...(options.recordMutationLifecycle ? { recordMutationLifecycle: true } : {}),
+    };
+    await this.#db
+      .insert(events)
+      .values({
+        id: input.id,
+        workspaceId: input.workspaceId,
+        type: `relationship.${input.kind.trim()}`,
+        entityType: "interaction",
+        entityId: input.id,
+        payload,
+      })
+      .onConflictDoNothing();
+    const event = await this.getEvent(input.workspaceId, input.id);
+    const existingPayload = payloadRecord(event?.payload);
+    if (
+      !event ||
+      event.entityType !== "interaction" ||
+      payloadString(existingPayload, "ownerUserId") !== input.ownerUserId ||
+      payloadString(existingPayload, "decisionLedgerId") !== input.decisionLedgerId
+    ) {
+      throw new Error("Interaction id conflicts with a different Event");
+    }
+    const relations: RelationRecord[] = [];
+    for (const participant of participants.values()) {
+      const relation = await this.upsertRelation({
+        workspaceId: input.workspaceId,
+        ownerUserId: input.ownerUserId,
+        srcType: "event",
+        srcId: input.id,
+        dstType: participant.recordType,
+        dstId: participant.recordId,
+        relationType: "participant",
+        properties: {
+          role: participant.role?.trim() || null,
+          attendanceState: participant.attendanceState?.trim() || null,
+        },
+        evidenceRefs: [{ entityType: "event", entityId: input.id, source: input.source }],
+        confidence: 1,
+        observedAt: input.occurredAt,
+        validFrom: input.occurredAt,
+        userConfirmed: true,
+        visibility,
+        source: input.source,
+        sourceModule: "relationship",
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        decisionAt: input.decisionAt,
+      });
+      relations.push(relation);
+    }
+    if (input.updatesPersonFreshness !== false) {
+      const ownedPersonIds = [...participants.values()]
+        .filter((participant) => participant.recordType === "person")
+        .map((participant) => participant.recordId);
+      if (ownedPersonIds.length > 0) {
+        await this.#db
+          .update(people)
+          .set({ lastInteractionAt: input.occurredAt })
+          .where(and(
+            eq(people.workspaceId, input.workspaceId),
+            eq(people.userId, input.ownerUserId),
+            inArray(people.id, ownedPersonIds),
+            isNull(people.archivedAt),
+            or(
+              isNull(people.lastInteractionAt),
+              lt(people.lastInteractionAt, input.occurredAt),
+            ),
+          ));
+      }
+    }
+    return this.#timelineItemFromRows(event, relations, participantNodes);
+  }
+
+  async listTimeline(
+    workspaceId: string,
+    viewerUserId: string,
+    recordType: "person" | "community",
+    recordId: string,
+    opts: { limit: number; cursor?: TimelineCursor | null },
+  ): Promise<TimelinePage> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listTimeline(workspaceId, viewerUserId, recordType, recordId, opts),
+      );
+    }
+    const anchor = recordType === "person"
+      ? await this.getPerson(workspaceId, viewerUserId, recordId)
+      : await this.getCommunity(workspaceId, viewerUserId, recordId);
+    if (!anchor) return { items: [], nextCursor: null };
+    const limit = clamp(opts.limit, 1, MAX_TIMELINE_PAGE_SIZE);
+    const occurredAt = sql<Date>`coalesce(
+      (${events.payload} ->> 'occurredAt')::timestamptz,
+      ${events.createdAt}
+    )`;
+    const cursorCondition = opts.cursor
+      ? or(
+          lt(occurredAt, opts.cursor.occurredAt),
+          and(eq(occurredAt, opts.cursor.occurredAt), lt(events.id, opts.cursor.id)),
+        )
+      : undefined;
+    const rows = await this.#db
+      .select()
+      .from(events)
+      .where(and(
+        eq(events.workspaceId, workspaceId),
+        eq(events.entityType, "interaction"),
+        sql<boolean>`(
+          ${events.payload} ->> 'ownerUserId' = ${viewerUserId}
+          OR ${events.payload} ->> 'visibility' = 'workspace'
+        )`,
+        sql<boolean>`EXISTS (
+          SELECT 1
+          FROM "edges" AS "timeline_anchor_relation"
+          WHERE "timeline_anchor_relation"."workspace_id" = ${workspaceId}
+            AND "timeline_anchor_relation"."edge_type" = 'participant'
+            AND (
+              "timeline_anchor_relation"."owner_user_id" = ${viewerUserId}
+              OR "timeline_anchor_relation"."visibility" IN ('workspace', 'public')
+            )
+            AND (
+              (
+                "timeline_anchor_relation"."src_type" = 'event'
+                AND "timeline_anchor_relation"."src_id" = ${events.id}
+                AND "timeline_anchor_relation"."dst_type" = ${recordType}
+                AND "timeline_anchor_relation"."dst_id" = ${recordId}
+              )
+              OR (
+                "timeline_anchor_relation"."dst_type" = 'event'
+                AND "timeline_anchor_relation"."dst_id" = ${events.id}
+                AND "timeline_anchor_relation"."src_type" = ${recordType}
+                AND "timeline_anchor_relation"."src_id" = ${recordId}
+              )
+            )
+        )`,
+        cursorCondition,
+      ))
+      .orderBy(desc(occurredAt), desc(events.id))
+      .limit(limit + 1);
+    const pageRows = rows.slice(0, limit);
+    if (pageRows.length === 0) return { items: [], nextCursor: null };
+    const eventIds = pageRows.map((event) => event.id);
+    const relationRows = await this.#db
+      .select()
+      .from(edges)
+      .where(and(
+        eq(edges.workspaceId, workspaceId),
+        eq(edges.edgeType, "participant"),
+        or(
+          and(eq(edges.srcType, "event"), inArray(edges.srcId, eventIds)),
+          and(eq(edges.dstType, "event"), inArray(edges.dstId, eventIds)),
+        ),
+        or(
+          eq(edges.ownerUserId, viewerUserId),
+          inArray(edges.visibility, ["workspace", "public"]),
+        ),
+      ))
+      .orderBy(edges.id)
+      .limit(Math.min(MAX_BATCH_NODE_REFS, pageRows.length * MAX_INTERACTION_PARTICIPANTS));
+    const nodeRefs = relationRows.flatMap((relation) => {
+      if (relation.srcType === "event") {
+        return [{ nodeType: relation.dstType, nodeId: relation.dstId }];
+      }
+      if (relation.dstType === "event") {
+        return [{ nodeType: relation.srcType, nodeId: relation.srcId }];
+      }
+      return [];
+    });
+    const nodeMap = await this.#loadAccessibleNodes(workspaceId, viewerUserId, nodeRefs);
+    const relationsByEvent = new Map<string, RelationRecord[]>();
+    for (const relation of relationRows) {
+      const eventId = relation.srcType === "event" ? relation.srcId : relation.dstId;
+      const otherType = relation.srcType === "event" ? relation.dstType : relation.srcType;
+      const otherId = relation.srcType === "event" ? relation.dstId : relation.srcId;
+      const otherNode = otherType === "person"
+        ? nodeMap.people.get(otherId)
+        : otherType === "community"
+          ? nodeMap.communities.get(otherId)
+          : null;
+      if (!otherNode) continue;
+      const bucket = relationsByEvent.get(eventId) ?? [];
+      bucket.push(relation);
+      relationsByEvent.set(eventId, bucket);
+    }
+    const items = pageRows
+      .map((event) => this.#timelineItemFromRows(
+        event,
+        relationsByEvent.get(event.id) ?? [],
+        nodeMap,
+      ))
+      .filter((item) => item.participants.length > 0);
+    const last = pageRows.at(-1);
+    const lastOccurredAt = last
+      ? new Date(
+          payloadString(payloadRecord(last.payload), "occurredAt") ??
+            last.createdAt.toISOString(),
+        )
+      : null;
+    return {
+      items,
+      nextCursor:
+        rows.length > limit &&
+        last &&
+        lastOccurredAt &&
+        !Number.isNaN(lastOccurredAt.getTime())
+        ? { occurredAt: lastOccurredAt, id: last.id }
+        : null,
+    };
+  }
+
+  #timelineItemFromRows(
+    event: typeof events.$inferSelect,
+    relations: RelationRecord[],
+    nodeMap: AccessibleNodes,
+  ): TimelineItem {
+    const payload = payloadRecord(event.payload);
+    const participants: TimelineParticipant[] = [];
+    for (const relation of relations) {
+      const recordType = relation.srcType === "event" ? relation.dstType : relation.srcType;
+      const recordId = relation.srcType === "event" ? relation.dstId : relation.srcId;
+      if (recordType !== "person" && recordType !== "community") continue;
+      const node = recordType === "person"
+        ? nodeMap.people.get(recordId)
+        : nodeMap.communities.get(recordId);
+      if (!node) continue;
+      const properties = payloadRecord(relation.properties);
+      participants.push({
+        relationId: relation.id,
+        recordType,
+        recordId,
+        displayName: typeof node.displayName === "string" ? node.displayName : null,
+        role: payloadString(properties, "role"),
+        attendanceState: payloadString(properties, "attendanceState"),
+      });
+    }
+    const evidenceRefs = relations.flatMap((relation) =>
+      relationEvidenceCandidates(relation).filter((evidence) => (
+        (evidence.entityType === "event" && evidence.entityId === event.id) ||
+        (evidence.entityType === "person" && nodeMap.people.has(evidence.entityId)) ||
+        (evidence.entityType === "community" && nodeMap.communities.has(evidence.entityId))
+      )),
+    );
+    const decisionLedgerIds = [
+      ...new Set(relations.flatMap((relation) =>
+        relation.decisionLedgerId ? [relation.decisionLedgerId] : [],
+      )),
+    ];
+    const visibility = relations.some((relation) => relation.visibility === "private")
+      ? "private"
+      : relations.some((relation) => relation.visibility === "workspace")
+        ? "workspace"
+        : "public";
+    return {
+      id: event.id,
+      type: event.type,
+      kind: payloadString(payload, "kind") ?? event.type,
+      summary: payloadString(payload, "summary"),
+      source: payloadString(payload, "source") ?? "unknown",
+      sourceRecordId: payloadString(payload, "sourceRecordId"),
+      visibility,
+      occurredAt: payloadDate(payload, "occurredAt", event.createdAt),
+      createdAt: event.createdAt,
+      participants,
+      provenance: {
+        eventId: event.id,
+        relationIds: relations.map((relation) => relation.id),
+        evidenceRefs: [...new Map(evidenceRefs.map((evidence) => [
+          `${evidence.entityType}:${evidence.entityId}:${evidence.source ?? ""}`,
+          evidence,
+        ])).values()],
+        decisionLedgerIds,
+      },
+    };
   }
 
   async getEvent(workspaceId: string, id: string): Promise<typeof events.$inferSelect | null> {

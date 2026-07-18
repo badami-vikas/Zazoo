@@ -7,9 +7,9 @@
  *      bodies to the LOCAL plane.
  *   2. For each captured item the LOCAL intake agent matches participants to People
  *      by email and PROPOSES graph entries (draft-then-approve):
- *        - exactly one match  → Touchpoint linked to that Person
+ *        - exactly one match  → Interaction Event linked to that Person
  *        - many matches       → possible_duplicate Signal (NEVER auto-linked)
- *        - no match           → new counterparty identity + Touchpoint
+ *        - no match           → new counterparty identity + Interaction Event
  *   3. The user approves in the Approvals inbox; IntakeMaterializer commits the
  *      entries to the LOCAL graph and dual-writes ONLY the public identity to cloud
  *      canonical. Every step is append-only audited in the (local) ledger.
@@ -40,7 +40,7 @@ export interface PersonDirective {
 }
 export interface EntityDirective {
   localId: string;
-  kind: "touchpoint" | "memory" | "signal";
+  kind: "event" | "memory" | "signal";
   personId?: string;
   payload: unknown;
   /** PI-1 provenance of the ingested content. */
@@ -56,7 +56,7 @@ export interface ExternalDirective {
 export interface IntakeDirective {
   /** Public identity to dual-write (cloud canonical + local). The ONLY outward fact. */
   person?: PersonDirective;
-  /** Local-only graph commits (Touchpoints / Memories / Signals). */
+  /** Local-only graph commits (Events / Memories / Signals). */
   entities: EntityDirective[];
   /** Idempotency rows so re-sync never double-commits. */
   external: ExternalDirective[];
@@ -108,7 +108,7 @@ export interface IntakeResult {
 export interface IntakeServiceDeps {
   pipeline: UniversalActionPipeline;
   bodies: BodyStore;
-  graph: LocalGraphStore;
+  graph: Pick<LocalGraphStore, "findPeopleByEmail" | "hasExternal">;
   /**
    * AGS1 (TASK-007 closure) — optional Goal/Task provisioning for the 3
    * governed skills this service invokes (`SKILL_SOURCE_GMAIL`,
@@ -164,7 +164,7 @@ export class IntakeService {
    * NOT see proposals that are staged but still `pending_review` in the Approvals
    * inbox. Without this, running syncGmail/syncCalendar twice before the user gets to
    * the inbox stages a second PENDING proposal for the same thread/event, and if both
-   * are later approved you get duplicate Touchpoints/Memories (no dedup key on the
+   * are later approved you get duplicate Events/Memories (no dedup key on the
    * entities themselves at commit time).
    *
    * `@bridge/core`'s `LedgerStore`/`UniversalActionPipeline` expose no query surface
@@ -237,7 +237,7 @@ export class IntakeService {
     return { source: GMAIL_SOURCE, sourced: manifest.length, fetchProposalId: fetchProposal.id, proposals };
   }
 
-  /** Source Calendar events through the gate, then propose a Touchpoint per event. */
+  /** Source Calendar events through the gate, then propose an Interaction Event per item. */
   async syncCalendar(opts: SyncOpts, ctx: RunCtx): Promise<IntakeResult> {
     const { workspaceId, egressAgentId, intakeAgentId, userId } = opts.identities;
     const calendarGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
@@ -333,7 +333,7 @@ export class IntakeService {
     const newPerson = !matched && cp ? this.newPersonDirective(cp, ctx) : undefined;
     const personId = matched?.id ?? newPerson?.localPersonId;
 
-    const touchpointId = ctx.ids.next();
+    const eventId = ctx.ids.next();
     const memoryId = ctx.ids.next();
     const lastMsg = thread.messages[thread.messages.length - 1];
     const gmailTrustOrigin: TrustOrigin = GOOGLE_MANIFEST.intake_policy.quarantine ? "untrusted_external" : "user_content";
@@ -342,11 +342,11 @@ export class IntakeService {
       ...(newPerson ? { person: newPerson } : {}),
       entities: [
         {
-          localId: touchpointId,
-          kind: "touchpoint",
+          localId: eventId,
+          kind: "event",
           ...(personId ? { personId } : {}),
           payload: {
-            touchpointKind: "email",
+            interactionKind: "email",
             subject: thread.subject,
             occurredAt: thread.lastMessageAt,
             with: cp?.email ?? null,
@@ -370,7 +370,7 @@ export class IntakeService {
           sourceRecordId: thread.threadId,
         },
       ],
-      external: [{ source: GMAIL_SOURCE, sourceRecordId: thread.threadId, entityType: "touchpoint" }],
+      external: [{ source: GMAIL_SOURCE, sourceRecordId: thread.threadId, entityType: "event" }],
     };
 
     return this.stage(
@@ -378,7 +378,7 @@ export class IntakeService {
         workspaceId,
         intakeAgentId,
         userId,
-        resourceType: "touchpoint",
+        resourceType: "event",
         resource: cp?.name ?? cp?.email ?? thread.subject,
         channel: "Email",
         match: matched ? "linked" : "new",
@@ -387,7 +387,7 @@ export class IntakeService {
         trace: {
           signals: [matched ? "matched an existing Person by email" : "new counterparty (identity dual-write)"],
           context: `Email thread "${thread.subject}" with ${cp?.email ?? "unknown"}`,
-          reasoning: "Drafted a Touchpoint + Memory from a sourced Gmail thread for review.",
+          reasoning: "Drafted an Interaction Event + Memory from a sourced Gmail thread for review.",
         },
       },
       ctx,
@@ -447,10 +447,10 @@ export class IntakeService {
       entities: [
         {
           localId: ctx.ids.next(),
-          kind: "touchpoint",
+          kind: "event",
           ...(personId ? { personId } : {}),
           payload: {
-            touchpointKind: "meeting",
+            interactionKind: "meeting",
             subject: event.summary,
             occurredAt: event.start,
             with: cp?.email ?? null,
@@ -460,7 +460,7 @@ export class IntakeService {
           sourceRecordId: event.eventId,
         },
       ],
-      external: [{ source: CALENDAR_SOURCE, sourceRecordId: event.eventId, entityType: "touchpoint" }],
+      external: [{ source: CALENDAR_SOURCE, sourceRecordId: event.eventId, entityType: "event" }],
     };
 
     return this.stage(
@@ -468,7 +468,7 @@ export class IntakeService {
         workspaceId,
         intakeAgentId,
         userId,
-        resourceType: "touchpoint",
+        resourceType: "event",
         resource: cp?.name ?? cp?.email ?? event.summary,
         channel: "Calendar",
         match: matched ? "linked" : "new",
@@ -477,7 +477,7 @@ export class IntakeService {
         trace: {
           signals: [matched ? "matched an existing Person by email" : "new counterparty (identity dual-write)"],
           context: `Calendar event "${event.summary}" with ${cp?.email ?? "unknown"}`,
-          reasoning: "Drafted a Touchpoint from a sourced Calendar event for review.",
+          reasoning: "Drafted an Interaction Event from a sourced Calendar item for review.",
         },
       },
       ctx,
@@ -536,7 +536,7 @@ export class IntakeService {
         action: "write",
         resourceType: args.resourceType,
         skill: SKILL_STAGE,
-        dataScope: "all",
+        dataScope: "private",
         seed,
         ...(trustOrigin ? { trustOrigin } : {}),
         inputs: {

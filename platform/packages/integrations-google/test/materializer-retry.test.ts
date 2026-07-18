@@ -28,7 +28,7 @@ function resolvedProposal(directive: IntakeDirective): Proposal {
       workspaceId: "ws-1",
       actor: { type: "agent", id: "agent-intake", plane: "local" },
       action: "write",
-      resourceType: "touchpoint",
+      resourceType: "event",
       skill: "google.intake.stage",
       inputs: { directive },
     },
@@ -65,14 +65,14 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
     entities: [
       {
         localId: "entity-1",
-        kind: "touchpoint",
+        kind: "event",
         personId: "local-person-1",
-        payload: { touchpointKind: "email" },
+        payload: { interactionKind: "email" },
         source: "gmail",
         sourceRecordId: "thread-1",
       },
     ],
-    external: [{ source: "gmail", sourceRecordId: "thread-1", entityType: "touchpoint" }],
+    external: [{ source: "gmail", sourceRecordId: "thread-1", entityType: "event" }],
   };
 
   const applied = await materializer.applyApproved(resolvedProposal(directive), ctx());
@@ -81,7 +81,7 @@ test("applyApproved recovers from a transient commitEntity failure via bounded r
   // The whole dual-write body ran twice (attempt 1 failed on commitEntity, attempt 2
   // succeeded end to end) — but the end state has exactly one entity, no duplicates.
   assert.equal(commitCalls, 2, "commitEntity was retried after the first transient failure");
-  const entities = await localPlane.graph.listEntities("ws-1", "touchpoint");
+  const entities = await localPlane.graph.listEntities("ws-1", "event");
   assert.equal(entities.length, 1, "no duplicate entity after retry");
   assert.equal(entities[0]?.id, "entity-1");
 
@@ -105,13 +105,13 @@ test("applyApproved gives up after exhausting retries and surfaces the error", a
     entities: [
       {
         localId: "entity-2",
-        kind: "touchpoint",
-        payload: { touchpointKind: "meeting" },
+        kind: "event",
+        payload: { interactionKind: "meeting" },
         source: "calendar",
         sourceRecordId: "event-1",
       },
     ],
-    external: [{ source: "calendar", sourceRecordId: "event-1", entityType: "touchpoint" }],
+    external: [{ source: "calendar", sourceRecordId: "event-1", entityType: "event" }],
   };
 
   await assert.rejects(

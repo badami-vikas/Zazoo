@@ -100,7 +100,7 @@ export class GoogleService {
    * Read-only projection for the Calendar surface: fetch FULL events for display.
    * Goes through the gate as external:fetch (the egress agent sources; the user's own
    * calendar view authorizes the inbound read, so the service approves it). Does NOT
-   * propose Touchpoints — that's syncCalendar. Returns the events for rendering.
+   * propose Events — that's syncCalendar. Returns the events for rendering.
    */
   async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<CalendarEvent[]> {
     const { workspaceId, egressAgentId, userId } = this.deps.identities;

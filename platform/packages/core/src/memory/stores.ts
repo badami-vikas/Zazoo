@@ -174,11 +174,24 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+function hasRelationshipDirective(entry: LedgerEntry): boolean {
+  if (typeof entry.inputs !== "object" || entry.inputs === null || Array.isArray(entry.inputs)) {
+    return false;
+  }
+  return "directive" in entry.inputs;
+}
+
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
 ): boolean {
-  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
+  const privateRelationshipEntry =
+    entry.resourceType === "relation" ||
+    entry.resourceType === "person" ||
+    entry.resourceType === "community" ||
+    entry.resourceType === "event" ||
+    hasRelationshipDirective(entry);
+  if (!privateOwnerUserId || !privateRelationshipEntry) return true;
   if (entry.onBehalfOfType === "user") {
     return entry.onBehalfOfId === privateOwnerUserId;
   }
