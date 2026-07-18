@@ -181,3 +181,28 @@ test("OS keyring adapter propagates provider failures without an in-memory fallb
     providerError,
   );
 });
+
+test("OS keyring treats a provider NoEntry as an idempotent missing credential", async () => {
+  const missing = new Error("No matching entry found in secure storage");
+  missing.name = "NoEntry";
+  const vault = new KeyringSourceCredentialVault({
+    service: "com.bridge.test",
+    entryFactory: () => ({
+      setPassword: async () => {},
+      getPassword: async () => {
+        throw missing;
+      },
+      deleteCredential: async () => {
+        throw missing;
+      },
+    }),
+  });
+  const scope = { workspaceId: "workspace-a", sourceId: "source-a" };
+  const reference = await new KeyringSourceCredentialVault({
+    service: "com.bridge.test",
+    entryFactory: new FakeKeyring().factory,
+  }).put(scope, { password: "test_fixture_secret" });
+
+  assert.equal(await vault.metadata(scope, reference), null);
+  await assert.doesNotReject(vault.delete(scope, reference));
+});

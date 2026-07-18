@@ -1678,6 +1678,31 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
  fail-closed runtime configuration.
 - Added restart, concurrency, compensation, ownership, recovery, and credential non-disclosure
  coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
-- TASK-006 remains `in_progress` for live Google, verified OS re-auth/keychain, and physical
- desktop/375px evidence. Durable outcome:
+- Post-RM4 reconciliation retained its durable decision/effect ledger by binding file-backed
+ in-memory-mode ledgers to the same `localDir`; added password-AMR-only re-authentication,
+ single-current-session replacement, credential log redaction, bounded capture pagination, safe
+ clipboard clearing, and removal of sampled provider payloads from discovery output.
+- Added owner-scoped explicit credential revoke: secure-vault deletion, durable Source-projection
+ clearing across restart, value-free audit, re-auth session consumption, and honest unavailable UI.
+- Independent security review found the durable desktop sidecar trusted loopback. Fixed with a
+  per-launch 256-bit capability, constant-time API verification, closed Tauri-origin CORS,
+  file-backed-persistence auth posture, header redaction, and a hard separation from Human re-auth.
+- Follow-up review found predictable Google OAuth state could substitute an attacker's account.
+   Connect now issues a hashed-at-rest 256-bit state after authenticated membership; callback
+   atomically consumes the ten-minute state before denial handling or code exchange.
+- Final review pass found privileged-webview OAuth navigation could expose the launch capability.
+   Release webviews now reject external top-level navigation, token injection is trusted-origin and
+   main-only, and validated Google consent opens in the system browser.
+- Final central review then found packaged desktop Google calls bypassed injected sidecar transport,
+  the launcher set ignored `HOST` instead of `API_HOST`, and OAuth completion trusted stale
+  membership (including revocation during provider exchange). Shared transport headers, enforced
+  loopback, authenticated cross-platform shutdown, and pre/post-exchange membership checks close
+  those paths. Focused correctness/security re-review: no findings.
+- Final verification: API 187, DealPilot 87, Local Plane 7, DB 124, Core 423, Sourcing 7,
+  Company Sourcing 4, Google 35, Web 50, and desktop Rust 34 tests; monorepo 37-task typecheck and
+  20-task build, changed-file lint, Clippy, no-runtime-dummy, and diff checks passed.
+- Live host evidence: macOS keyring write/read/delete/missing; native 1280x800 Tauri DealPilot;
+  Chrome `/dealpilot/sources` at 375x812 with no horizontal overflow.
+- TASK-006 remains `in_progress` for live Google/BizBuySell and verified OS/application re-auth.
+  Signing and physical-mobile certification remain unclaimed. Durable outcome:
  `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.

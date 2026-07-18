@@ -90,6 +90,7 @@ import {
   uuidv7,
 } from "@bridge/core";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
+import { GoogleOAuthStateStore } from "./google-oauth-state.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
   assertRlsPosture,
@@ -245,7 +246,7 @@ export interface Wiring {
   events: InMemoryEventBus;
   /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
   localMedia: LocalMediaStore;
-  /** True when bound to Postgres (DATABASE_URL set). */
+  /** True when any durable store is active (DATABASE_URL or file-backed Local Plane). */
   persistent: boolean;
   /** The LOCAL plane (pglite) — private tier. */
   localPlane: LocalPlane;
@@ -253,6 +254,8 @@ export interface Wiring {
   google: GoogleService;
   /** OAuth config (null = not configured → fail-closed gateway). */
   googleOAuth: GoogleOAuthConfig | null;
+  /** Durable, hashed, single-use OAuth CSRF states. */
+  googleOAuthStates: GoogleOAuthStateStore;
   /** Whether the real googleapis gateway is in use, or Google is unconfigured. */
   googleGatewayKind: "google" | "unconfigured";
   googleManifest: ToolManifest;
@@ -1232,7 +1235,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const modePorts: ModePorts = url
     ? buildPersistentPorts({ url })
     : await buildInMemoryPorts({
-        localDir: undefined,
+        localDir,
         localDatabase,
       });
   modePortsForCleanup = modePorts;
@@ -1383,7 +1386,6 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           const actualSpend = batch.summary.attempted * estimate;
           let droppedForBudget = 0;
           const captures: QuarantinedCapture[] = [];
-          const sample: Record<string, unknown>[] = [];
           let capturedSpend = 0;
           for (const envelope of batch.envelopes) {
             if (capturedSpend + envelope.costUnits > actualSpend) {
@@ -1398,7 +1400,6 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
               toolId: "dealpilot",
               trustOrigin: envelope.trustOrigin ?? "untrusted_external",
             });
-            if (sample.length < 3) sample.push(envelope.payload);
           }
           if (!batch.summary.receipt) {
             throw new Error("Gmail connector did not return a durable acknowledgement receipt");
@@ -1421,7 +1422,6 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
               toolId: "dealpilot",
               count: settlement.captureIds.length,
               captureIds: settlement.captureIds,
-              sample,
               attempted: batch.summary.attempted,
               parsed: batch.summary.parsed,
               scanComplete: batch.summary.complete,
@@ -1614,6 +1614,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     selfEmails,
     goalTasks,
   });
+  const googleOAuthStates = new GoogleOAuthStateStore(localPlane.state);
 
   // EVAL-3 + VAR-1 substrate — in-memory both modes (no Drizzle binding yet).
   const evalStore = new InMemoryEvalStore();
@@ -1645,10 +1646,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     ledger,
     relationMaterializations,
     events,
-    persistent: Boolean(url),
+    persistent: Boolean(url || localDir),
     localPlane,
     google,
     googleOAuth,
+    googleOAuthStates,
     googleGatewayKind,
     googleManifest: GOOGLE_MANIFEST,
     pilotUserId: PILOT_USER,

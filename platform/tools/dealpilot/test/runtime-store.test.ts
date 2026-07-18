@@ -245,7 +245,7 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   await store.acknowledge(firstReceipt);
   const source = await store.get("source", "workspace-a", "source-a");
   assert.equal(source?.kind === "source" ? source.spendToDate : null, 0.5);
-  assert.equal((await store.listPendingCaptures("workspace-a")).length, 1);
+  assert.equal((await store.listPendingCaptures("workspace-a")).items.length, 1);
   assert.deepEqual(await store.load("workspace-a", "source-a"), {
     seenMessageIds: ["message-a"],
     lastFetchComplete: true,
@@ -292,6 +292,34 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   assert.equal(rejected.source.health, "paused");
   assert.equal(rejected.source.spendToDate, 0.5);
   assert.equal((await store.load("workspace-a", "source-a")).pending, undefined);
+});
+
+test("discovery settlement retries remain idempotent after more than 256 later batches", async () => {
+  const { store } = runtime();
+  await createSource(store);
+  const firstReceipt = receipt("retained-batch-0");
+  const firstInput = {
+    workspaceId: "workspace-a",
+    sourceId: "source-a",
+    receipt: firstReceipt,
+    captures: [],
+    actualSpend: 0,
+    droppedForBudget: 0,
+    completedAt: "2026-07-18T00:00:00.000Z",
+  };
+  await store.stage(firstReceipt, [], null);
+  const firstResult = await store.settleDiscoveryBatch(firstInput);
+
+  for (let index = 1; index <= 257; index += 1) {
+    const laterReceipt = receipt(`retained-batch-${index}`);
+    await store.stage(laterReceipt, [], null);
+    await store.settleDiscoveryBatch({
+      ...firstInput,
+      receipt: laterReceipt,
+    });
+  }
+
+  assert.deepEqual(await store.settleDiscoveryBatch(firstInput), firstResult);
 });
 
 test("Gmail recovery discards a crashed process batch and preserves same-process concurrent ownership", async () => {

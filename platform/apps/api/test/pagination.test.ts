@@ -48,6 +48,31 @@ async function seedDealPilotCandidates(wiring: Wiring, count: number): Promise<v
   }
 }
 
+async function seedDealPilotCaptures(
+  wiring: Wiring,
+  sourceId: string,
+  count: number,
+): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, sourceId, {
+      captureId: `test_fixture_capture_${i}`,
+      toolId: "dealpilot",
+      sourceToolId: "test_fixture_connector",
+      sourceRecordId: `test_fixture_message_${i}`,
+      tier: "email",
+      query: {
+        kind: "company",
+        hints: { workspaceId: PILOT_WORKSPACE, sourceId },
+      },
+      payload: { name: `Test Capture ${i}` },
+      confidence: 0.8,
+      costUnits: 1,
+      capturedAt: new Date(Date.UTC(2026, 6, 18, 0, 0, i)).toISOString(),
+      trustOrigin: "untrusted_external",
+    });
+  }
+}
+
 test("dealpilot.list: honors an explicit limit and returns a bounded page", async () => {
   const wiring = await buildWiring();
   try {
@@ -81,6 +106,42 @@ test("dealpilot.list: default limit is not unbounded — no-params call does not
     );
     assert.equal(page.items.length, 50); // documented default
     assert.equal(page.hasMore, true);
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("dealpilot.captures: defaults to a bounded, Source-scoped page", async () => {
+  const wiring = await buildWiring();
+  try {
+    const source = await wiring.dealpilot.store.createSource({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Test Source",
+      link: "https://example.invalid/source",
+      connectionType: "email_alert",
+      spendCap: 100,
+      rightsState: "attested",
+    });
+    await seedDealPilotCaptures(wiring, source.id, 55);
+    const caller = await makeCaller(wiring);
+
+    const first = await caller.dealpilot.captures({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+    });
+    assert.equal(first.items.length, 50);
+    assert.equal(first.total, 55);
+    assert.equal(first.hasMore, true);
+    assert.ok(first.items.every((capture) => capture.sourceId === source.id));
+
+    const last = await caller.dealpilot.captures({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+      limit: 10,
+      offset: 50,
+    });
+    assert.equal(last.items.length, 5);
+    assert.equal(last.hasMore, false);
   } finally {
     await wiring.close();
   }

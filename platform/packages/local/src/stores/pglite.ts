@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS local_entities (
   source_record_id text,
   created_at text NOT NULL
 );
-CREATE TABLE IF NOT EXISTS external_records (
+CREATE TABLE IF NOT EXISTS local_external_records (
   workspace_id text NOT NULL,
   source text NOT NULL,
   source_record_id text NOT NULL,
@@ -88,6 +88,32 @@ CREATE TABLE IF NOT EXISTS local_state (
   PRIMARY KEY (workspace_id, namespace)
 );
 `;
+
+async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
+  const result = await db.query<{ column_name: string; data_type: string }>(
+    `SELECT column_name, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'external_records'`,
+  );
+  const columns = new Map(
+    result.rows.map((row) => [row.column_name, row.data_type]),
+  );
+  const legacyLocalTable =
+    columns.get("workspace_id") === "text" &&
+    columns.get("source") === "text" &&
+    columns.get("source_record_id") === "text" &&
+    columns.get("entity_type") === "text" &&
+    columns.get("entity_id") === "text" &&
+    columns.get("created_at") === "text";
+  if (!legacyLocalTable) return;
+  await db.exec(`
+    INSERT INTO local_external_records
+      (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+    SELECT workspace_id, source, source_record_id, entity_type, entity_id, created_at
+      FROM external_records
+    ON CONFLICT (workspace_id, source, source_record_id) DO NOTHING
+  `);
+}
 
 class PgliteSecretStore implements SecretStore {
   constructor(private readonly db: PGlite) {}
@@ -291,7 +317,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async recordExternal(row: ExternalRecordRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      `INSERT INTO local_external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (workspace_id, source, source_record_id) DO NOTHING`,
       [row.workspaceId, row.source, row.sourceRecordId, row.entityType, row.entityId, row.createdAt],
@@ -299,7 +325,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
     const res = await this.db.query(
-      `SELECT 1 FROM external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
+      `SELECT 1 FROM local_external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
       [workspaceId, source, sourceRecordId],
     );
     return res.rows.length > 0;
@@ -490,9 +516,27 @@ export async function createPgliteLocalPlane(
     (ownership ? new PGlite(ownership.dataDir) : new PGlite());
   try {
     await db.exec(INIT_SQL);
+    await migrateLegacyExternalRecords(db);
   } catch (error) {
-    if (ownsClient) await db.close();
-    await ownership?.release();
+    const cleanupErrors: unknown[] = [];
+    if (ownsClient) {
+      try {
+        await db.close();
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    try {
+      await ownership?.release();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "PGlite Local Plane initialization and cleanup failed",
+      );
+    }
     throw error;
   }
   let closePromise: Promise<void> | undefined;

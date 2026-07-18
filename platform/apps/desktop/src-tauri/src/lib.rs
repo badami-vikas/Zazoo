@@ -31,13 +31,14 @@ mod overlay;
 mod providers;
 mod sensor_bridge;
 
+use std::process::Command;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Init script injected into BOTH webviews before any app code runs, so the
 /// tRPC client module can read it at import time. `__BRIDGE_DESKTOP__` is the
 /// flag apps/web uses to suppress the in-page AvatarOverlay (the OS-level
 /// overlay window replaces it in the desktop context).
-fn build_init_script(api_url: Option<&str>) -> String {
+fn build_init_script(api_url: Option<&str>, sidecar_token: Option<&str>) -> String {
     let mut script = format!(
         "window.__BRIDGE_DESKTOP__ = true; window.__BRIDGE_DESKTOP_PLATFORM__ = {};",
         serde_json::to_string(std::env::consts::OS)
@@ -49,15 +50,65 @@ fn build_init_script(api_url: Option<&str>) -> String {
             serde_json::to_string(url).expect("serializing the sidecar URL cannot fail")
         ));
     }
+    if let Some(token) = sidecar_token {
+        script.push_str(&format!(
+            " if ([\"tauri://localhost\", \"http://tauri.localhost\", \
+             \"https://tauri.localhost\"].includes(window.location.origin)) {{ \
+             Object.defineProperty(window, \"__BRIDGE_SIDECAR_TOKEN__\", \
+             {{ value: {}, writable: false, configurable: false }}); }}",
+            serde_json::to_string(token)
+                .expect("serializing the sidecar launch capability cannot fail")
+        ));
+    }
     script
 }
 
-fn create_windows(app: &tauri::AppHandle, init_script: &str) {
+fn trusted_webview_navigation(url: &tauri::Url) -> bool {
+    matches!(
+        (url.scheme(), url.host_str()),
+        ("tauri", Some("localhost"))
+            | ("http", Some("tauri.localhost"))
+            | ("https", Some("tauri.localhost"))
+    ) || (cfg!(debug_assertions)
+        && matches!(
+            (url.scheme(), url.host_str()),
+            ("http" | "https", Some("localhost") | Some("127.0.0.1"))
+        ))
+}
+
+#[tauri::command]
+fn open_google_oauth(url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|_| "Google OAuth URL is invalid")?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("accounts.google.com")
+        || !parsed.path().starts_with("/o/oauth2/")
+    {
+        return Err("Refusing to open a non-Google OAuth URL".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(&url).status();
+    #[cfg(target_os = "windows")]
+    let status = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(&url).status();
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!(
+            "The system browser launcher exited with status {status}"
+        )),
+        Err(error) => Err(format!("Could not open the system browser: {error}")),
+    }
+}
+
+fn create_windows(app: &tauri::AppHandle, main_init_script: &str, companion_init_script: &str) {
     let main_builder = WebviewWindowBuilder::new(app, overlay::MAIN_LABEL, WebviewUrl::default())
         .title("Bridge")
         .inner_size(1280.0, 800.0)
         .resizable(true)
-        .initialization_script(init_script);
+        .on_navigation(trusted_webview_navigation)
+        .initialization_script(main_init_script);
     #[cfg(target_os = "macos")]
     let main_builder = main_builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
@@ -67,15 +118,15 @@ fn create_windows(app: &tauri::AppHandle, init_script: &str) {
         eprintln!("[bridge-desktop] failed to create main window: {err}");
         return;
     }
-    if let Err(err) = overlay::create_overlay_windows(app, init_script) {
+    if let Err(err) = overlay::create_overlay_windows(app, companion_init_script) {
         // The companion is additive: never block the main app on it.
         eprintln!("[bridge-desktop] failed to create overlay window(s): {err}");
     }
-    if let Err(err) = annotate::create_annotate_windows(app, init_script) {
+    if let Err(err) = annotate::create_annotate_windows(app, companion_init_script) {
         // Also additive — annotation is a help feature, never load-bearing.
         eprintln!("[bridge-desktop] failed to create annotate window(s): {err}");
     }
-    overlay::start_display_topology_watcher(app.clone(), init_script.to_string());
+    overlay::start_display_topology_watcher(app.clone(), companion_init_script.to_string());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -101,46 +152,54 @@ pub fn run() {
             overlay::focus_main_window,
             annotate::annotate_show,
             annotate::annotate_clear,
+            open_google_oauth,
             providers::accessibility::ax_permission_status,
         ])
         .setup(|app| {
             // Create at least the main window before setup returns. Returning
             // with zero windows lets Tauri's event loop exit before an
             // asynchronous bootstrap can schedule window creation.
-            let api_url: Option<String> = if let Ok(url) = std::env::var("BRIDGE_API_URL") {
-                // Explicit override — e.g. pointing the shell at a remote
-                // or already-running local API. No sidecar spawned.
-                Some(url)
-            } else if cfg!(debug_assertions) {
-                // Dev mode: external Vite + API. No sidecar.
-                None
-            } else {
-                let resource_dir = app.path().resource_dir().ok();
-                let local_dir = match app.path().app_data_dir() {
-                    Ok(dir) => dir.join("bridge").join("local-plane"),
-                    Err(error) => {
-                        eprintln!(
-                            "[bridge-desktop] api sidecar: app-data directory is unavailable: \
+            let (api_url, sidecar_token): (Option<String>, Option<String>) =
+                if let Ok(url) = std::env::var("BRIDGE_API_URL") {
+                    // Explicit override — e.g. pointing the shell at a remote
+                    // or already-running local API. No sidecar spawned.
+                    (Some(url), None)
+                } else if cfg!(debug_assertions) {
+                    // Dev mode: external Vite + API. No sidecar.
+                    (None, None)
+                } else {
+                    let resource_dir = app.path().resource_dir().ok();
+                    let local_dir = match app.path().app_data_dir() {
+                        Ok(dir) => dir.join("bridge").join("local-plane"),
+                        Err(error) => {
+                            eprintln!(
+                                "[bridge-desktop] api sidecar: app-data directory is unavailable: \
                              {error}. Refusing an ephemeral API."
-                        );
-                        create_windows(app.handle(), &build_init_script(None));
-                        return Ok(());
+                            );
+                            let init_script = build_init_script(None, None);
+                            create_windows(app.handle(), &init_script, &init_script);
+                            return Ok(());
+                        }
+                    };
+                    // start() only resolves/spawns the child; its bounded health
+                    // probe runs on a named background thread. setup must return
+                    // promptly so the Tauri event loop can service this window.
+                    match api_sidecar::start(resource_dir, local_dir) {
+                        Some(spawned) => {
+                            let url = format!("http://127.0.0.1:{}", spawned.port);
+                            let token = spawned.token.clone();
+                            let state = app.state::<api_sidecar::ApiSidecarState>();
+                            if let Ok(mut guard) = state.0.lock() {
+                                *guard = Some(spawned);
+                            }
+                            (Some(url), Some(token))
+                        }
+                        None => (None, None),
                     }
                 };
-                // start() only resolves/spawns the child; its bounded health
-                // probe runs on a named background thread. setup must return
-                // promptly so the Tauri event loop can service this window.
-                api_sidecar::start(resource_dir, local_dir).map(|spawned| {
-                    let url = format!("http://127.0.0.1:{}", spawned.port);
-                    let state = app.state::<api_sidecar::ApiSidecarState>();
-                    if let Ok(mut guard) = state.0.lock() {
-                        *guard = Some(spawned.child);
-                    }
-                    url
-                })
-            };
-            let init_script = build_init_script(api_url.as_deref());
-            create_windows(app.handle(), &init_script);
+            let init_script = build_init_script(api_url.as_deref(), sidecar_token.as_deref());
+            let companion_init_script = build_init_script(api_url.as_deref(), None);
+            create_windows(app.handle(), &init_script, &companion_init_script);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -155,4 +214,41 @@ pub fn run() {
             api_sidecar::shutdown(&app_handle.state::<api_sidecar::ApiSidecarState>());
         }
     });
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn privileged_webview_navigation_stays_on_trusted_origins() {
+        assert!(trusted_webview_navigation(
+            &tauri::Url::parse("tauri://localhost/dealpilot").unwrap()
+        ));
+        assert!(trusted_webview_navigation(
+            &tauri::Url::parse("http://tauri.localhost/dealpilot").unwrap()
+        ));
+        assert!(!trusted_webview_navigation(
+            &tauri::Url::parse("https://accounts.google.com/o/oauth2/v2/auth").unwrap()
+        ));
+        assert!(
+            !trusted_webview_navigation(
+                &tauri::Url::parse("http://127.0.0.1:4000/attacker").unwrap()
+            ) || cfg!(debug_assertions)
+        );
+    }
+
+    #[test]
+    fn oauth_launcher_rejects_non_google_urls_before_spawn() {
+        assert!(open_google_oauth("https://example.invalid/o/oauth2/v2/auth".into()).is_err());
+        assert!(open_google_oauth("http://accounts.google.com/o/oauth2/v2/auth".into()).is_err());
+    }
+
+    #[test]
+    fn launch_capability_is_origin_guarded_in_init_script() {
+        let script = build_init_script(Some("http://127.0.0.1:4123"), Some("test-sidecar-token"));
+        assert!(script.contains("window.location.origin"));
+        assert!(script.contains("Object.defineProperty"));
+        assert!(!build_init_script(None, None).contains("__BRIDGE_SIDECAR_TOKEN__"));
+    }
 }

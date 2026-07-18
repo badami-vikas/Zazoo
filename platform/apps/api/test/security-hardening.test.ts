@@ -13,11 +13,13 @@ import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import test from "node:test";
 import Fastify from "fastify";
+import { decodeJwt } from "jose";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 import { loggerOptions } from "../src/server.js";
+import { makeContextFactory, verifiedReauthenticationAt } from "../src/context.js";
 
 function makeRun(seed = 1): RunCtx {
   const clock = new SystemClock();
@@ -34,6 +36,58 @@ function makeCaller(wiring: Wiring, identity: Actor) {
     verifying: false,
   });
 }
+
+test("credential re-auth accepts only a verified password AMR timestamp", () => {
+  const encoded = (payload: object) =>
+    `header.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.signature`;
+  const oauthOnly = decodeJwt(
+    encoded({ auth_time: 1_752_796_800, amr: [{ method: "oauth", timestamp: 1_752_796_800 }] }),
+  );
+  const password = decodeJwt(
+    encoded({
+      auth_time: 1_752_796_700,
+      amr: [{ method: "password", timestamp: 1_752_796_800 }],
+    }),
+  );
+
+  assert.equal(verifiedReauthenticationAt(oauthOnly), undefined);
+  assert.equal(verifiedReauthenticationAt(password), 1_752_796_800_000);
+});
+
+test("sidecar capability authenticates the server-owned pilot without granting re-authentication", async () => {
+  const token = "c".repeat(64);
+  const prior = process.env.BRIDGE_SIDECAR_TOKEN;
+  const priorJwtSecret = process.env.SUPABASE_JWT_SECRET;
+  process.env.BRIDGE_SIDECAR_TOKEN = token;
+  const wiring = await buildWiring();
+  try {
+    const context = await makeContextFactory(wiring)({
+      req: { headers: { "x-bridge-sidecar-token": token } },
+    });
+    assert.equal(context.authenticated, true);
+    assert.equal(context.identity.id, PILOT_USER);
+    assert.equal(context.reauthenticatedAt, undefined);
+
+    process.env.SUPABASE_JWT_SECRET = "test_fixture_verified_identity_secret";
+    const verifierContext = await makeContextFactory(wiring)({
+      req: { headers: { "x-bridge-sidecar-token": token } },
+    });
+    assert.equal(verifierContext.verifying, true);
+    assert.equal(verifierContext.authenticated, false);
+    await assert.rejects(
+      appRouter
+        .createCaller(verifierContext)
+        .dealpilot.module({ workspaceId: PILOT_WORKSPACE }),
+      /authentication required for DealPilot/,
+    );
+  } finally {
+    await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_SIDECAR_TOKEN;
+    else process.env.BRIDGE_SIDECAR_TOKEN = prior;
+    if (priorJwtSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
+    else process.env.SUPABASE_JWT_SECRET = priorJwtSecret;
+  }
+});
 
 test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is rejected at the edge (no OAuth proof exists)", async () => {
   const wiring = await buildWiring();
@@ -236,7 +290,7 @@ test("onboarding.verifyPhoneOtp: a passing code is labeled verificationSource:'d
   }
 });
 
-test("server logger: phone, OTP code, and Authorization are redacted, never written in the clear", async () => {
+test("server logger: credentials, phone, OTP code, and Authorization are redacted", async () => {
   const chunks: string[] = [];
   const stream = new Writable({
     write(chunk, _enc, cb) {
@@ -251,8 +305,20 @@ test("server logger: phone, OTP code, and Authorization are redacted, never writ
   // these top-level keys are what actually exercises the pino redact config.
   app.log.info(
     {
-      body: { phone: "+15555550123", code: "654321" },
-      headers: { authorization: "Bearer super-secret-token" },
+      body: {
+        phone: "+15555550123",
+        code: "654321",
+        password: "test_fixture_source_password",
+        userId: "test_fixture_private_user",
+        json: {
+          password: "test_fixture_nested_password",
+          userId: "test_fixture_nested_user",
+        },
+      },
+      headers: {
+        authorization: "Bearer super-secret-token",
+        "x-bridge-sidecar-token": "test_fixture_sidecar_capability",
+      },
     },
     "inbound request",
   );
@@ -263,4 +329,9 @@ test("server logger: phone, OTP code, and Authorization are redacted, never writ
   assert.doesNotMatch(out, /super-secret-token/);
   assert.doesNotMatch(out, /654321/);
   assert.doesNotMatch(out, /\+15555550123/);
+  assert.doesNotMatch(out, /test_fixture_source_password/);
+  assert.doesNotMatch(out, /test_fixture_private_user/);
+  assert.doesNotMatch(out, /test_fixture_nested_password/);
+  assert.doesNotMatch(out, /test_fixture_nested_user/);
+  assert.doesNotMatch(out, /test_fixture_sidecar_capability/);
 });

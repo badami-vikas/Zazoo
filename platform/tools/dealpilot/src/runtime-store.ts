@@ -34,7 +34,6 @@ import {
 const STATE_NAMESPACE = "dealpilot.runtime.v1";
 const STATE_VERSION = 1;
 const MAX_GMAIL_SEEN_IDS = 10_000;
-const MAX_SETTLEMENT_RECEIPTS = 256;
 
 export interface DealPilotStatePort {
   read(workspaceId: string, namespace: string): Promise<unknown | null>;
@@ -52,7 +51,7 @@ interface StoredCapture {
   committedAt?: string;
 }
 
-interface DiscoverySettlement {
+export interface DiscoverySettlement {
   status: "settled" | "budget_exceeded";
   captureIds: string[];
   droppedForBudget: number;
@@ -87,6 +86,12 @@ export interface DealPilotCaptureProjection extends QuarantinedCapture {
   sourceId: string;
 }
 
+export interface DealPilotCapturePage {
+  items: DealPilotCaptureProjection[];
+  total: number;
+  hasMore: boolean;
+}
+
 export interface SettleDiscoveryBatchInput {
   workspaceId: string;
   sourceId: string;
@@ -113,7 +118,10 @@ export interface DealPilotRuntimeStore
     sourceId: string,
     capture: QuarantinedCapture,
   ): Promise<string>;
-  listPendingCaptures(workspaceId: string): Promise<DealPilotCaptureProjection[]>;
+  listPendingCaptures(
+    workspaceId: string,
+    opts?: { sourceId?: string; limit?: number; offset?: number },
+  ): Promise<DealPilotCapturePage>;
   captureStatus(
     workspaceId: string,
     captureId: string,
@@ -122,6 +130,13 @@ export interface DealPilotRuntimeStore
   commitCapture(workspaceId: string, captureId: string): Promise<CommitCaptureResult>;
   candidateProfile(workspaceId: string, dealId: string): Promise<Record<string, unknown>>;
   credentialAuditEvents(workspaceId: string): Promise<CredentialAuditEvent[]>;
+  recordCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+    audit: CredentialAuditEvent,
+  ): Promise<{ source: SourceRecord; cleared: boolean }>;
 }
 
 function emptyState(): DealPilotWorkspaceState {
@@ -388,6 +403,61 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
       state.sources[id] = updated;
       return { state, result: { ...updated } };
     });
+  }
+
+  async recordCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+    audit: CredentialAuditEvent,
+  ): Promise<{ source: SourceRecord; cleared: boolean }> {
+    return this.#update<{ source: SourceRecord; cleared: boolean }>(
+      workspaceId,
+      (state) => {
+        const record = state.sources[sourceId];
+        if (!record) {
+          throw new DealPilotStoreError("not_found", `Source "${sourceId}" was not found`);
+        }
+        if (
+          audit.workspaceId !== workspaceId ||
+          audit.sourceId !== sourceId ||
+          audit.actorId !== ownerId ||
+          audit.action !== "revoke" ||
+          audit.field !== "credential"
+        ) {
+          throw new DealPilotStoreError(
+            "conflict",
+            "Credential revocation audit is outside the requested Organization, Source, or Human",
+          );
+        }
+        const cleared =
+          record.credentialOwnerId === ownerId &&
+          record.credentialRef === reference;
+        if (!cleared) {
+          state.credentialAudit.push({ ...audit });
+          return {
+            state,
+            result: { source: { ...record }, cleared: false },
+          };
+        }
+        const {
+          credentialRef: _credentialRef,
+          credentialOwnerId: _credentialOwnerId,
+          ...withoutCredential
+        } = record;
+        const updated: SourceRecord = {
+          ...withoutCredential,
+          updatedAt: this.#now(),
+        };
+        state.sources[sourceId] = updated;
+        state.credentialAudit.push({ ...audit });
+        return {
+          state,
+          result: { source: { ...updated }, cleared: true },
+        };
+      },
+    );
   }
 
   async link(input: CreateRelationInput): Promise<DealPilotRelation> {
@@ -668,11 +738,42 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
 
   async listPendingCaptures(
     workspaceId: string,
-  ): Promise<DealPilotCaptureProjection[]> {
+    opts: { sourceId?: string; limit?: number; offset?: number } = {},
+  ): Promise<DealPilotCapturePage> {
+    const limit = opts.limit ?? 50;
+    const offset = opts.offset ?? 0;
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 200 ||
+      !Number.isInteger(offset) ||
+      offset < 0
+    ) {
+      throw new DealPilotStoreError(
+        "conflict",
+        "Pending capture pagination requires limit 1..200 and a non-negative offset",
+      );
+    }
     const state = await this.#read(workspaceId);
-    return Object.values(state.captures)
-      .filter((row) => !row.committedAt)
+    const rows = Object.values(state.captures)
+      .filter(
+        (row) =>
+          !row.committedAt &&
+          (opts.sourceId === undefined || row.sourceId === opts.sourceId),
+      )
+      .sort(
+        (left, right) =>
+          right.capture.capturedAt.localeCompare(left.capture.capturedAt) ||
+          right.capture.captureId.localeCompare(left.capture.captureId),
+      );
+    const items = rows
+      .slice(offset, offset + limit)
       .map((row) => ({ ...structuredClone(row.capture), sourceId: row.sourceId }));
+    return {
+      items,
+      total: rows.length,
+      hasMore: offset + items.length < rows.length,
+    };
   }
 
   async captureStatus(
@@ -964,9 +1065,7 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
       result: settlement,
     });
     state.settlementOrder.push(input.receipt.batchId);
-    while (state.settlementOrder.length > MAX_SETTLEMENT_RECEIPTS) {
-      const oldest = state.settlementOrder.shift();
-      if (oldest) delete state.settlements[oldest];
-    }
+    // Settlement receipts are the durable idempotency ledger. Evicting one can
+    // double-charge or turn a post-crash retry into a stale-receipt failure.
   }
 }

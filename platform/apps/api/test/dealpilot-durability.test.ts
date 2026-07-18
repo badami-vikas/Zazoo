@@ -78,6 +78,14 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
         visitedPageTokens: ["__first_page__"],
       },
     );
+    await first.localPlane.graph.recordExternal({
+      workspaceId: PILOT_WORKSPACE,
+      source: "gmail",
+      sourceRecordId: "provider-message-non-uuid",
+      entityType: "touchpoint",
+      entityId: "provider-entity-non-uuid",
+      createdAt: "2026-07-18T00:00:00.000Z",
+    });
     await first.close();
 
     const reopened = await buildWiring({
@@ -91,11 +99,22 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
       })).total,
       1,
     );
-    assert.equal((await reopened.dealpilot.store.listPendingCaptures(PILOT_WORKSPACE)).length, 1);
+    assert.equal(
+      (await reopened.dealpilot.store.listPendingCaptures(PILOT_WORKSPACE)).items.length,
+      1,
+    );
     const gmail = await reopened.dealpilot.store.load(PILOT_WORKSPACE, source.id);
     assert.equal(gmail.pending?.batchId, "batch-restart");
     assert.equal(gmail.continuation, undefined);
     assert.equal(gmail.pending?.continuation?.pageToken, "page-2");
+    assert.equal(
+      await reopened.localPlane.graph.hasExternal(
+        PILOT_WORKSPACE,
+        "gmail",
+        "provider-message-non-uuid",
+      ),
+      true,
+    );
     await reopened.close();
 
     assert.ok((await readFile(join(root, "PG_VERSION"), "utf8")).trim().length > 0);
@@ -114,7 +133,12 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
         keyringValues.set(key, value);
       },
       getPassword: async () => keyringValues.get(key),
-      deleteCredential: async () => keyringValues.delete(key),
+      deleteCredential: async () => {
+        if (keyringValues.delete(key)) return true;
+        const missing = new Error("No matching entry found in secure storage");
+        missing.name = "NoEntry";
+        throw missing;
+      },
     };
   };
   const secret = "credential-value-that-must-not-enter-local-files";
@@ -152,7 +176,72 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     });
     assert.equal(JSON.stringify(detail).includes(secret), false);
     assert.equal(JSON.stringify(detail).includes(userId), false);
+    const session = await caller.dealpilot.reauthenticateCredential({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+    });
+    const recordRevocation =
+      wiring.dealpilot.store.recordCredentialRevocation.bind(
+        wiring.dealpilot.store,
+      );
+    wiring.dealpilot.store.recordCredentialRevocation = async () => {
+      throw new Error("simulated Local Plane write failure");
+    };
+    await assert.rejects(
+      caller.dealpilot.clearCredential({
+        workspaceId: PILOT_WORKSPACE,
+        sourceId: source.id,
+        token: session.token,
+      }),
+      /simulated Local Plane write failure/,
+    );
+    assert.equal(keyringValues.size, 0);
+    await assert.rejects(
+      caller.dealpilot.clearCredential({
+        workspaceId: PILOT_WORKSPACE,
+        sourceId: source.id,
+        token: session.token,
+      }),
+      /matching re-authentication session is required/,
+    );
+    wiring.dealpilot.store.recordCredentialRevocation = recordRevocation;
+    const retrySession = await caller.dealpilot.reauthenticateCredential({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+    });
+    const revoked = await caller.dealpilot.clearCredential({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+      token: retrySession.token,
+    });
+    assert.equal(revoked.cleared, true);
+    assert.deepEqual(
+      (await wiring.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE)).map(
+        (event) => event.action,
+      ),
+      ["revoke"],
+    );
     await wiring.close();
+
+    const reopened = await buildWiring({
+      localDir: root,
+      dealPilotCredentialVault: new KeyringSourceCredentialVault({
+        service: "com.bridge.test",
+        entryFactory: factory,
+      }),
+    });
+    const reopenedSource = await reopened.dealpilot.store.get(
+      "source",
+      PILOT_WORKSPACE,
+      source.id,
+    );
+    assert.equal(
+      reopenedSource?.kind === "source"
+        ? reopenedSource.credentialRef
+        : "unexpected-kind",
+      undefined,
+    );
+    await reopened.close();
 
     const files = await filesUnder(root);
     for (const file of files) {

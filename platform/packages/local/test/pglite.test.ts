@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
 import { createPgliteLocalPlane } from "../src/index.js";
 
 test("pglite local plane: tokens, bodies, entities round-trip", async () => {
@@ -107,6 +108,58 @@ test("pglite local state survives close/reopen and isolates workspaces", async (
     await reopened.close();
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("pglite local plane migrates adapter-owned external records without colliding with Drizzle", async () => {
+  const client = new PGlite();
+  try {
+    await client.exec(`
+      CREATE TABLE external_records (
+        workspace_id text NOT NULL,
+        source text NOT NULL,
+        source_record_id text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text NOT NULL,
+        created_at text NOT NULL,
+        PRIMARY KEY (workspace_id, source, source_record_id)
+      );
+      INSERT INTO external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      VALUES
+        ('workspace-a', 'gmail', 'provider-message-a', 'touchpoint', 'provider-entity-a', '2026-07-18T00:00:00.000Z');
+    `);
+    const plane = await createPgliteLocalPlane({ client });
+    try {
+      assert.equal(
+        await plane.graph.hasExternal(
+          "workspace-a",
+          "gmail",
+          "provider-message-a",
+        ),
+        true,
+      );
+      await plane.graph.recordExternal({
+        workspaceId: "workspace-a",
+        source: "calendar",
+        sourceRecordId: "provider-event-a",
+        entityType: "event",
+        entityId: "provider-entity-b",
+        createdAt: "2026-07-18T00:00:00.000Z",
+      });
+      assert.equal(
+        await plane.graph.hasExternal(
+          "workspace-a",
+          "calendar",
+          "provider-event-a",
+        ),
+        true,
+      );
+    } finally {
+      await plane.close();
+    }
+  } finally {
+    await client.close();
   }
 });
 

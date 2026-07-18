@@ -103,6 +103,18 @@ function parseCredential(value: string): SourceCredential {
   };
 }
 
+function isMissingEntryError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : "";
+  return (
+    error.name === "NoEntry" ||
+    code === "NoEntry" ||
+    /^NoEntry\b/.test(error.message) ||
+    /no matching entry found in secure storage/i.test(error.message)
+  );
+}
+
 export class KeyringSourceCredentialVault implements SourceCredentialVault {
   readonly #service: string;
   readonly #entry: KeyringEntryFactory;
@@ -146,7 +158,11 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
 
   async delete(scope: SourceCredentialScope, reference: string): Promise<void> {
     const account = this.#account(scope, reference);
-    await this.#entry(this.#service, account).deleteCredential();
+    try {
+      await this.#entry(this.#service, account).deleteCredential();
+    } catch (error) {
+      if (!isMissingEntryError(error)) throw error;
+    }
   }
 
   async #readEntry(
@@ -154,7 +170,12 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     reference: string,
   ): Promise<string | null> {
     const account = this.#account(scope, reference);
-    return (await this.#entry(this.#service, account).getPassword()) ?? null;
+    try {
+      return (await this.#entry(this.#service, account).getPassword()) ?? null;
+    } catch (error) {
+      if (isMissingEntryError(error)) return null;
+      throw error;
+    }
   }
 
   #account(scope: SourceCredentialScope, reference: string): string {

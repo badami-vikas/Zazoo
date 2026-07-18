@@ -12,6 +12,7 @@ import { isVerifierConfigured } from "./identity.js";
 import { buildWiring, PILOT_WORKSPACE } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
 import { reconcileWorkspaceRelationshipMaterializations } from "./relationship-materializer.js";
+import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
 
 /**
  * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
@@ -38,6 +39,7 @@ export function corsOriginConfig(): true | string[] {
 }
 
 export function serverHostConfig(): string {
+  if (process.env.BRIDGE_SIDECAR_TOKEN) return "127.0.0.1";
   if (process.env.API_HOST) return process.env.API_HOST;
   return process.env.NODE_ENV === "production" || isVerifierConfigured() || Boolean(process.env.DATABASE_URL)
     ? "0.0.0.0"
@@ -123,17 +125,33 @@ export const LOG_REDACT_PATHS: string[] = [
   "req.body.phone",
   "req.body.code",
   "req.body.accessToken",
+  "req.body.password",
+  "req.body.userId",
   "req.body.json.accessToken",
+  "req.body.json.password",
+  "req.body.json.userId",
   "req.body.*.json.accessToken",
+  "req.body.*.json.password",
+  "req.body.*.json.userId",
   "req.headers.authorization",
   'req.headers["authorization"]',
+  "req.headers.x-bridge-sidecar-token",
+  'req.headers["x-bridge-sidecar-token"]',
   "body.phone",
   "body.code",
   "body.accessToken",
+  "body.password",
+  "body.userId",
   "body.json.accessToken",
+  "body.json.password",
+  "body.json.userId",
   "body.*.json.accessToken",
+  "body.*.json.password",
+  "body.*.json.userId",
   "headers.authorization",
   'headers["authorization"]',
+  "headers.x-bridge-sidecar-token",
+  'headers["x-bridge-sidecar-token"]',
 ];
 
 export const loggerOptions = {
@@ -148,6 +166,16 @@ export async function buildServer() {
   const app = Fastify({ logger: loggerOptions, maxParamLength: 5000 });
   app.addHook("onClose", async () => {
     await wiring.close();
+  });
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      process.env.BRIDGE_SIDECAR_TOKEN &&
+      request.method !== "OPTIONS" &&
+      !request.url.startsWith("/integrations/google/callback") &&
+      !validSidecarToken(request.headers[SIDECAR_TOKEN_HEADER])
+    ) {
+      return reply.code(401).send({ error: "sidecar authentication required" });
+    }
   });
   const origin = corsOriginConfig();
   if (origin === true) {
@@ -190,6 +218,17 @@ export async function buildServer() {
   });
 
   app.get("/health", async () => ({ ok: true, service: "bridge-api" }));
+  app.post("/internal/sidecar/shutdown", async (_request, reply) => {
+    if (!process.env.BRIDGE_SIDECAR_TOKEN) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    setImmediate(() => {
+      void app.close().catch((error: unknown) => {
+        app.log.error({ err: error }, "sidecar shutdown failed");
+      });
+    });
+    return reply.code(202).send({ stopping: true });
+  });
 
   // Liveness ("/health") only proves the process is up. Readiness actually probes the
   // backing stores so a downed Postgres or corrupted local plane surfaces as a real

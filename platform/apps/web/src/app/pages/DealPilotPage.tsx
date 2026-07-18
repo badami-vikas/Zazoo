@@ -25,7 +25,8 @@ type ModuleManifest = Awaited<ReturnType<typeof trpc.dealpilot.module.query>>;
 type RecordPage = Awaited<ReturnType<typeof trpc.dealpilot.records.query>>;
 type RecordRow = RecordPage["items"][number];
 type RecordDetail = Awaited<ReturnType<typeof trpc.dealpilot.detail.query>>;
-type Capture = Awaited<ReturnType<typeof trpc.dealpilot.captures.query>>[number];
+type CapturePage = Awaited<ReturnType<typeof trpc.dealpilot.captures.query>>;
+type Capture = CapturePage["items"][number];
 
 const PAGE_META = {
   deals: { label: "Deals", icon: BriefcaseBusiness, kind: "deal" as const },
@@ -136,13 +137,18 @@ export function DealPilotPage() {
             id: recordId,
           }),
           pageId === "sources"
-            ? trpc.dealpilot.captures.query({ workspaceId: PILOT_WORKSPACE })
-            : Promise.resolve([]),
+            ? trpc.dealpilot.captures.query({
+                workspaceId: PILOT_WORKSPACE,
+                sourceId: recordId,
+                limit: 200,
+                offset: 0,
+              })
+            : Promise.resolve({ items: [], total: 0, hasMore: false }),
         ]);
         if (!isCurrent()) return false;
         setManifest(module);
         setDetail(selected);
-        setCaptures(sourceCaptures.filter((capture) => capture.sourceId === recordId));
+        setCaptures(sourceCaptures.items);
       } else {
         const [module, page] = await Promise.all([
           trpc.dealpilot.module.query({ workspaceId: PILOT_WORKSPACE }),
@@ -586,6 +592,16 @@ function RecordDetailSurface({
   const [reauthBusy, setReauthBusy] = useState(false);
   const [reauthError, setReauthError] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  const reauthClearTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (reauthClearTimer.current !== null) {
+        window.clearTimeout(reauthClearTimer.current);
+      }
+    },
+    [],
+  );
 
   async function reauthenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -608,6 +624,15 @@ function RecordDetailSurface({
         sourceId: record.id,
       });
       setReauthToken(session.token);
+      setRevealed({});
+      if (reauthClearTimer.current !== null) {
+        window.clearTimeout(reauthClearTimer.current);
+      }
+      reauthClearTimer.current = window.setTimeout(() => {
+        setReauthToken(null);
+        setRevealed({});
+        reauthClearTimer.current = null;
+      }, Math.max(0, Date.parse(session.expiresAt) - Date.now()));
       setReauthOpen(false);
       onNotice(`Re-authenticated until ${new Date(session.expiresAt).toLocaleTimeString()}.`);
     } catch (reauthError) {
@@ -636,9 +661,16 @@ function RecordDetailSurface({
           `${field === "userId" ? "User ID" : "Password"} copied. Bridge will request clipboard clearing in 30 seconds where the OS permits it.`,
         );
         window.setTimeout(() => {
-          void navigator.clipboard.writeText("").catch(() => {
-            onNotice("The OS did not permit automatic clipboard clearing; overwrite the clipboard when finished.");
-          });
+          void navigator.clipboard
+            .readText()
+            .then((current) =>
+              current === result.value
+                ? navigator.clipboard.writeText("")
+                : undefined,
+            )
+            .catch(() => {
+              onNotice("The OS did not permit automatic clipboard clearing; overwrite the clipboard when finished.");
+            });
         }, 30_000);
         return;
       }
@@ -651,7 +683,43 @@ function RecordDetailSurface({
         });
       }, 30_000);
     } catch (accessError) {
+      setReauthToken(null);
+      setRevealed({});
       onNotice(accessError instanceof Error ? accessError.message : String(accessError));
+    }
+  }
+
+  async function clearCredential() {
+    if (!reauthToken) {
+      onNotice("Re-authenticate before revoking this Source credential.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Revoke and permanently remove this Source credential from the secure vault?",
+      )
+    ) {
+      return;
+    }
+    try {
+      await trpc.dealpilot.clearCredential.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        sourceId: record.id,
+        token: reauthToken,
+      });
+      setReauthToken(null);
+      setRevealed({});
+      if (reauthClearTimer.current !== null) {
+        window.clearTimeout(reauthClearTimer.current);
+        reauthClearTimer.current = null;
+      }
+      if (await onReload()) {
+        onNotice("Source credential revoked and removed from the secure vault.");
+      }
+    } catch (clearError) {
+      setReauthToken(null);
+      setRevealed({});
+      onNotice(clearError instanceof Error ? clearError.message : String(clearError));
     }
   }
 
@@ -739,6 +807,17 @@ function RecordDetailSurface({
               </div>
             );
           })}
+          {"credentialProjection" in detail &&
+            (detail.credentialProjection.userId.state === "available" ||
+              detail.credentialProjection.password.state === "available") && (
+              <button
+                type="button"
+                className="mt-5 text-sm font-medium text-red-700 underline"
+                onClick={() => void clearCredential()}
+              >
+                Revoke credential
+              </button>
+            )}
         </section>
       )}
       {record.kind === "source" && reauthOpen && (

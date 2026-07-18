@@ -109,6 +109,8 @@ export {
 export type {
   DealPilotStatePort,
   DealPilotCaptureProjection,
+  DealPilotCapturePage,
+  DiscoverySettlement,
   SettleDiscoveryBatchInput,
   CommitCaptureResult,
   DealPilotRuntimeStore,

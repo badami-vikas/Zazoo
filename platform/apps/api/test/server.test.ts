@@ -122,6 +122,58 @@ test("assertProductionEnv: no-op outside production even without DATABASE_URL", 
   });
 });
 
+test("server host: a managed sidecar is loopback-only even with shared deployment settings", () => {
+  withEnv(
+    {
+      BRIDGE_SIDECAR_TOKEN: "a".repeat(64),
+      API_HOST: "0.0.0.0",
+      DATABASE_URL: "postgres://test_fixture",
+    },
+    () => {
+      assert.equal(serverHostConfig(), "127.0.0.1");
+    },
+  );
+});
+
+test("desktop sidecar capability protects loopback routes and accepts only the exact token", async () => {
+  const sidecarToken = "a".repeat(64);
+  await withEnvAsync(
+    {
+      BRIDGE_SIDECAR_TOKEN: sidecarToken,
+      SUPABASE_JWT_SECRET: undefined,
+      SUPABASE_URL: undefined,
+    },
+    async () => {
+      const app = await buildServer();
+      try {
+        const missing = await app.inject({ method: "GET", url: "/health" });
+        assert.equal(missing.statusCode, 401);
+        const invalid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": "b".repeat(64) },
+        });
+        assert.equal(invalid.statusCode, 401);
+        const valid = await app.inject({
+          method: "GET",
+          url: "/health",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(valid.statusCode, 200);
+        const shutdown = await app.inject({
+          method: "POST",
+          url: "/internal/sidecar/shutdown",
+          headers: { "x-bridge-sidecar-token": sidecarToken },
+        });
+        assert.equal(shutdown.statusCode, 202);
+        assert.deepEqual(shutdown.json(), { stopping: true });
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
 test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled rejection — even when the tRPC procedure itself needs no auth", async () => {
   await withEnvAsync(
     { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },

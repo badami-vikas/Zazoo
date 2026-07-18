@@ -1,5 +1,6 @@
 export type CredentialField = "userId" | "password";
-export type CredentialAccessAction = "reveal" | "copy";
+export type CredentialAccessAction = "reveal" | "copy" | "revoke";
+export type CredentialAuditField = CredentialField | "credential";
 
 export interface SourceCredential {
   userId?: string;
@@ -89,7 +90,7 @@ export interface CredentialAuditEvent {
   sourceId: string;
   actorId: string;
   action: CredentialAccessAction;
-  field: CredentialField;
+  field: CredentialAuditField;
   occurredAt: string;
 }
 
@@ -157,6 +158,16 @@ export class HumanReauthentication {
         "A cryptographically verified application or OS re-authentication from the last five minutes is required",
       );
     }
+    for (const [token, session] of this.sessions) {
+      if (
+        Date.parse(session.expiresAt) <= this.#now() ||
+        (session.actorId === input.actorId &&
+          session.workspaceId === input.workspaceId &&
+          session.sourceId === input.sourceId)
+      ) {
+        this.sessions.delete(token);
+      }
+    }
     const bytes = new Uint8Array(32);
     globalThis.crypto.getRandomValues(bytes);
     const token = `reauth_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
@@ -185,6 +196,22 @@ export class HumanReauthentication {
       this.sessions.delete(token);
       throw new CredentialAccessError("reauthentication_expired", "The re-authentication session expired");
     }
+  }
+
+  consume(token: string, actorId: string, workspaceId: string, sourceId: string): void {
+    const session = this.sessions.get(token);
+    if (!session) return;
+    if (
+      session.actorId !== actorId ||
+      session.workspaceId !== workspaceId ||
+      session.sourceId !== sourceId
+    ) {
+      throw new CredentialAccessError(
+        "reauthentication_required",
+        "A matching re-authentication session is required",
+      );
+    }
+    this.sessions.delete(token);
   }
 }
 
@@ -260,5 +287,51 @@ export class SourceCredentialService {
       occurredAt: this.now(),
     });
     return { value, expiresAt: new Date(Date.parse(this.now()) + 30_000).toISOString() };
+  }
+
+  async revokeCredential(input: {
+    reference: string | undefined;
+    workspaceId: string;
+    sourceId: string;
+    actorType: "user" | "team" | "agent";
+    actorId: string;
+    token: string;
+  }): Promise<CredentialAuditEvent> {
+    if (input.actorType !== "user") {
+      throw new CredentialAccessError(
+        "human_required",
+        "Agents, Automations, and teams cannot revoke raw credentials",
+      );
+    }
+    this.reauthentication.assert(
+      input.token,
+      input.actorId,
+      input.workspaceId,
+      input.sourceId,
+    );
+    if (!input.reference) {
+      throw new CredentialAccessError(
+        "credential_unavailable",
+        "This Source has no credential reference",
+      );
+    }
+    this.reauthentication.consume(
+      input.token,
+      input.actorId,
+      input.workspaceId,
+      input.sourceId,
+    );
+    await this.vault.delete(
+      { workspaceId: input.workspaceId, sourceId: input.sourceId },
+      input.reference,
+    );
+    return {
+      workspaceId: input.workspaceId,
+      sourceId: input.sourceId,
+      actorId: input.actorId,
+      action: "revoke",
+      field: "credential",
+      occurredAt: this.now(),
+    };
   }
 }

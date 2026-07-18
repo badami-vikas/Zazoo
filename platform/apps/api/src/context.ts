@@ -26,6 +26,7 @@ import { decodeJwt } from "jose";
 import { SeededRng, SystemClock, UuidGen, type Actor, type Rng, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
+import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
 
 export interface ApiContext {
   wiring: Wiring;
@@ -42,8 +43,8 @@ export interface ApiContext {
    * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
    * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
   verifying: boolean;
-  /** Server-derived auth_time from the already-verified bearer. Credential
-   * reveal/copy accepts it only while it remains within the recent-auth window. */
+  /** Password-AMR timestamp from the already-verified bearer. Credential
+   * reveal/copy/revoke accepts it only while it remains within the recent-auth window. */
   reauthenticatedAt?: number;
 }
 
@@ -64,11 +65,10 @@ function headerValue(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function verifiedReauthenticationAt(payload: ReturnType<typeof decodeJwt>): number | undefined {
+export function verifiedReauthenticationAt(
+  payload: ReturnType<typeof decodeJwt>,
+): number | undefined {
   const candidates: number[] = [];
-  if (typeof payload.auth_time === "number" && Number.isFinite(payload.auth_time)) {
-    candidates.push(payload.auth_time);
-  }
   if (Array.isArray(payload.amr)) {
     for (const entry of payload.amr) {
       if (
@@ -114,9 +114,17 @@ export function makeContextFactory(wiring: Wiring) {
     // never drift.
     const verifying = identityResolver.verifying;
     const token = bearerToken(authHeader);
-    const authenticated = verifying && token !== null;
+    const sidecarAuthenticated = validSidecarToken(
+      args?.req?.headers?.[SIDECAR_TOKEN_HEADER],
+    );
+    // A sidecar capability proves that a request came through the managed local
+    // client, not which Human is acting. Once a user verifier is configured,
+    // only a verified bearer may satisfy user authentication.
+    const authenticated = verifying
+      ? token !== null
+      : sidecarAuthenticated;
     let reauthenticatedAt: number | undefined;
-    if (authenticated && token) {
+    if (verifying && token) {
       const payload = decodeJwt(token);
       reauthenticatedAt = verifiedReauthenticationAt(payload);
     }

@@ -2127,7 +2127,12 @@ export const appRouter = t.router({
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
-      return { url: authUrl(ctx.wiring.googleOAuth, ctx.wiring.google.integrationId) };
+      const state = await ctx.wiring.googleOAuthStates.issue(
+        PILOT_WORKSPACE,
+        ctx.wiring.google.integrationId,
+        ctx.identity.id,
+      );
+      return { url: authUrl(ctx.wiring.googleOAuth, state) };
     }),
 
     /** Revoke locally (delete the local token). */
@@ -2860,10 +2865,21 @@ export const appRouter = t.router({
       }),
 
     captures: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1).optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        return ctx.wiring.dealpilot.store.listPendingCaptures(input.workspaceId);
+        return ctx.wiring.dealpilot.store.listPendingCaptures(input.workspaceId, {
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        });
       }),
 
     commit: dealpilotProcedure
@@ -3014,6 +3030,67 @@ export const appRouter = t.router({
             field: input.field,
             action: input.action,
           });
+        } catch (error) {
+          if (error instanceof CredentialAccessError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    clearCredential: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1),
+          token: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.get(
+          "source",
+          input.workspaceId,
+          input.sourceId,
+        );
+        if (!source || source.kind !== "source") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
+        }
+        if (
+          source.credentialOwnerId !== ctx.identity.id ||
+          !source.credentialRef
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Source credential revocation is not authorized",
+          });
+        }
+        try {
+          const audit = await ctx.wiring.dealpilot.credentials.revokeCredential({
+            reference: source.credentialRef,
+            workspaceId: input.workspaceId,
+            sourceId: source.id,
+            actorType: ctx.identity.type,
+            actorId: ctx.identity.id,
+            token: input.token,
+          });
+          const revocation =
+            await ctx.wiring.dealpilot.store.recordCredentialRevocation(
+              input.workspaceId,
+              source.id,
+              ctx.identity.id,
+              source.credentialRef,
+              audit,
+            );
+          return {
+            revoked: true as const,
+            cleared: revocation.cleared,
+            credentialProjection:
+              await ctx.wiring.dealpilot.credentials.project(
+                { workspaceId: input.workspaceId, sourceId: source.id },
+                revocation.source.credentialRef,
+              ),
+          };
         } catch (error) {
           if (error instanceof CredentialAccessError) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });

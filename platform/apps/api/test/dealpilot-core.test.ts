@@ -216,7 +216,10 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       true,
     );
 
-    assert.equal((await caller.dealpilot.captures({ workspaceId: PILOT_WORKSPACE })).length, 0);
+    assert.equal(
+      (await caller.dealpilot.captures({ workspaceId: PILOT_WORKSPACE })).items.length,
+      0,
+    );
     assert.deepEqual(
       await caller.dealpilot.commit({
         workspaceId: PILOT_WORKSPACE,
@@ -272,8 +275,41 @@ test("DealPilot credential access requires re-authentication and records value-f
       action: "reveal",
     });
     assert.equal(revealed.value, "test_fixture_secret");
-    const auditEvents = await wiring.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE);
-    assert.equal(auditEvents.length, 1);
+    const revoked = await caller.dealpilot.clearCredential({
+      workspaceId: PILOT_WORKSPACE,
+      sourceId: source.id,
+      token: session.token,
+    });
+    assert.equal(revoked.revoked, true);
+    assert.equal(revoked.credentialProjection.password.state, "unavailable");
+    await assert.rejects(
+      caller.dealpilot.accessCredential({
+        workspaceId: PILOT_WORKSPACE,
+        sourceId: source.id,
+        token: session.token,
+        field: "password",
+        action: "reveal",
+      }),
+      /not authorized/,
+    );
+    const afterRevoke = await caller.dealpilot.detail({
+      workspaceId: PILOT_WORKSPACE,
+      kind: "source",
+      id: source.id,
+    });
+    assert.equal(
+      "credentialProjection" in afterRevoke
+        ? afterRevoke.credentialProjection.password.state
+        : null,
+      "unavailable",
+    );
+    const auditEvents = await wiring.dealpilot.store.credentialAuditEvents(
+      PILOT_WORKSPACE,
+    );
+    assert.deepEqual(
+      auditEvents.map((event) => event.action),
+      ["reveal", "revoke"],
+    );
     assert.equal(JSON.stringify(auditEvents).includes("test_fixture_secret"), false);
   } finally {
     await wiring.close();

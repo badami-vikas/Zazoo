@@ -27,14 +27,15 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Managed handle to the spawned API child so app-exit can kill it. `None`
-/// in dev mode / when the spawn failed.
+/// Managed API process and authenticated loopback shutdown material. `None` in
+/// dev mode / when the spawn failed.
 #[derive(Default)]
-pub struct ApiSidecarState(pub Mutex<Option<Child>>);
+pub struct ApiSidecarState(pub Mutex<Option<SpawnedApi>>);
 
 pub struct SpawnedApi {
     pub port: u16,
     pub child: Child,
+    pub token: String,
 }
 
 /// Ask the kernel for a free localhost port (bind :0, read, release).
@@ -75,29 +76,50 @@ pub fn resolve_api_entry(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
     None
 }
 
-fn api_command(entry: &PathBuf, port: u16, local_dir: &PathBuf) -> Command {
+fn generate_sidecar_token() -> std::io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| std::io::Error::other(error.to_string()))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn api_command(entry: &PathBuf, port: u16, local_dir: &PathBuf, token: &str) -> Command {
     let node = std::env::var("BRIDGE_NODE_BIN").unwrap_or_else(|_| "node".to_string());
     let mut command = Command::new(node);
     command
         .arg(entry)
         .env("PORT", port.to_string())
         // Bind loopback only — never expose the kernel API on the LAN.
-        .env("HOST", "127.0.0.1")
+        .env("API_HOST", "127.0.0.1")
         .env("BRIDGE_LOCAL_DIR", local_dir)
         .env("BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring")
+        .env("BRIDGE_SIDECAR_TOKEN", token)
+        .env(
+            "GOOGLE_REDIRECT_URI",
+            format!("http://127.0.0.1:{port}/integrations/google/callback"),
+        )
+        .env("BRIDGE_OAUTH_DESKTOP", "1")
+        .env(
+            "API_ALLOWED_ORIGINS",
+            "tauri://localhost,http://tauri.localhost,https://tauri.localhost",
+        )
         .env("BRIDGE_PARENT_PID", std::process::id().to_string());
     command
 }
 
 /// Spawn `node server.js` with a durable Local Plane directory.
-pub fn spawn_api(entry: &PathBuf, port: u16, local_dir: &PathBuf) -> std::io::Result<Child> {
-    api_command(entry, port, local_dir).spawn()
+pub fn spawn_api(
+    entry: &PathBuf,
+    port: u16,
+    local_dir: &PathBuf,
+    token: &str,
+) -> std::io::Result<Child> {
+    api_command(entry, port, local_dir, token).spawn()
 }
 
 /// Minimal HTTP/1.0 GET against the API's `/health` route (apps/api
 /// src/server.js registers it). std-only on purpose: pulling reqwest+tokio
 /// into the shell for one localhost probe is not worth the dependency tree.
-pub fn health_ok(port: u16, timeout: Duration) -> bool {
+pub fn health_ok(port: u16, token: &str, timeout: Duration) -> bool {
     let addr = format!("127.0.0.1:{port}");
     let Ok(mut stream) = TcpStream::connect_timeout(
         &match addr.parse() {
@@ -110,8 +132,10 @@ pub fn health_ok(port: u16, timeout: Duration) -> bool {
     };
     let _ = stream.set_read_timeout(Some(timeout));
     let _ = stream.set_write_timeout(Some(timeout));
-    let req =
-        format!("GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    let req = format!(
+        "GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\
+         X-Bridge-Sidecar-Token: {token}\r\nConnection: close\r\n\r\n"
+    );
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -123,9 +147,9 @@ pub fn health_ok(port: u16, timeout: Duration) -> bool {
 }
 
 /// Retry `/health` until it answers 200 or the budget runs out.
-pub fn wait_healthy(port: u16, attempts: u32, interval: Duration) -> bool {
+pub fn wait_healthy(port: u16, token: &str, attempts: u32, interval: Duration) -> bool {
     for _ in 0..attempts {
-        if health_ok(port, Duration::from_millis(750)) {
+        if health_ok(port, token, Duration::from_millis(750)) {
             return true;
         }
         std::thread::sleep(interval);
@@ -133,14 +157,14 @@ pub fn wait_healthy(port: u16, attempts: u32, interval: Duration) -> bool {
     false
 }
 
-fn monitor_health(port: u16) {
+fn monitor_health(port: u16, token: String) {
     let monitor = std::thread::Builder::new()
         .name("bridge-api-health".to_string())
         .spawn(move || {
             // ~20s budget: cold Node + Fastify + in-memory wiring boots in well
             // under that; DATABASE_URL wiring may take a few seconds on first
             // connect. This must never block Tauri's setup/event-loop thread.
-            if wait_healthy(port, 80, Duration::from_millis(250)) {
+            if wait_healthy(port, &token, 80, Duration::from_millis(250)) {
                 println!("[bridge-desktop] api sidecar healthy at http://127.0.0.1:{port}");
             } else {
                 eprintln!(
@@ -181,7 +205,16 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
         );
         return None;
     }
-    let child = match spawn_api(&entry, port, &local_dir) {
+    let token = match generate_sidecar_token() {
+        Ok(token) => token,
+        Err(err) => {
+            eprintln!(
+                "[bridge-desktop] api sidecar: could not generate a launch capability: {err}"
+            );
+            return None;
+        }
+    };
+    let child = match spawn_api(&entry, port, &local_dir, &token) {
         Ok(c) => c,
         Err(err) => {
             eprintln!(
@@ -191,12 +224,38 @@ pub fn start(resource_dir: Option<PathBuf>, local_dir: PathBuf) -> Option<Spawne
             return None;
         }
     };
-    monitor_health(port);
-    Some(SpawnedApi { port, child })
+    monitor_health(port, token.clone());
+    Some(SpawnedApi { port, child, token })
+}
+
+fn request_http_stop(port: u16, token: &str, timeout: Duration) -> std::io::Result<()> {
+    let addr = format!("127.0.0.1:{port}");
+    let mut stream = TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?,
+        timeout,
+    )?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    let request = format!(
+        "POST /internal/sidecar/shutdown HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\n\
+         X-Bridge-Sidecar-Token: {token}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes())?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response)?;
+    if response.starts_with("HTTP/1.1 202") || response.starts_with("HTTP/1.0 202") {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(
+            "sidecar rejected the authenticated shutdown request",
+        ))
+    }
 }
 
 #[cfg(unix)]
-fn request_graceful_stop(child: &Child) -> std::io::Result<()> {
+fn request_signal_stop(child: &Child) -> std::io::Result<()> {
     let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
     if result == 0 {
         Ok(())
@@ -205,12 +264,12 @@ fn request_graceful_stop(child: &Child) -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(unix))]
-fn request_graceful_stop(child: &mut Child) -> std::io::Result<()> {
-    child.kill()
-}
-
-fn stop_child(mut child: Child) {
+fn stop_child(api: SpawnedApi) {
+    let SpawnedApi {
+        port,
+        mut child,
+        token,
+    } = api;
     match child.try_wait() {
         Ok(Some(_)) => return,
         Ok(None) => {}
@@ -221,10 +280,11 @@ fn stop_child(mut child: Child) {
         }
     }
 
+    let mut graceful_stop_result = request_http_stop(port, &token, Duration::from_secs(1));
     #[cfg(unix)]
-    let graceful_stop_result = request_graceful_stop(&child);
-    #[cfg(not(unix))]
-    let graceful_stop_result = request_graceful_stop(&mut child);
+    if graceful_stop_result.is_err() {
+        graceful_stop_result = request_signal_stop(&child);
+    }
 
     if let Err(error) = graceful_stop_result {
         eprintln!(
@@ -261,8 +321,8 @@ fn stop_child(mut child: Child) {
 /// Gracefully stop the child, with a bounded force-kill fallback.
 pub fn shutdown(state: &ApiSidecarState) {
     if let Ok(mut guard) = state.0.lock() {
-        if let Some(child) = guard.take() {
-            stop_child(child);
+        if let Some(api) = guard.take() {
+            stop_child(api);
         }
     }
 }
@@ -278,7 +338,7 @@ mod tests {
         let port = pick_free_port().expect("test should obtain an unused loopback port");
         let started = Instant::now();
 
-        monitor_health(port);
+        monitor_health(port, "test-sidecar-token".to_string());
 
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -290,7 +350,7 @@ mod tests {
     fn sidecar_command_sets_durable_local_plane_directory() {
         let entry = PathBuf::from("server.js");
         let local_dir = PathBuf::from("/test/bridge/local-plane");
-        let command = api_command(&entry, 4123, &local_dir);
+        let command = api_command(&entry, 4123, &local_dir, "test-sidecar-token");
         let envs = command
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
@@ -307,14 +367,75 @@ mod tests {
             Some(OsStr::new("4123"))
         );
         assert_eq!(
+            envs.get(OsStr::new("API_HOST"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("127.0.0.1"))
+        );
+        assert_eq!(
             envs.get(OsStr::new("BRIDGE_DEALPILOT_CREDENTIAL_VAULT"))
                 .and_then(|value| value.as_deref()),
             Some(OsStr::new("os-keyring"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("BRIDGE_SIDECAR_TOKEN"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new("test-sidecar-token"))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("GOOGLE_REDIRECT_URI"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(
+                "http://127.0.0.1:4123/integrations/google/callback"
+            ))
+        );
+        assert_eq!(
+            envs.get(OsStr::new("API_ALLOWED_ORIGINS"))
+                .and_then(|value| value.as_deref()),
+            Some(OsStr::new(
+                "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+            ))
         );
         assert_eq!(
             envs.get(OsStr::new("BRIDGE_PARENT_PID"))
                 .and_then(|value| value.as_deref()),
             Some(OsStr::new(&std::process::id().to_string()))
         );
+    }
+
+    #[test]
+    fn launch_capabilities_are_random_and_256_bit() {
+        let first = generate_sidecar_token().expect("token generation should succeed");
+        let second = generate_sidecar_token().expect("token generation should succeed");
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn graceful_shutdown_uses_the_authenticated_loopback_route() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request should connect");
+            let mut request = [0_u8; 1024];
+            let read = stream
+                .read(&mut request)
+                .expect("request should be readable");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /internal/sidecar/shutdown"));
+            assert!(request.contains("X-Bridge-Sidecar-Token: test-sidecar-token"));
+            stream
+                .write_all(
+                    b"HTTP/1.0 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("response should be writable");
+        });
+
+        request_http_stop(port, "test-sidecar-token", Duration::from_secs(1))
+            .expect("authenticated shutdown should succeed");
+        server.join().expect("test server should finish");
     }
 }

@@ -4,13 +4,31 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-18 — Privileged webview boundary (ADR-116)
+- Tauri webviews stay on trusted Tauri origins. External top-level navigation denied.
+- Sidecar token only immutable main-webview global. Companion webviews get none.
+- Google consent opens in validated system browser. Helper reaped. Callback uses actual sidecar port.
+
+## 2026-07-18 — Google OAuth state (ADR-115)
+- Connect mints 256-bit state after auth + membership.
+- Local Plane stores hash + Integration/Human + ten-minute expiry.
+- Callback consumes once. Membership checked before + after exchange. Stale actor fails.
+
+## 2026-07-18 — Desktop sidecar launch capability (ADR-114)
+- Loopback not auth. Release sidecar gets fresh 256-bit capability.
+- Token only child env + trusted Tauri init. Header only. Never URL/storage/log.
+- API constant-time checks. Loopback forced. Auth shutdown first; bounded kill fallback.
+- Typed + legacy Google clients share injected URL + bearer/sidecar headers.
+- Sidecar proves trusted client. Never proves Human re-auth.
+
 ## 2026-07-18 — DealPilot local durability (ADR-113)
 - One Local Plane DB. One owning process. Drizzle + runtime state share client.
 - Organization aggregate updates atomic. Restart keeps Records, Relations, captures, Gmail recovery, spend, audit.
 - Source secret only OS keyring. Opaque ref bound to Organization + Source.
 - Server without durable storage + approved vault: fail boot. Memory adapters: tests only.
 - Adapter owns `local_state`. No numbered migration. RM4/TASK-010 numbers untouched.
-- Live Google, OS re-auth/keychain, physical device proof: still missing. No fake DONE.
+- macOS keychain + Tauri + 375px Chrome proven. Live Google + OS re-auth still missing.
+- No physical-mobile/signing claim. No fake DONE.
 
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.

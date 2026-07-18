@@ -18,6 +18,57 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-18 — packaged desktop Google UI bypassed the managed sidecar transport
+`GoogleIntegrationPanel` used the legacy `data/api.ts` helper, which read only `VITE_API_URL` and
+sent neither the Supabase bearer nor `X-Bridge-Sidecar-Token`. A packaged desktop injects its random
+API URL and capability through Tauri globals, so Google status/connect/sync/send either appeared
+disabled or failed 401. The legacy helper now shares `lib/trpc.ts` URL resolution and authorization
+headers; desktop enablement and both injected values have web regressions. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — managed API sidecar set an ignored host variable
+The Rust launcher set `HOST=127.0.0.1`, but Fastify reads `API_HOST`. A sidecar inheriting
+`DATABASE_URL` or verifier configuration could therefore select the shared-deployment
+`0.0.0.0` default and expose its capability-protected listener to the LAN. The launcher now sets
+`API_HOST`, and the API independently forces loopback whenever `BRIDGE_SIDECAR_TOKEN` exists.
+Rust and API regressions cover the exact environment combination. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth completion trusted stale workspace membership
+OAuth state retained the initiating Human but the callback ignored it. A removed member could
+complete an unexpired flow and replace the Organization Google credential; a single pre-exchange
+check also left revocation-during-exchange open. Callback handling now validates the server-bound
+Integration and initiating membership before provider access, then rechecks membership at the
+Local Plane token-persistence boundary. Deterministic tests cover revocation before and during
+exchange, and prove no token is stored. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — durable desktop sidecar exposed the Local Plane over unauthenticated loopback
+The first durable Local Plane slice bound Fastify to loopback but treated only `DATABASE_URL` as
+persistent. A local webpage could scan the sidecar port, inherit permissive development CORS, and
+use the fallback pilot identity to read DealPilot private data or attempt governed mutations. The
+desktop now generates a 256-bit per-launch capability, passes it only through the child environment
+and Tauri initialization script, sends it in a redacted header, and configures a closed Tauri-origin
+allowlist. The API constant-time verifies the capability before every non-OAuth sidecar request,
+treats file-backed Local Plane state as persistent, and never lets the capability satisfy credential
+re-authentication. Missing, weak, or incorrect capabilities fail 401. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth callback accepted predictable state and allowed account substitution
+`google.connectUrl` used the predictable Integration ID as OAuth `state`, and the callback exchanged
+any supplied authorization code before proving that an authenticated Bridge user initiated the
+flow. An unauthenticated local process could bind its Google account into the victim's Local Plane.
+Connect now issues a 256-bit, ten-minute state through the authenticated procedure, stores only its
+SHA-256 hash plus Integration/Human binding in the atomic Local Plane, and the callback atomically
+consumes it before handling denial or exchanging a code. Missing, malformed, expired, replayed, and
+legacy predictable states fail closed without provider access. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — privileged Tauri webview could disclose its sidecar capability after OAuth navigation
+The desktop Google connect path replaced the privileged main webview with the external consent page,
+while Tauri initialization scripts run on every top-level navigation. That could expose the
+per-launch sidecar capability to an untrusted document. Release webviews now reject non-Tauri
+top-level navigation; only the main trusted-origin document receives an origin-guarded, immutable
+capability, while companion webviews receive none. Google consent opens through a strict
+`https://accounts.google.com/o/oauth2/` system-browser command, and the sidecar supplies its actual
+random-port callback URI. Rust and web regressions cover navigation, URL validation, token guarding,
+and absence of in-webview OAuth assignment. Attached to TASK-006.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
@@ -677,9 +728,13 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      atomic Organization-scoped Local Plane state. File-backed PGlite state survives reopen, shares
      one client with Drizzle, and refuses a second process owner; retries and concurrent writes are
      idempotent. Source secrets use an explicit OS-keyring adapter with scoped opaque references,
-     masked projections, Human/owner/membership/re-auth gates, and no plaintext DB/file fallback.
-     Actual OS-keychain/re-auth and live Google evidence remain TASK-006 external gates; the broader
-     Phase-5 multi-tenant store audit remains separate from this process-local DealPilot defect.
+     masked projections, Human/owner/membership/password-AMR gates, explicit audited revoke that
+     removes both the vault entry and durable Source projection, and no plaintext DB/file fallback.
+     Pending-capture reads are bounded, deterministically ordered, and optionally Source-scoped;
+     sampled provider payloads are absent from governed output and credential inputs are log-redacted.
+     A live macOS keychain write/read/delete/missing round-trip now proves the provider path; verified
+     OS/application re-auth and live Google remain TASK-006 external gates. The broader Phase-5
+     multi-tenant store audit remains separate from this process-local DealPilot defect.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates
