@@ -7,7 +7,7 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
 - Latest `main` baseline merged for this handoff:
-  `5091dae3dee47a0fce57548136e0b83a3fbddca4`.
+  `f78e47c9cca2e75ff3dad031170f32f65d5ab8b9`.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
@@ -149,6 +149,7 @@ Community composition, and double-consent Introduction snapshots. Its prior life
 authority/privacy/durability findings were fixed before AP-043 integration.
 
 Candidate B session `e859579b-a865-4ad3-b16c-e4d8cbccf17d` remains a superseded historical dirty
-worktree. Do not merge either candidate again. TASK-008 remains `in_progress` only for persistent
-user-defined Automations/Agent Runs, RM6 team permission/delegation, export/disconnect/forget, and held-out
-evaluation; TASK-014/TASK-009 own the shared Graph renderer.
+worktree. Do not merge either candidate again. TASK-008 is `done` for its exact prototype; persistent
+user-defined Automations/Agent Runs, advanced RM6 team permission/delegation,
+export/disconnect/forget, held-out evaluation, and TASK-014/TASK-009's shared Graph renderer remain
+future scope rather than resume blockers.

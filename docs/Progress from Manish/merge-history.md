@@ -5,7 +5,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 ## Current central baseline
 
 - Latest `main` baseline merged for this handoff:
-  `5091dae3dee47a0fce57548136e0b83a3fbddca4`.
+  `f78e47c9cca2e75ff3dad031170f32f65d5ab8b9`.
 - TASK-006 code landed at `7f44186` under AP-045 after validating and normally merging base
   `bab32ea`.
 - Working tree was clean when this package was created.
@@ -31,9 +31,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `cbda8d6` | TASK-008 owner-safe Person/Community Records, unified Timeline/intake, and Relationship RM1–RM2 continuation. |
 | `f409777` | TASK-008 context paths, Community composition, Memory/commitment/meeting flows, and double-consent Introduction snapshots through RM5. |
 | `71368fe` | TASK-008 central authority, privacy, durability, replay, datetime, transition-serialization, and pagination hardening. |
-| `905aee9` | Recorded AP-043 and the validated TASK-008 continuation integration; TASK-008 remains `in_progress` for Automations/RM6/evaluation. |
+| `905aee9` | Recorded AP-043 and the validated TASK-008 continuation integration. |
 | `7f44186` | TASK-006 durable Local Plane, OS vault, OAuth, and desktop lifecycle integration under AP-045; final reviewed source was `adf6c95`. |
 | `5091dae` | Recorded the landed TASK-006 integration and refreshed its canonical resume evidence. |
+| `f78e47c` | Canonically closed the exact TASK-008 prototype after the validated RM4 and Relationship continuation evidence; advanced RM6/evaluation work remains future scope. |
 
 ## Historical source branches
 

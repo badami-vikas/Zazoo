@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
+  the implementation already landed through `bab32ea`. The exact installed Relationship →
+  Signals/People/Communities → Signal → Person/Community participants → source Event → governed
+  Action prototype is complete, with no global Knowledge surface. Migration
+  `0015_task008_relation_contract`, durable bounded Relation/materialization contracts,
+  desktop + 375px evidence, 910 affected tests, typecheck/build, migration no-drift, and final
+  correctness/security reviews support `TASK-008` status `done`. TASK-014/TASK-009 retain the
+  separate cross-Module Graph renderer; advanced RM6/evaluation work remains future plan scope.
+
+- **2026-07-19** — **TASK-015 planning session reconciled with `main`, no code delta**: the "Plan runtime taint" worktree (`manishsbhoopalam8498-bookish-umbrella`) had zero unique commits versus `origin/main` (correct for a planning-only session under AP-029) and was fast-forwarded to current `main` head `5091dae`. `docs/TASKS.md` TASK-015's Evidence line was enriched with the concrete RT0–RT4 gap audit (PI-1/PI-2/PI-3 already partially cover this — TrustOrigin tag, tainted-egress gate, ContentGuard quarantine exist; no taint field on Events/Signals/Files/SkillOutput/RitualStep, no lattice/join, no sink-coverage gate, `sourcing/types.ts` duplicates `TrustOrigin` by hand, and post-TASK-007 `ChildAgentRun.taint` is still the legacy 3-value type). `docs/Progress from Manish/subagent-progress.md`'s TASK-015 row updated to match. TASK-015 remains correctly blocked: TASK-007 landed since this plan was drafted, but TASK-012 (vocabulary migration) has not, and `ResourceType` still uses pre-pivot vocabulary confirming the gate.
+
 - **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
   fast-forwarding the fully validated durability/vault branch into `main`; it landed at `7f44186`.
   Integration preserves TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified
@@ -1621,7 +1632,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 
 # 2026-07-19 — TASK-008 historical worktree reconciliation
 - Fetched `origin/main` at `7f44186` and confirmed RM4 source `ff98c20` plus Relationship continuation `905aee9` are already ancestors of `main`; the historical RM4 worktree fast-forwarded cleanly, so no code conflict or duplicate merge remained.
-- Corrected `docs/TASKS.md` and `docs/Progress from Manish/` to mark the validated continuation merged, candidate B superseded, and the next new migration as `0017`; TASK-008 remains `in_progress` only for persistent user-defined Automations/Agent Runs, RM6 team permission/delegation/export/disconnect/forget, and held-out evaluation.
+- Corrected `docs/Progress from Manish/` to mark the validated continuation merged, candidate B superseded, and the next new migration as `0017`. During reconciliation, concurrent canonical closure `f78e47c` marked TASK-008 `done` for its exact prototype; advanced Automations/RM6/evaluation and the cross-Module Graph renderer remain future scope.
 - Durable reconciliation evidence appended to `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
 - 2026-07-17 — TASK-006 DealPilot DP0-DP1 integrated on main but remains `in_progress`. Delivered Deals/Sources/Theses Records and details, symmetric/backfilled Relations, manifest-owned Egress-Agent discovery, rights/spend/membership gates, cursor-safe bounded/resumable Gmail alerts with original-checkpoint/token-history carry-forward, failed-token reset, and post-persistence acknowledgment, attempted-message spend accounting, governed capture materialization, real password re-authentication, CSPRNG credential sessions, stale-route guards, and complete UI pagination. DealPilot 72, Google 35, focused API 8, web 49, core 421, and DB 107 tests plus builds/typechecks, changed-file lint, no-dummy, and final review regressions passed. Durable Local Plane Records/vault, live provider/re-auth, and physical desktop/375px evidence remain blockers. ADR-109; durable outcome: `outputs/2026-07-16-task-006-dealpilot-core-prototype.md`.
 

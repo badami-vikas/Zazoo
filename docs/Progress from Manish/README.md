@@ -9,7 +9,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the recorded clean baseline `5091dae`.
+4. Fetch `origin/main` and compare it with the current documented baseline `f78e47c`.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,10 +17,14 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- The latest `main` baseline merged for this handoff is
-  `5091dae3dee47a0fce57548136e0b83a3fbddca4`. It includes TASK-006 durability (landed at
-  `7f44186`), TASK-008 RM4, the validated Relationship continuation, and TASK-010 migration
-  `0016`. Always re-fetch before resuming any worktree.
+- Current documented `main`: `f78e47c9cca2e75ff3dad031170f32f65d5ab8b9`. Always re-fetch
+  before resuming any worktree.
+- TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
+  `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
+  status and evidence live in [`docs/TASKS.md`](../TASKS.md) and
+  [`outputs/2026-07-18-task-008-relationship-continuity.md`](../../outputs/2026-07-18-task-008-relationship-continuity.md).
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`.
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
@@ -42,9 +46,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 and external provider/keychain/device evidence remain honestly blocked.
-- TASK-008 includes RM0, RM4, and the validated RM1–RM5 continuity slice. It remains `in_progress`
-  only for persistent user-defined Automations/Agent Runs, RM6 team permission/delegation,
-  export/disconnect/forget, and held-out evaluation. TASK-014/TASK-009 own the shared Graph renderer.
+- TASK-008 is landed and complete for its exact prototype. TASK-014/TASK-009 still own the separate
+  shared cross-Module Graph renderer; advanced RM6/evaluation work is future plan scope.
 - TASK-010 remains `in_progress` in `docs/TASKS.md` even after the `0016` merge — no live desktop/375px browser evidence has been claimed, and `ledger`'s own RLS was deliberately left unwidened (matches RM4's own precedent for the same port-signature reason).
 
 ## Files

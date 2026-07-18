@@ -181,7 +181,10 @@ The reviewed branch was merged into `main` at `590cca6` on 2026-07-18. Central c
 
 Authoritative main's fail-closed `InMemoryAgentStore` implementation replaced the branch's stale TASK-007 base without a compatibility shim. The combined tree passed core 422, DB 123, API 164, web 43, desktop 28, all 37 monorepo typecheck tasks, full build, web production build, migration fresh/upgrade/no-drift, changed-file ESLint, runtime no-dummy, and diff integrity. A fresh central diff review found no high-confidence integration defect.
 
-RM0 and RM4 are complete under AP-030. TASK-008 remains `in_progress` because its canonical scope still names RM1–RM6: governed Person/Community CRUD/search, unified Timeline/intake/identity review, Memory/commitment/prep lifecycle, governed Map/path finding, introductions/recommendations/user Automations, and team permission/delegation/evolution. TASK-014/TASK-009 own the cross-Module Graph-view renderer.
+RM0 and RM4 are complete under AP-030. The later validated Relationship continuation and canonical
+closure at `f78e47c` complete the exact TASK-008 prototype. Advanced Automations/RM6/evaluation
+capabilities remain future plan scope, and TASK-014/TASK-009 own the cross-Module Graph-view
+renderer.
 
 ## 2026-07-19 source-worktree reconciliation
 
@@ -191,6 +194,8 @@ already contained in `main`; the worktree fast-forwarded without a content confl
 re-merged. Fresh-session documentation now marks RM4 and candidate A historical, marks candidate B
 superseded, and removes the stale instruction to compare two active RM1–RM2 implementations.
 
-TASK-008 remains honestly `in_progress`: RM0, RM4, and the validated RM1–RM5 continuity slice are
-integrated, while persistent user-defined Automations/Agent Runs, RM6 team
-permission/delegation/export/disconnect/forget, and held-out evaluation remain.
+The concurrent canonical closure merged at `f78e47c` marks TASK-008 `done` for its exact installed
+Relationship prototype. RM0, RM4, and the validated RM1–RM5 continuity slice are integrated.
+Persistent user-defined Automations/Agent Runs, advanced RM6 team
+permission/delegation/export/disconnect/forget, held-out evaluation, and TASK-014/TASK-009's
+cross-Module Graph renderer remain future plan scope rather than blockers for this prototype.
