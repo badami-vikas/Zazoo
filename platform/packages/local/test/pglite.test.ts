@@ -5,6 +5,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
 import { createPgliteLocalPlane } from "../src/index.js";
 
 test("pglite local plane: tokens, bodies, entities round-trip", async () => {
@@ -79,5 +83,46 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
     assert.equal(await plane.graph.getSyncCursor("integ-1", "gmail"), "cursor-abc");
   } finally {
     await plane.close();
+  }
+});
+
+test("pglite local plane migrates its recognized legacy external record table", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "bridge-local-plane-legacy-"));
+  let plane: Awaited<ReturnType<typeof createPgliteLocalPlane>> | undefined;
+  try {
+    const legacyDb = new PGlite(dataDir);
+    try {
+      await legacyDb.exec(`
+        CREATE TABLE external_records (
+          workspace_id text NOT NULL,
+          source text NOT NULL,
+          source_record_id text NOT NULL,
+          entity_type text NOT NULL,
+          entity_id text NOT NULL,
+          created_at text NOT NULL,
+          UNIQUE(workspace_id, source, source_record_id)
+        );
+        INSERT INTO external_records
+          (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+        VALUES
+          ('test_fixture_workspace', 'test_fixture_source', 'test_fixture_record',
+           'test_fixture_event', 'test_fixture_entity', '2026-07-18T00:00:00.000Z');
+      `);
+    } finally {
+      await legacyDb.close();
+    }
+
+    plane = await createPgliteLocalPlane({ dataDir });
+    assert.equal(
+      await plane.graph.hasExternal(
+        "test_fixture_workspace",
+        "test_fixture_source",
+        "test_fixture_record",
+      ),
+      true,
+    );
+  } finally {
+    await plane?.close();
+    await rm(dataDir, { recursive: true, force: true });
   }
 });

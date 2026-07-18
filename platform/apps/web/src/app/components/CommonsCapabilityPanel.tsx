@@ -206,7 +206,7 @@ export function CommonsCapabilityPanel({
             <div>
               <dt className="font-medium">Licenses</dt>
               <dd style={{ color: "var(--color-warm-gray)" }}>
-                repository {detail.latest.provenance.repositoryLicense} · artifact {detail.latest.provenance.artifactLicense}
+                source {detail.latest.provenance.repositoryLicense} · capability {detail.latest.provenance.artifactLicense}
               </dd>
             </div>
             <div>

@@ -59,7 +59,7 @@ export function EggHatcher({ progress, stage, animal, statusText }: EggHatcherPr
         className="relative"
         style={{ width: 72, height: 72 }}
         role="img"
-        aria-label={hatched ? `Egg hatched — ${animal} avatar revealed` : `Egg incubating: ${statusText}`}
+        aria-label={hatched ? `Avatar ready — ${animal} revealed` : `Avatar setup: ${statusText}`}
       >
         <svg viewBox="0 0 72 72" width="100%" height="100%">
           {/* incubating glow */}

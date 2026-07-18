@@ -157,6 +157,13 @@ test("Commons discovery stays Module-scoped and does not resurrect an Intelligen
   assert.equal(routedSurfaces.includes("marketplace"), false);
 });
 
+test("Commons provenance uses canonical capability vocabulary", () => {
+  const source = readFileSync(new URL("../src/app/components/CommonsCapabilityPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /source \{detail\.latest\.provenance\.repositoryLicense\}/);
+  assert.match(source, /capability \{detail\.latest\.provenance\.artifactLicense\}/);
+  assert.doesNotMatch(source, /· artifact \{/);
+});
+
 test("Relationship routes stay Module-scoped while deprecated standalone routes remain removed", () => {
   const source = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
   assert.match(source, /path: "module\/relationship\/signals\/:signalId"/);

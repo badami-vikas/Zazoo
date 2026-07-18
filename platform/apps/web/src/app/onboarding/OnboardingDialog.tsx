@@ -118,6 +118,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [textDraft, setTextDraft] = useState("");
+  const [multiDrafts, setMultiDrafts] = useState<Record<string, string[]>>({});
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
   const [eggStage, setEggStage] = useState<EggStage>("incubating");
   const [recommendationResult, setRecommendationResult] = useState<RecommendationResult | null>(null);
@@ -155,7 +156,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
       ? "Nothing observes your work until you choose a visible check"
       : step === "questions"
       ? answered === 0
-        ? "Your Organization is hatching…"
+        ? "Your Organization is getting ready…"
         : `✓ ${answered} of ${Math.min(answered + 1, MAX_QUESTIONS)} questions answered`
       : step === "preview"
         ? "✓ Your proposed setup is ready"
@@ -231,6 +232,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setStep("trust");
     setError(null);
     setTextDraft("");
+    setMultiDrafts({});
     setOutcome(null);
     setEggStage("incubating");
     setRecommendationResult(null);
@@ -246,6 +248,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setStep("questions");
     setError(null);
     setTextDraft("");
+    setMultiDrafts({});
     setOutcome(null);
     setRecommendationResult(null);
     setRecommendationDecision("pending");
@@ -304,9 +307,11 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
   }
 
   function toggleMulti(id: string, value: string) {
-    const current = (answers[id] as string[] | undefined) ?? [];
-    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-    setAnswers({ ...answers, [id]: next });
+    setMultiDrafts((currentDrafts) => {
+      const current = currentDrafts[id] ?? [];
+      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+      return { ...currentDrafts, [id]: next };
+    });
   }
 
   async function submit() {
@@ -468,7 +473,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {question.options?.map((opt) => {
-                    const selected = ((answers[question.id] as string[] | undefined) ?? []).includes(opt.value);
+                    const selected = (multiDrafts[question.id] ?? []).includes(opt.value);
                     return (
                       <Badge
                         key={opt.value}
@@ -481,7 +486,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                     );
                   })}
                 </div>
-                <Button size="sm" onClick={() => answer(question.id, (answers[question.id] as string[] | undefined) ?? [])}>
+                <Button size="sm" onClick={() => answer(question.id, multiDrafts[question.id] ?? [])}>
                   Continue
                 </Button>
               </div>
@@ -555,7 +560,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           <div className="space-y-3">
             {outcome === "activated" ? (
               <p className="text-sm">
-                Your Organization is live, and your avatar has hatched — look for it in the corner from now on. Every
+                Your Organization and Avatar are ready — look for the Avatar in the corner from now on. Every
                 capture it notices becomes an inspectable Memory entry. Open the <strong>Organization</strong> page to see
                 it — every change from here on goes through the same propose-and-approve flow you just used.
               </p>

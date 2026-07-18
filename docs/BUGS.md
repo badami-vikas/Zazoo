@@ -1145,3 +1145,36 @@ plugin/rule or removing the stale suppression after verifying the effect depende
 
 ## OPEN 2026-07-17 — `ViewConfig["kind"]` code says `network`, canonical glossary says `graph`
 `platform/packages/tables/src/types.ts:60` types the View kind as `"network"`; `docs/glossary.md`'s View definition names it `"graph"` (*"table, cards, board, calendar, map, graph, or form"*). Per the standing vocabulary rule (glossary wins, AP-020 lineage), the code identifier should rename to `graph`. Fix belongs to TASK-014.
+
+## RESOLVED 2026-07-18 — TASK-005 file-backed API startup collided on `external_records`
+TASK-005 preflight could not start the real API with a file-backed Local Plane because
+`buildWiring()` opened the private adapter and Drizzle relational store at the same root while both
+created incompatible `external_records` tables. The private adapter now owns
+`local_external_records`, recognizes and safely renames only its legacy table shape, and leaves the
+relational table untouched. An API wiring regression opens both stores at one real temporary root
+and exercises both record contracts.
+
+## RESOLVED 2026-07-18 — TASK-005 Signal onboarding choice produced an invalid blueprint
+The real desktop onboarding sequence reached `BlueprintCompileError: blueprint view references
+unknown entity "signal"` after selecting “Surface signals that need a response”: the generated View
+referenced `signal`, but `blueprint.entities` declared only the primary entity. The generator now
+declares a Signal entity whenever that View is requested. The same preflight exposed the visible
+deprecated “touchpoints” option; the unsupported legacy option and identifier were removed rather
+than relabeled. The same question also committed and advanced on the first badge click, making its
+visible Continue control and multi-select contract ineffective; selections now remain a draft until
+Continue commits them. Web regressions cover entity/View integrity, absence of the deprecated copy,
+and the explicit multi-select commit boundary.
+
+## RESOLVED 2026-07-18 — TASK-005 exact path exposed retired product vocabulary
+Desktop and 375px preflight found retired terms in user-visible onboarding status and completion copy,
+Avatar accessibility text, the seeded Organization name and local Files path, Commons provenance and
+security-scan details, and Settings navigation. Those surfaces now use canonical Organization, Avatar,
+capability, Sources, Capabilities, Agents, and Automations vocabulary. The pilot bootstrap migrates only
+the exact legacy placeholder name and preserves custom Organization names. Regressions cover rendered
+copy sources, signed Commons scan details, and both fresh and legacy pilot identity bootstrap behavior.
+
+## RESOLVED 2026-07-18 — API restart-persistence regression was nested and not reliably awaited
+Affected-neighbour review found the file-backed ledger restart regression declared inside the Relation
+sequence-floor test without awaiting the nested test. The check is now an independent top-level test,
+so API validation reliably proves both restart persistence and Relation ordering instead of depending
+on parent-test timing.

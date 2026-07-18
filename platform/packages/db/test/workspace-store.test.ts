@@ -5,6 +5,7 @@
  * member list. Plain CRUD, no pipeline/ledger involvement.
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createLocalDb, DrizzleWorkspaceStore, schema } from "../src/index.js";
 
@@ -15,6 +16,7 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     const [creator] = await db.insert(schema.users).values({ email: "test_fixture_creator@example.com" }).returning({
       id: schema.users.id,
     });
+
     assert.ok(creator, "creator user seeded");
 
     const store = new DrizzleWorkspaceStore(db);
@@ -64,6 +66,39 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     const membersAfterReinvite = await store.listMembers(ws.id);
     // No duplicate row for otherUser despite inviting twice.
     assert.equal(membersAfterReinvite.filter((m) => m.userId === otherUser!.id).length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("pilot identity bootstrap migrates only the legacy placeholder to Organization copy", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const store = new DrizzleWorkspaceStore(db);
+    const legacyWorkspaceId = randomUUID();
+    const legacyUserId = randomUUID();
+    const customWorkspaceId = randomUUID();
+    const customUserId = randomUUID();
+    await db.insert(schema.workspaces).values([
+      { id: legacyWorkspaceId, name: "Pilot workspace" },
+      { id: customWorkspaceId, name: "Custom Organization" },
+    ]);
+
+    await store.bootstrapPilotIdentities({
+      workspaceId: legacyWorkspaceId,
+      userId: legacyUserId,
+      userEmail: "test_fixture_legacy_pilot@example.com",
+    });
+    await store.bootstrapPilotIdentities({
+      workspaceId: customWorkspaceId,
+      userId: customUserId,
+      userEmail: "test_fixture_custom_pilot@example.com",
+    });
+
+    const [migratedOrganization] = await store.listWorkspaces(legacyUserId);
+    const [customOrganization] = await store.listWorkspaces(customUserId);
+    assert.equal(migratedOrganization?.name, "Pilot Organization");
+    assert.equal(customOrganization?.name, "Custom Organization");
   } finally {
     await close();
   }

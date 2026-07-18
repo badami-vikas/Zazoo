@@ -31,8 +31,8 @@ const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
   { id: "learning", label: "Learning", icon: Brain },
   { id: "team", label: "Team & Permissions", icon: Users },
-  { id: "knowledge", label: "Knowledge", icon: BookOpen },
-  { id: "intelligence", label: "Intelligence", icon: Brain },
+  { id: "knowledge", label: "Sources", icon: BookOpen },
+  { id: "intelligence", label: "Capabilities", icon: Brain },
   { id: "governance", label: "Governance", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "billing", label: "Billing & Plan", icon: CreditCard },
@@ -365,7 +365,7 @@ function KnowledgeSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Knowledge" desc="What does the platform know? Connected sources feeding your organization's shared knowledge." />
+      <SectionHeader title="Sources" desc="Connected sources Bridge can use for your Organization." />
 
       <Card>
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
@@ -415,7 +415,7 @@ function IntelligenceSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="Intelligence" desc="What can the platform do with what it knows? Installed Modules and the shared Assistants, Skills, Automations, and Workflows they bring." />
+      <SectionHeader title="Capabilities" desc="Installed Modules and the governed Agents, Skills, and Automations they provide." />
 
       <Card>
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
@@ -490,7 +490,7 @@ function HelpSection() {
 
       <div className="grid sm:grid-cols-2 gap-4">
         {[
-          { icon: BookOpen, title: "Documentation", desc: "Concepts, vocabulary, and how Workflows, Signals, and governance fit together." },
+          { icon: BookOpen, title: "Documentation", desc: "Concepts, vocabulary, and how Automations, Signals, and governance fit together." },
           { icon: MessageCircle, title: "Contact support", desc: "Reach the Bridge team for setup, billing, or anything urgent." },
           { icon: Keyboard, title: "Keyboard shortcuts", desc: "Move faster across the network, work, and approvals surfaces." },
           { icon: Zap, title: "What's new", desc: "Recent releases — approvals inbox, execution ledger, two-tier profiles." },

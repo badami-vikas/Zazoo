@@ -132,8 +132,12 @@ export class DrizzleWorkspaceStore {
   async bootstrapPilotIdentities(input: { workspaceId: string; userId: string; userEmail: string }): Promise<void> {
     await this.#db
       .insert(workspaces)
-      .values({ id: input.workspaceId, name: "Pilot workspace", createdAt: new Date() })
+      .values({ id: input.workspaceId, name: "Pilot Organization", createdAt: new Date() })
       .onConflictDoNothing({ target: workspaces.id });
+    await this.#db
+      .update(workspaces)
+      .set({ name: "Pilot Organization" })
+      .where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.name, "Pilot workspace")));
     await this.#db
       .insert(users)
       .values({ id: input.userId, email: input.userEmail, createdAt: new Date() })

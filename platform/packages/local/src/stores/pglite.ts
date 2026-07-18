@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS local_entities (
   source_record_id text,
   created_at text NOT NULL
 );
-CREATE TABLE IF NOT EXISTS external_records (
+CREATE TABLE IF NOT EXISTS local_external_records (
   workspace_id text NOT NULL,
   source text NOT NULL,
   source_record_id text NOT NULL,
@@ -75,6 +75,39 @@ CREATE TABLE IF NOT EXISTS sync_state (
   PRIMARY KEY (integration_id, source)
 );
 `;
+
+async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
+  const legacy = await db.query<{ column_name: string }>(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'external_records'`,
+  );
+  if (legacy.rows.length === 0 || legacy.rows.some((column) => column.column_name === "id")) {
+    return;
+  }
+
+  const expected = new Set([
+    "workspace_id",
+    "source",
+    "source_record_id",
+    "entity_type",
+    "entity_id",
+    "created_at",
+  ]);
+  if (!legacy.rows.every((column) => expected.has(column.column_name)) || legacy.rows.length !== expected.size) {
+    throw new Error("local plane cannot migrate an unrecognized legacy external_records table");
+  }
+
+  const target = await db.query<{ table_name: string }>(
+    `SELECT table_name
+       FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'local_external_records'`,
+  );
+  if (target.rows.length > 0) {
+    throw new Error("local plane found both legacy external_records and local_external_records tables");
+  }
+  await db.exec("ALTER TABLE external_records RENAME TO local_external_records;");
+}
 
 class PgliteSecretStore implements SecretStore {
   constructor(private readonly db: PGlite) {}
@@ -278,7 +311,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async recordExternal(row: ExternalRecordRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      `INSERT INTO local_external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (workspace_id, source, source_record_id) DO NOTHING`,
       [row.workspaceId, row.source, row.sourceRecordId, row.entityType, row.entityId, row.createdAt],
@@ -286,7 +319,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
     const res = await this.db.query(
-      `SELECT 1 FROM external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
+      `SELECT 1 FROM local_external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
       [workspaceId, source, sourceRecordId],
     );
     return res.rows.length > 0;
@@ -316,6 +349,7 @@ export interface PgliteLocalPlaneConfig {
 /** Assemble a pglite-backed LocalPlane (the real persisted local tier). */
 export async function createPgliteLocalPlane(config: PgliteLocalPlaneConfig = {}): Promise<LocalPlane> {
   const db = config.dataDir ? new PGlite(config.dataDir) : new PGlite();
+  await migrateLegacyExternalRecords(db);
   await db.exec(INIT_SQL);
   return {
     secrets: new PgliteSecretStore(db),
