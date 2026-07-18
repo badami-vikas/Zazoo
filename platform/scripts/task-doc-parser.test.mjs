@@ -26,3 +26,61 @@ test('one canonical task absorbs roadmap, bug, request, and approval references'
     approval: 'AP-021 applied', dependencies: [],
   });
 });
+
+test('parses title headings with explicit task IDs and preserves canonical order', () => {
+  const document = `
+IDs for cross-reference: \`TASK-002, TASK-001\`
+
+## Prototype shell
+- ID: TASK-001
+- Status: done
+- Priority: P0
+- Horizon: Prototype
+- Outcome: One coherent shell.
+- Prototype test: Modules open.
+- Scope: docs/raw/ui.md
+- Evidence: browser proof
+- Requests: none
+- Approval: AP-021 applied
+- Dependencies: none
+
+## Relationship module
+- ID: TASK-002
+- Status: ready
+- Priority: P1
+- Horizon: Core Modules
+- Outcome: One Relationship module.
+- Prototype test: Signal opens.
+- Scope: docs/raw/relationships.md
+- Evidence: API proof
+- Requests: R-001
+- Approval: AP-030 applied
+- Dependencies: TASK-001
+`;
+
+  const tasks = parseCanonicalTasks(document);
+  assert.deepEqual(tasks.map(({ id, title }) => ({ id, title })), [
+    { id: 'TASK-002', title: 'Relationship module' },
+    { id: 'TASK-001', title: 'Prototype shell' },
+  ]);
+  assert.deepEqual(tasks[0].dependencies, ['TASK-001']);
+  assert.deepEqual(tasks[1].dependencies, []);
+});
+
+test('hybrid legacy sections do not duplicate matching IDs and reject conflicts', () => {
+  const matching = parseCanonicalTasks(`
+## TASK-001 — Prototype shell
+- ID: TASK-001
+- Status: ready
+`);
+  assert.equal(matching.length, 1);
+  assert.equal(matching[0].status, 'ready');
+
+  assert.throws(
+    () => parseCanonicalTasks(`
+## TASK-001 — Prototype shell
+- ID: TASK-002
+`),
+    /Conflicting task IDs/,
+  );
+});

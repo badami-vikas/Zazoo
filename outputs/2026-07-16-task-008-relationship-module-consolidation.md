@@ -170,16 +170,15 @@ Verification:
 - Independent review findings covering canonical application order, legacy sequence collisions, persisted-decision UI classification, unreachable retries beyond page one, immutable stale recovery, partial-index cursor shape, inherited node keys, provenance preservation, migration precision, and latest-decision confirmation replacement were corrected with focused regressions. A final focused security review of the authoritative-reference hardening found no remaining issue after the legacy backfill was moved ahead of the append-sequence rewrite.
 - Final whitespace and conflict-marker checks passed.
 
-The feature base has a pre-existing TASK-007 compile blocker: `AgentQuery` requires `workspaceId` and `isActive`, while `InMemoryAgentStore` lacks those methods/maps. Cross-package TypeScript gates and the full suites pass with that isolated compatibility shim, which is not included in this TASK-008 change. Full lint is also blocked by the pre-existing missing `react-hooks/exhaustive-deps` rule in `ZazooAvatar.tsx`; TASK-008 changed-file lint is separate.
+## Central integration
 
-`origin/main` was fetched at `1b9301b` before delivery. Per the no-merge directive, main was not merged or rebased. A synthetic merge-tree check identifies content conflicts in `platform/apps/api/src/router.ts`, `platform/apps/api/src/wiring.ts`, `platform/packages/db/src/governance-stores.ts`, and `platform/packages/db/test/local-store.test.ts`; the other overlapping files auto-merge.
+The reviewed branch was merged into `main` at `590cca6` on 2026-07-18. Central conflict resolution preserved:
 
-### Proposed shared-ledger updates
+- DealPilot pre-decision edit validation and post-decision effects;
+- Relationship replay, owner retry, startup/periodic reconciliation, and durable materialization effects;
+- Google and Package post-decision effects;
+- both DealPilot and Relationship persistent governance seeders and in-memory grants.
 
-Coordinator should:
+Authoritative main's fail-closed `InMemoryAgentStore` implementation replaced the branch's stale TASK-007 base without a compatibility shim. The combined tree passed core 422, DB 123, API 164, web 43, desktop 28, all 37 monorepo typecheck tasks, full build, web production build, migration fresh/upgrade/no-drift, changed-file ESLint, runtime no-dummy, and diff integrity. A fresh central diff review found no high-confidence integration defect.
 
-- attach this RM4 evidence to TASK-008 and mark the missing Relation contract resolved after merge;
-- record the pre-existing TASK-007 `InMemoryAgentStore` compile blocker against its existing canonical task/evidence rather than creating a duplicate work row;
-- append the schema/API/materialization summary to `docs/log.md`;
-- record the monotonic decision-provenance rationale in `docs/raw/decisions-log.md`;
-- regenerate structural CODEMAPS after integration.
+RM0 and RM4 are complete under AP-030. TASK-008 remains `in_progress` because its canonical scope still names RM1–RM6: governed Person/Community CRUD/search, unified Timeline/intake/identity review, Memory/commitment/prep lifecycle, governed Map/path finding, introductions/recommendations/user Automations, and team permission/delegation/evolution. TASK-014/TASK-009 own the cross-Module Graph-view renderer.

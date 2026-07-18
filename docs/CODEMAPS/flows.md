@@ -1,4 +1,4 @@
-<!-- Updated: 2026-07-17 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor,goal-task,skill-manifest,child-agent-run}.ts, capability/{types,approvals}.ts, packages/local/src/ports.ts, packages/db/src/{schema,goal-task-store,skill-manifest-store,child-agent-run-store}.ts | Token estimate: ~1700 -->
+<!-- Updated: 2026-07-18 | Files scanned: packages/core/src/{pipeline,authority,agent-floor,data-scope,ritual-executor,goal-task,skill-manifest,child-agent-run}.ts, apps/api/src/{router,relationship-materializer,server,wiring}.ts, packages/local/src/ports.ts, packages/db/src/{schema,graph-store,ledger-store,relation-materialization-store}.ts | Token estimate: ~2000 -->
 
 # Load-Bearing Flows + Schema ER
 
@@ -45,7 +45,33 @@ sequenceDiagram
 
 Capability Trust bands (capability/approvals.ts): informational/advisory→auto · transformational→user_pref · operational→governance · **external→explicit_human hard floor**; audience only raises; kill switch ⇒ explicit_human; exhausted auto budgets ⇒ escalate.
 
-## 2. Goal/Task Skill + bounded child Agent Run
+## 2. Relationship approval → durable Relation effect
+
+```mermaid
+sequenceDiagram
+  participant H as Human
+  participant A as action.decide
+  participant L as Ledger
+  participant E as relation_materialization_effects
+  participant G as GraphStore
+  H->>A: approve/edit Relation proposal
+  A->>L: append decision with authoritative ref_ledger_id + DB sequence
+  A->>E: create/claim pending effect (proposal+decision unique)
+  A->>G: atomically apply winning participant/source Relations
+  alt applied
+    G-->>E: relation count; mark applied
+  else transient failure or lost response
+    G-->>E: mark failed/pending + bounded retry metadata
+    Note over E: startup/periodic or owner retry replays same decision; no second approval
+  end
+  Note over G: newest DB decision sequence replaces canonical Relation set and userConfirmed
+```
+
+Reads page by `(observed_at, created_at, id)`, deduplicate evidence authorization targets, and
+prune inaccessible endpoints/evidence for the authenticated owner. Caller JSON never chooses
+proposal linkage; runtime trusts `ref_ledger_id`.
+
+## 3. Goal/Task Skill + bounded child Agent Run
 
 ```mermaid
 sequenceDiagram
@@ -69,7 +95,7 @@ sequenceDiagram
 
 Public tRPC exposes inspect/list/cancel only after authentication + workspace membership. Child creation accepts no client-supplied parent ceiling.
 
-## 3. Plane gate crossing (authority.ts; @bridge/local)
+## 4. Plane gate crossing (authority.ts; @bridge/local)
 
 ```mermaid
 sequenceDiagram
@@ -87,7 +113,7 @@ sequenceDiagram
 
 Residency invariant (local/src/ports.ts:1-13): OAuth tokens (SecretStore), raw Gmail/Calendar bodies (BodyStore, structurally private), derived Touchpoints/Memories/Signals/warmth (LocalGraphStore) live ONLY local (pglite) — never cross. DataScope lattice (data-scope.ts): all/public/private, intersect = narrowest, public∩private = none ⇒ deny. Separate DB axis: `node_types.plane` mirror|operational|infra + whitelisted cross-plane edge types (SCHEMA.sql:93-107).
 
-## 4. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
+## 5. Ritual run (ritual-executor.ts — InProcessRitualExecutor; Hatchet/Temporal deferred behind same interface)
 
 ```mermaid
 sequenceDiagram
@@ -110,7 +136,7 @@ sequenceDiagram
   E->>Rec: finish(completed, steps) [168]
 ```
 
-## 5. Schema ER sketch (db/src/schema.ts, 58 tables — top slice)
+## 6. Schema ER sketch (db/src/schema.ts, 59 tables — top slice)
 
 ```mermaid
 erDiagram
@@ -120,6 +146,10 @@ erDiagram
   communities_canonical ||--o{ communities : canonical_community_id
   communities ||--o{ people : current_community_id
   workspaces ||--o{ edges : "unified graph fabric"
+  users ||--o{ edges : "private owner (nullable legacy rows)"
+  ledger ||--o{ edges : "winning decision provenance"
+  ledger ||--o{ relation_materialization_effects : "proposal + decision"
+  users ||--o{ relation_materialization_effects : "owner retry scope"
   initiatives ||--o{ touchpoints : "initiative_id (nullable)"
   initiatives ||--o{ rituals : supports_initiative
   rituals ||--o{ ritual_runs : ritual_id
@@ -140,4 +170,4 @@ erDiagram
   integrations ||--o{ integration_sync_state : integration_id
 ```
 
-Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities` per-(workspace,user) + Local Plane tokens/bodies/derived data · **operational** = workspace-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.
+Tiers: **global/public** = `*_canonical`, `node_types`, `embedding_models` · **local/private** = `people`, `communities`, owner-scoped Relations/effects + Local Plane tokens/bodies/derived data · **operational** = workspace-scoped tables protected by RLS-as-code. Production boot rejects superuser/BYPASSRLS app roles; pglite tests need synthetic non-superuser roles to exercise policies. Governance cluster: roles/permissions/ephemeral grants/delegations/policies + capability manifests/states/trust grants + Goal/Task/SkillManifest/child Run contracts.

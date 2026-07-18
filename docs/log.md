@@ -1645,3 +1645,23 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - `docs/requests.md`: R-039 added.
 - 2026-07-17 — LLM inference optimization audit: verified zero runtime prompt optimization (no cache_control/batching/tiering; model = providers[0]); rejected text-as-image token hack; free-first stack map + ordered proposal recorded in outputs/2026-07-17-llm-inference-optimization-audit.md
 - 2026-07-17 — AP-038 applied: queued TASK-022 (inference cost optimization: prompt caching + model tiering) into docs/TASKS.md, appended to execution order after TASK-019; scope in outputs/2026-07-17-llm-inference-optimization-audit.md
+
+# 2026-07-17 — Learning Agent recon/web-research provider survey, tiering, roadmap, TASK-023 (R-040, AP-039, ADR-111)
+
+- Reviewed all 178 candidates from the earlier Parallel.ai FindAll run (`findall_f1276700e2d243b4a9069467727fd8ce`) for relevance to the Learning Agent's LA3 web-research/recon capability — not just the 46 the run originally matched against "Parallel.ai competitor" conditions. Rescued several genuinely useful recon tools that had been marked unmatched only because they weren't framed as Parallel competitors (DuckDuckGo, Serper, Zenserp, NewsCatcher, Apify, Browserbase, Webz.io, Klue, Contify, ZenRows, ScrapingBee, Scrapingdog, Octoparse, Browse AI, fastCRW, Google Custom Search).
+- Classified into 3 Tier 1 (free, direct access, no account — Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API), 33 Tier 2 (free tier, requires signup/API key — Exa, Tavily, Firecrawl, Apify, Browserbase, etc.), and ~19 Tier 3 (paid or self-hosted-only — Perplexity Sonar, Bright Data, Webz.io, Klue, Contify, SearXNG, Crawl4AI, etc.) per the user's tiering rule.
+- Discarded 112 candidates as not relevant to a search/recon capability, grouped by reason: coding agents/IDE assistants (19), LLM inference/compute infra (17), foundation-model/chat-assistant vendors (18), AI dev-tooling/RAG/vector-DB frameworks (13), unrelated vertical SaaS (17), duplicates/rebrands (5), FindAll generator noise/non-existent entities (16), and the reference platform itself (1).
+- New: `outputs/2026-07-17-learning-agent-recon-search-integrations.md` (full itemized survey, durable audit trail).
+- `docs/raw/learning-agent-roadmap-2026-07.md`: new §7 (LA3 provider survey + 3-phase rollout: Tier 1 first at $0, then 2-4 proven Tier 2 providers as fallback, Tier 3 only behind a cost/ROI + approval gate); frontmatter `updated`/`tags` refreshed.
+- `docs/wiki/learning-agent.md`: caveman pointer to the LA3 provider survey added.
+- `docs/TASKS.md`: new TASK-023 (renumbered from this session's original TASK-022, which collided with main's parallel-landed inference-optimization TASK-022) — Learning Agent governed `web-research` Skill, `SearchProvider` port, depends on TASK-007 — appended at queue end and to the execution-order list.
+- `docs/raw/decisions-log.md`: ADR-111 appended.
+- `docs/APPROVALS.md`: AP-039 added (renumbered from this session's original AP-038, which collided with main's parallel-landed AP-038).
+- `docs/requests.md`: R-040 added.
+
+# 2026-07-18 — TASK-008 RM4 Relation contract completed and merged
+- Merged reviewed RM4 branch at `ff98c20` into `main` as `590cca6`, preserving DealPilot validation/effects, Relationship retry/reconciliation, Google/Package effects, and both persistent governance seeders.
+- Migration `0015_task008_relation_contract` adds evidence-bearing owner-scoped Relations, authoritative decision references, deterministic keyset reads, batched permission pruning, and durable pending/applied/failed materialization effects with bounded retry and stale-lease recovery.
+- Closed the RM4 omission bug under AP-030 after desktop/375px evidence plus core 422, DB 123, API 164, web 43, desktop 28, monorepo build/typecheck, migration no-drift, lint, no-dummy, and independent central-merge review. TASK-008 remains `in_progress` for its still-canonical RM1–RM6 Person/Timeline/Memory/Map/introductions/team scope; TASK-014/TASK-009 own the cross-Module Graph renderer.
+- ADR-112 records decision-before-effect, database-sequence convergence, and `ref_ledger_id`-only proposal identity. Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
+- Blast-radius fix: the Task Manager prebuild parser now accepts canonical `## title` + `- ID: TASK-NNN` sections as well as legacy headings. Before the fix, every build silently generated zero task rows after the heading refactor. Added ordering/current-format regression coverage and regenerated all 23 records.

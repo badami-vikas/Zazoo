@@ -8,6 +8,7 @@ const output = resolve(platformRoot, 'apps/web/src/app/data/pending-work.generat
 
 const file = 'docs/TASKS.md';
 const document = await readFile(resolve(repoRoot, file), 'utf8');
+const documentLines = document.split(/\r?\n/);
 const statusMap = { inbox: 'pending', ready: 'pending', in_progress: 'in-progress', blocked: 'blocked', done: 'completed', dropped: 'dropped' };
 const items = parseCanonicalTasks(document)
   .map((task, index) => ({
@@ -16,7 +17,9 @@ const items = parseCanonicalTasks(document)
     title: `${task.id} — ${task.title}`,
     sourceType: 'task',
     sourceFile: file,
-    sourceLine: document.split(/\r?\n/).findIndex((line) => line.startsWith(`## ${task.id} —`)) + 1,
+    sourceLine:
+      documentLines.findIndex((line) => line === `- ID: ${task.id}`) + 1 ||
+      documentLines.findIndex((line) => line.startsWith(`## ${task.id} —`)) + 1,
     status: statusMap[task.status] ?? 'open',
     rank: index + 1,
   }));

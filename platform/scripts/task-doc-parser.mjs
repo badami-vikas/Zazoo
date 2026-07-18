@@ -8,20 +8,35 @@ function list(value) {
 export function parseCanonicalTasks(document) {
   const tasks = [];
   let task = null;
+  let sectionTitle = null;
   const explicitOrder = document.match(/`(TASK-\d+(?:,\s*TASK-\d+)*)`/);
 
   for (const line of document.split(/\r?\n/)) {
-    const heading = line.match(/^## (TASK-\d+) — (.+)$/);
+    const heading = line.match(/^## (.+)$/);
     if (heading) {
-      task = { id: heading[1], title: heading[2].trim() };
-      tasks.push(task);
+      task = null;
+      sectionTitle = heading[1].trim();
+      const legacyTaskHeading = sectionTitle.match(/^(TASK-\d+) — (.+)$/);
+      if (legacyTaskHeading) {
+        task = { id: legacyTaskHeading[1], title: legacyTaskHeading[2].trim() };
+        tasks.push(task);
+      }
       continue;
     }
-    if (!task) continue;
     const field = line.match(/^- ([^:]+):\s*(.*)$/);
     if (!field) continue;
     const key = field[1].trim().toLowerCase();
     const value = field[2].trim();
+    if (key === 'id' && /^TASK-\d+$/.test(value) && sectionTitle) {
+      if (task) {
+        if (task.id === value) continue;
+        throw new Error(`Conflicting task IDs in section "${sectionTitle}": ${task.id} and ${value}`);
+      }
+      task = { id: value, title: sectionTitle };
+      tasks.push(task);
+      continue;
+    }
+    if (!task) continue;
     if (LIST_FIELDS.has(key)) task[key] = list(value);
     else if (key === 'prototype test') task.prototypeTest = value;
     else if (key === 'status' || key === 'priority' || key === 'horizon' || key === 'outcome' || key === 'approval') task[key] = value;
