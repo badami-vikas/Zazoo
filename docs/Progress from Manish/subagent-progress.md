@@ -1,6 +1,6 @@
 # Subagent progress
 
-Updated 2026-07-18 after all workers were stopped.
+Updated 2026-07-19 after latest `main` ancestry and integration reconciliation.
 
 Canonical state remains in [`docs/TASKS.md`](../TASKS.md). “Merged” below means the useful output is already represented on `main`; it does not mean an old dirty worktree should be merged again.
 
@@ -23,8 +23,8 @@ Canonical state remains in [`docs/TASKS.md`](../TASKS.md). “Merged” below me
 | `3fd82197-81e4-4352-b6b3-d5b7a1509be1` — Plan Module UI rollout | TASK-014 | `manishsbhoopalam8498-bookish-waddle` / `5775e5b` | Planning-only | Shared DataView/View Grammar, Calendar de-modularization, Graph renderer, Files, and Control Panel plan completed. Implementation remains dependency-gated. |
 | `be52e0a6-4d88-4f04-af6f-e6fe27b6bfab` — Plan runtime taint | TASK-015 | `manishsbhoopalam8498-bookish-umbrella` / `5775e5b` | Planning-only | Monotonic taint lattice and fail-closed declassification plan completed. No implementation delta. |
 | `19b390c3-6551-4672-ae41-67735b71ff71` — Persist DealPilot locally | TASK-006 durability | `manishsbhoopalam8498-persist-dealpilot-locally` / reviewed source `adf6c95` | Merged | Durable Local Plane aggregate, legacy import, keyring journals/revoke, parent-retained sidecar socket, trusted webviews, PKCE/token finalization, desktop child-loss recovery, tests, and docs merged into `main` under AP-045 after normally merging `origin/main` `bab32ea`. Post-merge gates: API 239, DealPilot 90, Local 8, DB 155, Core 430, Sourcing 7, Company Sourcing 4, Google 39, Web 70, desktop Rust 44, typecheck 37, build 20, lint/policy/security clean. Live macOS keyring, sidecar lifecycle, and Chrome 375x812 evidence exist. Live Google/BizBuySell and verified OS/application re-authentication remain external; TASK-006 stays `in_progress`. |
-| `b6486e55-47b5-43f7-9a34-eb84ecc578ce` — Complete Relationship records | TASK-008 RM1-RM2 candidate A | `manishsbhoopalam8498-complete-relationship-records` / `631aa9f` plus 30 changed and 2 untracked files | Paused | Typecheck 37/37, build 20/20, core/Google/local/DB passed; API 174/175 due stale `touchpoint` expectation; web not run. Review found missing lifecycle receipts for stale/no-op auto mutations. Competes with candidate B. |
-| `e859579b-a865-4ad3-b16c-e4d8cbccf17d` — Implement Relationship RM1-RM2 | TASK-008 RM1-RM2 candidate B | `manishsbhoopalam8498-implement-relationship-rm1-rm2` / `631aa9f` plus 27 changed files | Paused | Large API/graph/local/Google/UI implementation exists, but no final handoff or complete validation. Competes with candidate A. Compare both before selecting an owner. |
+| `b6486e55-47b5-43f7-9a34-eb84ecc578ce` — Complete Relationship records | TASK-008 Relationship continuation | `manishsbhoopalam8498-complete-relationship-records` / `905aee9` | Merged | Candidate A became the validated continuation on `main`: implementation `cbda8d6`/`f409777`, central hardening `71368fe`, AP-043 integration `905aee9`. Do not merge again. TASK-008 stays `in_progress` for Automations/RM6/evaluation. |
+| `e859579b-a865-4ad3-b16c-e4d8cbccf17d` — Implement Relationship RM1-RM2 | TASK-008 competing candidate B | `manishsbhoopalam8498-implement-relationship-rm1-rm2` / historical dirty worktree | Superseded | Candidate A was selected, hardened, and merged. Preserve this worktree only as historical comparison material; do not merge it wholesale or resume it as an implementation owner. |
 | `87f7fbd1-a6a4-47fa-bc67-bb8a5a20bd1a` — Optimize inference costs | TASK-022 | `manishsbhoopalam8498-implement-task-022` / `631aa9f` plus staged and unstaged changes | Paused | Tiered routing, Anthropic cache breakpoint, normalized usage/cost receipts, governed CoS model calls, and tests are implemented. Reported core/models/API 623/623 and review fixes. No live provider evidence. Uncommitted. |
 | `874ca9fc-1570-4d17-bf06-172298b0abc3` — Build governed web research | TASK-023 candidate A | `manishsbhoopalam8498-build-governed-web-research` / `631aa9f` plus 21 changed and 8 untracked files | Paused | Implements `SearchProvider`, safe HTTP/router, Parallel Search MCP, governed Learning Skill, docs, and tests. Its output reports full build/typecheck, core 425, models 34, DB 124, API 176, live bounded Parallel smoke, and no security findings. Competes with candidate B. |
 | `b44e7514-4f2d-4e57-a4c7-e2b9b06be88d` — Implement web research | TASK-023 candidate B | `manishsbhoopalam8498-implement-web-research` / `631aa9f` plus 13 changed and 3 untracked paths | Paused, idle | Provider verification, core port/taint, research package/net guard, authority wiring, API route, and focused tests exist. Research suite 24/24; API 4/4 before final onboarding migration. Remaining full post-migration gates/docs/review. Competes with candidate A. |
@@ -45,6 +45,8 @@ Canonical state remains in [`docs/TASKS.md`](../TASKS.md). “Merged” below me
 ## Do not resume
 
 - Old-base TASK-002 and TASK-003 worktrees contain historical dirty changes already represented on `main`.
-- TASK-004, TASK-006 core, TASK-007, TASK-008 RM4, and TASK-009 planning branches are historical after merge.
+- TASK-004, TASK-006 core, TASK-007, TASK-008 RM4, TASK-008 Relationship continuation candidate A,
+  and TASK-009 planning branches are historical after merge.
 - The initial TASK-008 branch `db2b19c` must not be merged wholesale.
-- Do not run both RM1-RM2 candidates or both TASK-023 candidates concurrently.
+- TASK-008 candidate B is superseded; do not resume or merge it. Do not run both TASK-023 candidates
+  concurrently.

@@ -9,7 +9,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the recorded clean baseline `631aa9f`.
+4. Fetch `origin/main` and compare it with the recorded clean baseline `7f44186`.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,9 +17,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- TASK-006 integration fetched and validated `origin/main` at
-  `bab32ea4a7917a273ee91f7c5df520a775301083`; AP-045 fast-forwards this merge-ledger commit as the
-  next `main` head. Always re-fetch before resuming any worktree.
+- The last code baseline verified for this handoff is
+  `7f441869d1d4bc3ca92f0c62aeff655f23b998ad`, including TASK-006 durability, TASK-008 RM4, the
+  validated Relationship continuation, and TASK-010 migration `0016`. Always re-fetch before
+  resuming any worktree.
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
@@ -35,11 +36,14 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
   `2f85dc7` and final reviewed source head `adf6c95`. Live Google/BizBuySell and verified
   OS/application re-authentication remain external, so canonical status stays `in_progress`.
-- TASK-008 RM1-RM2 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
+- TASK-008's validated Relationship continuation from candidate A is merged through `905aee9`.
+  Candidate B is a superseded historical dirty worktree; do not merge either candidate again.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 and external provider/keychain/device evidence remain honestly blocked.
-- TASK-008 remains incomplete after RM0 and RM4; TASK-014/TASK-009 own the shared Graph renderer.
+- TASK-008 includes RM0, RM4, and the validated RM1–RM5 continuity slice. It remains `in_progress`
+  only for persistent user-defined Automations/Agent Runs, RM6 team permission/delegation,
+  export/disconnect/forget, and held-out evaluation. TASK-014/TASK-009 own the shared Graph renderer.
 - TASK-010 remains `in_progress` in `docs/TASKS.md` even after the `0016` merge — no live desktop/375px browser evidence has been claimed, and `ledger`'s own RLS was deliberately left unwidened (matches RM4's own precedent for the same port-signature reason).
 
 ## Files

@@ -182,3 +182,15 @@ The reviewed branch was merged into `main` at `590cca6` on 2026-07-18. Central c
 Authoritative main's fail-closed `InMemoryAgentStore` implementation replaced the branch's stale TASK-007 base without a compatibility shim. The combined tree passed core 422, DB 123, API 164, web 43, desktop 28, all 37 monorepo typecheck tasks, full build, web production build, migration fresh/upgrade/no-drift, changed-file ESLint, runtime no-dummy, and diff integrity. A fresh central diff review found no high-confidence integration defect.
 
 RM0 and RM4 are complete under AP-030. TASK-008 remains `in_progress` because its canonical scope still names RM1–RM6: governed Person/Community CRUD/search, unified Timeline/intake/identity review, Memory/commitment/prep lifecycle, governed Map/path finding, introductions/recommendations/user Automations, and team permission/delegation/evolution. TASK-014/TASK-009 own the cross-Module Graph-view renderer.
+
+## 2026-07-19 source-worktree reconciliation
+
+The historical RM4 worktree fetched current `origin/main` at `7f44186`. Git ancestry confirmed both
+the reviewed RM4 source head `ff98c20` and validated Relationship continuation head `905aee9` are
+already contained in `main`; the worktree fast-forwarded without a content conflict and no code was
+re-merged. Fresh-session documentation now marks RM4 and candidate A historical, marks candidate B
+superseded, and removes the stale instruction to compare two active RM1–RM2 implementations.
+
+TASK-008 remains honestly `in_progress`: RM0, RM4, and the validated RM1–RM5 continuity slice are
+integrated, while persistent user-defined Automations/Agent Runs, RM6 team
+permission/delegation/export/disconnect/forget, and held-out evaluation remain.
