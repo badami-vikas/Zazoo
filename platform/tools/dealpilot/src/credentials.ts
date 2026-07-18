@@ -18,6 +18,12 @@ export interface SourceCredentialScope {
 }
 
 export interface SourceCredentialVault {
+  reserve(scope: SourceCredentialScope): string;
+  write(
+    scope: SourceCredentialScope,
+    reference: string,
+    credential: SourceCredential,
+  ): Promise<void>;
   put(scope: SourceCredentialScope, credential: SourceCredential): Promise<string>;
   metadata(scope: SourceCredentialScope, reference: string): Promise<CredentialMetadata | null>;
   read(
@@ -49,9 +55,22 @@ export function metadataForCredential(credential: SourceCredential): CredentialM
 export class InMemorySourceCredentialVault implements SourceCredentialVault {
   readonly entries = new Map<string, SourceCredential>();
 
-  async put(scope: SourceCredentialScope, credential: SourceCredential): Promise<string> {
-    const reference = `memory-test://dealpilot/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(scope.sourceId)}`;
+  reserve(scope: SourceCredentialScope): string {
+    return `memory-test://dealpilot/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(scope.sourceId)}/${globalThis.crypto.randomUUID()}`;
+  }
+
+  async write(
+    scope: SourceCredentialScope,
+    reference: string,
+    credential: SourceCredential,
+  ): Promise<void> {
+    this.#assertScope(scope, reference);
     this.entries.set(reference, { ...credential });
+  }
+
+  async put(scope: SourceCredentialScope, credential: SourceCredential): Promise<string> {
+    const reference = this.reserve(scope);
+    await this.write(scope, reference, credential);
     return reference;
   }
 
@@ -59,12 +78,7 @@ export class InMemorySourceCredentialVault implements SourceCredentialVault {
     scope: SourceCredentialScope,
     reference: string,
   ): Promise<CredentialMetadata | null> {
-    if (
-      reference !==
-      `memory-test://dealpilot/${encodeURIComponent(scope.workspaceId)}/${encodeURIComponent(scope.sourceId)}`
-    ) {
-      throw new Error("Credential reference is outside the requested Organization or Source");
-    }
+    this.#assertScope(scope, reference);
     const credential = this.entries.get(reference);
     if (!credential) return null;
     return metadataForCredential(credential);
@@ -82,6 +96,27 @@ export class InMemorySourceCredentialVault implements SourceCredentialVault {
   async delete(scope: SourceCredentialScope, reference: string): Promise<void> {
     await this.metadata(scope, reference);
     this.entries.delete(reference);
+  }
+
+  #assertScope(scope: SourceCredentialScope, reference: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(reference);
+    } catch {
+      throw new Error("Credential reference is invalid");
+    }
+    const parts = parsed.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (
+      parsed.protocol !== "memory-test:" ||
+      parsed.hostname !== "dealpilot" ||
+      parts.length !== 3 ||
+      parts[0] !== scope.workspaceId ||
+      parts[1] !== scope.sourceId
+    ) {
+      throw new Error(
+        "Credential reference is outside the requested Organization or Source",
+      );
+    }
   }
 }
 
@@ -297,6 +332,29 @@ export class SourceCredentialService {
     actorId: string;
     token: string;
   }): Promise<CredentialAuditEvent> {
+    const reference = input.reference;
+    if (!reference) {
+      throw new CredentialAccessError(
+        "credential_unavailable",
+        "This Source has no credential reference",
+      );
+    }
+    const audit = this.authorizeCredentialRevocation(input);
+    await this.vault.delete(
+      { workspaceId: input.workspaceId, sourceId: input.sourceId },
+      reference,
+    );
+    return audit;
+  }
+
+  authorizeCredentialRevocation(input: {
+    reference: string | undefined;
+    workspaceId: string;
+    sourceId: string;
+    actorType: "user" | "team" | "agent";
+    actorId: string;
+    token: string;
+  }): CredentialAuditEvent {
     if (input.actorType !== "user") {
       throw new CredentialAccessError(
         "human_required",
@@ -320,10 +378,6 @@ export class SourceCredentialService {
       input.actorId,
       input.workspaceId,
       input.sourceId,
-    );
-    await this.vault.delete(
-      { workspaceId: input.workspaceId, sourceId: input.sourceId },
-      input.reference,
     );
     return {
       workspaceId: input.workspaceId,

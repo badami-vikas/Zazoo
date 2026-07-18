@@ -5,8 +5,10 @@ import type { QuarantinedCapture } from "@bridge/tool-kit";
 import { createGmailFetchMessages, type GmailFetchReceipt } from "../src/connectors.js";
 import {
   LocalDealPilotStore,
+  reconcileCredentialOperations,
   type DealPilotStatePort,
 } from "../src/runtime-store.js";
+import { InMemorySourceCredentialVault } from "../src/credentials.js";
 
 class SharedStatePort implements DealPilotStatePort {
   readonly rows = new Map<string, unknown>();
@@ -95,6 +97,119 @@ function capture(
     trustOrigin: "untrusted_external",
   };
 }
+
+test("credential create and revoke journals reconcile across process restart without plaintext", async () => {
+  const { state, store } = runtime();
+  const vault = new InMemorySourceCredentialVault();
+  const scope = { workspaceId: "workspace-a", sourceId: "source-journaled" };
+  const reference = vault.reserve(scope);
+  await store.prepareCredentialCreate({
+    id: scope.sourceId,
+    workspaceId: scope.workspaceId,
+    name: "Journaled source",
+    link: "https://example.invalid/journaled",
+    connectionType: "account",
+    credentialOwnerId: "human-a",
+    credentialRef: reference,
+    spendCap: 0,
+    rightsState: "attested",
+    rightsAttestedBy: "human-a",
+  });
+  assert.equal(await store.get("source", scope.workspaceId, scope.sourceId), null);
+  assert.equal(
+    JSON.stringify([...state.rows.values()]).includes("test_fixture_secret"),
+    false,
+  );
+
+  await vault.write(scope, reference, { password: "test_fixture_secret" });
+  const afterCreateCrash = new LocalDealPilotStore(state);
+  await reconcileCredentialOperations(
+    afterCreateCrash,
+    vault,
+    scope.workspaceId,
+  );
+  const created = await afterCreateCrash.get(
+    "source",
+    scope.workspaceId,
+    scope.sourceId,
+  );
+  assert.equal(
+    created?.kind === "source" ? created.credentialRef : undefined,
+    reference,
+  );
+  assert.deepEqual(
+    await afterCreateCrash.pendingCredentialOperations(scope.workspaceId),
+    [],
+  );
+
+  const audit = {
+    workspaceId: scope.workspaceId,
+    sourceId: scope.sourceId,
+    actorId: "human-a",
+    action: "revoke" as const,
+    field: "credential" as const,
+    occurredAt: "2026-07-18T00:00:00.000Z",
+  };
+  await afterCreateCrash.prepareCredentialRevocation(
+    scope.workspaceId,
+    scope.sourceId,
+    "human-a",
+    reference,
+    audit,
+  );
+  await vault.delete(scope, reference);
+
+  const afterRevokeCrash = new LocalDealPilotStore(state);
+  await reconcileCredentialOperations(
+    afterRevokeCrash,
+    vault,
+    scope.workspaceId,
+  );
+  const revoked = await afterRevokeCrash.get(
+    "source",
+    scope.workspaceId,
+    scope.sourceId,
+  );
+  assert.equal(
+    revoked?.kind === "source" ? revoked.credentialRef : "unexpected-kind",
+    undefined,
+  );
+  assert.deepEqual(
+    (await afterRevokeCrash.credentialAuditEvents(scope.workspaceId)).map(
+      (event) => event.action,
+    ),
+    ["revoke"],
+  );
+});
+
+test("credential create journal discards a reservation that never reached the vault", async () => {
+  const { state, store } = runtime();
+  const vault = new InMemorySourceCredentialVault();
+  const scope = { workspaceId: "workspace-a", sourceId: "source-abandoned" };
+  const reference = vault.reserve(scope);
+  await store.prepareCredentialCreate({
+    id: scope.sourceId,
+    workspaceId: scope.workspaceId,
+    name: "Abandoned source",
+    link: "https://example.invalid/abandoned",
+    connectionType: "account",
+    credentialOwnerId: "human-a",
+    credentialRef: reference,
+    spendCap: 0,
+    rightsState: "unattested",
+  });
+
+  const afterCrash = new LocalDealPilotStore(state);
+  await reconcileCredentialOperations(afterCrash, vault, scope.workspaceId);
+  assert.equal(
+    await afterCrash.get("source", scope.workspaceId, scope.sourceId),
+    null,
+  );
+  assert.deepEqual(
+    await afterCrash.pendingCredentialOperations(scope.workspaceId),
+    [],
+  );
+});
 
 function receipt(batchId: string, complete = true): GmailFetchReceipt {
   return {

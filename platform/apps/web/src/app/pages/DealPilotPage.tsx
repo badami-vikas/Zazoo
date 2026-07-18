@@ -807,9 +807,8 @@ function RecordDetailSurface({
               </div>
             );
           })}
-          {"credentialProjection" in detail &&
-            (detail.credentialProjection.userId.state === "available" ||
-              detail.credentialProjection.password.state === "available") && (
+          {"credentialCleanupAvailable" in detail &&
+            detail.credentialCleanupAvailable && (
               <button
                 type="button"
                 className="mt-5 text-sm font-medium text-red-700 underline"

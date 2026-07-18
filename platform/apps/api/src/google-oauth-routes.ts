@@ -91,7 +91,11 @@ export async function registerGoogleOAuthRoutes(
             error: "oauth_actor_not_authorized",
           });
         }
-        const tokens = await exchangeAuthorizationCode(wiring.googleOAuth, code);
+        const tokens = await exchangeAuthorizationCode(
+          wiring.googleOAuth,
+          code,
+          pending.codeVerifier,
+        );
         const nowISO = new SystemClock().nowISO();
         const tokenRecord = tokenRecordFrom(
           integrationId,
@@ -100,16 +104,15 @@ export async function registerGoogleOAuthRoutes(
           nowISO,
         );
         if (
-          !(await wiring.workspaceStore.isMember(workspaceId, pending.actorId))
+          !(await wiring.localPlane.secrets.finalizeToken(tokenRecord, () =>
+            wiring.workspaceStore.isMember(workspaceId, pending.actorId),
+          ))
         ) {
           return finishOAuth(reply, {
             connected: false,
             error: "oauth_actor_not_authorized",
           });
         }
-        await wiring.localPlane.secrets.putToken(
-          tokenRecord,
-        );
         return finishOAuth(reply, { connected: true });
       } catch (e) {
         app.log.error({ err: e }, "google oauth callback failed");

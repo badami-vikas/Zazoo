@@ -127,8 +127,17 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     this.#entry = options.entryFactory ?? ((service, account) => new AsyncEntry(service, account));
   }
 
-  async put(scope: SourceCredentialScope, credential: SourceCredential): Promise<string> {
+  reserve(scope: SourceCredentialScope): string {
     const account = createAccount(scope);
+    return `${REFERENCE_SCHEME}//${this.#service}/${account}`;
+  }
+
+  async write(
+    scope: SourceCredentialScope,
+    reference: string,
+    credential: SourceCredential,
+  ): Promise<void> {
+    const account = this.#account(scope, reference);
     const entry = this.#entry(this.#service, account);
     const stored: StoredCredential = {
       version: 1,
@@ -136,7 +145,12 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
       ...(credential.password ? { password: credential.password } : {}),
     };
     await entry.setPassword(JSON.stringify(stored));
-    return `${REFERENCE_SCHEME}//${this.#service}/${account}`;
+  }
+
+  async put(scope: SourceCredentialScope, credential: SourceCredential): Promise<string> {
+    const reference = this.reserve(scope);
+    await this.write(scope, reference, credential);
+    return reference;
   }
 
   async metadata(

@@ -123,6 +123,68 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
   }
 });
 
+test("file-backed startup finalizes a vault-written pending Source without persisting plaintext", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-api-credential-create-"));
+  const vault = new InMemorySourceCredentialVault();
+  const scope = {
+    workspaceId: PILOT_WORKSPACE,
+    sourceId: "source-create-restart",
+  };
+  const secret = "test_fixture_restart_secret";
+  try {
+    const first = await buildWiring({
+      localDir: root,
+      dealPilotCredentialVault: vault,
+    });
+    const reference = vault.reserve(scope);
+    await first.dealpilot.store.prepareCredentialCreate({
+      id: scope.sourceId,
+      workspaceId: scope.workspaceId,
+      name: "Restart-finalized source",
+      link: "https://example.invalid/restart-finalized",
+      connectionType: "account",
+      credentialOwnerId: PILOT_USER,
+      credentialRef: reference,
+      spendCap: 0,
+      rightsState: "attested",
+      rightsAttestedBy: PILOT_USER,
+    });
+    await vault.write(scope, reference, { password: secret });
+    await first.close();
+
+    const reopened = await buildWiring({
+      localDir: root,
+      dealPilotCredentialVault: vault,
+    });
+    const source = await reopened.dealpilot.store.get(
+      "source",
+      PILOT_WORKSPACE,
+      scope.sourceId,
+    );
+    assert.equal(
+      source?.kind === "source" ? source.credentialRef : undefined,
+      reference,
+    );
+    assert.deepEqual(
+      await reopened.dealpilot.store.pendingCredentialOperations(
+        PILOT_WORKSPACE,
+      ),
+      [],
+    );
+    await reopened.close();
+
+    for (const file of await filesUnder(root)) {
+      assert.equal(
+        (await readFile(file)).includes(Buffer.from(secret)),
+        false,
+        `${file} contains credential plaintext`,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("DealPilot credential plaintext never enters Local Plane files or API projections", async () => {
   const root = await mkdtemp(join(tmpdir(), "bridge-api-credentials-"));
   const keyringValues = new Map<string, string>();
@@ -180,11 +242,11 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
       workspaceId: PILOT_WORKSPACE,
       sourceId: source.id,
     });
-    const recordRevocation =
-      wiring.dealpilot.store.recordCredentialRevocation.bind(
+    const completeRevocation =
+      wiring.dealpilot.store.completeCredentialRevocation.bind(
         wiring.dealpilot.store,
       );
-    wiring.dealpilot.store.recordCredentialRevocation = async () => {
+    wiring.dealpilot.store.completeCredentialRevocation = async () => {
       throw new Error("simulated Local Plane write failure");
     };
     await assert.rejects(
@@ -204,23 +266,32 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
       }),
       /matching re-authentication session is required/,
     );
-    wiring.dealpilot.store.recordCredentialRevocation = recordRevocation;
-    const retrySession = await caller.dealpilot.reauthenticateCredential({
+    const retryableDetail = await caller.dealpilot.detail({
       workspaceId: PILOT_WORKSPACE,
-      sourceId: source.id,
+      kind: "source",
+      id: source.id,
     });
-    const revoked = await caller.dealpilot.clearCredential({
-      workspaceId: PILOT_WORKSPACE,
-      sourceId: source.id,
-      token: retrySession.token,
-    });
-    assert.equal(revoked.cleared, true);
-    assert.deepEqual(
-      (await wiring.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE)).map(
-        (event) => event.action,
-      ),
-      ["revoke"],
+    assert.equal(
+      "credentialCleanupAvailable" in retryableDetail
+        ? retryableDetail.credentialCleanupAvailable
+        : false,
+      true,
     );
+    assert.equal(
+      "credentialProjection" in retryableDetail
+        ? retryableDetail.credentialProjection.password.state
+        : "unexpected-detail",
+      "unavailable",
+    );
+    assert.equal(
+      (
+        await wiring.dealpilot.store.pendingCredentialOperations(
+          PILOT_WORKSPACE,
+        )
+      ).length,
+      1,
+    );
+    wiring.dealpilot.store.completeCredentialRevocation = completeRevocation;
     await wiring.close();
 
     const reopened = await buildWiring({
@@ -241,6 +312,18 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
         : "unexpected-kind",
       undefined,
     );
+    assert.deepEqual(
+      (
+        await reopened.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE)
+      ).map((event) => event.action),
+      ["revoke"],
+    );
+    assert.deepEqual(
+      await reopened.dealpilot.store.pendingCredentialOperations(
+        PILOT_WORKSPACE,
+      ),
+      [],
+    );
     await reopened.close();
 
     const files = await filesUnder(root);
@@ -254,10 +337,19 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
   }
 });
 
-test("Source creation removes its OS credential when the durable Record write fails", async () => {
+test("Source creation journals before the OS credential write", async () => {
+  const written: string[] = [];
   const deleted: string[] = [];
   const vault: SourceCredentialVault = {
-    put: async () => "keyring://com.bridge.test/compensated-entry",
+    reserve: () => "keyring://com.bridge.test/compensated-entry",
+    write: async (_scope, reference) => {
+      written.push(reference);
+    },
+    put: async (scope, credential) => {
+      const reference = vault.reserve(scope);
+      await vault.write(scope, reference, credential);
+      return reference;
+    },
     metadata: async () => null,
     read: async () => null,
     delete: async (_scope, reference) => {
@@ -297,7 +389,8 @@ test("Source creation removes its OS credential when the durable Record write fa
       }),
       /already exists/,
     );
-    assert.deepEqual(deleted, ["keyring://com.bridge.test/compensated-entry"]);
+    assert.deepEqual(written, []);
+    assert.deepEqual(deleted, []);
   } finally {
     await wiring.close();
   }

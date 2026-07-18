@@ -2,7 +2,9 @@
  * Fastify 5 + tRPC 11 server. Boots the pipeline surface with zero infra.
  */
 import { pathToFileURL } from "node:url";
-import Fastify from "fastify";
+import type { ListenOptions } from "node:net";
+import type { Readable } from "node:stream";
+import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
@@ -44,6 +46,78 @@ export function serverHostConfig(): string {
   return process.env.NODE_ENV === "production" || isVerifierConfigured() || Boolean(process.env.DATABASE_URL)
     ? "0.0.0.0"
     : "127.0.0.1";
+}
+
+export function inheritedListenFd(): number | undefined {
+  const raw = process.env.BRIDGE_LISTEN_FD;
+  if (raw === undefined) return undefined;
+  if (process.platform === "win32") {
+    throw new Error(
+      "BRIDGE_LISTEN_FD is unsupported on Windows; refusing an unreserved sidecar transport",
+    );
+  }
+  if (!/^[0-9]+$/.test(raw)) {
+    throw new Error("BRIDGE_LISTEN_FD must be a numeric file descriptor");
+  }
+  const fd = Number(raw);
+  if (!Number.isSafeInteger(fd) || fd < 3) {
+    throw new Error("BRIDGE_LISTEN_FD must identify an inherited socket");
+  }
+  return fd;
+}
+
+interface InheritedListenOptions extends ListenOptions {
+  fd: number;
+}
+
+export async function listenServer(
+  app: FastifyInstance,
+  port: number,
+): Promise<string> {
+  const fd = inheritedListenFd();
+  if (process.env.BRIDGE_SIDECAR_TOKEN && fd === undefined) {
+    throw new Error(
+      "Managed sidecars require a parent-retained inherited loopback listener",
+    );
+  }
+  if (fd === undefined) {
+    return app.listen({ port, host: serverHostConfig() });
+  }
+
+  await app.ready();
+  return new Promise<string>((resolve, reject) => {
+    const options: InheritedListenOptions = { fd };
+    const onError = (error: Error) => {
+      app.server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      app.server.off("error", onError);
+      const address = app.server.address();
+      if (
+        address === null ||
+        typeof address === "string" ||
+        address.address !== "127.0.0.1"
+      ) {
+        reject(
+          new Error(
+            "Inherited sidecar listener must be an IPv4 loopback TCP socket",
+          ),
+        );
+        return;
+      }
+      resolve(`http://127.0.0.1:${address.port}`);
+    };
+    app.server.once("error", onError);
+    app.server.once("listening", onListening);
+    try {
+      app.server.listen(options);
+    } catch (error) {
+      app.server.off("error", onError);
+      app.server.off("listening", onListening);
+      reject(error);
+    }
+  });
 }
 
 /** Sensitive tRPC procedures that get a tighter per-IP rate cap than the global default:
@@ -158,16 +232,44 @@ export const loggerOptions = {
   redact: { paths: LOG_REDACT_PATHS, censor: "[REDACTED]" },
 };
 
+export function desktopOAuthRedirectUri(
+  address: ReturnType<FastifyInstance["server"]["address"]>,
+): string {
+  if (
+    !address ||
+    typeof address === "string" ||
+    address.port < 1 ||
+    (address.address !== "127.0.0.1" &&
+      address.address !== "::1" &&
+      address.address !== "::ffff:127.0.0.1")
+  ) {
+    throw new Error(
+      "Desktop Google OAuth requires a bound loopback TCP address",
+    );
+  }
+  return `http://127.0.0.1:${address.port}/integrations/google/callback`;
+}
+
 export async function buildServer() {
   assertProductionEnv();
   const wiring = await buildWiring();
   const createContext = makeContextFactory(wiring);
 
-  const app = Fastify({ logger: loggerOptions, maxParamLength: 5000 });
-  app.addHook("onClose", async () => {
-    await wiring.close();
+  const app = Fastify({
+    logger: loggerOptions,
+    maxParamLength: 5000,
+    forceCloseConnections: "idle",
   });
   app.addHook("onRequest", async (request, reply) => {
+    if (
+      process.env.BRIDGE_OAUTH_DESKTOP === "1" &&
+      wiring.googleOAuth &&
+      app.server.address() !== null
+    ) {
+      wiring.googleOAuth.redirectUri = desktopOAuthRedirectUri(
+        app.server.address(),
+      );
+    }
     if (
       process.env.BRIDGE_SIDECAR_TOKEN &&
       request.method !== "OPTIONS" &&
@@ -176,6 +278,9 @@ export async function buildServer() {
     ) {
       return reply.code(401).send({ error: "sidecar authentication required" });
     }
+  });
+  app.addHook("onClose", async () => {
+    await wiring.close();
   });
   const origin = corsOriginConfig();
   if (origin === true) {
@@ -325,6 +430,74 @@ export async function buildServer() {
   return app;
 }
 
+export function watchParentLiveness(
+  input: Readable,
+  shutdown: () => void,
+): () => void {
+  let stopped = false;
+  const parentLost = () => {
+    if (stopped) return;
+    stopped = true;
+    shutdown();
+  };
+  input.once("end", parentLost);
+  input.once("close", parentLost);
+  input.once("error", parentLost);
+  input.resume();
+  return () => {
+    stopped = true;
+    input.off("end", parentLost);
+    input.off("close", parentLost);
+    input.off("error", parentLost);
+    input.pause();
+  };
+}
+
+interface ClosableServer {
+  close(): Promise<void>;
+  server?: {
+    closeIdleConnections?: () => void;
+  };
+}
+
+export function closeServerWithDeadline(
+  app: ClosableServer,
+  exitProcess: (code: number) => void = (code) => process.exit(code),
+  timeoutMs = 5_000,
+  idleSweepMs = 100,
+): void {
+  let completed = false;
+  const closeIdleConnections = () => {
+    app.server?.closeIdleConnections?.();
+  };
+  closeIdleConnections();
+  const idleSweep = setInterval(closeIdleConnections, Math.max(1, idleSweepMs));
+  const deadline = setTimeout(() => {
+    if (completed) return;
+    completed = true;
+    clearInterval(idleSweep);
+    console.error("bridge-api graceful shutdown timed out; forcing process exit");
+    exitProcess(1);
+  }, timeoutMs);
+  void app.close().then(
+    () => {
+      if (completed) return;
+      completed = true;
+      clearInterval(idleSweep);
+      clearTimeout(deadline);
+      exitProcess(0);
+    },
+    (error: unknown) => {
+      if (completed) return;
+      completed = true;
+      clearInterval(idleSweep);
+      clearTimeout(deadline);
+      console.error("bridge-api shutdown failed", error);
+      exitProcess(1);
+    },
+  );
+}
+
 const entry = process.argv[1];
 const isMain = entry !== undefined && import.meta.url === pathToFileURL(entry).href;
 if (isMain) {
@@ -333,20 +506,19 @@ if (isMain) {
     .then(async (app) => {
       let stopping = false;
       let parentWatch: NodeJS.Timeout | undefined;
+      let stopParentLivenessWatch: (() => void) | undefined;
       const shutdown = () => {
         if (stopping) return;
         stopping = true;
         if (parentWatch) clearInterval(parentWatch);
-        void app.close().then(
-          () => process.exit(0),
-          (error: unknown) => {
-            console.error("bridge-api shutdown failed", error);
-            process.exit(1);
-          },
-        );
+        stopParentLivenessWatch?.();
+        closeServerWithDeadline(app);
       };
       process.once("SIGINT", shutdown);
       process.once("SIGTERM", shutdown);
+      if (process.env.BRIDGE_PARENT_LIVENESS === "stdin") {
+        stopParentLivenessWatch = watchParentLiveness(process.stdin, shutdown);
+      }
       const expectedParentPid = Number(process.env.BRIDGE_PARENT_PID);
       if (Number.isSafeInteger(expectedParentPid) && expectedParentPid > 0) {
         parentWatch = setInterval(() => {
@@ -354,7 +526,7 @@ if (isMain) {
         }, 1_000);
         parentWatch.unref();
       }
-      const addr = await app.listen({ port, host: serverHostConfig() });
+      const addr = await listenServer(app, port);
       console.log(`bridge-api listening at ${addr}`);
     })
     .catch((err) => {

@@ -30,6 +30,25 @@ class FakeSecretStore implements SecretStore {
   async deleteToken(integrationId: string): Promise<void> {
     this.tokens.delete(integrationId);
   }
+  async compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean> {
+    const current = this.tokens.get(integrationId) ?? null;
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    if (replacement) this.tokens.set(integrationId, replacement);
+    else this.tokens.delete(integrationId);
+    return true;
+  }
+  async finalizeToken(
+    replacement: OAuthTokenRecord,
+    stillAuthorized: () => Promise<boolean>,
+  ): Promise<boolean> {
+    if (!(await stillAuthorized()) || !(await stillAuthorized())) return false;
+    this.tokens.set(replacement.integrationId, replacement);
+    return true;
+  }
 }
 
 function dummyToken(integrationId: string, updatedAt: string): OAuthTokenRecord {

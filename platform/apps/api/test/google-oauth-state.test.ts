@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import Fastify from "fastify";
 import { appRouter } from "../src/router.js";
@@ -32,19 +33,27 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
   let now = Date.parse("2026-07-18T00:00:00.000Z");
   const statePort = new TestStatePort();
   const states = new GoogleOAuthStateStore(statePort, () => now, 1_000);
-  const raw = await states.issue(
+  const issued = await states.issue(
     PILOT_WORKSPACE,
     `${PILOT_WORKSPACE}:google`,
     PILOT_USER,
   );
+  const raw = issued.state;
 
   assert.match(raw, /^oauth_[0-9a-f]{64}$/);
+  assert.match(issued.codeChallenge, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(JSON.stringify([...statePort.rows.values()]).includes(raw), false);
-  assert.deepEqual(await states.consume(PILOT_WORKSPACE, raw), {
-    integrationId: `${PILOT_WORKSPACE}:google`,
-    actorId: PILOT_USER,
-    expiresAt: "2026-07-18T00:00:01.000Z",
-  });
+  const consumed = await states.consume(PILOT_WORKSPACE, raw);
+  assert.equal(consumed?.integrationId, `${PILOT_WORKSPACE}:google`);
+  assert.equal(consumed?.actorId, PILOT_USER);
+  assert.equal(consumed?.expiresAt, "2026-07-18T00:00:01.000Z");
+  assert.match(consumed?.codeVerifier ?? "", /^[0-9a-f]{64}$/);
+  assert.equal(
+    createHash("sha256")
+      .update(consumed?.codeVerifier ?? "")
+      .digest("base64url"),
+    issued.codeChallenge,
+  );
   assert.equal(await states.consume(PILOT_WORKSPACE, raw), null);
 
   const expired = await states.issue(
@@ -53,7 +62,7 @@ test("OAuth states are hashed at rest, single-use, bound, and expiring", async (
     PILOT_USER,
   );
   now += 1_001;
-  assert.equal(await states.consume(PILOT_WORKSPACE, expired), null);
+  assert.equal(await states.consume(PILOT_WORKSPACE, expired.state), null);
 });
 
 test("Google connect issues an unpredictable state and callback rejects legacy predictable state", async () => {
@@ -77,7 +86,15 @@ test("Google connect issues an unpredictable state and callback rejects legacy p
     const result = await caller.google.connectUrl();
     assert.ok(result.url);
     const state = new URL(result.url).searchParams.get("state");
+    const codeChallenge = new URL(result.url).searchParams.get(
+      "code_challenge",
+    );
     assert.match(state ?? "", /^oauth_[0-9a-f]{64}$/);
+    assert.match(codeChallenge ?? "", /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(
+      new URL(result.url).searchParams.get("code_challenge_method"),
+      "S256",
+    );
     assert.notEqual(state, wiring.google.integrationId);
 
     const rejected = await app.inject({
@@ -142,7 +159,7 @@ test("OAuth callback rejects an actor whose workspace membership was revoked aft
   const app = Fastify();
   try {
     await registerGoogleOAuthRoutes(app, wiring);
-    const state = await wiring.googleOAuthStates.issue(
+    const { state } = await wiring.googleOAuthStates.issue(
       PILOT_WORKSPACE,
       wiring.google.integrationId,
       PILOT_USER,
@@ -182,9 +199,15 @@ test("OAuth callback rechecks membership after code exchange and before token st
   const app = Fastify();
   let membershipChecks = 0;
   let exchanged = false;
+  let exchangedCodeVerifier = "";
   try {
-    await registerGoogleOAuthRoutes(app, wiring, async () => {
+    await registerGoogleOAuthRoutes(app, wiring, async (
+      _config,
+      _code,
+      codeVerifier,
+    ) => {
       exchanged = true;
+      exchangedCodeVerifier = codeVerifier;
       return {
         accessToken: "test_fixture_access_token",
         refreshToken: "test_fixture_refresh_token",
@@ -192,7 +215,7 @@ test("OAuth callback rechecks membership after code exchange and before token st
         tokenType: "Bearer",
       };
     });
-    const state = await wiring.googleOAuthStates.issue(
+    const { state } = await wiring.googleOAuthStates.issue(
       PILOT_WORKSPACE,
       wiring.google.integrationId,
       PILOT_USER,
@@ -208,6 +231,7 @@ test("OAuth callback rechecks membership after code exchange and before token st
     });
 
     assert.equal(exchanged, true);
+    assert.match(exchangedCodeVerifier, /^[0-9a-f]{64}$/);
     assert.equal(membershipChecks, 2);
     assert.equal(response.statusCode, 302);
     assert.match(
@@ -215,6 +239,191 @@ test("OAuth callback rechecks membership after code exchange and before token st
       /error=oauth_actor_not_authorized/,
     );
     assert.equal((await wiring.google.connectionInfo()).connected, false);
+  } finally {
+    await app.close();
+    await wiring.close();
+    if (priorId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+    else process.env.GOOGLE_CLIENT_ID = priorId;
+    if (priorSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET;
+    else process.env.GOOGLE_CLIENT_SECRET = priorSecret;
+  }
+});
+
+test("OAuth callback restores the exact prior token when membership is revoked during persistence", async () => {
+  const priorId = process.env.GOOGLE_CLIENT_ID;
+  const priorSecret = process.env.GOOGLE_CLIENT_SECRET;
+  process.env.GOOGLE_CLIENT_ID = "test_fixture_google_client";
+  process.env.GOOGLE_CLIENT_SECRET = "test_fixture_google_secret";
+  const wiring = await buildWiring();
+  const app = Fastify();
+  const integrationId = wiring.google.integrationId;
+  const priorToken = {
+    integrationId,
+    workspaceId: PILOT_WORKSPACE,
+    provider: "google",
+    accessToken: "test_fixture_prior_access",
+    refreshToken: "test_fixture_prior_refresh",
+    scope: "test_fixture_prior_scope",
+    tokenType: "Bearer",
+    updatedAt: "2026-07-17T00:00:00.000Z",
+  };
+  let membershipChecks = 0;
+  let releasePostWrite = (): void => {};
+  let markPostWriteReached = (): void => {};
+  const postWriteReached = new Promise<void>((resolve) => {
+    markPostWriteReached = resolve;
+  });
+  const continuePostWrite = new Promise<void>((resolve) => {
+    releasePostWrite = resolve;
+  });
+  try {
+    await wiring.localPlane.secrets.putToken(priorToken);
+    wiring.workspaceStore.isMember = async () => {
+      membershipChecks += 1;
+      if (membershipChecks === 3) {
+        markPostWriteReached();
+        await continuePostWrite;
+        return false;
+      }
+      return true;
+    };
+    await registerGoogleOAuthRoutes(app, wiring, async () => ({
+      accessToken: "test_fixture_replacement_access",
+      refreshToken: "test_fixture_replacement_refresh",
+      scope: "test_fixture_replacement_scope",
+      tokenType: "Bearer",
+    }));
+    const { state } = await wiring.googleOAuthStates.issue(
+      PILOT_WORKSPACE,
+      integrationId,
+      PILOT_USER,
+    );
+
+    const pendingResponse = app.inject({
+      method: "GET",
+      url: `/integrations/google/callback?code=exchangeable-code&state=${encodeURIComponent(state)}`,
+    });
+    await postWriteReached;
+    let readSettled = false;
+    const concurrentRead = wiring.localPlane.secrets
+      .getToken(integrationId)
+      .then((token) => {
+        readSettled = true;
+        return token;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      readSettled,
+      false,
+      "token readers must not observe a provisional replacement",
+    );
+    releasePostWrite();
+    const response = await pendingResponse;
+
+    assert.equal(response.statusCode, 302);
+    assert.match(
+      response.headers.location ?? "",
+      /error=oauth_actor_not_authorized/,
+    );
+    assert.deepEqual(await concurrentRead, priorToken);
+  } finally {
+    await app.close();
+    await wiring.close();
+    if (priorId === undefined) delete process.env.GOOGLE_CLIENT_ID;
+    else process.env.GOOGLE_CLIENT_ID = priorId;
+    if (priorSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET;
+    else process.env.GOOGLE_CLIENT_SECRET = priorSecret;
+  }
+});
+
+test("concurrent OAuth callbacks serialize provisional token finalization", async () => {
+  const priorId = process.env.GOOGLE_CLIENT_ID;
+  const priorSecret = process.env.GOOGLE_CLIENT_SECRET;
+  process.env.GOOGLE_CLIENT_ID = "test_fixture_google_client";
+  process.env.GOOGLE_CLIENT_SECRET = "test_fixture_google_secret";
+  const wiring = await buildWiring();
+  const app = Fastify();
+  const integrationId = wiring.google.integrationId;
+  let member = true;
+  let exchanges = 0;
+  let releaseExchanges = (): void => {};
+  const bothExchanged = new Promise<void>((resolve) => {
+    releaseExchanges = resolve;
+  });
+  let finalizationChecks = 0;
+  let activeFinalizationChecks = 0;
+  let maxActiveFinalizationChecks = 0;
+  try {
+    wiring.workspaceStore.isMember = async () => {
+      if (exchanges < 2) return member;
+      activeFinalizationChecks += 1;
+      maxActiveFinalizationChecks = Math.max(
+        maxActiveFinalizationChecks,
+        activeFinalizationChecks,
+      );
+      finalizationChecks += 1;
+      const check = finalizationChecks;
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        if (check === 2) member = false;
+        return member;
+      } finally {
+        activeFinalizationChecks -= 1;
+      }
+    };
+    await registerGoogleOAuthRoutes(app, wiring, async (_config, code) => {
+      exchanges += 1;
+      if (exchanges === 2) releaseExchanges();
+      await bothExchanged;
+      return {
+        accessToken:
+          code === "code-a"
+            ? "test_fixture_access_a"
+            : "test_fixture_access_b",
+        refreshToken: "test_fixture_refresh",
+        scope: "test_fixture_scope",
+        tokenType: "Bearer",
+      };
+    });
+    const [issuedA, issuedB] = await Promise.all([
+      wiring.googleOAuthStates.issue(
+        PILOT_WORKSPACE,
+        integrationId,
+        PILOT_USER,
+      ),
+      wiring.googleOAuthStates.issue(
+        PILOT_WORKSPACE,
+        integrationId,
+        PILOT_USER,
+      ),
+    ]);
+    const stateA = issuedA.state;
+    const stateB = issuedB.state;
+
+    const [responseA, responseB] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: `/integrations/google/callback?code=code-a&state=${encodeURIComponent(stateA)}`,
+      }),
+      app.inject({
+        method: "GET",
+        url: `/integrations/google/callback?code=code-b&state=${encodeURIComponent(stateB)}`,
+      }),
+    ]);
+
+    assert.equal(maxActiveFinalizationChecks, 1);
+    assert.match(
+      responseA.headers.location ?? "",
+      /error=oauth_actor_not_authorized/,
+    );
+    assert.match(
+      responseB.headers.location ?? "",
+      /error=oauth_actor_not_authorized/,
+    );
+    assert.equal(
+      await wiring.localPlane.secrets.getToken(integrationId),
+      null,
+    );
   } finally {
     await app.close();
     await wiring.close();

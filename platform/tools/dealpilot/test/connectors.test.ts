@@ -5,6 +5,7 @@ import {
   parseBizBuySellAlert,
   parseBizBuySellAlertBatch,
   createGmailFetchMessages,
+  InMemoryGmailFetchStateStore,
   normalizeBusinessBrokerRow,
   createBizBuySellAlertConnector,
   createBusinessBrokerNetConnector,
@@ -210,6 +211,81 @@ test("createGmailFetchMessages: an incomplete provider page retains the Source c
   assert.deepEqual(messages.map((message) => message.id), ["m1"]);
   assert.equal(fetchMessages.lastFetchComplete?.("test_fixture_source"), false);
   await fetchMessages.discard?.("test_fixture_source");
+});
+
+test("createGmailFetchMessages: restart resumes an incomplete page before visiting later tokens", async () => {
+  const pageTokens: Array<string | undefined> = [];
+  let firstPageIncomplete = true;
+  const thread = (id: string) => ({
+    threadId: `thread_${id}`,
+    subject: `New Listing Alert: ${id}`,
+    participants: [],
+    lastMessageAt: "2026-07-01T00:00:00Z",
+    snippet: "",
+    messages: [
+      {
+        messageId: id,
+        from: { email: "alerts@bizbuysell.com" },
+        to: [],
+        receivedAt: "2026-07-01T00:00:00Z",
+        date: "2026-07-01T00:00:00Z",
+        subject: `New Listing Alert: ${id}`,
+        bodyText: "Asking Price: $500,000",
+      },
+    ],
+  });
+  const fakeGateway: Pick<GoogleGateway, "fetchThreads"> = {
+    fetchThreads: async (options) => {
+      pageTokens.push(options.pageToken);
+      if (!options.pageToken) {
+        const incomplete = firstPageIncomplete;
+        firstPageIncomplete = false;
+        return {
+          incomplete,
+          threads: [thread("m1")],
+          nextPageToken: "page-2",
+        };
+      }
+      return { threads: [thread("m2")] };
+    },
+  };
+  const gateways: GoogleGatewayFactory = {
+    forIntegration: async () => fakeGateway as GoogleGateway,
+  };
+  const query = {
+    kind: "company" as const,
+    hints: {
+      sourceId: "test_fixture_source",
+      after: "2026-06-30T00:00:00.000Z",
+    },
+  };
+  const stateStore = new InMemoryGmailFetchStateStore();
+  const beforeRestart = createGmailFetchMessages(
+    gateways,
+    "integration_1",
+    undefined,
+    { stateStore, instanceId: "before-restart" },
+  );
+
+  assert.deepEqual(
+    (await beforeRestart(query)).map((message) => message.id),
+    ["m1"],
+  );
+  assert.deepEqual(pageTokens, [undefined]);
+  await beforeRestart.acknowledge?.("test_fixture_source");
+
+  const afterRestart = createGmailFetchMessages(
+    gateways,
+    "integration_1",
+    undefined,
+    { stateStore, instanceId: "after-restart" },
+  );
+  assert.deepEqual(
+    (await afterRestart(query)).map((message) => message.id),
+    ["m2"],
+  );
+  assert.deepEqual(pageTokens, [undefined, undefined, "page-2"]);
+  await afterRestart.acknowledge?.("test_fixture_source");
 });
 
 test("createGmailFetchMessages: a later-page failure does not acknowledge earlier messages", async () => {

@@ -114,5 +114,9 @@ export type {
   SettleDiscoveryBatchInput,
   CommitCaptureResult,
   DealPilotRuntimeStore,
+  PendingCredentialOperation,
 } from "./runtime-store.js";
-export { LocalDealPilotStore } from "./runtime-store.js";
+export {
+  LocalDealPilotStore,
+  reconcileCredentialOperations,
+} from "./runtime-store.js";

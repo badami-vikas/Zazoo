@@ -1666,43 +1666,81 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - ADR-112 records decision-before-effect, database-sequence convergence, and `ref_ledger_id`-only proposal identity. Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
 - Blast-radius fix: the Task Manager prebuild parser now accepts canonical `## title` + `- ID: TASK-NNN` sections as well as legacy headings. Before the fix, every build silently generated zero task rows after the heading refactor. Added ordering/current-format regression coverage and regenerated all 23 records.
 
+# 2026-07-18 — Persistent subagent resume context
+- Added `docs/Progress from Manish/` at the user's direction so a fresh session can resume without reconstructing parallel-session history.
+- The package inventories every roadmap child session, merged source branch, paused dirty worktree, grouped reviewer result, validation handoff, blocker, duplicate implementation, migration reservation, ADR collision, and central merge rule.
+- Linked it from `docs/INDEX.md` and the retired `docs/PROGRESS.md` pointer while retaining `docs/TASKS.md` as the sole execution queue.
+- Durable user-facing pointer: `outputs/2026-07-18-subagent-progress-context.md`.
+
+# 2026-07-18 — Git contribution and coding-pace audit
+- Compared all reachable refs and landed `main` history by author identity, additions/deletions, unique files, active days, and explicit Claude/Copilot coauthor trailers.
+- Found lower cumulative Manish churn but higher time-normalized current churn; kept Vikas-authored and Claude-coauthored credits overlapping to avoid falsely assigning shared-commit lines.
+- Durable outcome: `outputs/2026-07-18-coding-pace-comparison.md`.
+
+# 2026-07-18 — TASK-003 failed-session recovery and review (AP-040, ADR-114)
+- Recovered the failed certification work from a read-only worktree onto current `origin/main`; independently reviewed every code, test, generated projection, and evidence change instead of merging the snapshot.
+- Accepted the tagged logical macOS coordinate model, native `Moved`-event debounce, launch-topology preservation, and NSPanel→Tauri-window close conversion.
+- Review hardening resolves the current same-label window at save time, flushes positions on exit, retries incomplete startup membership without re-anchoring valid restores, uses current expanded geometry when re-anchoring, and safely closes an ordinary Tauri window when panel registration never completed.
+- Preserved the reported real Retina-plus-two-external-display, extend→mirror→extend 3→2→3, Accessibility-driven move/relaunch, VoiceOver navigation, and fullscreen evidence without relabelling it as physical pointer drag, physical VoiceOver activation, or cable detach.
+- TASK-003 remains `blocked`. Recovery gates passed: desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, dependency/web build, web typecheck, targeted Avatar ESLint, and runtime no-dummy.
+- Durable outcome: `outputs/2026-07-18-task-003-avatar-certification.md`.
+
 # 2026-07-18 — TASK-006 DealPilot durable Local Plane and explicit OS vault
 
 - Replaced process-local DealPilot Records, Relations, captures, candidate profiles, Gmail
- continuation/checkpoint/receipt state, settlements, spend, dedupe, and credential audit with one
- atomic Organization-scoped Local Plane aggregate.
+  continuation/checkpoint/receipt state, settlements, spend, dedupe, and credential audit with one
+  atomic Organization-scoped Local Plane aggregate.
 - Added shared-client PGlite state, canonical-path cross-process ownership, restart recovery,
- idempotent materialization/backfill, startup cleanup, and desktop parent-loss/shutdown handling.
+  idempotent materialization/backfill, startup cleanup, and desktop parent-loss/shutdown handling.
+- Added pre-Drizzle legacy adapter-table detection plus verified, resumable import into the
+  adapter-owned namespace, avoiding a numbered migration.
 - Added maintained MIT `@napi-rs/keyring` behind the Source credential-vault port with unique
- per-write accounts, opaque Organization/Source-bound references, masked projections, and
- fail-closed runtime configuration.
+  per-write accounts, opaque Organization/Source-bound references, masked projections, and
+  fail-closed runtime configuration.
+- Added opaque crash-recovery journals for keyring create/revoke; values never enter Bridge
+  database, files, logs, audit, or the journal.
 - Added restart, concurrency, compensation, ownership, recovery, and credential non-disclosure
- coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
+  coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
 - Post-RM4 reconciliation retained its durable decision/effect ledger by binding file-backed
- in-memory-mode ledgers to the same `localDir`; added password-AMR-only re-authentication,
- single-current-session replacement, credential log redaction, bounded capture pagination, safe
- clipboard clearing, and removal of sampled provider payloads from discovery output.
+  in-memory-mode ledgers to the same `localDir`; added password-AMR-only re-authentication,
+  single-current-session replacement, credential log redaction, bounded capture pagination, safe
+  clipboard clearing, and removal of sampled provider payloads from discovery output.
 - Added owner-scoped explicit credential revoke: secure-vault deletion, durable Source-projection
- clearing across restart, value-free audit, re-auth session consumption, and honest unavailable UI.
+  clearing across restart, value-free audit, re-auth session consumption, and honest unavailable UI.
 - Independent security review found the durable desktop sidecar trusted loopback. Fixed with a
   per-launch 256-bit capability, constant-time API verification, closed Tauri-origin CORS,
   file-backed-persistence auth posture, header redaction, and a hard separation from Human re-auth.
 - Follow-up review found predictable Google OAuth state could substitute an attacker's account.
-   Connect now issues a hashed-at-rest 256-bit state after authenticated membership; callback
-   atomically consumes the ten-minute state before denial handling or code exchange.
+  Connect now issues a hashed-at-rest 256-bit state after authenticated membership; callback
+  atomically consumes the ten-minute state and Local Plane PKCE verifier before denial handling or
+  verifier-bound code exchange.
 - Final review pass found privileged-webview OAuth navigation could expose the launch capability.
-   Release webviews now reject external top-level navigation, token injection is trusted-origin and
-   main-only, and validated Google consent opens in the system browser.
+  Release webviews now reject external top-level navigation, token injection is trusted-origin and
+  main-only, and validated Google consent opens in the system browser.
 - Final central review then found packaged desktop Google calls bypassed injected sidecar transport,
   the launcher set ignored `HOST` instead of `API_HOST`, and OAuth completion trusted stale
   membership (including revocation during provider exchange). Shared transport headers, enforced
   loopback, authenticated cross-platform shutdown, and pre/post-exchange membership checks close
   those paths. Focused correctness/security re-review: no findings.
-- Final verification: API 187, DealPilot 87, Local Plane 7, DB 124, Core 423, Sourcing 7,
-  Company Sourcing 4, Google 35, Web 50, and desktop Rust 34 tests; monorepo 37-task typecheck and
+- Later review hardening made all token operations per-Integration serialized, kept exchanged tokens
+  provisional until membership finalization with exact rollback, and made refresh persistence
+  ordered CAS. Rust now binds and retains the random loopback listener while Node inherits the same
+  descriptor; child death cannot donate the port. Active requests drain under an independent hard
+  deadline, and unsupported non-Unix release activation fails closed.
+- Live release validation found two lifecycle gaps: missing Tauri data-URL support prevented the
+  tokenless bootstrap, and uniform webview destruction aborted on a macOS `AvatarPanel`. The feature
+  is explicit, the bootstrap handle is retained and hidden before destruction, and sidecar-loss
+  cleanup uses panel-safe conversion. Simulated child death left the shell alive, displayed the
+  unavailable state, and kept the port unrebindable.
+- Final read-only security review found no vulnerabilities. Correctness review raised only releasing
+  ownership after a failed client close; the explicit retention regression remains because the
+  embedded client may still be live and admitting a second opener risks corruption.
+- Final verification: API 194, DealPilot 90, Local Plane 8, DB 125, Core 423, Sourcing 7,
+  Company Sourcing 4, Google 35, Web 50, and desktop Rust 44 tests; monorepo 37-task typecheck and
   20-task build, changed-file lint, Clippy, no-runtime-dummy, and diff checks passed.
-- Live host evidence: macOS keyring write/read/delete/missing; native 1280x800 Tauri DealPilot;
-  Chrome `/dealpilot/sources` at 375x812 with no horizontal overflow.
+- Live host evidence: macOS keyring write/read/delete/missing; native DealPilot route plus final
+  release-sidecar readiness/failure recovery; Chrome `/dealpilot/sources` at 375x812 with no
+  horizontal overflow.
 - TASK-006 remains `in_progress` for live Google/BizBuySell and verified OS/application re-auth.
   Signing and physical-mobile certification remain unclaimed. Durable outcome:
- `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.
+  `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.

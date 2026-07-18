@@ -360,6 +360,7 @@ export function createGmailFetchMessages(
           ...(currentPageToken ? { pageToken: currentPageToken } : {}),
         });
         pagesFetched += 1;
+        let pageIncomplete = result.incomplete === true;
         if (result.incomplete && !firstIncompletePage) {
           complete = false;
           firstIncompletePage = continuationFor(currentPageToken);
@@ -378,6 +379,7 @@ export function createGmailFetchMessages(
             if (Number.isFinite(cursorAt) && !Number.isFinite(receivedAt) && !firstIncompletePage) {
               complete = false;
               firstIncompletePage = continuationFor(currentPageToken);
+              pageIncomplete = true;
             }
             if (unseen.length >= maxResults) {
               moreEligibleMessages = true;
@@ -393,6 +395,11 @@ export function createGmailFetchMessages(
           if (moreEligibleMessages) break;
         }
         if (moreEligibleMessages) {
+          complete = false;
+          nextContinuation = firstIncompletePage ?? continuationFor(currentPageToken);
+          break;
+        }
+        if (pageIncomplete) {
           complete = false;
           nextContinuation = firstIncompletePage ?? continuationFor(currentPageToken);
           break;

@@ -2127,12 +2127,15 @@ export const appRouter = t.router({
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
-      const state = await ctx.wiring.googleOAuthStates.issue(
+      const { state, codeChallenge } =
+        await ctx.wiring.googleOAuthStates.issue(
         PILOT_WORKSPACE,
         ctx.wiring.google.integrationId,
         ctx.identity.id,
       );
-      return { url: authUrl(ctx.wiring.googleOAuth, state) };
+      return {
+        url: authUrl(ctx.wiring.googleOAuth, state, codeChallenge),
+      };
     }),
 
     /** Revoke locally (delete the local token). */
@@ -2695,6 +2698,10 @@ export const appRouter = t.router({
             { workspaceId: input.workspaceId, sourceId: detail.record.id },
             detail.record.credentialRef,
           ),
+          credentialCleanupAvailable: Boolean(
+            detail.record.credentialRef &&
+              detail.record.credentialOwnerId === ctx.identity.id,
+          ),
         };
       }),
 
@@ -2737,41 +2744,68 @@ export const appRouter = t.router({
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         const sourceId = ctx.run.ids.next();
-        let credentialRef: string | undefined;
+        const sourceInput = {
+          id: sourceId,
+          workspaceId: input.workspaceId,
+          name: input.name,
+          link: input.link,
+          connectionType: input.connectionType,
+          spendCap: input.spendCap,
+          rightsState: input.rightsAttested ? "attested" as const : "unattested" as const,
+          ...(input.rightsAttested ? { rightsAttestedBy: ctx.identity.id } : {}),
+        };
+        if (!input.userId && !input.password) {
+          return ctx.wiring.dealpilot.store.createSource(sourceInput);
+        }
+        const scope = { workspaceId: input.workspaceId, sourceId };
+        const credentialRef =
+          ctx.wiring.dealpilot.credentialVault.reserve(scope);
+        await ctx.wiring.dealpilot.store.prepareCredentialCreate({
+          ...sourceInput,
+          credentialOwnerId: ctx.identity.id,
+          credentialRef,
+        });
         try {
-          if (input.userId || input.password) {
-            credentialRef = await ctx.wiring.dealpilot.credentialVault.put(
-              { workspaceId: input.workspaceId, sourceId },
-              {
-                ...(input.userId ? { userId: input.userId } : {}),
-                ...(input.password ? { password: input.password } : {}),
-              },
-            );
-          }
-          return await ctx.wiring.dealpilot.store.createSource({
-            id: sourceId,
-            workspaceId: input.workspaceId,
-            name: input.name,
-            link: input.link,
-            connectionType: input.connectionType,
-            spendCap: input.spendCap,
-            rightsState: input.rightsAttested ? "attested" : "unattested",
-            ...(input.rightsAttested ? { rightsAttestedBy: ctx.identity.id } : {}),
-            ...(credentialRef
-              ? { credentialOwnerId: ctx.identity.id, credentialRef }
-              : {}),
-          });
+          await ctx.wiring.dealpilot.credentialVault.write(
+            scope,
+            credentialRef,
+            {
+              ...(input.userId ? { userId: input.userId } : {}),
+              ...(input.password ? { password: input.password } : {}),
+            },
+          );
+          return await ctx.wiring.dealpilot.store.completeCredentialCreate(
+            input.workspaceId,
+            sourceId,
+            credentialRef,
+          );
         } catch (error) {
-          if (!credentialRef) throw error;
+          const cleanupErrors: unknown[] = [];
+          let credentialDeleted = false;
           try {
             await ctx.wiring.dealpilot.credentialVault.delete(
-              { workspaceId: input.workspaceId, sourceId },
+              scope,
               credentialRef,
             );
+            credentialDeleted = true;
           } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          }
+          if (credentialDeleted) {
+            try {
+              await ctx.wiring.dealpilot.store.discardCredentialCreate(
+                input.workspaceId,
+                sourceId,
+                credentialRef,
+              );
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError);
+            }
+          }
+          if (cleanupErrors.length > 0) {
             throw new AggregateError(
-              [error, cleanupError],
-              "Source creation failed and its OS credential entry could not be removed",
+              [error, ...cleanupErrors],
+              "Source creation failed and its pending OS credential operation could not be reconciled",
             );
           }
           throw error;
@@ -3066,7 +3100,8 @@ export const appRouter = t.router({
           });
         }
         try {
-          const audit = await ctx.wiring.dealpilot.credentials.revokeCredential({
+          const audit =
+            ctx.wiring.dealpilot.credentials.authorizeCredentialRevocation({
             reference: source.credentialRef,
             workspaceId: input.workspaceId,
             sourceId: source.id,
@@ -3074,13 +3109,23 @@ export const appRouter = t.router({
             actorId: ctx.identity.id,
             token: input.token,
           });
+          await ctx.wiring.dealpilot.store.prepareCredentialRevocation(
+            input.workspaceId,
+            source.id,
+            ctx.identity.id,
+            source.credentialRef,
+            audit,
+          );
+          await ctx.wiring.dealpilot.credentialVault.delete(
+            { workspaceId: input.workspaceId, sourceId: source.id },
+            source.credentialRef,
+          );
           const revocation =
-            await ctx.wiring.dealpilot.store.recordCredentialRevocation(
+            await ctx.wiring.dealpilot.store.completeCredentialRevocation(
               input.workspaceId,
               source.id,
               ctx.identity.id,
               source.credentialRef,
-              audit,
             );
           return {
             revoked: true as const,

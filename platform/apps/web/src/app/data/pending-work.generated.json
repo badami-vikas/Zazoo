@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T12:48:55.590Z",
+  "generatedAt": "2026-07-18T18:56:07.346Z",
   "items": [
     {
       "id": "TASK-001",
@@ -51,7 +51,8 @@
         "BUGS 2026-07-14 companion mobility",
         "BUGS 2026-07-14 desktop chrome",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
-        "`outputs/2026-07-16-task-003-macos-avatar.md` (live NSPanel, single-display Space/fullscreen, pointer/keyboard/Accessibility controls, and deterministic topology evidence — physical drag/relaunch, VoiceOver, and extended-display matrix still unavailable)"
+        "`outputs/2026-07-16-task-003-macos-avatar.md`",
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (reported real three-display mixed-DPI placement, Accessibility-driven cross-display move/native-event save/relaunch, actual VoiceOver navigation, fullscreen presence, external-display reposition, and extend→mirror→extend 3→2→3 pass — physical pointer drag/relaunch, human VoiceOver activation, and literal cable/power detach remain unclaimed)"
       ],
       "requests": [
         "R-001",
@@ -59,7 +60,7 @@
         "R-016",
         "desktop overlay/chrome directive 2026-07-14"
       ],
-      "approval": "AP-020 applied",
+      "approval": "AP-020, AP-026, and AP-040 applied",
       "dependencies": [],
       "canonicalStatus": "blocked",
       "sourceType": "task",
@@ -481,7 +482,7 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-041 applied",
       "dependencies": [
         "TASK-001"
       ],

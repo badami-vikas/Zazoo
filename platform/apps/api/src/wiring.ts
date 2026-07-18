@@ -160,6 +160,7 @@ import {
   assertSourceDiscoveryAllowed,
   createBizBuySellAlertConnector,
   createGmailFetchMessages,
+  reconcileCredentialOperations,
   type CredentialAuditSink,
   type DealPilotBindings,
   type DealPilotRuntimeStore,
@@ -1314,6 +1315,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
   const dealPilotCredentialVault =
     options.dealPilotCredentialVault ?? new KeyringSourceCredentialVault();
+  await reconcileCredentialOperations(
+    dealPilotStore,
+    dealPilotCredentialVault,
+    PILOT_WORKSPACE,
+  );
   const dealPilotCredentialAudit = dealPilotStore;
   const dealPilotCredentials = new SourceCredentialService(
     dealPilotCredentialVault,

@@ -14,24 +14,35 @@ device evidence.
   restart, isolate Organizations, backfill Relations, and make capture materialization idempotent.
 - Drizzle and runtime state share one PGlite client. Canonical-path, heartbeat-backed ownership
   rejects competing processes, including equivalent path spellings.
+- Startup detects the legacy text-keyed adapter `external_records`, moves it out of Drizzle's
+  namespace, copies and verifies exact rows in `local_external_records`, and safely resumes an
+  interrupted import before dropping the backup. No numbered migration is involved.
 - Gmail continuation preserves sender/internalDate filtering, partial-fetch state, bounded pages,
   visited-token history, original checkpoints, pending receipts, attempted-message spend, stable
   IDs, dedupe, and two-phase acknowledgement across process restart.
 - Source credentials use maintained MIT `@napi-rs/keyring` behind the existing vault port.
   References are opaque and bound to Organization plus Source; every write owns a unique keyring
   entry so failed concurrent requests cannot delete a winner's credential.
+- Opaque create/revoke journals reconcile a crash between keyring and aggregate updates. They
+  contain references and intent only, never a credential value.
 - Explicit credential revoke requires the same owner-scoped Human re-authentication as reveal/copy,
   removes the secure-vault entry, clears the durable Source projection across restart, records a
   value-free audit Event, and consumes the short-lived credential session.
 - Runtime server/web boot requires durable Local Plane storage and an explicitly approved secure
   vault. Memory adapters remain isolated-test-only; there is no success-shaped runtime fallback.
-- Desktop supplies Tauri app-data storage and `os-keyring`, requests authenticated graceful
-  sidecar shutdown on every OS, bounds forced termination, and passes its parent PID so a crashed
-  shell cannot orphan the Local Plane owner.
+- Desktop supplies Tauri app-data storage and `os-keyring`. On Unix it binds the random loopback
+  socket in Rust, passes the same listener descriptor to Node, and retains its own copy so a dead
+  child cannot donate the credential-bearing port. Unsupported release hosts without safe socket
+  activation fail closed.
 - Desktop generates a 256-bit per-launch loopback capability, injects it only into trusted Tauri
   webviews, forces the child API to loopback even under shared deployment settings, and configures
   a closed Tauri-origin allowlist. The API constant-time verifies the redacted header; file-backed
   Local Plane state is authentication-sensitive persistence.
+- A tokenless bootstrap precedes authenticated sidecar readiness. Child loss terminally disables
+  capture and topology work, clears pending/raw capture, hides privileged windows with
+  NSPanel-safe retirement, surfaces an unavailable window, and retains the listener until exit.
+  Authenticated shutdown drains active requests and closes newly idle connections before a
+  separate five-second orphan deadline.
 
 ## Trust and non-disclosure
 
@@ -53,6 +64,11 @@ device evidence.
   happen before denial handling or provider code exchange. The initiating Human's membership and
   Integration binding are checked before exchange and membership is checked again at the token
   persistence boundary.
+- Every flow also uses PKCE S256. The verifier remains in Local Plane pending state and is consumed
+  with the state; Google receives only its challenge. All token operations for one Integration
+  share one lock: exchanged credentials stay provisional and invisible until membership
+  finalization, failure restores the exact prior token before unlocking, and refresh persistence
+  uses ordered compare-and-swap so stale refresh cannot overwrite reconnect.
 - Privileged release webviews stay on trusted Tauri origins. Only the main webview receives the
   origin-guarded immutable sidecar capability; Google consent opens in the validated system browser
   and returns to the sidecar's actual random-port callback. Browser launcher helpers are waited on,
@@ -64,39 +80,47 @@ device evidence.
 
 - Monorepo typecheck: 37/37 tasks passed.
 - Monorepo build: 20/20 tasks passed.
-- API: 187/187 tests passed with bounded file concurrency, including process restart,
+- API: 194/194 tests passed with bounded file concurrency, including process restart,
   explicit-vault refusal, startup cleanup, process ownership, compensation, pagination,
   password-AMR validation, log non-disclosure, membership-revocation races, and authenticated
   server shutdown.
-- DealPilot: 87/87 tests passed; 83.43% line coverage.
-- Local Plane: 7/7 tests passed.
-- Database: 124/124 tests passed, including RM4 migration `0015` and Relation-effect regressions.
+- DealPilot: 90/90 tests passed; 84.00% line coverage.
+- Local Plane: 8/8 tests passed.
+- Database: 125/125 tests passed, including RM4 migration `0015` and Relation-effect regressions.
 - Core: 423/423 tests passed.
 - Sourcing: 7/7 tests passed.
 - Company sourcing: 4/4 tests passed.
 - Google integration: 35/35 tests passed.
 - Web: 50/50 tests passed.
-- Desktop: `cargo check`, 34/34 Rust tests, Clippy with `-D warnings`, and scoped changed-file
+- Desktop: `cargo check`, 44/44 Rust tests, Clippy with `-D warnings`, and scoped changed-file
   `rustfmt --check` passed.
 - A live macOS keyring write/read/delete/missing round-trip passed with an ephemeral random value;
   the value was not printed or written to Bridge storage.
 - Real Chrome rendered `/dealpilot/sources` at 375x812 CSS pixels with an honest empty state and no
-  horizontal overflow (`scrollWidth === clientWidth === 375`). The live Tauri process opened the
-  DealPilot Module Detail in a 1280x800 native window. Session artifacts:
-  `dealpilot-sources-375px-2026-07-18.png` and
+  horizontal overflow (`scrollWidth === clientWidth === 375`). An earlier live Tauri run opened
+  DealPilot Module Detail in its requested 1280x800 native window. The final socket-activation
+  build was rerun as a real release process: authenticated readiness created the native main and
+  companion windows; simulated Node death left the Rust shell alive, surfaced the Local Plane
+  unavailable window, and kept the parent-held port unrebindable (`EADDRINUSE`). Session artifacts:
+  `dealpilot-sources-375px-final-2026-07-18.png` and
   `dealpilot-tauri-desktop-route-2026-07-18.png`.
 - Independent correctness/security review found and closed loopback authentication, predictable
   OAuth state, privileged-webview navigation, PGlite schema/ownership cleanup, settlement-ledger
-  retention, keyring deletion/revoke races, desktop OAuth polling, Windows hard-kill, browser-helper
-  reaping, packaged-desktop Google transport, incorrect sidecar host binding, and OAuth
-  membership-revocation races. Focused final follow-up found no remaining issue.
+  retention, keyring deletion/revoke races, token-finalization/read and refresh/reconnect races,
+  desktop OAuth polling, socket handoff, shutdown interruption, browser-helper reaping,
+  packaged-desktop Google transport, incorrect sidecar host binding, and OAuth
+  membership-revocation races. Live release validation additionally found and closed the missing
+  data-URL feature plus unsafe NSPanel destruction on sidecar loss.
+- Final read-only security review found no vulnerabilities. Correctness review raised only releasing
+  directory ownership when client close throws; that suggestion is deliberately rejected and
+  regression-tested because a failed close can leave the embedded client live.
 - Changed TypeScript ESLint, no-runtime-dummy, and `git diff --check` passed.
 
 ## Migration and remaining evidence
 
-- No numbered Drizzle migration was added. The Local Plane adapter owns
-  `CREATE TABLE IF NOT EXISTS local_state`; RM4 migration `0015` and TASK-010's next released
-  migration remain untouched.
+- No numbered Drizzle migration was added. The Local Plane adapter owns `local_state` and
+  `local_external_records`; RM4 migration `0015` and TASK-010's next released migration remain
+  untouched.
 - No live Google credential was available, so no real BizBuySell provider fetch is claimed.
 - Real macOS keychain interaction is proven. A verified OS/application re-authentication session is
   not available and is not claimed.
@@ -112,6 +136,8 @@ device evidence.
 - Runtime/API composition: `platform/apps/api/src/wiring.ts`, `platform/apps/api/src/router.ts`,
   `platform/apps/api/src/server.ts`
 - Desktop lifecycle: `platform/apps/desktop/src-tauri/src/api_sidecar.rs`
+- Desktop readiness/failure lifecycle: `platform/apps/desktop/src-tauri/src/lib.rs`,
+  `platform/apps/desktop/src-tauri/src/overlay.rs`
 - Restart/security tests: `platform/apps/api/test/dealpilot-durability.test.ts`,
   `platform/tools/dealpilot/test/runtime-store.test.ts`,
   `platform/tools/dealpilot/test/keyring-credentials.test.ts`

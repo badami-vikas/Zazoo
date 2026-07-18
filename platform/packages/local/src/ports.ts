@@ -35,6 +35,20 @@ export interface SecretStore {
   putToken(rec: OAuthTokenRecord): Promise<void>;
   getToken(integrationId: string): Promise<OAuthTokenRecord | null>;
   deleteToken(integrationId: string): Promise<void>;
+  compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean>;
+  /**
+   * Keep a replacement invisible to every token reader/writer until both
+   * authorization checks pass. A failed or throwing post-write check restores
+   * the exact prior token before the per-Integration lock is released.
+   */
+  finalizeToken(
+    replacement: OAuthTokenRecord,
+    stillAuthorized: () => Promise<boolean>,
+  ): Promise<boolean>;
 }
 
 // ── Body store: raw private Gmail thread / Calendar event content ──────────────

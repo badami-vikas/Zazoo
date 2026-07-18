@@ -10,12 +10,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { createPgliteLocalPlane } from "../src/index.js";
+import { closePgliteResources } from "../src/stores/pglite.js";
 
 test("pglite local plane: tokens, bodies, entities round-trip", async () => {
   const plane = await createPgliteLocalPlane(); // in-memory pglite (no dataDir)
   try {
     // Tokens (local secret store).
-    await plane.secrets.putToken({
+    const initialToken = {
       integrationId: "integ-1",
       workspaceId: "ws-1",
       provider: "google",
@@ -25,10 +26,76 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
       tokenType: "Bearer",
       expiryDate: 1893456000000,
       updatedAt: "2026-06-20T00:00:00.000Z",
-    });
+    };
+    await plane.secrets.putToken(initialToken);
     const tok = await plane.secrets.getToken("integ-1");
     assert.equal(tok?.refreshToken, "refresh");
     assert.equal(tok?.expiryDate, 1893456000000);
+    const replacementToken = {
+      ...initialToken,
+      accessToken: "replacement-access",
+      updatedAt: "2026-06-21T00:00:00.000Z",
+    };
+    assert.equal(
+      await plane.secrets.compareAndSwapToken(
+        "integ-1",
+        { ...initialToken, accessToken: "stale-access" },
+        replacementToken,
+      ),
+      false,
+    );
+    assert.equal(
+      await plane.secrets.compareAndSwapToken(
+        "integ-1",
+        initialToken,
+        replacementToken,
+      ),
+      true,
+    );
+    assert.deepEqual(
+      await plane.secrets.getToken("integ-1"),
+      replacementToken,
+    );
+    let authorizationChecks = 0;
+    let markPostWriteReached = (): void => {};
+    let releasePostWrite = (): void => {};
+    const postWriteReached = new Promise<void>((resolve) => {
+      markPostWriteReached = resolve;
+    });
+    const continuePostWrite = new Promise<void>((resolve) => {
+      releasePostWrite = resolve;
+    });
+    const deniedFinalization = plane.secrets.finalizeToken(
+      {
+        ...replacementToken,
+        accessToken: "provisional-access",
+        updatedAt: "2026-06-22T00:00:00.000Z",
+      },
+      async () => {
+        authorizationChecks += 1;
+        if (authorizationChecks === 2) {
+          markPostWriteReached();
+          await continuePostWrite;
+          return false;
+        }
+        return true;
+      },
+    );
+    await postWriteReached;
+    let readSettled = false;
+    const blockedRead = plane.secrets.getToken("integ-1").then((token) => {
+      readSettled = true;
+      return token;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(
+      readSettled,
+      false,
+      "readers must wait until provisional finalization rolls back",
+    );
+    releasePostWrite();
+    assert.equal(await deniedFinalization, false);
+    assert.deepEqual(await blockedRead, replacementToken);
 
     // Private body (never leaves local).
     await plane.bodies.put({
@@ -86,6 +153,22 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
   }
 });
 
+test("pglite ownership is retained when client close fails", async () => {
+  let releases = 0;
+  await assert.rejects(
+    closePgliteResources(
+      async () => {
+        throw new Error("test_fixture_close_failed");
+      },
+      async () => {
+        releases += 1;
+      },
+    ),
+    /test_fixture_close_failed/,
+  );
+  assert.equal(releases, 0);
+});
+
 test("pglite local state survives close/reopen and isolates workspaces", async () => {
   const root = await mkdtemp(join(tmpdir(), "bridge-local-state-"));
   const dataDir = join(root, "pglite");
@@ -111,7 +194,7 @@ test("pglite local state survives close/reopen and isolates workspaces", async (
   }
 });
 
-test("pglite local plane migrates adapter-owned external records without colliding with Drizzle", async () => {
+test("pglite local plane imports and removes the pre-Drizzle external-record backup", async () => {
   const client = new PGlite();
   try {
     await client.exec(`
@@ -128,6 +211,7 @@ test("pglite local plane migrates adapter-owned external records without collidi
         (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
       VALUES
         ('workspace-a', 'gmail', 'provider-message-a', 'touchpoint', 'provider-entity-a', '2026-07-18T00:00:00.000Z');
+      ALTER TABLE external_records RENAME TO local_external_records_legacy;
     `);
     const plane = await createPgliteLocalPlane({ client });
     try {
@@ -139,6 +223,10 @@ test("pglite local plane migrates adapter-owned external records without collidi
         ),
         true,
       );
+      const legacy = await client.query<{ name: string | null }>(
+        `SELECT to_regclass('public.local_external_records_legacy')::text AS name`,
+      );
+      assert.equal(legacy.rows[0]?.name, null);
       await plane.graph.recordExternal({
         workspaceId: "workspace-a",
         source: "calendar",

@@ -9,7 +9,11 @@ import type {
   GmailFetchState,
   GmailFetchStateStore,
 } from "./connectors.js";
-import type { CredentialAuditEvent, CredentialAuditSink } from "./credentials.js";
+import type {
+  CredentialAuditEvent,
+  CredentialAuditSink,
+  SourceCredentialVault,
+} from "./credentials.js";
 import {
   DealPilotStoreError,
   dealPilotModuleManifest,
@@ -67,6 +71,30 @@ interface StoredDiscoverySettlement {
   result: DiscoverySettlement;
 }
 
+export type PendingCredentialOperation =
+  | {
+      kind: "create";
+      workspaceId: string;
+      sourceId: string;
+      ownerId: string;
+      reference: string;
+      source: CreateSourceInput & {
+        id: string;
+        credentialOwnerId: string;
+        credentialRef: string;
+      };
+      preparedAt: string;
+    }
+  | {
+      kind: "revoke";
+      workspaceId: string;
+      sourceId: string;
+      ownerId: string;
+      reference: string;
+      audit: CredentialAuditEvent;
+      preparedAt: string;
+    };
+
 interface DealPilotWorkspaceState {
   version: 1;
   deals: Record<string, DealRecord>;
@@ -80,6 +108,7 @@ interface DealPilotWorkspaceState {
   settlements: Record<string, StoredDiscoverySettlement>;
   settlementOrder: string[];
   credentialAudit: CredentialAuditEvent[];
+  credentialOperations: Record<string, PendingCredentialOperation>;
 }
 
 export interface DealPilotCaptureProjection extends QuarantinedCapture {
@@ -130,6 +159,39 @@ export interface DealPilotRuntimeStore
   commitCapture(workspaceId: string, captureId: string): Promise<CommitCaptureResult>;
   candidateProfile(workspaceId: string, dealId: string): Promise<Record<string, unknown>>;
   credentialAuditEvents(workspaceId: string): Promise<CredentialAuditEvent[]>;
+  prepareCredentialCreate(
+    input: CreateSourceInput & {
+      id: string;
+      credentialOwnerId: string;
+      credentialRef: string;
+    },
+  ): Promise<PendingCredentialOperation & { kind: "create" }>;
+  completeCredentialCreate(
+    workspaceId: string,
+    sourceId: string,
+    reference: string,
+  ): Promise<SourceRecord>;
+  discardCredentialCreate(
+    workspaceId: string,
+    sourceId: string,
+    reference: string,
+  ): Promise<void>;
+  prepareCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+    audit: CredentialAuditEvent,
+  ): Promise<PendingCredentialOperation & { kind: "revoke" }>;
+  completeCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+  ): Promise<{ source: SourceRecord; cleared: boolean }>;
+  pendingCredentialOperations(
+    workspaceId: string,
+  ): Promise<PendingCredentialOperation[]>;
   recordCredentialRevocation(
     workspaceId: string,
     sourceId: string,
@@ -153,6 +215,7 @@ function emptyState(): DealPilotWorkspaceState {
     settlements: {},
     settlementOrder: [],
     credentialAudit: [],
+    credentialOperations: {},
   };
 }
 
@@ -174,11 +237,22 @@ function parseState(value: unknown): DealPilotWorkspaceState {
     !isObject(value.gmail) ||
     !isObject(value.settlements) ||
     !Array.isArray(value.settlementOrder) ||
-    !Array.isArray(value.credentialAudit)
+    !Array.isArray(value.credentialAudit) ||
+    (value.credentialOperations !== undefined &&
+      !isObject(value.credentialOperations))
   ) {
     throw new DealPilotStoreError("conflict", "DealPilot Local Plane state is invalid or unsupported");
   }
-  return value as unknown as DealPilotWorkspaceState;
+  return {
+    ...(value as unknown as Omit<
+      DealPilotWorkspaceState,
+      "credentialOperations"
+    >),
+    credentialOperations:
+      (value.credentialOperations as
+        | Record<string, PendingCredentialOperation>
+        | undefined) ?? {},
+  };
 }
 
 function cloneRecord(record: DealPilotRecord): DealPilotRecord {
@@ -279,34 +353,88 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
 
   async createSource(input: CreateSourceInput): Promise<SourceRecord> {
     return this.#update(input.workspaceId, (state) => {
-      const id = input.id ?? this.#id();
-      if (state.sources[id]) {
-        throw new DealPilotStoreError("conflict", `Source "${id}" already exists`);
-      }
-      const now = this.#now();
-      const attested = input.rightsState === "attested";
-      const record: SourceRecord = {
-        id,
-        workspaceId: input.workspaceId,
-        kind: "source",
-        name: input.name,
-        link: input.link,
-        connectionType: input.connectionType,
-        ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
-        ...(input.credentialOwnerId ? { credentialOwnerId: input.credentialOwnerId } : {}),
-        spendCap: input.spendCap,
-        spendToDate: 0,
-        health: "ready",
-        rightsState: input.rightsState,
-        ...(attested ? { rightsAttestedAt: now } : {}),
-        ...(attested && input.rightsAttestedBy
-          ? { rightsAttestedBy: input.rightsAttestedBy }
-          : {}),
-        createdAt: now,
-        updatedAt: now,
-      };
-      state.sources[id] = record;
+      const record = this.#createSource(state, input);
       return { state, result: { ...record } };
+    });
+  }
+
+  async prepareCredentialCreate(
+    input: CreateSourceInput & {
+      id: string;
+      credentialOwnerId: string;
+      credentialRef: string;
+    },
+  ): Promise<PendingCredentialOperation & { kind: "create" }> {
+    return this.#update(input.workspaceId, (state) => {
+      if (state.sources[input.id]) {
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${input.id}" already exists`,
+        );
+      }
+      if (state.credentialOperations[input.id]) {
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${input.id}" already has a pending credential operation`,
+        );
+      }
+      const operation: PendingCredentialOperation & { kind: "create" } = {
+        kind: "create",
+        workspaceId: input.workspaceId,
+        sourceId: input.id,
+        ownerId: input.credentialOwnerId,
+        reference: input.credentialRef,
+        source: structuredClone(input),
+        preparedAt: this.#now(),
+      };
+      state.credentialOperations[input.id] = operation;
+      return { state, result: structuredClone(operation) };
+    });
+  }
+
+  async completeCredentialCreate(
+    workspaceId: string,
+    sourceId: string,
+    reference: string,
+  ): Promise<SourceRecord> {
+    return this.#update(workspaceId, (state) => {
+      const operation = state.credentialOperations[sourceId];
+      if (
+        operation?.kind !== "create" ||
+        operation.workspaceId !== workspaceId ||
+        operation.reference !== reference
+      ) {
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${sourceId}" has no matching pending credential creation`,
+        );
+      }
+      const record = this.#createSource(state, operation.source);
+      delete state.credentialOperations[sourceId];
+      return { state, result: { ...record } };
+    });
+  }
+
+  async discardCredentialCreate(
+    workspaceId: string,
+    sourceId: string,
+    reference: string,
+  ): Promise<void> {
+    return this.#update(workspaceId, (state) => {
+      const operation = state.credentialOperations[sourceId];
+      if (!operation) return { state, result: undefined };
+      if (
+        operation.kind !== "create" ||
+        operation.workspaceId !== workspaceId ||
+        operation.reference !== reference
+      ) {
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${sourceId}" has a different pending credential operation`,
+        );
+      }
+      delete state.credentialOperations[sourceId];
+      return { state, result: undefined };
     });
   }
 
@@ -415,48 +543,118 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
     return this.#update<{ source: SourceRecord; cleared: boolean }>(
       workspaceId,
       (state) => {
-        const record = state.sources[sourceId];
-        if (!record) {
-          throw new DealPilotStoreError("not_found", `Source "${sourceId}" was not found`);
-        }
-        if (
-          audit.workspaceId !== workspaceId ||
-          audit.sourceId !== sourceId ||
-          audit.actorId !== ownerId ||
-          audit.action !== "revoke" ||
-          audit.field !== "credential"
-        ) {
-          throw new DealPilotStoreError(
-            "conflict",
-            "Credential revocation audit is outside the requested Organization, Source, or Human",
-          );
-        }
-        const cleared =
-          record.credentialOwnerId === ownerId &&
-          record.credentialRef === reference;
-        if (!cleared) {
-          state.credentialAudit.push({ ...audit });
-          return {
-            state,
-            result: { source: { ...record }, cleared: false },
-          };
-        }
-        const {
-          credentialRef: _credentialRef,
-          credentialOwnerId: _credentialOwnerId,
-          ...withoutCredential
-        } = record;
-        const updated: SourceRecord = {
-          ...withoutCredential,
-          updatedAt: this.#now(),
-        };
-        state.sources[sourceId] = updated;
-        state.credentialAudit.push({ ...audit });
         return {
           state,
-          result: { source: { ...updated }, cleared: true },
+          result: this.#recordCredentialRevocation(
+            state,
+            workspaceId,
+            sourceId,
+            ownerId,
+            reference,
+            audit,
+          ),
         };
       },
+    );
+  }
+
+  async prepareCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+    audit: CredentialAuditEvent,
+  ): Promise<PendingCredentialOperation & { kind: "revoke" }> {
+    return this.#update(workspaceId, (state) => {
+      const source = state.sources[sourceId];
+      if (!source) {
+        throw new DealPilotStoreError(
+          "not_found",
+          `Source "${sourceId}" was not found`,
+        );
+      }
+      if (
+        source.credentialOwnerId !== ownerId ||
+        source.credentialRef !== reference
+      ) {
+        throw new DealPilotStoreError(
+          "conflict",
+          "Credential revocation no longer matches the Source credential",
+        );
+      }
+      const existing = state.credentialOperations[sourceId];
+      if (existing) {
+        if (
+          existing.kind === "revoke" &&
+          existing.workspaceId === workspaceId &&
+          existing.ownerId === ownerId &&
+          existing.reference === reference
+        ) {
+          return { state, result: structuredClone(existing) };
+        }
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${sourceId}" already has a pending credential operation`,
+        );
+      }
+      this.#assertCredentialRevocationAudit(
+        workspaceId,
+        sourceId,
+        ownerId,
+        audit,
+      );
+      const operation: PendingCredentialOperation & { kind: "revoke" } = {
+        kind: "revoke",
+        workspaceId,
+        sourceId,
+        ownerId,
+        reference,
+        audit: { ...audit },
+        preparedAt: this.#now(),
+      };
+      state.credentialOperations[sourceId] = operation;
+      return { state, result: structuredClone(operation) };
+    });
+  }
+
+  async completeCredentialRevocation(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+  ): Promise<{ source: SourceRecord; cleared: boolean }> {
+    return this.#update(workspaceId, (state) => {
+      const operation = state.credentialOperations[sourceId];
+      if (
+        operation?.kind !== "revoke" ||
+        operation.workspaceId !== workspaceId ||
+        operation.ownerId !== ownerId ||
+        operation.reference !== reference
+      ) {
+        throw new DealPilotStoreError(
+          "conflict",
+          `Source "${sourceId}" has no matching pending credential revocation`,
+        );
+      }
+      const result = this.#recordCredentialRevocation(
+        state,
+        workspaceId,
+        sourceId,
+        ownerId,
+        reference,
+        operation.audit,
+      );
+      delete state.credentialOperations[sourceId];
+      return { state, result };
+    });
+  }
+
+  async pendingCredentialOperations(
+    workspaceId: string,
+  ): Promise<PendingCredentialOperation[]> {
+    const state = await this.#read(workspaceId);
+    return Object.values(state.credentialOperations).map((operation) =>
+      structuredClone(operation),
     );
   }
 
@@ -929,6 +1127,107 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
     return state.credentialAudit.map((event) => ({ ...event }));
   }
 
+  #createSource(
+    state: DealPilotWorkspaceState,
+    input: CreateSourceInput,
+  ): SourceRecord {
+    const id = input.id ?? this.#id();
+    if (state.sources[id]) {
+      throw new DealPilotStoreError(
+        "conflict",
+        `Source "${id}" already exists`,
+      );
+    }
+    const now = this.#now();
+    const attested = input.rightsState === "attested";
+    const record: SourceRecord = {
+      id,
+      workspaceId: input.workspaceId,
+      kind: "source",
+      name: input.name,
+      link: input.link,
+      connectionType: input.connectionType,
+      ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
+      ...(input.credentialOwnerId
+        ? { credentialOwnerId: input.credentialOwnerId }
+        : {}),
+      spendCap: input.spendCap,
+      spendToDate: 0,
+      health: "ready",
+      rightsState: input.rightsState,
+      ...(attested ? { rightsAttestedAt: now } : {}),
+      ...(attested && input.rightsAttestedBy
+        ? { rightsAttestedBy: input.rightsAttestedBy }
+        : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.sources[id] = record;
+    return record;
+  }
+
+  #assertCredentialRevocationAudit(
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    audit: CredentialAuditEvent,
+  ): void {
+    if (
+      audit.workspaceId !== workspaceId ||
+      audit.sourceId !== sourceId ||
+      audit.actorId !== ownerId ||
+      audit.action !== "revoke" ||
+      audit.field !== "credential"
+    ) {
+      throw new DealPilotStoreError(
+        "conflict",
+        "Credential revocation audit is outside the requested Organization, Source, or Human",
+      );
+    }
+  }
+
+  #recordCredentialRevocation(
+    state: DealPilotWorkspaceState,
+    workspaceId: string,
+    sourceId: string,
+    ownerId: string,
+    reference: string,
+    audit: CredentialAuditEvent,
+  ): { source: SourceRecord; cleared: boolean } {
+    const record = state.sources[sourceId];
+    if (!record) {
+      throw new DealPilotStoreError(
+        "not_found",
+        `Source "${sourceId}" was not found`,
+      );
+    }
+    this.#assertCredentialRevocationAudit(
+      workspaceId,
+      sourceId,
+      ownerId,
+      audit,
+    );
+    const cleared =
+      record.credentialOwnerId === ownerId &&
+      record.credentialRef === reference;
+    if (!cleared) {
+      state.credentialAudit.push({ ...audit });
+      return { source: { ...record }, cleared: false };
+    }
+    const {
+      credentialRef: _credentialRef,
+      credentialOwnerId: _credentialOwnerId,
+      ...withoutCredential
+    } = record;
+    const updated: SourceRecord = {
+      ...withoutCredential,
+      updatedAt: this.#now(),
+    };
+    state.sources[sourceId] = updated;
+    state.credentialAudit.push({ ...audit });
+    return { source: { ...updated }, cleared: true };
+  }
+
   async #read(workspaceId: string): Promise<DealPilotWorkspaceState> {
     const value = await this.#state.read(workspaceId, STATE_NAMESPACE);
     return value == null ? emptyState() : parseState(value);
@@ -1067,5 +1366,49 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
     state.settlementOrder.push(input.receipt.batchId);
     // Settlement receipts are the durable idempotency ledger. Evicting one can
     // double-charge or turn a post-crash retry into a stale-receipt failure.
+  }
+}
+
+export async function reconcileCredentialOperations(
+  store: DealPilotRuntimeStore,
+  vault: SourceCredentialVault,
+  workspaceId: string,
+): Promise<void> {
+  for (const operation of await store.pendingCredentialOperations(workspaceId)) {
+    const scope = {
+      workspaceId: operation.workspaceId,
+      sourceId: operation.sourceId,
+    };
+    if (operation.workspaceId !== workspaceId) {
+      throw new DealPilotStoreError(
+        "conflict",
+        "Pending credential operation escaped its Organization",
+      );
+    }
+    if (operation.kind === "create") {
+      const metadata = await vault.metadata(scope, operation.reference);
+      if (metadata) {
+        await store.completeCredentialCreate(
+          workspaceId,
+          operation.sourceId,
+          operation.reference,
+        );
+      } else {
+        await vault.delete(scope, operation.reference);
+        await store.discardCredentialCreate(
+          workspaceId,
+          operation.sourceId,
+          operation.reference,
+        );
+      }
+      continue;
+    }
+    await vault.delete(scope, operation.reference);
+    await store.completeCredentialRevocation(
+      workspaceId,
+      operation.sourceId,
+      operation.ownerId,
+      operation.reference,
+    );
   }
 }

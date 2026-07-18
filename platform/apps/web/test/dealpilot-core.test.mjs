@@ -32,6 +32,7 @@ test("Source credentials require re-authentication and are never persisted by th
   assert.match(pageSource, /accessCredential/);
   assert.match(pageSource, /clearCredential/);
   assert.match(pageSource, /Revoke credential/);
+  assert.match(pageSource, /credentialCleanupAvailable/);
   assert.match(pageSource, /navigator\.clipboard\.writeText/);
   assert.match(pageSource, /navigator\.clipboard\s*\.readText/);
   assert.match(pageSource, /window\.setTimeout/);
@@ -77,4 +78,7 @@ test("desktop Google OAuth opens in the system browser, not the privileged webvi
   assert.match(apiSource, /await trpcAuthorizationHeaders\(\)/);
   assert.match(trpcSource, /__BRIDGE_API_URL__/);
   assert.match(trpcSource, /__BRIDGE_SIDECAR_TOKEN__/);
+  assert.match(trpcSource, /import\.meta\.env\.DEV \? "http:\/\/localhost:4000"/);
+  assert.doesNotMatch(trpcSource, /CONFIGURED_API_URL \|\| "http:\/\/localhost:4000"/);
+  assert.match(trpcSource, /Bridge API transport is not configured/);
 });
