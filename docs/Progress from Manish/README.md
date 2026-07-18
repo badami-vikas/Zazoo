@@ -21,13 +21,18 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
-- All unfinished implementations are uncommitted or WIP in their named worktrees.
+- Unfinished implementations may be committed or WIP in their named worktrees; consult the exact
+  row before resuming.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint). The next NEW migration allocates `0017`.
 - TASK-011 requires no new migration unless its final implementation changes schema.
 - TASK-006 durability added no numbered Drizzle migration.
+- TASK-006 durability is committed and validated on
+  `manishsbhoopalam8498-persist-dealpilot-locally` at implementation/integration head `2f85dc7`,
+  ready for coordinator merge. Live Google/BizBuySell and verified OS/application re-authentication
+  remain external, so canonical status stays `in_progress`.
 - TASK-008 RM1-RM2 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.

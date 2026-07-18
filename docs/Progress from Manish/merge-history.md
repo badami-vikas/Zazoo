@@ -37,7 +37,10 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-009 planning source: `manishsbhoopalam8498-plan-second-brain-graph` at `3b51aaf`; handoff merged, no implementation branch.
 - TASK-010 prior clean pushed milestone: `24e4eab`; final round-7 head merged into `main` as `e532b15` (branch `manishsbhoopalam8498-platform-red-flag-feedback` remains at the same commit, pushed).
 - TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
-- TASK-006 durability commits: `91a0462` and `7f93f03`; later security/OAuth/desktop work remains uncommitted.
+- TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
+  implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
+  `7652a43`, plus a normal merge of `origin/main` `bab32ea`. Ready for coordinator merge; not yet
+  represented on `main`.
 
 ## Migration sequence
 
@@ -61,12 +64,16 @@ Next new migration allocates `0017`; do not reuse `0016`.
 - AP-037: Graph scope/Second Brain convergence.
 - AP-038: TASK-022.
 - AP-039: TASK-023.
+- AP-044: TASK-006 durability and OS credential vault; DealPilot ADRs are ADR-117–ADR-120 after
+  reconciling current `main`'s Relationship ADR-115/ADR-116.
 
 Known current branch-local collision:
 
 - TASK-022 output claims ADR-113.
 - TASK-023 candidate A output also claims ADR-113.
-- Current `main` ends with ADR-112 for RM4. During integration, assign distinct next-free ADRs and update every companion reference atomically.
+- Current `main` includes Relationship ADR-115/ADR-116. During later integration, assign distinct
+  next-free ADRs and update every companion reference atomically; TASK-006 has already reserved
+  ADR-117–ADR-120 on its ready branch.
 
 ## Central merge protocol
 
