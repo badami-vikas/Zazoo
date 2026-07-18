@@ -26,6 +26,23 @@ import type { GoogleGateway, GoogleGatewayFactory } from "./gateway.js";
 import { clientFromToken, type GoogleOAuthConfig } from "./oauth.js";
 
 const DEFAULT_LOOKAHEAD_MS = 90 * 24 * 60 * 60 * 1000;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const RFC3339_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function calendarDateValue(value: string): { date: string } | { dateTime: string } {
+  if (DATE_ONLY_PATTERN.test(value)) {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      throw new Error(`google calendar: invalid all-day date ${value}`);
+    }
+    return { date: value };
+  }
+  if (!RFC3339_PATTERN.test(value) || Number.isNaN(new Date(value).getTime())) {
+    throw new Error(`google calendar: invalid RFC3339 date-time ${value}`);
+  }
+  return { dateTime: value };
+}
 
 /** Cap on simultaneous in-flight `threads.get` calls per sync — parallelizes the
  * previously-sequential N+1 fetch without firing hundreds of requests at once against
@@ -293,8 +310,8 @@ export class GoogleApiGateway implements GoogleGateway {
         summary: envelope.summary,
         ...(envelope.description ? { description: envelope.description } : {}),
         ...(envelope.location ? { location: envelope.location } : {}),
-        start: { dateTime: envelope.start },
-        end: { dateTime: envelope.end },
+        start: calendarDateValue(envelope.start),
+        end: calendarDateValue(envelope.end),
         ...(envelope.attendees && envelope.attendees.length
           ? { attendees: envelope.attendees.map((email) => ({ email })) }
           : {}),
@@ -314,8 +331,8 @@ export class GoogleApiGateway implements GoogleGateway {
         ...(envelope.summary ? { summary: envelope.summary } : {}),
         ...(envelope.description ? { description: envelope.description } : {}),
         ...(envelope.location ? { location: envelope.location } : {}),
-        ...(envelope.start ? { start: { dateTime: envelope.start } } : {}),
-        ...(envelope.end ? { end: { dateTime: envelope.end } } : {}),
+        ...(envelope.start ? { start: calendarDateValue(envelope.start) } : {}),
+        ...(envelope.end ? { end: calendarDateValue(envelope.end) } : {}),
       },
     });
     return {

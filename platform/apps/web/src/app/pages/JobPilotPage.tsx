@@ -9,12 +9,54 @@ import { StandardToolbar, type ToolbarView } from "../components/shared/Standard
 import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { CreateListModal } from "../components/shared/ListDropdown";
+import { RedFlagControl } from "../components/shared/RedFlagControl";
+import { RedFlagProvider } from "../components/shared/RedFlagProvider";
 import { createList, useLists } from "../data/lists";
 
 type JobPilotList = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
 type JobItem = JobPilotList["items"][number];
 type ViewId = "table" | "card" | "list";
 type SortField = "title" | "company" | "stage";
+
+/** Display labels for @bridge/jobpilot's normalized `FitRecommendation` —
+ * never the raw "pursue"/"review"/"pass" enum value verbatim (AP-023: no
+ * green/yellow color-only feedback anywhere, but plain-language labels are
+ * always fine). */
+const FIT_LABEL: Record<string, string> = { pursue: "Pursue", review: "Needs review", pass: "Pass" };
+
+/**
+ * TASK-010 review round-5 item 6 — the platform's required "rendered
+ * bullet" Red Flag surface, wired to a REAL persisted Record (the
+ * application's own `id`, validated server-side by `validateAnchorTarget`'s
+ * `"jobpilot"` case via `jobpilotStore.getApplication`), not a fixture.
+ * These two bullets are already-persisted fields (`stage`, the normalized
+ * `flag`) rendered as short fit-signal observations — real, if modest,
+ * content a Human could genuinely flag as wrong (e.g. "flag is stale, I
+ * already withdrew this application").
+ */
+function FitSignalBullets({ applicationId, stage, flag, fitScore }: { applicationId: string; stage: string; flag: string | null; fitScore: string | null }) {
+  const stageValue = `Stage: ${stage}`;
+  const scoreNum = fitScore != null ? Number(fitScore) : null;
+  const fitValue = flag ? `Fit: ${FIT_LABEL[flag] ?? flag}${scoreNum != null && Number.isFinite(scoreNum) ? ` (${Math.round(scoreNum * 100)}%)` : ""}` : null;
+  return (
+    <ul className="flex flex-col gap-1">
+      <li className="flex gap-1.5 text-[11px] leading-snug" style={{ color: "var(--color-navy-mid)" }}>
+        <span className="mt-1 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: "var(--color-steel)" }} />
+        <RedFlagControl anchor={{ kind: "bullet", moduleId: "jobpilot", target: { type: "record", recordId: applicationId }, bulletPath: "fit.stage" }} renderedValue={stageValue} className="flex-1">
+          {stageValue}
+        </RedFlagControl>
+      </li>
+      {fitValue && (
+        <li className="flex gap-1.5 text-[11px] leading-snug" style={{ color: "var(--color-navy-mid)" }}>
+          <span className="mt-1 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: "var(--color-steel)" }} />
+          <RedFlagControl anchor={{ kind: "bullet", moduleId: "jobpilot", target: { type: "record", recordId: applicationId }, bulletPath: "fit.flag" }} renderedValue={fitValue} className="flex-1">
+            {fitValue}
+          </RedFlagControl>
+        </li>
+      )}
+    </ul>
+  );
+}
 
 const VIEWS: ToolbarView[] = [
   { id: "table", label: "Table", icon: TableIcon },
@@ -172,16 +214,25 @@ export function JobPilotPage() {
               : "No job records match the current search and filters."}
           </div>
         ) : view === "card" ? (
-          <CardGrid>
-            {visible.map((item) => (
-              <NotionCard
-                key={item.id}
-                title={item.title}
-                subtitle={`${item.company}${item.location ? ` · ${item.location}` : ""}`}
-                metaChips={[item.application?.stage ?? "Not tracked", item.source ?? "Source not recorded"]}
-              />
-            ))}
-          </CardGrid>
+          <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
+            <CardGrid>
+              {visible.map((item) => (
+                <NotionCard
+                  key={item.id}
+                  title={item.title}
+                  subtitle={`${item.company}${item.location ? ` · ${item.location}` : ""}`}
+                  metaChips={[item.source ?? "Source not recorded"]}
+                  footer={
+                    item.application ? (
+                      <FitSignalBullets applicationId={item.application.id} stage={item.application.stage} flag={item.application.flag} fitScore={item.application.fitScore} />
+                    ) : (
+                      <span className="text-[11px]" style={{ color: "var(--color-warm-gray)" }}>Not tracked</span>
+                    )
+                  }
+                />
+              ))}
+            </CardGrid>
+          </RedFlagProvider>
         ) : (
           <ListView
             items={visible}

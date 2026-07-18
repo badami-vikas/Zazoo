@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The LOCAL plane — customer-controlled private tier (pglite/Postgres via ports/adapters). OAuth tokens, raw Gmail/Calendar bodies, and derived Touchpoints/Memories/Signals live here and NEVER cross the gate to cloud canonical.",
+  "description": "The LOCAL plane — customer-controlled private tier (pglite/Postgres via ports/adapters). OAuth tokens, raw Gmail/Calendar bodies, and derived Events/Memories/Signals live here and NEVER cross the gate to cloud canonical.",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {

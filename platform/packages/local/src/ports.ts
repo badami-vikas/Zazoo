@@ -2,7 +2,7 @@
  * LOCAL plane ports — the customer-controlled private tier.
  *
  * Residency invariant (decisions.md): EVERYTHING is local by default. OAuth tokens,
- * raw Gmail/Calendar bodies, and the derived Touchpoints/Memories/Signals/warmth
+ * raw Gmail/Calendar bodies, and the derived Events/Memories/Signals/warmth
  * live ONLY here (pglite/Postgres on the machine/VPC). They NEVER cross the gate to
  * cloud canonical. The ONLY thing dual-written outward is a counterparty's
  * public/identity-grade fact (see CanonicalIdentityStore in @bridge/db).
@@ -84,11 +84,12 @@ export interface LocalPerson {
   canonicalPersonId?: string;
 }
 
-/** A committed graph entry. Vocabulary: Touchpoint | Memory | Signal — never Lead/Deal/Contact. */
+/** A committed graph entry. New interactions are Events. `touchpoint` is read
+ * compatibility for records written before VOCAB4; runtime writers use `event`. */
 export interface LocalEntityRecord {
   id: string;
   workspaceId: string;
-  kind: "touchpoint" | "memory" | "signal";
+  kind: "event" | "memory" | "signal" | "touchpoint";
   /** The Person this entry is about, when matched. */
   personId?: string;
   payload: unknown;

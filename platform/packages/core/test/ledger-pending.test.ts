@@ -76,18 +76,57 @@ test("in-memory ledger resumes append order and owner-filters Relation history",
       resourceType: "relation",
     }),
   );
+  const ownTouchpoint = await ledger.append(
+    row({
+      id: "test_fixture_own_touchpoint",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      resourceType: "touchpoint",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_touchpoint",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      resourceType: "touchpoint",
+    }),
+  );
   const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
+  const ownPrivateSignal = await ledger.append(
+    row({
+      id: "test_fixture_own_private_signal",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      dataScope: "private",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_private_signal",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      dataScope: "private",
+    }),
+  );
 
   assert.equal(ownRelation.appendSequence, 41);
-  assert.equal(sharedSignal.appendSequence, 43);
+  assert.equal(ownTouchpoint.appendSequence, 43);
+  assert.equal(sharedSignal.appendSequence, 45);
+  assert.equal(ownPrivateSignal.appendSequence, 46);
   const history = await ledger.listHistory("test_fixture_workspace", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_owner",
   });
-  assert.equal(history.total, 2);
+  assert.equal(history.total, 4);
   assert.deepEqual(
     history.items.map((entry) => entry.id),
-    ["test_fixture_shared_signal", "test_fixture_own_relation"],
+    [
+      "test_fixture_own_private_signal",
+      "test_fixture_shared_signal",
+      "test_fixture_own_touchpoint",
+      "test_fixture_own_relation",
+    ],
   );
 });

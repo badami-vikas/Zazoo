@@ -1442,3 +1442,1341 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     await close();
   }
 });
+
+test("Relationship search escapes wildcards and clamps page bounds", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_search_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    await db.insert(schema.people).values([
+      ...Array.from({ length: 103 }, (_, index) => ({
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: `Bounded Person ${String(index).padStart(3, "0")}`,
+        ...(index < 3
+          ? { emailsOverride: ["ambiguous-intake@example.com"] }
+          : {}),
+      })),
+      {
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: "Literal 100% Match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+      {
+        workspaceId,
+        userId,
+        visibility: "workspace",
+        fullNameOverride: "Literal 100X Match",
+      },
+      {
+        workspaceId,
+        userId: otherUser.id,
+        visibility: "private",
+        fullNameOverride: "Hidden email match",
+        emailsOverride: ["intake-match@example.com"],
+      },
+    ]);
+    const store = new DrizzleGraphStore(db);
+
+    const bounded = await store.listPeople(workspaceId, userId, {
+      limit: 1_000,
+      offset: -50,
+    });
+    assert.equal(bounded.items.length, 100);
+    assert.equal(bounded.total, 105);
+
+    const literalPercent = await store.listPeople(workspaceId, userId, {
+      limit: 50,
+      offset: 0,
+      query: "%",
+    });
+    assert.equal(literalPercent.total, 1);
+    assert.equal(literalPercent.items[0]?.displayName, "Literal 100% Match");
+    const exactEmail = await store.findPeopleByEmail(
+      workspaceId,
+      userId,
+      " INTAKE-MATCH@example.com ",
+    );
+    assert.deepEqual(
+      exactEmail.map((person) => person.displayName),
+      ["Literal 100% Match"],
+      "exact intake matching prunes another owner's private Person",
+    );
+    assert.equal(
+      (
+        await store.findPeopleByEmail(
+          workspaceId,
+          userId,
+          "ambiguous-intake@example.com",
+          50,
+        )
+      ).length,
+      2,
+      "identity ambiguity detection remains bounded",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship lifecycle is owner-only, decision-provenanced, and archive-idempotent", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_lifecycle_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const store = new DrizzleGraphStore(db);
+    const personId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const staleUpdateDecisionId = randomUUID();
+    const ordinaryInteractionId = randomUUID();
+    const laggingUpdateDecisionId = randomUUID();
+    const staleArchiveDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+    const archivedUpdateDecisionId = randomUUID();
+    const archivedRetryDecisionId = randomUUID();
+
+    const created = await store.createPerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Lifecycle Person",
+      currentTitle: "Builder",
+      bio: "Inspectably governed.",
+      emails: ["LIFECYCLE@example.com", "lifecycle@example.com"],
+      visibility: "workspace",
+      source: "user",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T10:00:00.000Z"),
+    });
+    assert.equal(created.ownerUserId, ownerUserId);
+    assert.deepEqual(created.emails, ["lifecycle@example.com"]);
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, personId))
+      ).length,
+      0,
+      "owner-scoped Person values must not be copied to canonical identity",
+    );
+    assert.equal(
+      (
+        await db
+          .select({ canonicalPersonId: schema.people.canonicalPersonId })
+          .from(schema.people)
+          .where(eq(schema.people.id, personId))
+          .limit(1)
+      )[0]?.canonicalPersonId,
+      null,
+    );
+    assert.equal((await store.getPerson(workspaceId, viewer.id, personId))?.isOwner, false);
+
+    const deniedUpdate = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId: viewer.id,
+      displayName: "Unauthorized rename",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:00.000Z"),
+    });
+    assert.equal(deniedUpdate, null);
+    const deniedArchive = await store.archivePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId: viewer.id,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    assert.equal(deniedArchive, false);
+
+    const updated = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Lifecycle Person Updated",
+      visibility: "private",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T10:03:00.000Z"),
+    });
+    assert.equal(updated?.displayName, "Lifecycle Person Updated");
+    assert.equal(await store.getPerson(workspaceId, viewer.id, personId), null);
+    const staleReplay = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Stale replay must not win",
+      decisionLedgerId: staleUpdateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T10:01:30.000Z"),
+    });
+    assert.equal(
+      staleReplay?.displayName,
+      "Lifecycle Person Updated",
+      "an older durable effect cannot overwrite a newer Record decision",
+    );
+    await store.createInteraction({
+      id: ordinaryInteractionId,
+      workspaceId,
+      ownerUserId,
+      kind: "person_updated",
+      occurredAt: new Date("2026-07-18T10:02:00.000Z"),
+      summary: "Ordinary meeting after the queued Record update",
+      source: "user",
+      visibility: "private",
+      participants: [{ recordType: "person", recordId: personId }],
+      decisionLedgerId: ordinaryInteractionId,
+      decisionSequence: 6,
+      decisionAt: new Date("2026-07-18T10:02:00.000Z"),
+    });
+    const laggingUpdate = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      currentTitle: "Recovered after meeting",
+      decisionLedgerId: laggingUpdateDecisionId,
+      decisionSequence: 5,
+      decisionAt: new Date("2026-07-18T10:01:45.000Z"),
+    });
+    assert.equal(
+      laggingUpdate?.currentTitle,
+      "Recovered after meeting",
+      "even a colliding Interaction kind cannot supersede a delayed Record mutation",
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: staleArchiveDecisionId,
+        decisionSequence: 3,
+        decisionAt: new Date("2026-07-18T10:02:30.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      (await store.getPerson(workspaceId, ownerUserId, personId))?.displayName,
+      "Lifecycle Person Updated",
+      "an older archive cannot erase a newer Record decision",
+    );
+
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archiveDecisionId,
+        decisionSequence: 7,
+        decisionAt: new Date("2026-07-18T10:04:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(
+      await store.updatePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        displayName: "Archived Record must stay archived",
+        decisionLedgerId: archivedUpdateDecisionId,
+        decisionSequence: 8,
+        decisionAt: new Date("2026-07-18T10:05:00.000Z"),
+      }),
+      null,
+    );
+    assert.equal(
+      await store.archivePerson({
+        id: personId,
+        workspaceId,
+        ownerUserId,
+        decisionLedgerId: archivedRetryDecisionId,
+        decisionSequence: 9,
+        decisionAt: new Date("2026-07-18T10:06:00.000Z"),
+      }),
+      true,
+    );
+    assert.equal(await store.getPerson(workspaceId, ownerUserId, personId), null);
+
+    const lifecycleEvents = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "interaction"));
+    assert.deepEqual(
+      lifecycleEvents.map((event) => event.id).sort(),
+      [
+        archiveDecisionId,
+        createDecisionId,
+        laggingUpdateDecisionId,
+        ordinaryInteractionId,
+        updateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      lifecycleEvents.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return payload.decisionLedgerId === event.id;
+      }),
+    );
+    assert.equal(
+      (lifecycleEvents.find((event) => event.id === ordinaryInteractionId)?.payload as
+        | Record<string, unknown>
+        | undefined)?.recordMutationLifecycle,
+      undefined,
+    );
+    assert.ok(
+      lifecycleEvents
+        .filter((event) => event.id !== ordinaryInteractionId)
+        .every(
+          (event) =>
+            (event.payload as Record<string, unknown>).recordMutationLifecycle === true,
+        ),
+    );
+    const skippedReceipts = await db
+      .select({ id: schema.events.id, payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.entityType, "materialization_receipt"));
+    assert.deepEqual(
+      skippedReceipts.map((event) => event.id).sort(),
+      [
+        archivedRetryDecisionId,
+        archivedUpdateDecisionId,
+        staleArchiveDecisionId,
+        staleUpdateDecisionId,
+      ].sort(),
+    );
+    assert.ok(
+      skippedReceipts.every((event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return (
+          payload.outcome === "skipped" &&
+          (payload.reason === "record_archived" ||
+            payload.reason === "superseded_by_newer_decision")
+        );
+      }),
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship Records keep private values out of canonical identity and preserve explicit clears", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const store = new DrizzleGraphStore(db);
+    const canonicalPersonId = randomUUID();
+    const personId = randomUUID();
+    await db.insert(schema.peopleCanonical).values({
+      id: canonicalPersonId,
+      fullName: "Canonical Person",
+      currentTitle: "Canonical title",
+      bio: "Canonical bio",
+    });
+    await db.insert(schema.people).values({
+      id: personId,
+      workspaceId,
+      userId: ownerUserId,
+      canonicalPersonId,
+      visibility: "private",
+      fullNameOverride: "Owner Person",
+    });
+    assert.equal(
+      (await store.getPerson(workspaceId, ownerUserId, personId))?.currentTitle,
+      "Canonical title",
+    );
+    const clearedPerson = await store.updatePerson({
+      id: personId,
+      workspaceId,
+      ownerUserId,
+      currentTitle: null,
+      bio: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T13:00:00.000Z"),
+    });
+    assert.equal(clearedPerson?.currentTitle, null);
+    assert.equal(clearedPerson?.bio, null);
+    const [personOverrides] = await db
+      .select({
+        currentTitle: schema.people.currentTitleOverride,
+        bio: schema.people.bioOverride,
+      })
+      .from(schema.people)
+      .where(eq(schema.people.id, personId))
+      .limit(1);
+    assert.deepEqual(personOverrides, { currentTitle: "", bio: "" });
+
+    const canonicalCommunityId = randomUUID();
+    const communityId = randomUUID();
+    await db.insert(schema.communitiesCanonical).values({
+      id: canonicalCommunityId,
+      name: "Canonical Community",
+      description: "Canonical description",
+      kind: "Canonical kind",
+    });
+    await db.insert(schema.communities).values({
+      id: communityId,
+      workspaceId,
+      userId: ownerUserId,
+      canonicalCommunityId,
+      visibility: "private",
+      nameOverride: "Owner Community",
+    });
+    const clearedCommunity = await store.updateCommunity({
+      id: communityId,
+      workspaceId,
+      ownerUserId,
+      description: null,
+      kind: null,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-18T13:01:00.000Z"),
+    });
+    assert.equal(clearedCommunity?.description, null);
+    assert.equal(clearedCommunity?.kind, null);
+
+    const ownerPersonId = randomUUID();
+    await store.createPerson({
+      id: ownerPersonId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Private owner value",
+      emails: ["private-owner@example.com"],
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T13:02:00.000Z"),
+    });
+    const ownerCommunityId = randomUUID();
+    await store.createCommunity({
+      id: ownerCommunityId,
+      workspaceId,
+      ownerUserId,
+      displayName: "Private owner community",
+      description: "Private owner description",
+      visibility: "private",
+      source: "user",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-18T13:03:00.000Z"),
+    });
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.peopleCanonical.id })
+          .from(schema.peopleCanonical)
+          .where(eq(schema.peopleCanonical.id, ownerPersonId))
+      ).length,
+      0,
+    );
+    assert.equal(
+      (
+        await db
+          .select({ id: schema.communitiesCanonical.id })
+          .from(schema.communitiesCanonical)
+          .where(eq(schema.communitiesCanonical.id, ownerCommunityId))
+      ).length,
+      0,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Interaction participants drive one bounded Timeline with pruned provenance", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_relationship_timeline_viewer@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(viewer);
+    const [person, privatePerson] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Timeline Person",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "private",
+          fullNameOverride: "Private Timeline Person",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        workspaceId,
+        userId: ownerUserId,
+        visibility: "workspace",
+        nameOverride: "Timeline Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(person);
+    assert.ok(privatePerson);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    const visibleEventIds = [randomUUID(), randomUUID()];
+    const visibleDecisionIds = [randomUUID(), randomUUID()];
+
+    for (const [index, id] of visibleEventIds.entries()) {
+      const item = await store.createInteraction({
+        id,
+        workspaceId,
+        ownerUserId,
+        kind: index === 0 ? "meeting" : "email",
+        occurredAt: new Date(
+          index === 0
+            ? "2026-07-18T11:00:00.000Z"
+            : "2026-07-18T10:00:00.000Z",
+        ),
+        summary: index === 0 ? "Met at the community office." : "Sent a follow-up.",
+        source: index === 0 ? "calendar" : "gmail",
+        sourceRecordId: `source-${index}`,
+        visibility: "workspace",
+        participants: [
+          { recordType: "person", recordId: person.id, role: "attendee" },
+          { recordType: "community", recordId: community.id, role: "host" },
+        ],
+        decisionLedgerId: visibleDecisionIds[index]!,
+        decisionSequence: index + 1,
+        decisionAt: new Date(`2026-07-18T1${index}:01:00.000Z`),
+      });
+      assert.equal(item.participants.length, 2);
+      assert.deepEqual(item.provenance.decisionLedgerIds, [visibleDecisionIds[index]]);
+      assert.deepEqual(item.provenance.evidenceRefs, [
+        { entityType: "event", entityId: id, source: index === 0 ? "calendar" : "gmail" },
+      ]);
+    }
+    const personAfterInteractions = await store.getPerson(
+      workspaceId,
+      ownerUserId,
+      person.id,
+    );
+    assert.equal(
+      personAfterInteractions?.lastInteractionAt?.toISOString(),
+      "2026-07-18T11:00:00.000Z",
+      "the latest real Interaction advances Person freshness",
+    );
+    const privateEventId = randomUUID();
+    await store.createInteraction({
+      id: privateEventId,
+      workspaceId,
+      ownerUserId,
+      kind: "note",
+      occurredAt: new Date("2026-07-18T12:00:00.000Z"),
+      summary: "Private participant context.",
+      source: "capture",
+      visibility: "workspace",
+      participants: [
+        { recordType: "community", recordId: community.id },
+        { recordType: "person", recordId: privatePerson.id },
+      ],
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-18T12:01:00.000Z"),
+    });
+    const [privateEventRow] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, privateEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(privateEventRow?.payload).includes(
+        "Private participant context.",
+      ),
+      false,
+      "private Event content is absent from the workspace-scoped Event row",
+    );
+    const privateParticipantRelations = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcType, "event"),
+        eq(schema.edges.srcId, privateEventId),
+        eq(schema.edges.edgeType, "participant"),
+      ));
+    assert.ok(
+      privateParticipantRelations.every((relation) =>
+        JSON.stringify(relation.properties).includes(
+          "Private participant context.",
+        ),
+      ),
+      "private Event content is stored only on owner-filtered Relations",
+    );
+
+    const firstPage = await store.listTimeline(
+      workspaceId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1 },
+    );
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(
+      firstPage.items[0]?.id,
+      visibleEventIds[0],
+      "Timeline order follows occurrence time, not insertion time",
+    );
+    assert.ok(firstPage.nextCursor);
+    const secondPage = await store.listTimeline(
+      workspaceId,
+      viewer.id,
+      "community",
+      community.id,
+      { limit: 1, cursor: firstPage.nextCursor },
+    );
+    assert.equal(secondPage.items.length, 1);
+    assert.equal(secondPage.nextCursor, null);
+    assert.deepEqual(
+      new Set([...firstPage.items, ...secondPage.items].map((item) => item.id)),
+      new Set(visibleEventIds),
+    );
+    assert.ok(
+      [...firstPage.items, ...secondPage.items].every((item) =>
+        item.participants.every((participant) => participant.recordId !== privatePerson.id),
+      ),
+    );
+
+    const ownerTimeline = await store.listTimeline(
+      workspaceId,
+      ownerUserId,
+      "community",
+      community.id,
+      { limit: 100 },
+    );
+    assert.equal(ownerTimeline.items.length, 3);
+    assert.equal(ownerTimeline.nextCursor, null);
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.visibility,
+      "private",
+    );
+    assert.equal(
+      ownerTimeline.items.find((item) => item.id === privateEventId)?.summary,
+      "Private participant context.",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Commitments are private evidence-bearing Event snapshots with bounded current-state reads", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer, person] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_commitment_viewer@example.com" })
+        .returning({ id: schema.users.id })
+        .then((rows) => rows[0]),
+      db
+        .insert(schema.people)
+        .values({
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Commitment Person",
+        })
+        .returning({ id: schema.people.id })
+        .then((rows) => rows[0]),
+    ]);
+    assert.ok(viewer);
+    assert.ok(person);
+    const store = new DrizzleGraphStore(db);
+    const commitmentId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+
+    const created = await store.materializeCommitment({
+      operation: "create",
+      commitmentId,
+      transitionEventId: commitmentId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Send the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    assert.equal(created.provenance.evidenceRefs[0]?.entityId, commitmentId);
+
+    await store.materializeCommitment({
+      operation: "update",
+      commitmentId,
+      transitionEventId: updateDecisionId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "completed",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+
+    const current = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 25, offset: 0 },
+    );
+    assert.equal(current.total, 1);
+    assert.equal(current.items[0]?.status, "completed");
+    assert.equal(current.items[0]?.text, "Sent the diligence notes");
+    assert.equal(current.items[0]?.provenance.decisionLedgerId, updateDecisionId);
+    assert.deepEqual(
+      await store.listCommitments(workspaceId, viewer.id, person.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "another workspace member cannot read the owner's private commitment",
+    );
+    const timeline = await store.listTimeline(
+      workspaceId,
+      ownerUserId,
+      "person",
+      person.id,
+      { limit: 25 },
+    );
+    assert.deepEqual(
+      timeline.items.map((item) => item.id),
+      [updateDecisionId, commitmentId],
+      "commitment transitions remain in the unified Timeline",
+    );
+
+    await store.materializeCommitment({
+      operation: "archive",
+      commitmentId,
+      transitionEventId: archiveDecisionId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "archived",
+      decisionLedgerId: archiveDecisionId,
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    assert.equal(
+      (
+        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+        })
+      ).total,
+      0,
+    );
+    assert.equal(
+      (
+        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+          includeArchived: true,
+        })
+      ).items[0]?.status,
+      "archived",
+    );
+
+    const firstPageCommitmentId = randomUUID();
+    const secondPageCommitmentId = randomUUID();
+    for (const [id, text, dueAt, createdAt] of [
+      [
+        firstPageCommitmentId,
+        "First snapshot commitment",
+        "2026-07-26T12:00:00.000Z",
+        "2026-07-22T10:00:00.000Z",
+      ],
+      [
+        secondPageCommitmentId,
+        "Second snapshot commitment",
+        "2026-07-27T12:00:00.000Z",
+        "2026-07-22T10:01:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeCommitment({
+        operation: "create",
+        commitmentId: id,
+        transitionEventId: id,
+        workspaceId,
+        ownerUserId,
+        personId: person.id,
+        text,
+        dueAt: new Date(dueAt),
+        status: "pending",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(createdAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const commitmentSnapshotAt = new Date("2026-07-22T10:02:00.000Z");
+    const firstCommitmentPage = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 0, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(firstCommitmentPage.items[0]?.id, firstPageCommitmentId);
+    assert.equal(firstCommitmentPage.total, 2);
+
+    const laterCommitmentId = randomUUID();
+    await store.materializeCommitment({
+      operation: "create",
+      commitmentId: laterCommitmentId,
+      transitionEventId: laterCommitmentId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Later snapshot commitment",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-22T10:03:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-22T10:03:00.000Z") })
+      .where(eq(schema.events.id, laterCommitmentId));
+    const secondCommitmentPage = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 1, offset: 1, snapshotAt: commitmentSnapshotAt },
+    );
+    assert.equal(
+      secondCommitmentPage.items[0]?.id,
+      secondPageCommitmentId,
+      "a post-snapshot insert cannot shift commitment offset pages",
+    );
+    assert.equal(secondCommitmentPage.total, 2);
+  } finally {
+    await close();
+  }
+});
+
+test("Introductions require double consent and keep decline reasons private", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [[viewer], people] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_introduction_viewer@example.com" })
+        .returning({ id: schema.users.id }),
+      db
+        .insert(schema.people)
+        .values([
+          {
+            workspaceId,
+            userId: ownerUserId,
+            visibility: "workspace",
+            fullNameOverride: "Introduction Source",
+          },
+          {
+            workspaceId,
+            userId: ownerUserId,
+            visibility: "workspace",
+            fullNameOverride: "Introduction Target",
+          },
+        ])
+        .returning({ id: schema.people.id }),
+    ]);
+    assert.ok(viewer);
+    const [source, target] = people;
+    assert.ok(source);
+    assert.ok(target);
+    const store = new DrizzleGraphStore(db);
+    const introductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId,
+      transitionEventId: introductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    const readyEventId = randomUUID();
+    const ready = await store.materializeIntroduction({
+      operation: "consent",
+      introductionId,
+      transitionEventId: readyEventId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready",
+      decisionLedgerId: readyEventId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+    assert.equal(ready.status, "ready");
+    assert.equal(ready.provenance.relationIds.length, 2);
+    assert.equal(
+      (await store.listIntroductions(workspaceId, ownerUserId, source.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.status,
+      "ready",
+    );
+    assert.equal(
+      (await store.listIntroductions(workspaceId, ownerUserId, target.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.id,
+      introductionId,
+      "both People see the same Introduction lifecycle",
+    );
+    assert.deepEqual(
+      await store.listIntroductions(workspaceId, viewer.id, source.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "a different member cannot read the owner's private Introduction",
+    );
+
+    const concurrentIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 10,
+      decisionAt: new Date("2026-07-19T13:00:00.000Z"),
+    });
+    const firstConcurrentConsent = {
+      operation: "consent" as const,
+      introductionId: concurrentIntroductionId,
+      transitionEventId: randomUUID(),
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready" as const,
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 11,
+      decisionAt: new Date("2026-07-19T13:01:00.000Z"),
+    };
+    const secondConcurrentConsent = {
+      ...firstConcurrentConsent,
+      transitionEventId: randomUUID(),
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 12,
+      decisionAt: new Date("2026-07-19T13:02:00.000Z"),
+    };
+    const concurrentResults = await Promise.all([
+      store.materializeIntroduction(firstConcurrentConsent),
+      store.materializeIntroduction(secondConcurrentConsent),
+    ]);
+    assert.ok(concurrentResults.every((result) => result.status === "ready"));
+    const introductionEventCount = async () => {
+      const rows = await db.execute(sql`
+        SELECT count(*)::int AS value
+        FROM ${schema.events} AS transition
+        WHERE transition.workspace_id = ${workspaceId}::uuid
+          AND EXISTS (
+            SELECT 1
+            FROM ${schema.edges} AS introduction
+            WHERE introduction.workspace_id = transition.workspace_id
+              AND introduction.src_type = 'event'
+              AND introduction.src_id = transition.id
+              AND introduction.edge_type = 'introduction'
+              AND introduction.properties ->> 'introductionId' =
+                ${concurrentIntroductionId}
+          )
+      `);
+      return Number(
+        (
+          Array.isArray(rows)
+            ? rows
+            : (rows as unknown as { rows?: Array<{ value: number }> }).rows ?? []
+        )[0]?.value ?? 0,
+      );
+    };
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "concurrent equivalent consents produce one transition Event",
+    );
+    await store.materializeIntroduction(firstConcurrentConsent);
+    assert.equal(
+      await introductionEventCount(),
+      2,
+      "replaying a recorded consent is an idempotent no-op",
+    );
+
+    const declinedIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedIntroductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    const declinedEventId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "consent",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedEventId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "declined",
+      privateDeclineReason: "Not the right time",
+      decisionLedgerId: declinedEventId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-21T12:00:00.000Z"),
+    });
+    const declined = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      source.id,
+      { limit: 1, offset: 0, introductionId: declinedIntroductionId },
+    );
+    assert.equal(declined.items[0]?.status, "declined");
+    assert.equal(declined.items[0]?.declineReasonRecorded, true);
+    assert.equal(
+      JSON.stringify(declined).includes("Not the right time"),
+      false,
+      "decline reason contents are not returned by Relationship projections",
+    );
+    const [declineEvent] = await db
+      .select({ payload: schema.events.payload })
+      .from(schema.events)
+      .where(eq(schema.events.id, declinedEventId))
+      .limit(1);
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes("Not the right time"),
+      false,
+      "private decline text is never copied into the workspace-scoped Event table",
+    );
+    assert.equal(
+      JSON.stringify(declineEvent?.payload).includes(declinedIntroductionId),
+      false,
+      "private Introduction details stay on owner-filtered Relations",
+    );
+    const declineMemories = await db
+      .select({ id: schema.memories.id })
+      .from(schema.memories)
+      .where(eq(schema.memories.id, declinedEventId));
+    assert.equal(
+      declineMemories.length,
+      0,
+      "decline text never enters the workspace-readable Memory table",
+    );
+    const [privateReasonRelation] = await db
+      .select({ properties: schema.edges.properties })
+      .from(schema.edges)
+      .where(and(
+        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.ownerUserId, ownerUserId),
+        eq(schema.edges.srcId, declinedEventId),
+        eq(schema.edges.dstId, source.id),
+        eq(schema.edges.edgeType, "introduction"),
+      ))
+      .limit(1);
+    assert.equal(
+      (privateReasonRelation?.properties as { privateDeclineReason?: string })
+        ?.privateDeclineReason,
+      "Not the right time",
+      "decline text is retained only on the owner's private Relation",
+    );
+
+    const [paginationSource, paginationTarget] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Introduction Pagination Source",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Introduction Pagination Target",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    assert.ok(paginationSource);
+    assert.ok(paginationTarget);
+    const firstPageIntroductionId = randomUUID();
+    const secondPageIntroductionId = randomUUID();
+    for (const [id, decisionAt, createdAt] of [
+      [
+        firstPageIntroductionId,
+        "2026-07-23T12:00:00.000Z",
+        "2026-07-23T12:01:00.000Z",
+      ],
+      [
+        secondPageIntroductionId,
+        "2026-07-23T11:00:00.000Z",
+        "2026-07-23T12:02:00.000Z",
+      ],
+    ] as const) {
+      await store.materializeIntroduction({
+        operation: "create",
+        introductionId: id,
+        transitionEventId: id,
+        workspaceId,
+        ownerUserId,
+        sourcePersonId: paginationSource.id,
+        targetPersonId: paginationTarget.id,
+        initiatorConsent: true,
+        recipientConsent: false,
+        status: "awaiting_consents",
+        decisionLedgerId: randomUUID(),
+        decisionSequence: 1,
+        decisionAt: new Date(decisionAt),
+      });
+      await db
+        .update(schema.events)
+        .set({ createdAt: new Date(createdAt) })
+        .where(eq(schema.events.id, id));
+    }
+    const introductionSnapshotAt = new Date("2026-07-23T12:03:00.000Z");
+    const firstIntroductionPage = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 0, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(firstIntroductionPage.items[0]?.id, firstPageIntroductionId);
+    assert.equal(firstIntroductionPage.total, 2);
+
+    const laterIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: laterIntroductionId,
+      transitionEventId: laterIntroductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: paginationSource.id,
+      targetPersonId: paginationTarget.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-23T13:00:00.000Z"),
+    });
+    await db
+      .update(schema.events)
+      .set({ createdAt: new Date("2026-07-23T13:01:00.000Z") })
+      .where(eq(schema.events.id, laterIntroductionId));
+    const secondIntroductionPage = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      paginationSource.id,
+      { limit: 1, offset: 1, snapshotAt: introductionSnapshotAt },
+    );
+    assert.equal(
+      secondIntroductionPage.items[0]?.id,
+      secondPageIntroductionId,
+      "a post-snapshot insert cannot shift Introduction offset pages",
+    );
+    assert.equal(secondIntroductionPage.total, 2);
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship paths are shortest, bounded, and visibility-pruned", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_path_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    const [start, end, hidden] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Path Start",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Path End",
+        },
+        {
+          workspaceId,
+          userId: otherUser.id,
+          visibility: "private",
+          fullNameOverride: "Hidden Path End",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        workspaceId,
+        userId: ownerUserId,
+        visibility: "workspace",
+        nameOverride: "Path Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(start);
+    assert.ok(end);
+    assert.ok(hidden);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    await store.upsertRelation({
+      workspaceId,
+      ownerUserId,
+      srcType: "person",
+      srcId: start.id,
+      dstType: "community",
+      dstId: community.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.8,
+      observedAt: new Date("2026-07-18T12:00:00.000Z"),
+      userConfirmed: true,
+      visibility: "workspace",
+      source: "user",
+      sourceModule: "relationship",
+    });
+    await store.upsertRelation({
+      workspaceId,
+      ownerUserId,
+      srcType: "community",
+      srcId: community.id,
+      dstType: "person",
+      dstId: end.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.5,
+      observedAt: new Date("2026-07-18T12:01:00.000Z"),
+      userConfirmed: true,
+      visibility: "workspace",
+      source: "user",
+      sourceModule: "relationship",
+    });
+
+    const result = await store.findRelationshipPaths(
+      workspaceId,
+      ownerUserId,
+      { nodeType: "person", nodeId: start.id },
+      { nodeType: "person", nodeId: end.id },
+      { maxDepth: 4, maxPaths: 3, maxVisited: 10, maxEdgesPerNode: 10 },
+    );
+    assert.equal(result.paths.length, 1);
+    assert.deepEqual(
+      result.paths[0]?.nodes.map((node) => node.nodeType),
+      ["person", "community", "person"],
+    );
+    assert.equal(result.paths[0]?.confidence, 0.4);
+    assert.ok(result.visited <= 10);
+    assert.equal(
+      (
+        await store.findRelationshipPaths(
+          workspaceId,
+          ownerUserId,
+          { nodeType: "person", nodeId: start.id },
+          { nodeType: "person", nodeId: end.id },
+          { maxDepth: 1, maxPaths: 3 },
+        )
+      ).paths.length,
+      0,
+    );
+    assert.deepEqual(
+      await store.findRelationshipPaths(
+        workspaceId,
+        ownerUserId,
+        { nodeType: "person", nodeId: start.id },
+        { nodeType: "person", nodeId: hidden.id },
+        { maxDepth: 4, maxPaths: 3 },
+      ),
+      { paths: [], visited: 0, truncated: false },
+      "an inaccessible endpoint is indistinguishable from no path",
+    );
+  } finally {
+    await close();
+  }
+});

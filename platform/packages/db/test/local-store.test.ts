@@ -126,7 +126,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
     assert.deepEqual(await ports.agents.capabilityScope(agentId), [
       "signal:write",
-      "touchpoint:write",
+      "event:write",
     ]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
@@ -223,7 +223,7 @@ test("persistent governance idempotently provisions Human Relation read/write au
   }
 });
 
-test("persistent governance provisions the server-owned Outreach Agent Touchpoint grant", async () => {
+test("persistent governance provisions the server-owned Outreach Agent Event grant", async () => {
   const workspaceId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d1";
@@ -242,11 +242,11 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
 
     const ports = createDrizzlePorts(db);
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
-    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["touchpoint:write"]);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["event:write"]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>
-          grant.resourceType === "touchpoint" &&
+          grant.resourceType === "event" &&
           grant.action === "write" &&
           grant.effect === "allow",
       ),
@@ -254,7 +254,7 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
     assert.ok(
       (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
         (grant) =>
-          grant.resourceType === "touchpoint" &&
+          grant.resourceType === "event" &&
           grant.action === "write" &&
           grant.effect === "allow",
       ),
@@ -265,7 +265,7 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
           row.workspaceId === workspaceId &&
           row.actorType === "user" &&
           row.actorId === userId &&
-          row.resourceType === "touchpoint" &&
+          row.resourceType === "event" &&
           row.resourceId === null &&
           row.action === "write" &&
           row.effect === "allow",
@@ -343,7 +343,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
       "google.listCalendarEvents",
     ]);
     assert.deepEqual(await ports.agents.capabilityScope(intakeAgentId), [
-      "touchpoint:write",
+      "event:write",
       "signal:write",
       "person:write",
     ]);

@@ -214,7 +214,7 @@ test("syncGmail surfaces a gate rejection without reading private bodies", async
   assert.deepEqual(bodies.gets, []);
 });
 
-test("syncGmail stages linked touchpoint and memory directives for an existing matched person", async () => {
+test("syncGmail stages linked Event and Memory directives for an existing matched Person", async () => {
   const { intake, pipeline, bodies, graph } = build();
   pipeline.sourceStatus = "applied";
   pipeline.sourceOutput = { threads: [{ threadId: "test_fixture_thread_linked" }] };
@@ -254,7 +254,7 @@ test("syncGmail stages linked touchpoint and memory directives for an existing m
   assert.deepEqual(
     stage.inputs.directive.entities.map((e) => ({ kind: e.kind, personId: e.personId, source: e.source, sourceRecordId: e.sourceRecordId, trustOrigin: e.trustOrigin })),
     [
-      { kind: "touchpoint", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: undefined },
+      { kind: "event", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: undefined },
       { kind: "memory", personId: "test_fixture_person_founder", source: GMAIL_SOURCE, sourceRecordId: "test_fixture_thread_linked", trustOrigin: "untrusted_external" },
     ],
   );
@@ -289,14 +289,11 @@ test("syncGmail can stage a self-only thread without creating a new Person direc
 
 test("IntakeMaterializer ignores non-intake proposals with no directive", async () => {
   const graph = new test_fixture_Graph();
-  const materializer = new IntakeMaterializer({
-    graph,
-    canonical: { upsertPersonIdentity: async () => ({ canonicalPersonId: "test_fixture_canonical" }) } as never,
-  });
+  const materializer = new IntakeMaterializer({ graph });
   const proposal = {
     id: "test_fixture_non_intake",
     status: "applied",
-    request: { workspaceId: test_fixture_workspace, actor: { type: "agent", id: "test_fixture_agent", plane: "local" }, action: "write", resourceType: "touchpoint", skill: "test_fixture", inputs: {} },
+    request: { workspaceId: test_fixture_workspace, actor: { type: "agent", id: "test_fixture_agent", plane: "local" }, action: "write", resourceType: "event", skill: "test_fixture", inputs: {} },
     authority: { allowed: true, reason: "test_fixture", basis: "role", dataScope: "all" },
     policyResults: [],
   } as Proposal;

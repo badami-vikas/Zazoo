@@ -43,9 +43,12 @@ const navItems = [
 
 type LearningState = Awaited<ReturnType<typeof trpc.onboarding.learningState.query>>;
 
+type RedFlagState = Awaited<ReturnType<typeof trpc.redFlag.listAll.query>>;
+
 function LearningSection() {
   const [state, setState] = useState<LearningState | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [flagState, setFlagState] = useState<RedFlagState | null>(null);
 
   function refresh() {
     trpc.onboarding.learningState
@@ -53,7 +56,21 @@ function LearningSection() {
       .then(setState)
       .catch((error) => setMessage(String(error)));
   }
+  function refreshFlags() {
+    trpc.redFlag.listAll
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 20 })
+      .then(setFlagState)
+      .catch((error) => setMessage(String(error)));
+  }
+  function loadMoreFlags() {
+    if (!flagState?.nextCursor) return;
+    trpc.redFlag.listAll
+      .query({ workspaceId: PILOT_WORKSPACE, limit: 20, cursor: flagState.nextCursor })
+      .then((next) => setFlagState((prev) => (prev ? { flags: [...prev.flags, ...next.flags], nextCursor: next.nextCursor } : next)))
+      .catch((error) => setMessage(String(error)));
+  }
   useEffect(refresh, []);
+  useEffect(refreshFlags, []);
 
   const preference = state?.memories.find((item) => item.value.kind === "onboarding_preference");
   const reflection = state?.memories.find((item) => item.value.kind === "reflection_schedule");
@@ -102,6 +119,25 @@ function LearningSection() {
     });
     setMessage(`Reflection ${action === "resume" ? "resumed" : action === "skip" ? "skipped" : `${action}d`}.`);
     refresh();
+  }
+
+  async function clearFlag(flagId: string) {
+    await trpc.redFlag.clear.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    setMessage("Flag cleared.");
+    refreshFlags();
+  }
+
+  async function reopenFlag(flagId: string) {
+    await trpc.redFlag.reopen.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    setMessage("Flag reopened.");
+    refreshFlags();
+  }
+
+  async function forgetFlag(flagId: string) {
+    if (!window.confirm("Permanently delete this flag's history? Clearing (reversible) is usually the better choice.")) return;
+    await trpc.redFlag.forget.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+    setMessage("Flag permanently deleted.");
+    refreshFlags();
   }
 
   return (
@@ -186,6 +222,41 @@ function LearningSection() {
             <p className="text-xs text-[var(--color-warm-gray)]">Scheduled after you complete role-model learning.</p>
           )}
           {message && <p className="text-xs text-[var(--color-steel)]">{message}</p>}
+        </div>
+      </Card>
+      <Card>
+        <div className="p-6 space-y-3">
+          <div className="font-semibold text-sm text-[var(--color-navy)]">Red flags</div>
+          <p className="text-xs text-[var(--color-navy-mid)]">
+            Every scoped correction you've flagged across the platform — the audit evidence for TASK-010's red-flag
+            control. Clearing is reversible; deleting is permanent.
+          </p>
+          {!flagState && <p className="text-xs text-[var(--color-warm-gray)]">Loading…</p>}
+          {flagState && flagState.flags.length === 0 && <p className="text-xs text-[var(--color-warm-gray)]">No red flags recorded yet.</p>}
+          {flagState?.flags.map(({ row, value }) => (
+            <div key={row.id} className="rounded-lg border p-3 space-y-1">
+              <p className="text-sm">
+                {value.anchor.moduleId}
+                {value.anchor.kind === "cell" ? ` · ${value.anchor.databaseId} · ${value.anchor.fieldId}` : ` · ${value.anchor.bulletPath}`}
+                {" — \u201c"}{value.renderedValue}{"\u201d"}
+              </p>
+              {value.reason && <p className="text-xs text-[var(--color-navy-mid)]">Reason: {value.reason}</p>}
+              <p className="text-xs text-[var(--color-warm-gray)]">
+                {value.status} · learning: {value.learningStatus} · {row.createdBy} · {new Date(row.createdAt).toLocaleString()}
+              </p>
+              <div className="flex gap-2">
+                {value.status === "open" ? (
+                  <button type="button" onClick={() => void clearFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border">Clear</button>
+                ) : (
+                  <button type="button" onClick={() => void reopenFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border">Reopen</button>
+                )}
+                <button type="button" onClick={() => void forgetFlag(row.id)} className="text-xs font-semibold px-3 py-2 rounded-lg border text-red-600">Delete</button>
+              </div>
+            </div>
+          ))}
+          {flagState?.nextCursor && (
+            <button type="button" onClick={loadMoreFlags} className="text-xs font-semibold px-3 py-2 rounded-lg border">Load more</button>
+          )}
         </div>
       </Card>
     </div>

@@ -80,20 +80,25 @@ device evidence.
 
 - Monorepo typecheck: 37/37 tasks passed.
 - Monorepo build: 20/20 tasks passed.
-- API: 194/194 tests passed with bounded file concurrency, including process restart,
+- API: 239/239 tests passed with bounded file concurrency, including process restart,
   explicit-vault refusal, startup cleanup, process ownership, compensation, pagination,
   password-AMR validation, log non-disclosure, membership-revocation races, and authenticated
   server shutdown.
 - DealPilot: 90/90 tests passed; 84.00% line coverage.
 - Local Plane: 8/8 tests passed.
-- Database: 125/125 tests passed, including RM4 migration `0015` and Relation-effect regressions.
-- Core: 423/423 tests passed.
+- Database: 155/155 tests passed, including landed migrations through TASK-010 `0016` and
+  Relation-effect regressions.
+- Core: 430/430 tests passed.
 - Sourcing: 7/7 tests passed.
 - Company sourcing: 4/4 tests passed.
-- Google integration: 35/35 tests passed.
-- Web: 50/50 tests passed.
+- Google integration: 39/39 tests passed.
+- Web: 70/70 tests passed.
 - Desktop: `cargo check`, 44/44 Rust tests, Clippy with `-D warnings`, and scoped changed-file
   `rustfmt --check` passed.
+- The branch normally merged `origin/main` `bab32ea4a7917a273ee91f7c5df520a775301083`
+  after preserving the implementation. Relationship continuity changes and migration `0016`
+  remain intact; TASK-006 adds no migration delta. Approval/ADR collisions were reconciled as
+  AP-044 and ADR-117–ADR-120, and hardened PKCE/token-finalization won the OAuth code conflict.
 - A live macOS keyring write/read/delete/missing round-trip passed with an ephemeral random value;
   the value was not printed or written to Bridge storage.
 - Real Chrome rendered `/dealpilot/sources` at 375x812 CSS pixels with an honest empty state and no
