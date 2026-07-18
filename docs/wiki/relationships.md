@@ -4,10 +4,13 @@ full plan: [../raw/relationship-module-plan-2026-07.md](../raw/relationship-modu
 
 - One installed Relationship Module. Shared Record/Relation/Event contracts. Primary Pages: Signals/People/Communities. Helpdesk nested.
 - RM0 done: nav → Signal → permitted Person/Community participants → source Event → governed Action. No global Knowledge route.
-- RM4 done: evidence-bearing owner-scoped Relations, deterministic bounded reads, migration 0015, durable decision-effect retry/reconcile.
+- RM1-2 built: owner-safe Person/Community CRUD/search/detail. One Timeline. Bounded Google/capture + identity review.
+- RM3 built: Memory correct/forget. Commitment Event snapshots. Grounded meeting prep + follow-up.
+- RM4 done: evidence-bearing owner Relations, durable effects, bounded paths, Community composition. Graph renderer stays TASK-014/TASK-009.
+- RM5 intro built: private Event snapshots. Two recorded consents before complete. Decline text hidden. No send.
 - Trust: server-owned Outreach Agent. Authenticated Approvals. Append-only decisions. `ref_ledger_id` only. Rejected/audit rows never pending.
 - Public Helpdesk: bounded + rate-limited. Token hash only. Retry-safe ticket/reply operation IDs. Selectable recovery key fallback.
-- TASK-008 stays in progress: Person/Community CRUD/search, unified Timeline/intake/identity, Memory/commitments, governed Map/path finder, introductions, user Automations, team delegation/evolution. Cross-Module Graph = TASK-014/TASK-009.
+- TASK-008 stays in progress: user Automations, team delegation, export/disconnect/forget, evals. Cross-Module Graph = TASK-014/TASK-009.
 - IA: Signals landing + Signals/People/Communities toggles. Signal = surfaced Event tied to ≥1 Person/Community, reason, safe Action. Interactions/Introductions/Helpdesk/Sources/Automations sub-modules. Standard toolbar/context menu/Files everywhere.
 - Person = Overview/Timeline/Context/Relations/Communities/Linked Records/Introductions/Commitments/Files/Permissions/Activity.
 - Action-first: why now + evidence + safe action + dismiss/snooze/correct/tune. No naked scores.

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T23:37:49.283Z",
+  "generatedAt": "2026-07-18T12:29:45.916Z",
   "items": [
     {
       "id": "TASK-001",
@@ -240,9 +240,17 @@
         "migration `0015_task008_relation_contract`",
         "owner-isolated Relation/effect RLS",
         "deterministic bounded Relation reads",
-        "durable approval-effect retry/reconciliation",
-        "core 422, DB 123, API 164, web 43, and desktop 28 tests",
-        "monorepo build/typecheck, web production build, migration fresh/upgrade/no-drift, changed-file lint, runtime no-dummy, and final independent central-merge review. Remaining exact plan scope: RM1 governed Person/Community CRUD/search/detail, RM2 unified Timeline/intake/identity queue, RM3 Memory/commitment/prep lifecycle, RM4 governed Map/path finder, RM5 introductions/recommendations/user Automations, and RM6 team permission/delegation/evolution work. TASK-014/TASK-009 own RM6's cross-Module Graph renderer."
+        "durable approval-effect retry/reconciliation. Candidate-A adds a validated independently mergeable continuation: RM1 owner-safe Person/Community CRUD/search/detail",
+        "RM2 one participant Timeline plus bounded Google/capture and identity review",
+        "RM3 Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
+        "RM4 visibility-pruned bounded paths and Community composition",
+        "RM5 double-consent Introduction Event snapshots with private decline handling and no send. Evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
+        "live desktop + exact 375px honest-empty People evidence",
+        "DB 130, API 176, web 51",
+        "37/37 typecheck and 20/20 build",
+        "changed-file lint, no-dummy, diff integrity, and independent correctness/security review. No migration added",
+        "`0016` remains TASK-010's. Remaining exact plan scope: persistent user-defined Automations/Agent Runs",
+        "RM6 team permission/delegation, export/disconnect/forget, and held-out eval execution. TASK-014/TASK-009 own the cross-Module Graph renderer."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"

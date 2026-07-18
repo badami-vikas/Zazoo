@@ -4,6 +4,13 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-18 — Relationship continuity storage (ADR-113)
+- Memory stays Memory. Corrections append. Forget removes lineage.
+- Commitments + Introductions = private Event snapshots + evidence Relations.
+- Intro completes only after two recorded consents. No send.
+- Paths reuse pruned Relations. Bounded. No second Graph.
+- No migration. Automation/delegation/evals still open.
+
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.

@@ -1672,6 +1672,13 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Linked it from `docs/INDEX.md` and the retired `docs/PROGRESS.md` pointer while retaining `docs/TASKS.md` as the sole execution queue.
 - Durable user-facing pointer: `outputs/2026-07-18-subagent-progress-context.md`.
 
+# 2026-07-18 — TASK-008 Relationship continuity checkpoint
+- Candidate A now carries RM1-RM2 plus an independently mergeable RM3/RM4/RM5 continuation: owner-scoped Memory correction/forget, commitment Event snapshots, grounded meeting preparation/follow-up, bounded visibility-pruned paths, Community composition, and double-consent Introduction Event snapshots.
+- Introductions cannot complete before both recorded consents. Decline-reason contents remain private. The surface records state only and has no external-send path.
+- Existing Memory, Event, Relation, Action Pipeline, and Local Plane seams were reused. No migration was added; TASK-010's `0016` remains untouched. ADR-113 records the storage/lifecycle call.
+- DB 130, API 176, web 51, typecheck 37/37, build 20/20, focused lint, no-dummy, live desktop/exact-375px honest-empty People evidence, and independent correctness/security review passed. The monorepo-wide aggregate test command still exposes the unrelated Sensors package's pre-existing 38% coverage-threshold failure (36.92%).
+- TASK-008 remains `in_progress`. Persistent user-defined Automations, runtime-wired team delegation, export/disconnect/forget orchestration, and held-out eval execution remain explicit. Durable outcome: `outputs/2026-07-18-task-008-relationship-continuity.md`.
+
 # 2026-07-18 — Git contribution and coding-pace audit
 - Compared all reachable refs and landed `main` history by author identity, additions/deletions, unique files, active days, and explicit Claude/Copilot coauthor trailers.
 - Found lower cumulative Manish churn but higher time-normalized current churn; kept Vikas-authored and Claude-coauthored credits overlapping to avoid falsely assigning shared-commit lines.
