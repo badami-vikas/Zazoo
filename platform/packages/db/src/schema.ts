@@ -454,6 +454,23 @@ export const memories = pgTable(
     createdBy: text("created_by").notNull(),
     /** Owner for authority-scoping team/private/restricted reads. */
     ownerUserId: uuid("owner_user_id"),
+    /** TASK-010 review round-5/6/7 — durable, DB-backed per-lineage ordering.
+     * Allocated ATOMICALLY inside `casSupersede`'s own SERIALIZABLE
+     * transaction (`(current?.lineageRevision ?? 0) + 1` scoped to
+     * `(workspace_id, owner_user_id, subject_element_id)`, the SAME triple
+     * `currentForLineage`/`casSupersede` already key a lineage on) —
+     * correct across ANY number of server processes/restarts, unlike the
+     * process-local monotonic timestamp counter (`monotonicRedFlagNowISO`
+     * in apps/api/src/router.ts), which remains in use for `createdAt` and
+     * for global cross-lineage ordering (a per-lineage revision is
+     * meaningless across different lineages — see
+     * `@bridge/core`'s `MemoryQuery.orderBy` doc). `NULL` on every
+     * pre-migration row and on any write not made through `casSupersede`
+     * (no backfill is possible or needed — `history`'s per-lineage
+     * ordering treats `NULL` as older than any allocated revision, so a
+     * fresh lineage's first row always gets revision 1 and this is purely
+     * additive). */
+    lineageRevision: bigint("lineage_revision", { mode: "number" }),
     createdAt: now(),
   },
   (t) => [index("memories_ws_subject_idx").on(t.workspaceId, t.subjectElementId)],
@@ -936,18 +953,23 @@ export const jobpilotApplications = pgTable(
     workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
     jobId: uuid("job_id").notNull().references(() => jobpilotJobs.id),
     stage: text("stage").notNull().default("queued"),
-    // pursue | review | pass (AP-023 — no green/yellow feedback semantics). No CHECK
-    // constraint yet and no backfill has run for rows persisted before this rename —
-    // TASK-010 review remediation item 9 defers that to migration 0016+ once TASK-008
-    // RM4's 0015 lands (see @bridge/jobpilot's normalizeLegacyFitFlag for the interim
-    // read-side safety net and outputs/2026-07-17-task010-review-remediation.md for
-    // the exact backfill SQL).
+    // pursue | review | pass (AP-023 — no green/yellow feedback semantics).
+    // TASK-010 review remediation item 9 / round-6: backfilled and constrained
+    // in migration 0016 once TASK-008 RM4's 0015 landed — legacy
+    // green/yellow/red rows are rewritten to pursue/review/pass and the CHECK
+    // constraint below then enforces no other value can ever be written again.
+    // See @bridge/jobpilot's normalizeLegacyFitFlag for the (now redundant but
+    // still harmless) read-side safety net this constraint makes unnecessary
+    // going forward.
     flag: text("flag"),
     fitScore: numeric("fit_score"),
     createdAt: now(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("jobpilot_applications_ws_idx").on(t.workspaceId, t.stage)],
+  (t) => [
+    index("jobpilot_applications_ws_idx").on(t.workspaceId, t.stage),
+    check("jobpilot_applications_flag_valid_ck", sql`${t.flag} IS NULL OR ${t.flag} IN ('pursue', 'review', 'pass')`),
+  ],
 );
 
 /** Helpdesk — the one workspace-scoped tool with a public/unauthenticated

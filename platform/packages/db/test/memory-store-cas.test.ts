@@ -237,3 +237,87 @@ test("casSupersede: two REAL concurrent transactions inserting the IDENTICAL det
   }
 });
 
+/**
+ * TASK-010 review round-7 ("durable lineage ordering") against a REAL
+ * pglite-backed Postgres — proves `lineage_revision` is allocated
+ * atomically inside the SAME SERIALIZABLE transaction that already does
+ * the CAS compare (never a separate query racy against a concurrent
+ * writer), durable across restarts/processes unlike the process-local
+ * timestamp counter this supersedes for within-lineage ordering.
+ */
+test("casSupersede persists lineage_revision 1, 2, 3... across real DB transactions, and history-style retrieve() orders a legacy (null-revision) row oldest via a real SQL keyset", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleMemoryStore(db);
+    // A legacy row: written directly (not via casSupersede), so its
+    // lineage_revision is NULL — mirrors a pre-0016 row.
+    const legacy = await store.write(draft("00000000-0000-4000-8000-000000000000", workspaceId));
+    const v1 = await store.casSupersede({
+      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: legacy.id,
+      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+    });
+    const v2 = await store.casSupersede({
+      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+      next: draft("00000000-0000-4000-8000-000000000002", workspaceId),
+    });
+    assert.equal(v1!.lineageRevision, 1);
+    assert.equal(v2!.lineageRevision, 2);
+
+    const auth = { workspaceId, userId: OWNER };
+    const all = await store.retrieve(
+      { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision" },
+      auth,
+    );
+    assert.deepEqual(all.map((e) => e.id), [legacy.id, v1!.id, v2!.id], "the NULL-revision legacy row must sort oldest, via real SQL NULLS FIRST ordering");
+
+    // Real SQL keyset pagination across the NULL -> allocated boundary —
+    // the exact three-valued-logic trap a bare tuple comparison against a
+    // nullable column would hit (never returns the non-null page).
+    const page1 = await store.retrieve(
+      { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 1 },
+      auth,
+    );
+    assert.deepEqual(page1.map((e) => e.id), [legacy.id]);
+    const page2 = await store.retrieve(
+      {
+        subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 2,
+        cursor: { createdAt: page1[0]!.createdAt, id: page1[0]!.id, lineageRevision: page1[0]!.lineageRevision ?? null },
+      },
+      auth,
+    );
+    assert.deepEqual(page2.map((e) => e.id), [v1!.id, v2!.id], "page 2 must pick up exactly where page 1 left off under real Postgres keyset SQL");
+  } finally {
+    await close();
+  }
+});
+
+test("casSupersede: two REAL concurrent transactions racing the SAME lineage never allocate the SAME lineage_revision — the loser's serialization failure is a CAS null, never a duplicate revision", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const workspaceId = await seedWorkspace(db);
+    const store = new DrizzleMemoryStore(db);
+    const v1 = await store.casSupersede({
+      workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+      next: draft("00000000-0000-4000-8000-000000000001", workspaceId),
+    });
+    assert.equal(v1!.lineageRevision, 1);
+    const [a, b] = await Promise.all([
+      store.casSupersede({
+        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000a1", workspaceId),
+      }),
+      store.casSupersede({
+        workspaceId, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+        next: draft("00000000-0000-4000-8000-0000000000b1", workspaceId),
+      }),
+    ]);
+    const winner = a ?? b;
+    assert.equal(a === null || b === null, true, "exactly one racer must win");
+    assert.equal(winner!.lineageRevision, 2, "the winner — whichever one it is — must get revision 2, never a duplicate or skipped value");
+  } finally {
+    await close();
+  }
+});
+
+

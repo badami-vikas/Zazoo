@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T17:27:08.248Z",
+  "generatedAt": "2026-07-18T12:43:02.462Z",
   "items": [
     {
       "id": "TASK-001",
@@ -32,7 +32,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 55,
+      "sourceLine": 0,
       "rank": 1
     },
     {
@@ -64,7 +64,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 80,
+      "sourceLine": 0,
       "rank": 2
     },
     {
@@ -95,7 +95,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 93,
+      "sourceLine": 0,
       "rank": 3
     },
     {
@@ -127,7 +127,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 105,
+      "sourceLine": 0,
       "rank": 4
     },
     {
@@ -157,7 +157,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 204,
+      "sourceLine": 0,
       "rank": 5
     },
     {
@@ -190,7 +190,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 192,
+      "sourceLine": 0,
       "rank": 6
     },
     {
@@ -207,21 +207,23 @@
       ],
       "evidence": [
         "user feedback-mechanism correction 2026-07-15",
-        "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells) and JobPilotApplicationDetail.tsx (rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
-        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Three coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
+        "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md), [round-5 remediation](../outputs/2026-07-17-task010-round5-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells), JobPilotPage.tsx card view (real, persisted-application-backed rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
+        "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Four coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
         "round 2's own idempotency-check and CAS `.cause`-unwrap bugs (round 3)",
-        "and round 4's 11-item list — **governed learning is now substantive, not an echo**: `create` synthesizes a real, structured, owner-private `preference_adjustment` Memory (scope/target/proposed-change/rationale/evidence-ref) via owner-authorized read, and a SEPARATE Human-authorized `enactCorrection`/`revokeCorrection` pair applies/undoes the actual correction (display suppression) only after ledger approval — proving \"behavior changes only after approval and can be undone\"",
-        "**private-proposal ownership** — `action.listPending`/`decide` now hide/reject a red-flag's private proposal from every non-owner member while preserving full team-visible semantics for unrelated proposals",
-        "**replay-safe create** — reconciles against the ledger before re-proposing (crash recovery lands on \"proposed\" not \"failed\"), and a genuinely failed attempt is retryable",
-        "**durable clear/reopen** — withdrawal/revocation happens BEFORE the status flip (a failure leaves the flag untouched, safely retryable), and reopen mints a FRESH proposal rather than resurrecting a resolved one",
-        "**forget** enumerates and withdraws every proposal across the WHOLE lineage, not just the current head's",
-        "**server-validated canonical anchors** — JobPilot/DealPilot/People/Community/Touchpoint record targets are existence+workspace-checked server-side (unknown modules fail closed)",
-        "**DB-pushed scope/kind filtering** via a new `MemoryQuery.contentPathEquals` JSON-predicate mechanism (no migration)",
-        "**real keyset `(createdAt,id)` pagination** replaces offset-based `listAll`/`history`, removing the 200-version cap",
-        "**hybrid touch** (`any-pointer:coarse` alongside `pointer:coarse`)",
-        "and JobPilot's legacy `flag` column is normalized at the `DrizzleJobPilotStore` read boundary itself (every `createJob`/`listJobs`/`updateApplication`/`getApplication` call), not only a test helper. Round 4 also found and fixed 3 further real bugs while implementing: a stale `.get(id)` (vs. `currentForLineage`) read of the preference-adjustment lineage after `enactCorrection` superseded it",
-        "a non-monotonic outcome-Memory id causing a primary-key collision on any retry that changed learning status",
-        "and every superseding write silently inheriting its PREDECESSOR's `createdAt` via `{...current}` spread (broke history/keyset ordering) — fixed via a process-local monotonic timestamp helper. Re-verified: core 426, DB 118, API 203 (33 red-flag tests), JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 59 tests, full monorepo build (23/23 packages) and typecheck clean, lint clean, no-dummy-runtime clean. Item 9/11's JobPilot flag-column migration remains explicitly PENDING (not fabricated) — TASK-008 RM4 owns migration 0015 and has not landed. A pre-existing, unrelated dummy-data instance (`JobPilotApplicationDetail.tsx`'s unrouted `BCG_APPLICATION` fixture) was discovered and logged to `docs/dummy.md` rather than silently left untracked. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the pending RM4-dependent migration."
+        "round 4's 11-item list (governed-learning substance, private-proposal ownership, replay-safe create, durable clear/reopen, forget-across-lineage, canonical anchors, DB-pushed filtering, keyset pagination, hybrid touch, JobPilot flag-column normalization)",
+        "and round 5's 11-item list — **legacy API containment** (CRITICAL): `onboarding.learningState`/`forgetMemory` were unauthenticated/owner-unscoped with no kind filter, leaking (and allowing deletion of) private red-flag/preference-adjustment content — now authenticated, owner-scoped, kind-whitelisted",
+        "**owner-aware DB RLS** (CRITICAL) — investigated and documented (not fabricated): the ledger's workspace-wide RLS lets a direct-Supabase client bypass tRPC's private-proposal filter (bounded existence/metadata leak, not raw content — round 4 already made the ledger payload opaque)",
+        "the ONE offending client read path (`apps/web/src/app/data/ledger.ts`'s `loadLedger()`) and the exact fix (new RLS policy + a new paginated/filtered ledger-listing tRPC procedure) are tracked in `docs/BUGS.md`, both blocked on RM4",
+        "**shipped enactment** — the UI now checks `action.resolution` on-demand and calls `enactCorrection`, so no approved correction is stranded without a trigger",
+        "**proposal-ID correctness** — a thrown (not merely rejected) governed-learning attempt no longer persists an unconfirmed `proposalId`, and clear/forget now treat a confirmed-absent ledger entry as already-withdrawn",
+        "**saga hardening** — a genuine concurrent `updateReason`-vs-`clear` race is now CAS-protected and tested",
+        "**canonical anchor registry finished** — a single shared `canonicalModuleId` alias-normalizer feeds BOTH hashing and validation (an alias can never fork a lineage), the unrouted fixture-only `JobPilotApplicationDetail.tsx` had its red-flag wiring removed entirely (would always fail-closed), `TableView.tsx` gates on a new client-side supported-module allowlist (excludes `signal`, which has no existence-check store yet), and `JobPilotPage.tsx`'s Card view now ships the REQUIRED real, persisted-application-backed rendered-bullet surface (`Stage`/`Fit` bullets)",
+        "**durable lineage ordering** — the process-local monotonic-timestamp limitation (cross-instance/restart) is now explicitly documented with the exact planned DB-backed fix, blocked on RM4",
+        "**safe structured filtering** — a confirmed-reproducible `content::jsonb` cast failure (Postgres doesn't guarantee AND-clause evaluation order) fixed via a SQL-standard-guaranteed `CASE WHEN content IS JSON` construct",
+        "**status-predicate-before-limit** pushed into the store query",
+        "**cross-process idempotency** — the shared workspace Goal's provisioning is now deterministic/race-safe (was a check-then-act race with a random id), and `casSupersede` now also catches a genuine `23505` unique-violation (a deterministic-id collision under real concurrency, distinct from the `40001` serialization-failure case it already caught) as a CAS loss, not an unhandled 500",
+        "**provider state integrity** — `RedFlagProvider` now distinguishes loading/error/empty (a failed refresh preserves last-good rows instead of clearing them), guards against out-of-order overlapping refresh responses via a generation counter, and disables `create()` until the first successful load. Round 6 (independent review of round 5 + reconciliation with TASK-008 RM4's now-landed migration `0015`): a fresh review verified all 11 round-5 items and flagged 2 non-blocking follow-ups (a docs/BUGS.md accuracy correction",
+        "`RedFlagProvider`'s `error` state gained a `retryLoad()` affordance), both fixed. RM4 landed with its own relation-proposal privacy mechanism (`assertRelationshipProposalOwner`, a new `action.listHistory` endpoint, `privateOwnerUserId`-based store-level filtering) — reconciled surgically: TASK-010's own `inputs.visibility === \"private\"` red-flag privacy check now composes alongside RM4's relation-specific check rather than duplicating it, and the underlying store-level filter is being widened (not replaced) to cover both. Re-verified: core 426, DB 121, API 211 (54 red-flag/security tests across all rounds), JobPilot 94, DealPilot 72, Commons 22, integrations-google 35, web 64 tests, full monorepo build (20/20) and typecheck (37/37) clean, full serialized test run 36/37 green (the one failure is `@bridge/sensors`'s pre-existing, already-documented, unrelated coverage-floor gap), lint clean on every session-touched file (2 pre-existing unrelated repo-wide findings untouched), no-dummy-runtime clean. A pre-existing, unrelated dummy-data instance (`JobPilotApplicationDetail.tsx`'s unrouted `BCG_APPLICATION` fixture) was discovered and logged to `docs/dummy.md`, and its red-flag wiring removed since the page is unreachable. Outstanding before this task can close: live desktop+375px browser evidence of the actual hover/focus/click/touch interaction, and the post-RM4 migration (owner-aware RLS, DB-backed lineage revision, JobPilot flag backfill) now in progress."
       ],
       "requests": [
         "red-flag directive 2026-07-15"
@@ -234,7 +236,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 168,
+      "sourceLine": 0,
       "rank": 7
     },
     {
@@ -266,7 +268,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 144,
+      "sourceLine": 0,
       "rank": 8
     },
     {
@@ -304,7 +306,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 132,
+      "sourceLine": 0,
       "rank": 9
     },
     {
@@ -314,7 +316,7 @@
       "priority": "P2",
       "horizon": "Convergence",
       "outcome": "Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.",
-      "prototypeTest": "DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName=\"calendar\"`, and the `tools.ts`/`moduleRoutes.ts` \"calendar\" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) gated on its Relations, confirmed distinct from the separate Second Brain cross-Module graph surface; a Task Manager Queue Page renders Tree view over its self-referential Task type.",
+      "prototypeTest": "DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName=\"calendar\"`, and the `tools.ts`/`moduleRoutes.ts` \"calendar\" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) at `scope:single_database`; the scope selector expands to `scope:full` and renders the same canvas with cross-Module nodes — confirming Second Brain is this view at full scope, not a separate surface (ADR-110); a Task Manager Queue Page renders Tree view over its self-referential Task type.",
       "scope": [
         "docs/raw/ui-architecture-rules-2026-07.md alignment audit",
         "docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)"
@@ -333,7 +335,7 @@
         "table/actionability directives 2026-07-14–15",
         "R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)"
       ],
-      "approval": "AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call and the Graph-view-vs-Second-Brain distinction",
+      "approval": "AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; AP-037 applied (Graph view scope selector + Second Brain collapse into Graph at full scope); ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction",
       "dependencies": [
         "TASK-001",
         "TASK-006",
@@ -342,7 +344,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 216,
+      "sourceLine": 0,
       "rank": 10
     },
     {
@@ -380,7 +382,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 228,
+      "sourceLine": 0,
       "rank": 11
     },
     {
@@ -409,7 +411,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 240,
+      "sourceLine": 0,
       "rank": 12
     },
     {
@@ -438,7 +440,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 252,
+      "sourceLine": 0,
       "rank": 13
     },
     {
@@ -471,7 +473,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 264,
+      "sourceLine": 0,
       "rank": 14
     },
     {
@@ -499,7 +501,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 119,
+      "sourceLine": 0,
       "rank": 15
     },
     {
@@ -527,35 +529,39 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 180,
+      "sourceLine": 0,
       "rank": 16
     },
     {
       "id": "TASK-009",
-      "title": "TASK-009 — Actionable Second Brain graph",
+      "title": "TASK-009 — Actionable Second Brain graph (converged into TASK-014 Graph renderer)",
       "status": "pending",
       "priority": "P1",
       "horizon": "Core Modules",
-      "outcome": "A permission-filtered graph below Modules reveals useful cross-Module connections while every datum remains owned by its source Module.",
-      "prototypeTest": "Traverse a real cross-Module Record/Relation/Event/File connection, filter it, inspect provenance/backlinks, return to the owning Module, and perform a governed Action; inaccessible nodes never render and an accessible list fallback works.",
+      "outcome": "Second Brain IS the Graph view (§3, `docs/raw/brd-dataengine-views-2026-07.md`) at `scope: full` — every permitted Database across all installed Modules, permission-filtered, same renderer as a single-Page graph. The \"Second Brain\" nav entry is a named preset opening Graph view at full scope. Building the real Graph renderer with scope-selector support (TASK-014) delivers this simultaneously; no separate build.",
+      "prototypeTest": "From the Second Brain nav entry (Graph view, scope:full), traverse a real cross-Module Record/Relation/Event/File connection, filter by Relation type, inspect provenance/source-module, navigate to the owning Record Detail, and perform a governed Action; inaccessible nodes never render (permission-filtered); the same node/edge canvas works at scope:single-database on a Page with a relation column — confirming one renderer at all scopes.",
       "scope": [
+        "docs/raw/brd-dataengine-views-2026-07.md §3 (graph kind, scope_selector) + §4 (Second Brain = full scope)",
         "docs/raw/ui-architecture-rules-2026-07.md §5c",
         "docs/raw/relationship-module-plan-2026-07.md RM6"
       ],
       "evidence": [
-        "BUGS 2026-07-14 no Second Brain graph"
+        "BUGS 2026-07-14 no Second Brain graph",
+        "ADR-110 (Second Brain collapses into Graph view at full scope, supersedes ADR-108's \"never merge\" stance)"
       ],
       "requests": [
-        "Second Brain directive 2026-07-14"
+        "Second Brain directive 2026-07-14",
+        "R-039 (2026-07-17 cross-module scope + collapse)"
       ],
-      "approval": "AP-021 and AP-029 applied",
+      "approval": "AP-021 and AP-029 applied; AP-037 applied (convergence with TASK-014 Graph renderer)",
       "dependencies": [
-        "TASK-008"
+        "TASK-008",
+        "TASK-014 (Graph renderer with scope selector delivers this)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 156,
+      "sourceLine": 0,
       "rank": 17
     },
     {
@@ -588,7 +594,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 68,
+      "sourceLine": 0,
       "rank": 18
     },
     {
@@ -619,7 +625,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 300,
+      "sourceLine": 0,
       "rank": 19
     },
     {
@@ -647,7 +653,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 276,
+      "sourceLine": 0,
       "rank": 20
     },
     {
@@ -674,8 +680,39 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 288,
+      "sourceLine": 0,
       "rank": 21
+    },
+    {
+      "id": "TASK-022",
+      "title": "TASK-022 — Inference cost optimization: prompt caching + model tiering",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.",
+      "prototypeTest": "A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.",
+      "scope": [
+        "platform/packages/models/src/anthropic-provider.ts",
+        "platform/packages/models/src/router.ts",
+        "platform/packages/core/src/ports.ts",
+        "platform/packages/core/src/run-context.ts",
+        "platform/packages/core/src/chief-of-staff.ts",
+        "platform/apps/api/src/router.ts (~4573)",
+        "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)"
+      ],
+      "evidence": [
+        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])"
+      ],
+      "requests": [
+        "LLM prompt/infra optimization audit directive 2026-07-17"
+      ],
+      "approval": "AP-038 applied",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 0,
+      "rank": 22
     }
   ]
 }

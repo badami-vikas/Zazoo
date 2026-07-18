@@ -71,6 +71,19 @@ export interface MemoryEntry extends MemoryWrite {
   /** Set when this row supersedes an earlier Memory (append-only correction). */
   supersedesId?: string | null;
   createdAt: string;
+  /** TASK-010 review round-5/6/7 — durable, DB-backed per-lineage ordering.
+   * Allocated ATOMICALLY by `casSupersede` (never by a caller — absent from
+   * `MemoryWrite`, only ever set by the store itself): `(current?.lineageRevision
+   * ?? 0) + 1` for the SAME (workspaceId, ownerUserId, subjectElementId) triple
+   * `currentForLineage`/`casSupersede` already key a lineage on, computed
+   * inside the same transaction/turn that already establishes the lineage's
+   * current head — correct across any number of processes/restarts, unlike a
+   * process-local counter. `null`/`undefined` on any row NOT written through
+   * `casSupersede` (most Memory writes aren't lineage-tracked) or written
+   * before this column existed — ALWAYS treated as "older than any allocated
+   * revision" by `compareLineageRevisionOrder`, so within one lineage's own
+   * history a legacy un-revisioned row still sorts oldest-first correctly. */
+  lineageRevision?: number | null;
 }
 
 export interface MemoryQuery {
@@ -115,13 +128,29 @@ export interface MemoryQuery {
    * changes mid-pagination. Takes precedence over `offset` when both are
    * supplied (a caller should pass one or the other, not both).
    */
-  cursor?: { createdAt: string; id: string };
+  cursor?: { createdAt: string; id: string; lineageRevision?: number | null };
   limit?: number;
   /** @deprecated prefer `cursor` (keyset) for anything paginated across
    * multiple requests — offset pagination is still supported for the few
    * remaining internal callers that fetch a single bounded page and never
    * paginate further. */
   offset?: number;
+  /**
+   * TASK-010 review round-7 ("durable lineage ordering"): which key
+   * `order`/`cursor` sorts and paginates by. `"createdAt"` (default) is the
+   * GLOBAL total order used for cross-lineage listings (e.g. the red-flag
+   * audit list) — always valid, never ambiguous. `"lineageRevision"` is
+   * ONLY meaningful for a query already scoped to ONE lineage (i.e. a
+   * `subjectElementId` filter identifying a single (workspaceId,
+   * ownerUserId, subjectElementId) lineage) — `lineage_revision` values are
+   * allocated per-lineage (every lineage's first row is revision 1), so
+   * comparing them ACROSS different lineages would be meaningless. Callers
+   * MUST NOT set `orderBy: "lineageRevision"` on a query spanning more than
+   * one lineage. Both adapters treat a `null` revision (a legacy row
+   * written before this column existed, or any non-lineage-tracked write)
+   * as older than any allocated revision.
+   */
+  orderBy?: "createdAt" | "lineageRevision";
 }
 
 /** Total order used for keyset pagination: `createdAt` first, `id` as a
@@ -131,6 +160,24 @@ export interface MemoryQuery {
 function compareMemoryOrder(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
   const c = a.createdAt.localeCompare(b.createdAt);
   return c !== 0 ? c : a.id.localeCompare(b.id);
+}
+
+/** Per-lineage total order (review round-7): `lineage_revision` first (a
+ * `null`/`undefined` revision always sorts OLDER than any allocated one,
+ * regardless of requested direction — both adapters' `order === "asc"`/
+ * `"desc"` negate this SAME comparator rather than re-deriving the
+ * null-handling twice), `id` as the stable tiebreaker. Only valid for a
+ * query already scoped to one lineage — see `MemoryQuery.orderBy`'s doc. */
+function compareLineageRevisionOrder(
+  a: { lineageRevision?: number | null; id: string },
+  b: { lineageRevision?: number | null; id: string },
+): number {
+  const ra = a.lineageRevision ?? null;
+  const rb = b.lineageRevision ?? null;
+  if (ra === null && rb === null) return a.id.localeCompare(b.id);
+  if (ra === null) return -1;
+  if (rb === null) return 1;
+  return ra !== rb ? ra - rb : a.id.localeCompare(b.id);
 }
 
 /** Safe (no `eval`, no prototype-pollution) dot-path walk of a JSON-parsed
@@ -277,7 +324,8 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (query.sourceRefType) rows = rows.filter((e) => e.sourceRefType === query.sourceRefType);
     if (query.contentPathEquals) rows = rows.filter((e) => matchesContentPathEquals(e.content, query.contentPathEquals));
     const order = query.order ?? "desc";
-    rows = rows.sort((a, b) => (order === "asc" ? compareMemoryOrder(a, b) : compareMemoryOrder(b, a)));
+    const cmp = query.orderBy === "lineageRevision" ? compareLineageRevisionOrder : compareMemoryOrder;
+    rows = rows.sort((a, b) => (order === "asc" ? cmp(a, b) : cmp(b, a)));
     if (query.cursor) {
       // Keyset: keep only rows strictly BEYOND the cursor in the requested
       // order (review item 8) — stable under concurrent insert/supersede
@@ -285,7 +333,7 @@ export class InMemoryMemoryStore implements MemoryStore {
       // underlying set changes size).
       const cursor = query.cursor;
       rows = rows.filter((e) => {
-        const c = compareMemoryOrder(e, cursor);
+        const c = cmp(e, cursor);
         return order === "asc" ? c > 0 : c < 0;
       });
     }
@@ -367,10 +415,15 @@ export class InMemoryMemoryStore implements MemoryStore {
   }): Promise<MemoryEntry | null> {
     const current = this.#currentForLineageSync(params.workspaceId, params.ownerUserId, params.lineageKey);
     if ((current?.id ?? null) !== params.expectedCurrentId) return null;
-    return this.#insert(params.next, params.expectedCurrentId);
+    // review round-7: atomically allocate the next per-lineage revision in
+    // the SAME synchronous turn as the compare above (no `await` between
+    // read and write here — see this method's own doc comment) — the exact
+    // same TOCTOU-closing technique already used for the CAS compare itself.
+    const nextRevision = (current?.lineageRevision ?? 0) + 1;
+    return this.#insert(params.next, params.expectedCurrentId, nextRevision);
   }
 
-  #insert(entry: MemoryWrite, supersedesId: string | null): MemoryEntry {
+  #insert(entry: MemoryWrite, supersedesId: string | null, lineageRevision: number | null = null): MemoryEntry {
     if (this.entries.some((e) => e.id === entry.id)) {
       throw new Error(`memory store: duplicate id ${entry.id} (append-only violation)`);
     }
@@ -378,6 +431,7 @@ export class InMemoryMemoryStore implements MemoryStore {
       ...entry,
       supersedesId,
       createdAt: entry.createdAt ?? new Date().toISOString(),
+      ...(lineageRevision != null ? { lineageRevision } : {}),
     };
     this.entries.push(full);
     return { ...full };

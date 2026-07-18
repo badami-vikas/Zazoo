@@ -29,6 +29,33 @@ import type {
 import type { Database } from "./client.js";
 import { memories } from "./schema.js";
 
+/** TASK-010 review round-6 — sets the SAME `app.workspace_id`/`app.user_id`
+ * session GUCs `graph-store.ts`/`relation-materialization-store.ts` already
+ * set for `edges`/`relation_materialization_effects` (and
+ * `ledger-store.ts`'s `#withWorkspace` already sets for `app.workspace_id`
+ * alone) — required for `app_private.visible_memory_row`'s
+ * `current_user_id()` check to resolve correctly under a REAL, request-
+ * scoped (non-superuser-bypass) Postgres role, which `client.ts`'s own doc
+ * comment states is the intended production posture ("app requests should
+ * run under the member JWT path... or a request-scoped role — service-role
+ * bypass is reserved for the derivation pipeline, never the app surface").
+ * `SET LOCAL`-equivalent (`is_local = true`) config only takes effect for
+ * the remainder of the CURRENT transaction, so every caller below wraps its
+ * query in `#db.transaction(...)` (mirroring `DrizzleLedgerStore`'s
+ * `#withWorkspace`) rather than calling `set_config` as a bare, separate
+ * auto-commit statement, which would reset before the following query ever
+ * saw it. `userId` is optional — some callers (e.g. a public/workspace-scope
+ * read with no specific owner in play) have none to set. */
+async function withMemoryRlsContext<T>(db: DbLike, workspaceId: string, userId: string | null | undefined, operation: (tx: DbLike) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`);
+    if (userId) {
+      await tx.execute(sql`SELECT set_config('app.user_id', ${userId}, true)`);
+    }
+    return operation(tx);
+  });
+}
+
 const OPEN_SCOPES = ["public", "workspace"] as const;
 const OWNER_SCOPES = ["team", "private", "restricted"] as const;
 
@@ -49,6 +76,7 @@ function unpack(row: typeof memories.$inferSelect): MemoryEntry {
     createdBy: row.createdBy,
     ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
     createdAt: row.createdAt.toISOString(),
+    ...(row.lineageRevision != null ? { lineageRevision: row.lineageRevision } : {}),
   };
 }
 
@@ -84,33 +112,38 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async write(entry: MemoryWrite): Promise<MemoryEntry> {
-    return this.#insert(entry, null);
+    return withMemoryRlsContext(this.#db, entry.workspaceId, entry.ownerUserId, (tx) => this.#insert(entry, null, tx));
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    const current = await this.#db
-      .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
-      .from(memories)
-      .where(eq(memories.id, id))
-      .limit(1);
-    if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
-    if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
-      throw new Error("memory store: a correction cannot change workspace or owner");
-    }
-    return this.#insert(next, id);
+    return withMemoryRlsContext(this.#db, next.workspaceId, next.ownerUserId, async (tx) => {
+      const current = await tx
+        .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+        .from(memories)
+        .where(eq(memories.id, id))
+        .limit(1);
+      if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
+      if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
+        throw new Error("memory store: a correction cannot change workspace or owner");
+      }
+      return this.#insert(next, id, tx);
+    });
   }
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
-    const rows = await this.#db
-      .select()
-      .from(memories)
-      .where(and(eq(memories.id, id), visibilityWhere(authScope)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(memories)
+        .where(and(eq(memories.id, id), visibilityWhere(authScope)))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpack(row) : null;
+    });
   }
 
   async retrieve(query: MemoryQuery, authScope: MemoryAuthScope): Promise<MemoryEntry[]> {
+    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
     const conds: SQL[] = [visibilityWhere(authScope)];
     if (!query.includeSuperseded) {
       conds.push(sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`);
@@ -146,23 +179,59 @@ export class DrizzleMemoryStore implements MemoryStore {
       );
     }
     const order = query.order ?? "desc";
+    const useLineageRevision = query.orderBy === "lineageRevision";
     if (query.cursor) {
-      // Keyset (review item 8): strictly beyond the cursor's (createdAt, id)
-      // position in the requested order — stable under concurrent insert/
-      // supersede between page fetches, unlike offset (never re-derives a
-      // row's position from a count that can shift underneath it).
-      const cursorCreatedAt = new Date(query.cursor.createdAt);
-      conds.push(
-        order === "asc"
-          ? sql`(${memories.createdAt}, ${memories.id}) > (${cursorCreatedAt}, ${query.cursor.id})`
-          : sql`(${memories.createdAt}, ${memories.id}) < (${cursorCreatedAt}, ${query.cursor.id})`,
-      );
+      if (useLineageRevision) {
+        // review round-7: `lineage_revision` cursor comparison — a bare SQL
+        // tuple comparison `(lineage_revision, id) > (NULL, cursorId)`
+        // evaluates to SQL NULL (never true), which would silently drop
+        // every non-null-revision row from the next page whenever the
+        // cursor itself was a legacy null-revision row. Handled explicitly
+        // instead of relying on tuple comparison across a nullable column
+        // (the SAME class of three-valued-logic bug this file's
+        // `contentPathEquals` `IS JSON` fix and the RLS predicates'
+        // `coalesce` fix both already guard against). `null` always sorts
+        // OLDEST regardless of direction (MemoryQuery.orderBy's doc).
+        const cursorRevision = query.cursor.lineageRevision ?? null;
+        if (cursorRevision === null) {
+          conds.push(
+            order === "asc"
+              ? sql`((${memories.lineageRevision} IS NULL AND ${memories.id} > ${query.cursor.id}) OR ${memories.lineageRevision} IS NOT NULL)`
+              : sql`(${memories.lineageRevision} IS NULL AND ${memories.id} < ${query.cursor.id})`,
+          );
+        } else {
+          conds.push(
+            order === "asc"
+              ? sql`(${memories.lineageRevision} IS NOT NULL AND (${memories.lineageRevision}, ${memories.id}) > (${cursorRevision}, ${query.cursor.id}))`
+              : sql`(${memories.lineageRevision} IS NULL OR (${memories.lineageRevision}, ${memories.id}) < (${cursorRevision}, ${query.cursor.id}))`,
+          );
+        }
+      } else {
+        // Keyset (review item 8): strictly beyond the cursor's (createdAt, id)
+        // position in the requested order — stable under concurrent insert/
+        // supersede between page fetches, unlike offset (never re-derives a
+        // row's position from a count that can shift underneath it).
+        const cursorCreatedAt = new Date(query.cursor.createdAt);
+        conds.push(
+          order === "asc"
+            ? sql`(${memories.createdAt}, ${memories.id}) > (${cursorCreatedAt}, ${query.cursor.id})`
+            : sql`(${memories.createdAt}, ${memories.id}) < (${cursorCreatedAt}, ${query.cursor.id})`,
+        );
+      }
     }
-    let q = this.#db
+    let q = tx
       .select()
       .from(memories)
       .where(and(...conds))
-      .orderBy(...(order === "asc" ? [asc(memories.createdAt), asc(memories.id)] : [desc(memories.createdAt), desc(memories.id)]))
+      .orderBy(
+        ...(useLineageRevision
+          ? order === "asc"
+            ? [sql`${memories.lineageRevision} ASC NULLS FIRST`, asc(memories.id)]
+            : [sql`${memories.lineageRevision} DESC NULLS LAST`, desc(memories.id)]
+          : order === "asc"
+            ? [asc(memories.createdAt), asc(memories.id)]
+            : [desc(memories.createdAt), desc(memories.id)]),
+      )
       .$dynamic();
     if (query.limit != null) q = q.limit(query.limit);
     // A cursor supersedes offset — offset only remains meaningful for the
@@ -171,28 +240,36 @@ export class DrizzleMemoryStore implements MemoryStore {
     if (query.offset != null && !query.cursor) q = q.offset(query.offset);
     const rows = await q;
     return rows.map(unpack);
+    });
   }
 
   async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
-    const target = await this.get(id, authScope);
-    if (!target) return false;
-    await this.#db.execute(sql`
-      WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
-        SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
-        UNION
-        SELECT m.id, m.supersedes_id, m.owner_user_id
-        FROM memories m
-        JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
-        WHERE m.workspace_id = ${authScope.workspaceId}
-          AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
-      )
-      DELETE FROM memories WHERE id IN (SELECT id FROM lineage)
-    `);
-    return true;
+    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(memories)
+        .where(and(eq(memories.id, id), visibilityWhere(authScope)))
+        .limit(1);
+      const target = rows[0] ? unpack(rows[0]) : null;
+      if (!target) return false;
+      await tx.execute(sql`
+        WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
+          SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
+          UNION
+          SELECT m.id, m.supersedes_id, m.owner_user_id
+          FROM memories m
+          JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
+          WHERE m.workspace_id = ${authScope.workspaceId}
+            AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
+        )
+        DELETE FROM memories WHERE id IN (SELECT id FROM lineage)
+      `);
+      return true;
+    });
   }
 
   async currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
-    return this.#currentForLineageTx(this.#db, workspaceId, ownerUserId, lineageKey);
+    return withMemoryRlsContext(this.#db, workspaceId, ownerUserId, (tx) => this.#currentForLineageTx(tx, workspaceId, ownerUserId, lineageKey));
   }
 
   /**
@@ -224,9 +301,24 @@ export class DrizzleMemoryStore implements MemoryStore {
     try {
       return await this.#db.transaction(
         async (tx) => {
+          // TASK-010 review round-6: sets the SAME app.workspace_id/app.user_id
+          // GUCs withMemoryRlsContext sets elsewhere — inlined here (rather than
+          // nesting a SEPARATE withMemoryRlsContext transaction inside this one)
+          // because the SERIALIZABLE isolation level below must apply to the
+          // one transaction that does the compare-and-insert, not an outer
+          // (necessarily lower-isolation) wrapper transaction.
+          await tx.execute(sql`SELECT set_config('app.workspace_id', ${params.workspaceId}, true)`);
+          await tx.execute(sql`SELECT set_config('app.user_id', ${params.ownerUserId}, true)`);
           const current = await this.#currentForLineageTx(tx, params.workspaceId, params.ownerUserId, params.lineageKey);
           if ((current?.id ?? null) !== params.expectedCurrentId) return null;
-          return this.#insert(params.next, params.expectedCurrentId, tx);
+          // review round-7: allocated from the SAME `current` row this
+          // transaction already read under SERIALIZABLE isolation — a
+          // concurrent racer observing the same "current" and computing the
+          // same next revision is exactly the write-skew this isolation
+          // level detects and aborts (one loses with a `40001`, caught
+          // below), so no separate `MAX(lineage_revision)` query is needed.
+          const nextRevision = (current?.lineageRevision ?? 0) + 1;
+          return this.#insert(params.next, params.expectedCurrentId, tx, nextRevision);
         },
         { isolationLevel: "serializable" },
       );
@@ -254,7 +346,7 @@ export class DrizzleMemoryStore implements MemoryStore {
     return row ? unpack(row) : null;
   }
 
-  async #insert(entry: MemoryWrite, supersedesId: string | null, db: DbLike = this.#db): Promise<MemoryEntry> {
+  async #insert(entry: MemoryWrite, supersedesId: string | null, db: DbLike = this.#db, lineageRevision: number | null = null): Promise<MemoryEntry> {
     const [inserted] = await db
       .insert(memories)
       .values({
@@ -272,6 +364,7 @@ export class DrizzleMemoryStore implements MemoryStore {
         plane: entry.plane,
         createdBy: entry.createdBy,
         ownerUserId: entry.ownerUserId ?? null,
+        ...(lineageRevision != null ? { lineageRevision } : {}),
         ...(entry.createdAt ? { createdAt: new Date(entry.createdAt) } : {}),
       })
       .returning();
@@ -282,8 +375,12 @@ export class DrizzleMemoryStore implements MemoryStore {
 
 /** Structural subset of `Database` a transaction callback's `tx` handle also
  * satisfies — lets `#insert`/`#currentForLineageTx` run against either the
- * top-level `Database` or a `casSupersede` transaction's `tx` uniformly. */
-type DbLike = Pick<Database, "select" | "insert">;
+ * top-level `Database` or a `casSupersede` transaction's `tx` uniformly.
+ * Widened (round-6) to include `execute`/`transaction` so `withMemoryRlsContext`
+ * can set the RLS session GUCs and nest `casSupersede`'s own transaction
+ * inside it uniformly, whether called against the top-level `Database` or
+ * an already-open `tx`. */
+type DbLike = Pick<Database, "select" | "insert" | "execute" | "transaction">;
 
 /** Postgres SQLSTATE `40001` ("serialization_failure") — thrown by a
  * SERIALIZABLE transaction that lost a concurrency race.

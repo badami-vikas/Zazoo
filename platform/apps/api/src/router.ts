@@ -393,28 +393,21 @@ export function deterministicUuid(seed: string): string {
  * process-local monotonicity is sufficient since every write in one
  * lineage's saga happens on this same server process/request.
  *
- * KNOWN, DOCUMENTED LIMITATION (review round-5 item 7 — "durable lineage
- * ordering"): this counter is PROCESS-LOCAL. It gives correct within-one-
- * request ordering (the only case this repo's current single-instance dev/
- * test deployment ever exercises), but is NOT valid across multiple
- * concurrently-running API server instances (a horizontally-scaled
- * deployment) or across a process restart — `lastIssuedRedFlagTimestampMs`
- * resets to 0 on restart, and two DIFFERENT instances each keep their OWN
- * counter, so two writes to the SAME lineage from two different
- * instances/restarts could receive colliding or causally-backwards
- * timestamps. The principled fix is a DB-backed, atomically-allocated
- * per-lineage revision/version column (e.g. `memories.lineage_revision`,
- * a `SELECT ... FOR UPDATE`-guarded or sequence-backed monotonic counter
- * scoped to `(workspace_id, owner_user_id, subject_element_id)`, allocated
- * inside `casSupersede`'s own SERIALIZABLE transaction) — genuinely correct
- * across any number of processes/restarts, the same way `casSupersede`'s
- * CAS itself already is. That requires a real schema migration and is
- * BLOCKED behind TASK-008 RM4's `0015` per the standing "do not fabricate
- * migration content before RM4 lands" rule; `history`'s keyset order would
- * then become `(lineage_revision, id)` for one lineage's own ordering
- * (global cross-lineage order stays `(created_at, id)`, unaffected). Do not
- * remove this comment or the process-local counter until that migration
- * lands and this function is replaced.
+ * KNOWN, DOCUMENTED LIMITATION, NARROWED (review round-5/7 — "durable
+ * lineage ordering"): this counter is still PROCESS-LOCAL and remains in
+ * use for `createdAt` itself (every Memory row still needs a real
+ * timestamp, and cross-LINEAGE global listings — e.g. the red-flag audit
+ * `flags` list — still order by `(created_at, id)`, for which a per-lineage
+ * revision is meaningless — see `MemoryQuery.orderBy`'s doc). What IS now
+ * fixed (post-TASK-008-RM4 migration `0016`): `memories.lineage_revision`
+ * is allocated atomically inside `casSupersede`'s own SERIALIZABLE
+ * transaction, scoped to `(workspace_id, owner_user_id,
+ * subject_element_id)` — correct across any number of processes/restarts.
+ * `history`'s single-lineage keyset order now uses
+ * `orderBy: "lineageRevision"` (`(lineage_revision, id)`) instead of
+ * `(created_at, id)`, closing the exact gap this comment used to describe
+ * as blocked. This function/counter is UNCHANGED and still needed for
+ * `createdAt` and for any ordering that spans more than one lineage.
  */
 let lastIssuedRedFlagTimestampMs = 0;
 function monotonicRedFlagNowISO(): string {
@@ -524,18 +517,23 @@ function isLegacyOnboardingContent(value: LearningMemoryContent | null): value i
   return value?.kind === "onboarding_preference" || value?.kind === "reflection_schedule" || value?.kind === "trust_capture";
 }
 
-/** Opaque base64url-encoded keyset cursor — `{createdAt, id}` (review
- * round-4 item 8: total keyset order, immune to a row inserted/superseded
- * between page fetches, unlike the offset this replaced). */
-function encodeRedFlagCursor(row: { createdAt: string; id: string }): string {
-  return Buffer.from(JSON.stringify([row.createdAt, row.id]), "utf8").toString("base64url");
+/** Opaque base64url-encoded keyset cursor — `{createdAt, id, lineageRevision}`
+ * (review round-4 item 8: total keyset order, immune to a row inserted/
+ * superseded between page fetches, unlike the offset this replaced).
+ * `lineageRevision` (review round-7) is included so `history`'s single-
+ * lineage listing can paginate by the durable per-lineage revision instead
+ * of `createdAt` — the cross-lineage `flags` list still orders/paginates by
+ * `createdAt` alone and simply ignores the third slot. */
+function encodeRedFlagCursor(row: { createdAt: string; id: string; lineageRevision?: number | null }): string {
+  return Buffer.from(JSON.stringify([row.createdAt, row.id, row.lineageRevision ?? null]), "utf8").toString("base64url");
 }
-function decodeRedFlagCursor(cursor: string | undefined): { createdAt: string; id: string } | undefined {
+function decodeRedFlagCursor(cursor: string | undefined): { createdAt: string; id: string; lineageRevision?: number | null } | undefined {
   if (!cursor) return undefined;
   try {
     const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
     if (Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "string") {
-      return { createdAt: parsed[0], id: parsed[1] };
+      const lineageRevision = typeof parsed[2] === "number" ? parsed[2] : null;
+      return { createdAt: parsed[0], id: parsed[1], lineageRevision };
     }
   } catch {
     /* fall through */
@@ -4730,7 +4728,22 @@ export const appRouter = t.router({
         }
         const cursor = decodeRedFlagCursor(input.cursor);
         const rows = await ctx.wiring.memoryStore.retrieve(
-          { subjectElementId: current.subjectElementId!, includeSuperseded: true, order: "asc", limit: input.limit, ...(cursor ? { cursor } : {}) },
+          {
+            subjectElementId: current.subjectElementId!,
+            includeSuperseded: true,
+            order: "asc",
+            // review round-7: this query is scoped to ONE lineage
+            // (`subjectElementId` above), so `lineageRevision` ordering is
+            // valid here (see MemoryQuery.orderBy's doc) and replaces the
+            // formerly process-local `monotonicRedFlagNowISO` counter for
+            // "which version of THIS lineage came first" — durable across
+            // any number of server processes/restarts. A legacy row written
+            // before this column existed still sorts oldest (its revision
+            // is `null`, always treated as older than any allocated one).
+            orderBy: "lineageRevision",
+            limit: input.limit,
+            ...(cursor ? { cursor } : {}),
+          },
           auth,
         );
         const versions = rows

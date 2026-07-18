@@ -105,6 +105,86 @@ test("casSupersede: two 'concurrent' callers racing the same expected-current id
   assert.equal(store.entries.length, 2, "v1 plus exactly one winner — the loser's row must never be written");
 });
 
+test("casSupersede (review round-7 'durable lineage ordering'): allocates lineageRevision 1, 2, 3... atomically per lineage, never per a caller-supplied value", async () => {
+  const store = new InMemoryMemoryStore();
+  const v1 = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: null,
+    next: draft("00000000-0000-4000-8000-000000000001"),
+  });
+  const v2 = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+    next: draft("00000000-0000-4000-8000-000000000002"),
+  });
+  const v3 = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v2!.id,
+    next: draft("00000000-0000-4000-8000-000000000003"),
+  });
+  assert.equal(v1!.lineageRevision, 1);
+  assert.equal(v2!.lineageRevision, 2);
+  assert.equal(v3!.lineageRevision, 3);
+  // A DIFFERENT lineage's revisions start over at 1 — revision is per-lineage,
+  // never a global counter (MemoryQuery.orderBy's doc: comparing revisions
+  // ACROSS lineages is meaningless).
+  const otherLineage = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: "test_fixture_other_lineage_key", expectedCurrentId: null,
+    next: draft("00000000-0000-4000-8000-0000000000aa", { subjectElementId: "test_fixture_other_lineage_key" }),
+  });
+  assert.equal(otherLineage!.lineageRevision, 1);
+  // A racer that loses the CAS must never have consumed/skipped a revision —
+  // the winner's next call still gets the very next integer.
+  const [winner, loser] = await Promise.all([
+    store.casSupersede({
+      workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v3!.id,
+      next: draft("00000000-0000-4000-8000-0000000000c1"),
+    }),
+    store.casSupersede({
+      workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v3!.id,
+      next: draft("00000000-0000-4000-8000-0000000000c2"),
+    }),
+  ]);
+  const won = winner ?? loser;
+  assert.equal(loser === null || winner === null, true, "exactly one of the two racers must win");
+  assert.equal(won!.lineageRevision, 4, "the winner must get revision 4, whichever racer it was");
+});
+
+test("retrieve with orderBy:'lineageRevision' (review round-7): a legacy write() row with no revision sorts OLDEST regardless of direction, and keyset pagination is stable across the null/allocated boundary", async () => {
+  const store = new InMemoryMemoryStore();
+  // A pre-migration-style row: written via write() (never casSupersede), so
+  // it carries no lineageRevision at all — must still sort oldest.
+  const legacy = await store.write(draft("00000000-0000-4000-8000-000000000000"));
+  const v1 = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: legacy.id,
+    next: draft("00000000-0000-4000-8000-000000000001"),
+  });
+  const v2 = await store.casSupersede({
+    workspaceId: WS, ownerUserId: OWNER, lineageKey: LINEAGE_KEY, expectedCurrentId: v1!.id,
+    next: draft("00000000-0000-4000-8000-000000000002"),
+  });
+  const auth = { workspaceId: WS, userId: OWNER };
+  const all = await store.retrieve(
+    { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision" },
+    auth,
+  );
+  assert.deepEqual(all.map((e) => e.id), [legacy.id, v1!.id, v2!.id], "the null-revision legacy row must sort oldest");
+
+  // Keyset pagination across the null -> allocated boundary must be stable
+  // (no duplicate/omission) — the exact failure mode a bare SQL tuple
+  // comparison against a nullable column would hit.
+  const page1 = await store.retrieve(
+    { subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 1 },
+    auth,
+  );
+  assert.deepEqual(page1.map((e) => e.id), [legacy.id]);
+  const page2 = await store.retrieve(
+    {
+      subjectElementId: LINEAGE_KEY, includeSuperseded: true, order: "asc", orderBy: "lineageRevision", limit: 2,
+      cursor: { createdAt: page1[0]!.createdAt, id: page1[0]!.id, lineageRevision: page1[0]!.lineageRevision ?? null },
+    },
+    auth,
+  );
+  assert.deepEqual(page2.map((e) => e.id), [v1!.id, v2!.id], "page 2 must pick up exactly where page 1 left off — no dupe, no gap");
+});
+
 test("currentForLineage scopes strictly by workspaceId + ownerUserId + lineageKey — no cross-tenant/owner bleed", async () => {
   const store = new InMemoryMemoryStore();
   await store.casSupersede({

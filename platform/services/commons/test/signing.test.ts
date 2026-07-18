@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
@@ -51,7 +52,10 @@ function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): P
 }
 
 async function createApp(t: TestContext, keyPair: CommonsSigningKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" })) {
-  const dataDir = await mkdtemp(join(process.cwd(), ".commons-signing-test-"));
+  // Uses the OS tmpdir (never `process.cwd()`) — a killed/interrupted test
+  // run must never leave debris inside the repo working tree (a real,
+  // discovered instance of exactly that litter is what prompted this fix).
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-signing-test-"));
   const app = buildCommonsServer(new FsCommonsStore(dataDir), { keyPair, publishToken: TEST_PUBLISH_TOKEN });
   t.after(async () => {
     await app.close();
@@ -163,7 +167,7 @@ test("Commons rejects non-Ed25519 signing and verification keys", () => {
 });
 
 test("persisted signing keys keep stored entries readable across service restarts", async () => {
-  const dataDir = await mkdtemp(join(process.cwd(), ".commons-restart-test-"));
+  const dataDir = await mkdtemp(join(tmpdir(), "commons-restart-test-"));
   const keyFile = join(dataDir, "signing-key.json");
   try {
     const firstKeyPair = resolveCommonsSigningKeyPair({ NODE_ENV: "test" }, keyFile);
