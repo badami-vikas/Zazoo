@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:02:37.896Z",
+  "generatedAt": "2026-07-18T21:10:29.618Z",
   "items": [
     {
       "id": "TASK-001",
@@ -272,7 +272,7 @@
         "explicit clears, canonical datetime input, and route-safe snapshot pagination. Final evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
         "post-main-merge core 430, DB 154, Google 39, API 218, web 69 (910 affected tests)",
         "monorepo typecheck/build",
-        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
+        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. Historical RM4 worktree reconciliation landed at `3741a41`, confirming `ff98c20` and `905aee9` were already ancestors and regenerating fresh-session Task Manager evidence without re-merging code. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
         "advanced RM6/evaluation capabilities remain future plan scope, not blockers for this completed TASK-008 prototype."
       ],
       "requests": [

@@ -1,5 +1,12 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 historical worktree reconciliation landed**: merged the historical
+  RM4 worktree through current `main` at `3741a41` after confirming source heads `ff98c20` and
+  `905aee9` were already ancestors. Preserved the canonical `done` prototype closure from
+  `f78e47c`, marked the competing candidate B superseded, refreshed `docs/Progress from Manish/`,
+  and regenerated Task Manager data. The task parser passed 4/4 and a fresh independent
+  documentation review found no material issue; no RM4 code or migration was re-merged.
+
 - **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
   the implementation already landed through `bab32ea`. The exact installed Relationship →
   Signals/People/Communities → Signal → Person/Community participants → source Event → governed

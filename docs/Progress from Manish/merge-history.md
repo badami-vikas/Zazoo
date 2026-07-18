@@ -5,7 +5,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 ## Current central baseline
 
 - Latest `main` baseline merged for this handoff:
-  `f78e47c9cca2e75ff3dad031170f32f65d5ab8b9`.
+  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
 - TASK-006 code landed at `7f44186` under AP-045 after validating and normally merging base
   `bab32ea`.
 - Working tree was clean when this package was created.
@@ -35,6 +35,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `7f44186` | TASK-006 durable Local Plane, OS vault, OAuth, and desktop lifecycle integration under AP-045; final reviewed source was `adf6c95`. |
 | `5091dae` | Recorded the landed TASK-006 integration and refreshed its canonical resume evidence. |
 | `f78e47c` | Canonically closed the exact TASK-008 prototype after the validated RM4 and Relationship continuation evidence; advanced RM6/evaluation work remains future scope. |
+| `3741a41` | Reconciled the historical RM4 worktree with the canonical TASK-008 closure, refreshed fresh-session guidance, and regenerated Task Manager data; no RM4 code was re-merged. |
 
 ## Historical source branches
 

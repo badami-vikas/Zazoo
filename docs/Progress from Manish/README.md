@@ -9,7 +9,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the current documented baseline `f78e47c`.
+4. Fetch `origin/main` and compare it with the current documented baseline `3741a41`.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,7 +17,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Current documented `main`: `f78e47c9cca2e75ff3dad031170f32f65d5ab8b9`. Always re-fetch
+- Current documented `main`: `3741a4144544a4a60bb06bec32b5e9dc17b693cd`. Always re-fetch
   before resuming any worktree.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
