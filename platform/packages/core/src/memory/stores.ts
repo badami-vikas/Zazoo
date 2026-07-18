@@ -174,31 +174,41 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
-/** TASK-010 review round-6 — widened beyond RM4's original relation-only
- * scope: a `resourceType !== "relation"` row is ALSO private when its own
- * `inputs.visibility === "private"` (the marker `pipeline.propose` writes
- * for a red-flag correction's governed `preference_adjustment` proposal —
- * see router.ts's `isPrivateProposalInputs`). A relation row's OWN
- * `inputs.visibility` enum (`"private"|"workspace"|"public"`, a DIFFERENT,
- * unrelated field on that resourceType) is never consulted here — relation
- * privacy stays governed ENTIRELY by `resourceType === "relation"`, exactly
- * as RM4 shipped it, so this widening can never change relation-row
- * behavior. Reusing the SAME onBehalfOf/actor ownership check below for
- * BOTH shapes is correct because a red-flag proposal's actor is always the
- * Learning Agent acting `onBehalfOf` its Human owner (never a direct user
- * actor), so only the `onBehalfOfType === "user"` branch is ever exercised
- * for it — the actor-fallback branch remains exclusively relation's own. */
-function isPrivateLedgerEntry(entry: LedgerEntry): boolean {
-  if (entry.resourceType === "relation") return true;
-  const inputs = entry.inputs;
-  return typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) && (inputs as Record<string, unknown>).visibility === "private";
+function hasRelationshipDirective(entry: LedgerEntry): boolean {
+  return (
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs) &&
+    "directive" in entry.inputs
+  );
+}
+
+/** Owner-scopes both TASK-008 Relationship rows (including legacy rows without
+ * dataScope) and TASK-010's private non-Relation correction proposals. */
+function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
+  const inputs =
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs)
+      ? entry.inputs as Record<string, unknown>
+      : null;
+  return (
+    entry.dataScope === "private" ||
+    entry.resourceType === "relation" ||
+    entry.resourceType === "person" ||
+    entry.resourceType === "community" ||
+    entry.resourceType === "event" ||
+    entry.resourceType === "touchpoint" ||
+    hasRelationshipDirective(entry) ||
+    inputs?.visibility === "private"
+  );
 }
 
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
 ): boolean {
-  if (!privateOwnerUserId || !isPrivateLedgerEntry(entry)) return true;
+  if (!privateOwnerUserId || !isOwnerScopedLedgerEntry(entry)) return true;
   if (entry.onBehalfOfType === "user") {
     return entry.onBehalfOfId === privateOwnerUserId;
   }

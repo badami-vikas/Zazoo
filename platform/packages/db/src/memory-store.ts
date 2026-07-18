@@ -13,7 +13,7 @@
  * `confidence` is a numeric column (Drizzle surfaces it as a string): unpack
  * Number()-izes on read, `#insert` stringifies on write.
  */
-import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import type {
   MemoryAuthScope,
   MemoryClassification,
@@ -117,14 +117,61 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
     return withMemoryRlsContext(this.#db, next.workspaceId, next.ownerUserId, async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 0::bigint))`,
+      );
       const current = await tx
-        .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+        .select({
+          workspaceId: memories.workspaceId,
+          ownerUserId: memories.ownerUserId,
+        })
         .from(memories)
         .where(eq(memories.id, id))
+        .for("update", { of: memories })
         .limit(1);
-      if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
-      if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
-        throw new Error("memory store: a correction cannot change workspace or owner");
+      if (current.length === 0) {
+        throw new Error(`memory store: cannot supersede unknown id ${id}`);
+      }
+      if (
+        current[0]!.workspaceId !== next.workspaceId ||
+        current[0]!.ownerUserId !== (next.ownerUserId ?? null)
+      ) {
+        throw new Error(
+          "memory store: a correction cannot change workspace or owner",
+        );
+      }
+      const existingSuccessors = await tx
+        .select()
+        .from(memories)
+        .where(eq(memories.supersedesId, id))
+        .orderBy(memories.id)
+        .limit(2);
+      const existing = existingSuccessors[0];
+      if (existing) {
+        const sameReplay =
+          existingSuccessors.length === 1 &&
+          existing.id === next.id &&
+          existing.workspaceId === next.workspaceId &&
+          existing.type === next.type &&
+          existing.subjectElementId === (next.subjectElementId ?? null) &&
+          existing.scope === next.scope &&
+          existing.content === next.content &&
+          existing.sourceRefType === (next.sourceRefType ?? null) &&
+          existing.sourceRefId === (next.sourceRefId ?? null) &&
+          Number(existing.confidence) === next.confidence &&
+          existing.trustOrigin === next.trustOrigin &&
+          existing.plane === next.plane &&
+          existing.createdBy === next.createdBy &&
+          existing.ownerUserId === (next.ownerUserId ?? null) &&
+          (
+            next.createdAt === undefined ||
+            existing.createdAt.toISOString() ===
+              new Date(next.createdAt).toISOString()
+          );
+        if (sameReplay) return unpack(existing);
+        throw new Error(
+          "memory store: a Memory can have only one current correction",
+        );
       }
       return this.#insert(next, id, tx);
     });
@@ -146,10 +193,20 @@ export class DrizzleMemoryStore implements MemoryStore {
     return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
     const conds: SQL[] = [visibilityWhere(authScope)];
     if (!query.includeSuperseded) {
-      conds.push(sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`);
+      conds.push(sql`NOT EXISTS (
+        SELECT 1
+        FROM ${memories} AS m2
+        WHERE m2.supersedes_id = ${memories.id}
+          ${query.snapshotAt
+            ? sql`AND m2.created_at <= ${new Date(query.snapshotAt)}`
+            : sql``}
+      )`);
     }
     if (query.type) conds.push(eq(memories.type, query.type));
     if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
+    if (query.snapshotAt) {
+      conds.push(lte(memories.createdAt, new Date(query.snapshotAt)));
+    }
     if (query.sourceRefType) conds.push(eq(memories.sourceRefType, query.sourceRefType));
     // review round-4 item 7 / round-5 item 8: push structured JSON
     // predicates into the SQL WHERE (no schema migration) rather than

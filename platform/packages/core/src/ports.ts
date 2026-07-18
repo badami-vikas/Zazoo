@@ -113,8 +113,8 @@ export interface LedgerStore {
     workspaceId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }>;
-  /** Bounded append-only history. Private Relation rows remain visible only to
-   * their effective owning user; other resource types retain workspace scope. */
+  /** Bounded append-only history. Every private row remains visible only to its
+   * effective owning user; non-private rows retain workspace scope. */
   listHistory(
     workspaceId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
@@ -147,7 +147,7 @@ export interface MediaCaptureRecord {
   status: MediaStatus;
   /** Set when an approved proposal commits the capture. */
   ledgerId?: string;
-  linkedEntity?: { type: "person" | "memory" | "touchpoint"; id: string } | null;
+  linkedEntity?: { type: "person" | "memory" | "event" | "touchpoint"; id: string } | null;
   provenance: { tool: string; version: string; model?: string };
   capturedAt: string;
   archivedAt?: string | null;

@@ -251,6 +251,7 @@ export async function buildServer() {
             ? { afterOwnerUserId: relationOwnerCursor }
             : {}),
         },
+        wiring.memoryStore,
       );
       relationOwnerCursor = result.nextOwnerCursor ?? undefined;
       if (result.failed > 0 || result.errors.length > 0) {

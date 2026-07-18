@@ -4,7 +4,7 @@
  * alone doesn't catch it (it only excludes MATERIALIZED — i.e. already-approved —
  * records). Without the propose-time dedup added to `IntakeService.stage()`, two syncs
  * would stage two separate PENDING proposals for the same thread, and approving both
- * would double-commit Touchpoints/Memories.
+ * would double-commit Events/Memories.
  *
  * This exercises the REAL pipeline + gate (no mocked pipeline) with a fake gateway
  * returning the same test_fixture_ thread across two `syncGmail` calls.
@@ -29,7 +29,6 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { createMemoryLocalPlane, type LocalPlane } from "@bridge/local";
-import { InMemoryCanonicalIdentityStore } from "@bridge/db";
 
 import {
   GoogleService,
@@ -76,9 +75,10 @@ const test_fixture_thread: GmailThread = {
 
 class test_fixture_FakeGateway implements GoogleGateway {
   fetchThreadsCalls = 0;
+  threads: GmailThread[] = [test_fixture_thread];
   async fetchThreads(): Promise<FetchThreadsResult> {
     this.fetchThreadsCalls += 1;
-    return { threads: [test_fixture_thread] };
+    return { threads: this.threads };
   }
   async fetchEvents(): Promise<FetchEventsResult> {
     return { events: [] };
@@ -115,6 +115,7 @@ async function build(): Promise<{
   localPlane: LocalPlane;
   pipeline: UniversalActionPipeline;
   ledger: InMemoryLedger;
+  restart: () => GoogleService;
 }> {
   const roles = new InMemoryRoleStore();
   const agents = new InMemoryAgentStore();
@@ -129,9 +130,9 @@ async function build(): Promise<{
   roles.roleGrants.set("role-egress", [{ resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" }]);
 
   agents.assumed.set(INTAKE_AGENT, "role-intake");
-  agents.scope.set(INTAKE_AGENT, ["touchpoint:write", "signal:write", "person:write"]);
+  agents.scope.set(INTAKE_AGENT, ["event:write", "signal:write", "person:write"]);
   roles.roleGrants.set("role-intake", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
@@ -139,10 +140,10 @@ async function build(): Promise<{
   roles.direct.set(`user:${USER}`, [
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "external:send", resourceId: null, action: "share", effect: "allow" },
-    // The intake agent drafts touchpoint/signal/person proposals on-behalf-of this
+    // The intake agent drafts Event/Signal/Person proposals on behalf of this
     // user (delegation): resolveAuthority also requires the PRINCIPAL to hold the
     // matching grant, not just the agent's role.
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
@@ -150,7 +151,6 @@ async function build(): Promise<{
   const gw = new test_fixture_FakeGateway();
   const gateways = new test_fixture_FakeFactory(gw);
   const localPlane = await createMemoryLocalPlane();
-  const canonical = new InMemoryCanonicalIdentityStore();
 
   const skills = new InMemorySkillRegistry();
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skills.register(s);
@@ -164,18 +164,26 @@ async function build(): Promise<{
     variance,
   });
 
-  const intake = new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph });
-  const google = new GoogleService({
-    pipeline,
-    intake,
-    materializer: new IntakeMaterializer({ graph: localPlane.graph, canonical }),
-    egress: undefined as never, // unused by this test (no external:send exercised)
-    secrets: localPlane.secrets,
-    identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
-    selfEmails: ["test_fixture_self@example.com"],
-  });
+  const restart = () => {
+    const intake = new IntakeService({
+      pipeline,
+      bodies: localPlane.bodies,
+      graph: localPlane.graph,
+      pendingLedger: ledger,
+    });
+    return new GoogleService({
+      pipeline,
+      intake,
+      materializer: new IntakeMaterializer({ graph: localPlane.graph }),
+      egress: undefined as never, // unused by this test (no external:send exercised)
+      secrets: localPlane.secrets,
+      identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },
+      selfEmails: ["test_fixture_self@example.com"],
+    });
+  };
+  const google = restart();
 
-  return { google, gw, localPlane, pipeline, ledger };
+  return { google, gw, localPlane, pipeline, ledger, restart };
 }
 
 function ctx(): RunCtx {
@@ -184,8 +192,8 @@ function ctx(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
-test("syncing twice before approval does NOT stage a second pending proposal for the same thread", async () => {
-  const { google, localPlane } = await build();
+test("pending source dedup survives an IntakeService restart", async () => {
+  const { google, localPlane, restart } = await build();
   const c = ctx();
 
   const first = await google.syncGmail(c);
@@ -194,7 +202,7 @@ test("syncing twice before approval does NOT stage a second pending proposal for
   const firstProposalId = first.proposals[0]?.proposalId;
 
   // Re-sync BEFORE the user has approved anything — same thread, still pending.
-  const second = await google.syncGmail(c);
+  const second = await restart().syncGmail(c);
   assert.equal(second.proposals.length, 1, "still only one proposal summary is returned for the same thread");
   assert.equal(second.proposals[0]?.proposalId, firstProposalId, "the second sync returns the SAME pending proposal, not a new one");
   assert.equal(second.proposals[0]?.status, "pending_review");
@@ -202,6 +210,43 @@ test("syncing twice before approval does NOT stage a second pending proposal for
   // A third sync for good measure — still no duplicate.
   const third = await google.syncGmail(c);
   assert.equal(third.proposals[0]?.proposalId, firstProposalId);
+
+  await localPlane.close();
+});
+
+test("pending identity reservation is reused across distinct source records and restart", async () => {
+  const { google, gw, localPlane, ledger, restart } = await build();
+  const c = ctx();
+  const first = await google.syncGmail(c);
+  const firstLedger = await ledger.get(first.proposals[0]!.proposalId);
+  const firstDirective = (firstLedger?.proposedOutput as {
+    directive?: IntakeDirective;
+  } | undefined)?.directive;
+  assert.ok(firstDirective?.person);
+
+  gw.threads = [{
+    ...test_fixture_thread,
+    threadId: "test_fixture_thread_pending_identity_2",
+    messages: test_fixture_thread.messages.map((message) => ({
+      ...message,
+      messageId: "test_fixture_msg_pending_identity_2",
+    })),
+  }];
+  const second = await restart().syncGmail(c);
+  const secondLedger = await ledger.get(second.proposals[0]!.proposalId);
+  const secondDirective = (secondLedger?.proposedOutput as {
+    directive?: IntakeDirective;
+  } | undefined)?.directive;
+  assert.ok(secondDirective?.person);
+  assert.equal(
+    secondDirective.person.localPersonId,
+    firstDirective.person.localPersonId,
+  );
+  assert.ok(
+    secondDirective.entities.every(
+      (entity) => entity.personId === firstDirective.person!.localPersonId,
+    ),
+  );
 
   await localPlane.close();
 });
@@ -236,15 +281,124 @@ test("after the pending proposal is approved and materialized, re-syncing the sa
   const effects = await google.onApproved(proposalId, resolved, c);
   assert.equal(effects.materialized, true);
 
-  const entities = await localPlane.graph.listEntities(WS, "touchpoint");
-  assert.equal(entities.length, 1, "exactly one Touchpoint committed");
+  const entities = await localPlane.graph.listEntities(WS, "event");
+  assert.equal(entities.length, 1, "exactly one Event committed");
 
   // Re-sync after approval: hasExternal now excludes it (already materialized).
   const again = await google.syncGmail(c);
   assert.equal(again.proposals.length, 0, "already-materialized thread is not re-proposed");
 
-  const entitiesAfter = await localPlane.graph.listEntities(WS, "touchpoint");
-  assert.equal(entitiesAfter.length, 1, "no duplicate Touchpoint after re-sync");
+  const entitiesAfter = await localPlane.graph.listEntities(WS, "event");
+  assert.equal(entitiesAfter.length, 1, "no duplicate Event after re-sync");
+
+  await localPlane.close();
+});
+
+test("Google effects reject a resolved proposal attributed to another owner", async () => {
+  const { google, localPlane, pipeline } = await build();
+  const c = ctx();
+  const first = await google.syncGmail(c);
+  const proposalId = first.proposals[0]!.proposalId;
+  const resolved = await pipeline.decide(
+    proposalId,
+    "approve",
+    { type: "user", id: USER },
+    c,
+  );
+  await assert.rejects(
+    () =>
+      google.onApproved(
+        proposalId,
+        {
+          ...resolved,
+          request: {
+            ...resolved.request,
+            onBehalfOf: { type: "user", id: "test_fixture_other_owner" },
+          },
+        },
+        c,
+      ),
+    /does not match the integration owner/,
+  );
+  assert.equal((await localPlane.graph.listEntities(WS, "event")).length, 0);
+  await localPlane.close();
+});
+
+test("approved Local Plane identity is reused by a later source record", async () => {
+  const { google, gw, localPlane, pipeline, ledger } = await build();
+  const c = ctx();
+  const first = await google.syncGmail(c);
+  const firstProposalId = first.proposals[0]!.proposalId;
+  const resolved = await pipeline.decide(
+    firstProposalId,
+    "approve",
+    { type: "user", id: USER },
+    c,
+  );
+  await google.onApproved(firstProposalId, resolved, c);
+  const [approvedPerson] = await localPlane.graph.listPeople(WS);
+  assert.ok(approvedPerson);
+
+  gw.threads = [{
+    ...test_fixture_thread,
+    threadId: "test_fixture_thread_dedup_2",
+    subject: "test_fixture_ A second conversation",
+    messages: test_fixture_thread.messages.map((message) => ({
+      ...message,
+      messageId: "test_fixture_msg_2",
+      subject: "test_fixture_ A second conversation",
+    })),
+  }];
+  const second = await google.syncGmail(c);
+  assert.equal(second.proposals[0]?.match, "linked");
+  const secondProposal = await ledger.get(second.proposals[0]!.proposalId);
+  const output = secondProposal?.proposedOutput as {
+    directive?: IntakeDirective;
+  } | undefined;
+  assert.equal(output?.directive?.person, undefined);
+  assert.ok(
+    output?.directive?.entities.every(
+      (entity) => entity.personId === approvedPerson.id,
+    ),
+    "the second source record links to the approved Local Person",
+  );
+
+  await localPlane.close();
+});
+
+test("failed approved materialization retains its pending dedup seed for replay", async () => {
+  const { google, localPlane, pipeline } = await build();
+  const c = ctx();
+  const first = await google.syncGmail(c);
+  const proposalId = first.proposals[0]!.proposalId;
+  const resolved = await pipeline.decide(
+    proposalId,
+    "approve",
+    { type: "user", id: USER },
+    c,
+  );
+  const recordExternal = localPlane.graph.recordExternal.bind(localPlane.graph);
+  localPlane.graph.recordExternal = async () => {
+    throw new Error("test_fixture_receipt_failure");
+  };
+  await assert.rejects(
+    () => google.onApproved(proposalId, resolved, c),
+    /test_fixture_receipt_failure/,
+  );
+  const whileFailed = await google.syncGmail(c);
+  assert.equal(
+    whileFailed.proposals[0]?.proposalId,
+    proposalId,
+    "a failed effect cannot open a duplicate proposal window",
+  );
+
+  localPlane.graph.recordExternal = recordExternal;
+  const replayed = await google.onApproved(proposalId, resolved, c);
+  assert.equal(replayed.materialized, true);
+  assert.equal(
+    (await localPlane.graph.listEntities(WS, "event")).length,
+    1,
+  );
 
   await localPlane.close();
 });

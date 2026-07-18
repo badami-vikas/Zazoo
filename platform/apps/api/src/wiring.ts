@@ -523,7 +523,7 @@ export const OUTREACH_DRAFT_SKILL_MANIFEST = {
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_OUTREACH_GOAL_TYPE],
   taskTypes: [DRAFT_OUTREACH_TASK_TYPE],
-  permissions: ["touchpoint:write"],
+  permissions: ["event:write"],
   plane: "local",
   dataScopes: ["public"],
   riskBand: "advisory",
@@ -587,7 +587,7 @@ export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
  * recommendFromRoleModel`'s inline Goal/Task provisioning) so the SERVER,
  * never the client, decides the invoking Agent — a capture is modeled as
  * Learning "observing authorized evidence" (its stated mandate), reviewed
- * before becoming a committed Touchpoint, consistent with every other
+ * before becoming a committed Event, consistent with every other
  * governed Skill's draft-then-approve shape.
  */
 export const RELATIONSHIP_CAPTURE_GOAL_TYPE = "relationship.capture";
@@ -598,7 +598,7 @@ export const STAGE_CAPTURE_SKILL_MANIFEST = {
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_CAPTURE_GOAL_TYPE],
   taskTypes: [STAGE_CAPTURE_TASK_TYPE],
-  permissions: ["touchpoint:write", "signal:write"],
+  permissions: ["event:write", "signal:write"],
   plane: "local",
   dataScopes: ["all", "private"],
   riskBand: "advisory",
@@ -671,7 +671,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
   googleSkillManifest(SKILL_SOURCE_GMAIL, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
   googleSkillManifest(SKILL_SOURCE_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
   googleSkillManifest(SKILL_LIST_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
-  googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["touchpoint:write", "signal:write"]),
+  googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["event:write", "signal:write"]),
 ];
 
 /**
@@ -756,18 +756,18 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     agents.workspaces.set(agentId, PILOT_WORKSPACE);
     agents.statuses.set(agentId, "active");
   }
-  // Outreach Agent (existing pilot) — touchpoint:write + reads.
+  // Outreach Agent (existing pilot) — event:write + reads.
   agents.assumed.set(OUTREACH_AGENT, "role-outreach");
-  agents.scope.set(OUTREACH_AGENT, ["touchpoint:write", "person:read", "initiative:read", "file:read"]);
+  agents.scope.set(OUTREACH_AGENT, ["event:write", "person:read", "initiative:read", "file:read"]);
   agents.tiers.set(OUTREACH_AGENT, "public");
   agents.skills.set(OUTREACH_AGENT, ["outreach.stageDraft"]);
   roles.roleGrants.set("role-outreach", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
   ]);
 
   agents.assumed.set(LEARNING_AGENT, "role-learning");
-  agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write"]);
+  agents.scope.set(LEARNING_AGENT, ["signal:write", "event:write"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
     "stageLearningRecommendation",
@@ -778,7 +778,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // Internal Strategist (AGS0/AGS1, TASK-007) — local, analysis/synthesis only.
@@ -835,19 +835,24 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
 
   // Intake agent (local) — DRAFTS graph proposals.
   agents.assumed.set(INTAKE_AGENT, "role-intake");
-  agents.scope.set(INTAKE_AGENT, ["touchpoint:write", "signal:write", "person:write"]);
+  agents.scope.set(INTAKE_AGENT, ["event:write", "signal:write", "person:write"]);
   agents.skills.set(INTAKE_AGENT, [SKILL_STAGE]);
   roles.roleGrants.set("role-intake", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // The signed-in user the agents act on behalf of (delegation ∩ principal authority).
   roles.direct.set(`user:${PILOT_USER}`, [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "person", resourceId: null, action: "archive", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
@@ -1214,7 +1219,6 @@ export async function buildWiring(): Promise<Wiring> {
     ritualRegistry,
     toolRegistry,
     ritualRunRecorder,
-    canonical,
     dealPilotCaptures,
     workspaceStore,
     graphStore,
@@ -1666,8 +1670,19 @@ export async function buildWiring(): Promise<Wiring> {
   });
 
   // Google integration surface.
-  const intake = new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph, goalTasks });
-  const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
+  const intake = new IntakeService({
+    pipeline,
+    bodies: localPlane.bodies,
+    graph: {
+      hasExternal: (workspaceId, source, sourceRecordId) =>
+        localPlane.graph.hasExternal(workspaceId, source, sourceRecordId),
+      findPeopleByEmail: (workspaceId, email) =>
+        localPlane.graph.findPeopleByEmail(workspaceId, email),
+    },
+    pendingLedger: ledger,
+    goalTasks,
+  });
+  const materializer = new IntakeMaterializer({ graph: localPlane.graph });
   const egress = new EgressExecutor({ ledger, gateways, graph: localPlane.graph });
   const selfEmails = (process.env.BRIDGE_SELF_EMAILS ?? "")
     .split(",")

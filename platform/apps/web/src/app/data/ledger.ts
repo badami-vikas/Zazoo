@@ -166,6 +166,7 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
     case 'relation':
     case 'ritual':
     case 'signal':
+    case 'event':
       return value;
     case 'file':
     case 'tool':
