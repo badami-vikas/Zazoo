@@ -1665,3 +1665,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Closed the RM4 omission bug under AP-030 after desktop/375px evidence plus core 422, DB 123, API 164, web 43, desktop 28, monorepo build/typecheck, migration no-drift, lint, no-dummy, and independent central-merge review. TASK-008 remains `in_progress` for its still-canonical RM1–RM6 Person/Timeline/Memory/Map/introductions/team scope; TASK-014/TASK-009 own the cross-Module Graph renderer.
 - ADR-112 records decision-before-effect, database-sequence convergence, and `ref_ledger_id`-only proposal identity. Durable outcome: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
 - Blast-radius fix: the Task Manager prebuild parser now accepts canonical `## title` + `- ID: TASK-NNN` sections as well as legacy headings. Before the fix, every build silently generated zero task rows after the heading refactor. Added ordering/current-format regression coverage and regenerated all 23 records.
+
+# 2026-07-18 — Persistent subagent resume context
+- Added `docs/Progress from Manish/` at the user's direction so a fresh session can resume without reconstructing parallel-session history.
+- The package inventories every roadmap child session, merged source branch, paused dirty worktree, grouped reviewer result, validation handoff, blocker, duplicate implementation, migration reservation, ADR collision, and central merge rule.
+- Linked it from `docs/INDEX.md` and the retired `docs/PROGRESS.md` pointer while retaining `docs/TASKS.md` as the sole execution queue.
+- Durable user-facing pointer: `outputs/2026-07-18-subagent-progress-context.md`.
