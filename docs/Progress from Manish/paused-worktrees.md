@@ -6,8 +6,8 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
-- TASK-006 integration base: `bab32ea4a7917a273ee91f7c5df520a775301083`; AP-045
-  fast-forwards this merge-ledger commit as the next `main` head.
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -18,8 +18,9 @@ All workers were stopped on 2026-07-18. Re-check every status before resuming be
 - Branch: `manishsbhoopalam8498-persist-dealpilot-locally`
 - Validated implementation/integration head: `2f85dc7` (normally merged `origin/main` `bab32ea`)
 - Final reviewed source head: `adf6c95`
+- Landed `main` integration: `7f44186`
 - Existing durability chain: `91a0462`, `7f93f03`, `b93d558`, `7652a43`, and `2f85dc7`
-- Integration: user authorized AP-045; fast-forwarded into `main` with this merge-ledger commit.
+- Integration: user authorized AP-045; fast-forwarded into `main` at `7f44186`.
 
 Implemented:
 

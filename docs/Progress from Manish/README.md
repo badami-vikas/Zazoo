@@ -17,9 +17,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- TASK-006 integration fetched and validated `origin/main` at
-  `bab32ea4a7917a273ee91f7c5df520a775301083`; AP-045 fast-forwards this merge-ledger commit as the
-  next `main` head. Always re-fetch before resuming any worktree.
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`. Always re-fetch before resuming any worktree.
 - Central working tree: clean when this package was written.
 - Background agents: none.
 - `relationship-os` worker processes: none.
@@ -33,8 +32,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
-  `2f85dc7` and final reviewed source head `adf6c95`. Live Google/BizBuySell and verified
-  OS/application re-authentication remain external, so canonical status stays `in_progress`.
+  `2f85dc7`, final reviewed source `adf6c95`, and landed integration `7f44186`. Live
+  Google/BizBuySell and verified OS/application re-authentication remain external, so canonical
+  status stays `in_progress`.
 - TASK-008 RM1-RM2 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-023 has **two competing dirty implementations**. Select one after comparison; do not combine both wholesale.
 - TASK-022 and one TASK-023 candidate both currently claim ADR-113 in branch-local docs. Renumber one during central integration.

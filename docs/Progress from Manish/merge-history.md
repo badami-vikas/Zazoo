@@ -4,9 +4,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- TASK-006 integration fetched and validated `origin/main` at
-  `bab32ea4a7917a273ee91f7c5df520a775301083`. AP-045 fast-forwards this merge-ledger commit as the
-  next `main` head.
+- TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
+  validating and normally merging base `bab32ea`.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -27,7 +26,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `631aa9f` | Latest combined roadmap/provider documentation baseline. |
 | `d75d26f` | TASK-003 human physical-input certification merge (unrelated to red-flag work). |
 | `e532b15` | TASK-010 round-7 post-RM4 migration `0016_new_ink`: JobPilot flag backfill+constraint, owner-aware `memories` RLS, DB-backed `lineage_revision` wired end-to-end; merged fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback` after two intermediate `origin/main` merges (RM4, then the TASK-003 recovery/cert chain) reconciled surgically. |
-| `adf6c95` | TASK-006 final reviewed durability/vault source; user-authorized AP-045 integration fast-forwarded its follow-up merge-ledger commit into `main`. |
+| `7f44186` | TASK-006 durable Local Plane, OS vault, OAuth, and desktop lifecycle integration under AP-045; final reviewed source was `adf6c95`. |
 
 ## Historical source branches
 
@@ -42,7 +41,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
   `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
-  Merged into `main` on 2026-07-19 under AP-045; do not merge again.
+  Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
 
 ## Migration sequence
 
