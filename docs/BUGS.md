@@ -18,6 +18,15 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — TASK-010 JobPilot table cells lacked Red Flag controls
+Live certification found that the default JobPilot table rendered persisted Role, Company, and Stage
+values as plain text even though TASK-010 requires every eligible data cell to expose the shared,
+reversible Red Flag correction path. Only generated `TableView` cells and JobPilot card bullets were
+wired. The default table now uses one batched `RedFlagProvider`, with all three cells anchored to the
+real persisted application Record. Desktop focus/hover and 375px coarse-pointer touch flows flagged,
+explained, cleared, and surfaced audit evidence without green/yellow feedback semantics. Attached to
+TASK-010.
+
 ## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
 User report (verbatim): “avatar dragging is not working.”
 The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,

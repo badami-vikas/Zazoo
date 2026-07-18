@@ -1,5 +1,13 @@
 # Change Log
 
+- **2026-07-19** — **TASK-010 live certification and closure (AP-046)**: authenticated persistent
+  Local Plane testing exposed one same-surface omission: JobPilot's default table rendered Role,
+  Company, and Stage without the shared Red Flag control. All three now use one batched
+  `RedFlagProvider` and real application Record anchors. Desktop focus/hover and 375×812 coarse
+  pointer/touch flows flagged cells and bullets, recorded scoped reasons, cleared reversibly, and
+  surfaced audit history in Settings > Learning with no green/yellow feedback semantics. Web
+  tests/typecheck, changed-file lint, and no-dummy-runtime passed; TASK-010 is `done`.
+
 - **2026-07-19** — **TASK-008 historical worktree reconciliation landed**: merged the historical
   RM4 worktree through current `main` at `3741a41` after confirming source heads `ff98c20` and
   `905aee9` were already ancestors. Preserved the canonical `done` prototype closure from

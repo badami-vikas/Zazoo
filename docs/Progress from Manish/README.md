@@ -48,7 +48,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-003 completed after human physical-input certification on 2026-07-18. TASK-005 and external provider/keychain/device evidence remain honestly blocked.
 - TASK-008 is landed and complete for its exact prototype. TASK-014/TASK-009 still own the separate
   shared cross-Module Graph renderer; advanced RM6/evaluation work is future plan scope.
-- TASK-010 remains `in_progress` in `docs/TASKS.md` even after the `0016` merge — no live desktop/375px browser evidence has been claimed, and `ledger`'s own RLS was deliberately left unwidened (matches RM4's own precedent for the same port-signature reason).
+- TASK-010 closed on 2026-07-19 after authenticated live desktop and 375px certification found and
+  fixed the missing JobPilot default-table cell controls. `ledger`'s own RLS remains deliberately
+  unwidened as the previously reviewed port-signature limitation; private proposal reads stay
+  protected by the authenticated paginated API/store filters.
 
 ## Files
 

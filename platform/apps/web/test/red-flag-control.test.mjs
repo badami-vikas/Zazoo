@@ -144,10 +144,17 @@ test("JobPilotApplicationDetail (unrouted, fixture-only) has NO red-flag wiring 
   assert.doesNotMatch(source, /RedFlagProvider/);
 });
 
-test("JobPilotPage wires a REAL bullet Red Flag surface (review round-5 item 6) — anchored to the real persisted application.id, not a fixture", async () => {
+test("JobPilotPage wires REAL cell and bullet Red Flag surfaces — anchored to the persisted application.id, not a fixture", async () => {
   const source = await readFile(new URL("../src/app/pages/JobPilotPage.tsx", import.meta.url), "utf8");
   assert.match(source, /import \{ RedFlagControl \} from ["'].*RedFlagControl["']/);
   assert.match(source, /import \{ RedFlagProvider \} from ["'].*RedFlagProvider["']/);
+  assert.match(source, /<RedFlagProvider scope=\{\{ moduleId: "jobpilot", databaseId: JOBPILOT_DATABASE_ID \}\}>/);
+  assert.match(source, /kind: "cell"/);
+  assert.match(source, /databaseId: JOBPILOT_DATABASE_ID/);
+  assert.match(source, /recordId: applicationId/);
+  for (const fieldId of ["title", "company", "stage"]) {
+    assert.match(source, new RegExp(`fieldId="${fieldId}"`));
+  }
   assert.match(source, /<RedFlagProvider scope=\{\{ moduleId: "jobpilot" \}\}>/);
   assert.match(source, /kind: "bullet", moduleId: "jobpilot", target: \{ type: "record", recordId: applicationId \}, bulletPath: "fit\.stage"/);
   assert.match(source, /kind: "bullet", moduleId: "jobpilot", target: \{ type: "record", recordId: applicationId \}, bulletPath: "fit\.flag"/);
