@@ -16,7 +16,7 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, not, notExists, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
@@ -86,19 +86,29 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
-function privateProposalOwnerScope(privateOwnerUserId: string | undefined) {
-  if (!privateOwnerUserId) return undefined;
+/** Owner-scopes private rows plus legacy Relationship rows that predate dataScope.
+ * TASK-010's private correction marker and TASK-005's legacy Learning
+ * recommendation marker remain part of the same predicate. */
+function isOwnerScopedLedgerEntrySql(): SQL {
   return or(
-    and(
-      ne(ledger.resourceType, "relation"),
-      or(
-        ne(ledger.dataScope, "private"),
-        and(
-          isNull(ledger.dataScope),
-          sql`coalesce(${ledger.inputs}->>'kind', '') <> 'learning_recommendation'`,
-        ),
-      ),
-    ),
+    sql`coalesce(${ledger.dataScope}, '') = 'private'`,
+    inArray(ledger.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
+    sql`${ledger.inputs} -> 'directive' IS NOT NULL`,
+    sql`coalesce(${ledger.inputs} ->> 'visibility', '') = 'private'`,
+    sql`(
+      ${ledger.resourceType} = 'signal'
+      AND coalesce(${ledger.inputs} ->> 'kind', '') = 'learning_recommendation'
+    )`,
+  )!;
+}
+
+function privateProposalOwnerScope(
+  db: Database,
+  privateOwnerUserId: string | undefined,
+) {
+  if (!privateOwnerUserId) return undefined;
+  const isPrivate = isOwnerScopedLedgerEntrySql();
+  const ownerMatches = or(
     and(
       eq(ledger.onBehalfOfType, "user"),
       eq(ledger.onBehalfOfId, privateOwnerUserId),
@@ -107,6 +117,46 @@ function privateProposalOwnerScope(privateOwnerUserId: string | undefined) {
       or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
       eq(ledger.actorType, "user"),
       eq(ledger.actorId, privateOwnerUserId),
+    ),
+  )!;
+  const referenced = alias(ledger, "owner_scoped_referenced_entry");
+  const referencedIsPrivate = or(
+    sql`coalesce(${referenced.dataScope}, '') = 'private'`,
+    inArray(referenced.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
+    sql`${referenced.inputs} -> 'directive' IS NOT NULL`,
+    sql`coalesce(${referenced.inputs} ->> 'visibility', '') = 'private'`,
+    sql`(
+      ${referenced.resourceType} = 'signal'
+      AND coalesce(${referenced.inputs} ->> 'kind', '') = 'learning_recommendation'
+    )`,
+  )!;
+  const referencedOwnerMatches = or(
+    and(
+      eq(referenced.onBehalfOfType, "user"),
+      eq(referenced.onBehalfOfId, privateOwnerUserId),
+    ),
+    and(
+      or(
+        isNull(referenced.onBehalfOfType),
+        ne(referenced.onBehalfOfType, "user"),
+      ),
+      eq(referenced.actorType, "user"),
+      eq(referenced.actorId, privateOwnerUserId),
+    ),
+  )!;
+  return and(
+    or(not(isPrivate), and(isPrivate, ownerMatches)),
+    notExists(
+      db
+        .select({ id: referenced.id })
+        .from(referenced)
+        .where(
+          and(
+            eq(referenced.id, ledger.refLedgerId),
+            referencedIsPrivate,
+            sql`coalesce((${referencedOwnerMatches}), false) = false`,
+          ),
+        ),
     ),
   );
 }
@@ -290,7 +340,7 @@ export class DrizzleLedgerStore implements LedgerStore {
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
-      privateProposalOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(this.#db, opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -322,7 +372,7 @@ export class DrizzleLedgerStore implements LedgerStore {
     this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
-      privateProposalOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(this.#db, opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db

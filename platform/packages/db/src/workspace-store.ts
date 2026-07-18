@@ -56,10 +56,32 @@ export class WorkspaceRenameRollbackError extends Error {
   }
 }
 
+export class WorkspaceRenameCoordinatorUnavailableError extends Error {
+  constructor() {
+    super("workspace: Organization Files rename coordinator is not configured");
+    this.name = "WorkspaceRenameCoordinatorUnavailableError";
+  }
+}
+
+export interface WorkspaceRenameLease {
+  recover(currentOrganizationName: string): Promise<void>;
+  rename(
+    previousOrganizationName: string,
+    nextOrganizationName: string,
+  ): Promise<void>;
+  complete(): Promise<void>;
+}
+
+export interface WorkspaceRenameCoordinator {
+  createLease(workspaceId: string): Promise<WorkspaceRenameLease>;
+}
+
 export class DrizzleWorkspaceStore {
   #db: Database;
-  constructor(db: Database) {
+  #renameCoordinator: WorkspaceRenameCoordinator | undefined;
+  constructor(db: Database, renameCoordinator?: WorkspaceRenameCoordinator) {
     this.#db = db;
+    this.#renameCoordinator = renameCoordinator;
   }
 
   /** Create a workspace and add the creator as its first member. */
@@ -87,33 +109,23 @@ export class DrizzleWorkspaceStore {
     return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt.toISOString() }));
   }
 
-  /** Rename an existing workspace. Membership is enforced by the API boundary. */
-  async renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceRow> {
-    const [updated] = await this.#db
-      .update(workspaces)
-      .set({ name })
-      .where(eq(workspaces.id, workspaceId))
-      .returning();
-    if (!updated) throw new UnknownWorkspaceError(workspaceId);
-    return { id: updated.id, name: updated.name, createdAt: updated.createdAt.toISOString() };
-  }
-
   /**
-   * Serialize one Organization rename across every process sharing this database.
-   * The callback may register an external-state rollback (the local Files move);
-   * it runs when the callback, UPDATE, or transaction commit fails.
+   * Rename an Organization only through the injected Files coordinator. The
+   * coordinator owns the durable intent; database row locks serialize recovery,
+   * Files movement, commit, and any post-failure reconciliation across processes.
    */
-  async withWorkspaceRenameLock<T>(
+  async renameWorkspace(
     workspaceId: string,
-    operation: (
-      current: WorkspaceRow,
-      persistName: (name: string) => Promise<WorkspaceRow>,
-      registerRollback: (rollback: () => Promise<void>) => void,
-    ) => Promise<T>,
-  ): Promise<T> {
-    let rollback: (() => Promise<void>) | undefined;
+    name: string,
+    options: { ifCurrentName?: string } = {},
+  ): Promise<WorkspaceRow> {
+    const coordinator = this.#renameCoordinator;
+    if (!coordinator) throw new WorkspaceRenameCoordinatorUnavailableError();
+    const lease = await coordinator.createLease(workspaceId);
+    let workspaceLocked = false;
+    let renamed: WorkspaceRow;
     try {
-      return await this.#db.transaction(async (tx) => {
+      renamed = await this.#db.transaction(async (tx) => {
         const [locked] = await tx
           .select()
           .from(workspaces)
@@ -121,38 +133,61 @@ export class DrizzleWorkspaceStore {
           .for("update")
           .limit(1);
         if (!locked) throw new UnknownWorkspaceError(workspaceId);
+        workspaceLocked = true;
         const current: WorkspaceRow = {
           id: locked.id,
           name: locked.name,
           createdAt: locked.createdAt.toISOString(),
         };
-        const persistName = async (name: string): Promise<WorkspaceRow> => {
-          const [updated] = await tx
-            .update(workspaces)
-            .set({ name })
-            .where(eq(workspaces.id, workspaceId))
-            .returning();
-          if (!updated) throw new UnknownWorkspaceError(workspaceId);
-          return {
-            id: updated.id,
-            name: updated.name,
-            createdAt: updated.createdAt.toISOString(),
-          };
+        await lease.recover(current.name);
+        if (
+          options.ifCurrentName !== undefined &&
+          current.name !== options.ifCurrentName
+        ) {
+          return current;
+        }
+        await lease.rename(current.name, name);
+        const [updated] = await tx
+          .update(workspaces)
+          .set({ name })
+          .where(eq(workspaces.id, workspaceId))
+          .returning();
+        if (!updated) throw new UnknownWorkspaceError(workspaceId);
+        return {
+          id: updated.id,
+          name: updated.name,
+          createdAt: updated.createdAt.toISOString(),
         };
-        return operation(current, persistName, (candidate) => {
-          rollback = candidate;
-        });
       });
     } catch (error) {
-      if (rollback) {
-        try {
-          await rollback();
-        } catch (rollbackError) {
-          throw new WorkspaceRenameRollbackError(error, rollbackError);
-        }
+      if (!workspaceLocked) throw error;
+      try {
+        await this.#db.transaction(async (tx) => {
+          const [locked] = await tx
+            .select()
+            .from(workspaces)
+            .where(eq(workspaces.id, workspaceId))
+            .for("update")
+            .limit(1);
+          if (!locked) throw new UnknownWorkspaceError(workspaceId);
+          await lease.recover(locked.name);
+        });
+      } catch (recoveryError) {
+        throw new WorkspaceRenameRollbackError(error, recoveryError);
       }
       throw error;
     }
+    await this.#db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .for("update")
+        .limit(1);
+      if (!locked) throw new UnknownWorkspaceError(workspaceId);
+      await lease.complete();
+    });
+    return renamed;
   }
 
   /**

@@ -364,30 +364,42 @@ export async function ensureDealPilotPrincipalGovernance(
   }
 }
 
-/** Idempotently grants only the Human principal the Relationship Relation surface. */
+/** Idempotently grants only the Human principal the governed Relationship surface. */
 export async function ensureRelationshipUserGovernance(
   db: Database,
   config: RelationshipUserGovernanceConfig,
 ): Promise<void> {
+  const grants = [
+    { resourceType: "relation", action: "read" },
+    { resourceType: "relation", action: "write" },
+    { resourceType: "person", action: "read" },
+    { resourceType: "person", action: "write" },
+    { resourceType: "person", action: "archive" },
+    { resourceType: "community", action: "read" },
+    { resourceType: "community", action: "write" },
+    { resourceType: "community", action: "archive" },
+    { resourceType: "event", action: "read" },
+    { resourceType: "event", action: "write" },
+  ] as const;
   await db.transaction(async (tx) => {
     await tx.execute(sql`
       SELECT
         set_config('app.workspace_id', ${config.workspaceId}, true),
         set_config('app.user_id', ${config.userId}, true)
     `);
-    for (const action of ["read", "write"] as const) {
+    for (const grant of grants) {
       await tx
         .insert(permissions)
         .values({
           id: stableGovernanceId(
-            `principal:${config.workspaceId}:${config.userId}:relation:${action}`,
+            `principal:${config.workspaceId}:${config.userId}:${grant.resourceType}:${grant.action}`,
           ),
           workspaceId: config.workspaceId,
           actorType: "user",
           actorId: config.userId,
-          resourceType: "relation",
+          resourceType: grant.resourceType,
           resourceId: null,
-          action,
+          action: grant.action,
           effect: "allow",
           grantedBy: config.userId,
         })
@@ -397,17 +409,19 @@ export async function ensureRelationshipUserGovernance(
       config.workspaceId,
       { type: "user", id: config.userId },
     );
-    for (const action of ["read", "write"] as const) {
+    for (const grant of grants) {
       if (
         !direct.some(
-          (grant) =>
-            grant.resourceType === "relation" &&
-            grant.resourceId === null &&
-            grant.action === action &&
-            grant.effect === "allow",
+          (actual) =>
+            actual.resourceType === grant.resourceType &&
+            actual.resourceId === null &&
+            actual.action === grant.action &&
+            actual.effect === "allow",
         )
       ) {
-        throw new Error(`Persistent Relationship Relation ${action} grant provisioning failed`);
+        throw new Error(
+          `Persistent Relationship ${grant.resourceType} ${grant.action} grant provisioning failed`,
+        );
       }
     }
   });
@@ -430,13 +444,14 @@ export async function ensureLearningAgentGovernance(
     action: "write",
     capabilityToken: "signal:write",
     additionalGrants: [
-      { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+      { resourceType: "event", action: "write", capabilityToken: "event:write" },
     ],
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
       "helpdesk.stageAnswer",
       "stageCapture",
+      "learning.proposePreferenceAdjustment",
     ],
     dataScope: "all",
   });
@@ -450,11 +465,11 @@ export async function ensureOutreachAgentGovernance(
   return ensurePersistentAgentGovernance(db, {
     ...config,
     name: "Outreach Agent",
-    description: "May draft relationship Touchpoints; never approves or sends them.",
-    goal: "Produce inspectable relationship Touchpoint drafts for Human review.",
-    resourceType: "touchpoint",
+    description: "May draft relationship Events; never approves or sends them.",
+    goal: "Produce inspectable relationship Event drafts for Human review.",
+    resourceType: "event",
     action: "write",
-    capabilityToken: "touchpoint:write",
+    capabilityToken: "event:write",
     allowedSkills: ["outreach.stageDraft"],
   });
 }
@@ -490,9 +505,9 @@ export async function ensureIntakeAgentGovernance(
     name: "Intake Agent",
     description: "May stage sourced evidence into governed local graph proposals.",
     goal: "Transform authorized source data into inspectable local proposals.",
-    resourceType: "touchpoint",
+    resourceType: "event",
     action: "write",
-    capabilityToken: "touchpoint:write",
+    capabilityToken: "event:write",
     additionalGrants: [
       { resourceType: "signal", action: "write", capabilityToken: "signal:write" },
       { resourceType: "person", action: "write", capabilityToken: "person:write" },

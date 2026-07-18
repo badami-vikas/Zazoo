@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LedgerEntry, MemoryWrite } from "@bridge/core";
+import { InMemoryMemoryStore, type LedgerEntry, type MemoryWrite } from "@bridge/core";
 import { createLocalDb, DrizzleLedgerStore, DrizzleMemoryStore, schema } from "../src/index.js";
 
 const USER_A = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -28,6 +28,89 @@ function mem(overrides: Partial<MemoryWrite> & { id: string; workspaceId: string
     ...overrides,
   };
 }
+
+test("in-memory memories enforce one replay-idempotent successor", async () => {
+  const store = new InMemoryMemoryStore();
+  const workspaceId = "10000000-0000-4000-8000-000000000001";
+  const original = await store.write(mem({
+    id: "10000000-0000-4000-8000-000000000002",
+    workspaceId,
+    scope: "private",
+    ownerUserId: USER_A,
+    createdAt: "2026-07-18T00:00:00.000Z",
+  }));
+  const first = mem({
+    id: "10000000-0000-4000-8000-000000000003",
+    workspaceId,
+    scope: "private",
+    ownerUserId: USER_A,
+    content: "first correction",
+    createdAt: "2026-07-18T00:01:00.000Z",
+  });
+  const second = mem({
+    id: "10000000-0000-4000-8000-000000000004",
+    workspaceId,
+    scope: "private",
+    ownerUserId: USER_A,
+    content: "competing correction",
+    createdAt: "2026-07-18T00:02:00.000Z",
+  });
+  const results = await Promise.allSettled([
+    store.supersede(original.id, first),
+    store.supersede(original.id, second),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  const winner = results.find(
+    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof store.supersede>>> =>
+      result.status === "fulfilled",
+  )!.value;
+  assert.deepEqual(
+    await store.supersede(original.id, winner.id === first.id ? first : second),
+    winner,
+  );
+});
+
+test("memory snapshot watermark keeps offset pages stable across later writes", async () => {
+  const store = new InMemoryMemoryStore();
+  const workspaceId = "10000000-0000-4000-8000-000000000011";
+  const oldest = await store.write(mem({
+    id: "10000000-0000-4000-8000-000000000012",
+    workspaceId,
+    createdAt: "2026-07-18T00:00:00.000Z",
+  }));
+  const newestAtSnapshot = await store.write(mem({
+    id: "10000000-0000-4000-8000-000000000013",
+    workspaceId,
+    createdAt: "2026-07-18T00:01:00.000Z",
+  }));
+  const snapshotAt = "2026-07-18T00:01:30.000Z";
+  assert.deepEqual(
+    (await store.retrieve(
+      { snapshotAt, limit: 1, offset: 0 },
+      { workspaceId, userId: USER_A },
+    )).map((entry) => entry.id),
+    [newestAtSnapshot.id],
+  );
+  await store.write(mem({
+    id: "10000000-0000-4000-8000-000000000014",
+    workspaceId,
+    createdAt: "2026-07-18T00:02:00.000Z",
+  }));
+  await store.supersede(oldest.id, mem({
+    id: "10000000-0000-4000-8000-000000000015",
+    workspaceId,
+    content: "later correction",
+    createdAt: "2026-07-18T00:03:00.000Z",
+  }));
+  assert.deepEqual(
+    (await store.retrieve(
+      { snapshotAt, limit: 1, offset: 1 },
+      { workspaceId, userId: USER_A },
+    )).map((entry) => entry.id),
+    [oldest.id],
+  );
+});
 
 test("ledger: trust_origin round-trips through DrizzleLedgerStore (PI-1)", async () => {
   const { db, close } = await createLocalDb();
@@ -136,6 +219,75 @@ test("memories: supersede is append-only — prior row retained, excluded by def
         ownerUserId: USER_B,
       })),
       /cannot change workspace or owner/,
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("memories: concurrent corrections converge on one idempotent successor", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db
+      .insert(schema.workspaces)
+      .values({ name: "test_fixture_ws_mem_concurrent_correction" })
+      .returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const original = await store.write(
+      mem({
+        id: "e1000000-0000-4000-8000-000000000001",
+        workspaceId: ws.id,
+        scope: "private",
+        ownerUserId: USER_A,
+        content: "v1",
+      }),
+    );
+    const firstCorrection = mem({
+      id: "e1000000-0000-4000-8000-000000000002",
+      workspaceId: ws.id,
+      scope: "private",
+      ownerUserId: USER_A,
+      content: "v2-a",
+    });
+    const secondCorrection = mem({
+      id: "e1000000-0000-4000-8000-000000000003",
+      workspaceId: ws.id,
+      scope: "private",
+      ownerUserId: USER_A,
+      content: "v2-b",
+    });
+    const raced = await Promise.allSettled([
+      store.supersede(original.id, firstCorrection),
+      store.supersede(original.id, secondCorrection),
+    ]);
+    assert.equal(
+      raced.filter((result) => result.status === "fulfilled").length,
+      1,
+    );
+    assert.equal(
+      raced.filter((result) => result.status === "rejected").length,
+      1,
+    );
+    const current = await store.retrieve(
+      {},
+      { workspaceId: ws.id, userId: USER_A },
+    );
+    assert.equal(current.length, 1);
+    assert.ok(["v2-a", "v2-b"].includes(current[0]!.content));
+
+    const winner =
+      raced.find(
+        (result): result is PromiseFulfilledResult<
+          Awaited<ReturnType<typeof store.supersede>>
+        > => result.status === "fulfilled",
+      )!.value;
+    const replayInput =
+      winner.id === firstCorrection.id ? firstCorrection : secondCorrection;
+    assert.equal(
+      (await store.supersede(original.id, replayInput)).id,
+      winner.id,
+      "an identical correction replay returns the existing successor",
     );
   } finally {
     await close();

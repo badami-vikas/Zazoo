@@ -5,15 +5,26 @@
  * the seeded pilot member is allowed; a non-member is rejected with FORBIDDEN.
  */
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
-import { UnknownWorkspaceError, type WorkspaceRow } from "@bridge/db";
 import { appRouter } from "../src/router.js";
-import { organizationFilesRoot } from "../src/module-files.js";
+import {
+  createOrganizationRenameLease,
+  organizationFilesRoot,
+} from "../src/module-files.js";
 import {
   buildWiring,
   migrateLegacyPilotOrganization,
@@ -92,6 +103,43 @@ test("workspace.rename: a member updates the name and migrates the local Files r
   }
 });
 
+test("workspace.rename: case-only names keep database and Files entry casing aligned", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-case-"));
+  const bridgeRoot = join(tempRoot, "Bridge");
+  const previousName = "Pilot Organization";
+  const nextName = "PILOT ORGANIZATION";
+  const previousRoot = organizationFilesRoot(previousName, bridgeRoot);
+  await mkdir(join(previousRoot, "Relationship"), { recursive: true });
+  await writeFile(join(previousRoot, "Relationship", "evidence.txt"), "case");
+  const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
+  try {
+    const interrupted = await createOrganizationRenameLease(PILOT_WORKSPACE, bridgeRoot);
+    await interrupted.rename(previousName, nextName);
+    await interrupted.recover(previousName);
+    assert.ok((await readdir(bridgeRoot)).includes(previousName));
+
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const renamed = await caller.workspace.rename({
+      workspaceId: PILOT_WORKSPACE,
+      name: nextName,
+    });
+    assert.equal(renamed.name, nextName);
+    const entries = await readdir(bridgeRoot);
+    assert.ok(entries.includes(nextName));
+    assert.equal(entries.includes(previousName), false);
+    assert.equal(
+      await readFile(
+        join(organizationFilesRoot(nextName, bridgeRoot), "Relationship", "evidence.txt"),
+        "utf8",
+      ),
+      "case",
+    );
+  } finally {
+    await wiring.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("workspace.rename: an existing target Files root blocks both filesystem and database rename", async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-conflict-"));
   const bridgeRoot = join(tempRoot, "Bridge");
@@ -113,6 +161,24 @@ test("workspace.rename: an existing target Files root blocks both filesystem and
     );
     assert.equal((await caller.workspace.list()).find((row) => row.id === PILOT_WORKSPACE)?.name, "Pilot Organization");
     await Promise.all([access(previousOrganizationRoot), access(targetOrganizationRoot)]);
+    const interruptedIntentPath = join(
+      bridgeRoot,
+      ".locks",
+      `organization-${PILOT_WORKSPACE}.intent.json`,
+    );
+    await writeFile(
+      interruptedIntentPath,
+      JSON.stringify({
+        workspaceId: PILOT_WORKSPACE,
+        generation: "preflight-conflict-generation",
+        previousOrganizationName: "Pilot Organization",
+        nextOrganizationName: "Existing Organization",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await migrateLegacyPilotOrganization(wiring.workspaceStore);
+    await assert.rejects(() => access(interruptedIntentPath), { code: "ENOENT" });
+    await Promise.all([access(previousOrganizationRoot), access(targetOrganizationRoot)]);
     await rm(previousOrganizationRoot, { recursive: true });
     await assert.rejects(
       () => caller.workspace.rename({
@@ -122,6 +188,7 @@ test("workspace.rename: an existing target Files root blocks both filesystem and
       (err: unknown) => err instanceof TRPCError && err.code === "CONFLICT",
     );
     assert.equal((await caller.workspace.list()).find((row) => row.id === PILOT_WORKSPACE)?.name, "Pilot Organization");
+    await assert.rejects(() => access(interruptedIntentPath), { code: "ENOENT" });
   } finally {
     await wiring.close();
     await rm(tempRoot, { recursive: true, force: true });
@@ -135,7 +202,7 @@ test("workspace.rename: a symlinked source Files root is rejected without changi
   const previousOrganizationRoot = organizationFilesRoot("Pilot Organization", bridgeRoot);
   await Promise.all([
     mkdir(bridgeRoot, { recursive: true }),
-    mkdir(outsideRoot, { recursive: true }),
+    mkdir(join(outsideRoot, "Relationship"), { recursive: true }),
   ]);
   await symlink(outsideRoot, previousOrganizationRoot);
   const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
@@ -153,67 +220,128 @@ test("workspace.rename: a symlinked source Files root is rejected without changi
       "Pilot Organization",
     );
     await access(previousOrganizationRoot);
+    await assert.rejects(
+      () => caller.packages.files({ workspaceId: PILOT_WORKSPACE, moduleName: "relationship" }),
+      (err: unknown) => err instanceof TRPCError && err.code === "BAD_REQUEST",
+    );
   } finally {
     await wiring.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test("workspace.rename: a persistence failure restores the original Files root", async () => {
-  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-rollback-"));
+test("workspace.rename: a retry repairs a Files move interrupted before database commit", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-recover-old-"));
+  const bridgeRoot = join(tempRoot, "Bridge");
+  const previousOrganizationRoot = organizationFilesRoot("Pilot Organization", bridgeRoot);
+  const targetOrganizationRoot = organizationFilesRoot("Product Leadership", bridgeRoot);
+  const evidencePath = join(previousOrganizationRoot, "Relationship", "evidence.txt");
+  await mkdir(join(previousOrganizationRoot, "Relationship"), { recursive: true });
+  await writeFile(evidencePath, "local evidence");
+  const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
+  try {
+    const lease = await createOrganizationRenameLease(PILOT_WORKSPACE, bridgeRoot);
+    await lease.recover("Pilot Organization");
+    await lease.rename("Pilot Organization", "Product Leadership");
+    // Deliberately omit lease.complete(): this is the persistent state left by a
+    // process that exits after moving Files but before committing the DB name.
+    await assert.rejects(() => access(previousOrganizationRoot), { code: "ENOENT" });
+    await access(targetOrganizationRoot);
+
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const renamed = await caller.workspace.rename({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Product Leadership",
+    });
+    assert.equal(renamed.name, "Product Leadership");
+    assert.equal(
+      await readFile(join(targetOrganizationRoot, "Relationship", "evidence.txt"), "utf8"),
+      "local evidence",
+    );
+    await assert.rejects(() => access(previousOrganizationRoot), { code: "ENOENT" });
+  } finally {
+    await wiring.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("legacy bootstrap clears an interrupted intent after the database commit", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-recover-new-"));
   const bridgeRoot = join(tempRoot, "Bridge");
   const previousOrganizationRoot = organizationFilesRoot("Pilot Organization", bridgeRoot);
   const targetOrganizationRoot = organizationFilesRoot("Product Leadership", bridgeRoot);
   await mkdir(previousOrganizationRoot, { recursive: true });
   const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
-  const originalLock = wiring.workspaceStore.withWorkspaceRenameLock.bind(wiring.workspaceStore);
-  const failWith = (failure: unknown): typeof wiring.workspaceStore.withWorkspaceRenameLock =>
-    async <T>(
-      workspaceId: string,
-      operation: (
-        current: WorkspaceRow,
-        persistName: (name: string) => Promise<WorkspaceRow>,
-        registerRollback: (rollback: () => Promise<void>) => void,
-      ) => Promise<T>,
-    ): Promise<T> =>
-      originalLock(
-        workspaceId,
-        (current, _persistName, registerRollback) =>
-          operation(
-            current,
-            async () => {
-              throw failure;
-            },
-            registerRollback,
-          ),
-      );
-  wiring.workspaceStore.withWorkspaceRenameLock = failWith(new Error("test fixture persistence failure"));
   try {
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
-    await assert.rejects(
-      () => caller.workspace.rename({
+    await caller.workspace.rename({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Product Leadership",
+    });
+    await writeFile(
+      join(
+        bridgeRoot,
+        ".locks",
+        `organization-${PILOT_WORKSPACE}.intent.json`,
+      ),
+      JSON.stringify({
         workspaceId: PILOT_WORKSPACE,
-        name: "Product Leadership",
+        generation: "interrupted-generation",
+        previousOrganizationName: "Pilot Organization",
+        nextOrganizationName: "Product Leadership",
+        createdAt: new Date().toISOString(),
       }),
-      /test fixture persistence failure/,
     );
-    await access(previousOrganizationRoot);
-    await assert.rejects(() => access(targetOrganizationRoot), { code: "ENOENT" });
-    wiring.workspaceStore.withWorkspaceRenameLock = failWith(new UnknownWorkspaceError(PILOT_WORKSPACE));
+    // Deliberately omit lease.complete(): the DB commit succeeded, but the
+    // process exited before it could remove the durable intent.
+
+    await migrateLegacyPilotOrganization(wiring.workspaceStore);
+    assert.equal(
+      (await wiring.workspaceStore.listWorkspaces(PILOT_USER))
+        .find((workspace) => workspace.id === PILOT_WORKSPACE)?.name,
+      "Product Leadership",
+    );
+    await access(targetOrganizationRoot);
+    await assert.rejects(() => access(previousOrganizationRoot), { code: "ENOENT" });
     await assert.rejects(
-      () => caller.workspace.rename({
-        workspaceId: PILOT_WORKSPACE,
-        name: "Product Leadership",
-      }),
-      (err: unknown) => err instanceof TRPCError && err.code === "NOT_FOUND",
+      () => access(join(
+        bridgeRoot,
+        ".locks",
+        `organization-${PILOT_WORKSPACE}.intent.json`,
+      )),
+      { code: "ENOENT" },
     );
-    await access(previousOrganizationRoot);
-    await assert.rejects(() => access(targetOrganizationRoot), { code: "ENOENT" });
-    wiring.workspaceStore.withWorkspaceRenameLock = originalLock;
-    assert.equal((await caller.workspace.list()).find((row) => row.id === PILOT_WORKSPACE)?.name, "Pilot Organization");
   } finally {
-    wiring.workspaceStore.withWorkspaceRenameLock = originalLock;
     await wiring.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("stale completion cannot delete a newer Organization rename intent", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-intent-generation-"));
+  const bridgeRoot = join(tempRoot, "Bridge");
+  const originalRoot = organizationFilesRoot("Pilot Organization", bridgeRoot);
+  const firstRoot = organizationFilesRoot("First Organization", bridgeRoot);
+  const secondRoot = organizationFilesRoot("Second Organization", bridgeRoot);
+  await mkdir(join(originalRoot, "Relationship"), { recursive: true });
+  await writeFile(join(originalRoot, "Relationship", "evidence.txt"), "generation");
+  try {
+    const firstLease = await createOrganizationRenameLease(PILOT_WORKSPACE, bridgeRoot);
+    await firstLease.rename("Pilot Organization", "First Organization");
+
+    const secondLease = await createOrganizationRenameLease(PILOT_WORKSPACE, bridgeRoot);
+    await secondLease.recover("First Organization");
+    await secondLease.rename("First Organization", "Second Organization");
+    await firstLease.complete();
+
+    await secondLease.recover("First Organization");
+    assert.equal(
+      await readFile(join(firstRoot, "Relationship", "evidence.txt"), "utf8"),
+      "generation",
+    );
+    await assert.rejects(() => access(originalRoot), { code: "ENOENT" });
+    await assert.rejects(() => access(secondRoot), { code: "ENOENT" });
+  } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
@@ -253,12 +381,17 @@ test("legacy pilot bootstrap migrates its local Files root before updating the d
   const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-legacy-"));
   const bridgeRoot = join(tempRoot, "Bridge");
   const legacyRoot = organizationFilesRoot("Pilot workspace", bridgeRoot);
-  await mkdir(join(legacyRoot, "Relationship"), { recursive: true });
-  await writeFile(join(legacyRoot, "Relationship", "evidence.txt"), "legacy");
   const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
   try {
-    await wiring.workspaceStore.renameWorkspace(PILOT_WORKSPACE, "Pilot workspace");
-    await migrateLegacyPilotOrganization(wiring.workspaceStore, bridgeRoot);
+    const currentRoot = organizationFilesRoot("Pilot Organization", bridgeRoot);
+    await mkdir(join(currentRoot, "Relationship"), { recursive: true });
+    await writeFile(join(currentRoot, "Relationship", "evidence.txt"), "legacy");
+    await wiring.workspaceStore.renameWorkspace(
+      PILOT_WORKSPACE,
+      "Pilot workspace",
+    );
+    await access(join(legacyRoot, "Relationship", "evidence.txt"));
+    await migrateLegacyPilotOrganization(wiring.workspaceStore);
     assert.equal(
       (await wiring.workspaceStore.listWorkspaces(PILOT_USER)).find((row) => row.id === PILOT_WORKSPACE)?.name,
       "Pilot Organization",

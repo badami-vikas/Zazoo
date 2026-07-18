@@ -1,8 +1,9 @@
 /**
  * Core domain types for the Universal Action Pipeline.
  *
- * Vocabulary is the brand: Person / Community / Initiative / Ritual / Touchpoint
- * / Signal. Never Lead / Deal / Pipeline / Contact.
+ * Vocabulary is the brand: Person / Community / Event / Signal. Never Lead /
+ * Contact. Legacy Initiative/Ritual/Touchpoint identifiers remain only while
+ * their approved vocabulary migrations are incomplete.
  */
 
 /** Actions a request can take against a resource (mirrors SCHEMA permissions.action).
@@ -15,13 +16,16 @@ export type Action = "read" | "write" | "execute" | "share" | "archive" | "appro
 export type ActorType = "user" | "team" | "agent";
 
 /**
- * Resource types the governance spine can authorize against.
+ * Resource types the governance spine can authorize against. `touchpoint`
+ * remains a compatibility token until VOCAB4 removes the legacy Work surface;
+ * new Relationship interactions use `event`.
  * Mirror + Operational + Infra planes (see node_types in SCHEMA.sql).
  */
 export type ResourceType =
   | "person"
   | "community"
   | "relation"
+  | "event"
   | "initiative"
   | "touchpoint"
   | "ritual"

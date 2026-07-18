@@ -58,7 +58,7 @@ test("in-memory ledger lists only unresolved root proposals", async () => {
   });
 });
 
-test("in-memory ledger resumes append order and owner-filters Relation and private history", async () => {
+test("in-memory ledger owner-filters legacy Relationship rows and explicit private history", async () => {
   const ledger = new InMemoryLedger(40);
   const ownRelation = await ledger.append(
     row({
@@ -76,36 +76,58 @@ test("in-memory ledger resumes append order and owner-filters Relation and priva
       resourceType: "relation",
     }),
   );
+  const ownTouchpoint = await ledger.append(
+    row({
+      id: "test_fixture_own_touchpoint",
+      actorType: "user",
+      actorId: "test_fixture_owner",
+      resourceType: "touchpoint",
+    }),
+  );
+  await ledger.append(
+    row({
+      id: "test_fixture_other_touchpoint",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
+      resourceType: "touchpoint",
+    }),
+  );
+  const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
   const ownPrivateSignal = await ledger.append(
     row({
       id: "test_fixture_own_private_signal",
-      onBehalfOfType: "user",
-      onBehalfOfId: "test_fixture_owner",
+      actorType: "user",
+      actorId: "test_fixture_owner",
       dataScope: "private",
     }),
   );
   await ledger.append(
     row({
       id: "test_fixture_other_private_signal",
-      onBehalfOfType: "user",
-      onBehalfOfId: "test_fixture_other_owner",
+      actorType: "user",
+      actorId: "test_fixture_other_owner",
       dataScope: "private",
     }),
   );
-  const sharedSignal = await ledger.append(row({ id: "test_fixture_shared_signal" }));
 
   assert.equal(ownRelation.appendSequence, 41);
-  assert.equal(ownPrivateSignal.appendSequence, 43);
+  assert.equal(ownTouchpoint.appendSequence, 43);
   assert.equal(sharedSignal.appendSequence, 45);
+  assert.equal(ownPrivateSignal.appendSequence, 46);
   const history = await ledger.listHistory("test_fixture_workspace", {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "test_fixture_owner",
   });
-  assert.equal(history.total, 3);
+  assert.equal(history.total, 4);
   assert.deepEqual(
     history.items.map((entry) => entry.id),
-    ["test_fixture_shared_signal", "test_fixture_own_private_signal", "test_fixture_own_relation"],
+    [
+      "test_fixture_own_private_signal",
+      "test_fixture_shared_signal",
+      "test_fixture_own_touchpoint",
+      "test_fixture_own_relation",
+    ],
   );
   const otherPending = await ledger.listPending("test_fixture_workspace", {
     limit: 10,

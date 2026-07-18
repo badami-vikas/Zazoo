@@ -48,11 +48,16 @@ test("jobpilot: createJob + listJobs + updateApplication + getApplication", asyn
     assert.ok(withApp?.application);
     assert.equal(withApp?.application?.id, application.id);
 
-    // Patch stage + flag + fitScore.
-    const updated = await store.updateApplication(application.id, { stage: "applied", flag: "green", fitScore: 0.82 });
+    // Patch stage + flag + fitScore. TASK-010 review round-6: `jobpilot_applications.flag`
+    // now has a real CHECK constraint (migration 0016) enforcing only
+    // pursue/review/pass can ever be written — the legacy green/yellow/red
+    // read-boundary-normalization scenario (round-4 item 11) is exercised
+    // against the migration's own backfill in migration-0016.test.ts instead,
+    // since a fresh write of a legacy value is now structurally impossible.
+    const updated = await store.updateApplication(application.id, { stage: "applied", flag: "pursue", fitScore: 0.82 });
     assert.ok(updated);
     assert.equal(updated?.stage, "applied");
-    assert.equal(updated?.flag, "green");
+    assert.equal(updated?.flag, "pursue");
     assert.equal(Number(updated?.fitScore), 0.82);
 
     // flag: null is a distinct "clear it" branch (!== undefined).
@@ -70,3 +75,9 @@ test("jobpilot: createJob + listJobs + updateApplication + getApplication", asyn
     await close();
   }
 });
+
+// Round-4 item 11's "legacy green/yellow/red flags are normalized at every
+// read boundary" scenario is now exercised against migration 0016's own
+// backfill in migration-0016.test.ts — a fresh write of a legacy value is
+// structurally impossible here since that migration's CHECK constraint
+// landed (a legacy value can only ever exist on a row that predates it).

@@ -223,6 +223,107 @@ test("onboarding trust check persists one inspectable, tainted Local Plane Memor
   }
 });
 
+test("onboarding.learningState / onboarding.forgetMemory (review round-5 item 1): unauthenticated and non-member callers are rejected", async () => {
+  const wiring = await buildWiring();
+  try {
+    const unauth = appRouter.createCaller({ wiring, run: makeRun(), identity: { type: "user", id: PILOT_USER }, authenticated: false, verifying: true });
+    await assert.rejects(() => unauth.onboarding.learningState({ workspaceId: PILOT_WORKSPACE }));
+    await assert.rejects(() => unauth.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: "00000000-0000-4000-8000-000000000001" }));
+
+    const nonMember = makeCaller(wiring, { type: "user", id: "22222222-2222-4222-8222-222222222222" });
+    await assert.rejects(
+      () => nonMember.onboarding.learningState({ workspaceId: PILOT_WORKSPACE }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+    await assert.rejects(
+      () => nonMember.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: "00000000-0000-4000-8000-000000000001" }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.learningState (review round-5 item 1): never returns red_flag/preference_adjustment content, even when such Memories exist for the SAME owner", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    await wiring.memoryStore.write({
+      id: "33333333-0000-4000-8000-000000000001",
+      workspaceId: PILOT_WORKSPACE,
+      type: "semantic",
+      scope: "private",
+      content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "44444444-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await wiring.memoryStore.write({
+      id: "33333333-0000-4000-8000-000000000002",
+      workspaceId: PILOT_WORKSPACE,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: "33333333-0000-4000-8000-000000000001", applied: false }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    const state = await caller.onboarding.learningState({ workspaceId: PILOT_WORKSPACE });
+    assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "red_flag"), false, "learningState must never surface a red_flag Memory");
+    assert.equal(state.memories.some((item) => (item.value as { kind: string }).kind === "preference_adjustment"), false, "learningState must never surface a preference_adjustment Memory");
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.forgetMemory (review round-5 item 1): rejects red_flag/preference_adjustment ids instead of deleting them — all correction deletion must go through redFlag.forget", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const redFlagMemory = await wiring.memoryStore.write({
+      id: "55555555-0000-4000-8000-000000000001",
+      workspaceId: PILOT_WORKSPACE,
+      type: "semantic",
+      scope: "private",
+      content: JSON.stringify({ kind: "red_flag", anchor: { kind: "cell", moduleId: "jobpilot", databaseId: "jobpilot.jobs", recordId: "66666666-0000-4000-8000-000000000001", fieldId: "x" }, renderedValue: "v", status: "open", learningStatus: "none" }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () => caller.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: redFlagMemory.id }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+    const stillThere = await wiring.memoryStore.get(redFlagMemory.id, { workspaceId: PILOT_WORKSPACE, userId: PILOT_USER });
+    assert.ok(stillThere, "onboarding.forgetMemory must never delete a red_flag Memory");
+
+    const adjustmentMemory = await wiring.memoryStore.write({
+      id: "55555555-0000-4000-8000-000000000002",
+      workspaceId: PILOT_WORKSPACE,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({ kind: "preference_adjustment", scope: "test", target: "test", proposedChange: "test", rationale: "test", flagMemoryId: redFlagMemory.id, applied: false }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: PILOT_USER,
+      ownerUserId: PILOT_USER,
+    });
+    await assert.rejects(
+      () => caller.onboarding.forgetMemory({ workspaceId: PILOT_WORKSPACE, memoryId: adjustmentMemory.id }),
+      (err: unknown) => err instanceof TRPCError && err.code === "FORBIDDEN",
+    );
+  } finally {
+    await wiring.close();
+  }
+});
+
 test("onboarding.verifyPhoneOtp: a passing code is labeled verificationSource:'dummy', never a real verification", async () => {
   const wiring = await buildWiring();
   try {

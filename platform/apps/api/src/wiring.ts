@@ -107,6 +107,7 @@ import {
   createLocalMediaStore,
   DrizzleCanonicalIdentityStore,
   DrizzleWorkspaceStore,
+  type WorkspaceRenameCoordinator,
   DrizzleGraphStore,
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
@@ -180,8 +181,8 @@ import {
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
 import {
+  createOrganizationRenameLease,
   defaultBridgeFilesRoot,
-  renameOrganizationFilesRoot,
 } from "./module-files.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
@@ -236,20 +237,11 @@ export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
 export async function migrateLegacyPilotOrganization(
   workspaceStore: DrizzleWorkspaceStore,
-  moduleFilesBridgeRoot: string,
 ): Promise<void> {
-  await workspaceStore.withWorkspaceRenameLock(
+  await workspaceStore.renameWorkspace(
     PILOT_WORKSPACE,
-    async (current, persistName, registerRollback) => {
-      if (current.name !== "Pilot workspace") return;
-      const rollback = await renameOrganizationFilesRoot(
-        current.name,
-        "Pilot Organization",
-        moduleFilesBridgeRoot,
-      );
-      if (rollback) registerRollback(rollback);
-      await persistName("Pilot Organization");
-    },
+    "Pilot Organization",
+    { ifCurrentName: "Pilot workspace" },
   );
 }
 
@@ -477,6 +469,48 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
 } as const;
 
 /**
+ * TASK-010 (platform red-flag correction feedback, docs/raw/ui-architecture-
+ * rules-2026-07.md §5d) — the ONE governed step in the red-flag flow. The
+ * Human's own correction Memory (`redFlag.create` in router.ts) is a plain
+ * `memoryStore.write` and never touches this Skill or the pipeline at all
+ * (TASK-007's TASK-010 handoff §1: "do NOT route this through the Agent/Skill
+ * pipeline"). This Skill is the SEPARATE, attributable step where Learning
+ * proposes a Memory/ranking/preference change citing accumulated red flags as
+ * evidence — resourceType stays "signal" (never "policy"/"policy_param",
+ * which `agent-floor.ts` denies to every Agent unconditionally, checked
+ * before Skill resolution ever runs); its `proposedOutput` carries the
+ * proposed change as DATA (`governed: true, applied: false`, mirroring
+ * `policy/variance-adjuster.ts`'s `VarianceProposal` shape) for a Human to
+ * review in the existing Approvals surface — no separate enactment path is
+ * wired here; TASK-010's own scope is the flag/undo/inspect UI, not policy
+ * application.
+ */
+const stagePreferenceAdjustmentProposal: Skill = {
+  name: "learning.proposePreferenceAdjustment",
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+export const PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE = "platform.red_flag_learning";
+export const PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE = "propose_preference_adjustment";
+
+export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
+  workspaceId: PILOT_WORKSPACE,
+  skillId: "learning.proposePreferenceAdjustment",
+  version: "1.0.0",
+  goalTypes: [PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE],
+  taskTypes: [PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "forbidden",
+} as const;
+
+/**
  * AGS1 real-catalog migration (TASK-007 closure) — Help Offer drafting was
  * previously staged via the generic `stageMutation` kernel passthrough
  * (resourceType `"signal"`, action `"write"`, a Human actor) — the ONE
@@ -509,7 +543,7 @@ export const OUTREACH_DRAFT_SKILL_MANIFEST = {
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_OUTREACH_GOAL_TYPE],
   taskTypes: [DRAFT_OUTREACH_TASK_TYPE],
-  permissions: ["touchpoint:write"],
+  permissions: ["event:write"],
   plane: "local",
   dataScopes: ["public"],
   riskBand: "advisory",
@@ -573,7 +607,7 @@ export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
  * recommendFromRoleModel`'s inline Goal/Task provisioning) so the SERVER,
  * never the client, decides the invoking Agent — a capture is modeled as
  * Learning "observing authorized evidence" (its stated mandate), reviewed
- * before becoming a committed Touchpoint, consistent with every other
+ * before becoming a committed Event, consistent with every other
  * governed Skill's draft-then-approve shape.
  */
 export const RELATIONSHIP_CAPTURE_GOAL_TYPE = "relationship.capture";
@@ -584,7 +618,7 @@ export const STAGE_CAPTURE_SKILL_MANIFEST = {
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_CAPTURE_GOAL_TYPE],
   taskTypes: [STAGE_CAPTURE_TASK_TYPE],
-  permissions: ["touchpoint:write", "signal:write"],
+  permissions: ["event:write", "signal:write"],
   plane: "local",
   dataScopes: ["all", "private"],
   riskBand: "advisory",
@@ -657,7 +691,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
   googleSkillManifest(SKILL_SOURCE_GMAIL, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
   googleSkillManifest(SKILL_SOURCE_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
   googleSkillManifest(SKILL_LIST_CALENDAR, GOOGLE_SOURCE_TASK_TYPE, "cloud", ["external:fetch:read"]),
-  googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["touchpoint:write", "signal:write"]),
+  googleSkillManifest(SKILL_STAGE, GOOGLE_STAGE_TASK_TYPE, "local", ["event:write", "signal:write"]),
 ];
 
 /**
@@ -671,6 +705,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
 export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
+  RED_FLAG_LEARNING_SKILL_MANIFEST,
   HELPDESK_ANSWER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
@@ -741,28 +776,29 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     agents.workspaces.set(agentId, PILOT_WORKSPACE);
     agents.statuses.set(agentId, "active");
   }
-  // Outreach Agent (existing pilot) — touchpoint:write + reads.
+  // Outreach Agent (existing pilot) — event:write + reads.
   agents.assumed.set(OUTREACH_AGENT, "role-outreach");
-  agents.scope.set(OUTREACH_AGENT, ["touchpoint:write", "person:read", "initiative:read", "file:read"]);
+  agents.scope.set(OUTREACH_AGENT, ["event:write", "person:read", "initiative:read", "file:read"]);
   agents.tiers.set(OUTREACH_AGENT, "public");
   agents.skills.set(OUTREACH_AGENT, ["outreach.stageDraft"]);
   roles.roleGrants.set("role-outreach", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
   ]);
 
   agents.assumed.set(LEARNING_AGENT, "role-learning");
-  agents.scope.set(LEARNING_AGENT, ["signal:write", "touchpoint:write"]);
+  agents.scope.set(LEARNING_AGENT, ["signal:write", "event:write"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
     LEARNING_RECOMMENDATION_SKILL_ID,
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
+    "learning.proposePreferenceAdjustment",
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // Internal Strategist (AGS0/AGS1, TASK-007) — local, analysis/synthesis only.
@@ -819,19 +855,24 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
 
   // Intake agent (local) — DRAFTS graph proposals.
   agents.assumed.set(INTAKE_AGENT, "role-intake");
-  agents.scope.set(INTAKE_AGENT, ["touchpoint:write", "signal:write", "person:write"]);
+  agents.scope.set(INTAKE_AGENT, ["event:write", "signal:write", "person:write"]);
   agents.skills.set(INTAKE_AGENT, [SKILL_STAGE]);
   roles.roleGrants.set("role-intake", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
 
   // The signed-in user the agents act on behalf of (delegation ∩ principal authority).
   roles.direct.set(`user:${PILOT_USER}`, [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "person", resourceId: null, action: "archive", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "community", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
@@ -937,10 +978,16 @@ export interface ModePorts {
  *    implementation anywhere in the codebase yet (Phase 3 item 11b) — it stays
  *    in-memory even here, and we say so loudly at boot.
  */
-export function buildPersistentPorts(env: { url: string }): ModePorts {
+export function buildPersistentPorts(env: {
+  url: string;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+}): ModePorts {
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db, {
     defaultWorkspaceId: PILOT_WORKSPACE,
+    ...(env.workspaceRenameCoordinator
+      ? { workspaceRenameCoordinator: env.workspaceRenameCoordinator }
+      : {}),
   });
   // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
   // once DATABASE_URL is set. `skillManifestRegistry`'s `refresh()` is awaited
@@ -1085,7 +1132,10 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
  * apps/api/src/social/integration-service.ts) since workspace/team rows are real
  * relational data, not governance config with an in-memory port.
  */
-export async function buildInMemoryPorts(env: { localDir: string | undefined }): Promise<ModePorts> {
+export async function buildInMemoryPorts(env: {
+  localDir: string | undefined;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+}): Promise<ModePorts> {
   const mRoles = new InMemoryRoleStore();
   const mAgents = new InMemoryAgentStore();
   const mEphemeral = new InMemoryEphemeralStore();
@@ -1120,7 +1170,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     ritualRunRecorder: new InMemoryRitualRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
     dealPilotCaptures: createInMemoryCaptureStore(),
-    workspaceStore: new DrizzleWorkspaceStore(localDb),
+    workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
     graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
@@ -1160,7 +1210,8 @@ export async function buildWiring(
     .register(stageLearningRecommendation)
     .register(stageStrategicRecommendation)
     .register(stageHelpdeskAnswer)
-    .register(stageOutreachDraft);
+    .register(stageOutreachDraft)
+    .register(stagePreferenceAdjustmentProposal);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
@@ -1187,9 +1238,16 @@ export async function buildWiring(
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
 
   // Mode ports: one fully-typed object per mode, no let-sprawl reassignment.
+  const workspaceRenameCoordinator: WorkspaceRenameCoordinator = {
+    createLease: (workspaceId) =>
+      createOrganizationRenameLease(
+        workspaceId,
+        moduleFilesBridgeRoot,
+      ),
+  };
   const modePorts: ModePorts = url
-    ? buildPersistentPorts({ url })
-    : await buildInMemoryPorts({ localDir });
+    ? buildPersistentPorts({ url, workspaceRenameCoordinator })
+    : await buildInMemoryPorts({ localDir, workspaceRenameCoordinator });
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
@@ -1203,7 +1261,6 @@ export async function buildWiring(
     ritualRegistry,
     toolRegistry,
     ritualRunRecorder,
-    canonical,
     dealPilotCaptures,
     workspaceStore,
     graphStore,
@@ -1526,7 +1583,7 @@ export async function buildWiring(
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
-  await migrateLegacyPilotOrganization(workspaceStore, moduleFilesBridgeRoot);
+  await migrateLegacyPilotOrganization(workspaceStore);
   // Persistent governance rows reference the pilot workspace and owner, so
   // provision them only after those identities exist.
   await modePorts.ensureLearningGovernance?.();
@@ -1656,8 +1713,19 @@ export async function buildWiring(
   });
 
   // Google integration surface.
-  const intake = new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph, goalTasks });
-  const materializer = new IntakeMaterializer({ graph: localPlane.graph, canonical });
+  const intake = new IntakeService({
+    pipeline,
+    bodies: localPlane.bodies,
+    graph: {
+      hasExternal: (workspaceId, source, sourceRecordId) =>
+        localPlane.graph.hasExternal(workspaceId, source, sourceRecordId),
+      findPeopleByEmail: (workspaceId, email) =>
+        localPlane.graph.findPeopleByEmail(workspaceId, email),
+    },
+    pendingLedger: ledger,
+    goalTasks,
+  });
+  const materializer = new IntakeMaterializer({ graph: localPlane.graph });
   const egress = new EgressExecutor({ ledger, gateways, graph: localPlane.graph });
   const selfEmails = (process.env.BRIDGE_SELF_EMAILS ?? "")
     .split(",")

@@ -7,7 +7,34 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { createLocalDb, DrizzleWorkspaceStore, schema } from "../src/index.js";
+import { sql } from "drizzle-orm";
+import {
+  createLocalDb,
+  DrizzleWorkspaceStore,
+  schema,
+  type WorkspaceRenameCoordinator,
+} from "../src/index.js";
+
+function renameCoordinator() {
+  const observed: Array<{ previous: string; next: string }> = [];
+  let recoveryCount = 0;
+  const coordinator: WorkspaceRenameCoordinator = {
+    createLease: async () => ({
+      recover: async () => {
+        recoveryCount += 1;
+      },
+      rename: async (previous, next) => {
+        observed.push({ previous, next });
+      },
+      complete: async () => {},
+    }),
+  };
+  return {
+    coordinator,
+    observed,
+    recoveryCount: () => recoveryCount,
+  };
+}
 
 test("create workspace -> appears in creator's list -> invite -> appears in members list", async () => {
   const { db, close } = await createLocalDb();
@@ -19,20 +46,26 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
 
     assert.ok(creator, "creator user seeded");
 
-    const store = new DrizzleWorkspaceStore(db);
+    const unconfiguredStore = new DrizzleWorkspaceStore(db);
 
-    const ws = await store.createWorkspace("test_fixture_workspace", creator.id);
+    const ws = await unconfiguredStore.createWorkspace("test_fixture_workspace", creator.id);
     assert.equal(ws.name, "test_fixture_workspace");
     assert.ok(ws.id);
     assert.ok(ws.createdAt);
 
     // Creator sees the new workspace in their list.
-    const creatorWorkspaces = await store.listWorkspaces(creator.id);
+    const creatorWorkspaces = await unconfiguredStore.listWorkspaces(creator.id);
     assert.deepEqual(
       creatorWorkspaces.map((w) => w.id),
       [ws.id],
     );
 
+    await assert.rejects(
+      () => unconfiguredStore.renameWorkspace(ws.id, "Uncoordinated"),
+      /rename coordinator is not configured/,
+    );
+    const { coordinator } = renameCoordinator();
+    const store = new DrizzleWorkspaceStore(db, coordinator);
     const renamed = await store.renameWorkspace(ws.id, "Product Leadership");
     assert.equal(renamed.name, "Product Leadership");
     assert.equal((await store.listWorkspaces(creator.id))[0]?.name, "Product Leadership");
@@ -112,7 +145,7 @@ test("pilot identity bootstrap preserves existing names for the Files-aware API 
   }
 });
 
-test("workspace rename lock serializes current-name reads and rolls back registered external state", async () => {
+test("workspace rename row lock serializes current-name reads and recovers external state", async () => {
   const { db, close } = await createLocalDb();
   try {
     const [creator] = await db
@@ -120,36 +153,31 @@ test("workspace rename lock serializes current-name reads and rolls back registe
       .values({ email: "test_fixture_rename_lock@example.com" })
       .returning({ id: schema.users.id });
     assert.ok(creator);
-    const store = new DrizzleWorkspaceStore(db);
+    const rename = renameCoordinator();
+    const store = new DrizzleWorkspaceStore(db, rename.coordinator);
     const workspace = await store.createWorkspace("Before", creator.id);
-    const observed: string[] = [];
     await Promise.all([
-      store.withWorkspaceRenameLock(workspace.id, async (current, persistName) => {
-        observed.push(current.name);
-        await persistName("First");
-      }),
-      store.withWorkspaceRenameLock(workspace.id, async (current, persistName) => {
-        observed.push(current.name);
-        await persistName("Second");
-      }),
+      store.renameWorkspace(workspace.id, "First"),
+      store.renameWorkspace(workspace.id, "Second"),
     ]);
-    assert.equal(observed.length, 2);
-    assert.equal(observed.filter((name) => name === "Before").length, 1);
-    assert.ok(observed.some((name) => name === "First" || name === "Second"));
-    assert.ok(["First", "Second"].includes((await store.listWorkspaces(creator.id))[0]?.name ?? ""));
+    assert.equal(rename.observed.length, 2);
+    assert.equal(rename.observed.filter(({ previous }) => previous === "Before").length, 1);
+    assert.ok(rename.observed.some(({ previous }) => previous === "First" || previous === "Second"));
+    const currentName = (await store.listWorkspaces(creator.id))[0]?.name ?? "";
+    assert.ok(["First", "Second"].includes(currentName));
 
-    let rolledBack = false;
+    await db.execute(sql`
+      ALTER TABLE workspaces
+      ADD CONSTRAINT workspace_rename_test_reject
+      CHECK (name <> 'Rejected')
+    `);
+    const recoveriesBeforeFailure = rename.recoveryCount();
     await assert.rejects(
-      () =>
-        store.withWorkspaceRenameLock(workspace.id, async (_current, _persistName, registerRollback) => {
-          registerRollback(async () => {
-            rolledBack = true;
-          });
-          throw new Error("test fixture rename failure");
-        }),
-      /test fixture rename failure/,
+      () => store.renameWorkspace(workspace.id, "Rejected"),
+      /Failed query: update "workspaces"/,
     );
-    assert.equal(rolledBack, true);
+    assert.equal(rename.recoveryCount(), recoveriesBeforeFailure + 2);
+    assert.equal((await store.listWorkspaces(creator.id))[0]?.name, currentName);
   } finally {
     await close();
   }

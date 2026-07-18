@@ -266,7 +266,11 @@ test("Deal discovery fails closed before connector access when Source rights are
       skill: "dealpilot.source",
     });
     assert.equal(bypass.status, "rejected");
-    assert.match(bypass.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
+    assert.match(
+      bypass.rejectionReason ?? "",
+      /local plane may not reach the internet/,
+      "browser proposals cannot self-select the Cloud Plane",
+    );
   } finally {
     await wiring.close();
   }

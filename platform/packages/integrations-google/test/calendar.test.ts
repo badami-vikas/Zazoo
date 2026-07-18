@@ -29,7 +29,6 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { createMemoryLocalPlane, type LocalPlane } from "@bridge/local";
-import { InMemoryCanonicalIdentityStore } from "@bridge/db";
 
 import {
   EgressExecutor,
@@ -138,9 +137,9 @@ async function build(): Promise<{
 
   // Intake agent (local) — drafts graph proposals.
   agents.assumed.set(INTAKE_AGENT, "role-intake");
-  agents.scope.set(INTAKE_AGENT, ["touchpoint:write", "signal:write", "person:write"]);
+  agents.scope.set(INTAKE_AGENT, ["event:write", "signal:write", "person:write"]);
   roles.roleGrants.set("role-intake", [
-    { resourceType: "touchpoint", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
   ]);
@@ -154,7 +153,6 @@ async function build(): Promise<{
   const gw = new test_fixture_FakeGateway();
   const gateways = new test_fixture_FakeFactory(gw);
   const localPlane = await createMemoryLocalPlane();
-  const canonical = new InMemoryCanonicalIdentityStore();
 
   const skills = new InMemorySkillRegistry();
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skills.register(s);
@@ -170,8 +168,8 @@ async function build(): Promise<{
 
   const google = new GoogleService({
     pipeline,
-    intake: new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph }),
-    materializer: new IntakeMaterializer({ graph: localPlane.graph, canonical }),
+    intake: new IntakeService({ pipeline, bodies: localPlane.bodies, graph: localPlane.graph, pendingLedger: ledger }),
+    materializer: new IntakeMaterializer({ graph: localPlane.graph }),
     egress: new EgressExecutor({ ledger, gateways, graph: localPlane.graph }),
     secrets: localPlane.secrets,
     identities: { workspaceId: WS, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: USER },

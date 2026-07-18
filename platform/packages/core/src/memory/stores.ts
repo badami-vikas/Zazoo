@@ -174,6 +174,41 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+function hasRelationshipDirective(entry: LedgerEntry): boolean {
+  return (
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs) &&
+    "directive" in entry.inputs
+  );
+}
+
+/** Owner-scopes every private/Relationship shape, including rows created before
+ * dataScope and legacy Learning recommendations. */
+export function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
+  const inputs =
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs)
+      ? entry.inputs as Record<string, unknown>
+      : null;
+  return (
+    entry.dataScope === "private" ||
+    entry.resourceType === "relation" ||
+    entry.resourceType === "person" ||
+    entry.resourceType === "community" ||
+    entry.resourceType === "event" ||
+    entry.resourceType === "touchpoint" ||
+    hasRelationshipDirective(entry) ||
+    inputs?.visibility === "private" ||
+    (
+      entry.dataScope === undefined &&
+      entry.resourceType === "signal" &&
+      inputs?.kind === "learning_recommendation"
+    )
+  );
+}
+
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
@@ -183,22 +218,10 @@ function ledgerEntryVisibleToPrivateOwner(
   const referenced = entry.refLedgerId
     ? entries.find((candidate) => candidate.id === entry.refLedgerId)
     : undefined;
-  const privateEntry = [entry, referenced].find((candidate) => {
-    if (!candidate) return false;
-    const inputs =
-      typeof candidate.inputs === "object" &&
-      candidate.inputs !== null &&
-      !Array.isArray(candidate.inputs)
-        ? candidate.inputs as Record<string, unknown>
-        : null;
-    return candidate.resourceType === "relation"
-      || candidate.dataScope === "private"
-      || (
-        candidate.dataScope === undefined
-        && candidate.resourceType === "signal"
-        && inputs?.kind === "learning_recommendation"
-      );
-  });
+  const privateEntry = [entry, referenced].find(
+    (candidate): candidate is LedgerEntry =>
+      candidate !== undefined && isOwnerScopedLedgerEntry(candidate),
+  );
   if (!privateEntry) return true;
   if (privateEntry.onBehalfOfType === "user") {
     return privateEntry.onBehalfOfId === privateOwnerUserId;

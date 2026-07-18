@@ -48,7 +48,7 @@ The run endpoint revalidated the stored and freshly fetched signed Skill contrac
 - Visible retired-term scan: zero Workspace, Workflow, Project, Initiative, Touchpoint, Ritual, Artifact, or Incident terms.
 - Runtime dummy-data gate: passed.
 - Avatar remained visible and reachable at both sizes.
-- Settings persisted `Product Leadership`, and Module Files resolved beneath its isolated local Organization root. Renames are database-row-locked across API processes, roll Files back on update/commit failure, refuse source-missing target conflicts, and migrate the legacy bootstrap name through the same Files-aware path.
+- Settings persisted `Product Leadership`, and Module Files resolved beneath its isolated local Organization root. Rename preflight rejects conflicting/symlinked roots before intent publication; a generation-tagged and fsynced Local Plane intent plus DB `FOR UPDATE` serialization recovers callback, update, commit, process-crash, and host-crash boundaries to the actually committed name. Cleanup re-locks and removes only its own generation, case-only names preserve exact entry casing, and legacy bootstrap uses the same conditional recovery path.
 - The first final mobile pass exposed a stale Settings → Capabilities link to unregistered `/intelligence`. Installed Module rows now link to manifest-driven Module Detail.
 - Final visual review then caught nested desktop Settings/Approvals layouts hiding controls at 375px despite a passing body-width probe. Settings now uses a mobile section selector; Approvals stacks queue/detail; trace provenance wraps without drawer overflow. Fresh clean desktop and exact-375px reruns used the repaired controls.
 

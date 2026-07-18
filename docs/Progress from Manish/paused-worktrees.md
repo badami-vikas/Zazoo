@@ -42,34 +42,9 @@ Remaining:
 - Do not claim live Google, real OS-keychain/OS re-authentication, signing, physical desktop, or 375px evidence.
 - No numbered migration was added.
 
-## TASK-010 red-flag correction
+## TASK-010 red-flag correction — MERGED 2026-07-18
 
-- Session: `942759c5-c407-4918-8d12-05284f4709ad`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-stunning-fortnight`
-- Branch/head: `manishsbhoopalam8498-platform-red-flag-feedback` / `58df729`
-- Dirty snapshot: 10 tracked files and 4 untracked paths, including migration `0016_new_ink.sql`.
-
-Previously completed and reviewed:
-
-- Owner-private correction Memories and proposals.
-- Approval-gated enact/revoke, replay-safe sagas, lineage-wide forget, canonical anchors.
-- Store-side filters/keyset pagination, cross-process idempotency, provider loading/error integrity.
-- Application-layer tests and full affected gates at the pre-RM4 head.
-
-Current post-RM4 work:
-
-- Owner-aware ledger/Memory RLS.
-- Authenticated/paginated ledger-history path.
-- DB-backed lineage revision.
-- JobPilot `green/yellow/red` to `pursue/review/pass` migration and constraint.
-
-Resume:
-
-1. Treat `0016` as reserved.
-2. Remove only proven temporary `.commons-signing-test-*` output.
-3. Inspect the generated pending-work deletion before accepting it.
-4. Run fresh/upgrade/no-drift, two-member RLS, CAS/concurrency, API/web, lint, and no-dummy gates.
-5. Run central security/correctness review before commit.
+TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. `docs/TASKS.md` TASK-010 `Status` remains `in_progress` (no live desktop/375px browser evidence yet); `ledger`'s own RLS and any further live-evidence gathering are the only remaining open items, not a resumable dirty worktree state.
 
 ## TASK-011 culture research
 

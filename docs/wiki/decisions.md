@@ -4,18 +4,34 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
-## 2026-07-18 — Exact private Commons Runs (ADR-115, AP-042)
+## 2026-07-18 — Exact private Commons Runs (ADR-117, AP-044)
 - Stored + current signed contract must match exactly. Drift = no binding, no Run.
 - Owning Relationship Module must match exact built-in version + manifest.
-- Private proposal = owner only. List, inspect, decide, history all prune.
+- Shared private-row classifier. Never replace with a narrow Skill predicate.
 - Legacy proposal + linked rows migrate private.
 - Human correction cannot replace Commons hash/Module/Agent provenance.
 
-## 2026-07-18 — Organization rename moves local Files safely (ADR-116, AP-042)
-- Validate name. Rename before Blueprint. DB row lock serializes requests.
-- Conflict = stop. Callback/update/commit failure = move Files back.
-- Legacy startup uses same Files-aware path.
+## 2026-07-18 — Organization rename moves local Files safely (ADR-118, AP-044)
+- Validate name. Rename before Blueprint.
+- DB row lock = cross-process authority.
+- Fsynced generation intent before move. Sync Files before DB commit.
+- Failure/crash = re-lock + reconcile to committed DB name.
+- Cleanup re-locks. Own generation only.
+- Conflict/symlink = stop. Case-only = exact casing.
+- Legacy startup uses same recovery path.
 - DB name + `Documents/Bridge/<Organization>` stay one state.
+
+## 2026-07-18 — Relationship continuity storage (ADR-115)
+- Memory stays Memory. Corrections append. Forget removes lineage.
+- Commitments + Introductions = private Event snapshots + evidence Relations.
+- Intro completes only after two recorded consents. No send.
+- Paths reuse pruned Relations. Bounded. No second Graph.
+- No migration. Automation/delegation/evals still open.
+
+## 2026-07-18 — Private Event detail stays on Relations (ADR-116, AP-042)
+- Shared Event row = safe lifecycle envelope.
+- Private detail = owner-filtered participant Relations.
+- Timeline rehydrates only after owner pruning.
 
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.

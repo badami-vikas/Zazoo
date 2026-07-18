@@ -12,7 +12,7 @@ export const jobsTableSpec: TableSpec = {
     { id: "company", label: "Company", kind: "text" },
     { id: "location", label: "Location", kind: "text" },
     { id: "salaryMax", label: "Salary (max)", kind: "number" },
-    { id: "flag", label: "Flag", kind: "select", options: ["green", "yellow", "red"] },
+    { id: "flag", label: "Recommendation", kind: "select", options: ["pursue", "review", "pass"] },
     { id: "stage", label: "Stage", kind: "select", options: ["queued", "tailoring", "evaluating", "approved", "awaiting_review", "applying", "parked", "submitted", "confirmed", "rejected_by_user", "failed", "expired"] },
     { id: "fitScore", label: "Fit Score", kind: "number", editable: false },
   ],
