@@ -1,5 +1,14 @@
 # Change Log
 
+- **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
+  the implementation already landed through `bab32ea`. The exact installed Relationship →
+  Signals/People/Communities → Signal → Person/Community participants → source Event → governed
+  Action prototype is complete, with no global Knowledge surface. Migration
+  `0015_task008_relation_contract`, durable bounded Relation/materialization contracts,
+  desktop + 375px evidence, 910 affected tests, typecheck/build, migration no-drift, and final
+  correctness/security reviews support `TASK-008` status `done`. TASK-014/TASK-009 retain the
+  separate cross-Module Graph renderer; advanced RM6/evaluation work remains future plan scope.
+
 - **2026-07-19** — **TASK-015 planning session reconciled with `main`, no code delta**: the "Plan runtime taint" worktree (`manishsbhoopalam8498-bookish-umbrella`) had zero unique commits versus `origin/main` (correct for a planning-only session under AP-029) and was fast-forwarded to current `main` head `5091dae`. `docs/TASKS.md` TASK-015's Evidence line was enriched with the concrete RT0–RT4 gap audit (PI-1/PI-2/PI-3 already partially cover this — TrustOrigin tag, tainted-egress gate, ContentGuard quarantine exist; no taint field on Events/Signals/Files/SkillOutput/RitualStep, no lattice/join, no sink-coverage gate, `sourcing/types.ts` duplicates `TrustOrigin` by hand, and post-TASK-007 `ChildAgentRun.taint` is still the legacy 3-value type). `docs/Progress from Manish/subagent-progress.md`'s TASK-015 row updated to match. TASK-015 remains correctly blocked: TASK-007 landed since this plan was drafted, but TASK-012 (vocabulary migration) has not, and `ResourceType` still uses pre-pivot vocabulary confirming the gate.
 
 - **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
