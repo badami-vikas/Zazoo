@@ -16,7 +16,7 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, not, notExists, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
@@ -86,12 +86,24 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
-function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
-  if (!privateOwnerUserId) return undefined;
+/** Owner-scopes private rows plus legacy Relationship rows that predate dataScope.
+ * TASK-010's private correction marker remains part of the same predicate. */
+function isOwnerScopedLedgerEntrySql(): SQL {
   return or(
-    ne(ledger.resourceType, "relation"),
+    sql`coalesce(${ledger.dataScope}, '') = 'private'`,
+    inArray(ledger.resourceType, ["relation", "person", "community", "event", "touchpoint"]),
+    sql`${ledger.inputs} -> 'directive' IS NOT NULL`,
+    sql`coalesce(${ledger.inputs} ->> 'visibility', '') = 'private'`,
+  )!;
+}
+
+function privateProposalOwnerScope(privateOwnerUserId: string | undefined) {
+  if (!privateOwnerUserId) return undefined;
+  const isPrivate = isOwnerScopedLedgerEntrySql();
+  return or(
+    not(isPrivate),
     and(
-      eq(ledger.resourceType, "relation"),
+      isPrivate,
       or(
         and(
           eq(ledger.onBehalfOfType, "user"),
@@ -286,7 +298,7 @@ export class DrizzleLedgerStore implements LedgerStore {
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -318,7 +330,7 @@ export class DrizzleLedgerStore implements LedgerStore {
     this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db

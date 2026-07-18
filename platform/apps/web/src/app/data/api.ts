@@ -6,20 +6,32 @@
 // holds DATABASE_URL pointing at the same Supabase project, proposals/decisions land in the
 // SAME `ledger` the prototype reads — so the loop is fully governed end-to-end.
 //
-// Default OFF: with no VITE_API_URL the integration helpers report "unavailable".
+// Default OFF: with no configured browser or desktop transport the integration
+// helpers report "unavailable".
+import {
+  API_TRANSPORT_CONFIGURED,
+  API_URL,
+  trpcAuthorizationHeaders,
+} from '../lib/trpc';
 
-const API_URL = import.meta.env.VITE_API_URL || ''; // e.g. http://localhost:4000
-export const API_ENABLED = Boolean(API_URL);
+export const API_ENABLED = API_TRANSPORT_CONFIGURED;
 const TRPC = `${API_URL}/trpc`;
 
 const PILOT_WORKSPACE = 'b0000000-0000-4000-a000-000000000001';
+
+async function requestHeaders(): Promise<Record<string, string>> {
+  return {
+    'content-type': 'application/json',
+    ...(await trpcAuthorizationHeaders()),
+  };
+}
 
 // One unbatched tRPC mutation. No data transformer is configured server-side, so input is sent
 // raw and the result rides at `result.data`. Throws on transport or procedure error.
 async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
   const res = await fetch(`${TRPC}/${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: await requestHeaders(),
     body: JSON.stringify(input),
   });
   const body = await res.json().catch(() => ({}));
@@ -31,7 +43,7 @@ async function mutate<T = unknown>(path: string, input: unknown): Promise<T> {
 // One unbatched tRPC query (GET). Input rides as a urlencoded `?input=` param; result at `result.data`.
 async function query<T = unknown>(path: string, input?: unknown): Promise<T> {
   const qs = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
-  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: { 'content-type': 'application/json' } });
+  const res = await fetch(`${TRPC}/${path}${qs}`, { headers: await requestHeaders() });
   const body = await res.json().catch(() => ({}));
   if (body?.error) throw new Error(body.error?.message || body.error?.json?.message || `trpc ${path} error`);
   if (!res.ok) throw new Error(`trpc ${path} HTTP ${res.status}`);

@@ -192,11 +192,41 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+function hasRelationshipDirective(entry: LedgerEntry): boolean {
+  return (
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs) &&
+    "directive" in entry.inputs
+  );
+}
+
+/** Owner-scopes both TASK-008 Relationship rows (including legacy rows without
+ * dataScope) and TASK-010's private non-Relation correction proposals. */
+function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
+  const inputs =
+    typeof entry.inputs === "object" &&
+    entry.inputs !== null &&
+    !Array.isArray(entry.inputs)
+      ? entry.inputs as Record<string, unknown>
+      : null;
+  return (
+    entry.dataScope === "private" ||
+    entry.resourceType === "relation" ||
+    entry.resourceType === "person" ||
+    entry.resourceType === "community" ||
+    entry.resourceType === "event" ||
+    entry.resourceType === "touchpoint" ||
+    hasRelationshipDirective(entry) ||
+    inputs?.visibility === "private"
+  );
+}
+
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
 ): boolean {
-  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
+  if (!privateOwnerUserId || !isOwnerScopedLedgerEntry(entry)) return true;
   if (entry.onBehalfOfType === "user") {
     return entry.onBehalfOfId === privateOwnerUserId;
   }

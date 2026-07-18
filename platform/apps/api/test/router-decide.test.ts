@@ -275,7 +275,7 @@ test("action.proposeOutreachDraft binds the server-owned Agent to the authentica
     assert.equal(ledgerEntry?.actorId, OUTREACH_AGENT);
     assert.equal(ledgerEntry?.onBehalfOfType, "user");
     assert.equal(ledgerEntry?.onBehalfOfId, PILOT_USER);
-    assert.equal(ledgerEntry?.resourceType, "touchpoint");
+    assert.equal(ledgerEntry?.resourceType, "event");
     assert.equal(ledgerEntry?.action, "write");
 
     await caller.action.decide({ proposalId: proposed.id, decision: "veto" });

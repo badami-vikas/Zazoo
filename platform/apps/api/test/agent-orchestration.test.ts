@@ -307,6 +307,7 @@ test("Agent-backed routes reject non-members before provisioning Tasks", async (
         outsider.capture.stage({
           workspaceId: PILOT_WORKSPACE,
           localMediaId: "test_fixture_local_media",
+          capturedAt: "2026-07-18T12:00:00.000Z",
         }),
       /not a member/,
     );

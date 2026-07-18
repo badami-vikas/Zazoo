@@ -229,6 +229,7 @@ export interface CreateDealInput {
 }
 
 export interface CreateSourceInput {
+  id?: string;
   workspaceId: string;
   name: string;
   link: string;
@@ -276,6 +277,7 @@ export interface DealPilotStore {
   updateDeal(id: string, workspaceId: string, patch: Partial<DealRecord>): Promise<DealRecord>;
   updateSource(id: string, workspaceId: string, patch: Partial<SourceRecord>): Promise<SourceRecord>;
   link(input: CreateRelationInput): Promise<DealPilotRelation>;
+  linkSourceThesisWithBackfill(input: CreateRelationInput & { kind: "source_thesis" }): Promise<DealPilotRelation[]>;
   relations(workspaceId: string, recordId: string): Promise<DealPilotRelation[]>;
   detail(
     kind: DealPilotRecordKind,
@@ -287,7 +289,7 @@ export interface DealPilotStore {
 
 export class DealPilotStoreError extends Error {
   constructor(
-    readonly code: "not_found" | "invalid_relation" | "workspace_mismatch",
+    readonly code: "not_found" | "invalid_relation" | "workspace_mismatch" | "conflict",
     message: string,
   ) {
     super(message);
@@ -350,7 +352,7 @@ export class InMemoryDealPilotStore implements DealPilotStore {
     const now = this.#now();
     const attested = input.rightsState === "attested";
     const record: SourceRecord = {
-      id: this.#id("source"),
+      id: input.id ?? this.#id("source"),
       workspaceId: input.workspaceId,
       kind: "source",
       name: input.name,
@@ -497,6 +499,30 @@ export class InMemoryDealPilotStore implements DealPilotStore {
       .map((row) => ({ ...row, evidenceRefs: [...row.evidenceRefs] }));
   }
 
+  async linkSourceThesisWithBackfill(
+    input: CreateRelationInput & { kind: "source_thesis" },
+  ): Promise<DealPilotRelation[]> {
+    const sourceThesis = await this.link(input);
+    const rows = [sourceThesis];
+    const sourceRelations = await this.relations(input.workspaceId, input.fromId);
+    for (const dealSource of sourceRelations.filter(
+      (row) => row.kind === "deal_source" && row.toId === input.fromId,
+    )) {
+      rows.push(
+        await this.link({
+          workspaceId: input.workspaceId,
+          kind: "deal_thesis",
+          fromId: dealSource.fromId,
+          toId: input.toId,
+          confidence: Math.min(dealSource.confidence, input.confidence),
+          provenance: `source:${input.fromId}`,
+          evidenceRefs: [dealSource.id, sourceThesis.id],
+        }),
+      );
+    }
+    return rows;
+  }
+
   async detail(
     kind: DealPilotRecordKind,
     workspaceId: string,
@@ -619,7 +645,7 @@ export async function applyThesisSourceDiscovery(
 ): Promise<DealPilotRelation[]> {
   const rows: DealPilotRelation[] = [];
   for (const relation of proposal.relations) {
-    const sourceThesis = await store.link({
+    const linked = await store.linkSourceThesisWithBackfill({
       workspaceId: proposal.workspaceId,
       kind: "source_thesis",
       fromId: relation.sourceId,
@@ -627,23 +653,7 @@ export async function applyThesisSourceDiscovery(
       confidence: relation.confidence,
       provenance: relation.provenance,
     });
-    rows.push(sourceThesis);
-    const sourceRelations = await store.relations(proposal.workspaceId, relation.sourceId);
-    for (const dealSource of sourceRelations.filter(
-      (row) => row.kind === "deal_source" && row.toId === relation.sourceId,
-    )) {
-      rows.push(
-        await store.link({
-          workspaceId: proposal.workspaceId,
-          kind: "deal_thesis",
-          fromId: dealSource.fromId,
-          toId: relation.thesisId,
-          confidence: Math.min(dealSource.confidence, relation.confidence),
-          provenance: `source:${relation.sourceId}`,
-          evidenceRefs: [dealSource.id, sourceThesis.id],
-        }),
-      );
-    }
+    rows.push(...linked);
   }
   return rows;
 }

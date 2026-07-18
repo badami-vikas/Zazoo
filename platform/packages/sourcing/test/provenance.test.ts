@@ -17,10 +17,11 @@ test("api-client connector tags every envelope untrusted_external (PI-1)", async
 test("email-alert connector tags every parsed envelope untrusted_external (PI-1)", async () => {
   const connector = createEmailAlertConnector({
     id: "email",
-    fetchMessages: async () => [{ subject: "Match", body: "Acme is for sale" }],
+    fetchMessages: async () => [{ id: "provider-message-1", subject: "Match", body: "Acme is for sale" }],
     parse: (m) => ({ headline: m.subject }),
   });
   const envelopes = await connector.fetch(query);
   assert.equal(envelopes.length, 1);
   assert.equal(envelopes[0]?.trustOrigin, "untrusted_external");
+  assert.equal(envelopes[0]?.sourceRecordId, "provider-message-1");
 });

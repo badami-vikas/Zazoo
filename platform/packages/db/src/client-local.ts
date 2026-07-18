@@ -36,7 +36,84 @@ export interface LocalDbConfig {
   queryLogger?: { logQuery(query: string, params: unknown[]): void };
 }
 
+export class LocalDbInitializationCleanupError extends AggregateError {
+  constructor(initializationError: unknown, closeError: unknown) {
+    super(
+      [initializationError, closeError],
+      "Local Plane database initialization failed and its PGlite client could not be closed",
+    );
+    this.name = "LocalDbInitializationCleanupError";
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
+const LEGACY_EXTERNAL_RECORDS = "local_external_records_legacy";
+
+async function hasLegacyExternalRecordShape(
+  client: PGlite,
+  tableName: string,
+): Promise<boolean> {
+  const result = await client.query<{
+    column_name: string;
+    data_type: string;
+  }>(
+    `SELECT column_name, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName],
+  );
+  const columns = new Map(
+    result.rows.map((row) => [row.column_name, row.data_type]),
+  );
+  return (
+    columns.get("workspace_id") === "text" &&
+    columns.get("source") === "text" &&
+    columns.get("source_record_id") === "text" &&
+    columns.get("entity_type") === "text" &&
+    columns.get("entity_id") === "text" &&
+    columns.get("created_at") === "text"
+  );
+}
+
+/**
+ * Early Local Plane compatibility repair. The first Local adapter used the
+ * canonical `external_records` name with text identifiers. Move that table
+ * aside before Drizzle migration 0000 creates its UUID/FK-backed table.
+ */
+export async function prepareLegacyLocalExternalRecords(
+  client: PGlite,
+): Promise<void> {
+  const backupExists = await client.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.${LEGACY_EXTERNAL_RECORDS}') IS NOT NULL AS exists`,
+  );
+  const hasBackup = backupExists.rows[0]?.exists === true;
+  const backupIsLegacy =
+    hasBackup &&
+    (await hasLegacyExternalRecordShape(client, LEGACY_EXTERNAL_RECORDS));
+  if (hasBackup && !backupIsLegacy) {
+    throw new Error(
+      `${LEGACY_EXTERNAL_RECORDS} exists with an unsupported schema`,
+    );
+  }
+  if (!(await hasLegacyExternalRecordShape(client, "external_records"))) return;
+  if (backupIsLegacy) {
+    await client.exec(`
+      INSERT INTO ${LEGACY_EXTERNAL_RECORDS}
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      SELECT workspace_id, source, source_record_id, entity_type, entity_id, created_at
+        FROM external_records
+      ON CONFLICT (workspace_id, source, source_record_id) DO UPDATE SET
+        entity_type = EXCLUDED.entity_type,
+        entity_id = EXCLUDED.entity_id,
+        created_at = EXCLUDED.created_at;
+      DROP TABLE external_records;
+    `);
+    return;
+  }
+  await client.exec(
+    `ALTER TABLE external_records RENAME TO ${LEGACY_EXTERNAL_RECORDS}`,
+  );
+}
 
 /** Resolve packages/db/migrations whether running from src/ (vitest) or dist/src/. */
 function defaultMigrationsFolder(): string {
@@ -54,7 +131,7 @@ function defaultMigrationsFolder(): string {
  */
 export async function createLocalDb(
   config: LocalDbConfig = {},
-): Promise<{ db: LocalDatabase; close: () => Promise<void> }> {
+): Promise<{ db: LocalDatabase; client: PGlite; close: () => Promise<void> }> {
   // pgvector lives in the cloud schema (embedding columns). pglite ships it as a
   // loadable extension; register it and CREATE it before migrations run, because
   // the generated DDL (0000) references vector(768) without creating the extension
@@ -64,13 +141,23 @@ export async function createLocalDb(
       ? { dataDir: config.dataDir, extensions: { vector } }
       : { extensions: { vector } }, // no dataDir => in-memory
   );
-  await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
-  const db = drizzle(client, {
-    schema,
-    ...(config.queryLogger ? { logger: config.queryLogger } : {}),
-  });
-  await migrate(db, {
-    migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
-  });
-  return { db, close: () => client.close() };
+  try {
+    await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
+    await prepareLegacyLocalExternalRecords(client);
+    const db = drizzle(client, {
+      schema,
+      ...(config.queryLogger ? { logger: config.queryLogger } : {}),
+    });
+    await migrate(db, {
+      migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
+    });
+    return { db, client, close: () => client.close() };
+  } catch (error) {
+    try {
+      await client.close();
+    } catch (closeError) {
+      throw new LocalDbInitializationCleanupError(error, closeError);
+    }
+    throw error;
+  }
 }

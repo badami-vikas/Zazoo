@@ -247,18 +247,21 @@ function ArtifactViewer({ artifact }: { artifact: ApplicationArtifact }) {
             />
             {section.bullets && (
               <ul className="mt-3 space-y-2">
-                {section.bullets.map((bullet, j) => (
-                  <li key={j} className="flex gap-2 text-sm leading-6" style={{ color: 'var(--color-navy-mid)' }}>
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />
-                    <EditableField
-                      value={fieldValue(`s${i}.b${j}`, bullet)}
-                      baseValue={bullet}
-                      onSave={(v) => setEdit(`s${i}.b${j}`, v)}
-                      as="span"
-                      className="flex-1 text-sm leading-6"
-                    />
-                  </li>
-                ))}
+                {section.bullets.map((bullet, j) => {
+                  const bulletValue = fieldValue(`s${i}.b${j}`, bullet);
+                  return (
+                    <li key={j} className="flex gap-2 text-sm leading-6" style={{ color: 'var(--color-navy-mid)' }}>
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'var(--color-steel)' }} />
+                      <EditableField
+                        value={bulletValue}
+                        baseValue={bullet}
+                        onSave={(v) => setEdit(`s${i}.b${j}`, v)}
+                        as="span"
+                        className="flex-1 text-sm leading-6"
+                      />
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -862,18 +865,21 @@ export function JobPilotApplicationDetail() {
                         <CheckCircle2 className="h-4 w-4" />Why pursue
                       </h3>
                       <ul className="space-y-2">
-                        {application.fit.strengths.map((item, i) => (
-                          <li key={i}>
-                            <EditableField
-                              value={overviewEdits.fieldValue(`fit.strength.${i}`, item)}
-                              baseValue={item}
-                              onSave={(v) => overviewEdits.setEdit(`fit.strength.${i}`, v)}
-                              as="span"
-                              className="text-sm leading-5"
-                              style={{ color: 'var(--color-navy-mid)' }}
-                            />
-                          </li>
-                        ))}
+                        {application.fit.strengths.map((item, i) => {
+                          const strengthValue = overviewEdits.fieldValue(`fit.strength.${i}`, item);
+                          return (
+                            <li key={i}>
+                              <EditableField
+                                value={strengthValue}
+                                baseValue={item}
+                                onSave={(v) => overviewEdits.setEdit(`fit.strength.${i}`, v)}
+                                as="span"
+                                className="text-sm leading-5"
+                                style={{ color: 'var(--color-navy-mid)' }}
+                              />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                     <div>
@@ -881,18 +887,21 @@ export function JobPilotApplicationDetail() {
                         <AlertTriangle className="h-4 w-4" />Resolve first
                       </h3>
                       <ul className="space-y-2">
-                        {application.fit.concerns.map((item, i) => (
-                          <li key={i}>
-                            <EditableField
-                              value={overviewEdits.fieldValue(`fit.concern.${i}`, item)}
-                              baseValue={item}
-                              onSave={(v) => overviewEdits.setEdit(`fit.concern.${i}`, v)}
-                              as="span"
-                              className="text-sm leading-5"
-                              style={{ color: 'var(--color-navy-mid)' }}
-                            />
-                          </li>
-                        ))}
+                        {application.fit.concerns.map((item, i) => {
+                          const concernValue = overviewEdits.fieldValue(`fit.concern.${i}`, item);
+                          return (
+                            <li key={i}>
+                              <EditableField
+                                value={concernValue}
+                                baseValue={item}
+                                onSave={(v) => overviewEdits.setEdit(`fit.concern.${i}`, v)}
+                                as="span"
+                                className="text-sm leading-5"
+                                style={{ color: 'var(--color-navy-mid)' }}
+                              />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   </div>

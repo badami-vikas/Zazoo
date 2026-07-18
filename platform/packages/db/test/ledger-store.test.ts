@@ -208,7 +208,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       createdAt: "2026-07-05T00:00:00.000Z",
     });
 
-    test("ledger: pending Relation projection is owner-scoped without hiding shared proposal types", async () => {
+    test("ledger: pending private proposals and legacy Relationship rows are owner-scoped", async () => {
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
@@ -257,13 +257,38 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           policyResults: [],
           createdAt: "2026-07-17T00:00:00.000Z",
         });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000004",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: ownerId,
+          action: "write",
+          resourceType: "touchpoint",
+          inputs: { kind: "legacy_private_interaction" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:03.000Z",
+        });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000005",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: ownerId,
+          action: "write",
+          resourceType: "signal",
+          inputs: { kind: "private_non_relationship_proposal" },
+          userDecision: null,
+          policyResults: [],
+          dataScope: "private",
+          createdAt: "2026-07-17T00:00:04.000Z",
+        });
 
         const owner = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(owner.total, 3);
+        assert.equal(owner.total, 5);
         const other = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
@@ -277,8 +302,8 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(ownerHistory.total, 3);
-        assert.equal(ownerHistory.items[0]?.resourceType, "signal");
+        assert.equal(ownerHistory.total, 5);
+        assert.equal(ownerHistory.items[0]?.id, "51000000-0000-4000-8000-000000000005");
         const otherHistory = await store.listHistory(ws.id, {
           limit: 10,
           offset: 0,
@@ -288,6 +313,85 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
         assert.deepEqual(
           otherHistory.items.map((entry) => entry.resourceType),
           ["signal"],
+        );
+      } finally {
+        await close();
+      }
+    });
+
+    test("ledger: TASK-010 review round-6 — a red-flag correction proposal (resourceType 'signal', inputs.visibility 'private') is owner-scoped the SAME way a Relation proposal is, and neither type's privacy leaks into the other's", async () => {
+      const { db, close } = await createLocalDb();
+      try {
+        const [ws] = await db
+          .insert(schema.workspaces)
+          .values({ name: "test_fixture_mixed_private_types" })
+          .returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        const redFlagOwner = "52000000-0000-4000-8000-000000000001";
+        const relationOwner = "52000000-0000-4000-8000-000000000002";
+        const otherMember = "52000000-0000-4000-8000-000000000003";
+        const store = new DrizzleLedgerStore(db);
+        // A red-flag correction proposal — TASK-010's own private marker, never "relation".
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000001",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: redFlagOwner,
+          action: "write",
+          resourceType: "signal",
+          inputs: { kind: "red_flag_correction_proposal", visibility: "private", governed: true, applied: false, summary: "x" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:02.000Z",
+        });
+        // A Relation proposal — RM4's own private marker, unrelated to inputs.visibility.
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000002",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: relationOwner,
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:01.000Z",
+        });
+        // A genuinely public/shared proposal — neither type, no visibility marker at all.
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000003",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          action: "write",
+          resourceType: "signal",
+          inputs: {},
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:00.000Z",
+        });
+
+        const redFlagOwnerView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: redFlagOwner });
+        assert.deepEqual(
+          redFlagOwnerView.items.map((e) => e.id).sort(),
+          ["53000000-0000-4000-8000-000000000001", "53000000-0000-4000-8000-000000000003"],
+          "the red-flag owner sees their OWN red-flag proposal plus the shared one — never the relation proposal",
+        );
+
+        const relationOwnerView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: relationOwner });
+        assert.deepEqual(
+          relationOwnerView.items.map((e) => e.id).sort(),
+          ["53000000-0000-4000-8000-000000000002", "53000000-0000-4000-8000-000000000003"],
+          "the relation owner sees their OWN relation proposal plus the shared one — never the red-flag proposal",
+        );
+
+        const otherView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: otherMember });
+        assert.deepEqual(
+          otherView.items.map((e) => e.id),
+          ["53000000-0000-4000-8000-000000000003"],
+          "a THIRD member sees only the genuinely shared proposal — neither private type",
         );
       } finally {
         await close();

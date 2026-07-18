@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Inbox, Plus, X, ShieldCheck, Check, Ban, Link2 } from 'lucide-react';
+import { Inbox, Plus, X, ShieldCheck, Check, Ban } from 'lucide-react';
 import {
-  listCaptures, listProposals, proposeCapture, decideCapture, flagPossibleLink, archiveCapture,
+  listCaptures, listProposals, mirrorCaptureProposal, mirrorCaptureDecision, archiveCapture,
   getBlobUrl, type MediaCaptureRecord, type ProposalView,
 } from '../../../data/localMedia';
-
-const API_ENABLED = Boolean(import.meta.env.VITE_API_URL);
+import { PILOT_WORKSPACE, trpc } from '../../../lib/trpc';
 
 export default function CameraCaptures() {
   const [pending, setPending] = useState<MediaCaptureRecord[]>([]);
@@ -14,11 +13,42 @@ export default function CameraCaptures() {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
-    const [p, c, props] = await Promise.all([
+    let [p, c, props] = await Promise.all([
       listCaptures({ status: 'pending' }), listCaptures({ status: 'committed' }), listProposals(),
     ]);
+    const pendingProps = props.filter((proposal) => proposal.status === 'pending_review');
+    if (pendingProps.length > 0) {
+      const server = await trpc.capture.status.query({
+        workspaceId: PILOT_WORKSPACE,
+        localMediaIds: pendingProps.map((proposal) => proposal.mediaId),
+      });
+      let reconciled = false;
+      for (const item of server.items) {
+        if (
+          (item.status === 'applied' || item.status === 'rejected') &&
+          item.proposalId &&
+          item.decisionLedgerId
+        ) {
+          await mirrorCaptureDecision(
+            item.proposalId,
+            item.status === 'applied' ? 'approve' : 'veto',
+            item.decisionLedgerId,
+            `capture:${PILOT_WORKSPACE}:${item.localMediaId}`,
+          );
+          reconciled = true;
+        }
+      }
+      if (reconciled) {
+        [p, c, props] = await Promise.all([
+          listCaptures({ status: 'pending' }),
+          listCaptures({ status: 'committed' }),
+          listProposals(),
+        ]);
+      }
+    }
     setPending(p); setCommitted(c); setProposals(props.filter((x) => x.status === 'pending_review'));
     const next: Record<string, string> = {};
     for (const r of [...p, ...c]) {
@@ -26,52 +56,94 @@ export default function CameraCaptures() {
     }
     setUrls(next);
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    void refresh().catch((cause) => setError(String(cause)));
+  }, []);
 
   function flash(msg: string) { setNote(msg); setTimeout(() => setNote(null), 3600); }
 
   async function onAdd(r: MediaCaptureRecord) {
     setBusy(r.id);
-    await proposeCapture(r.id, { ...(r.caption ? { caption: r.caption } : {}), ...(r.ocrText ? { ocrText: r.ocrText } : {}) });
-    if (API_ENABLED) {
-      // Also propose to the REAL platform pipeline. The blob is NEVER sent — only a local reference + facts.
-      // AGS1 (TASK-007 closure): the server (never this client) decides the invoking
-      // Agent and provisions the Goal/Task the governed `stageCapture` Skill requires —
-      // see apps/api/src/router.ts's `capture.stage` procedure.
-      try {
-        await fetch(`${import.meta.env.VITE_API_URL}/trpc/capture.stage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            json: {
-              workspaceId: 'b0000000-0000-4000-a000-000000000001',
-              localMediaId: r.id,
-              kind: r.kind,
-              ...(r.caption ? { caption: r.caption } : {}),
-              ...(r.ocrText ? { ocrText: r.ocrText } : {}),
-            },
-          }),
-        });
-      } catch { /* local record already stands; the API is best-effort */ }
+    setError(null);
+    try {
+      const proposal = await trpc.capture.stage.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        localMediaId: r.id,
+        kind: r.kind,
+        ...(r.caption ? { caption: r.caption } : {}),
+        ...(r.ocrText ? { ocrText: r.ocrText } : {}),
+        capturedAt: r.capturedAt,
+      });
+      if (proposal.status !== 'pending_review') {
+        throw new Error(
+          proposal.status === 'rejected'
+            ? proposal.rejectionReason || 'The capture proposal was rejected.'
+            : 'Capture staging did not produce the required review gate.',
+        );
+      }
+      const noun = r.kind === 'video' ? 'video' : 'photo';
+      await mirrorCaptureProposal(
+        proposal.id,
+        r.id,
+        {
+          type: 'event',
+          text: `Captured a ${noun}${r.caption ? ` — ${r.caption}` : ''}`,
+          local_media_id: r.id,
+          ...(r.ocrText ? { notes: r.ocrText } : {}),
+        },
+      );
+      flash('Event proposal staged in the governed review queue.');
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(null);
     }
-    setBusy(null);
-    flash(API_ENABLED ? 'Proposed — sent to the governed pipeline for review.' : 'Proposed — review it below (local governed pipeline).');
-    refresh();
-  }
-  async function onFlagLink(r: MediaCaptureRecord) {
-    setBusy(r.id);
-    await flagPossibleLink(r.id, 'unconfirmed person');
-    setBusy(null);
-    flash('Filed a possible_link Signal — uncertain matches are never auto-linked.');
-    refresh();
   }
   async function onDismiss(r: MediaCaptureRecord) {
-    setBusy(r.id); await archiveCapture(r.id); setBusy(null); refresh();
+    if (proposals.some((proposal) => proposal.mediaId === r.id)) {
+      setError('Resolve the governed review before archiving this capture.');
+      return;
+    }
+    setBusy(r.id);
+    setError(null);
+    try {
+      await archiveCapture(r.id);
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(null);
+    }
   }
   async function onDecide(p: ProposalView, decision: 'approve' | 'veto') {
-    setBusy(p.id); await decideCapture(p.id, decision); setBusy(null);
-    flash(decision === 'approve' ? 'Approved — committed a Touchpoint + ledger entry.' : 'Vetoed — nothing committed.');
-    refresh();
+    setBusy(p.id);
+    setError(null);
+    try {
+      const result = await trpc.action.decide.mutate({
+        proposalId: p.id,
+        decision,
+      });
+      if (result.effectsStatus !== 'confirmed') {
+        throw new Error(result.effectsError || 'The governed capture effect did not complete.');
+      }
+      await mirrorCaptureDecision(
+        p.id,
+        decision,
+        result.id,
+        `capture:${PILOT_WORKSPACE}:${p.mediaId}`,
+      );
+      flash(
+        decision === 'approve'
+          ? 'Approved — materialized one private Event with an inspectable decision receipt.'
+          : 'Vetoed — no Event was materialized.',
+      );
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -79,10 +151,11 @@ export default function CameraCaptures() {
       <div className="flex items-start gap-3 px-4 py-3 rounded-xl border" style={{ borderColor: 'color-mix(in srgb, var(--color-steel) 20%, transparent)', backgroundColor: 'color-mix(in srgb, var(--color-steel) 5%, transparent)' }}>
         <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" style={{ color: 'var(--color-steel)' }} />
         <div className="text-xs" style={{ color: 'var(--color-navy-mid)' }}>
-          <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>Quarantined &amp; private.</span> Photos/videos live only on this device. <span className="font-semibold">Add to Bridge</span> raises a governed Touchpoint proposal — the blob never leaves; only an approved decision enters the ledger.
+          <span className="font-semibold" style={{ color: 'var(--color-navy)' }}>Quarantined &amp; private.</span> Photos/videos live only on this device. <span className="font-semibold">Add to Bridge</span> raises a governed Event proposal — the blob never leaves; only an approved decision materializes an Event.
         </div>
       </div>
       {note && <div className="px-3 py-2 rounded-lg text-xs font-medium" style={{ backgroundColor: 'color-mix(in srgb, var(--success) 12%, transparent)', color: 'var(--success)' }}>{note}</div>}
+      {error && <div role="alert" className="px-3 py-2 rounded-lg text-xs font-medium text-red-700 bg-red-50">{error}</div>}
 
       {/* Pending captures */}
       <section>
@@ -104,9 +177,8 @@ export default function CameraCaptures() {
                   <div className="text-xs font-semibold" style={{ color: 'var(--color-navy)' }}>{r.kind === 'photo' ? 'Photo' : 'Video'} · {(r.byteSize / 1024).toFixed(0)} KB</div>
                   {r.ocrText && <p className="mt-1 text-[11px] line-clamp-2" style={{ color: 'var(--color-warm-gray)' }}>OCR: {r.ocrText}</p>}
                   <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                    <button onClick={() => onAdd(r)} disabled={busy === r.id} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}><Plus className="w-3.5 h-3.5" /> Add to Bridge</button>
-                    <button onClick={() => onFlagLink(r)} disabled={busy === r.id} title="File a possible_link Signal (manual confirmation)" className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded-lg border disabled:opacity-50" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}><Link2 className="w-3.5 h-3.5" /> Link?</button>
-                    <button onClick={() => onDismiss(r)} disabled={busy === r.id} title="Archive (soft delete)" className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded-lg border disabled:opacity-50" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}><X className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => onAdd(r)} disabled={busy === r.id || proposals.some((proposal) => proposal.mediaId === r.id)} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: 'var(--color-steel)' }}><Plus className="w-3.5 h-3.5" /> {proposals.some((proposal) => proposal.mediaId === r.id) ? 'Awaiting review' : 'Add to Bridge'}</button>
+                    <button onClick={() => onDismiss(r)} disabled={busy === r.id || proposals.some((proposal) => proposal.mediaId === r.id)} title="Archive (soft delete)" className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded-lg border disabled:opacity-50" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}><X className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
               </div>
@@ -147,7 +219,7 @@ export default function CameraCaptures() {
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {committed.map((r) => (
-              <div key={r.id} className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--color-border)' }} title={`Touchpoint · ledger ${r.ledgerId ?? ''}`}>
+              <div key={r.id} className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--color-border)' }} title={`Event · decision ${r.ledgerId ?? ''}`}>
                 {urls[r.id] && (r.kind === 'photo'
                   ? <img src={urls[r.id]} alt="committed" className="w-full h-20 object-cover" />
                   : <video src={urls[r.id]} className="w-full h-20 object-cover bg-black" />)}

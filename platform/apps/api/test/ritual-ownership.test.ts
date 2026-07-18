@@ -64,7 +64,13 @@ test("ritual.runById derives the actor from the stored owning Agent", async () =
       steps: [{
         skill: "outreach.stageDraft",
         action: "write",
-        resourceType: "touchpoint",
+        // TASK-011 merge reconciliation (2026-07-19) — origin/main renamed
+        // OUTREACH_DRAFT_SKILL_MANIFEST's permission (and the outreach role
+        // template/Agent's granted scope) from touchpoint:write to
+        // event:write (VOCAB2 migration); a ritual step for this Skill must
+        // match the Skill's actual current permission to be within the
+        // owning Agent's authority (ritual ⊆ agent).
+        resourceType: "event",
         inputs: { title: "Prepare governed draft" },
         goalTaskRef: { goalId: goal.id, taskId: task.id },
       }],
@@ -101,7 +107,9 @@ test("ritual.runById rejects an arbitrary caller-supplied actor", async () => {
       steps: [{
         skill: "outreach.stageDraft",
         action: "write",
-        resourceType: "touchpoint",
+        // See the sibling test's comment above — outreach.stageDraft's
+        // current permission is event:write, not touchpoint:write.
+        resourceType: "event",
         inputs: {},
         goalTaskRef: { goalId: goal.id, taskId: task.id },
       }],

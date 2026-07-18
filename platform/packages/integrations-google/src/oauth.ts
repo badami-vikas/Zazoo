@@ -7,6 +7,7 @@
  * Google directly.
  */
 import { google, type Auth } from "googleapis";
+import { CodeChallengeMethod } from "google-auth-library";
 import type { OAuthTokenRecord } from "@bridge/local";
 import { GOOGLE_SCOPES } from "./contracts.js";
 
@@ -30,8 +31,12 @@ export function buildOAuthClient(cfg: GoogleOAuthConfig): Auth.OAuth2Client {
   return new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, cfg.redirectUri);
 }
 
-/** The Google consent URL. `state` carries our integration id (CSRF + routing). */
-export function authUrl(cfg: GoogleOAuthConfig, state: string): string {
+/** Build a consent URL bound to the callback with PKCE S256. */
+export function authUrl(
+  cfg: GoogleOAuthConfig,
+  state: string,
+  codeChallenge: string,
+): string {
   const client = buildOAuthClient(cfg);
   return client.generateAuthUrl({
     access_type: "offline", // refresh token
@@ -39,6 +44,8 @@ export function authUrl(cfg: GoogleOAuthConfig, state: string): string {
     scope: [...GOOGLE_SCOPES],
     include_granted_scopes: true,
     state,
+    code_challenge: codeChallenge,
+    code_challenge_method: CodeChallengeMethod.S256,
   });
 }
 
@@ -50,10 +57,14 @@ export interface ExchangedTokens {
   expiryDate?: number;
 }
 
-/** Exchange an authorization code for tokens. */
-export async function exchangeCode(cfg: GoogleOAuthConfig, code: string): Promise<ExchangedTokens> {
+/** Exchange an authorization code, requiring its PKCE verifier when supplied. */
+export async function exchangeCode(
+  cfg: GoogleOAuthConfig,
+  code: string,
+  codeVerifier: string,
+): Promise<ExchangedTokens> {
   const client = buildOAuthClient(cfg);
-  const { tokens } = await client.getToken(code);
+  const { tokens } = await client.getToken({ code, codeVerifier });
   if (!tokens.access_token) throw new Error("oauth: no access_token in token response");
   return {
     accessToken: tokens.access_token,

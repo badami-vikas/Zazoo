@@ -21,7 +21,7 @@ test("processJobCandidate: new posting (no existing match) sources, records fact
 
   assert.equal(result.dedupedAgainst, null);
   assert.equal(result.alreadyAppliedToCompany, null);
-  assert.equal(result.fit.flag, "green");
+  assert.equal(result.fit.flag, "pursue");
   assert.equal(facts.livingProfile("job_1").company?.value, "Acme HVAC");
 });
 

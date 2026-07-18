@@ -10,6 +10,8 @@ interface Window {
   /** Sidecar API base URL (e.g. "http://127.0.0.1:49321"), injected before
    * any app module evaluates. See apps/desktop src-tauri/src/lib.rs. */
   __BRIDGE_API_URL__?: string;
+  /** Per-launch capability for the managed loopback API. Never persisted or put in a URL. */
+  __BRIDGE_SIDECAR_TOKEN__?: string;
   /** Tauri v2 runtime internals — used for `invoke` (and, for the annotate
    * window, event `listen`) without adding @tauri-apps/api as a dependency
    * of the (browser-first) web app. `transformCallback` registers a JS

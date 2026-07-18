@@ -28,6 +28,14 @@ export interface RelationMaterializationPage {
   nextCursor: RelationMaterializationCursor | null;
 }
 
+const RELATIONSHIP_MUTATION_KINDS = [
+  "relationship_record_mutation",
+  "relationship_interaction_create",
+  "relationship_memory_mutation",
+  "relationship_commitment_mutation",
+  "relationship_introduction_mutation",
+] as const;
+
 interface StoreContext {
   workspaceId: string;
   userId: string | null;
@@ -430,10 +438,56 @@ export class DrizzleRelationMaterializationStore {
         ON proposal.id = decision.ref_ledger_id
        AND proposal.workspace_id = decision.workspace_id
       WHERE decision.workspace_id = ${normalizedWorkspaceId}::uuid
-        AND decision.resource_type = 'relation'
         AND decision.user_decision IN ('approve', 'edit')
-        AND proposal.resource_type = 'relation'
-        AND proposal.inputs ->> 'kind' = 'relationship_signal_evidence'
+        AND (
+          (
+            decision.resource_type = 'relation'
+            AND proposal.resource_type = 'relation'
+            AND proposal.inputs ->> 'kind' = 'relationship_signal_evidence'
+          )
+          OR (
+            decision.resource_type = proposal.resource_type
+            AND proposal.inputs ->> 'kind' IN (
+              'relationship_record_mutation',
+              'relationship_interaction_create',
+              'relationship_memory_mutation',
+              'relationship_commitment_mutation',
+              'relationship_introduction_mutation'
+            )
+            AND (
+              (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
+                AND proposal.resource_type IN ('person', 'community'))
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
+                AND proposal.resource_type = 'event')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+                AND proposal.resource_type = 'person')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+                AND proposal.resource_type = 'relation')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+                AND proposal.resource_type = 'relation')
+            )
+          )
+          OR (
+            decision.resource_type = 'event'
+            AND proposal.resource_type = 'event'
+            AND proposal.data_scope = 'private'
+            AND jsonb_typeof(proposal.inputs -> 'directive' -> 'entities') = 'array'
+            AND NOT (proposal.inputs -> 'directive' ? 'person')
+            AND (
+              SELECT count(*)
+              FROM jsonb_array_elements(
+                proposal.inputs -> 'directive' -> 'entities'
+              ) AS intake_entity
+              WHERE intake_entity ->> 'kind' = 'event'
+                AND intake_entity ->> 'personId' IS NOT NULL
+                AND intake_entity ->> 'source' IN ('gmail', 'google-calendar')
+            ) = 1
+          )
+        )
         AND (
           CASE
             WHEN proposal.on_behalf_of_type = 'user' THEN proposal.on_behalf_of_id
@@ -491,10 +545,56 @@ export class DrizzleRelationMaterializationStore {
           ON proposal.id = decision.ref_ledger_id
          AND proposal.workspace_id = decision.workspace_id
         WHERE decision.workspace_id = ${normalizedWorkspaceId}::uuid
-          AND decision.resource_type = 'relation'
           AND decision.user_decision IN ('approve', 'edit')
-          AND proposal.resource_type = 'relation'
-          AND proposal.inputs ->> 'kind' = 'relationship_signal_evidence'
+          AND (
+            (
+              decision.resource_type = 'relation'
+              AND proposal.resource_type = 'relation'
+              AND proposal.inputs ->> 'kind' = 'relationship_signal_evidence'
+            )
+            OR (
+              decision.resource_type = proposal.resource_type
+              AND proposal.inputs ->> 'kind' IN (
+                'relationship_record_mutation',
+                'relationship_interaction_create',
+                'relationship_memory_mutation',
+                'relationship_commitment_mutation',
+                'relationship_introduction_mutation'
+              )
+              AND (
+                (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
+                  AND proposal.resource_type IN ('person', 'community'))
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
+                  AND proposal.resource_type = 'event')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+                  AND proposal.resource_type = 'person')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+                  AND proposal.resource_type = 'relation')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+                  AND proposal.resource_type = 'relation')
+              )
+            )
+            OR (
+              decision.resource_type = 'event'
+              AND proposal.resource_type = 'event'
+              AND proposal.data_scope = 'private'
+              AND jsonb_typeof(proposal.inputs -> 'directive' -> 'entities') = 'array'
+              AND NOT (proposal.inputs -> 'directive' ? 'person')
+              AND (
+                SELECT count(*)
+                FROM jsonb_array_elements(
+                  proposal.inputs -> 'directive' -> 'entities'
+                ) AS intake_entity
+                WHERE intake_entity ->> 'kind' = 'event'
+                  AND intake_entity ->> 'personId' IS NOT NULL
+                  AND intake_entity ->> 'source' IN ('gmail', 'google-calendar')
+              ) = 1
+            )
+          )
           AND (
             CASE
               WHEN proposal.on_behalf_of_type = 'user' THEN proposal.on_behalf_of_id
@@ -507,6 +607,39 @@ export class DrizzleRelationMaterializationStore {
               WHEN decision.actor_type = 'user' THEN decision.actor_id
               ELSE NULL
             END
+          )
+        UNION
+        SELECT DISTINCT
+          CASE
+            WHEN proposal.on_behalf_of_type = 'user' THEN proposal.on_behalf_of_id
+            WHEN proposal.actor_type = 'user' THEN proposal.actor_id
+            ELSE NULL
+          END AS owner_user_id
+        FROM ledger AS proposal
+        WHERE proposal.workspace_id = ${normalizedWorkspaceId}::uuid
+          AND proposal.user_decision = 'auto'
+          AND proposal.inputs ->> 'kind' IN (
+            'relationship_record_mutation',
+            'relationship_interaction_create',
+            'relationship_memory_mutation',
+            'relationship_commitment_mutation',
+            'relationship_introduction_mutation'
+          )
+          AND (
+            (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
+              AND proposal.resource_type IN ('person', 'community'))
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
+              AND proposal.resource_type = 'event')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+              AND proposal.resource_type = 'person')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+              AND proposal.resource_type = 'relation')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+              AND proposal.resource_type = 'relation')
           )
       )
       SELECT owner_user_id::text
@@ -531,6 +664,83 @@ export class DrizzleRelationMaterializationStore {
       nextCursor:
         rows.length > limit ? page.at(-1) ?? null : null,
     };
+  }
+
+  /**
+   * Auto-applied Human mutations have no separate decision row, so the RM4
+   * effect table cannot represent them. Their lifecycle Event is the durable
+   * materialization receipt; this bounded query finds ledger rows missing it.
+   */
+  async listUnmaterializedAutoMutationIds(
+    workspaceId: string,
+    ownerUserId: string,
+    opts: { limit: number },
+  ): Promise<string[]> {
+    const normalizedWorkspaceId = workspaceId.toLowerCase();
+    const normalizedOwnerUserId = ownerUserId.toLowerCase();
+    if (!this.#hasContext(normalizedWorkspaceId, normalizedOwnerUserId)) {
+      return this.#withContext(
+        normalizedWorkspaceId,
+        normalizedOwnerUserId,
+        (store) =>
+          store.listUnmaterializedAutoMutationIds(
+            normalizedWorkspaceId,
+            normalizedOwnerUserId,
+            opts,
+          ),
+      );
+    }
+    const limit = Math.min(Math.max(opts.limit, 1), 100);
+    const result = await this.#db.execute(sql`
+      SELECT proposal.id::text
+      FROM ledger AS proposal
+      WHERE proposal.workspace_id = ${normalizedWorkspaceId}::uuid
+        AND proposal.user_decision = 'auto'
+        AND proposal.inputs ->> 'kind' IN (${sql.join(
+          RELATIONSHIP_MUTATION_KINDS.map((kind) => sql`${kind}`),
+          sql`, `,
+        )})
+        AND (
+          (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
+            AND proposal.resource_type IN ('person', 'community'))
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
+            AND proposal.resource_type = 'event')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+            AND proposal.resource_type = 'person')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+            AND proposal.resource_type = 'relation')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+            AND proposal.resource_type = 'relation')
+        )
+        AND (
+          CASE
+            WHEN proposal.on_behalf_of_type = 'user' THEN proposal.on_behalf_of_id
+            WHEN proposal.actor_type = 'user' THEN proposal.actor_id
+            ELSE NULL
+          END
+        ) = ${normalizedOwnerUserId}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM events AS materialized
+          WHERE materialized.workspace_id = proposal.workspace_id
+            AND materialized.payload ->> 'decisionLedgerId' = proposal.id::text
+        )
+      ORDER BY
+        proposal.append_sequence ASC NULLS FIRST,
+        proposal.created_at ASC,
+        proposal.id ASC
+      LIMIT ${limit}
+    `);
+    const rows = (
+      Array.isArray(result)
+        ? result
+        : (result as { rows?: unknown[] }).rows ?? []
+    ) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
   }
 
   async listOutstanding(

@@ -13,6 +13,7 @@
     "@bridge/core": "workspace:*",
     "@bridge/db": "workspace:*",
     "@bridge/local": "workspace:*",
+    "google-auth-library": "^9.15.1",
     "googleapis": "^144.0.0"
   },
   "devDependencies": {

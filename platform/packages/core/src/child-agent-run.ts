@@ -17,7 +17,6 @@
  * before proposing each of the child run's actions through the SAME governed
  * pipeline every other mutation uses; nothing here bypasses `propose`/`decide`.
  */
-import { createHash } from "node:crypto";
 import type { DataScope } from "./data-scope.js";
 import type { Actor, Plane, TrustOrigin } from "./types.js";
 import type { LedgerEntry } from "./types.js";
@@ -426,6 +425,34 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
 }
 
 /**
+ * FNV-1a 32-bit, run four times with distinct seeds/salts to fill a 128-bit
+ * (32 hex char) output. `@bridge/core` is bundled into the web app (Vite),
+ * so a top-level `node:crypto` import here would break the browser build
+ * (confirmed by a real build failure during development — Rollup cannot
+ * externalize `createHash` for the browser); this is a dependency-free, pure
+ * function that works identically in Node and the browser. It is
+ * DELIBERATELY not cryptographically secure — the only requirement is that
+ * the SAME input always derives the SAME output (idempotent audit-row ids),
+ * not collision-resistance against an adversarial input. `childRunId` is
+ * always a real UUID and `status` a fixed enum — there is no
+ * attacker-controlled input here to engineer a collision against.
+ */
+function fnv1a32(input: string, seed: number): number {
+  let hash = seed >>> 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function deterministicHex128(input: string): string {
+  return [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
+    .map((seed) => fnv1a32(input, seed).toString(16).padStart(8, "0"))
+    .join("");
+}
+
+/**
  * Deterministic (NOT random) ledger-entry id for the SINGLE confirmed
  * "outcome" audit row a terminal child-Run transition may ever produce for
  * one (childRunId, status) pair — TASK-011 remediation (coordinator
@@ -445,7 +472,7 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
  * audit row without needing a cross-store transaction.
  */
 function terminalOutcomeAuditId(childRunId: string, status: ChildAgentRunStatus): string {
-  const hex = createHash("sha256").update(`child_run_terminal_outcome:${childRunId}:${status}`).digest("hex");
+  const hex = deterministicHex128(`child_run_terminal_outcome:${childRunId}:${status}`);
   const versionNibble = "5"; // marks this as a derived/non-random id, not a real v4 uuid
   const variantNibble = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${versionNibble}${hex.slice(13, 16)}-${variantNibble}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;

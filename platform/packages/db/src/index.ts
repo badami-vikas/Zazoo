@@ -4,7 +4,12 @@
  */
 export * as schema from "./schema.js";
 export { createDb, type Database, type DbConfig } from "./client.js";
-export { createLocalDb, type LocalDatabase, type LocalDbConfig } from "./client-local.js";
+export {
+  createLocalDb,
+  LocalDbInitializationCleanupError,
+  type LocalDatabase,
+  type LocalDbConfig,
+} from "./client-local.js";
 export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
@@ -57,20 +62,46 @@ export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
 export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
 export {
   DrizzleGraphStore,
+  type ArchiveRelationshipRecordInput,
+  type CommitmentPage,
+  type CommitmentRecord,
+  type CommitmentStatus,
+  type CommunityDetail,
   type CommunityRecord,
+  type CreateCommunityInput,
+  type CreateInteractionInput,
+  type CreatePersonInput,
+  type DecisionProvenance,
+  type InteractionParticipantInput,
+  type IntroductionPage,
+  type IntroductionRecord,
+  type IntroductionStatus,
+  type MaterializeIntroductionInput,
   type MaterializeSignalEvidenceInput,
+  type MaterializeCommitmentInput,
   type NodeTypeOwner,
   type PageOpts,
   type Page,
   type PersonRecord,
+  type PersonDetail,
   type RelationCursor,
   type RelationPage,
+  type RelationshipPath,
+  type RelationshipPathNode,
+  type RelationshipPathResult,
+  type RelationshipPathStep,
   type RelationRecord,
   type RelationVisibility,
   type SignalDetail,
   type SignalEvidenceAnchor,
   type SignalParticipant,
   type SignalParticipantRelationInput,
+  type TimelineCursor,
+  type TimelineItem,
+  type TimelinePage,
+  type TimelineParticipant,
+  type UpdateCommunityInput,
+  type UpdatePersonInput,
   type UpsertRelationInput,
 } from "./graph-store.js";
 export { DrizzleJobPilotStore, type JobRow, type ApplicationRow, type CreateJobInput } from "./jobpilot-store.js";

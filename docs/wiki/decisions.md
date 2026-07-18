@@ -4,6 +4,46 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-18 — Privileged webview boundary (ADR-120)
+- Tauri webviews stay on trusted Tauri origins. External top-level navigation denied.
+- Sidecar token only immutable main-webview global. Companion webviews get none.
+- Google consent opens in validated system browser. Helper reaped. Callback uses actual sidecar port.
+
+## 2026-07-18 — Google OAuth state (ADR-119)
+- Connect mints state + PKCE verifier after auth + membership.
+- URL gets raw state + S256 challenge. Local Plane gets hash + verifier + binding + expiry.
+- Callback consumes once. Token stays invisible until second membership check.
+- One Integration lock. Failure restores exact prior token. Refresh uses ordered CAS.
+
+## 2026-07-18 — Desktop sidecar launch capability (ADR-118)
+- Loopback not auth. Rust owns random port + fresh 256-bit capability.
+- Node inherits same listener. Rust keeps copy. Child crash cannot donate port.
+- Tokenless bootstrap first. Privileged webview only after authenticated health.
+- Child loss kills capture/topology, hides privileged windows, shows unavailable.
+- Auth shutdown drains active requests. Hard deadline catches hung orphan.
+- Header only. Never URL/storage/log. Non-Unix release without safe activation fails.
+- Typed + legacy Google clients share injected URL + bearer/sidecar headers.
+- Sidecar proves trusted client. Never proves Human re-auth.
+
+## 2026-07-18 — DealPilot local durability (ADR-117)
+- One Local Plane DB. One owning process. Drizzle + runtime state share client.
+- Client close fails = keep ownership. Never admit second live opener.
+- Organization aggregate updates atomic. Restart keeps Records, Relations, captures, Gmail recovery, spend, audit.
+- Old adapter Record table imports before Drizzle. Exact verify. No migration number.
+- Source secret only OS keyring. Opaque ref bound to Organization + Source.
+- Opaque create/revoke journal repairs crashes. Secret value never DB/file/log.
+- Server without durable storage + approved vault: fail boot. Memory adapters: tests only.
+- Adapter owns its tables. No numbered migration. RM4/TASK-010 numbers untouched.
+- macOS keychain + Tauri + 375px Chrome proven. Live Google + OS re-auth still missing.
+- No physical-mobile/signing claim. No fake DONE.
+
+## 2026-07-18 — Relationship continuity storage (ADR-115)
+- Memory stays Memory. Corrections append. Forget removes lineage.
+- Commitments + Introductions = private Event snapshots + evidence Relations.
+- Intro completes only after two recorded consents. No send.
+- Paths reuse pruned Relations. Bounded. No second Graph.
+- No migration. Automation/delegation/evals still open.
+
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.

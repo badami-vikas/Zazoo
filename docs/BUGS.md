@@ -18,6 +18,87 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — TASK-010 JobPilot table cells lacked Red Flag controls
+Live certification found that the default JobPilot table rendered persisted Role, Company, and Stage
+values as plain text even though TASK-010 requires every eligible data cell to expose the shared,
+reversible Red Flag correction path. Only generated `TableView` cells and JobPilot card bullets were
+wired. The default table now uses one batched `RedFlagProvider`, with all three cells anchored to the
+real persisted application Record. Desktop focus/hover and 375px coarse-pointer touch flows flagged,
+explained, cleared, and surfaced audit evidence without green/yellow feedback semantics. Attached to
+TASK-010.
+
+## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
+User report (verbatim): “avatar dragging is not working.”
+The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
+while the Avatar itself remained a click-only button. That fails TASK-003's physical
+“Drag the Avatar” acceptance path even if the narrow handle works. The Avatar surface now
+uses a movement threshold before invoking a server-owned native window drag, preserving
+ordinary click/keyboard activation. Physical retest is pending before this evidence closes.
+Attached to canonical TASK-003.
+
+## RESOLVED 2026-07-18 — release desktop bootstrap failed and sidecar loss aborted on macOS
+The asynchronous release lifecycle created tokenless bootstrap/unavailable pages with `data:` URLs
+but did not enable Tauri's `webview-data-url` feature, so a real release launch displayed neither
+page and never started the managed API. After that was fixed, the sidecar-loss path hid then
+destroyed every webview uniformly; destroying the macOS companion while it was still an
+`AvatarPanel` raised an Objective-C exception that Rust could not catch and aborted the shell.
+Tauri now retains the bootstrap handle until authenticated readiness, hides it before destruction,
+and routes companion retirement through the existing NSPanel-to-window conversion before close.
+A live release run reached authenticated sidecar readiness; simulated child death left the desktop
+alive, surfaced the Local Plane unavailable window, and kept the parent-held loopback port
+unrebindable. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — packaged desktop Google UI bypassed the managed sidecar transport
+`GoogleIntegrationPanel` used the legacy `data/api.ts` helper, which read only `VITE_API_URL` and
+sent neither the Supabase bearer nor `X-Bridge-Sidecar-Token`. A packaged desktop injects its random
+API URL and capability through Tauri globals, so Google status/connect/sync/send either appeared
+disabled or failed 401. The legacy helper now shares `lib/trpc.ts` URL resolution and authorization
+headers; desktop enablement and both injected values have web regressions. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — managed API sidecar set an ignored host variable
+The Rust launcher set `HOST=127.0.0.1`, but Fastify reads `API_HOST`. A sidecar inheriting
+`DATABASE_URL` or verifier configuration could therefore select the shared-deployment
+`0.0.0.0` default and expose its capability-protected listener to the LAN. The launcher now sets
+`API_HOST`, and the API independently forces loopback whenever `BRIDGE_SIDECAR_TOKEN` exists.
+Rust and API regressions cover the exact environment combination. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth completion trusted stale workspace membership
+OAuth state retained the initiating Human but the callback ignored it. A removed member could
+complete an unexpired flow and replace the Organization Google credential; a single pre-exchange
+check also left revocation-during-exchange open. Callback handling now validates the server-bound
+Integration and initiating membership before provider access, then rechecks membership at the
+Local Plane token-persistence boundary. Deterministic tests cover revocation before and during
+exchange, and prove no token is stored. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — durable desktop sidecar exposed the Local Plane over unauthenticated loopback
+The first durable Local Plane slice bound Fastify to loopback but treated only `DATABASE_URL` as
+persistent. A local webpage could scan the sidecar port, inherit permissive development CORS, and
+use the fallback pilot identity to read DealPilot private data or attempt governed mutations. The
+desktop now generates a 256-bit per-launch capability, passes it only through the child environment
+and Tauri initialization script, sends it in a redacted header, and configures a closed Tauri-origin
+allowlist. The API constant-time verifies the capability before every non-OAuth sidecar request,
+treats file-backed Local Plane state as persistent, and never lets the capability satisfy credential
+re-authentication. Missing, weak, or incorrect capabilities fail 401. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth callback accepted predictable state and allowed account substitution
+`google.connectUrl` used the predictable Integration ID as OAuth `state`, and the callback exchanged
+any supplied authorization code before proving that an authenticated Bridge user initiated the
+flow. An unauthenticated local process could bind its Google account into the victim's Local Plane.
+Connect now issues a 256-bit, ten-minute state through the authenticated procedure, stores only its
+SHA-256 hash plus Integration/Human binding in the atomic Local Plane, and the callback atomically
+consumes it before handling denial or exchanging a code. Missing, malformed, expired, replayed, and
+legacy predictable states fail closed without provider access. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — privileged Tauri webview could disclose its sidecar capability after OAuth navigation
+The desktop Google connect path replaced the privileged main webview with the external consent page,
+while Tauri initialization scripts run on every top-level navigation. That could expose the
+per-launch sidecar capability to an untrusted document. Release webviews now reject non-Tauri
+top-level navigation; only the main trusted-origin document receives an origin-guarded, immutable
+capability, while companion webviews receive none. Google consent opens through a strict
+`https://accounts.google.com/o/oauth2/` system-browser command, and the sidecar supplies its actual
+random-port callback URI. Rust and web regressions cover navigation, URL validation, token guarding,
+and absence of in-webview OAuth assignment. Attached to TASK-006.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
@@ -115,6 +196,9 @@ Public ticket creation and submitter replies now use client operation UUIDs plus
 ## RESOLVED 2026-07-18 — TASK-008 integration omitted the RM4 Relation persistence/materialization contract
 Merged on `main` at `590cca6` as migration `0015_task008_relation_contract`. Relations now persist bounded evidence/provenance/visibility/validity/owner/decision fields; owning-Module node types and owner-scoped uniqueness/RLS are enforced; reads use deterministic composite keyset pagination with batched permission pruning; and approved proposals reconcile through a durable pending/applied/failed effect ledger with bounded retry and stale-lease recovery. Runtime proposal resolution trusts only `ref_ledger_id`; the verified legacy backfill rejects malformed, ambiguous, cross-workspace, mismatched, missing, and physically post-0003 references. The merge preserved hardened Relationship UI, Approvals, public Helpdesk, DealPilot validation/effects, and both governance seeders. Full affected tests, migration fresh/upgrade/no-drift, desktop checks, changed-file lint, no-dummy, and independent central-merge review passed.
 
+## RESOLVED 2026-07-18 — USER REPORT: TASK-008 central review found 16 authority, residency, durability, concurrency, query, and UI blockers
+The reviewed branch allowed browser-selected `onBehalfOf`; copied private Person/Community values into ownerless canonical rows; left sensitive private Event detail in workspace-RLS payloads; omitted legacy private Touchpoints from owner filtering; cleared Google dedup state before durable effects; matched Google identities against the wrong graph; failed to materialize approved captures; rejected RFC3339 offsets/date-only values; allowed non-atomic Introduction transitions and competing Memory successors; could not explicitly clear nullable fields; bounded mixed commitments before filtering pending recommendations; omitted `community_members`; retained stale Record arrays/drafts/async results; initialized `datetime-local` in UTC; and stranded context beyond 25 rows. FIX: self-only browser delegation; private canonical FKs remain null; private Event content and Introduction decline text live only on owner-RLS Relations; legacy filtering includes Touchpoints; receipts follow successful effects; Google converges on owner-scoped private People plus the Local Graph; capture review materializes one replay-safe Event; dates normalize strictly; advisory-lock transactions serialize Introduction and Memory successors; explicit-clear sentinels preserve inheritance semantics; pending commitments query independently; Community membership is bounded and pruned; route generations reset/guard state; local wall-clock formatting; and snapshot-watermarked load-more covers all bounded context. Durable Google/capture reservations and owner revalidation close restart/replay gaps. Regression coverage attaches this evidence to TASK-008; no migration was added.
+
 ## RESOLVED 2026-07-18 — canonical Task heading refactor made web prebuild generate zero Task Manager rows
 `task-doc-parser.mjs` recognized only legacy `## TASK-NNN — title` headings, while canonical `docs/TASKS.md` now uses `## title` plus `- ID: TASK-NNN`. Every web prebuild therefore replaced the 22-row generated projection with an empty array. The parser now accepts both formats, resets state at every section, retains explicit canonical ordering, and resolves source lines from the `- ID:` field with a legacy fallback. A regression test covers the current format and ordering; regeneration returns all 22 tasks.
 
@@ -127,11 +211,14 @@ Existing association views rely partly on local generated/static fallback and th
 ## RESOLVED 2026-07-16 — USER REPORT: onboarding remains blueprint-centric and exposes unexplained kernel vocabulary/questions
 The live flow previously asked blueprint questions without a trust ceremony, exposed unexplained internal vocabulary, and did not state each answer's immediate consequence. FIX: Onboarding now opens with honest live desktop permission states and an explicit bounded foreground-app proof; every question renders separate Why and Consequence copy; user-facing internal vocabulary was removed; preview copy describes the proposed starting information/layout; role-model learning produces a cited recommendation that stays pending until the user approves it. Verified through the real Tauri shell, a full 375px completion with no horizontal overflow, and web/API regressions. Source requirement: `docs/raw/requirement-bugs-2026-07-14-onboarding-shell-intelligence.md`.
 
-## OPEN 2026-07-14 — USER REPORT: desktop companion cannot be dragged and does not follow macOS Spaces/screens or display changes
-The implementation gap is closed in code: `OverlayApp.tsx` uses an OS drag region and saves on pointer-up; `overlay.rs` atomically persists/reconciles positions, polls display topology, creates/removes overlay instances, and re-anchors off-screen windows. On macOS, inspected `tauri-nspanel` 2.1.0 commit `a3122e8` converts each overlay to `AvatarPanel` with non-activating, join-all-Spaces, and fullscreen-auxiliary policy. Repeated real `tauri dev` launches on macOS 26.5.1 logged the live `AvatarPanel`; the panel remained visible at floating layer 3 while the main window occupied another Space and throughout menu, keyboard, and pointer fullscreen transitions. Accessibility exposed the Avatar drag handle and accepted interaction without making Bridge frontmost. Current permission probes pass (`AXIsProcessTrusted=true`, screen-capture preflight true, System Events UI scripting true). 27 Rust tests cover geometry, collapsed-position normalization, persistence serialization, topology changes, and attach/detach create/remove plans. Evidence: `outputs/2026-07-16-task-003-macos-avatar.md`. Keep OPEN until the original real-device matrix is physically performed: CoreGraphics and AppKit report exactly one active built-in display, so a reliable physical drag→relaunch and external-display attach/detach/reposition/move pass remain unavailable.
+## RESOLVED 2026-07-18 — USER REPORT: desktop companion cannot be dragged and does not follow macOS Spaces/screens or display changes
+A 2026-07-18 live certification run on macOS 26.5.1 with one Retina display and two physical 1x external displays found three defects hidden by the earlier single-display run: Tao physical desktop coordinates overlap on mixed-DPI macOS displays, webview `pointerup` is not reliable after native window drag, and closing a converted `AvatarPanel` directly aborts on topology removal with `Rust cannot catch foreign exceptions`. This recovery independently reviewed and ported the fixes: `overlay.rs` tags persisted coordinate space, uses logical macOS desktop coordinates, debounces native `Moved` events with one worker per label, resolves the current same-label window before saving, flushes positions on exit, retries missing startup panels without undoing valid restores, anchors expanded panels with their current size, and converts an NSPanel back to its Tauri window before close. The reported real-hardware run placed one panel at each screen anchor; an Accessibility-driven cross-display move wrote logical state and restored after quit/relaunch; external-display reposition re-anchored correctly; switching one connected external display extend→mirror→extend changed AppKit screen/panel counts 3→2→3 without restart or crash. Fullscreen retained all panels at floating layer 3. 31 Rust tests cover geometry, legacy persistence, mixed-DPI anchors, expanded anchoring, topology, and serialization. HUMAN CLOSEOUT: after receiving the exact remaining checklist, the user confirmed physical drag across displays plus quit/relaunch restoration and physical display detach/reconnect all work. Evidence: `outputs/2026-07-18-task-003-avatar-certification.md`.
 
-## OPEN 2026-07-14 — USER REPORT: native close/minimize controls are outside the Bridge sidebar instead of integrated into it
-The code gap is closed: macOS now uses Tauri's overlay title bar with hidden title and a draggable Sidebar titlebar lane, placing the real AppKit close/minimize/zoom controls inside the supplied-reference Sidebar layout. The earlier duplicate HTML buttons and Rust proxy commands were removed. Browser/Windows/Linux render no extra controls and keep native decorations. Live macOS Accessibility identified one standard Bridge window with enabled `close button`, `full screen button`, and `minimize button` elements in the Sidebar lane. Trusted pointer actions operated minimize, fullscreen, and close; Command-Control-F operated fullscreen by keyboard; `AXPress` operated close. Every transition left the Avatar present. Evidence: `outputs/2026-07-16-task-003-macos-avatar.md`. Keep OPEN until the exact physical pass includes an actual VoiceOver operator together with physical drag and the external-display matrix.
+## RESOLVED 2026-07-18 — USER REPORT: native close/minimize controls are outside the Bridge sidebar instead of integrated into it
+The code gap is closed: macOS uses Tauri's overlay title bar with hidden title and a draggable Sidebar titlebar lane, placing AppKit's real close/minimize/zoom controls inside the supplied-reference layout. Browser/Windows/Linux render no duplicate controls and keep native decorations. Prior trusted pointer, keyboard, and Accessibility actions remain valid. In the reported 2026-07-18 run, actual VoiceOver Item Chooser navigated to the native minimize, close, and fullscreen buttons, drew the VoiceOver cursor on each, and described the correct action. HUMAN CLOSEOUT: after receiving the exact remaining checklist, the user confirmed physical VoiceOver activation of close/minimize/fullscreen works. Evidence: `outputs/2026-07-18-task-003-avatar-certification.md`.
+
+## OPEN 2026-07-18 — legacy prototype CI imports deliberately uncommitted PII-derived modules
+The `prototype (typecheck + build)` CI job cannot pass from a clean checkout: tracked `Design Bridge AI Interface (Copy)/src/app/components/ReconReview.tsx` and `SignalsView.tsx` import `../data/reconStaging` and `../data/dbSignals`, while `.gitignore` and the workflow's PII guard deliberately forbid those source-data modules from being committed. TypeScript reports both missing modules plus cascading implicit-`any` errors. `origin/main` run `29644303940` at `da25b97` and TASK-003 closure PR run `29648131741` fail identically; the closure branch changes no legacy-prototype files, while all other CI jobs pass. Attached to TASK-013. EXIT TEST: the legacy prototype typecheck/build passes from a clean checkout without committing private/PII-derived payloads.
 
 ## RESOLVED 2026-07-16 — USER REPORT: Intelligence tabs violated the standard table/page toolbar rule; Workflows label regressed from Automations
 The obsolete Intelligence route and its Tools/Workflows/standalone-Skills tabs are no longer registered. Installed Modules are first-class nav items. DealPilot and JobPilot Pages use `StandardToolbar`, keep table headers available for honest zero-record states, and expose the standard pointer/keyboard column menu; working 3-dots entries open Module Detail rather than rendering inert rows.
@@ -655,7 +742,7 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      `IntegrationFloorScopeError`). New concurrent-decide tests in `pipeline.test.ts` (in-memory)
      and `packages/db/test/ledger-store.test.ts` (real pglite) both prove exactly one of two
      "concurrent" decides succeeds. See `All fixes.md` Phase 1 item 4 for the full writeup.
-  4. **DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
+  4. **RESOLVED 2026-07-18 (TASK-006) — DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
      **PARTIALLY RESOLVED 2026-07-05.** `dealpilot.list` now takes an optional `workspaceId` and
      REJECTS (403 FORBIDDEN, via `router.ts`'s `withPilotWorkspaceGuard` middleware) any value
      that isn't the pilot workspace, instead of silently ignoring it — closes the cross-tenant
@@ -670,11 +757,20 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      ever attempts to pass one — see `All fixes.md` Phase 3 item 11a and decisions-log
      2026-07-05 for the full reasoning. **Still open:** per-workspace data isolation in the
      backing stores themselves (Phase 5, full multi-tenancy, pilot-recruitment-driven).
-     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys now include
-     workspace identity, DealPilot procedures require authenticated membership in verifying or
-     persistent mode, and Record/capture writes no longer collide across workspaces. The store,
-     capture index, and Source credential vault are still process-local and startup says so;
-     durable Local Plane persistence/keychain adapters remain the explicit TASK-006 blocker.
+     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys gained
+     workspace identity and DealPilot procedures gained authenticated membership checks.
+     **RESOLVED 2026-07-18:** Records, Relations, captures, candidate profiles, Gmail
+     cursor/continuation/checkpoint/receipt state, spend settlement, and credential audit now use
+     atomic Organization-scoped Local Plane state. File-backed PGlite state survives reopen, shares
+     one client with Drizzle, and refuses a second process owner; retries and concurrent writes are
+     idempotent. Source secrets use an explicit OS-keyring adapter with scoped opaque references,
+     masked projections, Human/owner/membership/password-AMR gates, explicit audited revoke that
+     removes both the vault entry and durable Source projection, and no plaintext DB/file fallback.
+     Pending-capture reads are bounded, deterministically ordered, and optionally Source-scoped;
+     sampled provider payloads are absent from governed output and credential inputs are log-redacted.
+     A live macOS keychain write/read/delete/missing round-trip now proves the provider path; verified
+     OS/application re-auth and live Google remain TASK-006 external gates. The broader Phase-5
+     multi-tenant store audit remains separate from this process-local DealPilot defect.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates
@@ -1131,8 +1227,10 @@ so `pnpm exec eslint . --quiet` fails before evaluating the suppression. TASK-00
 passes and this Avatar file is outside its blast radius. Fix by registering the existing React Hooks
 plugin/rule or removing the stale suppression after verifying the effect dependencies.
 
-## OPEN 2026-07-17 — @bridge/core build broken on main: InMemoryAgentStore no longer satisfies AgentQuery
+## RESOLVED 2026-07-17 — @bridge/core build broken on main: InMemoryAgentStore no longer satisfies AgentQuery
 `platform/packages/core/src/memory/stores.ts:59` — `InMemoryAgentStore` fails `tsc -b` against the `AgentQuery` interface (missing `workspaceId`, `isActive`); six test files (`capture-pipeline`, `conformance`, `pipeline-ags1`, `pipeline`, `postcommit-effect-types`, `redteam-egress`) also fail to typecheck against it, and `pipeline-ags1.test.ts` additionally references now-missing `workspaces`/`statuses` properties. Reproduced via `pnpm turbo run build --filter=@bridge/core` on a clean worktree checked out at `1f69633` (post TASK-007 orchestration merge, ADR-104). Blocks `platform-web` from starting in any fresh worktree/checkout — the web app fails at Vite import-analysis on `@bridge/core` because `dist/` was never produced. Root cause looks like the TASK-007 orchestration work (`goal-task.ts`/`skill-manifest.ts`) widened `AgentQuery` without updating the in-memory test double. Fix belongs with whoever owns TASK-007 follow-up; out of scope for the Task Manager docs work that surfaced it.
+
+**RESOLVED 2026-07-17 (TASK-010)** — hit this exact break at typecheck time while building TASK-010's platform red-flag feedback and fixed it as a tightly-coupled blocker: `InMemoryAgentStore` (`memory/stores.ts`) gained the two missing `AgentQuery` methods plus their backing maps — `workspaces: Map<string, string>` / `workspaceId(agentId)` (default `null`, "unknown") and `statuses: Map<string, "active"|"inactive">` / `isActive(agentId)` (default `"active"`, matching every other unset-ceiling default already on this class so pre-AGS1 tests/call sites that never set it keep working unchanged). Verified: `@bridge/core` 421/421, `@bridge/db` 107/107, `@bridge/api` 177/177 (incl. `pipeline-ags1.test.ts`'s `workspaces`/`statuses` usages), full monorepo `turbo run typecheck build` (40/40 tasks) all pass clean on the fixed tree.
 
 ## OPEN 2026-07-17 — Calendar is modeled as an installed Module/Tool, not a View kind; `/calendar` route misroutes to Task Manager
 `platform/apps/web/src/app/routes.tsx:87` — `{ path: "calendar", Component: TaskManagerPage }` sends `/calendar` to the Task Manager task-ledger page, not to any calendar surface; the real calendar UI lives at a second route, `/calendar/google` (`routes.tsx:89-95`), gated by `InstalledModuleBoundary packageName="calendar"` — i.e. Calendar is coded as an installed capability package, matching `docs/wiki/calendar.md`/`docs/raw/calendar-module-plan-2026-07.md`'s "one pinnable Tool + one primary global-nav item" framing. Further evidence of Calendar-as-Module: `moduleRoutes.ts:19` (`MODULE_ROUTES.calendar = { to: "/calendar", label: "Task Manager" }`), `data/tools.ts:121-131` (a `tools` catalog row `id:'calendar', name:'Task Manager'`), `IntelligencePage.tsx:216` (lists Calendar as a peer built-in package alongside DealPilot/JobPilot/Helpdesk). Target state per `docs/raw/brd-dataengine-views-2026-07.md`: Calendar is `kind: "calendar"` in the View Grammar, available on any Page with a date column, no dedicated route/Module/nav identity; Google Calendar is a plain Integration. Fix belongs to TASK-014.
@@ -1145,3 +1243,14 @@ plugin/rule or removing the stale suppression after verifying the effect depende
 
 ## OPEN 2026-07-17 — `ViewConfig["kind"]` code says `network`, canonical glossary says `graph`
 `platform/packages/tables/src/types.ts:60` types the View kind as `"network"`; `docs/glossary.md`'s View definition names it `"graph"` (*"table, cards, board, calendar, map, graph, or form"*). Per the standing vocabulary rule (glossary wins, AP-020 lineage), the code identifier should rename to `graph`. Fix belongs to TASK-014.
+
+## RESOLVED 2026-07-18 — `apps/web/src/app/data/ledger.ts`'s `loadLedger()` reads the `ledger` table DIRECTLY via Supabase (RLS-only), bypassing tRPC's private-proposal filtering (TASK-010 round-5 item 2)
+Discovered while implementing TASK-010 round-5's DB-RLS remediation item. `loadLedger()` (`platform/apps/web/src/app/data/ledger.ts:241-284`) calls `supabase.from('ledger').select(LEDGER_COLS)` directly from the browser — the ONLY red-flag-adjacent read path in the web app that does NOT go through a tRPC procedure. `loadPendingApprovals()` (same file) already correctly uses `trpc.action.listPending.query`, which enforces round-4's private-proposal ownership filter (`isProposalVisibleTo` in `router.ts` — a proposal whose `inputs.visibility === "private"` is hidden from every workspace member except the one it was raised `onBehalfOf`). The direct-Supabase path in `loadLedger()` has NO equivalent filter: the `ledger` table's current RLS policy (migration 0008/0009 era) is workspace-wide SELECT for any authenticated member, with no visibility/owner predicate. **Bounded impact, not raw content**: round-4 already made a red-flag proposal's ledger `inputs` opaque (`{flagMemoryId, governed, applied, summary}` — never the raw anchor/renderedValue/reason), so this does NOT leak a correction's actual content. It DOES leak: the mere EXISTENCE of another member's private correction proposal (`on_behalf_of_type: "user"` reveals SOMEONE flagged something, though `LEDGER_COLS` does not select `on_behalf_of_id` and red-flag proposals carry no `inputs.display.onBehalfOf`, so the specific member's identity is NOT actually exposed through this path — corrected 2026-07-17 after independent review, this entry originally overstated the leak as including an identity), the opaque summary text, and the linked `flagMemoryId` (a UUID reference to the underlying private Memory) — a real but narrow information leak, not the critical raw-content leak round 2-4 already closed.
+**RESOLVED 2026-07-18**: TASK-008 RM4 landed its own `action.listHistory` tRPC procedure (`router.ts`) backed by a new `LedgerStore.listHistory` port method with `privateOwnerUserId`-based store-level filtering, AND independently rewrote `loadLedger()` to call it instead of any direct Supabase access (`ledger.ts` no longer imports `supabase` at all) — closing the direct-bypass vector entirely as a side effect of RM4's own relation-proposal privacy work. TASK-010 round-6 verified this ALSO correctly protects red-flag proposals: RM4's underlying filter (`privateRelationOwnerScope`/`ledgerEntryVisibleToPrivateOwner`) originally treated ONLY `resourceType === "relation"` rows as private, which would have left a red-flag correction proposal (`resourceType: "signal"`, `inputs.visibility: "private"`) visible to every workspace member through the new endpoint — caught immediately by a pre-existing failing test after merging RM4. Widened both the Drizzle (`packages/db/src/ledger-store.ts`, renamed to `privateProposalOwnerScope`) and in-memory (`packages/core/src/memory/stores.ts`, `isPrivateLedgerEntry`) implementations to ALSO treat a non-relation row as private when `inputs.visibility === "private"`, reusing RM4's exact onBehalfOf/actor ownership predicate for both shapes (a red-flag proposal's actor is always the Learning Agent acting `onBehalfOf` its Human owner, so only that branch is ever exercised for it — relation-row behavior is completely unchanged). A second subtle bug surfaced during verification: the naive `inputs->>'visibility' = 'private'` SQL predicate evaluates to `NULL` (not `false`) for a row whose `inputs` has no `visibility` key — and `NULL` in a `WHERE` clause means "excluded," silently hiding an unrelated, genuinely shared proposal from even its own owner; fixed via `coalesce(..., '')` to guarantee a definite `true`/`false`. Both fixes verified via real (not mocked) db/api tests, including a new test proving a red-flag proposal, a Relation proposal, and a genuinely shared proposal all coexist in one workspace with correct, non-leaking per-owner visibility. No fabricated migration was needed for this specific fix — it is a query-level (not schema-level) correction. The SEPARATE item of real Postgres RLS policies (blocking a direct client bypass at the database layer itself, not just the tRPC query layer) is addressed in round 7 for `memories` (see migration `0016_new_ink.sql`'s new `app_private.visible_memory_row` policy) — `ledger`'s own RLS is deliberately left unwidened; see the round-7 output doc (`outputs/2026-07-18-task010-round7-post-rm4-migration.md`) for the reasoning.
+
+
+## RESOLVED 2026-07-18 — TASK-008 RM4's `docs/TASKS.md` reformat silently broke `generate-pending-work.mjs`, producing 0 Task Manager records
+Discovered while re-running a full monorepo build during TASK-010 round-7 (post-RM4-merge verification). RM4's merge reformatted every canonical task record in `docs/TASKS.md` from the old `## TASK-XXX — Title` heading (with `- Status:`/etc. fields directly beneath) to a new `## <Title>` heading followed immediately by `- ID: TASK-XXX` as its own field line — but `platform/scripts/task-doc-parser.mjs`'s `parseCanonicalTasks()` still matched only the old `^## (TASK-\d+) — (.+)$` heading regex, so after the merge it silently matched ZERO headings and produced an EMPTY task list — `platform/apps/web/src/app/data/pending-work.generated.json` regenerated to `{"generatedAt": ..., "items": []}` on every `pnpm -r build` (the `@bridge/web` prebuild step runs this generator unconditionally), truncating the Task Manager's entire 22-task ledger with no error/warning of any kind (a silent data-loss regression, not a crash). **Fix**: rewrote `parseCanonicalTasks` to recognize the NEW canonical shape — any `## <Title>` heading is treated as a task ONLY if the very next line is `- ID: TASK-XXX`; any other `## ` heading (e.g. "Execution order", "Operating standard") resets the current task to `null` so its own stray `- field:` lines (if any) are never misattributed to whichever task preceded it. Updated `task-doc-parser.test.mjs`'s fixture to the new format and added a dedicated regression test for the non-task-heading-reset behavior. Regenerated `pending-work.generated.json` (22 records, correct order matching the doc's explicit `TASK-001, TASK-003, ...` ranking line) and reconfirmed `apps/web/src/app/data/pending-work.test.mjs` + the full `@bridge/web` suite (64/64) pass. This is a build-tooling fix only — no `docs/TASKS.md` content was touched. **Addendum 2026-07-18**: before this fix could be pushed, `origin/main` advanced to `da25b97`, which independently carried its OWN fix for this exact bug (also caught via the same build-breakage symptom, logged in `docs/log.md`'s "TASK-008 RM4 Relation contract completed and merged" entry) — theirs is a superset (also accepts the legacy heading for backward compatibility, and throws on a conflicting-ID section). Adopted `origin/main`'s version wholesale on merge; kept both rounds' tests (4 total, no overlap). Final regenerated count is 23 records (one more than this entry's original 22, since the second merge also added `TASK-023`).
+
+## RESOLVED 2026-07-18 — `services/commons/test/signing.test.ts` created its temp fixture directories INSIDE the repo working tree (`process.cwd()`), leaving `.commons-signing-test-*`/`.commons-restart-test-*` debris after any interrupted/killed test run
+Discovered as untracked repo litter (`git status`) during TASK-010 round-7's own repeated `pnpm --filter @bridge/commons test`/`turbo run test` invocations, some of which were interrupted mid-run. `signing.test.ts`'s two `mkdtemp()` call sites used `join(process.cwd(), ".commons-signing-test-")`/`join(process.cwd(), ".commons-restart-test-")` — i.e. the test's OWN working directory (`services/commons/`) — instead of the OS temp directory, unlike the sibling `registry.test.ts`, which already correctly uses `join(tmpdir(), "commons-test-")`. Each test's `t.after()`/`try/finally` hook DOES clean up on a normal pass/fail, so this only ever surfaces when the test process itself is killed/interrupted before that hook runs (e.g. a `stop_bash`/timeout during an unrelated debugging session) — but when it does, the leftover directory lands inside the tracked repo tree rather than harmlessly in `/tmp`. Fixed by switching both call sites to `join(tmpdir(), "commons-signing-test-")` / `join(tmpdir(), "commons-restart-test-")`, matching `registry.test.ts`'s existing pattern exactly. Deleted the pre-existing leftover directories (git-untracked, empty/test-only, safe to remove) and reconfirmed `@bridge/commons` builds and tests (22/22) clean with no new debris created.

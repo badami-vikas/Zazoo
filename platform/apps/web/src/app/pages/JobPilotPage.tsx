@@ -9,12 +9,90 @@ import { StandardToolbar, type ToolbarView } from "../components/shared/Standard
 import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
 import { CreateListModal } from "../components/shared/ListDropdown";
+import { RedFlagControl } from "../components/shared/RedFlagControl";
+import { RedFlagProvider } from "../components/shared/RedFlagProvider";
 import { createList, useLists } from "../data/lists";
 
 type JobPilotList = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
 type JobItem = JobPilotList["items"][number];
 type ViewId = "table" | "card" | "list";
 type SortField = "title" | "company" | "stage";
+
+/** Display labels for @bridge/jobpilot's normalized `FitRecommendation` —
+ * never the raw "pursue"/"review"/"pass" enum value verbatim (AP-023: no
+ * green/yellow color-only feedback anywhere, but plain-language labels are
+ * always fine). */
+const FIT_LABEL: Record<string, string> = { pursue: "Pursue", review: "Needs review", pass: "Pass" };
+const JOBPILOT_DATABASE_ID = "jobpilot.jobs";
+
+function JobPilotFlaggableCell({
+  applicationId,
+  fieldId,
+  value,
+  className,
+  color,
+}: {
+  applicationId: string | undefined;
+  fieldId: "title" | "company" | "stage";
+  value: string;
+  className: string;
+  color: string;
+}) {
+  return (
+    <td className={className} style={{ color }}>
+      {applicationId ? (
+        <RedFlagControl
+          anchor={{
+            kind: "cell",
+            moduleId: "jobpilot",
+            databaseId: JOBPILOT_DATABASE_ID,
+            recordId: applicationId,
+            fieldId,
+          }}
+          renderedValue={value}
+        >
+          {value}
+        </RedFlagControl>
+      ) : (
+        value
+      )}
+    </td>
+  );
+}
+
+/**
+ * TASK-010 review round-5 item 6 — the platform's required "rendered
+ * bullet" Red Flag surface, wired to a REAL persisted Record (the
+ * application's own `id`, validated server-side by `validateAnchorTarget`'s
+ * `"jobpilot"` case via `jobpilotStore.getApplication`), not a fixture.
+ * These two bullets are already-persisted fields (`stage`, the normalized
+ * `flag`) rendered as short fit-signal observations — real, if modest,
+ * content a Human could genuinely flag as wrong (e.g. "flag is stale, I
+ * already withdrew this application").
+ */
+function FitSignalBullets({ applicationId, stage, flag, fitScore }: { applicationId: string; stage: string; flag: string | null; fitScore: string | null }) {
+  const stageValue = `Stage: ${stage}`;
+  const scoreNum = fitScore != null ? Number(fitScore) : null;
+  const fitValue = flag ? `Fit: ${FIT_LABEL[flag] ?? flag}${scoreNum != null && Number.isFinite(scoreNum) ? ` (${Math.round(scoreNum * 100)}%)` : ""}` : null;
+  return (
+    <ul className="flex flex-col gap-1">
+      <li className="flex gap-1.5 text-[11px] leading-snug" style={{ color: "var(--color-navy-mid)" }}>
+        <span className="mt-1 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: "var(--color-steel)" }} />
+        <RedFlagControl anchor={{ kind: "bullet", moduleId: "jobpilot", target: { type: "record", recordId: applicationId }, bulletPath: "fit.stage" }} renderedValue={stageValue} className="flex-1">
+          {stageValue}
+        </RedFlagControl>
+      </li>
+      {fitValue && (
+        <li className="flex gap-1.5 text-[11px] leading-snug" style={{ color: "var(--color-navy-mid)" }}>
+          <span className="mt-1 h-1 w-1 shrink-0 rounded-full" style={{ backgroundColor: "var(--color-steel)" }} />
+          <RedFlagControl anchor={{ kind: "bullet", moduleId: "jobpilot", target: { type: "record", recordId: applicationId }, bulletPath: "fit.flag" }} renderedValue={fitValue} className="flex-1">
+            {fitValue}
+          </RedFlagControl>
+        </li>
+      )}
+    </ul>
+  );
+}
 
 const VIEWS: ToolbarView[] = [
   { id: "table", label: "Table", icon: TableIcon },
@@ -132,39 +210,45 @@ export function JobPilotPage() {
 
       <div className="flex-1 overflow-auto">
         {view === "table" ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-                <th className="px-4 py-2 font-semibold">
-                  <StandardColumnMenu label="Role" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "title", direction })} />
-                </th>
-                <th className="px-4 py-2 font-semibold">
-                  <StandardColumnMenu label="Company" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "company", direction })} />
-                </th>
-                <th className="px-4 py-2 font-semibold">
-                  <StandardColumnMenu label="Stage" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "stage", direction })} />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="p-10 text-center" style={{ color: "var(--color-warm-gray)" }}>
-                    {page.total === 0
-                      ? "No real job records yet. Save a posting through JobPilot intake to populate this database."
-                      : "No job records match the current search and filters."}
-                  </td>
+          <RedFlagProvider scope={{ moduleId: "jobpilot", databaseId: JOBPILOT_DATABASE_ID }}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
+                  <th className="px-4 py-2 font-semibold">
+                    <StandardColumnMenu label="Role" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "title", direction })} />
+                  </th>
+                  <th className="px-4 py-2 font-semibold">
+                    <StandardColumnMenu label="Company" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "company", direction })} />
+                  </th>
+                  <th className="px-4 py-2 font-semibold">
+                    <StandardColumnMenu label="Stage" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "stage", direction })} />
+                  </th>
                 </tr>
-              )}
-              {visible.map((item) => (
-                <tr key={item.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="px-4 py-2 font-medium" style={{ color: "var(--color-navy)" }}>{item.title}</td>
-                  <td className="px-4 py-2" style={{ color: "var(--color-navy-mid)" }}>{item.company}</td>
-                  <td className="px-4 py-2" style={{ color: "var(--color-warm-gray)" }}>{item.application?.stage ?? "Not tracked"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {visible.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="p-10 text-center" style={{ color: "var(--color-warm-gray)" }}>
+                      {page.total === 0
+                        ? "No real job records yet. Save a posting through JobPilot intake to populate this database."
+                        : "No job records match the current search and filters."}
+                    </td>
+                  </tr>
+                )}
+                {visible.map((item) => {
+                  const applicationId = item.application?.id;
+                  const stage = item.application?.stage ?? "Not tracked";
+                  return (
+                    <tr key={item.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
+                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="title" value={item.title} className="px-4 py-2 font-medium" color="var(--color-navy)" />
+                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="company" value={item.company} className="px-4 py-2" color="var(--color-navy-mid)" />
+                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="stage" value={stage} className="px-4 py-2" color="var(--color-warm-gray)" />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </RedFlagProvider>
         ) : visible.length === 0 ? (
           <div className="m-4 rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
             {page.total === 0
@@ -172,16 +256,25 @@ export function JobPilotPage() {
               : "No job records match the current search and filters."}
           </div>
         ) : view === "card" ? (
-          <CardGrid>
-            {visible.map((item) => (
-              <NotionCard
-                key={item.id}
-                title={item.title}
-                subtitle={`${item.company}${item.location ? ` · ${item.location}` : ""}`}
-                metaChips={[item.application?.stage ?? "Not tracked", item.source ?? "Source not recorded"]}
-              />
-            ))}
-          </CardGrid>
+          <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
+            <CardGrid>
+              {visible.map((item) => (
+                <NotionCard
+                  key={item.id}
+                  title={item.title}
+                  subtitle={`${item.company}${item.location ? ` · ${item.location}` : ""}`}
+                  metaChips={[item.source ?? "Source not recorded"]}
+                  footer={
+                    item.application ? (
+                      <FitSignalBullets applicationId={item.application.id} stage={item.application.stage} flag={item.application.flag} fitScore={item.application.fitScore} />
+                    ) : (
+                      <span className="text-[11px]" style={{ color: "var(--color-warm-gray)" }}>Not tracked</span>
+                    )
+                  }
+                />
+              ))}
+            </CardGrid>
+          </RedFlagProvider>
         ) : (
           <ListView
             items={visible}

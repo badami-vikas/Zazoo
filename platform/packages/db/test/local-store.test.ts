@@ -9,7 +9,11 @@
  * seed rows) belong to the pipeline integration slice (E/F).
  */
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import {
   createDrizzlePorts,
@@ -50,6 +54,57 @@ test("local plane: migrations apply and Drizzle ports read the local store", asy
   }
 });
 
+test("local plane renames the legacy text external-record table before Drizzle migrations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-legacy-local-plane-"));
+  const seed = new PGlite({ dataDir: root });
+  try {
+    await seed.exec(`
+      CREATE TABLE external_records (
+        workspace_id text NOT NULL,
+        source text NOT NULL,
+        source_record_id text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text NOT NULL,
+        created_at text NOT NULL,
+        PRIMARY KEY (workspace_id, source, source_record_id)
+      );
+      INSERT INTO external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      VALUES
+        ('workspace-a', 'gmail', 'message-a', 'touchpoint', 'entity-a', '2026-07-18T00:00:00.000Z');
+    `);
+  } finally {
+    await seed.close();
+  }
+
+  try {
+    const local = await createLocalDb({ dataDir: root });
+    try {
+      const canonical = await local.client.query<{
+        column_name: string;
+        data_type: string;
+      }>(
+        `SELECT column_name, data_type
+           FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'external_records'`,
+      );
+      const columns = new Map(
+        canonical.rows.map((row) => [row.column_name, row.data_type]),
+      );
+      assert.equal(columns.get("id"), "uuid");
+      assert.equal(columns.get("workspace_id"), "uuid");
+      const backup = await local.client.query<{ count: string | number }>(
+        `SELECT count(*) AS count FROM local_external_records_legacy`,
+      );
+      assert.equal(Number(backup.rows[0]?.count), 1);
+    } finally {
+      await local.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
   const workspaceId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
@@ -77,6 +132,7 @@ test("persistent governance provisions and verifies the attributable Learning Ag
       // grants `external:fetch:read`, matching the in-memory wiring and
       // required for `jobpilot.researchCultureSource`'s guarded fetch.
       "external:fetch:read",
+      "event:write",
     ]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
@@ -173,7 +229,7 @@ test("persistent governance idempotently provisions Human Relation read/write au
   }
 });
 
-test("persistent governance provisions the server-owned Outreach Agent Touchpoint grant", async () => {
+test("persistent governance provisions the server-owned Outreach Agent Event grant", async () => {
   const workspaceId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";
   const agentId = "b0000000-0000-4000-a000-0000000000d1";
@@ -192,11 +248,11 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
 
     const ports = createDrizzlePorts(db);
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
-    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["touchpoint:write"]);
+    assert.deepEqual(await ports.agents.capabilityScope(agentId), ["event:write"]);
     assert.ok(
       (await ports.roles.grantsForRole(roleId)).some(
         (grant) =>
-          grant.resourceType === "touchpoint" &&
+          grant.resourceType === "event" &&
           grant.action === "write" &&
           grant.effect === "allow",
       ),
@@ -204,7 +260,7 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
     assert.ok(
       (await ports.roles.directGrants(workspaceId, { type: "user", id: userId })).some(
         (grant) =>
-          grant.resourceType === "touchpoint" &&
+          grant.resourceType === "event" &&
           grant.action === "write" &&
           grant.effect === "allow",
       ),
@@ -215,7 +271,7 @@ test("persistent governance provisions the server-owned Outreach Agent Touchpoin
           row.workspaceId === workspaceId &&
           row.actorType === "user" &&
           row.actorId === userId &&
-          row.resourceType === "touchpoint" &&
+          row.resourceType === "event" &&
           row.resourceId === null &&
           row.action === "write" &&
           row.effect === "allow",
@@ -293,7 +349,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
       "google.listCalendarEvents",
     ]);
     assert.deepEqual(await ports.agents.capabilityScope(intakeAgentId), [
-      "touchpoint:write",
+      "event:write",
       "signal:write",
       "person:write",
     ]);

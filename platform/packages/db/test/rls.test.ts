@@ -237,6 +237,113 @@ test("RLS: Relations isolate private owners and bind writes to the current user"
   }
 });
 
+/**
+ * TASK-010 round-7 review non-blocking gap: a genuine two-member RLS test
+ * for migration 0016's new `memories_tenant_select`/`update`/`delete`
+ * policies (`app_private.visible_memory_row`) under a REAL, restricted
+ * (non-superuser) Postgres role — the SAME `bridge_rls_member`
+ * role/pattern the tests above already use for `resources`/`people`/
+ * `edges`. Proves owner-aware Memory RLS is enforced at the database
+ * layer itself (not merely by `DrizzleMemoryStore`'s own app-side
+ * predicate), matching this file's existing per-table coverage
+ * convention.
+ */
+test("RLS: memories isolate private/team/restricted owners while public/workspace stay visible to any member, and UPDATE/DELETE respect the same policy", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    await useRlsAppRole(db);
+    const [workspace] = await db.insert(schema.workspaces).values({ name: "test_fixture_rls_memories" }).returning({ id: schema.workspaces.id });
+    const [owner] = await db.insert(schema.users).values({ email: "test_fixture_rls_memories_owner@example.com" }).returning({ id: schema.users.id });
+    const [other] = await db.insert(schema.users).values({ email: "test_fixture_rls_memories_other@example.com" }).returning({ id: schema.users.id });
+    assert.ok(workspace);
+    assert.ok(owner);
+    assert.ok(other);
+
+    const memoryBase = {
+      workspaceId: workspace.id,
+      type: "semantic" as const,
+      content: "test_fixture_rls_memory_content",
+      confidence: "1",
+      trustOrigin: "user_content" as const,
+      plane: "local" as const,
+      createdBy: owner.id,
+      ownerUserId: owner.id,
+    };
+
+    await setRlsContext(db, workspace.id, owner.id);
+    const [publicMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "public" }).returning({ id: schema.memories.id });
+    const [workspaceMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "workspace" }).returning({ id: schema.memories.id });
+    const [teamMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "team" }).returning({ id: schema.memories.id });
+    const [privateMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "private" }).returning({ id: schema.memories.id });
+    const [restrictedMemory] = await db.insert(schema.memories).values({ ...memoryBase, scope: "restricted" }).returning({ id: schema.memories.id });
+    assert.ok(publicMemory);
+    assert.ok(workspaceMemory);
+    assert.ok(teamMemory);
+    assert.ok(privateMemory);
+    assert.ok(restrictedMemory);
+
+    // The owner's own session (app.user_id = owner.id) sees every scope,
+    // including its own team/private/restricted rows — proves INSERT...
+    // RETURNING and a same-owner SELECT both pass the new policy.
+    const visibleToOwner = await db.select({ id: schema.memories.id }).from(schema.memories);
+    assert.deepEqual(
+      visibleToOwner.map((row) => row.id).sort(),
+      [publicMemory.id, workspaceMemory.id, teamMemory.id, privateMemory.id, restrictedMemory.id].sort(),
+    );
+
+    // A DIFFERENT workspace member sees only public/workspace — team/
+    // private/restricted are all owner-narrowed, enforced by Postgres
+    // itself under a real restricted role, not merely by app-side code.
+    await setRlsContext(db, workspace.id, other.id);
+    const visibleToOther = await db.select({ id: schema.memories.id }).from(schema.memories);
+    assert.deepEqual(
+      visibleToOther.map((row) => row.id).sort(),
+      [publicMemory.id, workspaceMemory.id].sort(),
+    );
+    for (const hiddenId of [teamMemory.id, privateMemory.id, restrictedMemory.id]) {
+      assert.equal(visibleToOther.some((row) => row.id === hiddenId), false);
+    }
+
+    // UPDATE: the non-owner's own UPDATE of the private row must affect
+    // ZERO rows (the policy hides it from UPDATE just as it does SELECT) —
+    // proves the `memories_tenant_update` policy (not just `_select`) is
+    // enforced, and that a non-owner cannot even blind-write a row it
+    // cannot see. `.returning()` is used (rather than a driver-specific
+    // `rowCount`) since pglite's row-count reporting under postgres-js is
+    // not reliably populated for a zero-match UPDATE/DELETE.
+    const otherUpdateResult = await db
+      .update(schema.memories)
+      .set({ content: "test_fixture_rls_should_not_apply" })
+      .where(sql`${schema.memories.id} = ${privateMemory.id}`)
+      .returning({ id: schema.memories.id });
+    assert.equal(otherUpdateResult.length, 0, "a non-owner's UPDATE must match zero rows under RLS");
+
+    // DELETE: same proof for the `memories_tenant_delete` policy — the
+    // non-owner's DELETE of the restricted row must affect zero rows, and
+    // the row must still exist afterward under the owner's own session.
+    const otherDeleteResult = await db
+      .delete(schema.memories)
+      .where(sql`${schema.memories.id} = ${restrictedMemory.id}`)
+      .returning({ id: schema.memories.id });
+    assert.equal(otherDeleteResult.length, 0, "a non-owner's DELETE must match zero rows under RLS");
+
+    await setRlsContext(db, workspace.id, owner.id);
+    const stillThere = await db.select({ id: schema.memories.id }).from(schema.memories).where(sql`${schema.memories.id} = ${restrictedMemory.id}`);
+    assert.equal(stillThere.length, 1, "the restricted memory must survive the non-owner's no-op DELETE attempt");
+
+    // The OWNER'S OWN UPDATE/DELETE, by contrast, must succeed — proves the
+    // policy narrows by OWNERSHIP, not by blanket-denying all mutation.
+    const ownerUpdateResult = await db
+      .update(schema.memories)
+      .set({ content: "test_fixture_rls_owner_can_update" })
+      .where(sql`${schema.memories.id} = ${privateMemory.id}`)
+      .returning({ id: schema.memories.id });
+    assert.equal(ownerUpdateResult.length, 1, "the owner's own UPDATE must succeed");
+  } finally {
+    await close();
+  }
+});
+
 test("assertRlsPosture: production rejects superuser or BYPASSRLS app roles", async () => {
   await assert.rejects(
     () =>
