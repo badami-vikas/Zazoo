@@ -21,6 +21,7 @@ export const DEALPILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1"
 export const DEALPILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
+export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.0";
 
 export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
   return packageName === "deal-pilot" && manifestRitualId === DEALPILOT_SOURCE_RITUAL_KEY
@@ -600,7 +601,7 @@ const citedRoleModelPractice: BuiltInPackage = {
   computedRisk: "advisory",
   manifest: {
     name: "cited-role-model-practice",
-    version: "1.0.0",
+    version: CITED_ROLE_MODEL_PRACTICE_VERSION,
     kind: "skill",
     summary: "Stage a cited role-model practice recommendation for review.",
     description:
@@ -611,7 +612,7 @@ const citedRoleModelPractice: BuiltInPackage = {
       {
         id: LEARNING_RECOMMENDATION_SKILL_ID,
         name: "Stage cited role-model practice",
-        version: "1.0.0",
+        version: CITED_ROLE_MODEL_PRACTICE_VERSION,
         capabilityType: "skill",
         origin: "built_in",
         audience: "private",

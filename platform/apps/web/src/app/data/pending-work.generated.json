@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T14:34:57.326Z",
+  "generatedAt": "2026-07-18T19:03:51.412Z",
   "items": [
     {
       "id": "TASK-001",
@@ -101,7 +101,7 @@
     {
       "id": "TASK-005",
       "title": "TASK-005 — Avatar + Commons end-to-end demo certification",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A short, repeatable demo proves the combined product rather than isolated screens.",
@@ -111,21 +111,21 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "TASK-003 physical Avatar certification completed 2026-07-18",
-        "outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md"
+        "`outputs/2026-07-18-task-005-demo-certification.md`",
+        "TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`",
+        "clean isolated desktop and exact 375×812 evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, and physically reachable mobile Settings/Approvals controls"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "AP-031 applied for the bounded gate-glue implementation only; no DONE approval",
+      "approval": "AP-031 applied for bounded gate glue; AP-042 applied for exact TASK-005 certification and closure",
       "dependencies": [
         "TASK-001",
         "TASK-002",
         "TASK-003",
         "TASK-004"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 97,

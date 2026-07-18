@@ -37,6 +37,25 @@ export interface MemberRow {
   name: string | null;
 }
 
+export class UnknownWorkspaceError extends Error {
+  constructor(readonly workspaceId: string) {
+    super(`workspace: unknown id ${workspaceId}`);
+    this.name = "UnknownWorkspaceError";
+  }
+}
+
+export class WorkspaceRenameRollbackError extends Error {
+  constructor(
+    readonly renameError: unknown,
+    readonly rollbackError: unknown,
+  ) {
+    super("workspace: rename failed and its external state could not be restored", {
+      cause: new AggregateError([renameError, rollbackError]),
+    });
+    this.name = "WorkspaceRenameRollbackError";
+  }
+}
+
 export class DrizzleWorkspaceStore {
   #db: Database;
   constructor(db: Database) {
@@ -66,6 +85,74 @@ export class DrizzleWorkspaceStore {
     if (ids.length === 0) return [];
     const rows = await this.#db.select().from(workspaces).where(inArray(workspaces.id, ids));
     return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt.toISOString() }));
+  }
+
+  /** Rename an existing workspace. Membership is enforced by the API boundary. */
+  async renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceRow> {
+    const [updated] = await this.#db
+      .update(workspaces)
+      .set({ name })
+      .where(eq(workspaces.id, workspaceId))
+      .returning();
+    if (!updated) throw new UnknownWorkspaceError(workspaceId);
+    return { id: updated.id, name: updated.name, createdAt: updated.createdAt.toISOString() };
+  }
+
+  /**
+   * Serialize one Organization rename across every process sharing this database.
+   * The callback may register an external-state rollback (the local Files move);
+   * it runs when the callback, UPDATE, or transaction commit fails.
+   */
+  async withWorkspaceRenameLock<T>(
+    workspaceId: string,
+    operation: (
+      current: WorkspaceRow,
+      persistName: (name: string) => Promise<WorkspaceRow>,
+      registerRollback: (rollback: () => Promise<void>) => void,
+    ) => Promise<T>,
+  ): Promise<T> {
+    let rollback: (() => Promise<void>) | undefined;
+    try {
+      return await this.#db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .for("update")
+          .limit(1);
+        if (!locked) throw new UnknownWorkspaceError(workspaceId);
+        const current: WorkspaceRow = {
+          id: locked.id,
+          name: locked.name,
+          createdAt: locked.createdAt.toISOString(),
+        };
+        const persistName = async (name: string): Promise<WorkspaceRow> => {
+          const [updated] = await tx
+            .update(workspaces)
+            .set({ name })
+            .where(eq(workspaces.id, workspaceId))
+            .returning();
+          if (!updated) throw new UnknownWorkspaceError(workspaceId);
+          return {
+            id: updated.id,
+            name: updated.name,
+            createdAt: updated.createdAt.toISOString(),
+          };
+        };
+        return operation(current, persistName, (candidate) => {
+          rollback = candidate;
+        });
+      });
+    } catch (error) {
+      if (rollback) {
+        try {
+          await rollback();
+        } catch (rollbackError) {
+          throw new WorkspaceRenameRollbackError(error, rollbackError);
+        }
+      }
+      throw error;
+    }
   }
 
   /**
@@ -134,10 +221,6 @@ export class DrizzleWorkspaceStore {
       .insert(workspaces)
       .values({ id: input.workspaceId, name: "Pilot Organization", createdAt: new Date() })
       .onConflictDoNothing({ target: workspaces.id });
-    await this.#db
-      .update(workspaces)
-      .set({ name: "Pilot Organization" })
-      .where(and(eq(workspaces.id, input.workspaceId), eq(workspaces.name, "Pilot workspace")));
     await this.#db
       .insert(users)
       .values({ id: input.userId, email: input.userEmail, createdAt: new Date() })

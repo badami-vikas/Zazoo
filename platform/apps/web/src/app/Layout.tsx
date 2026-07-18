@@ -260,7 +260,7 @@ export default function Layout() {
                         role="menuitemradio"
                         aria-checked={active}
                         disabled={!active}
-                        title={active ? undefined : "Switching workspaces isn't wired yet"}
+                        title={active ? undefined : "Switching Organizations isn't available yet"}
                         onClick={() => setOrgMenuOpen(false)}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:bg-[var(--color-surface)]"
                         style={{ backgroundColor: active ? "var(--color-surface)" : "transparent" }}
@@ -507,7 +507,14 @@ export default function Layout() {
           // Does NOT close the dialog (see OnboardingDialog.tsx's prop comment,
           // docs/BUGS.md cosmetic-auto-close fix) — only marks that onboarding
           // no longer needs to auto-open on a future mount.
-          onProposed={() => {}}
+          onProposed={(organization) => {
+            setWorkspaceName(organization.name);
+            setWorkspaces((current) =>
+              current.some((item) => item.id === organization.id)
+                ? current.map((item) => (item.id === organization.id ? organization : item))
+                : [...current, organization],
+            );
+          }}
           onHatched={(prefs) => setAvatarPrefs(prefs)}
         />
       )}

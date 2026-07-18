@@ -475,6 +475,9 @@ export class UniversalActionPipeline {
         policyResults: [],
         diff: { rejected: floor },
         refLedgerId: original.id,
+        ...(original.onBehalfOfType ? { onBehalfOfType: original.onBehalfOfType } : {}),
+        ...(original.onBehalfOfId ? { onBehalfOfId: original.onBehalfOfId } : {}),
+        ...(original.dataScope ? { dataScope: original.dataScope } : {}),
         createdAt: ctx.clock.nowISO(),
       });
       throw new AgentFloorDeniedError(floor);

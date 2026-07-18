@@ -172,12 +172,17 @@ import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
 import {
   BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
+import {
+  defaultBridgeFilesRoot,
+  renameOrganizationFilesRoot,
+} from "./module-files.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -229,6 +234,25 @@ const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
+export async function migrateLegacyPilotOrganization(
+  workspaceStore: DrizzleWorkspaceStore,
+  moduleFilesBridgeRoot: string,
+): Promise<void> {
+  await workspaceStore.withWorkspaceRenameLock(
+    PILOT_WORKSPACE,
+    async (current, persistName, registerRollback) => {
+      if (current.name !== "Pilot workspace") return;
+      const rollback = await renameOrganizationFilesRoot(
+        current.name,
+        "Pilot Organization",
+        moduleFilesBridgeRoot,
+      );
+      if (rollback) registerRollback(rollback);
+      await persistName("Pilot Organization");
+    },
+  );
+}
+
 export async function retireSupersededBuiltIns(
   packageStore: PackageStore,
   workspaceId: string,
@@ -254,6 +278,8 @@ export interface Wiring {
   localMedia: LocalMediaStore;
   /** True when bound to Postgres (DATABASE_URL set). */
   persistent: boolean;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot: string;
   /** The LOCAL plane (pglite) — private tier. */
   localPlane: LocalPlane;
   /** The Google integration surface. */
@@ -439,12 +465,12 @@ export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
   skillId: LEARNING_RECOMMENDATION_SKILL_ID,
-  version: "1.0.0",
+  version: CITED_ROLE_MODEL_PRACTICE_VERSION,
   goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
   taskTypes: [PRODUCE_RECOMMENDATION_TASK_TYPE],
   permissions: ["signal:write"],
   plane: "local",
-  dataScopes: ["all"],
+  dataScopes: ["private"],
   riskBand: "advisory",
   evalVersion: "1.0.0",
   defaultAgents: ["learning"],
@@ -1124,7 +1150,9 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
   };
 }
 
-export async function buildWiring(): Promise<Wiring> {
+export async function buildWiring(
+  options: { moduleFilesBridgeRoot?: string } = {},
+): Promise<Wiring> {
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
@@ -1136,6 +1164,10 @@ export async function buildWiring(): Promise<Wiring> {
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
+  const moduleFilesBridgeRoot =
+    options.moduleFilesBridgeRoot
+    ?? process.env.BRIDGE_FILES_ROOT
+    ?? defaultBridgeFilesRoot();
 
   // LOCAL plane — pglite (file-backed if BRIDGE_LOCAL_DIR set, else in-memory).
   const localDir = process.env.BRIDGE_LOCAL_DIR;
@@ -1494,6 +1526,7 @@ export async function buildWiring(): Promise<Wiring> {
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
+  await migrateLegacyPilotOrganization(workspaceStore, moduleFilesBridgeRoot);
   // Persistent governance rows reference the pilot workspace and owner, so
   // provision them only after those identities exist.
   await modePorts.ensureLearningGovernance?.();
@@ -1672,6 +1705,7 @@ export async function buildWiring(): Promise<Wiring> {
     relationMaterializations,
     events,
     persistent: Boolean(url),
+    moduleFilesBridgeRoot,
     localPlane,
     google,
     googleOAuth,

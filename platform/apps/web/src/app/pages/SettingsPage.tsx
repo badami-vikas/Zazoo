@@ -1,17 +1,15 @@
 /**
- * Settings — PLATFORM-WIDE admin only (ADR-029: platform admin lives here;
- * per-Initiative admin lives at /initiative/:id/control-panel). User-facing
- * vocabulary: Organization (never "Workspace"), Module (never "package"),
- * Initiative / Assistant / Skill / Automation / Workflow. Code identifiers and
- * tRPC procedure names are unchanged.
+ * Settings — platform-wide administration. User-facing copy follows canonical
+ * Organization, Module, Agent, Skill, Capability, and Automation vocabulary;
+ * legacy route and tRPC identifiers remain time-boxed under VOCAB2.
  *
  * Ten sections (requests.md R-017..R-020). Real data where endpoints exist:
- *   Organization        → workspace.list (name/id; no rename endpoint yet)
+ *   Organization        → workspace.list (name/id; onboarding owns rename UX)
  *   Team & Permissions  → workspace.listMembers + workspace.inviteMember
  *   Knowledge           → google.list + integration.list (connected sources)
  *                         + progressive-disclosure link to /knowledge-base
- *   Intelligence        → packages.list (installed Modules)
- *                         + progressive-disclosure link to /intelligence
+ *   Capabilities        → packages.list (installed Modules)
+ *                         + links to manifest-driven Module Detail
  *   Governance          → action.listPending (approvals) + ExecutionLedger
  * Notifications / Billing & Plan / Security / API Keys have NO backend yet —
  * they render honest "nothing configured" states, never fabricated toggles.
@@ -243,7 +241,7 @@ function OrganizationSection() {
           </div>
           {org !== undefined && (
             <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
-              Renaming isn't available yet — there's no update endpoint on the platform.
+              To change this name, open Learning and re-enter Onboarding.
             </p>
           )}
         </div>
@@ -413,32 +411,40 @@ function IntelligenceSection() {
       .catch((e) => setError(String(e)));
   }, []);
 
+  const installedModules = result?.items.filter(
+    (row) =>
+      row.state === "available"
+      && row.status === "installed"
+      && row.manifest.module !== undefined
+      && row.moduleAttachment === undefined,
+  ) ?? [];
+
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="Capabilities" desc="Installed Modules and the governed Agents, Skills, and Automations they provide." />
 
       <Card>
-        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h3 className="font-semibold text-[var(--color-navy)] text-sm">Installed Modules</h3>
-          <Link to="/intelligence" className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-steel)] no-underline hover:underline">
-            Open Intelligence <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
         </div>
         {error && <div className="px-6 py-4 text-sm text-red-600 break-words">{error}</div>}
         {!error && result === null && <div className="px-6 py-4 text-sm text-[var(--color-warm-gray)]">Loading…</div>}
-        {result !== null && result.items.length === 0 && (
+        {result !== null && installedModules.length === 0 && (
           <div className="px-6 py-8 text-center text-sm text-[var(--color-warm-gray)]">
-            No Modules installed yet. Shared Assistants, Skills, Automations, and Workflows will appear here once one is.
+            No Modules installed yet. Shared Agents, Skills, and Automations will appear here once one is.
           </div>
         )}
-        {result !== null && result.items.length > 0 && (
+        {result !== null && installedModules.length > 0 && (
           <div className="divide-y divide-[var(--color-border)]">
-            {result.items.map((row) => (
+            {installedModules.map((row) => (
               <div key={row.id} className="flex items-center justify-between gap-3 px-6 py-3.5">
                 <div>
-                  <span className="text-sm font-medium text-[var(--color-navy)]">
+                  <Link
+                    to={`/module/${encodeURIComponent(row.packageName)}`}
+                    className="text-sm font-medium text-[var(--color-navy)] no-underline hover:text-[var(--color-steel)] hover:underline"
+                  >
                     {MODULE_ROUTES[row.packageName]?.label ?? row.packageName}
-                  </span>
+                  </Link>
                   <span className="text-xs text-[var(--color-warm-gray)]"> · v{row.packageVersion}</span>
                 </div>
                 <span className="text-xs border border-[var(--color-border)] rounded px-1.5 py-0.5 text-[var(--color-navy-mid)]">{row.state}</span>
@@ -465,7 +471,7 @@ function GovernanceSection() {
       <SectionHeader title="Governance" desc="Every consequential action is proposed, reviewed, and ledgered." />
 
       <Card>
-        <div className="px-6 py-4 flex items-center justify-between">
+        <div className="px-4 py-4 sm:px-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-[var(--color-navy)]">Pending approvals</div>
             <div className="text-xs text-[var(--color-warm-gray)] mt-0.5">
@@ -588,9 +594,21 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
+        <div className="sm:hidden shrink-0 bg-white border-b border-[var(--color-border)] p-3">
+          <label htmlFor="settings-section" className="sr-only">Settings section</label>
+          <select
+            id="settings-section"
+            value={activeSection}
+            onChange={(event) => setActiveSection(event.target.value)}
+            className="w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2.5 text-sm font-medium text-[var(--color-navy)]"
+          >
+            {navItems.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </div>
+
         {/* Left section nav */}
-        <div className="w-56 shrink-0 bg-white border-r border-[var(--color-border)] flex flex-col overflow-y-auto">
+        <div className="hidden sm:flex w-56 shrink-0 bg-white border-r border-[var(--color-border)] flex-col overflow-y-auto">
           <nav className="p-3 flex flex-col gap-1">
             {navItems.map((item) => (
               <button
@@ -612,7 +630,7 @@ export function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-8">
           <div className={clsx("mx-auto", activeSection === "governance" ? "max-w-5xl" : "max-w-2xl")}>{renderContent()}</div>
         </div>
       </div>

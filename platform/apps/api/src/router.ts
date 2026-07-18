@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   IntegrationFloorScopeError,
+  UnknownWorkspaceError,
+  WorkspaceRenameRollbackError,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -72,6 +74,7 @@ import {
   parseSkillMention,
   invokeAgent,
   buildCommunicationsSystemPrompt,
+  canonicalizeManifest,
   canonicalizeJson,
   normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
@@ -124,7 +127,9 @@ import {
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
 import { getIntegrationStore } from "./social/integration-service.js";
 import {
+  BUILT_IN_PACKAGES,
   COMMONS_BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_RITUAL_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeRitualId,
@@ -132,7 +137,12 @@ import {
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
-import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
+import {
+  listModuleFiles,
+  ModuleFilesPathError,
+  OrganizationFilesConflictError,
+  renameOrganizationFilesRoot,
+} from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
@@ -158,6 +168,94 @@ function stableOutreachProposalId(key: string): string {
 
 function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
   return stableProposalId(`package-install:${workspaceId}:${installationId}`);
+}
+
+const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
+  const relationship = BUILT_IN_PACKAGES.find(
+    (candidate) => candidate.manifest.name === "relationship",
+  );
+  if (!relationship) throw new Error("Relationship built-in manifest is missing");
+  return {
+    name: relationship.manifest.name,
+    version: relationship.manifest.version,
+    canonicalManifest: canonicalizeManifest(relationship.manifest),
+  };
+})();
+
+function packageManifestHash(manifest: PackageManifest): string {
+  return `sha256:${createHash("sha256").update(canonicalizeManifest(manifest)).digest("hex")}`;
+}
+
+function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
+  const capability = manifest.capabilities[0];
+  const permission = capability?.permissions[0];
+  return manifest.name === "cited-role-model-practice"
+    && manifest.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && manifest.kind === "skill"
+    && manifest.dependencies.length === 0
+    && manifest.capabilities.length === 1
+    && manifest.contextProviders.length === 0
+    && manifest.module === undefined
+    && manifest.blueprint === undefined
+    && capability?.id === LEARNING_RECOMMENDATION_SKILL_ID
+    && capability.name === "Stage cited role-model practice"
+    && capability.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && capability.capabilityType === "skill"
+    && capability.origin === "built_in"
+    && capability.audience === "private"
+    && capability.permissions.length === 1
+    && permission?.resourceType === "signal"
+    && permission.action === "write"
+    && permission.dataScope === "private"
+    && permission.egress === false
+    && capability.connectors.length === 0
+    && capability.dependencies.length === 0
+    && capability.execution === undefined;
+}
+
+function isSupportedCitedRoleModelInstallation(
+  installation: PackageInstallationRow,
+): boolean {
+  const { manifest, moduleAttachment } = installation;
+  return installation.packageName === "cited-role-model-practice"
+    && installation.packageVersion === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && installation.state === "available"
+    && installation.status === "installed"
+    && manifest.name === installation.packageName
+    && manifest.version === installation.packageVersion
+    && isSupportedCitedRoleModelManifest(manifest)
+    && moduleAttachment?.source === "commons"
+    && moduleAttachment.modulePackageName === "relationship"
+    && resolveModuleAgentRuntimeId(
+      moduleAttachment.modulePackageName,
+      moduleAttachment.agentId,
+    ) === LEARNING_AGENT;
+}
+
+async function currentSupportedRelationshipOwner(
+  wiring: Wiring,
+  installation: PackageInstallationRow,
+): Promise<PackageInstallationRow | null> {
+  const attachment = installation.moduleAttachment;
+  if (!attachment || attachment.modulePackageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name) {
+    return null;
+  }
+  const ownerModule = await wiring.packageStore.getAvailable(
+    installation.workspaceId,
+    attachment.modulePackageName,
+  );
+  if (
+    !ownerModule
+    || ownerModule.status !== "installed"
+    || ownerModule.packageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name
+    || ownerModule.packageVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version
+    || ownerModule.manifest.name !== ownerModule.packageName
+    || ownerModule.manifest.version !== ownerModule.packageVersion
+    || canonicalizeManifest(ownerModule.manifest) !== SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest
+  ) {
+    return null;
+  }
+  return ownerModule;
 }
 
 /**
@@ -384,7 +482,10 @@ interface CommonsSkillInvocation {
   packageName: string;
   packageVersion: string;
   contentHash: string;
+  moduleInstallationId: string;
   modulePackageName: string;
+  modulePackageVersion: string;
+  moduleManifestHash: string;
   moduleAgentId: string;
   runtimeAgentId: string;
   capabilityId: string;
@@ -418,6 +519,7 @@ async function proposeRoleModelRecommendation(
       onBehalfOf: { type: "user", id: identityId },
       action: "write",
       resourceType: "signal",
+      dataScope: "private",
       inputs: {
         ...recommendation,
         ...(commonsInvocation ? { commonsInvocation } : {}),
@@ -607,12 +709,26 @@ const relationshipSignalEvidenceInput = relationshipSignalEvidencePayloadSchema
     workspaceId: z.string().uuid().transform((value) => value.toLowerCase()),
   });
 
-function assertRelationshipProposalOwner(
+function assertPrivateProposalOwner(
   proposal: LedgerEntry,
   identity: { type: ActorType; id: string },
 ): void {
+  const inputs =
+    typeof proposal.inputs === "object" &&
+    proposal.inputs !== null &&
+    !Array.isArray(proposal.inputs)
+      ? proposal.inputs as Record<string, unknown>
+      : null;
+  const privateProposal =
+    proposal.resourceType === "relation"
+    || proposal.dataScope === "private"
+    || (
+      proposal.dataScope === undefined
+      && proposal.resourceType === "signal"
+      && inputs?.kind === "learning_recommendation"
+    );
   if (
-    proposal.resourceType === "relation" &&
+    privateProposal &&
     (identity.type !== "user" || relationshipOwnerFromLedger(proposal) !== identity.id)
   ) {
     throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
@@ -1637,7 +1753,7 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
-        assertRelationshipProposalOwner(proposal, ctx.identity);
+        assertPrivateProposalOwner(proposal, ctx.identity);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -1661,7 +1777,7 @@ export const appRouter = t.router({
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
-      assertRelationshipProposalOwner(original, ctx.identity);
+      assertPrivateProposalOwner(original, ctx.identity);
       const isRelationshipProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -3370,6 +3486,49 @@ export const appRouter = t.router({
       return ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
     }),
 
+    rename: procedure
+      .input(z.object({ workspaceId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        try {
+          return await ctx.wiring.workspaceStore.withWorkspaceRenameLock(
+            input.workspaceId,
+            async (current, persistName, registerRollback) => {
+              const rollback = await renameOrganizationFilesRoot(
+                current.name,
+                input.name,
+                ctx.wiring.moduleFilesBridgeRoot,
+              );
+              if (rollback) registerRollback(rollback);
+              return persistName(input.name);
+            },
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
+          }
+          if (error instanceof OrganizationFilesConflictError) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Rename or merge the existing Organization Files directory first",
+              cause: error,
+            });
+          }
+          if (error instanceof WorkspaceRenameRollbackError) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Organization rename failed and its Files directory could not be restored",
+              cause: error,
+            });
+          }
+          if (error instanceof UnknownWorkspaceError) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "unknown Organization", cause: error });
+          }
+          throw error;
+        }
+      }),
+
     inviteMember: procedure
       .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
       .mutation(async ({ input, ctx }) => {
@@ -4439,6 +4598,8 @@ export const appRouter = t.router({
           return await listModuleFiles(
             organization.name,
             installation.manifest.module?.displayName ?? installation.packageName,
+            200,
+            ctx.wiring.moduleFilesBridgeRoot,
           );
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
@@ -4912,19 +5073,11 @@ export const appRouter = t.router({
           }
           const attachment = installation.moduleAttachment;
           if (
-            attachment &&
-            installation.state === "available" &&
-            installation.status === "installed" &&
-            resolveModuleAgentRuntimeId(attachment.modulePackageName, attachment.agentId) === LEARNING_AGENT
+            attachment
+            && isSupportedCitedRoleModelInstallation(installation)
+            && await currentSupportedRelationshipOwner(ctx.wiring, installation)
           ) {
-            for (const capability of installation.manifest.capabilities) {
-              if (
-                capability.capabilityType === "skill" &&
-                capability.id === LEARNING_RECOMMENDATION_SKILL_ID
-              ) {
-                runtimeSkillIds.push(capability.id);
-              }
-            }
+            runtimeSkillIds.push(LEARNING_RECOMMENDATION_SKILL_ID);
           }
           return { ...installation, runtimeAutomationIds, runtimeSkillIds };
         }),
@@ -5250,6 +5403,22 @@ export const appRouter = t.router({
             message: "capability is not attached from Commons to a Module Agent",
           });
         }
+        if (
+          !isSupportedCitedRoleModelInstallation(installation)
+          || !isSupportedCitedRoleModelManifest(entry.manifest)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported signed runtime contract",
+          });
+        }
+        const ownerModule = await currentSupportedRelationshipOwner(ctx.wiring, installation);
+        if (!ownerModule) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported owning Module contract",
+          });
+        }
         const skillCapabilities = entry.manifest.capabilities.filter(
           (capability) => capability.capabilityType === "skill",
         );
@@ -5294,7 +5463,10 @@ export const appRouter = t.router({
             packageName: entry.name,
             packageVersion: entry.version,
             contentHash: attachment.contentHash,
+            moduleInstallationId: ownerModule.id,
             modulePackageName: attachment.modulePackageName,
+            modulePackageVersion: ownerModule.packageVersion,
+            moduleManifestHash: packageManifestHash(ownerModule.manifest),
             moduleAgentId: attachment.agentId,
             runtimeAgentId,
             capabilityId: LEARNING_RECOMMENDATION_SKILL_ID,

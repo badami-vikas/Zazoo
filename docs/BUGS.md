@@ -18,6 +18,97 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-18 — TASK-005 mobile Settings and Approvals hid governed controls off-screen
+The exact 375px body-width probe stayed at `375`, but visual review showed two nested desktop layouts
+still clipping the real path. Settings kept a fixed 224px section rail beside its content, reducing
+Capabilities and Governance to an unusable sliver. Approvals kept a fixed 380px queue beside a hidden
+detail pane; scripted DOM clicks could reach controls that a Human could not. Attached to TASK-005
+because its 375px prototype must be physically actionable, not merely present in the DOM. FIX:
+Settings uses a full-width mobile section selector, Approvals stacks queue and detail in one vertical
+flow, action rows wrap, the ledger table owns its bounded horizontal scroll, and trace IDs/provenance
+wrap inside the drawer. Source regressions enforce the responsive contracts. Fresh exact `375×812`
+correction/veto and Settings/Governance runs kept body/document width at `375`, drawer scroll width
+equal to client width, all controls visible, and browser diagnostics empty.
+
+## RESOLVED 2026-07-18 — TASK-005 installed Skill execution tolerated signed/runtime contract drift
+The installed-Skill Run proved package identity, hash, Module need, and Agent attachment, but its
+runtime predicate accepted a broader contract than the signed capability declared. A stored or
+fresh Commons manifest could drift in audience, permission, version, connector, dependency,
+execution, or context-provider fields while retaining the recognized Skill ID; a newly available
+package named `relationship` could also inherit the Agent binding without matching the built-in
+Module version and manifest. Attached to TASK-005
+because trusted installation does not authorize different runtime behavior. FIX: runtime binding and
+execution now require the stored installation and freshly fetched signed entry to match the one
+supported private built-in Skill contract exactly, including one private Signal write, no egress,
+and no connectors, dependencies, execution, context providers, Module, or Blueprint. Tampering
+removes the binding and blocks the Run; the current signed envelope hash remains revalidated rather
+than hardcoded. The owning Module must also be the exact current built-in Relationship manifest and
+version. Every Run records that Module installation ID, version, and manifest hash with the Commons
+package/hash/Agent provenance; a replacement version removes the binding and cannot run.
+
+## RESOLVED 2026-07-18 — TASK-005 private recommendation proposals were visible across members
+The Commons recommendation correctly targeted a private Signal, but ledger projection isolated only
+private Relations. Another member of the same Organization could therefore list, inspect, decide, or
+history-read a private recommendation owned by someone else. Attached to TASK-005 because the exact
+installed Skill writes private, user-associated data. FIX: both in-memory and persistent ledger
+stores prune every private proposal by `requestedBy`, and API resolution/decision/history paths
+enforce the same owner boundary. Migration `0017` marks pre-scope Learning recommendations and all
+linked resolution/blocked-attempt rows private and carries their owner forward; runtime semantic
+guards retain the boundary before or without migration. New blocked-attempt rows inherit private
+scope and owner directly. Adversarial two-member tests prove the second member cannot list, inspect,
+decide, or read current or legacy recommendation history.
+
+## RESOLVED 2026-07-18 — TASK-005 Settings classified attached Skills and pending packages as Modules
+Settings → Capabilities treated every package inventory row as an installed Module, including a
+Commons Skill attached beneath an Agent and packages still awaiting activation. That contradicted
+the manifest-driven Module hierarchy and made the exact installed Skill look like a standalone
+Module. Attached to TASK-005 because the demo must prove the Skill stays beneath its consuming Agent.
+FIX: Settings lists only available, installed, unattached rows whose manifest declares a Module.
+Source and fresh desktop/exact-375px evidence show only DealPilot, JobPilot, Relationship, and Task
+Manager after the Skill is installed.
+
+## RESOLVED 2026-07-18 — TASK-005 mobile Capabilities link opened an unregistered route
+The final clean 375px certification opened Settings → Capabilities and followed its visible
+`Open Capabilities` Action. The stale link targeted `/intelligence`, which has no registered route
+after the canonical Module/Agent hierarchy replaced the global Intelligence surface, so React Router
+rendered its developer-facing 404 page. Attached to TASK-005 because the exact mobile prototype
+requires every interactive-looking control to work without a console-blocking defect. FIX: removed
+the orphan global Action and made each real installed Module row link to its manifest-driven Module
+Detail. A source regression rejects the retired route, and fresh uninterrupted 375×812 plus desktop
+runs followed the replacement Relationship link without a 404, overflow, failed resource, JavaScript
+error, rejection, or console error.
+
+## RESOLVED 2026-07-18 — TASK-005 exact-path UI exposed retired vocabulary
+The clean desktop certification's final visible-copy scan found `Workflow` in the Execution Ledger.
+The subsequent exact-path source audit found the same unfinished migration in the ledger's
+`Initiative` filter, Home's `initiatives` summary, onboarding's non-Relationship preview labels,
+Settings empty/link copy, the Organization switch tooltip, and a Commons error. These must render
+canonical Automation, Record/domain labels, Agent, Capability, and Organization terms while legacy
+route/schema identifiers remain tracked under VOCAB2. Attached to TASK-005 because its exact prototype
+exit test forbids deprecated vocabulary. FIX: canonicalized every identified exact-path surface and
+added source regressions for Home, Onboarding, shell, Settings, Commons, and the ledger. Fresh
+uninterrupted desktop and 375×812 scans found no visible Workspace, Workflow, Project, Initiative,
+Touchpoint, Ritual, Artifact, or Incident terms.
+
+## RESOLVED 2026-07-18 — TASK-005 onboarding discarded the chosen Organization name
+The exact clean desktop and 375px sequences answered “What should we call your Organization?” with
+`Product Leadership`, and the question promised that name would appear in the sidebar. Onboarding
+stored the answer only inside the learning profile: `buildBlueprintFromAnswers` intentionally has no
+Organization-name field, no workspace rename endpoint existed, and `Layout` fetched the seeded name
+only once on mount. The successful setup therefore continued to display `Pilot Organization`.
+Attached to TASK-005 because correcting and re-verifying the exact Onboarding path is part of the same
+prototype exit test. FIX: added trimmed, bounded, membership-gated Organization rename persistence; Onboarding renames
+before proposing or activating the Blueprint. The API safely moves the Organization's local Files
+root first, refuses invalid/conflicting destinations, persists the DB rename, and rolls the Files
+move back if the callback, update, or transaction commit fails. A database row lock serializes
+concurrent renames across API processes sharing the database. Startup no longer performs a DB-only
+legacy rename: it migrates `Pilot workspace` Files through the same locked coordinator before
+changing the name. DB/API regressions cover persistence, missing rows, member success, non-member
+denial, invalid dot names, source-missing target conflicts, legacy bootstrap, concurrent renames,
+Files migration, and rollback. Fresh desktop
+and 375×812 runs displayed `Product Leadership` in the shell or Settings and in the isolated local
+Module File path.
+
 ## RESOLVED 2026-07-18 — TASK-005 installed Commons Skills had no attributable Run path
 Module Detail rendered a signed Commons Skill beneath its owning Agent but exposed no Action that could
 invoke that exact installation. The existing Learning Agent recommendation carried Agent and Action
@@ -1188,7 +1279,8 @@ Avatar accessibility text, the seeded Organization name and local Files path, Co
 security-scan details, and Settings navigation. Those surfaces now use canonical Organization, Avatar,
 capability, Sources, Capabilities, Agents, and Automations vocabulary. The pilot bootstrap migrates only
 the exact legacy placeholder name and preserves custom Organization names. Regressions cover rendered
-copy sources, signed Commons scan details, and both fresh and legacy pilot identity bootstrap behavior.
+copy sources, signed Commons scan details, and both fresh and Files-aware legacy pilot identity
+bootstrap behavior.
 
 ## RESOLVED 2026-07-18 — API restart-persistence regression was nested and not reliably awaited
 Affected-neighbour review found the file-backed ledger restart regression declared inside the Relation

@@ -53,7 +53,7 @@ export interface OnboardingDialogProps {
    * caller's `onProposed` flips `open` to false, the "submitted" step's
    * message never gets a render. The dialog now only closes via the explicit
    * "Done" button (`resetAndClose`) or the user dismissing it. */
-  onProposed?: () => void;
+  onProposed?: (organization: { id: string; name: string }) => void;
   /** Called once the egg's hatch animation resolves with real, saved avatar
    * prefs — lets the caller (Layout) mount <AvatarOverlay> immediately
    * without waiting for a remount/localStorage re-read (spec section 4 Stage
@@ -318,6 +318,17 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setSubmitting(true);
     setError(null);
     try {
+      const organizationName =
+        typeof answers.workspace_name === "string" ? answers.workspace_name.trim() : "";
+      if (!organizationName) throw new Error("An Organization name is required to finish setup.");
+      if (organizationName.length > 120) {
+        throw new Error("Organization names must be 120 characters or fewer.");
+      }
+      const organization = await trpc.workspace.rename.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        name: organizationName,
+      });
+
       // propose writes the draft; activate is the governed step (pipeline
       // round-trip, ledgered). Without chaining them the draft was orphaned:
       // Approvals showed nothing and /workspace stayed empty (BUGS.md
@@ -332,7 +343,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
       });
       setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
-      onProposed?.();
+      onProposed?.(organization);
       try {
         await trpc.onboarding.saveProfile.mutate({
           workspaceId: PILOT_WORKSPACE,
@@ -497,6 +508,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <Input
                   autoFocus
                   placeholder={question.placeholder}
+                  maxLength={question.id === "workspace_name" ? 120 : undefined}
                   value={textDraft}
                   onChange={(e) => setTextDraft(e.target.value)}
                   onKeyDown={(e) => {

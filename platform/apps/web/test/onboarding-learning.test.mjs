@@ -7,6 +7,9 @@ const questionsUrl = new URL("../src/app/onboarding/questions.ts", import.meta.u
 const dialogUrl = new URL("../src/app/onboarding/OnboardingDialog.tsx", import.meta.url);
 const avatarProgressUrl = new URL("../src/app/avatar/EggHatcher.tsx", import.meta.url);
 const settingsUrl = new URL("../src/app/pages/SettingsPage.tsx", import.meta.url);
+const layoutUrl = new URL("../src/app/Layout.tsx", import.meta.url);
+const homeUrl = new URL("../src/app/pages/HomePage.tsx", import.meta.url);
+const commonsPanelUrl = new URL("../src/app/components/CommonsCapabilityPanel.tsx", import.meta.url);
 
 async function loadQuestionsModule() {
   const source = await readFile(questionsUrl, "utf8");
@@ -31,6 +34,10 @@ test("every onboarding question declares separate why and consequence copy", asy
     assert.match(question, /\n\s+consequence:\s+"/);
   }
   assert.doesNotMatch(source, /helpText: "Bridge calls this an Initiative/);
+  assert.doesNotMatch(source, /label: "(?:Initiative|Touchpoint)"/);
+  assert.match(source, /sales_deals: \{ nodeType: "initiative", label: "Deal" \}/);
+  assert.match(source, /job_search: \{ nodeType: "initiative", label: "Application" \}/);
+  assert.match(source, /support: \{ nodeType: "touchpoint", label: "Ticket" \}/);
 });
 
 test("onboarding trust ceremony is bounded, visible, inspectable, and stoppable", async () => {
@@ -97,4 +104,44 @@ test("multi-select onboarding choices stay editable until Continue commits them"
   assert.match(source, /answer\(question\.id, multiDrafts\[question\.id\] \?\? \[\]\)/);
   const toggleBody = source.match(/function toggleMulti[\s\S]*?\n  \}/)?.[0] ?? "";
   assert.doesNotMatch(toggleBody, /setAnswers/);
+});
+
+test("onboarding persists the chosen Organization name and refreshes the shell", async () => {
+  const [dialog, layout, settings] = await Promise.all([
+    readFile(dialogUrl, "utf8"),
+    readFile(layoutUrl, "utf8"),
+    readFile(settingsUrl, "utf8"),
+  ]);
+  assert.match(dialog, /answers\.workspace_name/);
+  assert.match(dialog, /trpc\.workspace\.rename\.mutate/);
+  assert.match(dialog, /maxLength=\{question\.id === "workspace_name" \? 120 : undefined\}/);
+  assert.ok(
+    dialog.indexOf("trpc.workspace.rename.mutate") < dialog.indexOf("trpc.workspace.blueprint.propose.mutate"),
+    "Organization rename must succeed before blueprint proposal and activation",
+  );
+  assert.ok(
+    dialog.indexOf("trpc.workspace.blueprint.propose.mutate") < dialog.indexOf("trpc.workspace.blueprint.activate.mutate"),
+  );
+  assert.match(dialog, /onProposed\?\.\(organization\)/);
+  assert.match(layout, /onProposed=\{\(organization\) => \{/);
+  assert.match(layout, /setWorkspaceName\(organization\.name\)/);
+  assert.match(layout, /setWorkspaces\(\(current\) =>/);
+  assert.match(settings, /open Learning and re-enter Onboarding/);
+  assert.match(settings, /row\.manifest\.module !== undefined/);
+  assert.match(settings, /row\.moduleAttachment === undefined/);
+  assert.doesNotMatch(settings, /there's no update endpoint/);
+});
+
+test("the exact demo surfaces keep retired vocabulary out of visible copy", async () => {
+  const [home, layout, settings, commonsPanel] = await Promise.all([
+    readFile(homeUrl, "utf8"),
+    readFile(layoutUrl, "utf8"),
+    readFile(settingsUrl, "utf8"),
+    readFile(commonsPanelUrl, "utf8"),
+  ]);
+  assert.doesNotMatch(home, /relationships, initiatives/);
+  assert.doesNotMatch(layout, /Switching workspaces/);
+  assert.doesNotMatch(settings, /Open Intelligence|Shared Assistants|and Workflows|to="\/intelligence"/);
+  assert.match(settings, /to=\{`\/module\/\$\{encodeURIComponent\(row\.packageName\)\}`\}/);
+  assert.doesNotMatch(commonsPanel, /Commons package/);
 });

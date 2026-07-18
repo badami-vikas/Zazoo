@@ -54,7 +54,13 @@ export {
   type ScopeGrant,
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
-export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
+export {
+  DrizzleWorkspaceStore,
+  UnknownWorkspaceError,
+  WorkspaceRenameRollbackError,
+  type WorkspaceRow,
+  type MemberRow,
+} from "./workspace-store.js";
 export {
   DrizzleGraphStore,
   type CommunityRecord,

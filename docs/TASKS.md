@@ -95,18 +95,18 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Avatar + Commons end-to-end demo certification
 - ID: TASK-005
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A short, repeatable demo proves the combined product rather than isolated screens.
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; TASK-003 physical Avatar certification completed 2026-07-18; outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md
-- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
+- Evidence: `outputs/2026-07-18-task-005-demo-certification.md`; TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`; clean isolated desktop and exact 375×812 evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, and physically reachable mobile Settings/Approvals controls
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md`; signed `cited-role-model-practice@1.0.0` is installed only for Relationship's Learning Agent, and `commons.runInstalledSkill` fails closed unless the stored/current signed Skill contracts and exact current built-in Relationship Module identity, need, installed attachment, content hash, private scope, and runtime Agent binding all match; private current/legacy proposal reads, linked audit rows, and decisions are owner-isolated; Organization rename coordinates DB and local Files state under a row lock with target-conflict refusal, commit-failure rollback, and Files-aware legacy bootstrap
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
+- Approval: AP-031 applied for bounded gate glue; AP-042 applied for exact TASK-005 certification and closure
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
-- Unblock: run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
+- Verification: 2026-07-18 uninterrupted clean runs passed on the final post-fix code at desktop 1440×913 and exact mobile 375×812 with body/document widths equal to the viewport, no trace-drawer overflow, failed resources, JavaScript errors, unhandled rejections, console errors, retired visible terms, or runtime dummy data. Both runs edited the installed-Skill proposal before approval and then vetoed a second run; the append-only ledger retained Learning Agent plus package/hash provenance, showed the corrected monthly cadence, and proved the veto emitted no downstream Event. Visual review caught and the final mobile rerun reverified both the repaired Settings → Capabilities Module link and physically reachable Settings/Approvals layouts. A release Tauri bundle built and launched Bridge main, Companion, and Annotate windows with a healthy managed API sidecar on the currently connected display; TASK-003 separately certifies the three-display mobility/topology matrix. Final gates: API 33/33, web focused checks including the 375px regression, desktop Rust 31/31, typecheck 37/37 tasks, build 20/20 tasks, native release bundle, and all 36 non-Sensor test tasks; the known TASK-017 Sensor aggregate-coverage debt remains 7/7 tests passing at 36.97% versus the 38% floor.
 
 ## Repository and manifest cleanup
 - ID: TASK-013

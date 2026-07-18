@@ -4,6 +4,19 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-18 — Exact private Commons Runs (ADR-115, AP-042)
+- Stored + current signed contract must match exactly. Drift = no binding, no Run.
+- Owning Relationship Module must match exact built-in version + manifest.
+- Private proposal = owner only. List, inspect, decide, history all prune.
+- Legacy proposal + linked rows migrate private.
+- Human correction cannot replace Commons hash/Module/Agent provenance.
+
+## 2026-07-18 — Organization rename moves local Files safely (ADR-116, AP-042)
+- Validate name. Rename before Blueprint. DB row lock serializes requests.
+- Conflict = stop. Callback/update/commit failure = move Files back.
+- Legacy startup uses same Files-aware path.
+- DB name + `Documents/Bridge/<Organization>` stay one state.
+
 ## 2026-07-18 — Durable Relationship effects (ADR-112)
 - Decision first. Effect second. Never ask twice.
 - `ref_ledger_id` is truth. Caller JSON is not.

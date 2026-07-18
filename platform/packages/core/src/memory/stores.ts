@@ -177,12 +177,33 @@ export class InMemoryPolicyStore implements PolicyStore {
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
+  entries: readonly LedgerEntry[],
 ): boolean {
-  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
-  if (entry.onBehalfOfType === "user") {
-    return entry.onBehalfOfId === privateOwnerUserId;
+  if (!privateOwnerUserId) return true;
+  const referenced = entry.refLedgerId
+    ? entries.find((candidate) => candidate.id === entry.refLedgerId)
+    : undefined;
+  const privateEntry = [entry, referenced].find((candidate) => {
+    if (!candidate) return false;
+    const inputs =
+      typeof candidate.inputs === "object" &&
+      candidate.inputs !== null &&
+      !Array.isArray(candidate.inputs)
+        ? candidate.inputs as Record<string, unknown>
+        : null;
+    return candidate.resourceType === "relation"
+      || candidate.dataScope === "private"
+      || (
+        candidate.dataScope === undefined
+        && candidate.resourceType === "signal"
+        && inputs?.kind === "learning_recommendation"
+      );
+  });
+  if (!privateEntry) return true;
+  if (privateEntry.onBehalfOfType === "user") {
+    return privateEntry.onBehalfOfId === privateOwnerUserId;
   }
-  return entry.actorType === "user" && entry.actorId === privateOwnerUserId;
+  return privateEntry.actorType === "user" && privateEntry.actorId === privateOwnerUserId;
 }
 
 export class InMemoryLedger implements LedgerStore {
@@ -251,7 +272,7 @@ export class InMemoryLedger implements LedgerStore {
             !Array.isArray(entry.diff) &&
             "rejected" in entry.diff
           ) &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId) &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries) &&
           !this.#resolved.has(entry.id),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -266,7 +287,7 @@ export class InMemoryLedger implements LedgerStore {
       .filter(
         (entry) =>
           entry.workspaceId === workspaceId &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId),
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries),
       )
       .sort((left, right) => (right.appendSequence ?? 0) - (left.appendSequence ?? 0));
     return {

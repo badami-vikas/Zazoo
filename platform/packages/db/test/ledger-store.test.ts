@@ -208,7 +208,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       createdAt: "2026-07-05T00:00:00.000Z",
     });
 
-    test("ledger: pending Relation projection is owner-scoped without hiding shared proposal types", async () => {
+    test("ledger: pending Relation and private projections are owner-scoped without hiding shared proposals", async () => {
       const { db, close } = await createLocalDb();
       try {
         const [ws] = await db
@@ -246,6 +246,21 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           createdAt: "2026-07-17T00:00:01.000Z",
         });
         await store.append({
+          id: "51000000-0000-4000-8000-000000000004",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: ownerId,
+          action: "write",
+          resourceType: "signal",
+          dataScope: "private",
+          inputs: {},
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:00.500Z",
+        });
+        await store.append({
           id: "51000000-0000-4000-8000-000000000003",
           workspaceId: ws.id,
           actorType: "agent",
@@ -263,7 +278,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(owner.total, 3);
+        assert.equal(owner.total, 4);
         const other = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
@@ -277,7 +292,7 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(ownerHistory.total, 3);
+        assert.equal(ownerHistory.total, 4);
         assert.equal(ownerHistory.items[0]?.resourceType, "signal");
         const otherHistory = await store.listHistory(ws.id, {
           limit: 10,

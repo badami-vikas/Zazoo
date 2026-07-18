@@ -52,7 +52,7 @@ export function CommonsCapabilityPanel({
     try {
       setDetail(await trpc.commons.get.query({ name }));
     } catch (error) {
-      setMessage(`Could not inspect Commons package: ${String(error)}`);
+      setMessage(`Could not inspect Commons capability: ${String(error)}`);
     }
   }
 

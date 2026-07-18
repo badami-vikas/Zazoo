@@ -120,7 +120,7 @@ const Q_NAME: OnboardingQuestion = {
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
   why: "A clear Organization name helps you recognize its scope.",
-  consequence: "What changes: this name appears in your sidebar. You can rename it later.",
+  consequence: "What changes: this name appears in your sidebar. You can change it by re-entering Onboarding later.",
 };
 
 /** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
@@ -240,13 +240,12 @@ function toTitleCase(s: string): string {
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
-// "label" is display-only text (R-020 vocab sweep: canonical default label is
-// "Initiative", matching the kernel nodeType — CLAUDE.md's two-scope vocab rule).
-// A user's own `vocab_name` answer still overrides this default via `vocabulary` below.
+// Display labels use the domain's canonical Record name while legacy nodeType
+// identifiers remain time-boxed under VOCAB2.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Initiative" },
-  job_search: { nodeType: "initiative", label: "Initiative" },
-  support: { nodeType: "touchpoint", label: "Touchpoint" },
+  sales_deals: { nodeType: "initiative", label: "Deal" },
+  job_search: { nodeType: "initiative", label: "Application" },
+  support: { nodeType: "touchpoint", label: "Ticket" },
   relationships: { nodeType: "person", label: "Person" },
 };
 

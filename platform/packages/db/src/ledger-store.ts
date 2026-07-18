@@ -86,23 +86,27 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
-function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
+function privateProposalOwnerScope(privateOwnerUserId: string | undefined) {
   if (!privateOwnerUserId) return undefined;
   return or(
-    ne(ledger.resourceType, "relation"),
     and(
-      eq(ledger.resourceType, "relation"),
+      ne(ledger.resourceType, "relation"),
       or(
+        ne(ledger.dataScope, "private"),
         and(
-          eq(ledger.onBehalfOfType, "user"),
-          eq(ledger.onBehalfOfId, privateOwnerUserId),
-        ),
-        and(
-          or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
-          eq(ledger.actorType, "user"),
-          eq(ledger.actorId, privateOwnerUserId),
+          isNull(ledger.dataScope),
+          sql`coalesce(${ledger.inputs}->>'kind', '') <> 'learning_recommendation'`,
         ),
       ),
+    ),
+    and(
+      eq(ledger.onBehalfOfType, "user"),
+      eq(ledger.onBehalfOfId, privateOwnerUserId),
+    ),
+    and(
+      or(isNull(ledger.onBehalfOfType), ne(ledger.onBehalfOfType, "user")),
+      eq(ledger.actorType, "user"),
+      eq(ledger.actorId, privateOwnerUserId),
     ),
   );
 }
@@ -286,7 +290,7 @@ export class DrizzleLedgerStore implements LedgerStore {
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -318,7 +322,7 @@ export class DrizzleLedgerStore implements LedgerStore {
     this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db
