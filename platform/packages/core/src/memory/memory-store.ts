@@ -152,6 +152,43 @@ export interface MemoryStore {
   /** Permanently forget a Memory the caller may read. Personal-data deletion is
    * the deliberate exception to append-only correction history. */
   forget(id: string, authScope: MemoryAuthScope): Promise<boolean>;
+  /**
+   * Redacts, IN PLACE (never via a new `supersede`/`compareAndSupersede`
+   * row), the `content` of every row in `id`'s FULL correction lineage —
+   * TASK-011 remediation (coordinator central-merge review, issue 2).
+   * `compareAndSupersede`'s normal "purge the current view" pattern only
+   * ever rewrites the CURRENT row by inserting a new successor; every
+   * ANCESTOR row in the lineage (in particular whichever row first held
+   * sensitive/expired raw bytes, e.g. a fetched external artifact) remains
+   * completely unredacted and durably readable via
+   * `retrieve({ includeSuperseded: true })` — a genuine retention/privacy
+   * gap for anything whose raw content must not outlive its retention
+   * window. This method walks the SAME bidirectional lineage `forget()`
+   * uses (ancestors AND descendants of `id`, scoped to the SAME workspace
+   * + owner as `id`'s own row — never a broad, unrelated-Memory purge) and,
+   * for each row, calls `redact(entry)`: a `null` return leaves that row's
+   * content completely untouched (the caller's chosen retention rule did
+   * not apply to it — e.g. content already redacted, or a different record
+   * kind entirely happens to share this lineage's key space); a non-null,
+   * different string REPLACES that row's `content` in place, preserving
+   * every other field (id, timestamps, `supersedesId` chain, scope,
+   * `sourceRefType`/`sourceRefId`, confidence, `trustOrigin`, `plane`,
+   * `createdBy`, `ownerUserId`) so citations/audit/history remain fully
+   * intact — only the sensitive bytes are gone, permanently, from every
+   * physical row that ever held them. `redact` MUST be a pure, idempotent
+   * function of its input (the same entry always produces the same
+   * redacted content, or the same `null`) — this is what makes concurrent/
+   * repeated calls from multiple instances safe without an additional
+   * cross-instance lock: every caller converges on the identical final
+   * state regardless of interleaving. Returns the number of rows actually
+   * modified (0 if `id` is unknown/unauthorized, or every lineage row's
+   * `redact` result was `null`/unchanged).
+   */
+  redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number>;
 }
 
 /**
@@ -251,9 +288,15 @@ export class InMemoryMemoryStore implements MemoryStore {
     return rows.slice(offset, offset + limit).map((e) => ({ ...e }));
   }
 
-  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+  /** Shared bidirectional lineage walk (ancestors AND descendants of `id`,
+   * scoped to the same workspace + owner) — factored out so `forget()`
+   * (full deletion) and `redactLineageContent()` (in-place content
+   * redaction) can never silently diverge on WHICH rows count as "this
+   * lineage." Returns `null` if `id` is unknown or not visible to
+   * `authScope` (mirrors `forget()`'s prior inline behavior exactly). */
+  #lineageIds(id: string, authScope: MemoryAuthScope): Set<string> | null {
     const target = this.entries.find((e) => e.id === id && memoryVisible(e, authScope));
-    if (!target) return false;
+    if (!target) return null;
     const lineage = new Set([id]);
     let changed = true;
     while (changed) {
@@ -267,10 +310,40 @@ export class InMemoryMemoryStore implements MemoryStore {
         }
       }
     }
+    return lineage;
+  }
+
+  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+    const lineage = this.#lineageIds(id, authScope);
+    if (!lineage) return false;
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
       if (lineage.has(this.entries[index]!.id)) this.entries.splice(index, 1);
     }
     return true;
+  }
+
+  async redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number> {
+    const lineage = this.#lineageIds(id, authScope);
+    if (!lineage) return 0;
+    let redactedCount = 0;
+    for (const entry of this.entries) {
+      if (!lineage.has(entry.id)) continue;
+      const redacted = redact({ ...entry });
+      if (redacted == null || redacted === entry.content) continue;
+      // In-place mutation of the SAME row object — never a new `entries`
+      // element, never touching `supersedesId`/timestamps/scope/etc. `entries`
+      // itself is a `readonly` ARRAY reference (cannot be reassigned), not a
+      // deep-frozen structure — its elements remain genuinely mutable, which
+      // is exactly what this method needs (an in-place rewrite, not a new
+      // lineage member).
+      entry.content = redacted;
+      redactedCount += 1;
+    }
+    return redactedCount;
   }
 
   #insert(entry: MemoryWrite, supersedesId: string | null): MemoryEntry {

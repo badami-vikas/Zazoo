@@ -229,6 +229,63 @@ export class DrizzleMemoryStore implements MemoryStore {
     return true;
   }
 
+  /**
+   * TASK-011 remediation (coordinator central-merge review, issue 2) — see
+   * the `MemoryStore.redactLineageContent` port doc comment for the full
+   * rationale. Reuses the SAME bidirectional lineage-discovery shape
+   * `forget()` above already uses (ancestors AND descendants of `id`,
+   * scoped to the same workspace + owner — never a broad, unrelated-Memory
+   * purge), but SELECTs the lineage's row ids rather than deleting them,
+   * then rewrites ONLY the `content` column of whichever rows `redact()`
+   * says to change — every other column (id, `supersedesId`, timestamps,
+   * scope, `sourceRefType`/`sourceRefId`, confidence, `trustOrigin`,
+   * `plane`, `createdBy`, `ownerUserId`) is left completely untouched. Runs
+   * inside a transaction so the lineage read and the content rewrites are
+   * consistent with each other; deliberately does NOT take an advisory
+   * lock (unlike `compareAndSupersede`/`writeIfAbsent`, which decide WHICH
+   * of several racing writers wins) — `redact` is required to be a pure,
+   * idempotent function of its input, so two concurrent callers performing
+   * the identical redaction converge on the same correct final state
+   * regardless of interleaving; there is no "winner" to arbitrate.
+   */
+  async redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number> {
+    const target = await this.get(id, authScope);
+    if (!target) return 0;
+    return this.#db.transaction(async (tx) => {
+      const lineageResult = await tx.execute(sql`
+        WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
+          SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
+          UNION
+          SELECT m.id, m.supersedes_id, m.owner_user_id
+          FROM memories m
+          JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
+          WHERE m.workspace_id = ${authScope.workspaceId}
+            AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
+        )
+        SELECT id FROM lineage
+      `);
+      const lineageRows = (
+        Array.isArray(lineageResult) ? lineageResult : (lineageResult as { rows?: unknown[] }).rows ?? []
+      ) as Array<{ id: string }>;
+      const lineageIds = lineageRows.map((r) => r.id);
+      if (lineageIds.length === 0) return 0;
+      const currentRows = await tx.select().from(memories).where(inArray(memories.id, lineageIds));
+      let redactedCount = 0;
+      for (const row of currentRows) {
+        const entry = unpack(row);
+        const redactedContent = redact(entry);
+        if (redactedContent == null || redactedContent === entry.content) continue;
+        await tx.update(memories).set({ content: redactedContent }).where(eq(memories.id, entry.id));
+        redactedCount += 1;
+      }
+      return redactedCount;
+    });
+  }
+
   async #insert(
     executor: Pick<Database, "insert">,
     entry: MemoryWrite,

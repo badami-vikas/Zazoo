@@ -62,6 +62,7 @@ import {
   InMemoryOnboardingProfileStore,
   type MemoryStore,
   type MemoryAuthScope,
+  type MemoryEntry,
   InMemoryEvalStore,
   InMemoryPolicyParamStore,
   InMemoryGoalTaskStore,
@@ -725,6 +726,36 @@ export function isArtifactExpired(artifact: CultureArtifactRef, nowISO: string):
   return Date.parse(nowISO) >= Date.parse(artifact.expiresAt);
 }
 
+/**
+ * The `MemoryStore.redactLineageContent` redact callback for culture-fetch
+ * intent records — TASK-011 remediation (coordinator central-merge review,
+ * issue 2). MUST be a pure function of its input (same `MemoryEntry` ->
+ * same result, always) — see `redactLineageContent`'s own doc comment for
+ * why. Returns `null` (leave this row's content untouched) unless the row
+ * is genuinely a `culture_fetch_intent` record carrying a non-empty,
+ * NOW-expired artifact — in which case it returns the SAME redacted shape
+ * `purgeExpiredArtifactContentIfNeeded` already produces for the current
+ * view (artifact content blanked, every other field — hash/URL/timestamps/
+ * expiry, plus the record's own `updatedAt`/other fields — left exactly as
+ * this specific row already had them, since this is redacting a HISTORICAL
+ * row, not advancing it to a new "current" state).
+ */
+function redactExpiredCultureFetchArtifact(entry: MemoryEntry, nowISO: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(entry.content);
+  } catch {
+    return null; // not JSON this store understands — never touch it
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const record = parsed as Partial<CultureFetchIntentRecord>;
+  if (record.kind !== "culture_fetch_intent") return null; // a different record type happens to share this lineage's key space
+  const artifact = record.artifact;
+  if (!artifact || artifact.content === "") return null; // nothing to redact — absent or already purged
+  if (!isArtifactExpired(artifact, nowISO)) return null; // not yet past retention — never redact live evidence
+  return JSON.stringify({ ...record, artifact: { ...artifact, content: "" } });
+}
+
 function stripHtmlToText(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -1324,6 +1355,22 @@ export class DurableCultureFetchStore {
    * regardless of whether anyone ever explicitly asks for cleanup.
    * Idempotent: a no-op if the artifact is absent, unexpired, or already
    * purged (empty content).
+   *
+   * TASK-011 remediation (coordinator central-merge review, issue 2) — the
+   * `compareAndSupersede` call below only ever rewrites the CURRENT view
+   * (a NEW row, with the OLD "fetched" row — the one that ever held the
+   * full raw artifact bytes — retained as a superseded ancestor). That
+   * ancestor row remained durably readable, bytes and all, via
+   * `retrieve({ includeSuperseded: true })` forever — a genuine retention
+   * gap for exactly the untrusted external content this slice's own
+   * expiry/purge design is meant to bound. `redactLineageContent` (called
+   * below, in ADDITION to — not instead of — the existing
+   * `compareAndSupersede`) walks the WHOLE lineage rooted at this record's
+   * current memory row and, for every row whose content still embeds a
+   * NOW-expired, non-empty artifact, rewrites that row's content IN PLACE
+   * to the same redacted shape — so no physical row in this record's
+   * history can ever again leak the purged bytes, regardless of whether a
+   * caller reads the current view or the superseded history.
    */
   async purgeExpiredArtifactContentIfNeeded(workspaceId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
     const existing = await this.#loadRow(workspaceId, childRunId);
@@ -1342,13 +1389,29 @@ export class DurableCultureFetchStore {
         // A concurrent writer already changed this record (e.g. a genuine
         // re-fetch reset it, or another purge won) — reload and return
         // whatever is current rather than fighting over a best-effort
-        // cleanup.
+        // cleanup. Still attempt the full-lineage redaction below
+        // (best-effort, never fatal here) — a concurrent winner may not
+        // itself have redacted every ancestor row.
         const reloaded = await this.#loadRow(workspaceId, childRunId);
+        await this.#redactExpiredArtifactLineage(workspaceId, existing.memoryId, nowISO).catch(() => {});
         return reloaded?.record ?? null;
       }
       throw e;
     }
+    await this.#redactExpiredArtifactLineage(workspaceId, existing.memoryId, nowISO);
     return next;
+  }
+
+  /** Shared by both the success and `MemoryConflictError` paths above — see
+   * `purgeExpiredArtifactContentIfNeeded`'s own doc comment for the full
+   * rationale. `redact` is a PURE function of its input (same entry always
+   * produces the same redacted content or the same `null`), which is what
+   * makes this safe to call from a losing/conflicting caller too — every
+   * caller converges on the identical, correct final state. */
+  async #redactExpiredArtifactLineage(workspaceId: string, memoryId: string, nowISO: string): Promise<number> {
+    return this.#memory.redactLineageContent(memoryId, this.#authScope(workspaceId), (entry) =>
+      redactExpiredCultureFetchArtifact(entry, nowISO),
+    );
   }
 
   /**

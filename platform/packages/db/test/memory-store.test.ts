@@ -9,6 +9,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { LedgerEntry, MemoryWrite } from "@bridge/core";
 import { createLocalDb, DrizzleLedgerStore, DrizzleMemoryStore, schema } from "../src/index.js";
@@ -156,6 +159,181 @@ test("memories: forget removes the complete correction lineage", async () => {
     assert.deepEqual(await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A }), []);
   } finally {
     await close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// TASK-011 remediation (coordinator central-merge review, issue 2) —
+// `compareAndSupersede`'s existing "purge the current view" pattern only
+// rewrites the CURRENT row via a new successor; the OLD row (whichever one
+// first held sensitive/expired raw bytes) remained durably readable via
+// `retrieve({ includeSuperseded: true })` forever — a genuine retention gap.
+// `redactLineageContent` closes it by walking the SAME bidirectional lineage
+// `forget()` uses and rewriting `content` IN PLACE (never deleting rows,
+// never a new supersede chain link) wherever the caller's `redact` predicate
+// matches. These tests prove Drizzle parity with the in-memory adapter
+// (packages/core/test/memory-store.test.ts) against a REAL pglite-backed
+// Postgres, plus a genuine cross-instance restart proof.
+// ---------------------------------------------------------------------------
+
+test("memories: redactLineageContent rewrites content across the FULL lineage (superseded ancestor row AND current row) against real Postgres — the exact gap compareAndSupersede alone leaves open", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_lineage" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const v1 = await store.write(mem({ id: "a1000000-0000-4000-8000-000000000001", workspaceId: ws.id, content: "SECRET raw artifact v1" }));
+    const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a1000000-0000-4000-8000-000000000002", workspaceId: ws.id, content: "SECRET raw artifact v2" }));
+
+    const redactedCount = await store.redactLineageContent(v2.id, { workspaceId: ws.id }, (entry) =>
+      entry.content.includes("SECRET") ? entry.content.replace("SECRET raw artifact", "[redacted]") : null,
+    );
+    assert.equal(redactedCount, 2, "both the current row and its superseded ancestor must be redacted");
+
+    const allAfter = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id });
+    assert.equal(allAfter.length, 2);
+    for (const row of allAfter) {
+      assert.ok(!row.content.includes("SECRET"), `row ${row.id} must never retain the raw SECRET bytes after redaction`);
+    }
+    const ancestor = allAfter.find((r) => r.id === v1.id)!;
+    assert.equal(ancestor.content, "[redacted] v1", "the ANCESTOR row (the one that originally held the raw bytes) must be redacted in place, not merely superseded");
+    const current = allAfter.find((r) => r.id === v2.id)!;
+    assert.equal(current.content, "[redacted] v2");
+  } finally {
+    await close();
+  }
+});
+
+test("memories: redactLineageContent leaves every other column untouched against real Postgres — id, supersedesId, timestamps, scope, sourceRefType/sourceRefId, confidence, trustOrigin, plane, createdBy, ownerUserId", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_fields" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const written = await store.write(
+      mem({
+        id: "a2000000-0000-4000-8000-000000000001",
+        workspaceId: ws.id,
+        scope: "private",
+        ownerUserId: USER_A,
+        sourceRefType: "ledger",
+        sourceRefId: "a2000000-0000-4000-8000-0000000000ff",
+        confidence: 0.87,
+        trustOrigin: "untrusted_external",
+        plane: "local",
+        createdBy: "test_fixture_learning_agent",
+        content: "SECRET",
+      }),
+    );
+
+    const redactedCount = await store.redactLineageContent(written.id, { workspaceId: ws.id, userId: USER_A }, () => "[redacted]");
+    assert.equal(redactedCount, 1);
+
+    const [after] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A });
+    assert.ok(after);
+    assert.equal(after!.id, written.id);
+    assert.equal(after!.content, "[redacted]");
+    assert.equal(after!.scope, "private");
+    assert.equal(after!.ownerUserId, USER_A);
+    assert.equal(after!.sourceRefType, "ledger");
+    assert.equal(after!.sourceRefId, "a2000000-0000-4000-8000-0000000000ff");
+    assert.equal(after!.confidence, 0.87);
+    assert.equal(after!.trustOrigin, "untrusted_external");
+    assert.equal(after!.plane, "local");
+    assert.equal(after!.createdBy, "test_fixture_learning_agent");
+    assert.equal(after!.supersedesId, undefined);
+  } finally {
+    await close();
+  }
+});
+
+test("memories: redactLineageContent — a null return from redact() leaves that row's content COMPLETELY untouched, and it is scoped to ONLY the target lineage (an unrelated Memory in the same workspace is never rewritten)", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_scope" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    const store = new DrizzleMemoryStore(db);
+    const untouchable = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000001", workspaceId: ws.id, content: "not sensitive at all" }));
+    const unrelated = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000002", workspaceId: ws.id, content: "SECRET unrelated" }));
+
+    const noopCount = await store.redactLineageContent(untouchable.id, { workspaceId: ws.id }, () => null);
+    assert.equal(noopCount, 0, "a redact() that never matches must report zero rows changed");
+    const [untouchableAfter] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id }).then((rows) => rows.filter((r) => r.id === untouchable.id));
+    assert.equal(untouchableAfter!.content, "not sensitive at all");
+
+    // Redacting `untouchable`'s (empty) lineage must never reach `unrelated`.
+    const rows = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id });
+    const unrelatedAfter = rows.find((r) => r.id === unrelated.id);
+    assert.equal(unrelatedAfter!.content, "SECRET unrelated", "an unrelated Memory row in the same workspace must be completely unaffected");
+  } finally {
+    await close();
+  }
+});
+
+test("memories: redactLineageContent is authority-scoped exactly like forget() against real Postgres — a caller in a DIFFERENT workspace, or lacking ownership of a private row, redacts 0 rows", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_auth" }).returning({ id: schema.workspaces.id });
+    const [otherWs] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_auth_other" }).returning({ id: schema.workspaces.id });
+    assert.ok(ws);
+    assert.ok(otherWs);
+    const store = new DrizzleMemoryStore(db);
+    const privateToA = await store.write(mem({ id: "a4000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "SECRET" }));
+
+    const asOtherWorkspace = await store.redactLineageContent(privateToA.id, { workspaceId: otherWs!.id }, () => "[redacted]");
+    assert.equal(asOtherWorkspace, 0, "a caller in a DIFFERENT workspace must never redact this row");
+
+    const asWrongUser = await store.redactLineageContent(privateToA.id, { workspaceId: ws.id, userId: USER_B }, () => "[redacted]");
+    assert.equal(asWrongUser, 0, "a caller who is not the owning user must never redact a private row");
+
+    const [stillIntact] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A });
+    assert.equal(stillIntact!.content, "SECRET", "the row must remain completely unredacted after two unauthorized attempts");
+  } finally {
+    await close();
+  }
+});
+
+test("memories: redactLineageContent survives a genuine process restart — content redacted before closing the DB connection remains redacted (never reverts, never re-exposes raw bytes) when reopened against the SAME on-disk pglite directory", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-memory-redact-restart-"));
+  try {
+    let wsId: string;
+    let targetId: string;
+    {
+      const { db, close } = await createLocalDb({ dataDir: dir });
+      try {
+        const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_restart" }).returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        wsId = ws.id;
+        const store = new DrizzleMemoryStore(db);
+        const v1 = await store.write(mem({ id: "a5000000-0000-4000-8000-000000000001", workspaceId: wsId, content: "SECRET raw artifact v1" }));
+        const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a5000000-0000-4000-8000-000000000002", workspaceId: wsId, content: "SECRET raw artifact v2" }));
+        targetId = v2.id;
+        const redactedCount = await store.redactLineageContent(targetId, { workspaceId: wsId }, (entry) =>
+          entry.content.includes("SECRET") ? "[redacted]" : null,
+        );
+        assert.equal(redactedCount, 2, "sanity: both rows genuinely redacted before the restart");
+      } finally {
+        await close();
+      }
+    }
+    // THE RESTART — a brand-new DB connection/pool against the SAME on-disk
+    // directory, exactly the restart-durability pattern this task's other
+    // restart tests already use.
+    {
+      const { db, close } = await createLocalDb({ dataDir: dir });
+      try {
+        const store = new DrizzleMemoryStore(db);
+        const allAfterRestart = await store.retrieve({ includeSuperseded: true }, { workspaceId: wsId! });
+        assert.equal(allAfterRestart.length, 2);
+        for (const row of allAfterRestart) {
+          assert.equal(row.content, "[redacted]", "redaction performed BEFORE the restart must remain durable — never reverting to raw content, and never re-exposing it after a fresh connection");
+        }
+      } finally {
+        await close();
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
