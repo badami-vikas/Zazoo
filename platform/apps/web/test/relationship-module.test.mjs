@@ -160,10 +160,34 @@ test("Relationship Record detail has standard sections and governed Actions", ()
   assert.match(relationshipPage, /trpc\.relationship\.createInteraction\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.timeline\.query/);
   assert.match(relationshipPage, /trpc\.relationship\.intakeReview\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.memories\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.addMemory\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.correctMemory\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.forgetMemory\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.commitments\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.createCommitment\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.updateCommitment\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.meetingPrep\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.introductions\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.createIntroduction\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.recordIntroductionConsent\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.transitionIntroduction\.mutate/);
+  assert.match(relationshipPage, /trpc\.relationship\.communityWorkspace\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.findPaths\.query/);
   assert.match(relationshipPage, /id="record-overview-title"/);
+  assert.match(relationshipPage, /id="record-meeting-prep-title"/);
+  assert.match(relationshipPage, /id="record-memory-title"/);
+  assert.match(relationshipPage, /id="record-commitments-title"/);
+  assert.match(relationshipPage, /id="record-introductions-title"/);
+  assert.match(relationshipPage, /id="community-workspace-title"/);
+  assert.match(relationshipPage, /id="record-connections-title"/);
   assert.match(relationshipPage, /id="record-timeline-title"/);
   assert.match(relationshipPage, /id="record-sources-title"/);
   assert.match(relationshipPage, /provenance\.decisionLedgerIds/);
+  assert.match(relationshipPage, /commitment\.provenance\.evidenceRefs/);
+  assert.match(relationshipPage, /introduction\.provenance\.evidenceRefs/);
+  assert.match(relationshipPage, /Both parties must explicitly consent/);
+  assert.match(relationshipPage, /Bridge never sends the introduction/);
 });
 
 test("Relationship forms and detail remain responsive and accessible", () => {
@@ -171,6 +195,8 @@ test("Relationship forms and detail remain responsive and accessible", () => {
   assert.match(relationshipPage, /flex flex-col gap-4 sm:flex-row/);
   assert.match(relationshipPage, /aria-labelledby="identity-review-title"/);
   assert.match(relationshipPage, /aria-label="Event participants"/);
+  assert.match(relationshipPage, /aria-label="Meeting preparation actions"/);
+  assert.match(relationshipPage, /aria-label="Path target results"/);
   assert.match(relationshipPage, /role="status"/);
   assert.match(relationshipPage, /role="alert"/);
   assert.match(relationshipPage, /aria-expanded=\{editing\}/);

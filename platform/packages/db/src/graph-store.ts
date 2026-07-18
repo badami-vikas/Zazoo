@@ -48,6 +48,29 @@ export interface RelationPage {
   nextCursor: RelationCursor | null;
 }
 
+export interface RelationshipPathNode {
+  nodeType: string;
+  nodeId: string;
+}
+
+export interface RelationshipPathStep {
+  from: RelationshipPathNode;
+  to: RelationshipPathNode;
+  relation: RelationRecord;
+}
+
+export interface RelationshipPath {
+  nodes: RelationshipPathNode[];
+  steps: RelationshipPathStep[];
+  confidence: number;
+}
+
+export interface RelationshipPathResult {
+  paths: RelationshipPath[];
+  visited: number;
+  truncated: boolean;
+}
+
 export interface PersonRecord {
   id: string;
   workspaceId: string;
@@ -162,6 +185,7 @@ export interface CreateInteractionInput extends DecisionProvenance {
   visibility: RelationshipRecordVisibility;
   participants: InteractionParticipantInput[];
   updatesPersonFreshness?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 export interface TimelineCursor {
@@ -200,6 +224,83 @@ export interface TimelineItem {
 export interface TimelinePage {
   items: TimelineItem[];
   nextCursor: TimelineCursor | null;
+}
+
+export type CommitmentStatus = "pending" | "completed" | "cancelled" | "archived";
+
+export interface CommitmentRecord {
+  id: string;
+  personId: string;
+  text: string;
+  dueAt: Date | null;
+  status: CommitmentStatus;
+  sourceEventId: string | null;
+  transitionEventId: string;
+  occurredAt: Date;
+  createdAt: Date;
+  provenance: {
+    decisionLedgerId: string;
+    decisionSequence: number;
+    relationId: string;
+    evidenceRefs: RelationEvidenceRef[];
+  };
+}
+
+export interface CommitmentPage extends Page<CommitmentRecord> {}
+
+export interface MaterializeCommitmentInput extends DecisionProvenance {
+  operation: "create" | "update" | "archive";
+  commitmentId: string;
+  transitionEventId: string;
+  workspaceId: string;
+  ownerUserId: string;
+  personId: string;
+  text: string;
+  dueAt?: Date | null;
+  status: CommitmentStatus;
+  sourceEventId?: string | null;
+}
+
+export type IntroductionStatus =
+  | "awaiting_consents"
+  | "ready"
+  | "declined"
+  | "cancelled"
+  | "introduced";
+
+export interface IntroductionRecord {
+  id: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  initiatorConsent: boolean;
+  recipientConsent: boolean;
+  status: IntroductionStatus;
+  declineReasonRecorded: boolean;
+  transitionEventId: string;
+  occurredAt: Date;
+  createdAt: Date;
+  provenance: {
+    decisionLedgerId: string;
+    decisionSequence: number;
+    relationIds: string[];
+    evidenceRefs: RelationEvidenceRef[];
+  };
+}
+
+export interface IntroductionPage extends Page<IntroductionRecord> {}
+
+export interface MaterializeIntroductionInput extends DecisionProvenance {
+  operation: "create" | "consent" | "cancel" | "complete";
+  introductionId: string;
+  transitionEventId: string;
+  workspaceId: string;
+  ownerUserId: string;
+  sourcePersonId: string;
+  targetPersonId: string;
+  initiatorConsent: boolean;
+  recipientConsent: boolean;
+  status: IntroductionStatus;
+  declineReason?: string | null;
 }
 
 export interface SignalParticipant {
@@ -1382,6 +1483,138 @@ export class DrizzleGraphStore {
     };
   }
 
+  async findRelationshipPaths(
+    workspaceId: string,
+    viewerUserId: string,
+    start: RelationshipPathNode,
+    end: RelationshipPathNode,
+    opts: {
+      maxDepth: number;
+      maxPaths: number;
+      maxVisited?: number;
+      maxEdgesPerNode?: number;
+    },
+  ): Promise<RelationshipPathResult> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.findRelationshipPaths(workspaceId, viewerUserId, start, end, opts),
+      );
+    }
+    const maxDepth = clamp(opts.maxDepth, 1, 6);
+    const maxPaths = clamp(opts.maxPaths, 1, 5);
+    const maxVisited = clamp(opts.maxVisited ?? 100, 1, 200);
+    const maxEdgesPerNode = clamp(opts.maxEdgesPerNode ?? 50, 1, 100);
+    const [canReadStart, canReadEnd] = await Promise.all([
+      this.#canReadNode(
+        workspaceId,
+        viewerUserId,
+        start.nodeType,
+        start.nodeId,
+      ),
+      this.#canReadNode(
+        workspaceId,
+        viewerUserId,
+        end.nodeType,
+        end.nodeId,
+      ),
+    ]);
+    if (!canReadStart || !canReadEnd) {
+      return { paths: [], visited: 0, truncated: false };
+    }
+    const key = (node: RelationshipPathNode) =>
+      `${node.nodeType}:${node.nodeId}`;
+    if (key(start) === key(end)) {
+      return {
+        paths: [{ nodes: [start], steps: [], confidence: 1 }],
+        visited: 1,
+        truncated: false,
+      };
+    }
+    const queue: Array<{
+      node: RelationshipPathNode;
+      nodes: RelationshipPathNode[];
+      steps: RelationshipPathStep[];
+      confidence: number;
+      seen: Set<string>;
+    }> = [{
+      node: start,
+      nodes: [start],
+      steps: [],
+      confidence: 1,
+      seen: new Set([key(start)]),
+    }];
+    const shortestDepthByNode = new Map<string, number>([[key(start), 0]]);
+    const paths: RelationshipPath[] = [];
+    let visited = 0;
+    let truncated = false;
+    let shortestFoundDepth: number | null = null;
+    while (queue.length > 0 && paths.length < maxPaths) {
+      const current = queue.shift()!;
+      const depth = current.steps.length;
+      if (depth >= maxDepth || (shortestFoundDepth !== null && depth >= shortestFoundDepth)) {
+        continue;
+      }
+      if (visited >= maxVisited) {
+        truncated = true;
+        break;
+      }
+      visited += 1;
+      const page = await this.listRelations(
+        workspaceId,
+        viewerUserId,
+        {
+          nodeType: current.node.nodeType,
+          nodeId: current.node.nodeId,
+        },
+        { limit: maxEdgesPerNode },
+      );
+      if (page.nextCursor !== null || page.total > page.items.length) {
+        truncated = true;
+      }
+      for (const relation of page.items) {
+        const currentIsSource =
+          relation.srcType === current.node.nodeType &&
+          relation.srcId === current.node.nodeId;
+        const next: RelationshipPathNode = currentIsSource
+          ? { nodeType: relation.dstType, nodeId: relation.dstId }
+          : { nodeType: relation.srcType, nodeId: relation.srcId };
+        const nextKey = key(next);
+        if (current.seen.has(nextKey)) continue;
+        const nextDepth = depth + 1;
+        const step: RelationshipPathStep = {
+          from: current.node,
+          to: next,
+          relation,
+        };
+        const nextPath: RelationshipPath = {
+          nodes: [...current.nodes, next],
+          steps: [...current.steps, step],
+          confidence:
+            current.confidence *
+            Math.min(1, Math.max(0, Number(relation.confidence))),
+        };
+        if (nextKey === key(end)) {
+          shortestFoundDepth ??= nextDepth;
+          if (nextDepth === shortestFoundDepth) paths.push(nextPath);
+          if (paths.length >= maxPaths) break;
+          continue;
+        }
+        if (nextDepth >= maxDepth || shortestFoundDepth !== null) continue;
+        const priorDepth = shortestDepthByNode.get(nextKey);
+        if (priorDepth !== undefined && priorDepth < nextDepth) continue;
+        shortestDepthByNode.set(nextKey, nextDepth);
+        queue.push({
+          node: next,
+          nodes: nextPath.nodes,
+          steps: nextPath.steps,
+          confidence: nextPath.confidence,
+          seen: new Set([...current.seen, nextKey]),
+        });
+      }
+    }
+    return { paths, visited, truncated };
+  }
+
   async upsertRelation(input: UpsertRelationInput): Promise<RelationRecord> {
     if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
       return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
@@ -1896,7 +2129,14 @@ export class DrizzleGraphStore {
     return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
   }
 
-  async listSignals(workspaceId: string, viewerUserId: string, opts: PageOpts): Promise<Page<typeof signals.$inferSelect>> {
+  async listSignals(
+    workspaceId: string,
+    viewerUserId: string,
+    opts: PageOpts & {
+      subjectType?: "person" | "community";
+      subjectId?: string;
+    },
+  ): Promise<Page<typeof signals.$inferSelect>> {
     if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
       return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
         store.listSignals(workspaceId, viewerUserId, opts),
@@ -1906,6 +2146,8 @@ export class DrizzleGraphStore {
     const offset = Math.max(opts.offset, 0);
     const where = and(
       eq(signals.workspaceId, workspaceId),
+      opts.subjectType ? eq(signals.subjectType, opts.subjectType) : undefined,
+      opts.subjectId ? eq(signals.subjectId, opts.subjectId) : undefined,
       this.#readableSignalSubjectCondition(workspaceId, viewerUserId),
       this.#signalHasReadableDetailCondition(workspaceId, viewerUserId),
     );
@@ -2795,6 +3037,7 @@ export class DrizzleGraphStore {
       decisionLedgerId: input.decisionLedgerId,
       decisionSequence: input.decisionSequence,
       decisionAt: input.decisionAt.toISOString(),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(options.recordMutationLifecycle ? { recordMutationLifecycle: true } : {}),
     };
     await this.#db
@@ -2867,6 +3110,434 @@ export class DrizzleGraphStore {
       }
     }
     return this.#timelineItemFromRows(event, relations, participantNodes);
+  }
+
+  async materializeCommitment(
+    input: MaterializeCommitmentInput,
+  ): Promise<CommitmentRecord> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.materializeCommitment(input),
+      );
+    }
+    const occurredAt = input.decisionAt;
+    await this.#createInteractionInContext({
+      id: input.transitionEventId,
+      workspaceId: input.workspaceId,
+      ownerUserId: input.ownerUserId,
+      kind: `commitment_${input.operation}`,
+      occurredAt,
+      summary: `${input.operation === "create" ? "Committed" : input.operation === "archive" ? "Archived commitment" : "Updated commitment"}: ${input.text}`,
+      source: "user",
+      sourceRecordId: input.sourceEventId ?? null,
+      visibility: "private",
+      participants: [{
+        recordType: "person",
+        recordId: input.personId,
+        role: "commitment_subject",
+      }],
+      updatesPersonFreshness: false,
+      metadata: {
+        artifact: "commitment",
+        commitmentId: input.commitmentId,
+        personId: input.personId,
+        text: input.text,
+        dueAt: input.dueAt?.toISOString() ?? null,
+        status: input.status,
+        sourceEventId: input.sourceEventId ?? null,
+      },
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    const evidenceRefs: RelationEvidenceRef[] = [
+      {
+        entityType: "event",
+        entityId: input.transitionEventId,
+        source: "relationship",
+      },
+      ...(input.sourceEventId
+        ? [{
+            entityType: "event",
+            entityId: input.sourceEventId,
+            source: "relationship",
+          }]
+        : []),
+    ];
+    const relation = await this.upsertRelation({
+      workspaceId: input.workspaceId,
+      ownerUserId: input.ownerUserId,
+      srcType: "event",
+      srcId: input.transitionEventId,
+      dstType: "person",
+      dstId: input.personId,
+      relationType: "commitment",
+      properties: {
+        commitmentId: input.commitmentId,
+        text: input.text,
+        dueAt: input.dueAt?.toISOString() ?? null,
+        status: input.status,
+      },
+      evidenceRefs,
+      confidence: 1,
+      observedAt: occurredAt,
+      validFrom: occurredAt,
+      userConfirmed: true,
+      visibility: "private",
+      source: "user",
+      sourceModule: "relationship",
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    return {
+      id: input.commitmentId,
+      personId: input.personId,
+      text: input.text,
+      dueAt: input.dueAt ?? null,
+      status: input.status,
+      sourceEventId: input.sourceEventId ?? null,
+      transitionEventId: input.transitionEventId,
+      occurredAt,
+      createdAt: occurredAt,
+      provenance: {
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        relationId: relation.id,
+        evidenceRefs: relation.evidenceRefs,
+      },
+    };
+  }
+
+  async listCommitments(
+    workspaceId: string,
+    viewerUserId: string,
+    personId: string,
+    opts: PageOpts & { includeArchived?: boolean; commitmentId?: string },
+  ): Promise<CommitmentPage> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listCommitments(workspaceId, viewerUserId, personId, opts),
+      );
+    }
+    const person = await this.getPerson(workspaceId, viewerUserId, personId);
+    if (!person) return { items: [], total: 0 };
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const result = await this.#db.execute(sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (
+          transition.payload #>> '{metadata,commitmentId}'
+        )
+          transition.payload #>> '{metadata,commitmentId}' AS commitment_id,
+          transition.payload #>> '{metadata,personId}' AS person_id,
+          transition.payload #>> '{metadata,text}' AS text,
+          transition.payload #>> '{metadata,dueAt}' AS due_at,
+          transition.payload #>> '{metadata,status}' AS status,
+          transition.payload #>> '{metadata,sourceEventId}' AS source_event_id,
+          transition.id::text AS transition_event_id,
+          (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
+          transition.created_at AS created_at,
+          transition.payload ->> 'decisionLedgerId' AS decision_ledger_id,
+          (transition.payload ->> 'decisionSequence')::bigint AS decision_sequence,
+          commitment.id::text AS relation_id,
+          commitment.evidence_refs AS evidence_refs
+        FROM ${events} AS transition
+        INNER JOIN ${edges} AS commitment
+          ON commitment.workspace_id = transition.workspace_id
+          AND commitment.src_type = 'event'
+          AND commitment.src_id = transition.id
+          AND commitment.dst_type = 'person'
+          AND commitment.dst_id = ${personId}::uuid
+          AND commitment.edge_type = 'commitment'
+          AND commitment.owner_user_id = ${viewerUserId}::uuid
+        WHERE transition.workspace_id = ${workspaceId}::uuid
+          AND transition.entity_type = 'interaction'
+          AND transition.payload #>> '{metadata,artifact}' = 'commitment'
+          AND transition.payload #>> '{metadata,personId}' = ${personId}
+          AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
+          ${opts.commitmentId
+            ? sql`AND transition.payload #>> '{metadata,commitmentId}' = ${opts.commitmentId}`
+            : sql``}
+        ORDER BY
+          transition.payload #>> '{metadata,commitmentId}',
+          (transition.payload ->> 'decisionSequence')::bigint DESC,
+          (transition.payload ->> 'occurredAt')::timestamptz DESC,
+          transition.id DESC
+      ),
+      visible AS (
+        SELECT *
+        FROM latest
+        WHERE commitment_id IS NOT NULL
+          ${opts.includeArchived ? sql`` : sql`AND status <> 'archived'`}
+      )
+      SELECT *, count(*) OVER() AS total_count
+      FROM visible
+      ORDER BY
+        CASE WHEN due_at IS NULL OR due_at = '' THEN 1 ELSE 0 END,
+        due_at ASC NULLS LAST,
+        occurred_at DESC,
+        commitment_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = (
+      Array.isArray(result)
+        ? result
+        : (result as { rows?: unknown[] }).rows ?? []
+    ) as Array<{
+      commitment_id: string;
+      person_id: string;
+      text: string;
+      due_at: string | null;
+      status: CommitmentStatus;
+      source_event_id: string | null;
+      transition_event_id: string;
+      occurred_at: Date | string;
+      created_at: Date | string;
+      decision_ledger_id: string;
+      decision_sequence: number | string;
+      relation_id: string;
+      evidence_refs: RelationEvidenceRef[];
+      total_count: number | string;
+    }>;
+    return {
+      items: rows.map((row) => ({
+        id: row.commitment_id,
+        personId: row.person_id,
+        text: row.text,
+        dueAt: row.due_at ? new Date(row.due_at) : null,
+        status: row.status,
+        sourceEventId: row.source_event_id || null,
+        transitionEventId: row.transition_event_id,
+        occurredAt: new Date(row.occurred_at),
+        createdAt: new Date(row.created_at),
+        provenance: {
+          decisionLedgerId: row.decision_ledger_id,
+          decisionSequence: Number(row.decision_sequence),
+          relationId: row.relation_id,
+          evidenceRefs: row.evidence_refs,
+        },
+      })),
+      total: Number(rows[0]?.total_count ?? 0),
+    };
+  }
+
+  async materializeIntroduction(
+    input: MaterializeIntroductionInput,
+  ): Promise<IntroductionRecord> {
+    if (!this.#hasRlsContext(input.workspaceId, input.ownerUserId)) {
+      return this.#withRlsContext(input.workspaceId, input.ownerUserId, (store) =>
+        store.materializeIntroduction(input),
+      );
+    }
+    if (input.sourcePersonId === input.targetPersonId) {
+      throw new Error("An Introduction requires two different People");
+    }
+    const statusLabel = input.status.replace(/_/g, " ");
+    await this.#createInteractionInContext({
+      id: input.transitionEventId,
+      workspaceId: input.workspaceId,
+      ownerUserId: input.ownerUserId,
+      kind: `introduction_${input.operation}`,
+      occurredAt: input.decisionAt,
+      summary: `Introduction ${statusLabel}`,
+      source: "user",
+      sourceRecordId: input.introductionId,
+      visibility: "private",
+      participants: [
+        {
+          recordType: "person",
+          recordId: input.sourcePersonId,
+          role: "introducer",
+        },
+        {
+          recordType: "person",
+          recordId: input.targetPersonId,
+          role: "recipient",
+        },
+      ],
+      updatesPersonFreshness: false,
+      metadata: {
+        artifact: "introduction",
+        introductionId: input.introductionId,
+        sourcePersonId: input.sourcePersonId,
+        targetPersonId: input.targetPersonId,
+        initiatorConsent: input.initiatorConsent,
+        recipientConsent: input.recipientConsent,
+        status: input.status,
+        ...(input.declineReason ? { declineReason: input.declineReason } : {}),
+      },
+      decisionLedgerId: input.decisionLedgerId,
+      decisionSequence: input.decisionSequence,
+      decisionAt: input.decisionAt,
+    });
+    const relations = await Promise.all(
+      [input.sourcePersonId, input.targetPersonId].map((personId) =>
+        this.upsertRelation({
+          workspaceId: input.workspaceId,
+          ownerUserId: input.ownerUserId,
+          srcType: "event",
+          srcId: input.transitionEventId,
+          dstType: "person",
+          dstId: personId,
+          relationType: "introduction",
+          properties: {
+            introductionId: input.introductionId,
+            status: input.status,
+          },
+          evidenceRefs: [{
+            entityType: "event",
+            entityId: input.transitionEventId,
+            source: "relationship",
+          }],
+          confidence: 1,
+          observedAt: input.decisionAt,
+          validFrom: input.decisionAt,
+          userConfirmed: input.initiatorConsent && input.recipientConsent,
+          visibility: "private",
+          source: "user",
+          sourceModule: "relationship",
+          decisionLedgerId: input.decisionLedgerId,
+          decisionSequence: input.decisionSequence,
+          decisionAt: input.decisionAt,
+        }),
+      ),
+    );
+    return {
+      id: input.introductionId,
+      sourcePersonId: input.sourcePersonId,
+      targetPersonId: input.targetPersonId,
+      initiatorConsent: input.initiatorConsent,
+      recipientConsent: input.recipientConsent,
+      status: input.status,
+      declineReasonRecorded: Boolean(input.declineReason),
+      transitionEventId: input.transitionEventId,
+      occurredAt: input.decisionAt,
+      createdAt: input.decisionAt,
+      provenance: {
+        decisionLedgerId: input.decisionLedgerId,
+        decisionSequence: input.decisionSequence,
+        relationIds: relations.map((relation) => relation.id),
+        evidenceRefs: relations.flatMap((relation) => relation.evidenceRefs),
+      },
+    };
+  }
+
+  async listIntroductions(
+    workspaceId: string,
+    viewerUserId: string,
+    personId: string,
+    opts: PageOpts & { introductionId?: string },
+  ): Promise<IntroductionPage> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listIntroductions(workspaceId, viewerUserId, personId, opts),
+      );
+    }
+    const person = await this.getPerson(workspaceId, viewerUserId, personId);
+    if (!person) return { items: [], total: 0 };
+    const limit = clamp(opts.limit, 1, 100);
+    const offset = clamp(opts.offset, 0, 10_000);
+    const result = await this.#db.execute(sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (
+          transition.payload #>> '{metadata,introductionId}'
+        )
+          transition.payload #>> '{metadata,introductionId}' AS introduction_id,
+          transition.payload #>> '{metadata,sourcePersonId}' AS source_person_id,
+          transition.payload #>> '{metadata,targetPersonId}' AS target_person_id,
+          (transition.payload #>> '{metadata,initiatorConsent}')::boolean AS initiator_consent,
+          (transition.payload #>> '{metadata,recipientConsent}')::boolean AS recipient_consent,
+          transition.payload #>> '{metadata,status}' AS status,
+          coalesce(transition.payload #>> '{metadata,declineReason}', '') <> '' AS decline_reason_recorded,
+          transition.id::text AS transition_event_id,
+          (transition.payload ->> 'occurredAt')::timestamptz AS occurred_at,
+          transition.created_at AS created_at,
+          transition.payload ->> 'decisionLedgerId' AS decision_ledger_id,
+          (transition.payload ->> 'decisionSequence')::bigint AS decision_sequence,
+          ARRAY(
+            SELECT related.id::text
+            FROM ${edges} AS related
+            WHERE related.workspace_id = transition.workspace_id
+              AND related.src_type = 'event'
+              AND related.src_id = transition.id
+              AND related.edge_type = 'introduction'
+              AND related.owner_user_id = ${viewerUserId}::uuid
+            ORDER BY related.id
+          ) AS relation_ids,
+          anchor.evidence_refs AS evidence_refs
+        FROM ${events} AS transition
+        INNER JOIN ${edges} AS anchor
+          ON anchor.workspace_id = transition.workspace_id
+          AND anchor.src_type = 'event'
+          AND anchor.src_id = transition.id
+          AND anchor.dst_type = 'person'
+          AND anchor.dst_id = ${personId}::uuid
+          AND anchor.edge_type = 'introduction'
+          AND anchor.owner_user_id = ${viewerUserId}::uuid
+        WHERE transition.workspace_id = ${workspaceId}::uuid
+          AND transition.entity_type = 'interaction'
+          AND transition.payload #>> '{metadata,artifact}' = 'introduction'
+          AND transition.payload ->> 'ownerUserId' = ${viewerUserId}
+          ${opts.introductionId
+            ? sql`AND transition.payload #>> '{metadata,introductionId}' = ${opts.introductionId}`
+            : sql``}
+        ORDER BY
+          transition.payload #>> '{metadata,introductionId}',
+          (transition.payload ->> 'decisionSequence')::bigint DESC,
+          (transition.payload ->> 'occurredAt')::timestamptz DESC,
+          transition.id DESC
+      )
+      SELECT *, count(*) OVER() AS total_count
+      FROM latest
+      WHERE introduction_id IS NOT NULL
+      ORDER BY occurred_at DESC, introduction_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `);
+    const rows = (
+      Array.isArray(result)
+        ? result
+        : (result as { rows?: unknown[] }).rows ?? []
+    ) as Array<{
+      introduction_id: string;
+      source_person_id: string;
+      target_person_id: string;
+      initiator_consent: boolean;
+      recipient_consent: boolean;
+      status: IntroductionStatus;
+      decline_reason_recorded: boolean;
+      transition_event_id: string;
+      occurred_at: Date | string;
+      created_at: Date | string;
+      decision_ledger_id: string;
+      decision_sequence: number | string;
+      relation_ids: string[];
+      evidence_refs: RelationEvidenceRef[];
+      total_count: number | string;
+    }>;
+    return {
+      items: rows.map((row) => ({
+        id: row.introduction_id,
+        sourcePersonId: row.source_person_id,
+        targetPersonId: row.target_person_id,
+        initiatorConsent: row.initiator_consent,
+        recipientConsent: row.recipient_consent,
+        status: row.status,
+        declineReasonRecorded: row.decline_reason_recorded,
+        transitionEventId: row.transition_event_id,
+        occurredAt: new Date(row.occurred_at),
+        createdAt: new Date(row.created_at),
+        provenance: {
+          decisionLedgerId: row.decision_ledger_id,
+          decisionSequence: Number(row.decision_sequence),
+          relationIds: row.relation_ids,
+          evidenceRefs: row.evidence_refs,
+        },
+      })),
+      total: Number(rows[0]?.total_count ?? 0),
+    };
   }
 
   async listTimeline(

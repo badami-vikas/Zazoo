@@ -1915,3 +1915,396 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     await close();
   }
 });
+
+test("Commitments are private evidence-bearing Event snapshots with bounded current-state reads", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [viewer, person] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_commitment_viewer@example.com" })
+        .returning({ id: schema.users.id })
+        .then((rows) => rows[0]),
+      db
+        .insert(schema.people)
+        .values({
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Commitment Person",
+        })
+        .returning({ id: schema.people.id })
+        .then((rows) => rows[0]),
+    ]);
+    assert.ok(viewer);
+    assert.ok(person);
+    const store = new DrizzleGraphStore(db);
+    const commitmentId = randomUUID();
+    const createDecisionId = randomUUID();
+    const updateDecisionId = randomUUID();
+    const archiveDecisionId = randomUUID();
+
+    const created = await store.materializeCommitment({
+      operation: "create",
+      commitmentId,
+      transitionEventId: commitmentId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Send the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "pending",
+      decisionLedgerId: createDecisionId,
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    assert.equal(created.provenance.evidenceRefs[0]?.entityId, commitmentId);
+
+    await store.materializeCommitment({
+      operation: "update",
+      commitmentId,
+      transitionEventId: updateDecisionId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "completed",
+      decisionLedgerId: updateDecisionId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+
+    const current = await store.listCommitments(
+      workspaceId,
+      ownerUserId,
+      person.id,
+      { limit: 25, offset: 0 },
+    );
+    assert.equal(current.total, 1);
+    assert.equal(current.items[0]?.status, "completed");
+    assert.equal(current.items[0]?.text, "Sent the diligence notes");
+    assert.equal(current.items[0]?.provenance.decisionLedgerId, updateDecisionId);
+    assert.deepEqual(
+      await store.listCommitments(workspaceId, viewer.id, person.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "another workspace member cannot read the owner's private commitment",
+    );
+    const timeline = await store.listTimeline(
+      workspaceId,
+      ownerUserId,
+      "person",
+      person.id,
+      { limit: 25 },
+    );
+    assert.deepEqual(
+      timeline.items.map((item) => item.id),
+      [updateDecisionId, commitmentId],
+      "commitment transitions remain in the unified Timeline",
+    );
+
+    await store.materializeCommitment({
+      operation: "archive",
+      commitmentId,
+      transitionEventId: archiveDecisionId,
+      workspaceId,
+      ownerUserId,
+      personId: person.id,
+      text: "Sent the diligence notes",
+      dueAt: new Date("2026-07-25T12:00:00.000Z"),
+      status: "archived",
+      decisionLedgerId: archiveDecisionId,
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    assert.equal(
+      (
+        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+        })
+      ).total,
+      0,
+    );
+    assert.equal(
+      (
+        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+          limit: 25,
+          offset: 0,
+          includeArchived: true,
+        })
+      ).items[0]?.status,
+      "archived",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Introductions require double consent and keep decline reasons private", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [[viewer], people] = await Promise.all([
+      db
+        .insert(schema.users)
+        .values({ email: "test_fixture_introduction_viewer@example.com" })
+        .returning({ id: schema.users.id }),
+      db
+        .insert(schema.people)
+        .values([
+          {
+            workspaceId,
+            userId: ownerUserId,
+            visibility: "workspace",
+            fullNameOverride: "Introduction Source",
+          },
+          {
+            workspaceId,
+            userId: ownerUserId,
+            visibility: "workspace",
+            fullNameOverride: "Introduction Target",
+          },
+        ])
+        .returning({ id: schema.people.id }),
+    ]);
+    assert.ok(viewer);
+    const [source, target] = people;
+    assert.ok(source);
+    assert.ok(target);
+    const store = new DrizzleGraphStore(db);
+    const introductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId,
+      transitionEventId: introductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 1,
+      decisionAt: new Date("2026-07-18T12:00:00.000Z"),
+    });
+    const readyEventId = randomUUID();
+    const ready = await store.materializeIntroduction({
+      operation: "consent",
+      introductionId,
+      transitionEventId: readyEventId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: true,
+      status: "ready",
+      decisionLedgerId: readyEventId,
+      decisionSequence: 2,
+      decisionAt: new Date("2026-07-19T12:00:00.000Z"),
+    });
+    assert.equal(ready.status, "ready");
+    assert.equal(ready.provenance.relationIds.length, 2);
+    assert.equal(
+      (await store.listIntroductions(workspaceId, ownerUserId, source.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.status,
+      "ready",
+    );
+    assert.equal(
+      (await store.listIntroductions(workspaceId, ownerUserId, target.id, {
+        limit: 25,
+        offset: 0,
+      })).items[0]?.id,
+      introductionId,
+      "both People see the same Introduction lifecycle",
+    );
+    assert.deepEqual(
+      await store.listIntroductions(workspaceId, viewer.id, source.id, {
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0 },
+      "a different member cannot read the owner's private Introduction",
+    );
+
+    const declinedIntroductionId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "create",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedIntroductionId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "awaiting_consents",
+      decisionLedgerId: randomUUID(),
+      decisionSequence: 3,
+      decisionAt: new Date("2026-07-20T12:00:00.000Z"),
+    });
+    const declinedEventId = randomUUID();
+    await store.materializeIntroduction({
+      operation: "consent",
+      introductionId: declinedIntroductionId,
+      transitionEventId: declinedEventId,
+      workspaceId,
+      ownerUserId,
+      sourcePersonId: source.id,
+      targetPersonId: target.id,
+      initiatorConsent: true,
+      recipientConsent: false,
+      status: "declined",
+      declineReason: "Not the right time",
+      decisionLedgerId: declinedEventId,
+      decisionSequence: 4,
+      decisionAt: new Date("2026-07-21T12:00:00.000Z"),
+    });
+    const declined = await store.listIntroductions(
+      workspaceId,
+      ownerUserId,
+      source.id,
+      { limit: 1, offset: 0, introductionId: declinedIntroductionId },
+    );
+    assert.equal(declined.items[0]?.status, "declined");
+    assert.equal(declined.items[0]?.declineReasonRecorded, true);
+    assert.equal(
+      JSON.stringify(declined).includes("Not the right time"),
+      false,
+      "decline reason contents are not returned by Relationship projections",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("Relationship paths are shortest, bounded, and visibility-pruned", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_path_other@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    const [start, end, hidden] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Path Start",
+        },
+        {
+          workspaceId,
+          userId: ownerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Path End",
+        },
+        {
+          workspaceId,
+          userId: otherUser.id,
+          visibility: "private",
+          fullNameOverride: "Hidden Path End",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [community] = await db
+      .insert(schema.communities)
+      .values({
+        workspaceId,
+        userId: ownerUserId,
+        visibility: "workspace",
+        nameOverride: "Path Community",
+      })
+      .returning({ id: schema.communities.id });
+    assert.ok(start);
+    assert.ok(end);
+    assert.ok(hidden);
+    assert.ok(community);
+    const store = new DrizzleGraphStore(db);
+    await store.upsertRelation({
+      workspaceId,
+      ownerUserId,
+      srcType: "person",
+      srcId: start.id,
+      dstType: "community",
+      dstId: community.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.8,
+      observedAt: new Date("2026-07-18T12:00:00.000Z"),
+      userConfirmed: true,
+      visibility: "workspace",
+      source: "user",
+      sourceModule: "relationship",
+    });
+    await store.upsertRelation({
+      workspaceId,
+      ownerUserId,
+      srcType: "community",
+      srcId: community.id,
+      dstType: "person",
+      dstId: end.id,
+      relationType: "member",
+      properties: {},
+      evidenceRefs: [{ entityType: "community", entityId: community.id, source: "user" }],
+      confidence: 0.5,
+      observedAt: new Date("2026-07-18T12:01:00.000Z"),
+      userConfirmed: true,
+      visibility: "workspace",
+      source: "user",
+      sourceModule: "relationship",
+    });
+
+    const result = await store.findRelationshipPaths(
+      workspaceId,
+      ownerUserId,
+      { nodeType: "person", nodeId: start.id },
+      { nodeType: "person", nodeId: end.id },
+      { maxDepth: 4, maxPaths: 3, maxVisited: 10, maxEdgesPerNode: 10 },
+    );
+    assert.equal(result.paths.length, 1);
+    assert.deepEqual(
+      result.paths[0]?.nodes.map((node) => node.nodeType),
+      ["person", "community", "person"],
+    );
+    assert.equal(result.paths[0]?.confidence, 0.4);
+    assert.ok(result.visited <= 10);
+    assert.equal(
+      (
+        await store.findRelationshipPaths(
+          workspaceId,
+          ownerUserId,
+          { nodeType: "person", nodeId: start.id },
+          { nodeType: "person", nodeId: end.id },
+          { maxDepth: 1, maxPaths: 3 },
+        )
+      ).paths.length,
+      0,
+    );
+    assert.deepEqual(
+      await store.findRelationshipPaths(
+        workspaceId,
+        ownerUserId,
+        { nodeType: "person", nodeId: start.id },
+        { nodeType: "person", nodeId: hidden.id },
+        { maxDepth: 4, maxPaths: 3 },
+      ),
+      { paths: [], visited: 0, truncated: false },
+      "an inaccessible endpoint is indistinguishable from no path",
+    );
+  } finally {
+    await close();
+  }
+});

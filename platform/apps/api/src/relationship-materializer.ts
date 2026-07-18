@@ -1,4 +1,4 @@
-import type { LedgerEntry, LedgerStore, Proposal } from "@bridge/core";
+import type { LedgerEntry, LedgerStore, MemoryStore, Proposal } from "@bridge/core";
 import type {
   DrizzleGraphStore,
   DrizzleRelationMaterializationStore,
@@ -234,6 +234,7 @@ export async function applyApprovedRelationshipMaterialization(
   decision: LedgerEntry,
   attemptedAt: Date,
   opts: { allowExhausted?: boolean } = {},
+  memoryStore?: MemoryStore,
 ): Promise<RelationshipMaterializationEffectResult> {
   const ownerUserId = relationshipOwnerFromLedger(original);
   if (!ownerUserId || relationshipOwnerFromLedger(decision) !== ownerUserId) {
@@ -271,7 +272,12 @@ export async function applyApprovedRelationshipMaterialization(
           decision,
         )
       : isRelationshipMutation(original.inputs)
-        ? await materializeRelationshipMutation(graphStore, original, decision)
+        ? await materializeRelationshipMutation(
+            graphStore,
+            original,
+            decision,
+            memoryStore,
+          )
         : isGoogleLinkedInteractionIntake(original.inputs)
           ? await materializeApprovedGoogleInteraction(
               graphStore,
@@ -323,6 +329,7 @@ export async function reconcileRetryableRelationshipMaterializations(
   ownerUserId: string,
   attemptedAt: Date,
   limit = 20,
+  memoryStore?: MemoryStore,
 ): Promise<{
   discovered: number;
   attempted: number;
@@ -372,6 +379,7 @@ export async function reconcileRetryableRelationshipMaterializations(
         graphStore,
         original,
         original,
+        memoryStore,
       );
       if (materialization === null) {
         throw new Error(
@@ -435,6 +443,8 @@ export async function reconcileRetryableRelationshipMaterializations(
         original,
         decision,
         attemptedAt,
+        {},
+        memoryStore,
       );
       if (result.effect.status === "applied") applied += 1;
     } catch (cause) {
@@ -462,6 +472,7 @@ export async function reconcileWorkspaceRelationshipMaterializations(
     effectLimit?: number;
     afterOwnerUserId?: string;
   } = {},
+  memoryStore?: MemoryStore,
 ): Promise<{
   ownersExamined: number;
   nextOwnerCursor: string | null;
@@ -496,6 +507,7 @@ export async function reconcileWorkspaceRelationshipMaterializations(
         ownerUserId,
         attemptedAt,
         opts.effectLimit ?? 20,
+        memoryStore,
       );
       aggregate.discovered += result.discovered;
       aggregate.attempted += result.attempted;

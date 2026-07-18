@@ -2150,3 +2150,325 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     else process.env.BRIDGE_LOCAL_DIR = prior;
   }
 });
+
+test("Relationship Memory, commitments, and meeting preparation stay governed and owner-scoped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "bridge-relationship-memory-commitment-test-"));
+  const fixture = await seedFixtures(dir);
+  const prior = process.env.BRIDGE_LOCAL_DIR;
+  process.env.BRIDGE_LOCAL_DIR = dir;
+  let wiring: Wiring | undefined;
+  try {
+    wiring = await buildWiring();
+    const caller = await makeCaller(wiring);
+    const otherMemberCaller = await makeCaller(wiring, {
+      type: "user",
+      id: fixture.otherMemberId,
+    });
+
+    const added = await caller.relationship.addMemory({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      type: "semantic",
+      content: "Prefers a written agenda before meetings.",
+      scope: "private",
+    });
+    assert.equal(added.proposal.status, "applied");
+    assert.equal(added.materialization.status, "applied");
+    const memoryId = (
+      added.materialization.status === "applied" &&
+      typeof added.materialization.value === "object" &&
+      added.materialization.value !== null &&
+      "id" in added.materialization.value
+    )
+      ? String(added.materialization.value.id)
+      : null;
+    assert.ok(memoryId);
+
+    const memoryPage = await caller.relationship.memories({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 1,
+      offset: 0,
+    });
+    assert.equal(memoryPage.items.length, 1);
+    assert.equal(memoryPage.items[0]?.content, "Prefers a written agenda before meetings.");
+    assert.equal(memoryPage.items[0]?.sourceRefType, "feedback");
+    await assert.rejects(
+      () =>
+        otherMemberCaller.relationship.memories({
+          workspaceId: PILOT_WORKSPACE,
+          personId: fixture.personId,
+          limit: 25,
+          offset: 0,
+        }),
+      /NOT_FOUND|Person not found/,
+    );
+
+    const corrected = await caller.relationship.correctMemory({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      memoryId,
+      content: "Prefers a concise written agenda before meetings.",
+    });
+    assert.equal(corrected.materialization.status, "applied");
+    const correctedPage = await caller.relationship.memories({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(correctedPage.items.length, 1);
+    assert.equal(correctedPage.items[0]?.content, "Prefers a concise written agenda before meetings.");
+    assert.equal(correctedPage.items[0]?.supersedesId, memoryId);
+
+    const createdCommitment = await caller.relationship.createCommitment({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      text: "Send the agenda",
+      dueAt: "2026-07-25T12:00:00.000Z",
+    });
+    assert.equal(createdCommitment.materialization.status, "applied");
+    const commitmentId = createdCommitment.proposal.request.resourceId;
+    assert.ok(commitmentId);
+    const commitments = await caller.relationship.commitments({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(commitments.total, 1);
+    assert.equal(commitments.items[0]?.status, "pending");
+    assert.ok(commitments.items[0]?.provenance.evidenceRefs.length);
+
+    const prep = await caller.relationship.meetingPrep({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 10,
+    });
+    assert.equal(prep.context.memories.length, 1);
+    assert.equal(prep.context.commitments.length, 1);
+    assert.equal(prep.recommendedActions[0]?.kind, "log_follow_up");
+    assert.ok(
+      prep.context.recentEvents.some((event) => event.kind === "commitment_create"),
+      "commitment evidence remains visible in the unified Timeline",
+    );
+    const sharedInteraction = await caller.relationship.createInteraction({
+      workspaceId: PILOT_WORKSPACE,
+      values: {
+        kind: "gathering",
+        occurredAt: "2026-07-20T10:00:00.000Z",
+        summary: "Met through the Community.",
+        visibility: "private",
+        participants: [
+          { recordType: "person", recordId: fixture.personId },
+          { recordType: "community", recordId: fixture.communityId },
+        ],
+      },
+    });
+    assert.equal(sharedInteraction.materialization.status, "applied");
+    const paths = await caller.relationship.findPaths({
+      workspaceId: PILOT_WORKSPACE,
+      start: { nodeType: "person", nodeId: fixture.personId },
+      end: { nodeType: "community", nodeId: fixture.communityId },
+      maxDepth: 4,
+      maxPaths: 3,
+    });
+    assert.ok(paths.paths.length > 0);
+    assert.ok(paths.paths.every((path) => path.steps.length <= 4));
+    assert.ok(paths.visited <= 100);
+    const communityWorkspace = await caller.relationship.communityWorkspace({
+      workspaceId: PILOT_WORKSPACE,
+      communityId: fixture.communityId,
+      limit: 25,
+    });
+    assert.ok(
+      communityWorkspace.people.some((person) => person.id === fixture.personId),
+    );
+    assert.ok(
+      communityWorkspace.events.some((event) => event.kind === "gathering"),
+    );
+    assert.deepEqual(communityWorkspace.files, []);
+    assert.deepEqual(
+      await otherMemberCaller.relationship.findPaths({
+        workspaceId: PILOT_WORKSPACE,
+        start: { nodeType: "person", nodeId: fixture.personId },
+        end: { nodeType: "community", nodeId: fixture.communityId },
+        maxDepth: 4,
+        maxPaths: 3,
+      }),
+      { paths: [], visited: 0, truncated: false },
+      "private path endpoints do not leak to another member",
+    );
+
+    const completed = await caller.relationship.updateCommitment({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      commitmentId,
+      text: "Sent the agenda",
+      dueAt: "2026-07-25T12:00:00.000Z",
+      status: "completed",
+    });
+    assert.equal(completed.materialization.status, "applied");
+    const completedPage = await caller.relationship.commitments({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(completedPage.items[0]?.text, "Sent the agenda");
+    assert.equal(completedPage.items[0]?.status, "completed");
+    assert.deepEqual(
+      await otherMemberCaller.relationship.commitments({
+        workspaceId: PILOT_WORKSPACE,
+        personId: fixture.personId,
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0, hasMore: false },
+    );
+
+    const targetPersonResult = await caller.relationship.createPerson({
+      workspaceId: PILOT_WORKSPACE,
+      values: {
+        displayName: "Introduction Target",
+        visibility: "private",
+      },
+    });
+    assert.equal(targetPersonResult.materialization.status, "applied");
+    const targetPersonId = targetPersonResult.proposal.request.resourceId;
+    assert.ok(targetPersonId);
+    const introduction = await caller.relationship.createIntroduction({
+      workspaceId: PILOT_WORKSPACE,
+      sourcePersonId: fixture.personId,
+      targetPersonId,
+    });
+    assert.equal(introduction.materialization.status, "applied");
+    const introductionId = introduction.proposal.request.resourceId;
+    assert.ok(introductionId);
+    await assert.rejects(
+      () => caller.relationship.transitionIntroduction({
+        workspaceId: PILOT_WORKSPACE,
+        personId: fixture.personId,
+        introductionId,
+        transition: "complete",
+      }),
+      /Introduction not actionable/,
+      "an Introduction cannot complete before both consents",
+    );
+    const consented = await caller.relationship.recordIntroductionConsent({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      introductionId,
+      party: "recipient",
+      decision: "consent",
+    });
+    assert.equal(consented.materialization.status, "applied");
+    const readyIntroductions = await caller.relationship.introductions({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(readyIntroductions.items[0]?.status, "ready");
+    assert.equal(readyIntroductions.items[0]?.counterpart?.id, targetPersonId);
+    assert.deepEqual(
+      await otherMemberCaller.relationship.introductions({
+        workspaceId: PILOT_WORKSPACE,
+        personId: fixture.personId,
+        limit: 25,
+        offset: 0,
+      }),
+      { items: [], total: 0, hasMore: false },
+      "private Introduction state does not leak to another member",
+    );
+    const completedIntroduction = await caller.relationship.transitionIntroduction({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      introductionId,
+      transition: "complete",
+    });
+    assert.equal(completedIntroduction.materialization.status, "applied");
+
+    const declinedIntroduction = await caller.relationship.createIntroduction({
+      workspaceId: PILOT_WORKSPACE,
+      sourcePersonId: fixture.personId,
+      targetPersonId,
+    });
+    assert.equal(declinedIntroduction.materialization.status, "applied");
+    const declinedIntroductionId = declinedIntroduction.proposal.request.resourceId;
+    assert.ok(declinedIntroductionId);
+    await caller.relationship.recordIntroductionConsent({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      introductionId: declinedIntroductionId,
+      party: "recipient",
+      decision: "decline",
+      declineReason: "Not the right time",
+    });
+    const declinedIntroductions = await caller.relationship.introductions({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      limit: 25,
+      offset: 0,
+    });
+    const declinedItem = declinedIntroductions.items.find(
+      (item) => item.id === declinedIntroductionId,
+    );
+    assert.equal(declinedItem?.status, "declined");
+    assert.equal(declinedItem?.declineReasonRecorded, true);
+    assert.equal(
+      JSON.stringify(declinedItem).includes("Not the right time"),
+      false,
+      "private decline reason contents stay outside the API projection",
+    );
+    await assert.rejects(
+      () => otherMemberCaller.relationship.createIntroduction({
+        workspaceId: PILOT_WORKSPACE,
+        sourcePersonId: fixture.personId,
+        targetPersonId,
+      }),
+      /Introduction People not found/,
+      "another member cannot forge an Introduction for the owner's People",
+    );
+
+    const forgotten = await caller.relationship.forgetMemory({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      memoryId: correctedPage.items[0]!.id,
+    });
+    assert.equal(forgotten.materialization.status, "applied");
+    assert.equal(
+      (
+        await caller.relationship.memories({
+          workspaceId: PILOT_WORKSPACE,
+          personId: fixture.personId,
+          limit: 25,
+          offset: 0,
+        })
+      ).items.length,
+      0,
+      "forget removes the complete correction lineage",
+    );
+    const archived = await caller.relationship.archiveCommitment({
+      workspaceId: PILOT_WORKSPACE,
+      personId: fixture.personId,
+      commitmentId,
+    });
+    assert.equal(archived.materialization.status, "applied");
+    assert.equal(
+      (
+        await caller.relationship.commitments({
+          workspaceId: PILOT_WORKSPACE,
+          personId: fixture.personId,
+          limit: 25,
+          offset: 0,
+        })
+      ).total,
+      0,
+    );
+  } finally {
+    if (wiring) await wiring.close();
+    if (prior === undefined) delete process.env.BRIDGE_LOCAL_DIR;
+    else process.env.BRIDGE_LOCAL_DIR = prior;
+  }
+});

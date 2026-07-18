@@ -676,6 +676,12 @@ export function SignalSourceEventPage() {
 type PersonDetail = NonNullable<Awaited<ReturnType<typeof trpc.relationship.getPerson.query>>>;
 type CommunityDetail = NonNullable<Awaited<ReturnType<typeof trpc.relationship.getCommunity.query>>>;
 type RelationshipTimelinePage = Awaited<ReturnType<typeof trpc.relationship.timeline.query>>;
+type RelationshipMemoryPage = Awaited<ReturnType<typeof trpc.relationship.memories.query>>;
+type RelationshipCommitmentPage = Awaited<ReturnType<typeof trpc.relationship.commitments.query>>;
+type RelationshipIntroductionPage = Awaited<ReturnType<typeof trpc.relationship.introductions.query>>;
+type RelationshipMeetingPrep = Awaited<ReturnType<typeof trpc.relationship.meetingPrep.query>>;
+type RelationshipCommunityWorkspace = Awaited<ReturnType<typeof trpc.relationship.communityWorkspace.query>>;
+type RelationshipPathResult = Awaited<ReturnType<typeof trpc.relationship.findPaths.query>>;
 
 function RecordEditForm(props:
   | { kind: "person"; record: PersonDetail; onCancel: () => void; onApplied: () => void }
@@ -862,6 +868,21 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
   const [timeline, setTimeline] = useState<RelationshipTimelinePage["items"]>([]);
   const [nextCursor, setNextCursor] = useState<RelationshipTimelinePage["nextCursor"]>(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [memories, setMemories] = useState<RelationshipMemoryPage["items"]>([]);
+  const [commitments, setCommitments] = useState<RelationshipCommitmentPage["items"]>([]);
+  const [introductions, setIntroductions] = useState<RelationshipIntroductionPage["items"]>([]);
+  const [meetingPrep, setMeetingPrep] = useState<RelationshipMeetingPrep | null>(null);
+  const [communityWorkspace, setCommunityWorkspace] = useState<RelationshipCommunityWorkspace | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryScope, setMemoryScope] = useState<"private" | "workspace">("private");
+  const [commitmentDraft, setCommitmentDraft] = useState("");
+  const [commitmentDueAt, setCommitmentDueAt] = useState("");
+  const [contextBusy, setContextBusy] = useState(false);
+  const [pathQuery, setPathQuery] = useState("");
+  const [pathCandidates, setPathCandidates] = useState<RelationshipListRecord[]>([]);
+  const [pathResult, setPathResult] = useState<RelationshipPathResult | null>(null);
+  const [pathLoading, setPathLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -895,6 +916,84 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
     });
   }, [kind, recordId, reload]);
 
+  useEffect(() => {
+    if (kind !== "community") {
+      setCommunityWorkspace(null);
+      return;
+    }
+    let active = true;
+    void trpc.relationship.communityWorkspace.query({
+      workspaceId: PILOT_WORKSPACE,
+      communityId: recordId,
+      limit: 25,
+    }).then((workspace) => {
+      if (active) setCommunityWorkspace(workspace);
+    }).catch((cause) => {
+      if (active) setError(String(cause));
+    });
+    return () => {
+      active = false;
+    };
+  }, [kind, recordId, reload]);
+
+  useEffect(() => {
+    setPathQuery("");
+    setPathCandidates([]);
+    setPathResult(null);
+  }, [kind, recordId]);
+
+  useEffect(() => {
+    if (kind !== "person") {
+      setMemories([]);
+      setCommitments([]);
+      setIntroductions([]);
+      setMeetingPrep(null);
+      setContextLoading(false);
+      return;
+    }
+    let active = true;
+    setContextLoading(true);
+    void Promise.all([
+      trpc.relationship.memories.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: 25,
+        offset: 0,
+      }),
+      trpc.relationship.commitments.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: 25,
+        offset: 0,
+        includeArchived: false,
+      }),
+      trpc.relationship.introductions.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: 25,
+        offset: 0,
+      }),
+      trpc.relationship.meetingPrep.query({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        limit: 10,
+      }),
+    ]).then(([memoryPage, commitmentPage, introductionPage, prep]) => {
+      if (!active) return;
+      setMemories(memoryPage.items);
+      setCommitments(commitmentPage.items);
+      setIntroductions(introductionPage.items);
+      setMeetingPrep(prep);
+    }).catch((cause) => {
+      if (active) setError(String(cause));
+    }).finally(() => {
+      if (active) setContextLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [kind, recordId, reload]);
+
   async function loadMoreTimeline() {
     if (!nextCursor || timelineLoading) return;
     setTimelineLoading(true);
@@ -913,6 +1012,286 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
       setError(String(cause));
     } finally {
       setTimelineLoading(false);
+    }
+  }
+
+  async function addMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!memoryDraft.trim() || contextBusy) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.addMemory.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        type: "semantic",
+        content: memoryDraft,
+        scope: memoryScope,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") {
+        setMemoryDraft("");
+        setReload((value) => value + 1);
+      }
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function correctMemory(memory: RelationshipMemoryPage["items"][number]) {
+    const content = window.prompt("Correct what Bridge knows", memory.content);
+    if (content === null || !content.trim() || content.trim() === memory.content) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.correctMemory.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        memoryId: memory.id,
+        content,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function forgetMemory(memoryId: string) {
+    if (!window.confirm("Forget this Memory and its correction history?")) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.forgetMemory.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        memoryId,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function createCommitment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!commitmentDraft.trim() || contextBusy) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.createCommitment.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        text: commitmentDraft,
+        dueAt: commitmentDueAt ? new Date(commitmentDueAt).toISOString() : null,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") {
+        setCommitmentDraft("");
+        setCommitmentDueAt("");
+        setReload((value) => value + 1);
+      }
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function updateCommitment(
+    commitment: RelationshipCommitmentPage["items"][number],
+    status: "pending" | "completed" | "cancelled",
+  ) {
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.updateCommitment.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        commitmentId: commitment.id,
+        text: commitment.text,
+        dueAt: commitment.dueAt,
+        status,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function archiveCommitment(commitmentId: string) {
+    if (!window.confirm("Archive this commitment?")) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.archiveCommitment.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        commitmentId,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function createIntroduction(targetPersonId: string) {
+    if (kind !== "person" || contextBusy) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.createIntroduction.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        sourcePersonId: recordId,
+        targetPersonId,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function recordIntroductionConsent(
+    introduction: RelationshipIntroductionPage["items"][number],
+    decision: "consent" | "decline",
+  ) {
+    const declineReason = decision === "decline"
+      ? window.prompt("Private decline reason (visible only to you)")
+      : null;
+    if (decision === "decline" && !declineReason?.trim()) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.recordIntroductionConsent.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        introductionId: introduction.id,
+        party: "recipient",
+        decision,
+        ...(declineReason ? { declineReason } : {}),
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function transitionIntroduction(
+    introductionId: string,
+    transition: "cancel" | "complete",
+  ) {
+    const confirmed = transition === "complete"
+      ? window.confirm("Record that the introduction happened? This does not send a message.")
+      : window.confirm("Cancel this introduction?");
+    if (!confirmed) return;
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.transitionIntroduction.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        personId: recordId,
+        introductionId,
+        transition,
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function logFollowUp(label: string) {
+    setContextBusy(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.createInteraction.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        values: {
+          kind: "follow_up",
+          occurredAt: new Date().toISOString(),
+          summary: label.replace(/^Log follow-up:\s*/i, ""),
+          visibility: "private",
+          participants: [{ recordType: "person", recordId }],
+        },
+      });
+      setActionStatus(result.materialization.status.replace("_", " "));
+      if (result.materialization.status === "applied") setReload((value) => value + 1);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function searchPathTargets(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pathQuery.trim() || pathLoading) return;
+    setPathLoading(true);
+    setError(null);
+    setPathResult(null);
+    try {
+      const page = await trpc.relationship.listPeople.query({
+        workspaceId: PILOT_WORKSPACE,
+        query: pathQuery.trim(),
+        limit: 10,
+        offset: 0,
+      });
+      setPathCandidates(
+        page.items
+          .filter((person) => kind !== "person" || person.id !== recordId)
+          .map((person) => ({
+            id: person.id,
+            name: person.displayName || "Unnamed Person",
+            subtitle: person.currentTitle || "No current role",
+            visibility: person.visibility,
+            source: person.source || "Not recorded",
+            isOwner: person.isOwner,
+          })),
+      );
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setPathLoading(false);
+    }
+  }
+
+  async function findPathTo(targetId: string) {
+    setPathLoading(true);
+    setError(null);
+    try {
+      const result = await trpc.relationship.findPaths.query({
+        workspaceId: PILOT_WORKSPACE,
+        start: { nodeType: kind, nodeId: recordId },
+        end: { nodeType: "person", nodeId: targetId },
+        maxDepth: 4,
+        maxPaths: 3,
+      });
+      setPathResult(result);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setPathLoading(false);
     }
   }
 
@@ -993,6 +1372,415 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
               <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Emails</p>
               <div className="mt-1 flex flex-wrap gap-2">{person.emails.map((email) => <a key={email} href={`mailto:${email}`} className="text-sm hover:underline" style={{ color: "var(--color-steel)" }}>{email}</a>)}</div>
             </div>
+          )}
+        </section>
+        {community && (
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="community-workspace-title">
+            <h2 id="community-workspace-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+              <Users className="w-4 h-4" /> Community workspace
+            </h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              People, surfaced Signals, shared Events, and local Files associated with this Community.
+            </p>
+            {communityWorkspace === null ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>Loading bounded Community context…</p>
+            ) : (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>People</h3>
+                  {communityWorkspace.people.length === 0 ? (
+                    <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>No accessible People are linked yet.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {communityWorkspace.people.map((member) => (
+                        <li key={member.id}>
+                          <Link to={`/module/relationship/people/${member.id}`} className="text-sm no-underline hover:underline" style={{ color: "var(--color-steel)" }}>
+                            {member.displayName || "Unnamed Person"}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Signals and Events</h3>
+                  <p className="mt-2 text-sm" style={{ color: "var(--color-navy)" }}>{communityWorkspace.events.length} accessible Events</p>
+                  {communityWorkspace.signals.length === 0 ? (
+                    <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>No surfaced Signals for this Community.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {communityWorkspace.signals.map((signal) => (
+                        <li key={signal.id}>
+                          <Link to={`/module/relationship/signals/${signal.id}`} className="text-sm capitalize no-underline hover:underline" style={{ color: "var(--color-steel)" }}>
+                            {signal.type.replace(/_/g, " ")}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Files</h3>
+                  {communityWorkspace.files.length === 0 ? (
+                    <>
+                      <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>No local Files are associated yet.</p>
+                      <Link to="/settings" className="mt-2 inline-block text-xs font-semibold no-underline hover:underline" style={{ color: "var(--color-steel)" }}>Manage sources</Link>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )}
+            {communityWorkspace && Object.values(communityWorkspace.bounds).some(Boolean) && (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                This workspace view reached a safety bound. Refine through a related Record for more context.
+              </p>
+            )}
+          </section>
+        )}
+        {person && (
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-meeting-prep-title">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 id="record-meeting-prep-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+                  <FileText className="w-4 h-4" /> Meeting preparation
+                </h2>
+                <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  Source-grounded context from this Person&apos;s accessible Memory, commitments, and Timeline.
+                </p>
+              </div>
+              {meetingPrep && (
+                <span className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                  Prepared {displayDate(meetingPrep.generatedAt)}
+                </span>
+              )}
+            </div>
+            {contextLoading && !meetingPrep ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>Preparing bounded context…</p>
+            ) : meetingPrep === null ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>No meeting context is available yet.</p>
+            ) : (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Current Memory</p>
+                  <p className="mt-1 text-lg font-semibold" style={{ color: "var(--color-navy)" }}>{meetingPrep.context.memories.length}</p>
+                </div>
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Recent Events</p>
+                  <p className="mt-1 text-lg font-semibold" style={{ color: "var(--color-navy)" }}>{meetingPrep.context.recentEvents.length}</p>
+                </div>
+                <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                  <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Commitments</p>
+                  <p className="mt-1 text-lg font-semibold" style={{ color: "var(--color-navy)" }}>{meetingPrep.context.commitments.length}</p>
+                </div>
+              </div>
+            )}
+            {meetingPrep && meetingPrep.recommendedActions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2" aria-label="Meeting preparation actions">
+                {meetingPrep.recommendedActions.map((action) => (
+                  <Button
+                    key={action.commitmentId}
+                    size="sm"
+                    variant="outline"
+                    disabled={contextBusy || !record.isOwner}
+                    onClick={() => logFollowUp(action.label)}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+        {person && (
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-memory-title">
+            <h2 id="record-memory-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+              <Database className="w-4 h-4" /> What Bridge knows
+            </h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              Module-associated Memory is classified, source-linked, correctable, and forgettable.
+            </p>
+            {memories.length === 0 ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                {contextLoading ? "Loading Memory…" : "Bridge has no accessible Memory for this Person yet."}
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {memories.map((memory) => (
+                  <li key={memory.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                    <p className="whitespace-pre-wrap text-sm" style={{ color: "var(--color-navy)" }}>{memory.content}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs capitalize" style={{ color: "var(--color-warm-gray)" }}>
+                      <span>{memory.type}</span>
+                      <span>·</span>
+                      <span>{memory.scope}</span>
+                      <span>·</span>
+                      <time dateTime={memory.createdAt}>{displayDate(memory.createdAt)}</time>
+                    </div>
+                    {record.isOwner && memory.ownerUserId === record.ownerUserId && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => correctMemory(memory)}>Correct</Button>
+                        <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => forgetMemory(memory.id)}>Forget</Button>
+                      </div>
+                    )}
+                    <details className="mt-2 text-xs">
+                      <summary className="cursor-pointer" style={{ color: "var(--color-steel)" }}>Provenance</summary>
+                      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2" style={{ color: "var(--color-warm-gray)" }}>
+                        <div><dt>Source</dt><dd>{memory.sourceRefType || "Not recorded"}</dd></div>
+                        <div><dt>Source ID</dt><dd className="break-all">{memory.sourceRefId || "Not recorded"}</dd></div>
+                        <div><dt>Trust origin</dt><dd>{memory.trustOrigin.replace(/_/g, " ")}</dd></div>
+                        <div><dt>Supersedes</dt><dd className="break-all">{memory.supersedesId || "None"}</dd></div>
+                      </dl>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {record.isOwner && (
+              <form onSubmit={addMemory} className="mt-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
+                  Add context
+                  <textarea
+                    rows={3}
+                    maxLength={5_000}
+                    value={memoryDraft}
+                    onChange={(event) => setMemoryDraft(event.target.value)}
+                    className={fieldClassName()}
+                    style={{ borderColor: "var(--color-border)" }}
+                  />
+                </label>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
+                    Classification
+                    <select
+                      value={memoryScope}
+                      onChange={(event) => setMemoryScope(event.target.value as "private" | "workspace")}
+                      className={fieldClassName()}
+                      style={{ borderColor: "var(--color-border)" }}
+                    >
+                      <option value="private">Only me</option>
+                      <option value="workspace">Workspace</option>
+                    </select>
+                  </label>
+                  <Button type="submit" disabled={contextBusy || !memoryDraft.trim()}>Add Memory</Button>
+                </div>
+              </form>
+            )}
+          </section>
+        )}
+        {person && (
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-commitments-title">
+            <h2 id="record-commitments-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+              <Clock3 className="w-4 h-4" /> Commitments
+            </h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              Private, evidence-bearing commitments linked through governed Relations.
+            </p>
+            {commitments.length === 0 ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                {contextLoading ? "Loading commitments…" : "No active commitments for this Person."}
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {commitments.map((commitment) => (
+                  <li key={commitment.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>{commitment.text}</p>
+                        <p className="mt-1 text-xs capitalize" style={{ color: "var(--color-warm-gray)" }}>
+                          {commitment.status} · due {displayDate(commitment.dueAt)}
+                        </p>
+                      </div>
+                      {record.isOwner && (
+                        <div className="flex flex-wrap gap-2">
+                          {commitment.status === "pending" ? (
+                            <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => updateCommitment(commitment, "completed")}>Complete</Button>
+                          ) : (
+                            <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => updateCommitment(commitment, "pending")}>Reopen</Button>
+                          )}
+                          <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => archiveCommitment(commitment.id)}>Archive</Button>
+                        </div>
+                      )}
+                    </div>
+                    <details className="mt-2 text-xs">
+                      <summary className="cursor-pointer" style={{ color: "var(--color-steel)" }}>Evidence</summary>
+                      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2" style={{ color: "var(--color-warm-gray)" }}>
+                        <div><dt>Transition Event</dt><dd className="break-all">{commitment.transitionEventId}</dd></div>
+                        <div><dt>Decision</dt><dd className="break-all">{commitment.provenance.decisionLedgerId}</dd></div>
+                        <div><dt>Relation</dt><dd className="break-all">{commitment.provenance.relationId}</dd></div>
+                        <div><dt>Evidence refs</dt><dd>{commitment.provenance.evidenceRefs.length}</dd></div>
+                      </dl>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {record.isOwner && (
+              <form onSubmit={createCommitment} className="mt-4 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
+                    Commitment
+                    <input
+                      maxLength={2_000}
+                      value={commitmentDraft}
+                      onChange={(event) => setCommitmentDraft(event.target.value)}
+                      className={fieldClassName()}
+                      style={{ borderColor: "var(--color-border)" }}
+                    />
+                  </label>
+                  <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
+                    Due at
+                    <input
+                      type="datetime-local"
+                      value={commitmentDueAt}
+                      onChange={(event) => setCommitmentDueAt(event.target.value)}
+                      className={fieldClassName()}
+                      style={{ borderColor: "var(--color-border)" }}
+                    />
+                  </label>
+                </div>
+                <Button className="mt-3" type="submit" disabled={contextBusy || !commitmentDraft.trim()}>Add Commitment</Button>
+              </form>
+            )}
+          </section>
+        )}
+        {person && (
+          <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-introductions-title">
+            <h2 id="record-introductions-title" className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--color-navy)" }}>
+              <Users className="w-4 h-4" /> Introductions
+            </h2>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              Both parties must explicitly consent before an introduction can be recorded. Bridge never sends the introduction from this surface.
+            </p>
+            {introductions.length === 0 ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                {contextLoading ? "Loading introductions…" : "No governed introductions for this Person."}
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {introductions.map((introduction) => (
+                  <li key={introduction.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        {introduction.counterpart ? (
+                          <Link
+                            to={`/module/relationship/people/${introduction.counterpart.id}`}
+                            className="text-sm font-medium hover:underline"
+                            style={{ color: "var(--color-navy)" }}
+                          >
+                            {introduction.counterpart.displayName || "Unnamed Person"}
+                          </Link>
+                        ) : (
+                          <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>Person no longer accessible</p>
+                        )}
+                        <p className="mt-1 text-xs capitalize" style={{ color: "var(--color-warm-gray)" }}>
+                          {introduction.status.replace(/_/g, " ")} · initiator {introduction.initiatorConsent ? "consented" : "pending"} · recipient {introduction.recipientConsent ? "consented" : "pending"}
+                        </p>
+                        {introduction.declineReasonRecorded && (
+                          <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            A private decline reason is recorded. Its contents are not exposed here.
+                          </p>
+                        )}
+                      </div>
+                      {record.isOwner && (
+                        <div className="flex flex-wrap gap-2">
+                          {introduction.status === "awaiting_consents" && !introduction.recipientConsent && (
+                            <>
+                              <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => recordIntroductionConsent(introduction, "consent")}>Record recipient consent</Button>
+                              <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => recordIntroductionConsent(introduction, "decline")}>Record decline</Button>
+                            </>
+                          )}
+                          {introduction.status === "ready" && (
+                            <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => transitionIntroduction(introduction.id, "complete")}>Mark introduced</Button>
+                          )}
+                          {(introduction.status === "awaiting_consents" || introduction.status === "ready") && (
+                            <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => transitionIntroduction(introduction.id, "cancel")}>Cancel</Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <details className="mt-2 text-xs">
+                      <summary className="cursor-pointer" style={{ color: "var(--color-steel)" }}>Evidence</summary>
+                      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2" style={{ color: "var(--color-warm-gray)" }}>
+                        <div><dt>Transition Event</dt><dd className="break-all">{introduction.transitionEventId}</dd></div>
+                        <div><dt>Decision</dt><dd className="break-all">{introduction.provenance.decisionLedgerId}</dd></div>
+                        <div><dt>Relations</dt><dd>{introduction.provenance.relationIds.length}</dd></div>
+                        <div><dt>Evidence refs</dt><dd>{introduction.provenance.evidenceRefs.length}</dd></div>
+                      </dl>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        <section className="rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }} aria-labelledby="record-connections-title">
+          <h2 id="record-connections-title" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>How are they connected?</h2>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+            Finds shortest paths through at most four visibility-pruned Relation hops. This is an explanation, not the cross-Module Graph renderer.
+          </p>
+          <form onSubmit={searchPathTargets} className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <label className="flex-1 text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
+              Find a Person
+              <input
+                maxLength={120}
+                value={pathQuery}
+                onChange={(event) => setPathQuery(event.target.value)}
+                className={fieldClassName()}
+                style={{ borderColor: "var(--color-border)" }}
+              />
+            </label>
+            <Button className="sm:self-end" type="submit" disabled={pathLoading || !pathQuery.trim()}>
+              {pathLoading ? "Searching…" : "Search"}
+            </Button>
+          </form>
+          {pathCandidates.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2" aria-label="Path target results">
+              {pathCandidates.map((candidate) => (
+                <div key={candidate.id} className="flex flex-wrap gap-1 rounded-lg border p-1" style={{ borderColor: "var(--color-border)" }}>
+                  <Button size="sm" variant="outline" disabled={pathLoading} onClick={() => findPathTo(candidate.id)}>
+                    Path to {candidate.name}
+                  </Button>
+                  {person?.isOwner && (
+                    <Button size="sm" variant="outline" disabled={contextBusy} onClick={() => createIntroduction(candidate.id)}>
+                      Prepare introduction
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {pathResult && (
+            pathResult.paths.length === 0 ? (
+              <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>No accessible path was found inside the current safety bounds.</p>
+            ) : (
+              <ol className="mt-3 space-y-3">
+                {pathResult.paths.map((path, pathIndex) => (
+                  <li key={`${pathIndex}:${path.nodes.map((node) => node.nodeId).join(":")}`} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+                    <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                      {path.steps.length} hops · {Math.round(path.confidence * 100)}% combined confidence
+                    </p>
+                    <ol className="mt-2 space-y-2">
+                      {path.steps.map((step) => (
+                        <li key={step.relation.id} className="text-sm" style={{ color: "var(--color-navy)" }}>
+                          <span className="capitalize">{step.from.nodeType}</span>
+                          {" → "}
+                          <strong>{step.relation.edgeType.replace(/_/g, " ")}</strong>
+                          {" → "}
+                          <span className="capitalize">{step.to.nodeType}</span>
+                          <span className="ml-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+                            {step.relation.evidenceRefs.length} evidence refs
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </li>
+                ))}
+              </ol>
+            )
+          )}
+          {pathResult?.truncated && (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>
+              Search stopped at its explicit visit or edge bound.
+            </p>
           )}
         </section>
         {record.isOwner && <InteractionForm kind={kind} recordId={recordId} onApplied={() => setReload((value) => value + 1)} />}

@@ -31,6 +31,9 @@ export interface RelationMaterializationPage {
 const RELATIONSHIP_MUTATION_KINDS = [
   "relationship_record_mutation",
   "relationship_interaction_create",
+  "relationship_memory_mutation",
+  "relationship_commitment_mutation",
+  "relationship_introduction_mutation",
 ] as const;
 
 interface StoreContext {
@@ -446,7 +449,10 @@ export class DrizzleRelationMaterializationStore {
             decision.resource_type = proposal.resource_type
             AND proposal.inputs ->> 'kind' IN (
               'relationship_record_mutation',
-              'relationship_interaction_create'
+              'relationship_interaction_create',
+              'relationship_memory_mutation',
+              'relationship_commitment_mutation',
+              'relationship_introduction_mutation'
             )
             AND (
               (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
@@ -454,6 +460,15 @@ export class DrizzleRelationMaterializationStore {
               OR
               (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
                 AND proposal.resource_type = 'event')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+                AND proposal.resource_type = 'person')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+                AND proposal.resource_type = 'relation')
+              OR
+              (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+                AND proposal.resource_type = 'relation')
             )
           )
           OR (
@@ -541,7 +556,10 @@ export class DrizzleRelationMaterializationStore {
               decision.resource_type = proposal.resource_type
               AND proposal.inputs ->> 'kind' IN (
                 'relationship_record_mutation',
-                'relationship_interaction_create'
+                'relationship_interaction_create',
+                'relationship_memory_mutation',
+                'relationship_commitment_mutation',
+                'relationship_introduction_mutation'
               )
               AND (
                 (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
@@ -549,6 +567,15 @@ export class DrizzleRelationMaterializationStore {
                 OR
                 (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
                   AND proposal.resource_type = 'event')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+                  AND proposal.resource_type = 'person')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+                  AND proposal.resource_type = 'relation')
+                OR
+                (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+                  AND proposal.resource_type = 'relation')
               )
             )
             OR (
@@ -593,7 +620,10 @@ export class DrizzleRelationMaterializationStore {
           AND proposal.user_decision = 'auto'
           AND proposal.inputs ->> 'kind' IN (
             'relationship_record_mutation',
-            'relationship_interaction_create'
+            'relationship_interaction_create',
+            'relationship_memory_mutation',
+            'relationship_commitment_mutation',
+            'relationship_introduction_mutation'
           )
           AND (
             (proposal.inputs ->> 'kind' = 'relationship_record_mutation'
@@ -601,6 +631,15 @@ export class DrizzleRelationMaterializationStore {
             OR
             (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
               AND proposal.resource_type = 'event')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+              AND proposal.resource_type = 'person')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+              AND proposal.resource_type = 'relation')
+            OR
+            (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+              AND proposal.resource_type = 'relation')
           )
       )
       SELECT owner_user_id::text
@@ -667,6 +706,15 @@ export class DrizzleRelationMaterializationStore {
           OR
           (proposal.inputs ->> 'kind' = 'relationship_interaction_create'
             AND proposal.resource_type = 'event')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_memory_mutation'
+            AND proposal.resource_type = 'person')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_commitment_mutation'
+            AND proposal.resource_type = 'relation')
+          OR
+          (proposal.inputs ->> 'kind' = 'relationship_introduction_mutation'
+            AND proposal.resource_type = 'relation')
         )
         AND (
           CASE
