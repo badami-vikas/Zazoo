@@ -16,7 +16,7 @@
  * `append()` below translates into the same `AlreadyResolvedError` the in-process
  * pre-check throws.
  */
-import { and, count, desc, eq, isNotNull, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, ne, not, notExists, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   AlreadyResolvedError,
@@ -86,12 +86,34 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   };
 }
 
-function privateRelationOwnerScope(privateOwnerUserId: string | undefined) {
+/** TASK-010 review round-6 — widened beyond RM4's original relation-only
+ * scope: a NON-relation row is ALSO private when its own `inputs->>'visibility'`
+ * is the JSON string `"private"` (the marker `pipeline.propose` writes for a
+ * red-flag correction's governed `preference_adjustment` proposal — see
+ * router.ts's `isPrivateProposalInputs`). `ledger.inputs` is a genuine
+ * `jsonb` column (schema.ts) so this `->>'visibility'` read is ALWAYS safe —
+ * no cast-failure risk the way `memories.content` (a `text` column) had
+ * (memory-store.ts's `IS JSON` guard). A relation row's OWN `inputs.visibility`
+ * enum (`"private"|"workspace"|"public"`, a DIFFERENT, unrelated field on
+ * that resourceType) is never consulted for the "is private" decision here —
+ * relation privacy stays governed ENTIRELY by `resourceType = 'relation'`,
+ * exactly as RM4 shipped it, so this widening can never change relation-row
+ * behavior. Reusing the SAME onBehalfOf/actor ownership predicate below for
+ * BOTH shapes is correct because a red-flag proposal's actor is always the
+ * Learning Agent acting `onBehalfOf` its Human owner (never a direct user
+ * actor), so only the `onBehalfOfType = 'user'` branch is ever exercised for
+ * it — the actor-fallback branch remains exclusively relation's own. */
+function isPrivateLedgerEntrySql(): SQL {
+  return or(eq(ledger.resourceType, "relation"), sql`coalesce(${ledger.inputs} ->> 'visibility', '') = 'private'`)!;
+}
+
+function privateProposalOwnerScope(privateOwnerUserId: string | undefined) {
   if (!privateOwnerUserId) return undefined;
+  const isPrivate = isPrivateLedgerEntrySql();
   return or(
-    ne(ledger.resourceType, "relation"),
+    not(isPrivate),
     and(
-      eq(ledger.resourceType, "relation"),
+      isPrivate,
       or(
         and(
           eq(ledger.onBehalfOfType, "user"),
@@ -286,7 +308,7 @@ export class DrizzleLedgerStore implements LedgerStore {
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
       notExists(
         this.#db
           .select({ id: resolvingRows.id })
@@ -318,7 +340,7 @@ export class DrizzleLedgerStore implements LedgerStore {
     this.#assertActiveWorkspace(workspaceId);
     const where = and(
       eq(ledger.workspaceId, workspaceId),
-      privateRelationOwnerScope(opts.privateOwnerUserId),
+      privateProposalOwnerScope(opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([
       this.#db

@@ -65,12 +65,6 @@ export class InMemoryAgentStore implements AgentQuery {
   readonly tiers = new Map<string, DataScope>();
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
-  /** Owning workspace per physical Agent identity. Default null (unknown) when unset. */
-  readonly workspaces = new Map<string, string>();
-  /** Active/inactive per physical Agent identity. Default "active" when unset — a
-   * permissive default matching every other unset-ceiling default on this class,
-   * so tests/call sites predating AGS1's `isActive` gate keep working unchanged. */
-  readonly statuses = new Map<string, "active" | "inactive">();
 
   async workspaceId(agentId: string): Promise<string | null> {
     return this.workspaces.get(agentId) ?? null;
@@ -89,12 +83,6 @@ export class InMemoryAgentStore implements AgentQuery {
   }
   async allowedSkills(agentId: string): Promise<string[]> {
     return this.skills.get(agentId) ?? [];
-  }
-  async workspaceId(agentId: string): Promise<string | null> {
-    return this.workspaces.get(agentId) ?? null;
-  }
-  async isActive(agentId: string): Promise<boolean> {
-    return (this.statuses.get(agentId) ?? "active") === "active";
   }
 }
 
@@ -186,11 +174,31 @@ export class InMemoryPolicyStore implements PolicyStore {
   }
 }
 
+/** TASK-010 review round-6 — widened beyond RM4's original relation-only
+ * scope: a `resourceType !== "relation"` row is ALSO private when its own
+ * `inputs.visibility === "private"` (the marker `pipeline.propose` writes
+ * for a red-flag correction's governed `preference_adjustment` proposal —
+ * see router.ts's `isPrivateProposalInputs`). A relation row's OWN
+ * `inputs.visibility` enum (`"private"|"workspace"|"public"`, a DIFFERENT,
+ * unrelated field on that resourceType) is never consulted here — relation
+ * privacy stays governed ENTIRELY by `resourceType === "relation"`, exactly
+ * as RM4 shipped it, so this widening can never change relation-row
+ * behavior. Reusing the SAME onBehalfOf/actor ownership check below for
+ * BOTH shapes is correct because a red-flag proposal's actor is always the
+ * Learning Agent acting `onBehalfOf` its Human owner (never a direct user
+ * actor), so only the `onBehalfOfType === "user"` branch is ever exercised
+ * for it — the actor-fallback branch remains exclusively relation's own. */
+function isPrivateLedgerEntry(entry: LedgerEntry): boolean {
+  if (entry.resourceType === "relation") return true;
+  const inputs = entry.inputs;
+  return typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) && (inputs as Record<string, unknown>).visibility === "private";
+}
+
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
 ): boolean {
-  if (!privateOwnerUserId || entry.resourceType !== "relation") return true;
+  if (!privateOwnerUserId || !isPrivateLedgerEntry(entry)) return true;
   if (entry.onBehalfOfType === "user") {
     return entry.onBehalfOfId === privateOwnerUserId;
   }
