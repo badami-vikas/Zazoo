@@ -9,8 +9,9 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/a
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
-import { buildWiring } from "./wiring.js";
+import { buildWiring, PILOT_WORKSPACE } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
+import { reconcileWorkspaceRelationshipMaterializations } from "./relationship-materializer.js";
 
 /**
  * CORS origin resolution. `API_ALLOWED_ORIGINS` (comma-separated) is the explicit
@@ -234,6 +235,52 @@ export async function buildServer() {
         app.log.error({ path, msg: error.message }, "trpc error");
       },
     } satisfies FastifyTRPCPluginOptions<AppRouter>["trpcOptions"],
+  });
+
+  let relationReconciliationRunning = false;
+  let relationOwnerCursor: string | undefined;
+  const reconcileRelationships = async () => {
+    if (relationReconciliationRunning) return;
+    relationReconciliationRunning = true;
+    try {
+      const result = await reconcileWorkspaceRelationshipMaterializations(
+        wiring.graphStore,
+        wiring.relationMaterializations,
+        wiring.ledger,
+        PILOT_WORKSPACE,
+        new Date(),
+        {
+          ...(relationOwnerCursor
+            ? { afterOwnerUserId: relationOwnerCursor }
+            : {}),
+        },
+      );
+      relationOwnerCursor = result.nextOwnerCursor ?? undefined;
+      if (result.failed > 0 || result.errors.length > 0) {
+        app.log.warn(
+          {
+            ownersExamined: result.ownersExamined,
+            attempted: result.attempted,
+            failed: result.failed,
+            errors: result.errors,
+          },
+          "Relationship materialization reconciliation left retryable effects",
+        );
+      }
+    } catch (err) {
+      app.log.error({ err }, "Relationship materialization reconciliation failed");
+    } finally {
+      relationReconciliationRunning = false;
+    }
+  };
+  await reconcileRelationships();
+  const relationReconciliationTimer = setInterval(
+    () => void reconcileRelationships(),
+    60_000,
+  );
+  relationReconciliationTimer.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(relationReconciliationTimer);
   });
 
   return app;

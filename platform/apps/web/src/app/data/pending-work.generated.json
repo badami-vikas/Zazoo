@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T05:01:10.454Z",
+  "generatedAt": "2026-07-17T23:37:49.283Z",
   "items": [
     {
       "id": "TASK-001",
@@ -32,7 +32,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 55,
+      "sourceLine": 56,
       "rank": 1
     },
     {
@@ -64,7 +64,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 80,
+      "sourceLine": 70,
       "rank": 2
     },
     {
@@ -95,7 +95,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 93,
+      "sourceLine": 84,
       "rank": 3
     },
     {
@@ -127,7 +127,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 105,
+      "sourceLine": 97,
       "rank": 4
     },
     {
@@ -157,7 +157,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 203,
+      "sourceLine": 112,
       "rank": 5
     },
     {
@@ -190,7 +190,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 191,
+      "sourceLine": 125,
       "rank": 6
     },
     {
@@ -219,7 +219,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 167,
+      "sourceLine": 138,
       "rank": 7
     },
     {
@@ -229,29 +229,32 @@
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
-      "prototypeTest": "Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.",
+      "prototypeTest": "✅ Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.",
       "scope": [
         "docs/raw/relationship-module-plan-2026-07.md RM0–RM6",
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "RESOLVED BUGS Knowledge/Relationship IA",
-        "OPEN BUGS missing RM4 Relation persistence/materialization integration",
-        "`outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
+        "RM0 prototype and RM4 Relation persistence/materialization are integrated on `main` at `590cca6`: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
         "desktop + 375px live evidence",
-        "permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009."
+        "migration `0015_task008_relation_contract`",
+        "owner-isolated Relation/effect RLS",
+        "deterministic bounded Relation reads",
+        "durable approval-effect retry/reconciliation",
+        "core 422, DB 123, API 164, web 43, and desktop 28 tests",
+        "monorepo build/typecheck, web production build, migration fresh/upgrade/no-drift, changed-file lint, runtime no-dummy, and final independent central-merge review. Remaining exact plan scope: RM1 governed Person/Community CRUD/search/detail, RM2 unified Timeline/intake/identity queue, RM3 Memory/commitment/prep lifecycle, RM4 governed Map/path finder, RM5 introductions/recommendations/user Automations, and RM6 team permission/delegation/evolution work. TASK-014/TASK-009 own RM6's cross-Module Graph renderer."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"
       ],
-      "approval": "AP-020, AP-021, and AP-029 applied",
+      "approval": "AP-020, AP-021, AP-029, and AP-030 applied",
       "dependencies": [
         "TASK-001"
       ],
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 143,
+      "sourceLine": 151,
       "rank": 8
     },
     {
@@ -289,7 +292,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 131,
+      "sourceLine": 164,
       "rank": 9
     },
     {
@@ -298,21 +301,27 @@
       "status": "pending",
       "priority": "P2",
       "horizon": "Convergence",
-      "outcome": "Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype.",
-      "prototypeTest": "DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states.",
+      "outcome": "Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.",
+      "prototypeTest": "DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName=\"calendar\"`, and the `tools.ts`/`moduleRoutes.ts` \"calendar\" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) at `scope:single_database`; the scope selector expands to `scope:full` and renders the same canvas with cross-Module nodes — confirming Second Brain is this view at full scope, not a separate surface (ADR-110); a Task Manager Queue Page renders Tree view over its self-referential Task type.",
       "scope": [
-        "docs/raw/ui-architecture-rules-2026-07.md alignment audit"
+        "docs/raw/ui-architecture-rules-2026-07.md alignment audit",
+        "docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)"
       ],
       "evidence": [
         "BUGS map view is not a map",
         "BUGS pin persistence only local",
         "BUGS Initiative resource scoping",
-        "existing partial table implementation"
+        "existing partial table implementation",
+        "BUGS 2026-07-17 `/calendar` route resolves to Task Manager instead of Calendar (routes.tsx:87) and Calendar modeled as an installed Module/Tool in 3+ places instead of a View kind",
+        "BUGS 2026-07-17 four independent, non-shared calendar renderers (DataEngine.tsx, CalendarPage.tsx, dataviews/CalendarView.tsx, InitiativeDetail.tsx/WorkPage.tsx local hardcodes)",
+        "BUGS 2026-07-17 GraphView.tsx is a table-with-banner placeholder, not a real node/edge renderer",
+        "BUGS 2026-07-17 `ViewConfig[\"kind\"]` code says `network`, glossary canon says `graph` — vocabulary mismatch"
       ],
       "requests": [
-        "table/actionability directives 2026-07-14–15"
+        "table/actionability directives 2026-07-14–15",
+        "R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)"
       ],
-      "approval": "AP-010/AP-011, AP-021, and AP-029 applied",
+      "approval": "AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; AP-037 applied (Graph view scope selector + Second Brain collapse into Graph at full scope); ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction",
       "dependencies": [
         "TASK-001",
         "TASK-006",
@@ -321,7 +330,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 215,
+      "sourceLine": 177,
       "rank": 10
     },
     {
@@ -330,8 +339,8 @@
       "status": "pending",
       "priority": "P2",
       "horizon": "Core Modules",
-      "outcome": "One installable Task Manager Module owning the single governed execution queue per workspace plus one Goal anchor over a self-referential, dot-path-leveled Task tree (no separate Initiative/Outcome Record types), with exit-test verification, planning Playbooks as draft-then-approve proposals, deterministic agent-task routing, confidence-graduated reschedule approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.",
-      "prototypeTest": "In a real workspace, create a Goal with outcomes[] and a 3-level Task tree (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; an agent-assigned Task routes to Capability Builder by default and to a Skill-eligible Agent for a cross-Module Task; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.",
+      "outcome": "One installable Task Manager Module owning the single governed execution queue per workspace as ONE self-referential, dot-path-leveled Task type (no separate Goal/Initiative/Outcome Record types — `is_goal` is a field, not a type), with full tree restructuring (promote/insert-ancestor-above/re-parent) as governed proposals, exit-test verification with reopenable done/archived/parked status, planning Playbooks as draft-then-approve proposals, no-default agent-task routing owned by Chief of Staff, confidence-graduated reschedule and routing approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.",
+      "prototypeTest": "In a real workspace, create a goal-flagged Task (`is_goal=true`) with outcomes[] and a 3-level Task tree under it (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; promoting `1.1.1` to a new root (path recomputes, old ancestor untouched) and inserting a new ancestor above an existing branch both round-trip as approved proposals with correct path recomputation; an agent-assigned Task routes to whichever eligible Agent owns its required Skill (Chief of Staff resolves, no default — Capability Builder only when genuinely a capability/code Task) and an ambiguous Task escalates to explicit Human assignment; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; a done Task is reopened to pending after its outcome target changes; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.",
       "scope": [
         "docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6",
         "docs/raw/brd-taskmanager-2026-07.md",
@@ -339,24 +348,28 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025)",
-        "user's game-designs repo independently converged on the identical format (2026-07-16 report)"
+        "docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025), live at `/task-manager` with a working Status column (verified 2026-07-17)",
+        "user's game-designs repo independently converged on the identical format (2026-07-16 report)",
+        "RESOLVED BUGS 2026-07-18 canonical title+ID parser regression that made prebuild generate zero rows",
+        "BUGS.md 2026-07-17 pre-existing `@bridge/core` build break (unrelated, blocks a from-scratch worktree preview, not this Module's scope)"
       ],
       "requests": [
         "R-035",
-        "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)"
+        "R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014)",
+        "R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)"
       ],
-      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision); ADR-105 records the vocabulary call, revised same day (renumbered from this session's original AP-030/AP-031/ADR-099 during merge-integration — main used those IDs for parallel task-integration approvals)",
+      "approval": "AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); ADR-106 records the Goal-collapse vocabulary call (supersedes ADR-105's two-Database call), ADR-107 records the no-default CoS-owned routing call (renumbered chain: this session's original AP-030/AP-031/ADR-099 → AP-033/034/ADR-105 during merge-integration → AP-035/ADR-106/ADR-107 for the further collapse and routing revision)",
       "dependencies": [
         "TASK-001",
         "TASK-012 (VOCAB2 tree migration)",
         "TASK-014 (standard Module UI)",
-        "TASK-004 line for TM6 only"
+        "TASK-004 line for TM6 only",
+        "TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 227,
+      "sourceLine": 190,
       "rank": 11
     },
     {
@@ -385,7 +398,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 239,
+      "sourceLine": 203,
       "rank": 12
     },
     {
@@ -414,7 +427,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 251,
+      "sourceLine": 216,
       "rank": 13
     },
     {
@@ -447,7 +460,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 263,
+      "sourceLine": 229,
       "rank": 14
     },
     {
@@ -475,7 +488,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 119,
+      "sourceLine": 242,
       "rank": 15
     },
     {
@@ -503,35 +516,39 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 179,
+      "sourceLine": 256,
       "rank": 16
     },
     {
       "id": "TASK-009",
-      "title": "TASK-009 — Actionable Second Brain graph",
+      "title": "TASK-009 — Actionable Second Brain graph (converged into TASK-014 Graph renderer)",
       "status": "pending",
       "priority": "P1",
       "horizon": "Core Modules",
-      "outcome": "A permission-filtered graph below Modules reveals useful cross-Module connections while every datum remains owned by its source Module.",
-      "prototypeTest": "Traverse a real cross-Module Record/Relation/Event/File connection, filter it, inspect provenance/backlinks, return to the owning Module, and perform a governed Action; inaccessible nodes never render and an accessible list fallback works.",
+      "outcome": "Second Brain IS the Graph view (§3, `docs/raw/brd-dataengine-views-2026-07.md`) at `scope: full` — every permitted Database across all installed Modules, permission-filtered, same renderer as a single-Page graph. The \"Second Brain\" nav entry is a named preset opening Graph view at full scope. Building the real Graph renderer with scope-selector support (TASK-014) delivers this simultaneously; no separate build.",
+      "prototypeTest": "From the Second Brain nav entry (Graph view, scope:full), traverse a real cross-Module Record/Relation/Event/File connection, filter by Relation type, inspect provenance/source-module, navigate to the owning Record Detail, and perform a governed Action; inaccessible nodes never render (permission-filtered); the same node/edge canvas works at scope:single-database on a Page with a relation column — confirming one renderer at all scopes.",
       "scope": [
+        "docs/raw/brd-dataengine-views-2026-07.md §3 (graph kind, scope_selector) + §4 (Second Brain = full scope)",
         "docs/raw/ui-architecture-rules-2026-07.md §5c",
         "docs/raw/relationship-module-plan-2026-07.md RM6"
       ],
       "evidence": [
-        "BUGS 2026-07-14 no Second Brain graph"
+        "BUGS 2026-07-14 no Second Brain graph",
+        "ADR-110 (Second Brain collapses into Graph view at full scope, supersedes ADR-108's \"never merge\" stance)"
       ],
       "requests": [
-        "Second Brain directive 2026-07-14"
+        "Second Brain directive 2026-07-14",
+        "R-039 (2026-07-17 cross-module scope + collapse)"
       ],
-      "approval": "AP-021 and AP-029 applied",
+      "approval": "AP-021 and AP-029 applied; AP-037 applied (convergence with TASK-014 Graph renderer)",
       "dependencies": [
-        "TASK-008"
+        "TASK-008",
+        "TASK-014 (Graph renderer with scope selector delivers this)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 155,
+      "sourceLine": 269,
       "rank": 17
     },
     {
@@ -564,7 +581,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 68,
+      "sourceLine": 282,
       "rank": 18
     },
     {
@@ -595,7 +612,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 299,
+      "sourceLine": 295,
       "rank": 19
     },
     {
@@ -623,7 +640,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 275,
+      "sourceLine": 308,
       "rank": 20
     },
     {
@@ -650,8 +667,66 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 287,
+      "sourceLine": 321,
       "rank": 21
+    },
+    {
+      "id": "TASK-022",
+      "title": "TASK-022 — Inference cost optimization: prompt caching + model tiering",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Core Modules",
+      "outcome": "ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.",
+      "prototypeTest": "A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.",
+      "scope": [
+        "platform/packages/models/src/anthropic-provider.ts",
+        "platform/packages/models/src/router.ts",
+        "platform/packages/core/src/ports.ts",
+        "platform/packages/core/src/run-context.ts",
+        "platform/packages/core/src/chief-of-staff.ts",
+        "platform/apps/api/src/router.ts (~4573)",
+        "docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)"
+      ],
+      "evidence": [
+        "outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])"
+      ],
+      "requests": [
+        "LLM prompt/infra optimization audit directive 2026-07-17"
+      ],
+      "approval": "AP-038 applied",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 334,
+      "rank": 22
+    },
+    {
+      "id": "TASK-023",
+      "title": "TASK-023 — Learning Agent governed web-research/recon Skill",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.",
+      "prototypeTest": "From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.",
+      "scope": [
+        "docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)"
+      ],
+      "evidence": [
+        "outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning"
+      ],
+      "requests": [
+        "user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)"
+      ],
+      "approval": "AP-039 applied",
+      "dependencies": [
+        "TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)"
+      ],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 347,
+      "rank": 23
     }
   ]
 }

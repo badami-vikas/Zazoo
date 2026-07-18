@@ -61,3 +61,9 @@ All explicit product and engineering requirements from Vikas, recorded verbatim 
 > "I want even normal graphs to be allowed to be cross module scoped, so technically no difference between second brain and relationship graphs except the underlying data. Once done, commit, push and merge to main"
 
 Verbatim. Mapped to TASK-014 (Graph renderer + scope selector) and TASK-009 (Second Brain, now converged). AP-037, ADR-110.
+
+## R-040 — Learning Agent recon-capability provider survey, tiering, roadmap, task (2026-07-17)
+
+> "Why are we filtering out platforms like catchall, together ai, etc? I was thinking of these api's for recon capability of learning agent. If any of those 178 are relevant, use them. If not, create a seperate list of discarded api's with reasons. Also create a roadmap to provide these capabilities to learning agent and update its task. If any of these api's require user account creation and is free, make it tier 2, if its free and agent can access it directly like parallel ai mcp, then make it tier one, if they are paid or not in any other category-its tier 3. Commit, push and merge to main once done."
+
+Verbatim. Reviewed all 178 FindAll candidates (not just the 46 originally matched) against relevance to the Learning Agent's LA3 research lane. Classified 66 as relevant (3 Tier 1, 33 Tier 2, ~19-30 Tier 3 depending on grouping) and 112 as discarded with grouped reasons. Mapped to TASK-023 (new, renumbered from the original TASK-022 during main merge) and `docs/raw/learning-agent-roadmap-2026-07.md` §7. AP-039, ADR-111. Full survey: `outputs/2026-07-17-learning-agent-recon-search-integrations.md`.

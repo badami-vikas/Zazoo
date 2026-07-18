@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034).
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
 
 ## Operating standard
 
@@ -153,11 +153,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.
-- Prototype test: Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.
+- Prototype test: ✅ Open Relationship from nav, navigate Signals/People/Communities, follow a Signal to its Person/Community participants and source Event, and take a safe governed Action without entering a global Knowledge surface.
 - Scope: docs/raw/relationship-module-plan-2026-07.md RM0–RM6; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: RESOLVED BUGS Knowledge/Relationship IA; OPEN BUGS missing RM4 Relation persistence/materialization integration; `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; permission-pruning, Action Pipeline, Approvals, and public Helpdesk regression suites. The cross-Module graph gap remains owned by TASK-009.
+- Evidence: RM0 prototype and RM4 Relation persistence/materialization are integrated on `main` at `590cca6`: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`; desktop + 375px live evidence; migration `0015_task008_relation_contract`; owner-isolated Relation/effect RLS; deterministic bounded Relation reads; durable approval-effect retry/reconciliation; core 422, DB 123, API 164, web 43, and desktop 28 tests; monorepo build/typecheck, web production build, migration fresh/upgrade/no-drift, changed-file lint, runtime no-dummy, and final independent central-merge review. Remaining exact plan scope: RM1 governed Person/Community CRUD/search/detail, RM2 unified Timeline/intake/identity queue, RM3 Memory/commitment/prep lifecycle, RM4 governed Map/path finder, RM5 introductions/recommendations/user Automations, and RM6 team permission/delegation/evolution work. TASK-014/TASK-009 own RM6's cross-Module Graph renderer.
 - Requests: Relationship alignment directive 2026-07-14
-- Approval: AP-020, AP-021, and AP-029 applied
+- Approval: AP-020, AP-021, AP-029, and AP-030 applied
 - Dependencies: TASK-001
 
 ## Agent, Skill, and child-Run orchestration
@@ -194,7 +194,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: One installable Task Manager Module owning the single governed execution queue per workspace as ONE self-referential, dot-path-leveled Task type (no separate Goal/Initiative/Outcome Record types — `is_goal` is a field, not a type), with full tree restructuring (promote/insert-ancestor-above/re-parent) as governed proposals, exit-test verification with reopenable done/archived/parked status, planning Playbooks as draft-then-approve proposals, no-default agent-task routing owned by Chief of Staff, confidence-graduated reschedule and routing approval, proactive cross-Module opportunity scanning, guard Automations, and an agent-first `tasks.md` ledger projection consumable by external coding agents.
 - Prototype test: In a real workspace, create a goal-flagged Task (`is_goal=true`) with outcomes[] and a 3-level Task tree under it (paths e.g. `1`, `1.1`, `1.1.1`) with exit tests via UI; creating a new Task against a populated queue produces an Internal-Strategist impact-fit/resequence proposal before it settles; promoting `1.1.1` to a new root (path recomputes, old ancestor untouched) and inserting a new ancestor above an existing branch both round-trip as approved proposals with correct path recomputation; an agent-assigned Task routes to whichever eligible Agent owns its required Skill (Chief of Staff resolves, no default — Capability Builder only when genuinely a capability/code Task) and an ambiguous Task escalates to explicit Human assignment; a human reschedule proposal requires approval, then a minor-banded reschedule auto-applies only after calibration while a significant one still requires approval; a done Task is reopened to pending after its outcome target changes; the projected tasks.md round-trips an external edit through drift-detect→reconcile without silent overwrite; a done-without-evidence task is reopened by the challenger; the game-designs instance's coding agent works one full task (orient→execute→evidence→done→sweep) from the projected ledger.
 - Scope: docs/raw/taskmanager-module-plan-2026-07.md TM0–TM6; docs/raw/brd-taskmanager-2026-07.md; docs/raw/initiatives-taskade-research.md (verdicts bind); docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025), live at `/task-manager` with a working Status column (verified 2026-07-17); user's game-designs repo independently converged on the identical format (2026-07-16 report); BUGS.md 2026-07-17 pre-existing `@bridge/core` build break (unrelated, blocks a from-scratch worktree preview, not this Module's scope)
+- Evidence: docs/TASKS.md + Task Manager UI already prove the ledger model in production (AP-024/025), live at `/task-manager` with a working Status column (verified 2026-07-17); user's game-designs repo independently converged on the identical format (2026-07-16 report); RESOLVED BUGS 2026-07-18 canonical title+ID parser regression that made prebuild generate zero rows; BUGS.md 2026-07-17 pre-existing `@bridge/core` build break (unrelated, blocks a from-scratch worktree preview, not this Module's scope)
 - Requests: R-035; R-036 (2026-07-16 revision: collapse Initiative/Outcome into Goal+Task, agent routing, calibrated reschedule, proactive scan, reorder after TASK-014); R-037 (2026-07-17 revision: collapse Goal into a Task field entirely, full tree restructuring, no-default CoS-owned routing, reopenable done status)
 - Approval: AP-033 applied (plan+roadmap addition); AP-034 applied (revision 1); AP-035 applied (revision 2); ADR-106 records the Goal-collapse vocabulary call (supersedes ADR-105's two-Database call), ADR-107 records the no-default CoS-owned routing call (renumbered chain: this session's original AP-030/AP-031/ADR-099 → AP-033/034/ADR-105 during merge-integration → AP-035/ADR-106/ADR-107 for the further collapse and routing revision)
 - Dependencies: TASK-001; TASK-012 (VOCAB2 tree migration); TASK-014 (standard Module UI); TASK-004 line for TM6 only; TASK-007 (ADR-104 SkillManifest/eligible-Agent resolution — reused by agent-task-routing)
@@ -329,3 +329,29 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: R-026
 - Approval: AP-007 proposed; AP-008 ledger/status inconsistency must be reconciled before treating its rule as applied
 - Dependencies: TASK-005; TASK-015
+
+## Inference cost optimization: prompt caching + model tiering
+- ID: TASK-022
+- Status: ready
+- Priority: P2
+- Horizon: Core Modules
+- Outcome: ModelProvider calls use Anthropic prompt caching on the stable prefix, model selection routes by cost/capability tier (cheap/default/reasoning) instead of first-registered-provider, and complete() returns usage token counts enabling cost receipts — all preserving the local-plane-never-falls-to-cloud rule.
+- Prototype test: A repeated CoS turn shows non-zero cache_read_input_tokens on the second call; CoS intent classification runs on the cheap tier while a reasoning-tagged call runs on a higher tier; complete() usage is logged for at least one call site.
+- Scope: platform/packages/models/src/anthropic-provider.ts; platform/packages/models/src/router.ts; platform/packages/core/src/ports.ts; platform/packages/core/src/run-context.ts; platform/packages/core/src/chief-of-staff.ts; platform/apps/api/src/router.ts (~4573); docs/raw/optimizations-memory-vm-dealpilot-plan-2026-07.md (phase 1 slice)
+- Evidence: outputs/2026-07-17-llm-inference-optimization-audit.md (zero runtime prompt optimization confirmed: no cache_control, no batching, no tiering, model = providers[0])
+- Requests: LLM prompt/infra optimization audit directive 2026-07-17
+- Approval: AP-038 applied
+- Dependencies: none
+
+## Learning Agent governed web-research/recon Skill
+- ID: TASK-023
+- Status: ready
+- Priority: P2
+- Horizon: Convergence
+- Outcome: Learning Agent's LA3 research lane gains a governed `web-research` Skill backed by a provider-agnostic `SearchProvider` port (same shape as `ModelProvider`/`MemoryStore`/`ContentGuard`), wired first to $0 Tier-1 direct-access sources (Parallel Search MCP, Jina AI keyless, DuckDuckGo Instant Answer API) with a pre-vetted Tier-2 (signup-gated free tier) and Tier-3 (paid/self-hosted-only) expansion path, and every fetched result tagged `untrusted_external` taint per PI-1/PI-2 before reaching a Memory or prompt.
+- Prototype test: From a real workspace, Learning Agent runs a `web-research` Skill call for a bounded research objective, returns cited results sourced from at least one Tier-1 provider with provenance/taint recorded on the resulting Memory/Result, degrades gracefully if a provider is unavailable, and never silently escalates to a paid Tier-3 provider without a prior `docs/APPROVALS.md` cost/ROI gate.
+- Scope: docs/raw/learning-agent-roadmap-2026-07.md §7 (LA3 provider survey + rollout phases)
+- Evidence: outputs/2026-07-17-learning-agent-recon-search-integrations.md — 178-candidate Parallel FindAll audit (46 matched + 132 unmatched reviewed), Tier 1/2/3 classification, grouped discard reasoning
+- Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
+- Approval: AP-039 applied
+- Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)

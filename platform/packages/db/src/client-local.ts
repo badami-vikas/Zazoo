@@ -32,6 +32,8 @@ export interface LocalDbConfig {
    * (dist) layouts.
    */
   migrationsFolder?: string;
+  /** Optional query observer used by bounded-query regression tests. */
+  queryLogger?: { logQuery(query: string, params: unknown[]): void };
 }
 
 export class LocalDbInitializationCleanupError extends AggregateError {
@@ -74,7 +76,10 @@ export async function createLocalDb(
   );
   try {
     await client.exec("CREATE EXTENSION IF NOT EXISTS vector;");
-    const db = drizzle(client, { schema });
+    const db = drizzle(client, {
+      schema,
+      ...(config.queryLogger ? { logger: config.queryLogger } : {}),
+    });
     await migrate(db, {
       migrationsFolder: config.migrationsFolder ?? defaultMigrationsFolder(),
     });

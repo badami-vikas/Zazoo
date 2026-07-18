@@ -4,13 +4,19 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
-## 2026-07-18 — DealPilot local durability (ADR-111)
+## 2026-07-18 — DealPilot local durability (ADR-113)
 - One Local Plane DB. One owning process. Drizzle + runtime state share client.
 - Organization aggregate updates atomic. Restart keeps Records, Relations, captures, Gmail recovery, spend, audit.
 - Source secret only OS keyring. Opaque ref bound to Organization + Source.
 - Server without durable storage + approved vault: fail boot. Memory adapters: tests only.
 - Adapter owns `local_state`. No numbered migration. RM4/TASK-010 numbers untouched.
 - Live Google, OS re-auth/keychain, physical device proof: still missing. No fake DONE.
+
+## 2026-07-18 — Durable Relationship effects (ADR-112)
+- Decision first. Effect second. Never ask twice.
+- `ref_ledger_id` is truth. Caller JSON is not.
+- DB sequence picks winner. New decision replaces old Relation set.
+- Pending/failed effect survives restart. Bounded retry. Owner only.
 
 ## 2026-07-16 — Roadmap fan-out (ADR-098, AP-029)
 - Start TASK-006–015 now.

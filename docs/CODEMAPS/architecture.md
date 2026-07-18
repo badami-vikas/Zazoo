@@ -1,15 +1,17 @@
-<!-- Generated: 2026-07-04 | Files scanned: platform/{apps,packages,tools} + prototype root | Token estimate: ~650 -->
+<!-- Updated: 2026-07-18 | Files scanned: platform/apps/{api,web,desktop}, platform/packages/{core,db,local}, platform/tools | Token estimate: ~750 -->
 
 # Architecture Codemap
 
-Two independent codebases under one repo:
+One authoritative runtime lives under **`platform/`**:
 
-1. **`platform/`** — real backend. TS monorepo (pnpm + turbo), Fastify + tRPC + Drizzle +
-   Supabase Postgres. Governance-critical (draft-then-approve, append-only ledger, agent floor).
-2. **`Design Bridge AI Interface (Copy)/`** — prototype UI. React + Vite, mostly localStorage-
-   backed, calls `platform`'s tRPC API only where explicitly wired (Calendar, DealPilot partial).
+1. **Engine/API** — TypeScript monorepo (pnpm + Turbo), Fastify + tRPC, Universal Action
+   Pipeline, Drizzle, and Local/Supabase adapters.
+2. **Web client** — `platform/apps/web` React + Vite thin client over governed tRPC surfaces.
+3. **Desktop client** — `platform/apps/desktop` Tauri host for the same web client plus native
+   Avatar/capture/display behavior.
 
-Not yet connected: JobPilot, Helpdesk public surface, most of the prototype's data tables.
+`Design Bridge AI Interface (Copy)/` is retained historical prototype/reference material. It is
+not the production build entry point.
 
 ## Two-plane data model (platform)
 
@@ -30,8 +32,9 @@ CLIENT → tRPC router (apps/api) → UniversalActionPipeline (packages/core)
 ```
 
 Draft-then-approve flow: `action.propose` → Authority+Policy pre-check → Ledger append
-(pending) → human `action.decide` → Ledger append (resolved) → post-Policy (advisory only,
-see known-issues) → Event emit → materialization (e.g. Google draft becomes a real send).
+(pending) → Human `action.decide` → Ledger append (resolved) → post-Policy → Event emit →
+domain effect. Relationship effects persist separately and reconcile after restart; the Human
+decision is never rolled back or repeated because materialization failed.
 
 Agent-floor DENY: a hard-coded non-removable deny list (`AGENT_FLOOR_MUTATIONS` in
 `packages/core/src/authority.ts`) blocks agents from ever writing policy/ledger/agent/role or
@@ -40,11 +43,11 @@ agent-scope.ts, integration-store.ts) — see known-issues for the triplication 
 
 ## Composition root
 
-`apps/api/src/wiring.ts` builds all ports (ledger, policy, agent, role, ritual registry, media,
-capture stores) — branches on `DATABASE_URL` presence for persistent vs in-memory. **Known gap:**
-some stores silently stay in-memory even when persistent (canonical identity, capture store) —
-see `docs/BUGS.md`. `PILOT_WORKSPACE`/`PILOT_USER` are hardcoded constants baked
-into this file — the system is single-tenant by construction today.
+`apps/api/src/wiring.ts` builds all ports (ledger, policy, Agent/Goal/Task/Skill, graph,
+Relation materialization, packages, Rituals, media, captures) and branches on `DATABASE_URL`
+for persistent versus in-memory adapters. Persistent startup provisions both DealPilot and
+Relationship governance. `PILOT_WORKSPACE`/`PILOT_USER` still constrain the prototype runtime;
+see `docs/BUGS.md` for stores that remain process-local.
 
 ## Tool model
 
