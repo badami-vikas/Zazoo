@@ -1671,3 +1671,8 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - The package inventories every roadmap child session, merged source branch, paused dirty worktree, grouped reviewer result, validation handoff, blocker, duplicate implementation, migration reservation, ADR collision, and central merge rule.
 - Linked it from `docs/INDEX.md` and the retired `docs/PROGRESS.md` pointer while retaining `docs/TASKS.md` as the sole execution queue.
 - Durable user-facing pointer: `outputs/2026-07-18-subagent-progress-context.md`.
+
+# 2026-07-18 — Git contribution and coding-pace audit
+- Compared all reachable refs and landed `main` history by author identity, additions/deletions, unique files, active days, and explicit Claude/Copilot coauthor trailers.
+- Found lower cumulative Manish churn but higher time-normalized current churn; kept Vikas-authored and Claude-coauthored credits overlapping to avoid falsely assigning shared-commit lines.
+- Durable outcome: `outputs/2026-07-18-coding-pace-comparison.md`.
