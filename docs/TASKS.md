@@ -68,17 +68,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Movable cross-screen Avatar desktop prototype
 - ID: TASK-003
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: BUGS 2026-07-14 companion mobility; BUGS 2026-07-14 desktop chrome; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (reported real three-display mixed-DPI placement, Accessibility-driven cross-display move/native-event save/relaunch, actual VoiceOver navigation, fullscreen presence, external-display reposition, and extend→mirror→extend 3→2→3 pass — physical pointer drag/relaunch, human VoiceOver activation, and literal cable/power detach remain unclaimed)
+- Evidence: RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (real three-display mixed-DPI placement, cross-display move/native-event save/relaunch, VoiceOver navigation and physical activation, fullscreen/Spaces presence, external-display reposition, extend→mirror→extend 3→2→3, and physical detach/reconnect all pass)
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
-- Approval: AP-020, AP-026, and AP-040 applied
+- Approval: AP-020, AP-026, AP-040, and AP-041 applied
 - Dependencies: none
-- Unblock: Code defects found on the real three-display host are fixed. A human must still perform physical pointer drag→save→quit/relaunch and activate close/minimize/zoom with physical VoiceOver input; perform a literal cable/power detach→attach too if the acceptance phrase requires that rather than the passing real-hardware extend→mirror→extend topology removal/re-add. Existing Space/fullscreen and pointer/keyboard/Accessibility paths remain passing.
+- Verification: 2026-07-18 software gates passed (desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, production build, typecheck, targeted ESLint, no-dummy). The user then confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect. Prototype test complete.
 
 ## Commons install and trust prototype
 - ID: TASK-004
@@ -101,12 +101,12 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: A short, repeatable demo proves the combined product rather than isolated screens.
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; outstanding live-browser evidence in docs/raw/progress-archive-2026-07.md
+- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; TASK-003 physical Avatar certification completed 2026-07-18; outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md
 - Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
 - Requests: user prototype-priority directives 2026-07-13–15
 - Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
-- Unblock: complete TASK-003 physical macOS evidence and run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
+- Unblock: run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
 
 ## Repository and manifest cleanup
 - ID: TASK-013
@@ -116,7 +116,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.
 - Prototype test: Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.
 - Scope: docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2; docs/dummy.md
-- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict
+- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict; BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules
 - Requests: cleanup directives 2026-07-14
 - Approval: AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal
 - Dependencies: TASK-005; TASK-012
