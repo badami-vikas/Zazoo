@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T14:23:51.238Z",
+  "generatedAt": "2026-07-18T14:34:57.326Z",
   "items": [
     {
       "id": "TASK-001",
@@ -145,7 +145,8 @@
       ],
       "evidence": [
         "BUGS duplicate prototype/Tools copies",
-        "BUGS dummy-prefix conflict"
+        "BUGS dummy-prefix conflict",
+        "BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules"
       ],
       "requests": [
         "cleanup directives 2026-07-14"

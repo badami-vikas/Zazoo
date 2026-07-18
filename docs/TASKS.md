@@ -116,7 +116,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.
 - Prototype test: Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.
 - Scope: docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2; docs/dummy.md
-- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict
+- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict; BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules
 - Requests: cleanup directives 2026-07-14
 - Approval: AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal
 - Dependencies: TASK-005; TASK-012

@@ -1688,3 +1688,4 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 # 2026-07-18 — TASK-003 human certification complete (AP-041)
 - The user confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect.
 - Marked TASK-003 `done` and resolved both Avatar mobility/native-control bug rows. TASK-005 remains `blocked` only on its separate combined desktop+375px Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals demo.
+- PR #18 merge-gate review exposed and recorded an unrelated `origin/main` baseline defect under TASK-013: the legacy prototype CI imports two PII-derived modules that clean checkouts intentionally omit. The closure changes no prototype files; the other seven CI jobs pass.
