@@ -2145,6 +2145,20 @@ export class DrizzleGraphStore {
     return rows[0] ?? null;
   }
 
+  /** TASK-010 review round-4 item 6 — a single, workspace-scoped touchpoint
+   * lookup mirroring `getInitiative`'s shape. Used to validate a red-flag
+   * anchor's `recordId` server-side rather than trusting an unchecked
+   * client-supplied string. Returns null for a nonexistent id OR one that
+   * belongs to a different workspace (never leaks cross-workspace existence). */
+  async getTouchpoint(workspaceId: string, id: string): Promise<typeof touchpoints.$inferSelect | null> {
+    const rows = await this.#db
+      .select()
+      .from(touchpoints)
+      .where(and(eq(touchpoints.id, id), eq(touchpoints.workspaceId, workspaceId)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
   /** Optionally scoped to one initiative (the tree view) or left workspace-wide. */
   async listTouchpoints(
     workspaceId: string,

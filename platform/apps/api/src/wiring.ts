@@ -449,6 +449,48 @@ export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
 } as const;
 
 /**
+ * TASK-010 (platform red-flag correction feedback, docs/raw/ui-architecture-
+ * rules-2026-07.md §5d) — the ONE governed step in the red-flag flow. The
+ * Human's own correction Memory (`redFlag.create` in router.ts) is a plain
+ * `memoryStore.write` and never touches this Skill or the pipeline at all
+ * (TASK-007's TASK-010 handoff §1: "do NOT route this through the Agent/Skill
+ * pipeline"). This Skill is the SEPARATE, attributable step where Learning
+ * proposes a Memory/ranking/preference change citing accumulated red flags as
+ * evidence — resourceType stays "signal" (never "policy"/"policy_param",
+ * which `agent-floor.ts` denies to every Agent unconditionally, checked
+ * before Skill resolution ever runs); its `proposedOutput` carries the
+ * proposed change as DATA (`governed: true, applied: false`, mirroring
+ * `policy/variance-adjuster.ts`'s `VarianceProposal` shape) for a Human to
+ * review in the existing Approvals surface — no separate enactment path is
+ * wired here; TASK-010's own scope is the flag/undo/inspect UI, not policy
+ * application.
+ */
+const stagePreferenceAdjustmentProposal: Skill = {
+  name: "learning.proposePreferenceAdjustment",
+  async run(inputs) {
+    return { proposedOutput: inputs, diff: { to: inputs } };
+  },
+};
+
+export const PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE = "platform.red_flag_learning";
+export const PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE = "propose_preference_adjustment";
+
+export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
+  workspaceId: PILOT_WORKSPACE,
+  skillId: "learning.proposePreferenceAdjustment",
+  version: "1.0.0",
+  goalTypes: [PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE],
+  taskTypes: [PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE],
+  permissions: ["signal:write"],
+  plane: "local",
+  dataScopes: ["all"],
+  riskBand: "advisory",
+  evalVersion: "1.0.0",
+  defaultAgents: ["learning"],
+  childRunPolicy: "forbidden",
+} as const;
+
+/**
  * AGS1 real-catalog migration (TASK-007 closure) — Help Offer drafting was
  * previously staged via the generic `stageMutation` kernel passthrough
  * (resourceType `"signal"`, action `"write"`, a Human actor) — the ONE
@@ -643,6 +685,7 @@ export const GOOGLE_SKILL_MANIFESTS = [
 export const GOVERNED_SKILL_MANIFEST_CATALOG: readonly SkillManifest[] = [
   AGENT_ORCHESTRATION_SKILL_MANIFEST,
   LEARNING_RECOMMENDATION_SKILL_MANIFEST,
+  RED_FLAG_LEARNING_SKILL_MANIFEST,
   HELPDESK_ANSWER_SKILL_MANIFEST,
   OUTREACH_DRAFT_SKILL_MANIFEST,
   DEALPILOT_SOURCE_SKILL_MANIFEST,
@@ -731,6 +774,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
+    "learning.proposePreferenceAdjustment",
   ]);
   roles.roleGrants.set("role-learning", [
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
@@ -1135,7 +1179,8 @@ export async function buildWiring(): Promise<Wiring> {
     .register(stageLearningRecommendation)
     .register(stageStrategicRecommendation)
     .register(stageHelpdeskAnswer)
-    .register(stageOutreachDraft);
+    .register(stageOutreachDraft)
+    .register(stagePreferenceAdjustmentProposal);
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;

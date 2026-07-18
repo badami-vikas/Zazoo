@@ -51,6 +51,8 @@ import {
   STAGE_CAPTURE_TASK_TYPE,
   RELATIONSHIP_OUTREACH_GOAL_TYPE,
   DRAFT_OUTREACH_TASK_TYPE,
+  PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE,
+  PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE,
   type Wiring,
 } from "./wiring.js";
 import type {
@@ -58,6 +60,7 @@ import type {
   ActorType,
   DataScope,
   EgressTier,
+  MemoryEntry,
   OnBehalfOf,
   ResourceType,
   RitualDefinition,
@@ -257,23 +260,307 @@ const procedure = t.procedure.use(requireAuthOnMutation).use(withPilotWorkspaceG
 const authenticatedProcedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotWorkspaceGuard);
 const publicProcedure = t.procedure.use(withPilotWorkspaceGuard);
 
+/**
+ * TASK-010 (docs/raw/ui-architecture-rules-2026-07.md §5d) — the anchor a Red
+ * Flag targets. Mirrors glossary's "Flag target stores Module, Database/
+ * Record/Field or File/Result/bullet anchor": `recordId`+`fieldId` addresses a
+ * data cell; `bulletPath` addresses a rendered bullet within a Record/Page
+ * section or a File/Result (a stable per-item key, the same convention
+ * `useLocalEdits`'s `fieldValue` keys already use, e.g. "s2.b1" or
+ * "fit.strength.0" — kept legible against that unrelated mechanism even
+ * though the two never share storage). At least one of recordId/fileId/
+ * bulletPath is required so a flag always has a concrete target.
+ */
+/**
+ * TASK-010 (docs/raw/ui-architecture-rules-2026-07.md §5d) — the anchor a Red
+ * Flag targets, DISCRIMINATED so a "cell" and a "bullet" (and within bullet,
+ * a record/file/result target) can never collide even when some fields
+ * coincidentally share a string value across two genuinely different
+ * targets (review remediation item 5). `databaseId` on a cell anchor is the
+ * concrete Database/table identity (e.g. `TableSpec.id`, "jobpilot.jobs") —
+ * NEVER conflated with the coarser `moduleId` grouping.
+ */
+interface RedFlagCellAnchor {
+  kind: "cell";
+  moduleId: string;
+  databaseId: string;
+  recordId: string;
+  fieldId: string;
+}
+interface RedFlagBulletAnchor {
+  kind: "bullet";
+  moduleId: string;
+  target:
+    | { type: "record"; recordId: string }
+    | { type: "file"; fileId: string }
+    | { type: "result"; resultId: string };
+  bulletPath: string;
+}
+type RedFlagAnchor = RedFlagCellAnchor | RedFlagBulletAnchor;
+
+const redFlagAnchorInput = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cell"),
+    moduleId: z.string().min(1),
+    databaseId: z.string().min(1),
+    recordId: z.string().min(1),
+    fieldId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("bullet"),
+    moduleId: z.string().min(1),
+    target: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("record"), recordId: z.string().min(1) }),
+      z.object({ type: z.literal("file"), fileId: z.string().min(1) }),
+      z.object({ type: z.literal("result"), resultId: z.string().min(1) }),
+    ]),
+    bulletPath: z.string().min(1),
+  }),
+]);
+
+/** TASK-010 review round-5 item 6 — every known ALIAS for the same real
+ * module must normalize to ONE canonical spelling BEFORE an anchor is
+ * hashed into its lineage key: `moduleIdFromDatabaseId("jobpilot.jobs")`
+ * yields `"jobpilot"` while `JobPilotApplicationDetail.tsx` (and this
+ * router's own `validateAnchorTarget`) used the literal `"job-pilot"` —
+ * two DIFFERENT strings for the SAME real module would silently split one
+ * real-world cell/bullet's correction history into two independent,
+ * non-colliding lineages depending on which caller's spelling happened to
+ * construct the anchor. Same issue for DealPilot's underlying node type
+ * `"initiative"` vs. the module name `"dealpilot"`, and `"person"`/
+ * `"people"`, `"community"`/`"communities"`. `validateAnchorTarget`
+ * switches on the SAME canonical form this produces, so both are always
+ * kept in lockstep. */
+function canonicalModuleId(moduleId: string): string {
+  switch (moduleId) {
+    case "job-pilot":
+      return "jobpilot";
+    case "initiative":
+      return "dealpilot";
+    case "people":
+      return "person";
+    case "communities":
+      return "community";
+    default:
+      return moduleId;
+  }
+}
+
+/** Deterministic string encoding of an anchor — NUL-separated (`\u0000` can
+ * never appear in ordinary field values) so no combination of field values
+ * across two DIFFERENT anchor shapes can ever produce the same string
+ * (review item 5's "file-only/result-only anchors must not collide").
+ * `moduleId` is normalized through `canonicalModuleId` FIRST (review
+ * round-5 item 6) so an alias never forks a target's lineage in two. */
+function canonicalAnchorString(anchor: RedFlagAnchor): string {
+  const moduleId = canonicalModuleId(anchor.moduleId);
+  if (anchor.kind === "cell") {
+    return ["cell", moduleId, anchor.databaseId, anchor.recordId, anchor.fieldId].join("\u0000");
+  }
+  const targetKey =
+    anchor.target.type === "record" ? anchor.target.recordId :
+    anchor.target.type === "file" ? anchor.target.fileId :
+    anchor.target.resultId;
+  return ["bullet", moduleId, anchor.target.type, targetKey, anchor.bulletPath].join("\u0000");
+}
+
+/**
+ * A stable, valid-UUID lineage key derived from the canonical anchor string.
+ * `memories.subject_element_id` is a `uuid` column (schema.ts) — this lets
+ * `MemoryStore.casSupersede`'s lineage-uniqueness contract (workspaceId,
+ * ownerUserId, lineageKey === subjectElementId) work WITHOUT a new "lineage
+ * key" schema column (review item 4's "extend MemoryStore... if necessary"
+ * is satisfied by reusing this existing, indexed column). Not
+ * cryptographically sensitive — only needs to be deterministic and
+ * collision-resistant for a bounded per-workspace anchor space, which
+ * SHA-256 easily provides.
+ */
+export function anchorLineageKey(anchor: RedFlagAnchor): string {
+  return deterministicUuid(`redflag-anchor:${canonicalAnchorString(anchor)}`);
+}
+
+/** Deterministic, valid-shape UUID from an arbitrary seed string (SHA-256,
+ * version/variant bits forced so every consumer sees a well-formed UUID).
+ * Used for the anchor lineage key above AND for TASK-010's idempotency keys
+ * (review item 3) — the SAME client-supplied `operationId` always derives
+ * the SAME Memory/Task/Proposal id, so a retried request converges rather
+ * than duplicating rows. Exported (alongside `anchorLineageKey` above) ONLY
+ * so tests can precisely reconstruct an in-flight saga's intermediate
+ * state (e.g. "the ledger append succeeded but the outcome CAS never ran")
+ * without needing a real, hard-to-trigger-on-demand process crash. */
+export function deterministicUuid(seed: string): string {
+  const hash = createHash("sha256").update(seed).digest();
+  const bytes = Uint8Array.prototype.slice.call(hash, 0, 16) as Uint8Array;
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Buffer.from(bytes).toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Monotonically increasing ISO timestamp — used for EVERY red-flag Memory
+ * write instead of leaving `createdAt` to the store's own `defaultNow()`.
+ * Postgres/pglite's `now()` has only millisecond resolution, and a single
+ * saga (`create`'s step-1 write immediately followed by its outcome write,
+ * or `reopen`'s reset row immediately followed by its own fresh outcome)
+ * routinely issues two writes within the SAME millisecond — verified by a
+ * real repro during development. The keyset `history`/`listAll` ordering's
+ * tie-break then falls to `id`, which has no causal relationship to
+ * insertion order once one side is a content-hash-derived id (step 1's
+ * deterministic `memoryId`) rather than a time-ordered `uuidv7` — a real,
+ * observed bug (the internal "none" row could sort AFTER its own
+ * "proposed" successor). This closes the gap without a schema migration:
+ * process-local monotonicity is sufficient since every write in one
+ * lineage's saga happens on this same server process/request.
+ *
+ * KNOWN, DOCUMENTED LIMITATION, NARROWED (review round-5/7 — "durable
+ * lineage ordering"): this counter is still PROCESS-LOCAL and remains in
+ * use for `createdAt` itself (every Memory row still needs a real
+ * timestamp, and cross-LINEAGE global listings — e.g. the red-flag audit
+ * `flags` list — still order by `(created_at, id)`, for which a per-lineage
+ * revision is meaningless — see `MemoryQuery.orderBy`'s doc). What IS now
+ * fixed (post-TASK-008-RM4 migration `0016`): `memories.lineage_revision`
+ * is allocated atomically inside `casSupersede`'s own SERIALIZABLE
+ * transaction, scoped to `(workspace_id, owner_user_id,
+ * subject_element_id)` — correct across any number of processes/restarts.
+ * `history`'s single-lineage keyset order now uses
+ * `orderBy: "lineageRevision"` (`(lineage_revision, id)`) instead of
+ * `(created_at, id)`, closing the exact gap this comment used to describe
+ * as blocked. This function/counter is UNCHANGED and still needed for
+ * `createdAt` and for any ordering that spans more than one lineage.
+ */
+let lastIssuedRedFlagTimestampMs = 0;
+function monotonicRedFlagNowISO(): string {
+  const now = Date.now();
+  lastIssuedRedFlagTimestampMs = now > lastIssuedRedFlagTimestampMs ? now : lastIssuedRedFlagTimestampMs + 1;
+  return new Date(lastIssuedRedFlagTimestampMs).toISOString();
+}
+
 type LearningMemoryContent =
   | { kind: "onboarding_preference"; figure: string; admiredFor: string }
   | { kind: "reflection_schedule"; dueAt: string; status: "scheduled" | "snoozed" | "paused" | "skipped" }
-  | { kind: "trust_capture"; appName: string; bundleId?: string; capturedAt: string };
+  | { kind: "trust_capture"; appName: string; bundleId?: string; capturedAt: string }
+  | {
+      kind: "red_flag";
+      anchor: RedFlagAnchor;
+      /** The rendered value/version AT FLAG TIME (glossary) — lets Learning/UI
+       * detect "the underlying value already changed since this flag." */
+      renderedValue: string;
+      renderedVersion?: string;
+      reason?: string;
+      status: "open" | "cleared";
+      /** "none" until the governed learning step (see redFlag.create) is
+       * attempted; "proposed" once it stages successfully, awaiting review;
+       * "applied" once the owner has approved AND enacted the correction
+       * (`redFlag.enactCorrection`); "dismissed" once the proposal was
+       * vetoed/withdrawn OR the owner explicitly revoked an applied
+       * correction (`redFlag.revokeCorrection`) — either way, no longer
+       * actionable; "failed" if the governed step itself errored (the
+       * CORRECTION still stands — only the learning step failed, and it is
+       * retryable via a fresh `create`/`reopen`). */
+      learningStatus: "none" | "proposed" | "failed" | "applied" | "dismissed";
+      /** The governed proposal's ledger id, once learningStatus leaves
+       * "none" — lets a Human jump straight to its Approvals review row.
+       * PRIVACY (review item 2): the ledger row itself never carries this
+       * flag's anchor/renderedValue/reason — only this opaque reference. */
+      proposalId?: string;
+      /** The private PreferenceAdjustment Memory this flag's governed step
+       * synthesized (review round-4 item 1) — opaque back-reference, owner-
+       * scoped, never exposed to the workspace-wide ledger. */
+      preferenceAdjustmentId?: string;
+      /** Set only when learningStatus === "failed" — why the governed step
+       * didn't start, never implying the correction itself failed. */
+      learningFailureReason?: string;
+    }
+  | {
+      kind: "preference_adjustment";
+      /** Evidence back-reference — the red_flag Memory this was synthesized
+       * from (owner-authorized read; see `synthesizePreferenceAdjustment`). */
+      flagMemoryId: string;
+      /** SAME anchor the originating flag targets — this record's scope+
+       * target (review round-4 item 1: "scope, target, proposed change,
+       * rationale/evidence ref"). */
+      anchor: RedFlagAnchor;
+      /** The concrete corrective action a Human approval would enact.
+       * Intentionally the ONE safe, generic action derivable from a flag
+       * without inventing an unverified replacement value out of free-text
+       * `reason` — "this specific rendered value is wrong; withhold it from
+       * display once enacted" (`redFlag.enactCorrection`), reversible via
+       * `redFlag.revokeCorrection`. */
+      proposedChange: { type: "suppress_value" };
+      rationale: string;
+      /** The ledger proposal id this was staged under (opaque back-ref, the
+       * inverse of `red_flag.proposalId`). */
+      proposalId: string;
+      /** "proposed" (awaiting Human review) -> "applied" (owner approved +
+       * enacted — the ONLY state where `redFlag.create`'s described display
+       * suppression actually takes visible effect) -> "revoked" (terminal —
+       * clear/forget/an explicit owner revoke; never re-enactable, review
+       * round-4 item 1: "clear/forget/revoke must prevent later
+       * enactment"). */
+      status: "proposed" | "applied" | "revoked";
+      appliedAt?: string;
+      revokedAt?: string;
+    };
 
 function parseLearningMemory(content: string): LearningMemoryContent | null {
   try {
     const parsed = JSON.parse(content) as LearningMemoryContent;
     return parsed?.kind === "onboarding_preference" ||
       parsed?.kind === "reflection_schedule" ||
-      parsed?.kind === "trust_capture"
+      parsed?.kind === "trust_capture" ||
+      parsed?.kind === "red_flag" ||
+      parsed?.kind === "preference_adjustment"
       ? parsed
       : null;
   } catch {
     return null;
   }
 }
+
+function isRedFlagContent(value: LearningMemoryContent | null): value is Extract<LearningMemoryContent, { kind: "red_flag" }> {
+  return value?.kind === "red_flag";
+}
+
+function isPreferenceAdjustmentContent(value: LearningMemoryContent | null): value is Extract<LearningMemoryContent, { kind: "preference_adjustment" }> {
+  return value?.kind === "preference_adjustment";
+}
+
+/** TASK-010 review round-5 item 1 — the legacy onboarding Memory kinds
+ * `onboarding.learningState`/`forgetMemory` are allowed to read/delete.
+ * Deliberately excludes `red_flag`/`preference_adjustment`: those are
+ * private correction evidence that must only ever be read/deleted through
+ * the owner-scoped `redFlag.*` surface (which withdraws/revokes the linked
+ * governed proposal before deleting — a bare Memory delete never does). */
+type LegacyOnboardingMemoryContent = Extract<LearningMemoryContent, { kind: "onboarding_preference" | "reflection_schedule" | "trust_capture" }>;
+function isLegacyOnboardingContent(value: LearningMemoryContent | null): value is LegacyOnboardingMemoryContent {
+  return value?.kind === "onboarding_preference" || value?.kind === "reflection_schedule" || value?.kind === "trust_capture";
+}
+
+/** Opaque base64url-encoded keyset cursor — `{createdAt, id, lineageRevision}`
+ * (review round-4 item 8: total keyset order, immune to a row inserted/
+ * superseded between page fetches, unlike the offset this replaced).
+ * `lineageRevision` (review round-7) is included so `history`'s single-
+ * lineage listing can paginate by the durable per-lineage revision instead
+ * of `createdAt` — the cross-lineage `flags` list still orders/paginates by
+ * `createdAt` alone and simply ignores the third slot. */
+function encodeRedFlagCursor(row: { createdAt: string; id: string; lineageRevision?: number | null }): string {
+  return Buffer.from(JSON.stringify([row.createdAt, row.id, row.lineageRevision ?? null]), "utf8").toString("base64url");
+}
+function decodeRedFlagCursor(cursor: string | undefined): { createdAt: string; id: string; lineageRevision?: number | null } | undefined {
+  if (!cursor) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "string") {
+      const lineageRevision = typeof parsed[2] === "number" ? parsed[2] : null;
+      return { createdAt: parsed[0], id: parsed[1], lineageRevision };
+    }
+  } catch {
+    /* fall through */
+  }
+  return undefined;
+}
+
 
 async function researchPublicFigure(figure: string): Promise<{ title: string; extract: string; url: string }> {
   const params = new URLSearchParams({
@@ -444,6 +731,447 @@ async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promis
     LEARNING_AGENT,
   );
 }
+
+/** TASK-010 review round-4 item 6 — resolve and validate a red-flag anchor's
+ * TARGET server-side rather than trusting an unchecked client-supplied
+ * string. `moduleId` must be one of the modules this function actually knows
+ * how to verify existence for; a record-shaped target (`cell.recordId`,
+ * `bullet.target.type === "record"`) is checked against THAT module's own
+ * store — never accepted merely because it is a non-empty string — and must
+ * belong to `workspaceId` (never leaks cross-workspace existence: a foreign-
+ * workspace record and a nonexistent one are indistinguishable, both
+ * NOT_FOUND). `file`/`result` bullet targets have no backing existence store
+ * yet (no currently-wired bullet surface uses one) — documented, bounded
+ * limitation: accepted structurally, not existence-checked, until those
+ * stores exist. An unrecognized `moduleId` fails closed rather than being
+ * silently accepted as an existence-proof-free anchor. Switches on
+ * `canonicalModuleId` (review round-5 item 6) so an alias (`"job-pilot"`,
+ * `"initiative"`, `"people"`, `"communities"`) is validated identically to
+ * its canonical spelling — never a SEPARATE, accidentally-more-permissive
+ * code path. */
+async function validateAnchorTarget(wiring: Wiring, workspaceId: string, viewerUserId: string, anchor: RedFlagAnchor): Promise<void> {
+  const recordId = anchor.kind === "cell" ? anchor.recordId : anchor.target.type === "record" ? anchor.target.recordId : null;
+  if (recordId === null) return; // file/result — documented limitation above
+
+  switch (canonicalModuleId(anchor.moduleId)) {
+    case "jobpilot": {
+      const application = await wiring.jobpilotStore.getApplication(recordId, workspaceId);
+      if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      return;
+    }
+    case "dealpilot": {
+      const initiative = await wiring.graphStore.getInitiative(recordId);
+      if (!initiative || initiative.workspaceId !== workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      }
+      return;
+    }
+    case "touchpoint": {
+      const touchpoint = await wiring.graphStore.getTouchpoint(workspaceId, recordId);
+      if (!touchpoint) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      return;
+    }
+    case "person": {
+      const person = await wiring.graphStore.getPerson(workspaceId, viewerUserId, recordId);
+      if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      return;
+    }
+    case "community": {
+      const community = await wiring.graphStore.getCommunity(workspaceId, viewerUserId, recordId);
+      if (!community) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      return;
+    }
+    default:
+      throw new TRPCError({ code: "NOT_FOUND", message: `unrecognized module "${anchor.moduleId}" — cannot validate its target` });
+  }
+}
+
+/** TASK-010 review round-4 item 2 — a proposal is PRIVATE when its `inputs`
+ * carries `visibility: "private"` (set once, at `pipeline.propose` call time
+ * — never client-toggleable afterward since `inputs` is immutable ledger
+ * content). A private proposal is visible/decidable ONLY to the user it was
+ * raised `onBehalfOf` — team-visible semantics are completely unchanged for
+ * every OTHER (non-private) proposal shape in this workspace. */
+function isPrivateProposalInputs(inputs: unknown): boolean {
+  return typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) && (inputs as Record<string, unknown>).visibility === "private";
+}
+
+function isProposalVisibleTo(proposal: { request: { inputs: unknown; onBehalfOf?: { id: string } } }, viewerId: string): boolean {
+  if (!isPrivateProposalInputs(proposal.request.inputs)) return true;
+  return proposal.request.onBehalfOf?.id === viewerId;
+}
+
+/** TASK-010 review round-4 item 1 — resolves the flag's own evidence Memory
+ * UNDER OWNER AUTHORIZATION (a scoped `memoryStore.get`, never a bypass) and
+ * synthesizes it into a real, structured, owner-private PreferenceAdjustment
+ * record — scope+target (the anchor), a concrete proposed change, a
+ * rationale, and this evidence back-reference — rather than the governed
+ * step being a no-op echo of its own opaque ledger inputs. Idempotent create
+ * via `casSupersede`/`expectedCurrentId: null`: a retry that reaches this a
+ * second time (the lineage already exists) fetches the existing row instead
+ * of throwing a duplicate-id error. */
+async function synthesizePreferenceAdjustment(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerId: string,
+  params: { preferenceAdjustmentId: string; flagMemoryId: string; anchor: RedFlagAnchor; reason: string | undefined; proposalId: string },
+): Promise<MemoryEntry> {
+  const evidence = await wiring.memoryStore.get(params.flagMemoryId, { workspaceId, userId: ownerId });
+  if (!evidence) {
+    throw new Error("cannot synthesize a preference adjustment: the flagged evidence is not readable under owner authorization");
+  }
+  const rationale = params.reason?.trim() || "Owner flagged this value as incorrect without additional detail.";
+  const content: LearningMemoryContent = {
+    kind: "preference_adjustment",
+    flagMemoryId: params.flagMemoryId,
+    anchor: params.anchor,
+    proposedChange: { type: "suppress_value" },
+    rationale,
+    proposalId: params.proposalId,
+    status: "proposed",
+  };
+  const created = await wiring.memoryStore.casSupersede({
+    workspaceId,
+    ownerUserId: ownerId,
+    lineageKey: params.preferenceAdjustmentId,
+    expectedCurrentId: null,
+    next: {
+      id: params.preferenceAdjustmentId,
+      workspaceId,
+      type: "preference",
+      subjectElementId: params.preferenceAdjustmentId,
+      scope: "private",
+      content: JSON.stringify(content),
+      sourceRefType: "feedback",
+      trustOrigin: "user_content",
+      confidence: 1,
+      plane: "local",
+      createdBy: ownerId,
+      ownerUserId: ownerId,
+      createdAt: monotonicRedFlagNowISO(),
+    },
+  });
+  if (created) return created;
+  const existing = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, params.preferenceAdjustmentId);
+  if (!existing) throw new Error("preference adjustment lineage disappeared between create and re-read");
+  return existing;
+}
+
+/** TASK-010 (review remediation item 3 — saga/idempotency) — one durable
+ * Goal for the workspace's platform red-flag learning, one bounded Task per
+ * flag-create OPERATION (not per call): `taskId` is caller-supplied and
+ * deterministic from the client's idempotency key, so a retried `create`
+ * reuses the SAME Task instead of accumulating one per attempt. Unlike the
+ * generic `provisionGoalTask` helper (which always inserts a fresh Task),
+ * this checks for an existing Task at that id FIRST and is safe against the
+ * persistent adapter's unique-id constraint racing a concurrent retry too.
+ *
+ * Review round-5 item 10 — the Goal lookup itself was NOT race-safe: it
+ * used `listGoals` + `.find(...)`, a check-then-act pattern with a
+ * NON-deterministic Goal id (`createGoal` fell back to a random
+ * `seam.nextId()`). Two genuinely concurrent callers (different processes,
+ * e.g. two API server instances handling two retries of the same flag-
+ * create at once) could BOTH see no matching Goal yet and BOTH insert a
+ * SEPARATE one — either silently duplicating the workspace's "platform
+ * red-flag learning" Goal, or throwing an unhandled unique-constraint error
+ * if one ever gets added. The Goal id is now DETERMINISTIC (one per
+ * workspace, derived the same way every other red-flag id in this file is)
+ * and looked up by that EXACT id via `getGoal` — mirroring the Task logic
+ * immediately below: check first, then create with a catch-and-recheck
+ * fallback so a losing concurrent insert recovers to the WINNER's Goal
+ * rather than erroring. */
+async function provisionRedFlagLearningTask(
+  wiring: Wiring,
+  workspaceId: string,
+  taskId: string,
+): Promise<{ goalId: string; taskId: string }> {
+  const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
+  const goalId = deterministicUuid(`redflag-learning-goal:${workspaceId}`);
+  let goal = await wiring.goalTasks.getGoal(workspaceId, goalId);
+  if (!goal) {
+    try {
+      goal = await wiring.goalTasks.createGoal(
+        { id: goalId, workspaceId, type: PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE, title: "Platform red-flag correction learning" },
+        seam,
+      );
+    } catch (err) {
+      // A concurrent call (a different process/instance provisioning the
+      // SAME workspace's Goal at once) may have created it between our
+      // check above and this insert — re-check rather than propagating a
+      // duplicate-key error as a genuine failure (review round-5 item 10:
+      // "treat as CAS loss/reconcile, not 500").
+      const retryGoal = await wiring.goalTasks.getGoal(workspaceId, goalId);
+      if (!retryGoal) throw err;
+      goal = retryGoal;
+    }
+  }
+  const existingTask = await wiring.goalTasks.getTask(workspaceId, taskId);
+  if (existingTask) return { goalId: goal.id, taskId: existingTask.id };
+  try {
+    const task = await wiring.goalTasks.createTask(
+      { id: taskId, workspaceId, goalId: goal.id, type: PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE, assignedAgentId: LEARNING_AGENT },
+      seam,
+    );
+    return { goalId: goal.id, taskId: task.id };
+  } catch (err) {
+    // A concurrent retry (same idempotency key) may have created it between
+    // our check above and this insert — re-check rather than propagating a
+    // duplicate-key error as a genuine failure.
+    const retryFetch = await wiring.goalTasks.getTask(workspaceId, taskId);
+    if (retryFetch) return { goalId: goal.id, taskId: retryFetch.id };
+    throw err;
+  }
+}
+
+/** TASK-010 (review remediation item 2 — ledger privacy/withdrawal). Clear
+ * and forget both call this so a still-pending governed proposal citing a
+ * withdrawn/deleted flag can never later be approved into an actual
+ * preference/ranking change. Swallows `AlreadyResolvedError`/
+ * `NotPendingProposalError` — those mean "nothing left to withdraw," not a
+ * failure of the withdrawal itself. Any actor authorized to clear/forget
+ * their OWN flag may veto its own cited proposal — the same authority model
+ * every other `action.decide` call in this router already uses (no
+ * additional gate is invented here).
+ *
+ * Review round-5 item 4 — a CONFIRMED-ABSENT ledger entry (checked directly,
+ * never inferred) must ALSO resolve as "already withdrawn," not an error:
+ * `pipeline.decide` throws a bare `Error` (not one of the two typed
+ * exceptions above) for an id the ledger has never seen at all. That is
+ * exactly the shape a flag from BEFORE this fix could still carry (a
+ * `proposalId` persisted despite the governed step having thrown before ever
+ * reaching ledger append) — this makes clear/forget/reopen tolerant of that
+ * historical shape instead of throwing an unhandled 500 on it. */
+async function withdrawPendingRedFlagProposal(wiring: Wiring, run: RunCtx, proposalId: string, actorId: string): Promise<void> {
+  const entry = await wiring.ledger.get(proposalId);
+  if (!entry) return; // confirmed absent — nothing was ever pending, treat as already withdrawn
+  try {
+    await wiring.pipeline.decide(proposalId, "veto", { type: "user", id: actorId }, run, undefined, "Red flag correction withdrawn by its owner");
+  } catch (err) {
+    if (err instanceof AlreadyResolvedError || err instanceof NotPendingProposalError) return;
+    throw err;
+  }
+}
+
+/** TASK-010 review round-4 item 1 — permanently blocks a preference
+ * adjustment from ever being (re-)enacted, called by `clear`/`forget`
+ * (whether the underlying proposal is still pending OR was already
+ * approved+applied) so a withdrawn/deleted flag's correction can never take
+ * effect later. Idempotent: a lineage already `"revoked"` is left alone. */
+async function revokePreferenceAdjustmentPermanently(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerId: string,
+  preferenceAdjustmentId: string,
+): Promise<void> {
+  // `preferenceAdjustmentId` is the STABLE lineage key (its own original
+  // id) — `currentForLineage` must be used to resolve whatever it has
+  // become (e.g. already "applied" by a prior enactCorrection, which
+  // supersedes it to a NEW row id), never a plain `.get()` by that original
+  // id, which would only ever return the frozen "proposed" row it started
+  // as (the exact class of bug review round 3 already caught once for the
+  // red-flag lineage itself).
+  const current = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, preferenceAdjustmentId);
+  const value = current && parseLearningMemory(current.content);
+  if (!current || !isPreferenceAdjustmentContent(value) || value.status === "revoked") return;
+  await wiring.memoryStore.casSupersede({
+    workspaceId,
+    ownerUserId: ownerId,
+    lineageKey: current.subjectElementId!,
+    expectedCurrentId: current.id,
+    next: {
+      ...current,
+      id: uuidv7(),
+      content: JSON.stringify({ ...value, status: "revoked", revokedAt: new Date().toISOString() } satisfies LearningMemoryContent),
+      trustOrigin: "user_content",
+      createdBy: ownerId,
+      createdAt: monotonicRedFlagNowISO(),
+    },
+  });
+  // A CAS loss here means another concurrent action already moved this
+  // lineage forward (e.g. a racing revoke/enact) — not an error; whatever
+  // it landed on, it is no longer "proposed"/"applied" under OUR write, and
+  // the caller (clear/forget) does not need this call's own return value.
+}
+
+/**
+ * TASK-010's ONE governed-learning step, shared by `redFlag.create` (seeded
+ * by the client's `operationId`) and `redFlag.reopen` (review round-4 item
+ * 4: "reopen after veto/withdraw must create a NEW proposal for the new
+ * active version" — seeded by the freshly-reopened row's own id, so it
+ * NEVER reuses/resurrects a prior, permanently-resolved proposal). Every id
+ * this attempts (the governed Task, the ledger proposal, the private
+ * PreferenceAdjustment) is deterministically derived from `seed`, so a
+ * retry of the SAME logical attempt converges instead of duplicating rows —
+ * see the inline comments below for the crash-recovery reconciliation
+ * (review item 3).
+ */
+async function attemptGovernedLearningStep(
+  wiring: Wiring,
+  run: RunCtx,
+  workspaceId: string,
+  ownerId: string,
+  currentRow: MemoryEntry,
+  flagMemoryId: string,
+  seed: string,
+): Promise<MemoryEntry> {
+  const currentValue = parseLearningMemory(currentRow.content);
+  if (!isRedFlagContent(currentValue)) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "red flag memory content was not the expected shape" });
+  }
+  // review round-4 item 3: "failed" must be retryable too — only a
+  // successfully-recorded outcome ("proposed"/"applied"/"dismissed") should
+  // skip re-attempting the governed step. Leaving "failed" out of this skip
+  // list was itself a bug: it made a genuinely failed attempt permanently
+  // un-retryable.
+  if (currentValue.learningStatus !== "none" && currentValue.learningStatus !== "failed") {
+    return currentRow;
+  }
+  const anchorKey = currentRow.subjectElementId!;
+  const taskId = deterministicUuid(`redflag-task:${seed}`);
+  const proposalId = deterministicUuid(`redflag-proposal:${seed}`);
+  const preferenceAdjustmentId = deterministicUuid(`redflag-preference:${seed}`);
+  let learningStatus: "proposed" | "failed" = "failed";
+  let learningFailureReason: string | undefined;
+  // TASK-010 review round-5 item 4 — must start `undefined`, NEVER the
+  // deterministic `proposalId` guess: that id is only a *candidate* seed for
+  // `pipeline.propose`'s own ledger append (or a value to reconcile against
+  // an EARLIER attempt's append) — it does not itself prove a ledger row
+  // exists. Every branch below sets this ONLY once ledger existence is
+  // actually confirmed (the `existingLedgerEntry` check, or the real
+  // `Proposal.id` `pipeline.propose` hands back once it has genuinely
+  // appended — `#reject`'s rejected-path entry gets its OWN id via
+  // `ctx.ids.next()`, never the requested `proposalId`, so `proposal.id` is
+  // always the ledger's actual id either way). If `synthesizePreferenceAdjustment`
+  // or `pipeline.propose` itself THROWS before returning, nothing was ever
+  // confirmed to exist — this must stay `undefined`, or `clear`/`forget`
+  // would later try to withdraw a proposal the ledger never actually has.
+  let resolvedProposalId: string | undefined;
+  let resolvedPreferenceAdjustmentId: string | undefined;
+
+  // review round-4 item 3: reconcile the deterministic proposalId against
+  // the ledger BEFORE proposing again. A prior attempt of this SAME seed
+  // may have already appended the ledger entry and then crashed before the
+  // outcome CAS below ran — without this check, a retry would either
+  // re-throw the ledger's own duplicate-id append-only violation
+  // (misreported as "failed" even though the proposal genuinely exists and
+  // is pending review) or, worse, silently attempt to run the governed
+  // Skill a second time. "The proposal already exists" always means "the
+  // governed step already succeeded" (a rejected/thrown attempt never
+  // reaches append), so recovery is always to "proposed," never "failed."
+  const existingLedgerEntry = await wiring.ledger.get(proposalId);
+  if (existingLedgerEntry) {
+    learningStatus = "proposed";
+    resolvedProposalId = proposalId;
+    resolvedPreferenceAdjustmentId = (await wiring.memoryStore.currentForLineage(workspaceId, ownerId, preferenceAdjustmentId))?.id ?? preferenceAdjustmentId;
+  } else {
+    try {
+      const adjustment = await synthesizePreferenceAdjustment(wiring, workspaceId, ownerId, {
+        preferenceAdjustmentId,
+        flagMemoryId,
+        anchor: currentValue.anchor,
+        reason: currentValue.reason,
+        proposalId,
+      });
+      resolvedPreferenceAdjustmentId = adjustment.id;
+
+      const goalTaskRef = await provisionRedFlagLearningTask(wiring, workspaceId, taskId);
+      const proposal = await wiring.pipeline.propose(
+        {
+          workspaceId,
+          actor: { type: "agent", id: LEARNING_AGENT },
+          onBehalfOf: { type: "user", id: ownerId },
+          action: "write",
+          resourceType: "signal",
+          skill: "learning.proposePreferenceAdjustment",
+          trustOrigin: "user_content",
+          goalTaskRef,
+          // PRIVACY (review item 2): the ledger is a workspace-wide-
+          // readable audit spine (any member may query pending proposals
+          // via action.listPending/decide). It must NEVER carry this
+          // flag's anchor/renderedValue/reason/rationale — only OPAQUE,
+          // owner-scoped Memory references and a non-sensitive summary.
+          // `visibility: "private"` (review round-4 item 2) additionally
+          // hides this proposal from every OTHER member's
+          // action.listPending/decide entirely — not merely "the detail
+          // is opaque," but "only its own owner can even see or resolve
+          // it."
+          inputs: {
+            kind: "red_flag_correction_proposal",
+            flagMemoryId,
+            preferenceAdjustmentId: resolvedPreferenceAdjustmentId,
+            visibility: "private",
+            governed: true,
+            applied: false,
+            summary: "A platform red-flag correction was synthesized into a preference adjustment for governed review.",
+          },
+        },
+        run,
+        { proposalId },
+      );
+      // `proposal.id` is ALWAYS the id the ledger actually used for this
+      // append — the deterministic `proposalId` on the success/pending path
+      // (options.proposalId), or `ctx.ids.next()` on #reject's rejected
+      // path — either way it is now CONFIRMED to exist, safe to persist.
+      resolvedProposalId = proposal.id;
+      if (proposal.status === "pending_review") {
+        learningStatus = "proposed";
+      } else {
+        learningStatus = "failed";
+        learningFailureReason = proposal.rejectionReason ?? `unexpected proposal status "${proposal.status}"`;
+      }
+    } catch (err) {
+      // Nothing reconciled here is confirmed to exist in the ledger —
+      // `resolvedProposalId` stays `undefined` (its initialized value).
+      learningStatus = "failed";
+      learningFailureReason = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  // Omit any stale `learningFailureReason` from a prior "failed" attempt
+  // this retry is now superseding — `exactOptionalPropertyTypes` forbids
+  // setting it to `undefined` explicitly, so it must be left out of the
+  // base spread entirely rather than nulled afterward.
+  const { learningFailureReason: _staleFailureReason, ...currentValueBase } = currentValue;
+  const updated = await wiring.memoryStore.casSupersede({
+    workspaceId,
+    ownerUserId: ownerId,
+    lineageKey: anchorKey,
+    expectedCurrentId: currentRow.id,
+    next: {
+      ...currentRow,
+      // A FRESH random id, never a deterministic one derived from `seed`:
+      // unlike the Memory/proposal/preference-adjustment ids above (each
+      // meant to exist EXACTLY ONCE across retries), this row is a VERSION
+      // marker for "the outcome as of this attempt" — clear/reopen/
+      // updateReason already mint a fresh `uuidv7()` for their own new
+      // versions, and this must too. A deterministic id here was a genuine
+      // bug an independent review's own repro caught: once one outcome
+      // version had been written for a given seed, ANY later attempt that
+      // reached this write again (e.g. a "failed" attempt retried into a
+      // genuine "proposed" success) collided on the memories table's
+      // primary key instead of appending a new version.
+      id: uuidv7(),
+      content: JSON.stringify({
+        ...currentValueBase,
+        learningStatus,
+        ...(resolvedProposalId ? { proposalId: resolvedProposalId } : {}),
+        ...(resolvedPreferenceAdjustmentId ? { preferenceAdjustmentId: resolvedPreferenceAdjustmentId } : {}),
+        ...(learningFailureReason ? { learningFailureReason } : {}),
+      } satisfies LearningMemoryContent),
+      trustOrigin: "user_content",
+      createdBy: ownerId,
+      createdAt: monotonicRedFlagNowISO(),
+    },
+  });
+  if (!updated) {
+    // Another concurrent call (a genuine retry racing itself) already
+    // recorded the outcome — re-read rather than erroring.
+    const latest = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, anchorKey);
+    return latest ?? currentRow;
+  }
+  return updated;
+}
+
 
 async function provisionOutreachDraftTask(
   wiring: Wiring,
@@ -2044,7 +2772,16 @@ export const appRouter = t.router({
      * Pending proposals awaiting a human decision — backs the Approvals inbox
      * (frontend-migration-scoping.md Phase 2: `action.decide` existed with nothing
      * enumerating what's awaiting approval). Paginated per this repo's list-endpoint
-     * convention (dealpilot.list/integration.list).
+     * convention (dealpilot.list/integration.list). TASK-010 review round-4 item 2:
+     * a PRIVATE proposal (`inputs.visibility === "private"`, e.g. a red-flag
+     * correction) is filtered out entirely unless it was raised `onBehalfOf`
+     * the CALLER — team-visible semantics are completely unchanged for every
+     * other (non-private) proposal. Since private-filtering can only be
+     * applied after fetching, this loops through the underlying ledger's own
+     * pages (the same accumulate-until-exhausted idiom already used by
+     * `proposeOutreachDraft`'s idempotency search below) so `total`/`hasMore`
+     * describe the CALLER'S actually-visible set, not a page that could
+     * under-fill once private proposals exist.
      */
     listPending: authenticatedProcedure
       .input(
@@ -2059,6 +2796,15 @@ export const appRouter = t.router({
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        // TASK-010 review round-4 item 2 + TASK-008 RM4: `privateOwnerUserId`
+        // is enforced at the STORE level (`privateProposalOwnerScope` in
+        // packages/db/src/ledger-store.ts / `ledgerEntryVisibleToPrivateOwner`
+        // in packages/core/src/memory/stores.ts) — widened to cover BOTH
+        // RM4's relation-resourceType rows AND TASK-010's own
+        // `inputs.visibility === "private"` marker (red-flag correction
+        // proposals), so a single query-level filter now protects every
+        // private proposal shape without the app-side accumulate-and-filter
+        // loop this endpoint previously needed.
         const { items, total } = await ctx.wiring.pipeline.listPending(input.workspaceId, {
           limit: input.limit,
           offset: input.offset,
@@ -2068,7 +2814,10 @@ export const appRouter = t.router({
       }),
 
     /** Bounded Execution Ledger history through the authenticated server seam.
-     * Relation rows retain owner isolation after direct browser table access is revoked. */
+     * Relation rows retain owner isolation after direct browser table access is revoked;
+     * TASK-010 review round-5/6: also the replacement for `apps/web/src/app/data/ledger.ts`'s
+     * `loadLedger()` direct-Supabase read (docs/BUGS.md 2026-07-17) — the SAME
+     * `privateOwnerUserId` store-level filter protects red-flag correction proposals here too. */
     listHistory: authenticatedProcedure
       .input(
         z.object({
@@ -2095,7 +2844,13 @@ export const appRouter = t.router({
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    /** Read the append-only resolution state for idempotent review reconciliation. */
+    /** Read the append-only resolution state for idempotent review reconciliation.
+     * TASK-010 review round-4 item 2 (closing a gap a fresh independent review
+     * found): a PRIVATE proposal's resolution state/decision must be exactly as
+     * invisible to a non-owner as `listPending`/`decide` already make it —
+     * otherwise a member could infer a private red-flag correction's existence
+     * and eventual approve/veto decision just by guessing/observing its
+     * proposalId, even though they could never see or resolve it themselves. */
     resolution: authenticatedProcedure
       .input(z.object({ proposalId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
@@ -2104,6 +2859,17 @@ export const appRouter = t.router({
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
         assertRelationshipProposalOwner(proposal, ctx.identity, ctx.wiring.google);
+        // TASK-010: a private red-flag correction proposal (`resourceType`
+        // never "relation" — always "signal") gets the SAME "hide existence
+        // entirely from a non-owner" treatment RM4's relation rows get above,
+        // via TASK-010's own `inputs.visibility === "private"` marker. The
+        // `resourceType !== "relation"` guard keeps this from re-interpreting
+        // a relation proposal's OWN `visibility` enum value (which can
+        // legitimately be `"private"`/`"workspace"`/`"public"` and is already
+        // fully handled by `assertRelationshipProposalOwner` above).
+        if (proposal.resourceType !== "relation" && isPrivateProposalInputs(proposal.inputs) && proposal.onBehalfOfId !== ctx.identity.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
+        }
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -2119,7 +2885,11 @@ export const appRouter = t.router({
         return { status: "pending" as const, decision: null };
       }),
 
-    /** Resolve a pending proposal: approve | veto | edit. */
+    /** Resolve a pending proposal: approve | veto | edit. TASK-010 review
+     * round-4 item 2: a PRIVATE proposal may only be decided by the user it
+     * was raised `onBehalfOf` — a non-owning member (even though they pass
+     * the ordinary workspace-membership gate) is rejected FORBIDDEN, never
+     * merely filtered from a list. */
     decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
       // claimed actor — the agent-floor in decide() blocks any agent from approving.
@@ -2128,6 +2898,13 @@ export const appRouter = t.router({
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
       assertRelationshipProposalOwner(original, ctx.identity, ctx.wiring.google);
+      // TASK-010: same non-relation-scoped private-proposal guard as
+      // `resolution` above — a red-flag correction proposal may only be
+      // decided by the user it was raised `onBehalfOf`, even though it
+      // passes the ordinary workspace-membership gate.
+      if (original.resourceType !== "relation" && isPrivateProposalInputs(original.inputs) && original.onBehalfOfId !== ctx.identity.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This proposal is private to its own owner" });
+      }
       const isSignalEvidenceProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -4917,18 +5694,31 @@ export const appRouter = t.router({
         return { profile: row };
       }),
 
-    learningState: procedure
+    /** TASK-010 review round-5 item 1 — this legacy onboarding surface must
+     * NEVER leak `red_flag`/`preference_adjustment` content: it now (a)
+     * requires authentication + workspace membership (was a bare
+     * `procedure`, which only gates MUTATIONS, leaving this QUERY reachable
+     * unauthenticated), (b) is owner-scoped to the REAL caller
+     * (`ctx.identity.id`), never the shared `pilotUserId` constant, and (c)
+     * whitelists the returned `kind`s to ONLY the three this surface has
+     * ever displayed (`onboarding_preference`/`reflection_schedule`/
+     * `trust_capture` — confirmed against SettingsPage.tsx's own
+     * `LearningSection`, which never reads anything else from this query) —
+     * a red-flag correction or its synthesized preference adjustment must
+     * only ever be read through the owner-scoped `redFlag.*` surface. */
+    learningState: authenticatedProcedure
         .input(z.object({ workspaceId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
           const rows = await ctx.wiring.memoryStore.retrieve(
             { limit: 100 },
-            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
+            { workspaceId: input.workspaceId, userId: ctx.identity.id },
           );
           return {
             memories: rows
               .map((row) => ({ row, value: parseLearningMemory(row.content) }))
-              .filter((item): item is typeof item & { value: LearningMemoryContent } => item.value !== null),
+              .filter((item): item is typeof item & { value: LegacyOnboardingMemoryContent } => isLegacyOnboardingContent(item.value)),
           };
         }),
 
@@ -5040,15 +5830,30 @@ export const appRouter = t.router({
           });
         }),
 
-    forgetMemory: procedure
+    /** TASK-010 review round-5 item 1 — owner-scoped + kind-whitelisted, the
+     * same rationale as `learningState` above: this generic delete must
+     * REJECT a `red_flag`/`preference_adjustment` Memory id outright (not
+     * silently no-op) so all correction deletion is forced through
+     * `redFlag.forget`, which withdraws/revokes the linked governed
+     * proposal BEFORE deleting — a bare `memoryStore.forget` here would
+     * delete the evidence while leaving an approvable/appliable proposal
+     * referencing nothing. */
+    forgetMemory: authenticatedProcedure
         .input(z.object({ workspaceId: z.string().min(1), memoryId: z.string().uuid() }))
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
+          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          const auth = { workspaceId: input.workspaceId, userId: ctx.identity.id };
+          const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
+          const value = current && parseLearningMemory(current.content);
+          if (current && (isRedFlagContent(value) || isPreferenceAdjustmentContent(value))) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Red-flag corrections must be deleted via redFlag.forget, which withdraws their governed proposal first",
+            });
+          }
           return {
-            forgotten: await ctx.wiring.memoryStore.forget(input.memoryId, {
-              workspaceId: input.workspaceId,
-              userId: ctx.wiring.pilotUserId,
-            }),
+            forgotten: await ctx.wiring.memoryStore.forget(input.memoryId, auth),
           };
         }),
 
@@ -5094,6 +5899,663 @@ export const appRouter = t.router({
             ? "Demo verification passed — no SMS was actually sent."
             : "Enter any 6-digit code (demo mode — no real SMS is sent).",
         };
+      }),
+  }),
+
+  /**
+   * TASK-010 — platform red-flag correction feedback (docs/raw/ui-
+   * architecture-rules-2026-07.md §5d, docs/glossary.md "Red Flag"). One
+   * platform-wide feedback primitive, separate from onboarding's learning
+   * controls above even though it reuses the exact same MemoryStore
+   * mechanism — a Red Flag targets ANY eligible data cell or rendered
+   * bullet across Modules, not onboarding-specific state.
+   *
+   * Every procedure here is `authenticatedProcedure` + `assertMembership` —
+   * review remediation item 1: a red flag is always `scope: "private"`, so
+   * its owner MUST be the real caller (`ctx.identity.id`), never the
+   * pilot/demo constant. `get()`'s own authority-scoped visibility predicate
+   * (private → owner-only) is the PRIMARY defense — passing `ctx.identity.id`
+   * as the auth-scope `userId` everywhere means a non-owner's `get()` already
+   * returns `null` (indistinguishable from "doesn't exist," avoiding an IDOR
+   * existence oracle) — and every mutation ALSO explicitly re-asserts
+   * `ownerUserId === ctx.identity.id` and the parsed `kind === "red_flag"`
+   * before acting, so `forget`/`clear`/`reopen`/`updateReason` can never be
+   * pointed at an arbitrary Memory id belonging to someone else or to an
+   * unrelated Memory kind.
+   *
+   * `create` writes the Human's own correction directly via `memoryStore`
+   * (never routed through `pipeline.propose`, per TASK-007's TASK-010
+   * handoff §1) and ALSO starts the separate, governed learning step in the
+   * same request (§2 of that handoff): a `pipeline.propose` call, actor
+   * `LEARNING_AGENT`, resolved through a real Goal/Task assignment, that
+   * stages a reviewable (never auto-applied) preference-adjustment
+   * proposal citing the flag as evidence — but see the PRIVACY note on
+   * `create` below (review item 2): the ledger entry itself never carries
+   * the flag's private detail.
+   */
+  redFlag: t.router({
+    /**
+     * review item 3 (saga/idempotency): `operationId` is a client-generated
+     * UUID reused across retries of the SAME logical flagging action.
+     * Every id this handler creates (the Memory, the governed Task, the
+     * ledger proposal) is DERIVED deterministically from it, so a retried
+     * call converges onto the same rows instead of duplicating them. The
+     * Human's correction Memory (step 1) and the governed learning attempt
+     * (step 2) are tracked as separate idempotent steps: if step 1
+     * previously succeeded but step 2 previously failed/never ran
+     * (`learningStatus` still `"none"`), a retry RESUMES at step 2 rather
+     * than silently reporting stale state — "Memory is Human truth and may
+     * survive learning failure," but the learning attempt itself is
+     * retryable evidence-bearing state, not silently dropped.
+     */
+    create: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          operationId: z.string().uuid(),
+          anchor: redFlagAnchorInput,
+          renderedValue: z.string().max(2000),
+          renderedVersion: z.string().max(200).optional(),
+          reason: z.string().trim().max(500).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const authScope = { workspaceId: input.workspaceId, userId: ownerId };
+        await validateAnchorTarget(ctx.wiring, input.workspaceId, ownerId, input.anchor);
+        const anchorKey = anchorLineageKey(input.anchor);
+        const memoryId = deterministicUuid(`redflag-memory:${ownerId}:${input.operationId}`);
+
+        // Step 1 (idempotent): the Human's own correction. Never routed
+        // through the Agent/Skill pipeline.
+        let flagged = await ctx.wiring.memoryStore.get(memoryId, authScope);
+        if (flagged) {
+          const existingValue = parseLearningMemory(flagged.content);
+          if (
+            !isRedFlagContent(existingValue) ||
+            canonicalAnchorString(existingValue.anchor) !== canonicalAnchorString(input.anchor) ||
+            existingValue.renderedValue !== input.renderedValue
+          ) {
+            throw new TRPCError({ code: "CONFLICT", message: "operationId was already used for a different flag — generate a new one" });
+          }
+        } else {
+          const created = await ctx.wiring.memoryStore.casSupersede({
+            workspaceId: input.workspaceId,
+            ownerUserId: ownerId,
+            lineageKey: anchorKey,
+            expectedCurrentId: null,
+            next: {
+              id: memoryId,
+              workspaceId: input.workspaceId,
+              type: "semantic",
+              subjectElementId: anchorKey,
+              scope: "private",
+              content: JSON.stringify({
+                kind: "red_flag",
+                anchor: input.anchor,
+                renderedValue: input.renderedValue,
+                ...(input.renderedVersion ? { renderedVersion: input.renderedVersion } : {}),
+                ...(input.reason ? { reason: input.reason } : {}),
+                status: "open",
+                learningStatus: "none",
+              } satisfies LearningMemoryContent),
+              sourceRefType: "feedback",
+              trustOrigin: "user_content",
+              confidence: 1,
+              plane: "local",
+              createdBy: ownerId,
+              ownerUserId: ownerId,
+              createdAt: monotonicRedFlagNowISO(),
+            },
+          });
+          if (!created) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "This target already has an open red flag — refresh and use clear/reopen instead of creating a new one",
+            });
+          }
+          flagged = created;
+        }
+
+        const currentValue0 = parseLearningMemory(flagged.content);
+        if (!isRedFlagContent(currentValue0)) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "red flag memory content was not the expected shape" });
+        }
+
+        // Step 2 (idempotent, resumable): the SEPARATE governed learning
+        // step, shared with `reopen` (review round-4 item 4: reopening a
+        // withdrawn/dismissed flag must also start a FRESH governed review).
+        const currentRow = (await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, anchorKey)) ?? flagged;
+        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, currentRow, flagged.id, `${ownerId}:${input.operationId}`) };
+      }),
+
+    /** TASK-010 review round-5 item 4 — "exposes retry for failed
+     * pre-proposal state." A `learningStatus: "failed"` flag means the
+     * governed learning step itself errored BEFORE ever reaching the
+     * ledger (never the Human's own correction, which already succeeded in
+     * step 1) — the only prior way to retry it was Clear-then-Reopen, which
+     * needlessly forks the flag's own open/cleared history just to retry an
+     * unrelated step. This re-attempts the SAME idempotent governed step
+     * directly on the CURRENT (still-open-or-cleared) version, seeded by a
+     * fresh client-supplied `operationId` (stable across a client's own
+     * retry-of-a-retry, mirroring `create`'s idempotency contract) rather
+     * than the original attempt's seed — safe because a genuinely "failed"
+     * outcome never reached ledger append for its OLD seed (review item 4's
+     * `attemptGovernedLearningStep` fix), so there is nothing to reconcile
+     * against there; a fresh seed simply starts over cleanly. */
+    retryLearning: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid(), operationId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        if (value.learningStatus !== "failed") {
+          throw new TRPCError({ code: "CONFLICT", message: `Only a failed learning step can be retried (current status: "${value.learningStatus}")` });
+        }
+        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, current, current.id, `${ownerId}:retry:${input.flagId}:${input.operationId}`) };
+      }),
+
+    /** Reversible: appends a new row tagged "cleared" — the flagged Memory's
+     * full history (including the original anchor/value/reason) stays intact,
+     * never deleted (glossary: "It never silently changes source data").
+     * CAS-protected (review item 4): a stale `flagId` (already superseded by
+     * some other action) is rejected with CONFLICT rather than silently
+     * forking the lineage. */
+    clear: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        // review round-4 items 1+4: withdraw/revoke BEFORE flipping status —
+        // if either throws, NOTHING here has mutated yet (the flag stays
+        // exactly as it was), so the caller sees a clean error and can
+        // simply retry `clear` again; both helpers are themselves
+        // idempotent (swallow "nothing left to withdraw"/"already
+        // revoked"), so a retry after a partial failure converges rather
+        // than double-acting or erroring. This closes "do not leave a
+        // cleared flag with an approvable proposal on withdrawal failure."
+        if (value.proposalId) await withdrawPendingRedFlagProposal(ctx.wiring, ctx.run, value.proposalId, ownerId);
+        if (value.preferenceAdjustmentId) {
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, value.preferenceAdjustmentId);
+        }
+
+        const updated = await ctx.wiring.memoryStore.casSupersede({
+          workspaceId: input.workspaceId,
+          ownerUserId: ownerId,
+          lineageKey: current.subjectElementId!,
+          expectedCurrentId: input.flagId,
+          next: {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({
+              ...value,
+              status: "cleared",
+              // review round-4 item 4 ("set accurate learning state"): a
+              // withdrawn/revoked correction is no longer actionable —
+              // reflect that directly on the flag itself, not only on the
+              // ledger/preference-adjustment side an owner would otherwise
+              // have to cross-reference to notice.
+              ...(value.proposalId || value.preferenceAdjustmentId ? { learningStatus: "dismissed" as const } : {}),
+            } satisfies LearningMemoryContent),
+            trustOrigin: "user_content",
+            createdBy: ownerId,
+            createdAt: monotonicRedFlagNowISO(),
+          },
+        });
+        if (!updated) {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
+        }
+        return { memory: updated };
+      }),
+
+    /** The "undo" for `clear` — symmetric CAS-protected supersede back to
+     * "open." Review round-4 item 4: reopening starts a FRESH governed
+     * review for this newly-active version — it never resurrects a prior
+     * (vetoed/withdrawn/revoked) proposal, which stays permanently resolved
+     * exactly as it was. */
+    reopen: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        const reopenedId = uuidv7();
+        // Reopening starts a FRESH governed review — clear every field the
+        // OLD (resolved) proposal/preference-adjustment left behind rather
+        // than nulling them (`exactOptionalPropertyTypes` forbids setting
+        // an optional field to `undefined` explicitly).
+        const { proposalId: _staleProposalId, preferenceAdjustmentId: _staleAdjustmentId, learningFailureReason: _staleFailureReason, ...valueBase } = value;
+        const updated = await ctx.wiring.memoryStore.casSupersede({
+          workspaceId: input.workspaceId,
+          ownerUserId: ownerId,
+          lineageKey: current.subjectElementId!,
+          expectedCurrentId: input.flagId,
+          next: {
+            ...current,
+            id: reopenedId,
+            content: JSON.stringify({
+              ...valueBase,
+              status: "open",
+              learningStatus: "none",
+            } satisfies LearningMemoryContent),
+            trustOrigin: "user_content",
+            createdBy: ownerId,
+            createdAt: monotonicRedFlagNowISO(),
+          },
+        });
+        if (!updated) {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
+        }
+        return {
+          memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, updated, updated.id, `${ownerId}:reopen:${reopenedId}`),
+        };
+      }),
+
+    /** The "edit" half of inspect/edit/clear (§5d). CAS-protected like
+     * clear/reopen above. */
+    updateReason: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        if (value.reason === input.reason) return { memory: current }; // no-op: nothing changed, don't fork the lineage for free
+        const updated = await ctx.wiring.memoryStore.casSupersede({
+          workspaceId: input.workspaceId,
+          ownerUserId: ownerId,
+          lineageKey: current.subjectElementId!,
+          expectedCurrentId: input.flagId,
+          next: {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({ ...value, reason: input.reason } satisfies LearningMemoryContent),
+            trustOrigin: "user_content",
+            createdBy: ownerId,
+            createdAt: monotonicRedFlagNowISO(),
+          },
+        });
+        if (!updated) {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
+        }
+        return { memory: updated };
+      }),
+
+    /** TASK-010 review round-4 item 1 — the SEPARATE, Human-authorized
+     * enactment path: once the flag owner has approved the governed
+     * proposal (via `action.decide`), THIS endpoint (never the Agent, never
+     * `pipeline.propose`) applies the actual correction — flipping the
+     * private PreferenceAdjustment to "applied" and the flag's own
+     * `learningStatus` to "applied," the ONLY state where `RedFlagControl`
+     * visibly withholds the flagged rendered value. Idempotent (already-
+     * applied is a no-op); fully reversible via `revokeCorrection`. */
+    enactCorrection: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        if (value.learningStatus === "applied") return { memory: current };
+        if (!value.proposalId || !value.preferenceAdjustmentId || value.learningStatus !== "proposed") {
+          throw new TRPCError({ code: "CONFLICT", message: `This correction cannot be enacted from status "${value.learningStatus}"` });
+        }
+        const decision = await ctx.wiring.ledger.decisionFor(value.proposalId);
+        if (!decision || decision.userDecision !== "approve") {
+          throw new TRPCError({ code: "CONFLICT", message: "This correction has not been approved yet — approve it in Approvals first" });
+        }
+        const adjustment = await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, value.preferenceAdjustmentId);
+        const adjustmentValue = adjustment && parseLearningMemory(adjustment.content);
+        if (!adjustment || !isPreferenceAdjustmentContent(adjustmentValue) || adjustment.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "the linked preference adjustment could not be found" });
+        }
+        if (adjustmentValue.status === "revoked") {
+          throw new TRPCError({ code: "CONFLICT", message: "This correction was permanently revoked — reopen the flag to submit a new one" });
+        }
+        if (adjustmentValue.status !== "applied") {
+          const appliedAdjustment = await ctx.wiring.memoryStore.casSupersede({
+            workspaceId: input.workspaceId,
+            ownerUserId: ownerId,
+            lineageKey: adjustment.subjectElementId!,
+            expectedCurrentId: adjustment.id,
+            next: {
+              ...adjustment,
+              id: uuidv7(),
+              content: JSON.stringify({ ...adjustmentValue, status: "applied", appliedAt: new Date().toISOString() } satisfies LearningMemoryContent),
+              trustOrigin: "user_content",
+              createdBy: ownerId,
+              createdAt: monotonicRedFlagNowISO(),
+            },
+          });
+          if (!appliedAdjustment) {
+            throw new TRPCError({ code: "CONFLICT", message: "This correction was already changed — refresh and try again" });
+          }
+        }
+        const updatedFlag = await ctx.wiring.memoryStore.casSupersede({
+          workspaceId: input.workspaceId,
+          ownerUserId: ownerId,
+          lineageKey: current.subjectElementId!,
+          expectedCurrentId: input.flagId,
+          next: {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({ ...value, learningStatus: "applied" } satisfies LearningMemoryContent),
+            trustOrigin: "user_content",
+            createdBy: ownerId,
+            createdAt: monotonicRedFlagNowISO(),
+          },
+        });
+        if (!updatedFlag) {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
+        }
+        return { memory: updatedFlag };
+      }),
+
+    /** The "undo" for `enactCorrection` — proves review round-4 item 1's
+     * "behavior changes only after approval and can be undone." Terminally
+     * revokes the linked PreferenceAdjustment (never re-enactable — the
+     * owner must `clear`+`reopen` to submit a fresh correction) and reverts
+     * the flag's `learningStatus` to "dismissed," the same terminal state
+     * `clear`'s own withdrawal path uses. */
+    revokeCorrection: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        if (value.learningStatus !== "applied") {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag has no applied correction to revoke" });
+        }
+        if (value.preferenceAdjustmentId) {
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, value.preferenceAdjustmentId);
+        }
+        const updatedFlag = await ctx.wiring.memoryStore.casSupersede({
+          workspaceId: input.workspaceId,
+          ownerUserId: ownerId,
+          lineageKey: current.subjectElementId!,
+          expectedCurrentId: input.flagId,
+          next: {
+            ...current,
+            id: uuidv7(),
+            content: JSON.stringify({ ...value, learningStatus: "dismissed" } satisfies LearningMemoryContent),
+            trustOrigin: "user_content",
+            createdBy: ownerId,
+            createdAt: monotonicRedFlagNowISO(),
+          },
+        });
+        if (!updatedFlag) {
+          throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
+        }
+        return { memory: updatedFlag };
+      }),
+
+    /** Genuine personal-data deletion — distinct from `clear` (a reversible
+     * status change). Rejects arbitrary/foreign/wrong-kind Memory ids
+     * (review item 1) and, before deleting, enumerates EVERY version across
+     * the full lineage (review round-4 item 5 — `forget` deletes the whole
+     * lineage, so a still-pending/applied proposal cited by an OLDER or
+     * NEWER version than whichever id the caller happened to pass must
+     * still be withdrawn/revoked) and withdraws/revokes every distinct
+     * proposal/preference-adjustment id found, so nothing actionable can
+     * survive referencing evidence that no longer exists. */
+    forget: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+
+        const proposalIds = new Set<string>();
+        const preferenceAdjustmentIds = new Set<string>();
+        let cursor: { createdAt: string; id: string } | undefined;
+        while (true) {
+          const page = await ctx.wiring.memoryStore.retrieve(
+            { subjectElementId: current.subjectElementId!, includeSuperseded: true, order: "asc", limit: 200, ...(cursor ? { cursor } : {}) },
+            auth,
+          );
+          for (const row of page) {
+            const v = parseLearningMemory(row.content);
+            if (isRedFlagContent(v)) {
+              if (v.proposalId) proposalIds.add(v.proposalId);
+              if (v.preferenceAdjustmentId) preferenceAdjustmentIds.add(v.preferenceAdjustmentId);
+            }
+          }
+          if (page.length < 200) break;
+          const last = page[page.length - 1]!;
+          cursor = { createdAt: last.createdAt, id: last.id };
+        }
+        for (const proposalId of proposalIds) {
+          await withdrawPendingRedFlagProposal(ctx.wiring, ctx.run, proposalId, ownerId);
+        }
+        for (const preferenceAdjustmentId of preferenceAdjustmentIds) {
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, preferenceAdjustmentId);
+        }
+        const forgotten = await ctx.wiring.memoryStore.forget(input.flagId, auth);
+        return { forgotten };
+      }),
+
+    /** Current (non-superseded) flag for ONE exact anchor — an indexed
+     * `subjectElementId` equality lookup (review items 5+6+7: the
+     * deterministic anchor lineage key makes this O(1)-ish instead of a
+     * full-table content scan). Powers a single cell/bullet's own
+     * hover/focus state when a batched `listForScope` fetch isn't already
+     * available. */
+    listForAnchor: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1), anchor: redFlagAnchorInput }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const rows = await ctx.wiring.memoryStore.retrieve(
+          { subjectElementId: anchorLineageKey(input.anchor), sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }], limit: 1 },
+          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+        );
+        const flags = rows
+          .map((row) => ({ row, value: parseLearningMemory(row.content) }))
+          .filter((item): item is { row: (typeof rows)[number]; value: Extract<LearningMemoryContent, { kind: "red_flag" }> } => isRedFlagContent(item.value));
+        return { flags };
+      }),
+
+    /**
+     * Current flags across a whole scope (a Module, optionally narrowed to
+     * one Database/table, or one record/file/result's bullets) in ONE call
+     * — review item 7: the primitive a `RedFlagProvider` batches an entire
+     * visible table/page's worth of cells/bullets through, instead of one
+     * `listForAnchor` query per rendered cell. The dominant reducers
+     * (`kind: "red_flag"`, `anchor.moduleId`) are pushed into the DB query
+     * itself via `contentPathEquals` (review round-4 item 7) rather than
+     * scanned app-side over an unbounded/artificially-capped page — the
+     * `kind` predicate specifically excludes the SEPARATE
+     * `preference_adjustment` Memories the governed step synthesizes (review
+     * round-4 item 1), which also carry `sourceRefType: "feedback"` and the
+     * SAME `anchor` shape as their originating flag, so without it they'd
+     * silently interleave with (and, at the `listAll` cursor boundary,
+     * crowd out) the actual red_flag rows a caller asked for. The
+     * remaining, finer-grained database/record/file/result narrowing stays
+     * app-side over that already-scoped (typically small) result set, since
+     * it needs an OR across the cell/bullet shapes a single equality
+     * predicate can't express.
+     */
+    listForScope: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          moduleId: z.string().min(1),
+          databaseId: z.string().min(1).optional(),
+          recordId: z.string().min(1).optional(),
+          fileId: z.string().min(1).optional(),
+          resultId: z.string().min(1).optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const rows = await ctx.wiring.memoryStore.retrieve(
+          {
+            sourceRefType: "feedback",
+            contentPathEquals: [
+              { path: "kind", equals: "red_flag" },
+              { path: "anchor.moduleId", equals: input.moduleId },
+            ],
+          },
+          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+        );
+        const flags = rows
+          .map((row) => ({ row, value: parseLearningMemory(row.content) }))
+          .filter((item): item is { row: (typeof rows)[number]; value: Extract<LearningMemoryContent, { kind: "red_flag" }> } => isRedFlagContent(item.value))
+          .filter((item) => {
+            const a = item.value.anchor;
+            if (input.databaseId !== undefined && (a.kind !== "cell" || a.databaseId !== input.databaseId)) return false;
+            if (input.recordId !== undefined) {
+              const matchesRecord = (a.kind === "cell" && a.recordId === input.recordId) || (a.kind === "bullet" && a.target.type === "record" && a.target.recordId === input.recordId);
+              if (!matchesRecord) return false;
+            }
+            if (input.fileId !== undefined && !(a.kind === "bullet" && a.target.type === "file" && a.target.fileId === input.fileId)) return false;
+            if (input.resultId !== undefined && !(a.kind === "bullet" && a.target.type === "result" && a.target.resultId === input.resultId)) return false;
+            return true;
+          });
+        return { flags };
+      }),
+
+    /**
+     * The audit/inspect surface — "inspect the audit evidence" from the
+     * Prototype test. Server-side filtered to `sourceRefType: "feedback"`,
+     * `kind: "red_flag"`, AND (when requested) `status` — ALL pushed into
+     * the store query BEFORE `limit` (review item 6 + round-4 item 1's
+     * preference-adjustment exclusion + round-5 item 9: the `status`
+     * predicate was previously applied app-side AFTER the page was already
+     * capped, which could silently under-fill or empty a page whenever it
+     * happened to be dominated by the OTHER status) — with a REAL keyset
+     * `(createdAt, id)` cursor (review round-4 item 8) immune to a flag
+     * inserted/superseded between page fetches.
+     */
+    listAll: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          status: z.enum(["open", "cleared"]).optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+          cursor: z.string().optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const cursor = decodeRedFlagCursor(input.cursor);
+        const rows = await ctx.wiring.memoryStore.retrieve(
+          {
+            sourceRefType: "feedback",
+            contentPathEquals: [
+              { path: "kind", equals: "red_flag" },
+              ...(input.status ? [{ path: "status", equals: input.status }] : []),
+            ],
+            order: "desc",
+            limit: input.limit,
+            ...(cursor ? { cursor } : {}),
+          },
+          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+        );
+        const flags = rows
+          .map((row) => ({ row, value: parseLearningMemory(row.content) }))
+          .filter((item): item is { row: (typeof rows)[number]; value: Extract<LearningMemoryContent, { kind: "red_flag" }> } => isRedFlagContent(item.value));
+        const lastRow = rows[rows.length - 1];
+        const nextCursor = rows.length === input.limit && lastRow ? encodeRedFlagCursor(lastRow) : null;
+        return { flags, nextCursor };
+      }),
+
+    /** Explicit lineage/history for one flag — every create/clear/reopen/
+     * updateReason/learning-outcome version, oldest first, including
+     * superseded rows (review item 6's "explicit lineage history"). A REAL
+     * keyset cursor (review round-4 item 8) removes the prior 200-version
+     * silent cap: a lineage with more versions than one page simply returns
+     * a `nextCursor` rather than truncating. */
+    history: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          flagId: z.string().uuid(),
+          limit: z.number().int().min(1).max(200).default(100),
+          cursor: z.string().optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const ownerId = ctx.identity.id;
+        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
+        const value = current && parseLearningMemory(current.content);
+        if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
+        const cursor = decodeRedFlagCursor(input.cursor);
+        const rows = await ctx.wiring.memoryStore.retrieve(
+          {
+            subjectElementId: current.subjectElementId!,
+            includeSuperseded: true,
+            order: "asc",
+            // review round-7: this query is scoped to ONE lineage
+            // (`subjectElementId` above), so `lineageRevision` ordering is
+            // valid here (see MemoryQuery.orderBy's doc) and replaces the
+            // formerly process-local `monotonicRedFlagNowISO` counter for
+            // "which version of THIS lineage came first" — durable across
+            // any number of server processes/restarts. A legacy row written
+            // before this column existed still sorts oldest (its revision
+            // is `null`, always treated as older than any allocated one).
+            orderBy: "lineageRevision",
+            limit: input.limit,
+            ...(cursor ? { cursor } : {}),
+          },
+          auth,
+        );
+        const versions = rows
+          .map((row) => ({ row, value: parseLearningMemory(row.content) }))
+          .filter((item): item is { row: (typeof rows)[number]; value: Extract<LearningMemoryContent, { kind: "red_flag" }> } => isRedFlagContent(item.value));
+        const lastRow = rows[rows.length - 1];
+        const nextCursor = rows.length === input.limit && lastRow ? encodeRedFlagCursor(lastRow) : null;
+        return { versions, nextCursor };
       }),
   }),
 

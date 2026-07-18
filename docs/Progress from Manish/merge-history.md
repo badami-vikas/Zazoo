@@ -4,7 +4,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- `main` and `origin/main`: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`
+- `main` and `origin/main` as of this package's creation: `631aa9f79a90e151eb74a5c3d74ec4319898c8f7`.
+- Updated 2026-07-18 after TASK-010's round-7 merge: `main` and `origin/main` are now `e532b158864ad870b8252912561d151f809398ef` (fast-forward from `631aa9f` through `d75d26f` TASK-003 certification and `e532b15` TASK-010 post-RM4 migration — see the landed-history table below for both).
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -23,6 +24,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `590cca6` | TASK-008 RM4 Relation contract merge from source head `ff98c20`. |
 | `71f19d5` | RM4 evidence/codemaps and Task Manager parser/projection repair. |
 | `631aa9f` | Latest combined roadmap/provider documentation baseline. |
+| `d75d26f` | TASK-003 human physical-input certification merge (unrelated to red-flag work). |
+| `e532b15` | TASK-010 round-7 post-RM4 migration `0016_new_ink`: JobPilot flag backfill+constraint, owner-aware `memories` RLS, DB-backed `lineage_revision` wired end-to-end; merged fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback` after two intermediate `origin/main` merges (RM4, then the TASK-003 recovery/cert chain) reconciled surgically. |
 
 ## Historical source branches
 
@@ -32,7 +35,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-008 initial source/audit: `manishsbhoopalam8498-relationship-module-consolidation` at `db2b19c`; not safe to merge wholesale.
 - TASK-008 RM4 source: `manishsbhoopalam8498-implement-rm4-relations` at `ff98c20`; merged, do not merge again.
 - TASK-009 planning source: `manishsbhoopalam8498-plan-second-brain-graph` at `3b51aaf`; handoff merged, no implementation branch.
-- TASK-010 prior clean pushed milestone: `24e4eab`; current local head is later `58df729` plus uncommitted migration work.
+- TASK-010 prior clean pushed milestone: `24e4eab`; final round-7 head merged into `main` as `e532b15` (branch `manishsbhoopalam8498-platform-red-flag-feedback` remains at the same commit, pushed).
 - TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
 - TASK-006 durability commits: `91a0462` and `7f93f03`; later security/OAuth/desktop work remains uncommitted.
 
@@ -41,11 +44,11 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0011` and `0013`: TASK-004.
 - `0014`: TASK-007.
 - `0015_task008_relation_contract`: TASK-008 RM4.
-- Pending `0016_new_ink`: TASK-010 worktree only; not landed.
+- `0016_new_ink`: TASK-010, LANDED (backfill/constraint for JobPilot flags, owner-aware `memories` RLS, `lineage_revision` column) — merged into `main` as `e532b15`.
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration currently required.
 
-Never allocate a competing `0016` while TASK-010’s migration exists.
+Next new migration allocates `0017`; do not reuse `0016`.
 
 ## Approval and ADR coordination
 

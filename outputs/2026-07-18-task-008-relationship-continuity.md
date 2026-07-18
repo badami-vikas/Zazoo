@@ -32,7 +32,7 @@ Central-review hardening additionally:
 
 ## Architecture
 
-No numbered migration was required or allocated. TASK-010 still owns migration `0016`.
+No numbered migration was required or allocated by TASK-008. The normal `origin/main` merge preserves TASK-010's migration `0016` unchanged.
 
 The implementation reuses:
 
@@ -47,16 +47,16 @@ ADR-115 records why continuity state remains in existing Memory/Event/Relation s
 
 ## Validation
 
-- Core full suite: 423 passed.
-- DB full suite: 134 passed.
+- Core full suite: 430 passed.
+- DB full suite (serial PGlite execution): 154 passed.
 - Google integration full suite: 39 passed.
-- API full suite: 177 passed.
-- Web full suite: 54 passed.
-- Affected total: 827 passed.
+- API full suite: 218 passed.
+- Web full suite: 69 passed.
+- Affected total: 910 passed.
 - Monorepo typecheck and build passed.
 - Changed-file lint, runtime no-dummy, and diff integrity passed.
-- Independent correctness review found one stale DealPilot assertion after browser proposals became Local-Plane-only; the assertion now proves a client-selected Cloud Plane is ignored, and the full API suite passes.
-- Independent security review: no merge-blocking finding. It confirmed owner/workspace pruning, private Event Relation storage, Google/capture authority, OAuth state, replay boundaries, and bounded reads. General Memory table isolation remains the pre-existing application-filter posture; this change adds no new direct/service-role access.
+- Pre-merge correctness review found one stale DealPilot assertion after browser proposals became Local-Plane-only; the corrected assertion proves a client-selected Cloud Plane is ignored. Final post-merge correctness review found no blocker across the combined snapshot/keyset, Memory RLS/CAS, ledger-owner, and API-decision seams.
+- Final independent security review found no vulnerability or merge blocker. It confirmed owner/workspace pruning, private Event Relation storage, Google/capture authority, OAuth state, replay boundaries, bounded reads, and preservation of TASK-010's unchanged owner-aware Memory RLS/direct-role revocation.
 
 Headless Chrome exercised the live in-memory API and web app with no seeded Records. The Relationship People Page rendered its honest empty state, bounded intake/identity review, Files Section, governed create/source Actions, and responsive Module navigation at both viewports:
 

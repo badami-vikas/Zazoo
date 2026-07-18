@@ -319,6 +319,85 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
       }
     });
 
+    test("ledger: TASK-010 review round-6 — a red-flag correction proposal (resourceType 'signal', inputs.visibility 'private') is owner-scoped the SAME way a Relation proposal is, and neither type's privacy leaks into the other's", async () => {
+      const { db, close } = await createLocalDb();
+      try {
+        const [ws] = await db
+          .insert(schema.workspaces)
+          .values({ name: "test_fixture_mixed_private_types" })
+          .returning({ id: schema.workspaces.id });
+        assert.ok(ws);
+        const redFlagOwner = "52000000-0000-4000-8000-000000000001";
+        const relationOwner = "52000000-0000-4000-8000-000000000002";
+        const otherMember = "52000000-0000-4000-8000-000000000003";
+        const store = new DrizzleLedgerStore(db);
+        // A red-flag correction proposal — TASK-010's own private marker, never "relation".
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000001",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: redFlagOwner,
+          action: "write",
+          resourceType: "signal",
+          inputs: { kind: "red_flag_correction_proposal", visibility: "private", governed: true, applied: false, summary: "x" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:02.000Z",
+        });
+        // A Relation proposal — RM4's own private marker, unrelated to inputs.visibility.
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000002",
+          workspaceId: ws.id,
+          actorType: "user",
+          actorId: relationOwner,
+          action: "write",
+          resourceType: "relation",
+          inputs: { kind: "relationship_signal_evidence" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:01.000Z",
+        });
+        // A genuinely public/shared proposal — neither type, no visibility marker at all.
+        await store.append({
+          id: "53000000-0000-4000-8000-000000000003",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          action: "write",
+          resourceType: "signal",
+          inputs: {},
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-18T00:00:00.000Z",
+        });
+
+        const redFlagOwnerView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: redFlagOwner });
+        assert.deepEqual(
+          redFlagOwnerView.items.map((e) => e.id).sort(),
+          ["53000000-0000-4000-8000-000000000001", "53000000-0000-4000-8000-000000000003"],
+          "the red-flag owner sees their OWN red-flag proposal plus the shared one — never the relation proposal",
+        );
+
+        const relationOwnerView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: relationOwner });
+        assert.deepEqual(
+          relationOwnerView.items.map((e) => e.id).sort(),
+          ["53000000-0000-4000-8000-000000000002", "53000000-0000-4000-8000-000000000003"],
+          "the relation owner sees their OWN relation proposal plus the shared one — never the red-flag proposal",
+        );
+
+        const otherView = await store.listPending(ws.id, { limit: 10, offset: 0, privateOwnerUserId: otherMember });
+        assert.deepEqual(
+          otherView.items.map((e) => e.id),
+          ["53000000-0000-4000-8000-000000000003"],
+          "a THIRD member sees only the genuinely shared proposal — neither private type",
+        );
+      } finally {
+        await close();
+      }
+    });
+
     test("ledger: JSON proposal ids cannot resolve or hide another proposal", async () => {
       const { db, close } = await createLocalDb();
       try {
