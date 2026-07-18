@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T23:37:49.283Z",
+  "generatedAt": "2026-07-18T12:26:39.632Z",
   "items": [
     {
       "id": "TASK-001",
@@ -727,6 +727,32 @@
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 347,
       "rank": 23
+    },
+    {
+      "id": "TASK-024",
+      "title": "TASK-024 — Path-scoped Copilot instructions for developed Modules",
+      "status": "completed",
+      "priority": "P2",
+      "horizon": "Convergence",
+      "outcome": "Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.",
+      "prototypeTest": "Inspect every `.github/instructions/*.instructions.md` file; each has valid `applyTo` frontmatter covering its Module's implementation paths, points to `CLAUDE.md` as canonical, captures the Module's load-bearing invariants, and explicitly prevents known design regressions without duplicating full plans.",
+      "scope": [
+        "`.github/instructions/module-development.instructions.md`",
+        "developed Module adapters for DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk"
+      ],
+      "evidence": [
+        "user problem statement 2026-07-18 — future Copilot sessions currently risk creating whole new designs or patterns"
+      ],
+      "requests": [
+        "module instruction-file directive 2026-07-18"
+      ],
+      "approval": "AP-040 applied",
+      "dependencies": [],
+      "canonicalStatus": "done",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 360,
+      "rank": 24
     }
   ]
 }

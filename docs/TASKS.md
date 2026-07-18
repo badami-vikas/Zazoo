@@ -358,7 +358,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Path-scoped Copilot instructions for developed Modules
 - ID: TASK-024
-- Status: in_progress
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Future Copilot sessions editing a developed Module automatically receive its established architecture, trust boundaries, reuse rules, and canonical design pointers instead of inventing a parallel pattern.
@@ -368,3 +368,4 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: module instruction-file directive 2026-07-18
 - Approval: AP-040 applied
 - Dependencies: none
+- Verification: 2026-07-18 all six instruction files passed frontmatter/canonical-pointer/path-glob validation; every adapter matched current implementation paths; the regenerated Task Manager projection contains all 24 canonical tasks; `@bridge/web` passed 49/49 tests.

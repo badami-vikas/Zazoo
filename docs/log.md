@@ -1676,3 +1676,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Compared all reachable refs and landed `main` history by author identity, additions/deletions, unique files, active days, and explicit Claude/Copilot coauthor trailers.
 - Found lower cumulative Manish churn but higher time-normalized current churn; kept Vikas-authored and Claude-coauthored credits overlapping to avoid falsely assigning shared-commit lines.
 - Durable outcome: `outputs/2026-07-18-coding-pace-comparison.md`.
+
+# 2026-07-18 — Path-scoped Copilot instructions for developed Modules
+- Added six `.github/instructions/*.instructions.md` adapters covering shared Module infrastructure, DealPilot, JobPilot, Relationship, Task Manager, and nested Helpdesk.
+- Kept `CLAUDE.md` as the sole canonical instruction source; adapters carry only path-scoped invariants and links to current wiki/task authority. Calendar is intentionally excluded as a Module because TASK-014/ADR-108 define it as a View kind.
+- Recorded TASK-024, AP-040, and ADR-113; regenerated the 24-task projection. Instruction validation passed and `@bridge/web` passed 49/49 tests.
+- Durable outcome: `outputs/2026-07-18-module-copilot-instructions.md`.
