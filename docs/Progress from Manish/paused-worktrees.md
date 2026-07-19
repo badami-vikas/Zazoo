@@ -15,8 +15,8 @@ snapshots, not immutable releases.
   merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
 - TASK-024 Pages publication `2306808` was reverted under AP-053 by `6b76466`; rollback run
   `29683837490` passed and `https://zazoo.me` serves the older experience.
-- TASK-012 VOCAB0–VOCAB1 landed through PR #26 from integration checkpoints `dd51797` and
-  `bd7de18`; no numbered migration was added.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26; VOCAB2 landed through PR #27 at `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration `0021`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -42,21 +42,35 @@ lint, no-runtime-dummy, release-native launch, and final independent review pass
 This worktree is historical after merge. Do not resume it, re-run its migration under another
 number, or merge it again.
 
-## TASK-012 vocabulary migration — VOCAB0–VOCAB1 MERGED 2026-07-19
+## TASK-012 vocabulary migration — VOCAB2 MERGED; VOCAB3 PARTIAL 2026-07-19
 
 - Planning session: `3179df41-d08d-4669-b73b-7788eff1f652`
 - Planning-only branch: `manishsbhoopalam8498-fuzzy-adventure` / `5775e5b`
-- Integration branch: `task-012-vocab01`
-- Vocabulary and Avatar checkpoint: `dd51797`
-- TASK-024 website reconciliation: `bd7de18`
-- Landing: PR #26
-- Migration: none
+- VOCAB0–VOCAB1: `task-012-vocab01`, checkpoints `dd51797`/`bd7de18`, PR #26
+- VOCAB2: `task-012-vocab2`, source `88be310`, merge `f6c4376`, PR #27
+- Partial VOCAB3 source: `task-012-vocab3`
+- Partial VOCAB3 checkpoint: `58573ba`
+- Migration: `0021_vocab3_organization_module_record`
 
-The first milestone ships the exact syntax-fingerprint CI ratchet, canonical visual-only
-Avatar/Onboarding contracts, one-version compatibility reads, and session-scoped desktop readiness.
-TASK-024's newer website identifiers were migrated with matching selectors instead of enlarging the
-7,515-occurrence baseline. TASK-012 remains `in_progress`; continue VOCAB2–VOCAB6 and compatibility
-deletion from current `main`. Do not resume or merge the planning-only branch as implementation.
+VOCAB2 is complete and merged. Checkpoint `58573ba` carries the incomplete VOCAB3 implementation:
+Organization/Module/Record code and schema contracts, migration `0021`, Local Plane compatibility,
+manifest root-collision protection, and historical migration-fixture build repair. Verified at the
+checkpoint: Module parser 14/14, migration 0016 3/3, migration 0021 1/1, Local PGlite 10/10, web
+typecheck, and monorepo build 22/22.
+
+Resume from current `main`. Remaining VOCAB3 work is explicit:
+
+1. Preserve verification of signed legacy Commons entries while adapting their manifests to
+   canonical vocabulary; retain existing content-hash pins and migrate/read the old registry
+   filesystem directory without hiding entries.
+2. Resolve vocabulary-ratchet fingerprint moves caused by VOCAB3 renames without increasing the
+   baseline. Current failures are later Artifact/Touchpoint/Helpdesk/Knowledge/Tool families plus
+   one technical Package occurrence; Workspace/Project/Initiative/Element families introduce none.
+3. Run the remaining targeted Module/Organization/Record API, store, RLS, and schema-hardening
+   tests, then required browser evidence.
+4. Only then mark VOCAB3 complete and continue VOCAB4–VOCAB6 plus compatibility deletion.
+
+Do not re-merge `58573ba` or resume the planning-only branch.
 
 ## TASK-006 durability — MERGED 2026-07-19
 

@@ -19,7 +19,10 @@ This file prevents a new session from re-merging historical branches or reusing 
   The TASK-024 source remains merged. No migration was added.
 - TASK-012 VOCAB0–VOCAB1 landed through PR #26 on 2026-07-19. Checkpoint `dd51797` carries the
   ratchet and Avatar/Onboarding migration; `bd7de18` reconciles TASK-024's later website source
-  without growing the baseline. TASK-012 remains in progress and added no migration.
+  without growing the baseline.
+- TASK-012 VOCAB2 landed through PR #27 from source `88be310`; merge commit `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration
+  `0021_vocab3_organization_module_record`. TASK-012 and VOCAB3 remain in progress.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -59,6 +62,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `6b76466` (Pages repository) | Reverted publication `2306808` under AP-053, restoring the pre-TASK-024 homepage while preserving `CNAME`, `consulting.html`, and `training.html`; Pages run `29683837490` passed. |
 | `dd51797` | TASK-012 VOCAB0–VOCAB1 integrated onto current `main`: syntax-aware vocabulary ratchet, canonical visual-only Avatar/Onboarding contracts, compatibility readers, and fail-closed desktop readiness. |
 | `bd7de18` | Reconciled TASK-024's newer website identifiers and paired CSS selectors without increasing TASK-012's 7,515-occurrence baseline. |
+| `88be310` | Completed TASK-012 VOCAB2 Automation/Engine migration on the source branch. |
+| `f6c4376` | Merged TASK-012 VOCAB2 through PR #27. |
+| `58573ba` | Partial TASK-012 VOCAB3 checkpoint: Organization/Module/Record runtime contracts, migration `0021`, Local Plane compatibility, and targeted regression fixes. Not a VOCAB3 completion claim. |
 
 ## Historical source branches
 
@@ -85,8 +91,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   checkpoint `69ffbff`, landed through PR #23 under AP-052. Merged and done; do not merge again.
 - TASK-012 planning source: `manishsbhoopalam8498-fuzzy-adventure` at `5775e5b`; planning-only,
   do not merge or resume as implementation. VOCAB0–VOCAB1 integration source:
-  `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. Continue the
-  still-open TASK-012 from current `main`.
+  `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. VOCAB2 source
+  `task-012-vocab2` at `88be310` landed through PR #27 (`f6c4376`). Partial VOCAB3 source
+  `task-012-vocab3` checkpoint `58573ba` is on `main`; continue the still-open task from `main`.
 
 ## Migration sequence
 
@@ -96,12 +103,19 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0016_new_ink`: TASK-010, LANDED (backfill/constraint for JobPilot flags, owner-aware `memories` RLS, `lineage_revision` column) — merged into `main` as `e532b15`.
 - `0017_task005_private_learning_recommendations`: TASK-005, LANDED (owner-scopes current/legacy
   Learning recommendation proposals and linked rows).
+- `0018_tense_warbound`: TASK-009/TASK-014 Relationship location overrides, LANDED through
+  integration baseline `512cf35`.
+- `0019_repeat_private_learning_backfill`: idempotent TASK-005 privacy replay above migration
+  `0018`'s timestamp, LANDED through `512cf35`.
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration required (LANDED, application-logic only).
 - TASK-024: no new migration required (LANDED, standalone public website only).
 - TASK-012 VOCAB0–VOCAB1: no new migration required (LANDED; TASK remains in progress).
+- `0020_vocab2_automation_engine`: TASK-012 VOCAB2, LANDED through PR #27.
+- `0021_vocab3_organization_module_record`: TASK-012 partial VOCAB3 checkpoint `58573ba`, LANDED
+  as an incomplete checkpoint.
 
-Next new migration allocates `0018`; do not reuse `0016` or `0017`.
+Next new migration allocates `0022`; do not reuse `0016` through `0021`.
 
 ## Approval and ADR coordination
 

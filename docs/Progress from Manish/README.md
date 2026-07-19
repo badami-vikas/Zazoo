@@ -9,9 +9,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm TASK-012 PR #26, TASK-024 PR #23, and TASK-005 landing commit
-   `d4de355` remain in its ancestry; `dd51797`/`bd7de18`, `a4bf5fb`, and `166a01b` are their
-   implementation or integration checkpoints.
+4. Fetch `origin/main` and confirm TASK-012 PRs #26/#27 plus partial VOCAB3 checkpoint `58573ba`,
+   TASK-024 PR #23, and TASK-005 landing commit `d4de355` remain in its ancestry.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -21,8 +20,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - Central branch: `main`
 - TASK-012 VOCAB0–VOCAB1 landed through PR #26 from `task-012-vocab01`. Source checkpoint
   `dd51797` carries the vocabulary ratchet and canonical Avatar/Onboarding migration; `bd7de18`
-  reconciles TASK-024's newer website identifiers without baseline growth. TASK-012 remains
-  `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
+  reconciles TASK-024's newer website identifiers without baseline growth. VOCAB2 landed through
+  PR #27 at source `88be310` and merge `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` from `task-012-vocab3`. It contains the
+  Organization/Module/Record runtime migration, numbered migration
+  `0021_vocab3_organization_module_record`, Local Plane compatibility, and targeted regression
+  fixes. It is a resumable checkpoint, not a completed VOCAB3 milestone.
 - Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
   `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
   `task-024-zazoo-website`.
@@ -49,17 +52,20 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `origin/main@d153094`; it is historical and must not be resumed.
 - Background agents: none.
 - `relationship-os` worker processes: none.
-- Unfinished implementations may be committed or WIP in their named worktrees; consult the exact
-  row before resuming.
+- TASK-012 remains `in_progress`. Resume from current `main`, not from an older TASK-012 branch.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
-- TASK-005 migration `0017_task005_private_learning_recommendations` is the next landed migration.
-  The next NEW migration allocates `0018`; never reuse `0016` or `0017`.
-- TASK-012's VOCAB0–VOCAB1 milestone landed through PR #26 with no numbered migration. Continue
-  from current `main`; the old `manishsbhoopalam8498-fuzzy-adventure` branch is planning-only and
-  must not be resumed or merged as implementation.
+- Migrations `0018_tense_warbound`, `0019_repeat_private_learning_backfill`,
+  `0020_vocab2_automation_engine`, and partial-VOCAB3 migration
+  `0021_vocab3_organization_module_record` are allocated. The next NEW migration is `0022`.
+- TASK-012 VOCAB0–VOCAB2 is merged. Partial VOCAB3 checkpoint `58573ba` is on `main`; continue from
+  there. The old `manishsbhoopalam8498-fuzzy-adventure` branch remains planning-only.
+- Before claiming VOCAB3 complete, finish signed legacy Commons manifest/content-hash compatibility
+  (including the old filesystem registry directory), resolve the ratchet fingerprint moves without
+  growing its baseline, run the remaining targeted Module/Organization/Record API and RLS tests,
+  and collect the required browser evidence.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
   `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
