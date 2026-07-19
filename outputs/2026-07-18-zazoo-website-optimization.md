@@ -21,3 +21,9 @@ Rebuilt `index.html` around the core principle "follow a Zazoo through its day; 
 - Four chapter books: Values storybook, Process footprints (pause at Decision, "waits for you"), behavior-based Difference stories (8 "Some AI vs A Zazoo" vignettes + the Mountain signature visual + "companions improve one another" differentiator), Impact.
 - Night finale: Privacy Mode, Aeva's cottage, the dream ("She never climbs the mountain. She makes the climb possible.").
 - New `assets/menagerie.js` (animal SVG library, eye tracking, quirks; reduced-motion safe). Brand guidelines rewritten in `docs/experience-guide.md`. Verified scene-by-scene in Chrome; live at zazoo.me.
+
+## Follow-up 2026-07-19: alternative story-driven homepage (branch alt/story-driven-home)
+Built per the user's Creative Direction Brief (emotion-first, discovery-led, Zazoo-as-conclusion). Branch only; main untouched.
+- `index.html` on the branch: 7-chapter documentary (The Shift era timeline with unfinished AI beat → living organization toggles → infrastructure building cross-section → Managing-AI stewardship console → consulting capability journey → Zazoo companion reveal → uniquely-human flip cards), each chapter ending with the question the next answers.
+- `docs/creative-direction.md`: the brief as canon. `docs/alt-home-design-notes.md`: per-section emotion arcs solved before copy (non-negotiable constraint). `docs/case-study-library.md`: ~24 citable cases organized by argument (Paul David's dynamo, Ford, Haier, Buurtzorg, Moderna 750 GPTs, Klarna incl. reversal, Toyota, Project Aristotle, JPMorgan COIN, BCG jagged-frontier RCT, AT&T Future Ready, etc.).
+- Verified functionally in Chrome (era panels, org transformations, 7-layer reveal, console, flips, no overflow); extension screenshots were unavailable this session, so visual proof is partial.
