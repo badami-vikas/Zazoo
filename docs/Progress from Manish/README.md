@@ -21,12 +21,13 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
   `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
   `task-024-zazoo-website`.
-- TASK-024 is complete under AP-052. The standalone `@zazoo/website` app delivers the approved
+- TASK-024 implementation is complete under AP-052. The standalone `@zazoo/website` app delivers the approved
   ten-scene cinematic homepage with governed copy, pointer/keyboard/touch interactions,
   reduced-motion behavior, and certified desktop plus exact 375×812 layouts. The six storyboard
-  contract tests, TypeScript check, production build, and ESLint passed. The merged artifact is live
-  at `https://zazoo.me` through Pages repository commit `2306808`; the domain `CNAME` and existing
-  Consulting/Training pages were preserved.
+  contract tests, TypeScript check, production build, and ESLint passed. Publication commit `2306808`
+  was reverted at the user's request under AP-053 by Pages commit `6b76466`; `https://zazoo.me` now
+  serves the older experience. The domain `CNAME` and existing `consulting.html`/`training.html`
+  pages remain available.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
   status and evidence live in [`docs/TASKS.md`](../TASKS.md) and
@@ -54,8 +55,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
   `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
-  migration. Pages deployment `2306808` is live at `https://zazoo.me`. Do not resume or re-merge
-  the historical `task-024-zazoo-website` implementation worktree.
+  migration. Pages publication `2306808` was rolled back through `6b76466` and run `29683837490`;
+  `https://zazoo.me` serves the pre-TASK-024 experience. Do not resume or re-merge the historical
+  `task-024-zazoo-website` implementation worktree.
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
