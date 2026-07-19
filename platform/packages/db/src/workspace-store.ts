@@ -110,6 +110,35 @@ export class DrizzleWorkspaceStore {
   }
 
   /**
+   * Run a local Files operation against the row-locked current Organization
+   * name after recovering any interrupted rename.
+   */
+  async withLockedWorkspaceFiles<T>(
+    workspaceId: string,
+    operation: (workspace: WorkspaceRow) => Promise<T>,
+  ): Promise<T> {
+    const coordinator = this.#renameCoordinator;
+    if (!coordinator) throw new WorkspaceRenameCoordinatorUnavailableError();
+    const lease = await coordinator.createLease(workspaceId);
+    return this.#db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, workspaceId))
+        .for("update")
+        .limit(1);
+      if (!locked) throw new UnknownWorkspaceError(workspaceId);
+      const current: WorkspaceRow = {
+        id: locked.id,
+        name: locked.name,
+        createdAt: locked.createdAt.toISOString(),
+      };
+      await lease.recover(current.name);
+      return operation(current);
+    });
+  }
+
+  /**
    * Rename an Organization only through the injected Files coordinator. The
    * coordinator owns the durable intent; database row locks serialize recovery,
    * Files movement, commit, and any post-failure reconciliation across processes.

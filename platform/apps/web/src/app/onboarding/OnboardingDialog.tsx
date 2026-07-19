@@ -547,7 +547,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
                 <div>
                   <span className="text-muted-foreground">Starting layouts: </span>
                   {compiled && "viewConfigs" in compiled
-                    ? compiled.viewConfigs.map((v) => v.kind === "table" ? "List" : v.kind === "kanban" ? "Board" : "Calendar").join(", ")
+                    ? compiled.viewConfigs.map((v) => v.kind === "table" ? "List" : v.kind === "board" ? "Board" : v.kind[0].toUpperCase() + v.kind.slice(1)).join(", ")
                     : "—"}
                 </div>
                 <div className="text-xs text-muted-foreground pt-1">

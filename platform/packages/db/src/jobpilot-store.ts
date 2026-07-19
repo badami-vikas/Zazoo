@@ -2,7 +2,7 @@
  * DrizzleJobPilotStore — the persistence `@bridge/jobpilot` never had (that
  * package is pure scoring/pipeline/table-spec logic, see its manifest.ts
  * header). Shaped 1:1 with `jobsTableSpec` (jobpilot/src/table.ts) so the
- * `@bridge/tables` card-feed/kanban views can bind to these rows directly.
+ * `@bridge/tables` Gallery/Board views can bind to these rows directly.
  * Job/application creation is workspace-authenticated CRUD (same tier as
  * workspace membership, dealpilot captures) — not routed through the governed
  * pipeline, since tracking a job posting has no external effect requiring

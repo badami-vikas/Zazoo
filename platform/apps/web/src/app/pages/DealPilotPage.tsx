@@ -3,24 +3,27 @@ import {
   BriefcaseBusiness,
   Database,
   Eye,
-  Files,
-  LayoutGrid,
   LockKeyhole,
-  Plus,
+  MoreHorizontal,
   RefreshCw,
-  Table as TableIcon,
   Target,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router";
 import { Header } from "../components/shared/Header";
-import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
-import { CardGrid, NotionCard } from "../components/shared/NotionCard";
+import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import { DataViews } from "../dataviews/DataViews";
+import type { DataRow, GraphNode } from "../dataviews/types";
+import { defaultViewConfig, type ColumnSpec, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
 import { supabase } from "../lib/supabase";
 
 type PageId = "deals" | "sources" | "theses";
-type ViewId = "table" | "card" | "board" | "form";
 type ModuleManifest = Awaited<ReturnType<typeof trpc.dealpilot.module.query>>;
 type RecordPage = Awaited<ReturnType<typeof trpc.dealpilot.records.query>>;
 type RecordRow = RecordPage["items"][number];
@@ -32,13 +35,6 @@ const PAGE_META = {
   deals: { label: "Deals", icon: BriefcaseBusiness, kind: "deal" as const },
   sources: { label: "Sources", icon: Database, kind: "source" as const },
   theses: { label: "Theses", icon: Target, kind: "thesis" as const },
-};
-
-const VIEW_ICONS = {
-  table: TableIcon,
-  card: LayoutGrid,
-  board: BriefcaseBusiness,
-  form: Plus,
 };
 
 function parsePage(value: string | undefined): PageId {
@@ -70,6 +66,63 @@ function displayValue(record: RecordRow, field: string): string {
   return "-";
 }
 
+const CREATE_FIELDS: Record<PageId, ReadonlySet<string>> = {
+  deals: new Set(["company", "revenue", "askingPrice"]),
+  sources: new Set(["name", "link", "connectionType", "spendCap", "rightsAttested"]),
+  theses: new Set(["name", "focus", "targetCagr", "criteria", "exclusions"]),
+};
+
+const REQUIRED_FIELDS: Record<PageId, ReadonlySet<string>> = {
+  deals: new Set(["company"]),
+  sources: new Set(["name", "link", "connectionType", "spendCap", "rightsAttested"]),
+  theses: new Set(["name", "focus"]),
+};
+
+const RELATION_TARGETS: Record<string, string> = {
+  deals: "dealpilot.deals",
+  sources: "dealpilot.sources",
+  theses: "dealpilot.theses",
+  relationships: "people",
+  tasks: "tasks",
+};
+
+function buildTableSpec(
+  pageId: PageId,
+  page: ModuleManifest["pages"][number],
+  rows: RecordRow[],
+): TableSpec {
+  const editableFields = CREATE_FIELDS[pageId];
+  const requiredFields = REQUIRED_FIELDS[pageId];
+  const columns: ColumnSpec[] = page.columns.map((column) => {
+    const editable = editableFields.has(column.id);
+    const kind: ColumnSpec["kind"] = column.kind === "credential" ? "text" : column.kind;
+    const observedOptions = kind === "select"
+      ? [...new Set(rows.map((row) => row[column.id as keyof RecordRow]).filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        ))]
+      : undefined;
+    const options = column.id === "connectionType"
+      ? ["url", "email_alert", "api", "account"]
+      : observedOptions;
+    return {
+      id: column.id,
+      label: column.label,
+      kind,
+      editable,
+      locked: column.kind === "credential",
+      hiddenInForm: !editable,
+      required: requiredFields.has(column.id),
+      ...(options && options.length > 0 ? { options } : {}),
+      ...(column.kind === "relation"
+        ? { relationTarget: RELATION_TARGETS[column.id], editable: false, hiddenInForm: true }
+        : {}),
+      ...(column.id === "connectionType" ? { defaultValue: "url" } : {}),
+      ...(column.id === "rightsAttested" ? { defaultValue: false } : {}),
+    };
+  });
+  return { id: page.databaseId, columns };
+}
+
 async function queryAllRecords(page: PageId): Promise<RecordPage> {
   let current = await trpc.dealpilot.records.query({
     workspaceId: PILOT_WORKSPACE,
@@ -99,12 +152,10 @@ export function DealPilotPage() {
   const [records, setRecords] = useState<RecordPage | null>(null);
   const [detail, setDetail] = useState<RecordDetail | null>(null);
   const [captures, setCaptures] = useState<Capture[]>([]);
-  const [view, setView] = useState<ViewId>("table");
-  const [search, setSearch] = useState("");
+  const [view, setView] = useState<ViewConfig>(() => defaultViewConfig("dealpilot:table"));
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
-  const [sort, setSort] = useState<{ field: string; direction: "asc" | "desc" } | null>(null);
   const loadGeneration = useRef(0);
   const routeKey = `${pageId}:${recordId ?? ""}`;
   const currentRouteKey = useRef(routeKey);
@@ -179,29 +230,90 @@ export function DealPilotPage() {
   }, [pageId, recordId]);
 
   const activePage = manifest?.pages.find((page) => page.id === pageId);
-  const views: ToolbarView[] = (activePage?.views ?? ["table", "card", "form"]).map((id) => ({
-    id,
-    label: id[0]!.toUpperCase() + id.slice(1),
-    icon: VIEW_ICONS[id],
-  }));
+  const tableSpec = useMemo<TableSpec>(
+    () => activePage
+      ? buildTableSpec(pageId, activePage, records?.items ?? [])
+      : { id: `dealpilot.${pageId}`, columns: [{ id: "name", label: "Record", kind: "text" }] },
+    [activePage, pageId, records?.items],
+  );
+  const dataRows = useMemo<DataRow[]>(
+    () => (records?.items ?? []).map((record) => {
+      const row: DataRow = { ...record };
+      if (record.kind === "source") {
+        row["userId"] = displayValue(record, "userId");
+        row["password"] = displayValue(record, "password");
+      }
+      return row;
+    }),
+    [records?.items],
+  );
 
   useEffect(() => {
-    if (!views.some((candidate) => candidate.id === view)) setView("table");
-  }, [pageId, view, views]);
+    setView(defaultViewConfig(`${tableSpec.id}:table`));
+  }, [pageId, tableSpec.id]);
 
-  const visibleRecords = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const visible = !records
-      ? []
-      : !query
-        ? records.items
-        : records.items.filter((record) => JSON.stringify(record).toLowerCase().includes(query));
-    if (!sort) return visible;
-    return [...visible].sort((left, right) => {
-      const order = displayValue(left, sort.field).localeCompare(displayValue(right, sort.field));
-      return sort.direction === "asc" ? order : -order;
+  async function createRecord(draft: Partial<DataRow>) {
+    if (pageId === "deals") {
+      await trpc.dealpilot.createDeal.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        company: String(draft["company"] ?? ""),
+        ...(draft["revenue"] !== undefined ? { revenue: Number(draft["revenue"]) } : {}),
+        ...(draft["askingPrice"] !== undefined ? { askingPrice: Number(draft["askingPrice"]) } : {}),
+      });
+      await load();
+      setRouteNotice("Deal added.");
+      return;
+    }
+    if (pageId === "sources") {
+      await trpc.dealpilot.createSource.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        name: String(draft["name"] ?? ""),
+        link: String(draft["link"] ?? ""),
+        connectionType: String(draft["connectionType"] ?? "url") as "url" | "email_alert" | "api" | "account",
+        spendCap: Number(draft["spendCap"] ?? 0),
+        rightsAttested: draft["rightsAttested"] === true,
+      });
+      await load();
+      setRouteNotice("Source added. Open it to run governed Deal discovery.");
+      return;
+    }
+    const result = await trpc.dealpilot.createThesis.mutate({
+      workspaceId: PILOT_WORKSPACE,
+      name: String(draft["name"] ?? ""),
+      focus: String(draft["focus"] ?? ""),
+      criteria: String(draft["criteria"] ?? "").split("\n").map((value) => value.trim()).filter(Boolean),
+      exclusions: String(draft["exclusions"] ?? "").split("\n").map((value) => value.trim()).filter(Boolean),
+      ...(draft["targetCagr"] !== undefined ? { targetCagr: Number(draft["targetCagr"]) } : {}),
     });
-  }, [records, search, sort]);
+    await load();
+    const proposalId = result.discovery.status === "pending_review" ? result.discovery.id : null;
+    setPendingProposalId(proposalId);
+    setRouteNotice(
+      proposalId
+        ? `Thesis added. Source discovery found ${((result.discovery.output?.proposedOutput as { relations?: unknown[] } | undefined)?.relations ?? []).length} authorized Source candidate(s) and awaits approval.`
+        : `Thesis added. Source discovery status: ${result.discovery.status}.`,
+    );
+  }
+
+  function openRecord(row: DataRow | GraphNode) {
+    if ("kind" in row && (row.kind === "deal" || row.kind === "source" || row.kind === "thesis")) {
+      navigate(`/dealpilot/${recordPage(row as RecordRow)}/${String(row.id)}`);
+      return;
+    }
+    const databaseId = "databaseId" in row && typeof row.databaseId === "string"
+      ? row.databaseId
+      : tableSpec.id;
+    const targetPage = databaseId === "dealpilot.sources"
+      ? "sources"
+      : databaseId === "dealpilot.theses"
+        ? "theses"
+        : databaseId === "dealpilot.deals"
+          ? "deals"
+          : null;
+    const rawId = String("recordId" in row && row.recordId ? row.recordId : row.id);
+    const targetId = rawId.startsWith(`${databaseId}:`) ? rawId.slice(databaseId.length + 1) : rawId;
+    if (targetPage && targetId) navigate(`/dealpilot/${targetPage}/${targetId}`);
+  }
 
   if (error) {
     return (
@@ -239,36 +351,35 @@ export function DealPilotPage() {
         />
       ) : (
         <>
-          <StandardToolbar
-            lists={[{ id: "all", label: `All ${PAGE_META[pageId].label}` }]}
-            activeListId="all"
-            onListSelect={() => {}}
-            view={view}
-            views={views}
-            onViewChange={(id) => setView(id as ViewId)}
-            search={search}
-            onSearchChange={setSearch}
-            onFilterClick={() => setNotice("No filters are configured for this real-data view yet.")}
-            customActions={
-              <button
-                onClick={() => setView("form")}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-white text-sm font-medium"
-                style={{ borderColor: "var(--color-border)", color: "var(--color-navy-mid)" }}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add {PAGE_META[pageId].label.slice(0, -1)}
-              </button>
-            }
-            moreMenu={
+          <div
+            className="flex items-center justify-between border-b px-4 py-2"
+            style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
+          >
+            <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+              All {PAGE_META[pageId].label}
+            </h2>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${PAGE_META[pageId].label} controls`}
+                  className="rounded-md border p-1.5 hover:bg-black/5"
+                  style={{ borderColor: "var(--color-border)" }}
+                >
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
               <Link
                 to="/module/deal-pilot"
-                className="block px-3 py-2 text-sm hover:bg-black/5"
-                style={{ color: "var(--color-navy-mid)" }}
               >
                 Control Panel / Module Detail
               </Link>
-            }
-          />
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           {notice && (
             <div className="px-4 py-2 border-b text-sm flex items-center justify-between" style={{ borderColor: "var(--color-border)" }}>
               <span>{notice}</span>
@@ -302,273 +413,22 @@ export function DealPilotPage() {
               )}
             </div>
           )}
-          <div className="flex-1 overflow-auto">
-            <section className="min-h-[18rem]">
-              {view === "form" ? (
-                <CreateRecordForm
-                  page={pageId}
-                  onCreated={async (message, proposalId) => {
-                    if (!(await load())) return;
-                    setRouteNotice(message);
-                    setPendingProposalId(proposalId);
-                    setView("table");
-                  }}
-                />
-              ) : visibleRecords.length === 0 ? (
-                <HonestEmptyState page={pageId} onAdd={() => setView("form")} />
-              ) : view === "table" ? (
-                <RecordTable
-                  rows={visibleRecords}
-                  columns={activePage?.columns ?? []}
-                  onOpen={(record) => navigate(`/dealpilot/${recordPage(record)}/${record.id}`)}
-                  onFilter={() => setNotice("Use the standard toolbar search while field filters are being connected.")}
-                  onSort={(field, direction) => setSort({ field, direction })}
-                />
-              ) : view === "board" ? (
-                <DealBoard rows={visibleRecords} onOpen={(record) => navigate(`/dealpilot/deals/${record.id}`)} />
-              ) : (
-                <CardGrid>
-                  {visibleRecords.map((record) => (
-                    <button
-                      key={record.id}
-                      className="text-left"
-                      onClick={() => navigate(`/dealpilot/${recordPage(record)}/${record.id}`)}
-                    >
-                      <NotionCard
-                        title={recordName(record)}
-                        subtitle={record.kind === "deal" ? record.stage : record.kind === "source" ? record.health : record.focus}
-                      />
-                    </button>
-                  ))}
-                </CardGrid>
-              )}
+          <div className="flex-1 space-y-8 overflow-auto p-4">
+            <section className="min-h-[18rem]" aria-label={`${PAGE_META[pageId].label} Database`}>
+              <DataViews
+                spec={tableSpec}
+                view={view}
+                data={dataRows}
+                onViewChange={setView}
+                onInsert={createRecord}
+                onOpenRecord={openRecord}
+              />
             </section>
-            <FilesSection />
+            <ModuleFilesSection moduleName="deal-pilot" />
           </div>
         </>
       )}
     </div>
-  );
-}
-
-function HonestEmptyState({ page, onAdd }: { page: PageId; onAdd: () => void }) {
-  const singular = PAGE_META[page].label.slice(0, -1);
-  return (
-    <div className="m-4 p-10 text-center border border-dashed rounded-xl" style={{ borderColor: "var(--color-border)" }}>
-      <p className="text-sm" style={{ color: "var(--color-warm-gray)" }}>No {page} yet.</p>
-      <button className="mt-3 text-sm font-semibold underline" onClick={onAdd}>Add {singular}</button>
-    </div>
-  );
-}
-
-function FilesSection() {
-  return (
-    <section className="m-4 p-5 rounded-xl border bg-white" style={{ borderColor: "var(--color-border)" }}>
-      <div className="flex items-center gap-2 font-semibold" style={{ color: "var(--color-navy)" }}>
-        <Files className="w-4 h-4" /> Files
-      </div>
-      <p className="mt-2 text-sm" style={{ color: "var(--color-warm-gray)" }}>
-        Exports and briefs generated by DealPilot will show up here.
-      </p>
-    </section>
-  );
-}
-
-function RecordTable({
-  rows,
-  columns,
-  onOpen,
-  onFilter,
-  onSort,
-}: {
-  rows: RecordRow[];
-  columns: ModuleManifest["pages"][number]["columns"];
-  onOpen: (record: RecordRow) => void;
-  onFilter: () => void;
-  onSort: (field: string, direction: "asc" | "desc") => void;
-}) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-          {columns.map((column) => (
-            <th key={column.id} className="px-4 py-2 font-semibold">
-              <StandardColumnMenu
-                label={column.label}
-                databaseBacked
-                onFilter={onFilter}
-                onSort={(direction) => onSort(column.id, direction)}
-              />
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((record) => (
-          <tr
-            key={record.id}
-            tabIndex={0}
-            className="border-b cursor-pointer hover:bg-black/[0.02]"
-            style={{ borderColor: "var(--color-border)" }}
-            onClick={() => onOpen(record)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onOpen(record);
-              }
-            }}
-          >
-            {columns.map((column) => (
-              <td key={column.id} className="px-4 py-3 max-w-[18rem] truncate">
-                {displayValue(record, column.id)}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function DealBoard({ rows, onOpen }: { rows: RecordRow[]; onOpen: (record: RecordRow) => void }) {
-  const deals = rows.filter((record) => record.kind === "deal");
-  const stages = [...new Set(deals.map((deal) => deal.stage))];
-  return (
-    <div className="grid gap-4 p-4 md:grid-cols-3">
-      {stages.map((stage) => (
-        <section key={stage} className="rounded-xl border bg-white p-3" style={{ borderColor: "var(--color-border)" }}>
-          <h3 className="text-xs uppercase font-semibold mb-3">{stage}</h3>
-          {deals.filter((deal) => deal.stage === stage).map((deal) => (
-            <button key={deal.id} className="block w-full text-left p-3 mb-2 rounded-lg border" onClick={() => onOpen(deal)}>
-              {deal.company}
-            </button>
-          ))}
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function CreateRecordForm({
-  page,
-  onCreated,
-}: {
-  page: PageId;
-  onCreated: (message: string, proposalId: string | null) => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setFormError(null);
-    const data = new FormData(event.currentTarget);
-    try {
-      if (page === "deals") {
-        await trpc.dealpilot.createDeal.mutate({
-          workspaceId: PILOT_WORKSPACE,
-          company: String(data.get("company") ?? ""),
-          ...(data.get("revenue") ? { revenue: Number(data.get("revenue")) } : {}),
-          ...(data.get("askingPrice") ? { askingPrice: Number(data.get("askingPrice")) } : {}),
-        });
-        await onCreated("Deal added.", null);
-      } else if (page === "sources") {
-        await trpc.dealpilot.createSource.mutate({
-          workspaceId: PILOT_WORKSPACE,
-          name: String(data.get("name") ?? ""),
-          link: String(data.get("link") ?? ""),
-          connectionType: String(data.get("connectionType") ?? "url") as "url" | "email_alert" | "api" | "account",
-          spendCap: Number(data.get("spendCap") ?? 0),
-          rightsAttested: data.get("rightsAttested") === "on",
-          ...(data.get("userId") ? { userId: String(data.get("userId")) } : {}),
-          ...(data.get("password") ? { password: String(data.get("password")) } : {}),
-        });
-        await onCreated("Source added. Open it to run governed Deal discovery.", null);
-      } else {
-        const result = await trpc.dealpilot.createThesis.mutate({
-          workspaceId: PILOT_WORKSPACE,
-          name: String(data.get("name") ?? ""),
-          focus: String(data.get("focus") ?? ""),
-          criteria: String(data.get("criteria") ?? "").split("\n").map((value) => value.trim()).filter(Boolean),
-          exclusions: String(data.get("exclusions") ?? "").split("\n").map((value) => value.trim()).filter(Boolean),
-          ...(data.get("targetCagr") ? { targetCagr: Number(data.get("targetCagr")) } : {}),
-        });
-        await onCreated(
-          result.discovery.status === "pending_review"
-            ? `Thesis added. Source discovery found ${((result.discovery.output?.proposedOutput as { relations?: unknown[] } | undefined)?.relations ?? []).length} authorized Source candidate(s) and awaits approval.`
-            : `Thesis added. Source discovery status: ${result.discovery.status}.`,
-          result.discovery.status === "pending_review" ? result.discovery.id : null,
-        );
-      }
-    } catch (submitError) {
-      setFormError(submitError instanceof Error ? submitError.message : String(submitError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form onSubmit={submit} className="max-w-2xl m-4 p-6 rounded-xl border bg-white space-y-4" style={{ borderColor: "var(--color-border)" }}>
-      <h2 className="font-semibold">Add {PAGE_META[page].label.slice(0, -1)}</h2>
-      {page === "deals" && (
-        <>
-          <Field name="company" label="Company" required />
-          <Field name="revenue" label="Revenue" type="number" />
-          <Field name="askingPrice" label="Asking price" type="number" />
-        </>
-      )}
-      {page === "sources" && (
-        <>
-          <Field name="name" label="Source" required />
-          <Field name="link" label="Link" type="url" required />
-          <label className="block text-sm">Connection type
-            <select name="connectionType" className="mt-1 w-full rounded-lg border px-3 py-2">
-              <option value="url">URL</option>
-              <option value="email_alert">Email alert</option>
-              <option value="api">API</option>
-              <option value="account">Account</option>
-            </select>
-          </label>
-          <Field name="spendCap" label="Spend cap" type="number" required />
-          <Field name="userId" label="User ID (stored only in the credential vault)" />
-          <Field name="password" label="Password (stored only in the credential vault)" type="password" />
-          <label className="flex gap-2 items-start text-sm">
-            <input name="rightsAttested" type="checkbox" className="mt-1" />
-            I attest that I have rights to use this Source for the stated purpose and accept its spend cap.
-          </label>
-        </>
-      )}
-      {page === "theses" && (
-        <>
-          <Field name="name" label="Thesis" required />
-          <Field name="focus" label="Focus" required />
-          <Field name="targetCagr" label="Target CAGR" type="number" />
-          <TextArea name="criteria" label="Criteria (one per line)" />
-          <TextArea name="exclusions" label="Exclusions (one per line)" />
-        </>
-      )}
-      {formError && <p className="text-sm text-red-700">{formError}</p>}
-      <button disabled={busy} className="px-4 py-2 rounded-lg text-white text-sm font-semibold" style={{ backgroundColor: "var(--color-steel)" }}>
-        {busy ? "Saving..." : "Add"}
-      </button>
-    </form>
-  );
-}
-
-function Field({ name, label, type = "text", required = false }: { name: string; label: string; type?: string; required?: boolean }) {
-  return (
-    <label className="block text-sm">{label}
-      <input name={name} type={type} required={required} className="mt-1 w-full rounded-lg border px-3 py-2" />
-    </label>
-  );
-}
-
-function TextArea({ name, label }: { name: string; label: string }) {
-  return (
-    <label className="block text-sm">{label}
-      <textarea name={name} rows={4} className="mt-1 w-full rounded-lg border px-3 py-2" />
-    </label>
   );
 }
 
@@ -923,7 +783,7 @@ function RecordDetailSurface({
           ))}
         </div>
       </section>
-      <FilesSection />
+      <ModuleFilesSection moduleName="deal-pilot" />
     </div>
   );
 }

@@ -13,11 +13,11 @@
  *
  * Mobile-width-safe from day 1: the switcher tabs wrap (`flex-wrap`) and the
  * column-visibility/filter controls stack under `sm:` rather than assuming
- * desktop width; each individual view component (TableView/KanbanView/...)
+ * desktop width; each individual view component (TableView/BoardView/...)
  * carries its own mobile behavior (scroll/swipe/agenda-collapse).
  */
-import { useMemo, useState } from "react";
-import type { RowFilter, TableSpec, ViewConfig } from "@bridge/tables";
+import { useMemo, useRef, useState } from "react";
+import type { RowFilter, TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -27,60 +27,62 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
-import { VIEW_COMPONENT_REGISTRY, REGISTERED_VIEW_KINDS, isRegisteredViewKind } from "./registry.js";
-import { computeEligibleKinds } from "./eligibility.js";
-import type { DataRow } from "./types.js";
+import {
+  VIEW_COMPONENT_REGISTRY,
+  VIEW_METADATA,
+  REGISTERED_VIEW_KINDS,
+  isRegisteredViewKind,
+} from "./registry.js";
+import { computeEligibleKinds, migrateViewConfig, viewConfigForKind } from "./eligibility.js";
+import type { DataRow, DataViewProps } from "./types.js";
 
-/** Relationship-shaped table ids are grammar-restricted to graph|table (see
- * packages/core/src/blueprint.ts) — the same restriction is mirrored here so
- * the switcher never even OFFERS kanban/calendar/gallery for a relationship
- * spec, rather than only rejecting it after the fact at compile time. */
-const RELATIONSHIP_ALLOWED_KINDS: ViewConfig["kind"][] = ["network", "table"];
-
-export interface DataViewsProps {
+export interface DataViewsProps
+  extends Omit<DataViewProps, "spec" | "view" | "data" | "onViewChange"> {
   spec: TableSpec;
   view: ViewConfig;
   data: DataRow[];
   onViewChange: (next: ViewConfig) => void;
-  /** True when this TableSpec projects a relationship node type — restricts
-   * the switcher to graph|table per the grammar. Defaults to false. */
+  /** Deprecated compatibility input. Eligibility now comes only from columns. */
   isRelationship?: boolean;
   /** Additional view kinds this spec supports (e.g. all registered kinds for a
    * normal entity), used to build the switcher tabs. Defaults to every
    * registered kind (minus the relationship restriction, if applicable). */
-  availableKinds?: ViewConfig["kind"][];
-  /** Forwarded to FormView: called when the user submits a new-row form.
-   * The caller routes the draft through action.propose for governed insert +
-   * Learning Agent enrichment (same process every other DB write goes through).
-   * Omitting this disables the Form view's submit button without hiding the form. */
-  onInsert?: (draft: Partial<DataRow>) => void | Promise<void>;
+  availableKinds?: ViewKind[];
 }
 
-export function DataViews({ spec, view, data, onViewChange, isRelationship = false, availableKinds, onInsert }: DataViewsProps) {
+export function DataViews({
+  spec,
+  view,
+  data,
+  onViewChange,
+  isRelationship: _legacyRelationshipFlag = false,
+  availableKinds,
+  ...viewProps
+}: DataViewsProps) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [filterDraft, setFilterDraft] = useState("");
+  const [filterColumn, setFilterColumn] = useState(spec.columns[0]?.id ?? "");
+  const filterInput = useRef<HTMLInputElement>(null);
 
   const switcherKinds = useMemo(() => {
-    // ADR-023 item 6: eligibility is COMPUTED from the spec's own columns when
-    // the caller doesn't explicitly override it — table/kanban/card always,
-    // calendar/map/graph only when a date/location/relation column exists —
-    // rather than always offering every registered kind regardless of whether
-    // the spec can actually support it.
-    const base = availableKinds ?? computeEligibleKinds(spec, isRelationship);
-    const restricted = isRelationship ? base.filter((k) => RELATIONSHIP_ALLOWED_KINDS.includes(k)) : base;
-    return restricted.filter(isRegisteredViewKind);
-  }, [availableKinds, isRelationship, spec]);
+    const eligible = computeEligibleKinds(spec);
+    const requested = availableKinds ?? eligible;
+    return REGISTERED_VIEW_KINDS.filter(
+      (kind) => eligible.includes(kind) && requested.includes(kind),
+    );
+  }, [availableKinds, spec]);
 
   const visibleSpec: TableSpec = useMemo(
     () => ({ ...spec, columns: spec.columns.filter((c) => !hiddenColumns.has(c.id)) }),
     [spec, hiddenColumns],
   );
 
-  if (!isRegisteredViewKind(view.kind)) {
+  const activeView = migrateViewConfig(spec, view);
+  if (!activeView || !isRegisteredViewKind(activeView.kind)) {
     // The enforcement boundary: an unregistered kind never reaches a component.
     return (
       <div className="border border-destructive/50 rounded-md p-4 text-sm text-destructive">
-        <div className="font-medium">Unregistered view kind: "{view.kind}"</div>
+        <div className="font-medium">Unregistered view kind: "{String(view.kind)}"</div>
         <div className="text-muted-foreground mt-1">
           {"<DataViews> only renders configurations of registered components ("}
           {REGISTERED_VIEW_KINDS.join(", ")}
@@ -90,23 +92,41 @@ export function DataViews({ spec, view, data, onViewChange, isRelationship = fal
     );
   }
 
-  const ViewComponent = VIEW_COMPONENT_REGISTRY[view.kind];
+  if (!switcherKinds.includes(activeView.kind)) {
+    return (
+      <div className="border border-destructive/50 rounded-md p-4 text-sm text-destructive">
+        <div className="font-medium">
+          {VIEW_METADATA[activeView.kind].label} is not eligible for {spec.id}.
+        </div>
+        <div className="text-muted-foreground mt-1">
+          Add the required column metadata or choose one of: {switcherKinds.join(", ")}.
+        </div>
+      </div>
+    );
+  }
+
+  const ViewComponent = VIEW_COMPONENT_REGISTRY[activeView.kind];
 
   function applyTextFilter() {
     const nextFilters: RowFilter[] = filterDraft
-      ? [{ field: spec.columns[0]?.id ?? "", op: "contains", value: filterDraft }]
+      ? [{ field: filterColumn, op: "contains", value: filterDraft }]
       : [];
-    onViewChange({ ...view, rowFilters: nextFilters });
+    onViewChange({ ...activeView!, rowFilters: nextFilters });
   }
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Tabs value={view.kind} onValueChange={(kind) => onViewChange({ ...view, kind: kind as ViewConfig["kind"] })}>
+        <Tabs
+          value={activeView.kind}
+          onValueChange={(kind) =>
+            onViewChange(viewConfigForKind(spec, kind as ViewKind, activeView))
+          }
+        >
           <TabsList className="flex-wrap h-auto">
             {switcherKinds.map((kind) => (
               <TabsTrigger key={kind} value={kind}>
-                {kind}
+                {VIEW_METADATA[kind].label}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -114,7 +134,8 @@ export function DataViews({ spec, view, data, onViewChange, isRelationship = fal
 
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder={`Filter ${spec.id}…`}
+            ref={filterInput}
+            placeholder={`Filter ${spec.columns.find((column) => column.id === filterColumn)?.label ?? spec.id}…`}
             value={filterDraft}
             onChange={(e) => setFilterDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && applyTextFilter()}
@@ -152,7 +173,22 @@ export function DataViews({ spec, view, data, onViewChange, isRelationship = fal
         </div>
       </div>
 
-      <ViewComponent spec={visibleSpec} view={view} data={data} onViewChange={onViewChange} onInsert={onInsert} />
+      <ViewComponent
+        spec={visibleSpec}
+        view={activeView}
+        data={data}
+        onViewChange={onViewChange}
+        {...viewProps}
+        onRequestFilter={(columnId) => {
+          setFilterColumn(columnId);
+          viewProps.onRequestFilter?.(columnId);
+          window.setTimeout(() => filterInput.current?.focus(), 0);
+        }}
+        onHideColumn={(columnId) => {
+          setHiddenColumns((current) => new Set(current).add(columnId));
+          viewProps.onHideColumn?.(columnId);
+        }}
+      />
     </div>
   );
 }

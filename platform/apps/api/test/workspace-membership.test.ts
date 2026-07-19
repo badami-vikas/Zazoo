@@ -25,6 +25,7 @@ import { appRouter } from "../src/router.js";
 import {
   createOrganizationRenameLease,
   organizationFilesRoot,
+  saveModuleFile,
 } from "../src/module-files.js";
 import {
   buildWiring,
@@ -99,6 +100,64 @@ test("workspace.rename: a member updates the name and migrates the local Files r
     );
     assert.equal((await caller.workspace.list()).find((row) => row.id === PILOT_WORKSPACE)?.name, "Product Leadership");
   } finally {
+    await wiring.close();
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("workspace Files lock keeps an upload attached during a concurrent Organization rename", async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "bridge-workspace-upload-race-"));
+  const bridgeRoot = join(tempRoot, "Bridge");
+  const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
+  let releaseUpload!: () => void;
+  let uploadLocked!: () => void;
+  const release = new Promise<void>((resolve) => {
+    releaseUpload = resolve;
+  });
+  const locked = new Promise<void>((resolve) => {
+    uploadLocked = resolve;
+  });
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const upload = wiring.workspaceStore.withLockedWorkspaceFiles(
+      PILOT_WORKSPACE,
+      async (organization) => {
+        uploadLocked();
+        await release;
+        return saveModuleFile(
+          organization.name,
+          "Relationship",
+          "evidence.txt",
+          Buffer.from("private local evidence"),
+          bridgeRoot,
+        );
+      },
+    );
+    await locked;
+
+    let renameSettled = false;
+    const rename = caller.workspace.rename({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Product Leadership",
+    }).finally(() => {
+      renameSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(renameSettled, false);
+
+    releaseUpload();
+    await Promise.all([upload, rename]);
+    const nextRoot = organizationFilesRoot("Product Leadership", bridgeRoot);
+    assert.equal(
+      await readFile(join(nextRoot, "Relationship", "evidence.txt"), "utf8"),
+      "private local evidence",
+    );
+    await assert.rejects(
+      () => access(organizationFilesRoot("Pilot Organization", bridgeRoot)),
+      { code: "ENOENT" },
+    );
+  } finally {
+    releaseUpload();
     await wiring.close();
     await rm(tempRoot, { recursive: true, force: true });
   }

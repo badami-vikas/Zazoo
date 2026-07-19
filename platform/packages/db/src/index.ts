@@ -81,6 +81,10 @@ export {
   type CreateInteractionInput,
   type CreatePersonInput,
   type DecisionProvenance,
+  type FullGraphEdgeRecord,
+  type FullGraphNodeRecord,
+  type FullGraphPage,
+  type GraphRelationPage,
   type InteractionParticipantInput,
   type IntroductionPage,
   type IntroductionRecord,
@@ -130,7 +134,6 @@ export {
 export {
   DrizzleWorkspaceDefinitionStore,
   parseBlueprint,
-  workspaceBlueprintSchema,
 } from "./workspace-definition-store.js";
 export { DrizzlePackageStore, parsePackageManifestRow } from "./package-store.js";
 export { DrizzleMemoryStore } from "./memory-store.js";

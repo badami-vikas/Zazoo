@@ -170,8 +170,9 @@ test("private Relationship requests forward the authenticated Supabase session",
 
 test("Signal list Actions open evidence detail and preserve the list on row failures", () => {
   assert.doesNotMatch(signalsPage, /proposeSignalAction/);
-  assert.match(signalsPage, /to=\{`\/module\/relationship\/signals\/\$\{s\.id\}`\}/);
-  assert.match(signalsPage, /actionErrors\[s\.id\]/);
+  assert.match(signalsPage, /to=\{`\/module\/relationship\/signals\/\$\{selectedSignal\.id\}`\}/);
+  assert.match(signalsPage, /actionErrors\[selectedSignal\.id\]/);
+  assert.match(signalsPage, /<DataViews/);
 });
 
 test("Relationship Record lists use bounded server search and pagination", () => {
@@ -187,11 +188,19 @@ test("Relationship Record lists use bounded server search and pagination", () =>
 });
 
 test("Relationship Record detail has standard sections and governed Actions", () => {
-  assert.match(relationshipPage, /\{ id: "form", label: "Form"/);
+  assert.match(relationshipPage, /<DataViews/);
+  assert.match(relationshipPage, /computeEligibleKinds\(spec\)/);
+  assert.match(relationshipPage, /onInsert=\{insertRecord\}/);
   assert.match(relationshipPage, /trpc\.relationship\.createPerson\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.createCommunity\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.updatePerson\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.updateCommunity\.mutate/);
+  assert.match(relationshipPage, /includes\("currentTitle"\)/);
+  assert.match(relationshipPage, /includes\("description"\)/);
+  assert.match(relationshipPage, /includes\("location"\)/);
+  assert.match(relationshipPage, /isOwner: record\.isOwner/);
+  assert.match(relationshipPage, /canUpdateRow=\{\(row\) => row\["isOwner"\] === true\}/);
+  assert.match(relationshipPage, /if \(view\.kind === "form"\)/);
   assert.match(relationshipPage, /trpc\.relationship\.archivePerson\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.archiveCommunity\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.createInteraction\.mutate/);

@@ -9,6 +9,7 @@ export * from "./types.js";
 export * from "./data-scope.js";
 export * from "./determinism.js";
 export * from "./ports.js";
+export * from "./geocoding.js";
 export { resolveAuthority, agentFloorDeny, planeGate, type ResolveArgs, type AuthorityDeps } from "./authority.js";
 export {
   buildAgentCapability,

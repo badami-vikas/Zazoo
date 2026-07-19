@@ -115,7 +115,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Duplicate prototypes, deprecated data/code paths, stale dummy records, and non-manifest built-ins are removed or explicitly retained with one reason and owner.
 - Prototype test: Duplicate/source scan passes, package manifests drive built-ins, deprecated docs are marked rather than erased, dummy ledger matches every unavoidable fixture, and production/build entry points use one implementation.
 - Scope: docs/raw/repo-restructure-egg-commons-2026-07.md P1–P2; docs/dummy.md
-- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict; BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules
+- Evidence: BUGS duplicate prototype/Tools copies; BUGS dummy-prefix conflict; BUGS legacy prototype CI imports deliberately uncommitted PII-derived modules; OPEN BUGS legacy `ItemDetail` Associations still derives a runtime projection from prototype `network.ts` and invents Initiative overlays (already tracked in `docs/dummy.md`)
 - Requests: cleanup directives 2026-07-14
 - Approval: AP-029 applied for planning; archive/deletion substep still requires a dedicated approval before destructive removal
 - Dependencies: TASK-005; TASK-012
@@ -128,7 +128,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Product copy, code, schema, API, Events, persisted payloads, routes, errors, and tests use the canonical glossary with time-boxed compatibility removed.
 - Prototype test: CI inventory finds no forbidden identifiers outside explicit migration fixtures; backfills and compatibility deletion pass RLS/API/browser tests; visible UI contains no retired labels.
 - Scope: docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB0–VOCAB6; docs/glossary.md
-- Evidence: BUGS deprecated dummy-prefix rule; BUGS API error strings; BUGS package.yaml filename mismatch; BUGS Initiative-scoped API legacy; deprecated Tools/Knowledge/Workflows evidence attached to TASK-001
+- Evidence: BUGS deprecated dummy-prefix rule; BUGS API error strings; BUGS package.yaml filename mismatch; BUGS Initiative-scoped API legacy; deprecated Tools/Knowledge/Workflows evidence attached to TASK-001; OPEN BUGS Module File writes are not yet indexed into canonical `files`/`file_refs` for Graph/File provenance (VOCAB4)
 - Requests: R-020; vocabulary/glossary directives 2026-07-14
 - Approval: AP-020 and AP-029 applied
 - Dependencies: TASK-005
@@ -175,16 +175,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Full standard Module UI rollout
 - ID: TASK-014
-- Status: ready
+- Status: done
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.
 - Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName="calendar"`, and the `tools.ts`/`moduleRoutes.ts` "calendar" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) at `scope:single_database`; the scope selector expands to `scope:full` and renders the same canvas with cross-Module nodes — confirming Second Brain is this view at full scope, not a separate surface (ADR-110); a Task Manager Queue Page renders Tree view over its self-referential Task type.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit; docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)
-- Evidence: BUGS map view is not a map; BUGS pin persistence only local; BUGS Initiative resource scoping; existing partial table implementation; BUGS 2026-07-17 `/calendar` route resolves to Task Manager instead of Calendar (routes.tsx:87) and Calendar modeled as an installed Module/Tool in 3+ places instead of a View kind; BUGS 2026-07-17 four independent, non-shared calendar renderers (DataEngine.tsx, CalendarPage.tsx, dataviews/CalendarView.tsx, InitiativeDetail.tsx/WorkPage.tsx local hardcodes); BUGS 2026-07-17 GraphView.tsx is a table-with-banner placeholder, not a real node/edge renderer; BUGS 2026-07-17 `ViewConfig["kind"]` code says `network`, glossary canon says `graph` — vocabulary mismatch
+- Evidence: RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, grouped-list Map fallback, divergent migration high-water, and concurrent Organization rename/File upload; one metadata-gated registry now owns table/board/gallery/form/calendar/map/graph/tree; `DataViews` is the only renderer path; Map uses a bundled local basemap plus stored coordinate contract and an opt-in Local Plane geocoder port with no automatic public geocoding/tile egress; DealPilot, JobPilot, Relationship, Work, Initiative, and Task Manager consume the shared grammar; [TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)
 - Requests: table/actionability directives 2026-07-14–15; R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)
-- Approval: AP-010/AP-011, AP-021, and AP-029 applied; AP-036 applied (View Grammar BRD + this scope update); ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; AP-037 applied (Graph view scope selector + Second Brain collapse into Graph at full scope); ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction
+- Approval: AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-050, and AP-051 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-124 records Map's Local Plane privacy boundary
 - Dependencies: TASK-001; TASK-006; TASK-008
+- Verification: 2026-07-19 exact desktop and 375×812 live audit passed against authenticated isolated API/web processes. All eight canonical View kinds rendered through the shared registry; Calendar and Graph tabs were exercised through pointer input; Calendar has no route/package/catalog identity; Task Manager rendered Tree; Map plots private structured coordinates on a bundled local basemap, clusters/searches/opens Records, keeps labels unresolved without a provider, and requires a Human-triggered loopback provider before any label resolution; standard column commands and DB-backed-only Page commands remained capability-aware and destructive schema mutations stayed disabled rather than bypassing dependency preview/confirmation/undo; Module Files and honest empty states rendered without document overflow. Core/Tables/DealPilot/JobPilot/DB/API/Web affected builds and suites passed. Post-merge regressions prove TASK-005 privacy backfill from the former local migration high-water and serialize File upload with Organization rename.
 
 ## Task Manager Module
 - ID: TASK-021
@@ -233,7 +234,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Package persistence/types, Helpdesk routing, browser bundling, styling, and remaining shell persistence defects are production-correct.
 - Prototype test: Package state survives restart; install proposals use the right resource type; Helpdesk topics are derived/validated; browser bundle excludes Node-only sandbox code; web styling loads; persisted pins use governed storage.
 - Scope: docs/BUGS.md detailed runtime evidence
-- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor
+- Evidence: BUGS in-memory package store; BUGS package resourceType skill; BUGS caller-supplied Helpdesk topics; BUGS Node vm browser leak; BUGS empty globals.css; BUGS client-only pin persistence; BUGS post-decision effect retry; BUGS 2026-07-16 baseline lint/typecheck failures; BUGS 2026-07-15 sensor coverage floor; BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page
 - Requests: none
 - Approval: none
 - Dependencies: TASK-012
@@ -268,16 +269,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Actionable Second Brain graph (converged into TASK-014 Graph renderer)
 - ID: TASK-009
-- Status: ready
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: Second Brain IS the Graph view (§3, `docs/raw/brd-dataengine-views-2026-07.md`) at `scope: full` — every permitted Database across all installed Modules, permission-filtered, same renderer as a single-Page graph. The "Second Brain" nav entry is a named preset opening Graph view at full scope. Building the real Graph renderer with scope-selector support (TASK-014) delivers this simultaneously; no separate build.
 - Prototype test: From the Second Brain nav entry (Graph view, scope:full), traverse a real cross-Module Record/Relation/Event/File connection, filter by Relation type, inspect provenance/source-module, navigate to the owning Record Detail, and perform a governed Action; inaccessible nodes never render (permission-filtered); the same node/edge canvas works at scope:single-database on a Page with a relation column — confirming one renderer at all scopes.
 - Scope: docs/raw/brd-dataengine-views-2026-07.md §3 (graph kind, scope_selector) + §4 (Second Brain = full scope); docs/raw/ui-architecture-rules-2026-07.md §5c; docs/raw/relationship-module-plan-2026-07.md RM6
-- Evidence: BUGS 2026-07-14 no Second Brain graph; ADR-110 (Second Brain collapses into Graph view at full scope, supersedes ADR-108's "never merge" stance)
+- Evidence: RESOLVED BUGS 2026-07-14 no Second Brain graph and 2026-07-17 placeholder Graph renderer; ADR-110; `DrizzleGraphStore.listFullGraph` projects permission-pruned Record/Relation/Event/File nodes with provenance; authenticated `/second-brain` uses the shared Graph renderer at full scope; [TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)
 - Requests: Second Brain directive 2026-07-14; R-039 (2026-07-17 cross-module scope + collapse)
-- Approval: AP-021 and AP-029 applied; AP-037 applied (convergence with TASK-014 Graph renderer)
+- Approval: AP-021, AP-029, AP-037, and AP-047 applied
 - Dependencies: TASK-008; TASK-014 (Graph renderer with scope selector delivers this)
+- Verification: 2026-07-19 exact Prototype test passed. An authenticated isolated Local Plane rendered one connected File→Person←Initiative plus Event→Person/Event→Signal cross-Module component with source Module and provenance; filtering to `file_reference` showed 2 matching nodes and 1 matching Relation; the Person node opened its owning Record Detail; the Signal node applied a governed Action; a private-node DB regression proved inaccessible Records and their incident edges never render. The same canvas passed single-Database and full scopes at desktop and 375×812 with no document overflow.
 
 ## Trust-first onboarding and behavioral learning prototype
 - ID: TASK-002

@@ -25,6 +25,16 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-19 — TASK-009/TASK-014 merge regressions** (`platform/packages/db/test/migration-0019.test.ts`, `platform/apps/api/test/workspace-membership.test.ts`, `platform/apps/api/test/packages.test.ts`).
+  **Reason:** deterministic divergent-migration ancestry and concurrent Organization rename/File upload cannot safely mutate a real user's migration journal or private Files.
+  **Real elements they stand in for:** an upgraded Local Plane database, private Learning recommendation rows, an Organization Files root, and a Human-uploaded Module File.
+  **Removal condition:** retain as permanent migration/privacy/concurrency regressions; use user-approved local data only for product certification.
+
+- **2026-07-19 — TASK-014 private Map/geocoder regression fixtures** (`platform/packages/tables/test/location.test.ts`, `platform/apps/api/test/map-geocoding.test.ts`).
+  **Reason:** deterministic coordinate parsing, fail-closed provider configuration, label deduplication, not-found handling, and loopback-origin tests cannot send real private place labels to a live service or mutate user Records.
+  **Real elements they stand in for:** Location Record values, a user-installed Local Plane geocoder, and provider coordinates.
+  **Removal condition:** retain as isolated privacy/contract regressions; use user-approved local Records and a local self-hosted provider for browser certification.
+
 - **2026-07-17 — TASK-007 Agent-orchestration fixtures** (`platform/packages/core/test/{goal-task,skill-manifest,child-agent-run,pipeline-ags1}.test.ts`,
   `platform/packages/db/test/{goal-task-store,skill-manifest-store,child-agent-run-store,internal-strategist-governance,local-store,rls,migration-journal}.test.ts`,
   `platform/apps/api/test/{agent-orchestration,ritual-ownership}.test.ts`).

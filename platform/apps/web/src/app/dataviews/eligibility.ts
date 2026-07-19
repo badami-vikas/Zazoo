@@ -1,69 +1,72 @@
-/**
- * View-switcher eligibility (ADR-023 item 6: "every table-backed entity is
- * convertible to kanban + card always, calendar when a date column exists,
- * map when a location column exists, graph when a relation column exists —
- * eligibility computed from column kinds").
- *
- * `compileBlueprint` (packages/core, owned by a concurrent session this pass)
- * does not yet expose this computation, and `@bridge/tables`' `ColumnKind`
- * has no dedicated "location" kind — so this stays a client-side heuristic
- * over the columns a view already receives, mirrored locally per CLAUDE.md's
- * "mirror it locally in apps/web" guidance (see OnboardingDialog.tsx's
- * REGISTERED_NODE_TYPES for the precedent). Table/kanban/gallery ("card") are
- * unconditionally eligible for any table-backed spec; calendar/map/network
- * are gated on the spec actually carrying a column that could plausibly drive
- * them, so the switcher never offers a view that would only ever render an
- * empty/broken state.
- */
-import type { ColumnSpec, TableSpec, ViewConfig } from "@bridge/tables";
+import {
+  defaultViewConfig,
+  normalizeViewKind,
+  type ColumnSpec,
+  type TableSpec,
+  type ViewConfig,
+  type ViewKind,
+} from "@bridge/tables";
 
-/** Column ids/labels that plausibly carry a location — no geocoding, just a
- * name-based heuristic. A real "location" ColumnKind is the honest long-term
- * fix (would live in @bridge/tables, out of this session's lane). */
-const LOCATION_HINTS = ["location", "address", "city", "region", "country", "lat", "lng", "latitude", "longitude", "place"];
-
-function isLocationColumn(col: ColumnSpec): boolean {
-  const haystack = `${col.id} ${col.label}`.toLowerCase();
-  return LOCATION_HINTS.some((hint) => haystack.includes(hint));
+function isParentRelation(spec: TableSpec, column: ColumnSpec): boolean {
+  return (
+    column.kind === "relation" &&
+    (column.relationParent === true || column.relationTarget === spec.id)
+  );
 }
 
-function hasDateColumn(columns: ColumnSpec[]): boolean {
-  return columns.some((c) => c.kind === "date");
-}
-
-function hasLocationColumn(columns: ColumnSpec[]): boolean {
-  return columns.some((c) => isLocationColumn(c));
-}
-
-function hasRelationColumn(columns: ColumnSpec[]): boolean {
-  return columns.some((c) => c.kind === "relation");
-}
-
-/**
- * Always-eligible kinds for any table-backed spec, plus the conditional ones
- * this spec's columns actually support. Order matches the canonical morph
- * order registry.ts documents (table, kanban, card/gallery, then conditional
- * calendar/map/graph, then form last — it is an input surface, not a display
- * format, but is always eligible per the UI architecture spec AP-011).
- */
-export function computeEligibleKinds(spec: TableSpec, isRelationship = false): ViewConfig["kind"][] {
-  if (isRelationship) {
-    // Grammar restriction unchanged (docs/wiki/vision.md: relationship views
-    // are graph OR table ONLY) — this function still reports both truthfully
-    // rather than special-casing relationships to a fixed list, so a future
-    // relationship-shaped spec that also carries a date/location column isn't
-    // silently under-reported. DataViews.tsx applies the graph|table filter.
-    return ["table", "network"];
+function driverColumn(spec: TableSpec, kind: ViewKind): ColumnSpec | undefined {
+  if (kind === "board") return spec.columns.find((column) => column.kind === "select");
+  if (kind === "calendar") return spec.columns.find((column) => column.kind === "date");
+  if (kind === "map") return spec.columns.find((column) => column.kind === "location");
+  if (kind === "tree") return spec.columns.find((column) => isParentRelation(spec, column));
+  if (kind === "graph") {
+    return spec.columns.find(
+      (column) => column.kind === "relation" && !isParentRelation(spec, column),
+    );
   }
+  return undefined;
+}
 
-  const kinds: ViewConfig["kind"][] = ["table", "kanban", "gallery"];
-  if (hasDateColumn(spec.columns)) kinds.push("calendar");
-  if (hasLocationColumn(spec.columns)) kinds.push("map");
-  if (hasRelationColumn(spec.columns)) kinds.push("network");
-  // Form is always offered for any table-backed entity spec — it is the standard
-  // new-row input surface (UI architecture canon AP-011, "Form view").
-  kinds.push("form");
+export function computeEligibleKinds(spec: TableSpec, _legacyRelationshipFlag = false): ViewKind[] {
+  const kinds: ViewKind[] = ["table"];
+  if (driverColumn(spec, "board")) kinds.push("board");
+  kinds.push("gallery", "form");
+  if (driverColumn(spec, "calendar")) kinds.push("calendar");
+  if (driverColumn(spec, "map")) kinds.push("map");
+  if (driverColumn(spec, "graph")) kinds.push("graph");
+  if (driverColumn(spec, "tree")) kinds.push("tree");
   return kinds;
+}
+
+export function viewConfigForKind(
+  spec: TableSpec,
+  kind: ViewKind,
+  current?: Partial<ViewConfig>,
+): ViewConfig {
+  const base = defaultViewConfig(current?.id ?? `${spec.id}:${kind}`, kind);
+  const next: ViewConfig = {
+    ...base,
+    ...current,
+    id: current?.id ?? `${spec.id}:${kind}`,
+    kind,
+  };
+
+  if (kind === "board") next.groupBy = next.groupBy ?? driverColumn(spec, kind)?.id ?? null;
+  if (kind === "calendar") next.dateBy = next.dateBy ?? driverColumn(spec, kind)?.id;
+  if (kind === "map") next.locationBy = next.locationBy ?? driverColumn(spec, kind)?.id;
+  if (kind === "graph") {
+    next.relationBy = next.relationBy ?? driverColumn(spec, kind)?.id;
+    next.graphScope = next.graphScope ?? "single_database";
+  }
+  if (kind === "tree") next.parentBy = next.parentBy ?? driverColumn(spec, kind)?.id;
+  if (kind !== "form") delete next.formDefaults;
+
+  return next;
+}
+
+export function migrateViewConfig(spec: TableSpec, view: ViewConfig): ViewConfig | null {
+  const kind = normalizeViewKind((view as { kind: unknown }).kind);
+  return kind ? viewConfigForKind(spec, kind, view) : null;
 }
 
 /**

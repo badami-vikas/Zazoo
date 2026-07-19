@@ -13,16 +13,12 @@
  * a <DataViews> shell can render," and it rejects anything outside the registered
  * grammar rather than silently passing it through.
  *
- * Grammar (docs/wiki/vision.md "View grammar", guardrail):
- *   - default views = table (morphable: calendar/kanban/map/graph/card) · chatbot ·
- *     dashboard · canvas. This compiler only handles the @bridge/tables-backed data
- *     views (table/gallery/kanban/calendar/map/network) — chatbot/dashboard/canvas
+ * Grammar (docs/raw/brd-dataengine-views-2026-07.md):
+ *   - one registered data-view set: table/board/gallery/form/calendar/map/graph/tree.
+ *     This compiler handles those @bridge/tables-backed views; chatbot/dashboard/canvas
  *     views are the frontend's ViewComponentRegistry's problem, not this compiler's;
  *     a blueprint view of kind "dashboard" compiles through unchanged (no TableSpec
  *     needed) so the frontend registry can still render it.
- *   - Relationships (any entity whose nodeType is "relationship") render as
- *     graph or table ONLY — compileBlueprint forces this, rejecting kanban/
- *     calendar/map/gallery for a relationship entity's view.
  *   - Generation = configurations of REGISTERED components only. An unknown
  *     node type (not present in the caller-provided registry list) or an
  *     unknown view kind is a compile ERROR, never a silently-dropped view.
@@ -39,17 +35,17 @@
  */
 import type { PackageManifest } from "./package/types.js";
 
-/** Current WorkspaceBlueprint schema version (BLUEPRINT-1, Month-6). Bumped on a
+/** Current WorkspaceBlueprint schema version. Version 2 replaces the persisted
+ * view aliases `kanban`/`network` with the canonical `board`/`graph` kinds and
+ * adds Form/Tree plus source-column metadata. Version-1 payloads remain readable
+ * through parseWorkspaceBlueprint's explicit migration. Bumped on a
  * breaking change to the blueprint grammar; `parseWorkspaceBlueprint` stamps it
  * when absent and rejects a version it does not understand, so a Commons-
  * published blueprint carries the grammar version it was authored against. */
-export const BLUEPRINT_SCHEMA_VERSION = 1 as const;
-/** Structural mirror of @bridge/tables' ColumnKind, PLUS "location" (ADR-023/
- * ADR-024 view-convertibility grammar: map-view eligibility needs a real
- * location-kind column instead of a name-based heuristic). @bridge/tables'
- * own ColumnKind does not have this member yet — additive-only here per
- * CLAUDE.md's backward-compatibility rule for kernel type changes; a
- * follow-up can widen @bridge/tables' ColumnKind to match. */
+export const BLUEPRINT_SCHEMA_VERSION = 2 as const;
+const LEGACY_BLUEPRINT_SCHEMA_VERSION = 1 as const;
+
+/** Structural mirror of @bridge/tables' ColumnKind. */
 export type BlueprintColumnKind =
   | "text"
   | "number"
@@ -62,6 +58,12 @@ export type BlueprintColumnKind =
   | "formula"
   | "tool"
   | "location";
+export type BlueprintDefaultValue =
+  | string
+  | number
+  | boolean
+  | null
+  | Array<string | number | boolean>;
 
 /** Structural mirror of @bridge/tables' ColumnSpec. */
 export interface BlueprintColumnSpec {
@@ -70,6 +72,11 @@ export interface BlueprintColumnSpec {
   kind: BlueprintColumnKind;
   options?: string[];
   toolId?: string;
+  required?: boolean;
+  defaultValue?: BlueprintDefaultValue;
+  relationTarget?: string;
+  relationParent?: boolean;
+  hiddenInForm?: boolean;
 }
 
 /** Structural mirror of @bridge/tables' TableSpec. */
@@ -86,16 +93,31 @@ export type BlueprintRowFilter = { field: string; op: BlueprintFilterOp; value: 
  * a structural mirror of @bridge/tables' ViewConfig["kind"]. Kept separate from
  * the blueprint's own view surface (chatbot/dashboard/canvas) so those can be
  * layered on top without @bridge/tables ever needing to know about them. */
-export type DataViewKind = "table" | "gallery" | "kanban" | "calendar" | "map" | "network";
-const DATA_VIEW_KINDS: readonly DataViewKind[] = ["table", "gallery", "kanban", "calendar", "map", "network"];
+export type DataViewKind =
+  | "table"
+  | "board"
+  | "gallery"
+  | "form"
+  | "calendar"
+  | "map"
+  | "graph"
+  | "tree";
+const DATA_VIEW_KINDS: readonly DataViewKind[] = [
+  "table",
+  "board",
+  "gallery",
+  "form",
+  "calendar",
+  "map",
+  "graph",
+  "tree",
+];
+type LegacyDataViewKind = "kanban" | "network";
 
 /** The blueprint's full view surface — @bridge/tables' data-view kinds plus the
  * three non-tabular view kinds the vision doc's grammar also allows. */
 export type BlueprintViewKind = DataViewKind | "chatbot" | "dashboard" | "canvas";
 const BLUEPRINT_VIEW_KINDS: readonly BlueprintViewKind[] = [...DATA_VIEW_KINDS, "chatbot", "dashboard", "canvas"];
-
-/** Kinds a relationship entity's view is restricted to (grammar: "graph or table ONLY"). */
-const RELATIONSHIP_ALLOWED_KINDS: readonly BlueprintViewKind[] = ["network", "table"];
 
 export interface BlueprintFieldSpec {
   id: string;
@@ -103,6 +125,11 @@ export interface BlueprintFieldSpec {
   kind: BlueprintColumnKind;
   options?: string[];
   toolId?: string;
+  required?: boolean;
+  defaultValue?: BlueprintDefaultValue;
+  relationTarget?: string;
+  relationParent?: boolean;
+  hiddenInForm?: boolean;
 }
 
 export interface BlueprintEntitySpec {
@@ -122,6 +149,12 @@ export interface BlueprintViewSpec {
     rowFilters?: BlueprintRowFilter[];
     filterMatch?: "all" | "any";
     groupBy?: string | null;
+    dateBy?: string;
+    locationBy?: string;
+    relationBy?: string;
+    parentBy?: string;
+    graphScope?: "single_database" | "multi_database" | "full";
+    graphDatabaseIds?: string[];
   };
 }
 
@@ -176,16 +209,18 @@ export interface CompiledViewConfig {
   rowFilters: BlueprintRowFilter[];
   filterMatch: "all" | "any";
   groupBy: string | null;
+  dateBy?: string;
+  locationBy?: string;
+  relationBy?: string;
+  parentBy?: string;
+  graphScope?: "single_database" | "multi_database" | "full";
+  graphDatabaseIds?: string[];
   /** View-convertibility grammar (ADR-023 item 6 / ADR-024): which
    * DataViewKinds this view's owning entity could morph into, computed from
    * the entity's OWN column kinds — not the view's declared `kind`. Always
-   * includes table/kanban/gallery ("card") for any table-backed entity;
-   * "calendar" is added when a "date" column exists, "map" when a "location"
-   * column exists, "network" (graph) when a "relation" column exists. A
-   * relationship-shaped entity (per `relationshipNodeTypes`) is restricted to
-   * exactly ["table", "network"], mirroring the RELATIONSHIP_ALLOWED_KINDS
-   * compile-time restriction below. Non-tabular views (chatbot/dashboard/
-   * canvas) carry an empty array — they have no TableSpec to morph from. */
+   * includes table/gallery/form for every table-backed entity; other kinds are
+   * admitted strictly from column metadata. Non-tabular views
+   * (chatbot/dashboard/canvas) carry an empty array. */
   convertibleKinds: DataViewKind[];
 }
 
@@ -204,30 +239,69 @@ function viewConfigId(entity: string, kind: BlueprintViewKind, index: number): s
   return `${entity}.${kind}.${index}`;
 }
 
-/** ADR-023/ADR-024 view-convertibility grammar: table/kanban/gallery ("card")
- * are always convertible for any table-backed entity; calendar/map/network
- * are gated on the entity actually carrying a column kind that could drive
- * them, so a switcher never offers a view guaranteed to render empty. A
- * relationship-shaped entity is restricted to exactly table+network,
- * mirroring RELATIONSHIP_ALLOWED_KINDS' compile-time restriction. */
-function computeConvertibleKinds(entity: BlueprintEntitySpec, isRelationship: boolean): DataViewKind[] {
-  if (isRelationship) return ["table", "network"];
-  const kinds: DataViewKind[] = ["table", "kanban", "gallery"];
-  if (entity.fields.some((f) => f.kind === "date")) kinds.push("calendar");
-  if (entity.fields.some((f) => f.kind === "location")) kinds.push("map");
-  if (entity.fields.some((f) => f.kind === "relation")) kinds.push("network");
+function parentRelationField(entity: BlueprintEntitySpec): BlueprintFieldSpec | undefined {
+  return entity.fields.find(
+    (field) =>
+      field.kind === "relation" &&
+      (field.relationParent === true || field.relationTarget === entity.nodeType),
+  );
+}
+
+function graphRelationField(entity: BlueprintEntitySpec): BlueprintFieldSpec | undefined {
+  return entity.fields.find(
+    (field) =>
+      field.kind === "relation" &&
+      field.relationParent !== true &&
+      field.relationTarget !== entity.nodeType,
+  );
+}
+
+/** Canonical View eligibility. Always-on kinds are table/gallery/form; every
+ * other kind is admitted only when the entity carries the required metadata. */
+function computeConvertibleKinds(entity: BlueprintEntitySpec): DataViewKind[] {
+  const kinds: DataViewKind[] = ["table"];
+  if (entity.fields.some((field) => field.kind === "select")) kinds.push("board");
+  kinds.push("gallery", "form");
+  if (entity.fields.some((field) => field.kind === "date")) kinds.push("calendar");
+  if (entity.fields.some((field) => field.kind === "location")) kinds.push("map");
+  if (graphRelationField(entity)) kinds.push("graph");
+  if (parentRelationField(entity)) kinds.push("tree");
   return kinds;
 }
 
-/** ADR-023/ADR-024: a kanban view's default `groupBy` is the entity's own
+/** A board view's default `groupBy` is the entity's own
  * "select"-kind column (its stage/status field) when one exists and the
  * blueprint author didn't already specify one — never overrides an explicit
  * `config.groupBy` (including an explicit `null`, which means "no grouping,
  * intentionally"). Picks the FIRST select-kind field in declaration order;
  * a blueprint with more than one select column should name the intended one
  * explicitly via `config.groupBy`. */
-function defaultKanbanGroupBy(entity: BlueprintEntitySpec): string | null {
+function defaultBoardGroupBy(entity: BlueprintEntitySpec): string | null {
   return entity.fields.find((f) => f.kind === "select")?.id ?? null;
+}
+
+function defaultDateBy(entity: BlueprintEntitySpec): string | undefined {
+  return entity.fields.find((field) => field.kind === "date")?.id;
+}
+
+function defaultLocationBy(entity: BlueprintEntitySpec): string | undefined {
+  return entity.fields.find((field) => field.kind === "location")?.id;
+}
+
+function validateDriverColumn(
+  entity: BlueprintEntitySpec,
+  columnId: string | undefined,
+  viewKind: DataViewKind,
+  predicate: (field: BlueprintFieldSpec) => boolean,
+): string | undefined {
+  if (columnId === undefined) return undefined;
+  const field = entity.fields.find((candidate) => candidate.id === columnId);
+  if (!field || !predicate(field)) {
+    throw new BlueprintCompileError(
+      `blueprint ${viewKind} view for entity "${entity.nodeType}" references ineligible driver column "${columnId}"`,
+    );
+  }
+  return columnId;
 }
 
 /**
@@ -246,10 +320,9 @@ function defaultKanbanGroupBy(entity: BlueprintEntitySpec): string | null {
 export function compileBlueprint(
   blueprint: WorkspaceBlueprint,
   registeredNodeTypes: readonly string[],
-  relationshipNodeTypes: readonly string[] = ["relationship"],
+  _relationshipNodeTypes: readonly string[] = ["relationship"],
 ): CompiledWorkspace {
   const registered = new Set(registeredNodeTypes);
-  const relationshipSet = new Set(relationshipNodeTypes);
   const entityByNodeType = new Map<string, BlueprintEntitySpec>();
 
   for (const entity of blueprint.entities) {
@@ -273,6 +346,11 @@ export function compileBlueprint(
         kind: f.kind,
         ...(f.options ? { options: f.options } : {}),
         ...(f.toolId ? { toolId: f.toolId } : {}),
+        ...(f.required !== undefined ? { required: f.required } : {}),
+        ...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {}),
+        ...(f.relationTarget ? { relationTarget: f.relationTarget } : {}),
+        ...(f.relationParent !== undefined ? { relationParent: f.relationParent } : {}),
+        ...(f.hiddenInForm !== undefined ? { hiddenInForm: f.hiddenInForm } : {}),
       }),
     ),
   }));
@@ -293,9 +371,13 @@ export function compileBlueprint(
         `blueprint view kind "${view.kind}" for entity "${view.entity}" is not a registered view kind (registered: ${BLUEPRINT_VIEW_KINDS.join(", ")})`,
       );
     }
-    if (relationshipSet.has(view.entity) && !RELATIONSHIP_ALLOWED_KINDS.includes(view.kind)) {
+    const convertibleKinds = computeConvertibleKinds(entity);
+    if (
+      DATA_VIEW_KINDS.includes(view.kind as DataViewKind) &&
+      !convertibleKinds.includes(view.kind as DataViewKind)
+    ) {
       throw new BlueprintCompileError(
-        `entity "${view.entity}" is a relationship node type — its views are restricted to ${RELATIONSHIP_ALLOWED_KINDS.join(" or ")}, got "${view.kind}"`,
+        `blueprint view kind "${view.kind}" is not eligible for entity "${view.entity}" from its column metadata (eligible: ${convertibleKinds.join(", ")})`,
       );
     }
 
@@ -303,12 +385,56 @@ export function compileBlueprint(
     viewsByEntityIndex.set(view.entity, index + 1);
     const id = viewConfigId(view.entity, view.kind, index);
 
-    const isRelationship = relationshipSet.has(view.entity);
     // groupBy: an explicit config.groupBy (including explicit null) always
-    // wins; otherwise a kanban view defaults to the entity's own select-kind
+    // wins; otherwise a board view defaults to the entity's own select-kind
     // ("stage") column when one exists, else null (ungrouped).
     const groupBy =
-      view.config?.groupBy !== undefined ? view.config.groupBy : view.kind === "kanban" ? defaultKanbanGroupBy(entity) : null;
+      view.config?.groupBy !== undefined ? view.config.groupBy : view.kind === "board" ? defaultBoardGroupBy(entity) : null;
+    if (view.kind === "board" && groupBy !== null) {
+      validateDriverColumn(entity, groupBy, "board", (field) => field.kind === "select");
+    }
+
+    const dateBy =
+      view.kind === "calendar"
+        ? validateDriverColumn(
+            entity,
+            view.config?.dateBy ?? defaultDateBy(entity),
+            "calendar",
+            (field) => field.kind === "date",
+          )
+        : undefined;
+    const locationBy =
+      view.kind === "map"
+        ? validateDriverColumn(
+            entity,
+            view.config?.locationBy ?? defaultLocationBy(entity),
+            "map",
+            (field) => field.kind === "location",
+          )
+        : undefined;
+    const relationBy =
+      view.kind === "graph"
+        ? validateDriverColumn(
+            entity,
+            view.config?.relationBy ?? graphRelationField(entity)?.id,
+            "graph",
+            (field) =>
+              field.kind === "relation" &&
+              field.relationParent !== true &&
+              field.relationTarget !== entity.nodeType,
+          )
+        : undefined;
+    const parentBy =
+      view.kind === "tree"
+        ? validateDriverColumn(
+            entity,
+            view.config?.parentBy ?? parentRelationField(entity)?.id,
+            "tree",
+            (field) =>
+              field.kind === "relation" &&
+              (field.relationParent === true || field.relationTarget === entity.nodeType),
+          )
+        : undefined;
 
     viewConfigs.push({
       id,
@@ -318,8 +444,16 @@ export function compileBlueprint(
       rowFilters: view.config?.rowFilters ?? [],
       filterMatch: view.config?.filterMatch ?? "all",
       groupBy,
+      ...(dateBy ? { dateBy } : {}),
+      ...(locationBy ? { locationBy } : {}),
+      ...(relationBy ? { relationBy } : {}),
+      ...(parentBy ? { parentBy } : {}),
+      ...(view.kind === "graph" ? { graphScope: view.config?.graphScope ?? "single_database" } : {}),
+      ...(view.kind === "graph" && view.config?.graphDatabaseIds
+        ? { graphDatabaseIds: view.config.graphDatabaseIds }
+        : {}),
       convertibleKinds: DATA_VIEW_KINDS.includes(view.kind as DataViewKind)
-        ? computeConvertibleKinds(entity, isRelationship)
+        ? convertibleKinds
         : [],
     });
 
@@ -382,9 +516,35 @@ const BLUEPRINT_FIELD_KINDS: readonly BlueprintColumnKind[] = [
 ];
 const FILTER_OPS: readonly BlueprintFilterOp[] = ["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"];
 
+function isDefaultValue(value: unknown): value is BlueprintDefaultValue {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    (Array.isArray(value) &&
+      value.every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"))
+  );
+}
+
 function parseField(raw: unknown, where: string): BlueprintFieldSpec {
   if (!isPlainObj(raw)) bfail(`${where} must be an object`);
-  rejectUnknownKeys(raw, ["id", "label", "kind", "options", "toolId"], where);
+  rejectUnknownKeys(
+    raw,
+    [
+      "id",
+      "label",
+      "kind",
+      "options",
+      "toolId",
+      "required",
+      "defaultValue",
+      "relationTarget",
+      "relationParent",
+      "hiddenInForm",
+    ],
+    where,
+  );
   const { id, label, kind } = raw;
   if (typeof id !== "string" || id.length === 0) bfail(`${where}.id must be a non-empty string`);
   if (typeof label !== "string" || label.length === 0) bfail(`${where}.label must be a non-empty string`);
@@ -397,18 +557,51 @@ function parseField(raw: unknown, where: string): BlueprintFieldSpec {
     options = raw.options as string[];
   }
   if (raw.toolId !== undefined && typeof raw.toolId !== "string") bfail(`${where}.toolId must be a string`);
+  if (raw.required !== undefined && typeof raw.required !== "boolean") bfail(`${where}.required must be a boolean`);
+  if (raw.defaultValue !== undefined && !isDefaultValue(raw.defaultValue)) {
+    bfail(`${where}.defaultValue must be a scalar or scalar array`);
+  }
+  if (raw.relationTarget !== undefined && typeof raw.relationTarget !== "string") {
+    bfail(`${where}.relationTarget must be a string`);
+  }
+  if (raw.relationParent !== undefined && typeof raw.relationParent !== "boolean") {
+    bfail(`${where}.relationParent must be a boolean`);
+  }
+  if (raw.hiddenInForm !== undefined && typeof raw.hiddenInForm !== "boolean") {
+    bfail(`${where}.hiddenInForm must be a boolean`);
+  }
   return {
     id,
     label,
     kind: kind as BlueprintColumnKind,
     ...(options ? { options } : {}),
     ...(typeof raw.toolId === "string" ? { toolId: raw.toolId } : {}),
+    ...(typeof raw.required === "boolean" ? { required: raw.required } : {}),
+    ...(raw.defaultValue !== undefined ? { defaultValue: raw.defaultValue } : {}),
+    ...(typeof raw.relationTarget === "string" ? { relationTarget: raw.relationTarget } : {}),
+    ...(typeof raw.relationParent === "boolean" ? { relationParent: raw.relationParent } : {}),
+    ...(typeof raw.hiddenInForm === "boolean" ? { hiddenInForm: raw.hiddenInForm } : {}),
   };
 }
 
 function parseViewConfig(raw: unknown, where: string): NonNullable<BlueprintViewSpec["config"]> {
   if (!isPlainObj(raw)) bfail(`${where} must be an object`);
-  rejectUnknownKeys(raw, ["sorts", "rowFilters", "filterMatch", "groupBy"], where);
+  rejectUnknownKeys(
+    raw,
+    [
+      "sorts",
+      "rowFilters",
+      "filterMatch",
+      "groupBy",
+      "dateBy",
+      "locationBy",
+      "relationBy",
+      "parentBy",
+      "graphScope",
+      "graphDatabaseIds",
+    ],
+    where,
+  );
   let sorts: BlueprintSortSpec[] | undefined;
   if (raw.sorts !== undefined) {
     if (!Array.isArray(raw.sorts)) bfail(`${where}.sorts must be an array`);
@@ -437,11 +630,39 @@ function parseViewConfig(raw: unknown, where: string): NonNullable<BlueprintView
   if (raw.groupBy !== undefined && raw.groupBy !== null && typeof raw.groupBy !== "string") {
     bfail(`${where}.groupBy must be a string or null`);
   }
+  for (const key of ["dateBy", "locationBy", "relationBy", "parentBy"] as const) {
+    if (raw[key] !== undefined && typeof raw[key] !== "string") {
+      bfail(`${where}.${key} must be a string`);
+    }
+  }
+  if (
+    raw.graphScope !== undefined &&
+    raw.graphScope !== "single_database" &&
+    raw.graphScope !== "multi_database" &&
+    raw.graphScope !== "full"
+  ) {
+    bfail(`${where}.graphScope must be single_database, multi_database, or full`);
+  }
+  if (
+    raw.graphDatabaseIds !== undefined &&
+    (!Array.isArray(raw.graphDatabaseIds) ||
+      raw.graphDatabaseIds.some((databaseId) => typeof databaseId !== "string" || databaseId.length === 0))
+  ) {
+    bfail(`${where}.graphDatabaseIds must be an array of non-empty strings`);
+  }
   return {
     ...(sorts ? { sorts } : {}),
     ...(rowFilters ? { rowFilters } : {}),
     ...(raw.filterMatch === "all" || raw.filterMatch === "any" ? { filterMatch: raw.filterMatch } : {}),
     ...(raw.groupBy !== undefined ? { groupBy: raw.groupBy as string | null } : {}),
+    ...(typeof raw.dateBy === "string" ? { dateBy: raw.dateBy } : {}),
+    ...(typeof raw.locationBy === "string" ? { locationBy: raw.locationBy } : {}),
+    ...(typeof raw.relationBy === "string" ? { relationBy: raw.relationBy } : {}),
+    ...(typeof raw.parentBy === "string" ? { parentBy: raw.parentBy } : {}),
+    ...(raw.graphScope === "single_database" || raw.graphScope === "multi_database" || raw.graphScope === "full"
+      ? { graphScope: raw.graphScope }
+      : {}),
+    ...(Array.isArray(raw.graphDatabaseIds) ? { graphDatabaseIds: raw.graphDatabaseIds as string[] } : {}),
   };
 }
 
@@ -458,13 +679,15 @@ export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
   if (!isPlainObj(raw)) bfail("root must be an object");
   rejectUnknownKeys(raw, ["schemaVersion", "vocabulary", "entities", "views", "capabilities"], "blueprint");
 
-  let schemaVersion = BLUEPRINT_SCHEMA_VERSION as number;
+  const sourceSchemaVersion = raw.schemaVersion;
   if (raw.schemaVersion !== undefined) {
     if (typeof raw.schemaVersion !== "number" || !Number.isInteger(raw.schemaVersion)) bfail("schemaVersion must be an integer");
+    if (raw.schemaVersion < LEGACY_BLUEPRINT_SCHEMA_VERSION) {
+      bfail(`schemaVersion ${raw.schemaVersion} is older than this kernel can migrate`);
+    }
     if (raw.schemaVersion > BLUEPRINT_SCHEMA_VERSION) {
       bfail(`schemaVersion ${raw.schemaVersion} is newer than this kernel understands (max ${BLUEPRINT_SCHEMA_VERSION})`);
     }
-    schemaVersion = raw.schemaVersion;
   }
 
   if (!isPlainObj(raw.vocabulary)) bfail("vocabulary must be an object");
@@ -489,12 +712,22 @@ export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
     if (!isPlainObj(v)) bfail(`views[${i}] must be an object`);
     rejectUnknownKeys(v, ["entity", "kind", "config"], `views[${i}]`);
     if (typeof v.entity !== "string" || v.entity.length === 0) bfail(`views[${i}].entity must be a non-empty string`);
-    if (typeof v.kind !== "string" || !BLUEPRINT_VIEW_KINDS.includes(v.kind as BlueprintViewKind)) {
+    if (typeof v.kind !== "string") {
+      bfail(`views[${i}].kind must be a string`);
+    }
+    let kind = v.kind as string;
+    if (kind === "kanban" || kind === "network") {
+      if (sourceSchemaVersion === BLUEPRINT_SCHEMA_VERSION) {
+        bfail(`views[${i}].kind "${kind}" is a version-1 alias; use "${kind === "kanban" ? "board" : "graph"}"`);
+      }
+      kind = kind === "kanban" ? "board" : "graph";
+    }
+    if (!BLUEPRINT_VIEW_KINDS.includes(kind as BlueprintViewKind)) {
       bfail(`views[${i}].kind must be one of ${BLUEPRINT_VIEW_KINDS.join(", ")}`);
     }
     return {
       entity: v.entity,
-      kind: v.kind as BlueprintViewKind,
+      kind: kind as BlueprintViewKind,
       ...(v.config !== undefined ? { config: parseViewConfig(v.config, `views[${i}].config`) } : {}),
     };
   });
@@ -503,7 +736,13 @@ export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
     bfail("capabilities must be an array of non-empty capability-manifest-id strings");
   }
 
-  return { schemaVersion, vocabulary, entities, views, capabilities: raw.capabilities as string[] };
+  return {
+    schemaVersion: BLUEPRINT_SCHEMA_VERSION,
+    vocabulary,
+    entities,
+    views,
+    capabilities: raw.capabilities as string[],
+  };
 }
 
 export interface WorkspaceBlueprintPublishOptions {
@@ -540,7 +779,7 @@ export function workspaceBlueprintToPackageManifest(
     capabilities: [],
     contextProviders: [],
     workspaceVocab: { alignsToBridgeTheme: true, domainTerms: blueprint.vocabulary },
-    blueprint: { ...blueprint, schemaVersion: blueprint.schemaVersion ?? BLUEPRINT_SCHEMA_VERSION },
+    blueprint: { ...blueprint, schemaVersion: BLUEPRINT_SCHEMA_VERSION },
   };
 }
 

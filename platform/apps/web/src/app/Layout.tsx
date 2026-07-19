@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
+import { BrainCircuit, Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -160,7 +160,8 @@ export default function Layout() {
 
   const homeActive = location.pathname === "/" || isActive("/home");
   const settingsActive = isActive("/settings");
-  const pendingWorkActive = isActive("/task-manager") || isActive("/pending-work") || isActive("/calendar");
+  const pendingWorkActive = isActive("/task-manager") || isActive("/pending-work");
+  const secondBrainActive = isActive("/second-brain");
 
   return (
     <div className="flex h-screen w-full overflow-hidden font-sans">
@@ -336,6 +337,12 @@ export default function Layout() {
             })
           )}
 
+          <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
+            {secondBrainActive && <ActiveBar />}
+            <BrainCircuit className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>Second Brain</span>
+          </Link>
+
           {/* "+New" — ALWAYS below all modules. */}
           <button
             type="button"
@@ -413,6 +420,15 @@ export default function Layout() {
                   {module.displayName}
                 </Link>
               ))}
+              <Link
+                to="/second-brain"
+                onClick={() => setMobileModulesOpen(false)}
+                className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
+                style={{ color: "var(--color-navy)" }}
+              >
+                <BrainCircuit className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                Second Brain
+              </Link>
               {moduleLoadError && <p className="px-3 py-2 text-xs text-red-600">Modules unavailable: {moduleLoadError}</p>}
             </div>
             <div className="mt-3 space-y-1 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>

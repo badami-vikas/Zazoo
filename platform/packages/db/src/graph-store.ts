@@ -18,12 +18,21 @@ import {
   communityMembers,
   edges,
   events,
+  fileRefs,
+  files,
+  goals,
   initiatives,
+  initiativeCommunities,
+  initiativeParticipants,
+  jobpilotApplications,
+  jobpilotJobs,
   nodeTypes,
   people,
   peopleCanonical,
+  resources,
   signalActions,
   signals,
+  tasks,
   touchpoints,
 } from "./schema.js";
 import type { RelationEvidenceRef } from "./schema.js";
@@ -49,6 +58,43 @@ export interface RelationPage {
   nextCursor: RelationCursor | null;
 }
 
+export interface GraphRelationPage {
+  items: RelationRecord[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface FullGraphNodeRecord {
+  id: string;
+  recordId: string;
+  recordType: string;
+  label: string;
+  databaseId: string;
+  databaseLabel: string;
+  moduleId: string;
+  subtitle?: string;
+  recordPath?: string;
+  actionKind?: "signal";
+  provenance: string;
+}
+
+export interface FullGraphEdgeRecord {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  label: string;
+  relationType: string;
+  sourceModule: string;
+  evidence: string;
+}
+
+export interface FullGraphPage {
+  nodes: FullGraphNodeRecord[];
+  edges: FullGraphEdgeRecord[];
+  databases: Array<{ id: string; label: string; moduleId: string }>;
+  hasMore: boolean;
+}
+
 export interface RelationshipPathNode {
   nodeType: string;
   nodeId: string;
@@ -72,6 +118,71 @@ export interface RelationshipPathResult {
   truncated: boolean;
 }
 
+interface FullGraphEdgeCandidate extends FullGraphEdgeRecord {
+  sortAt: Date;
+}
+
+const FULL_GRAPH_NODE_TYPES = new Set([
+  "person",
+  "community",
+  "signal",
+  "event",
+  "initiative",
+  "touchpoint",
+  "file",
+  "job",
+  "application",
+  "goal",
+  "task",
+  "resource",
+]);
+
+function normalizeFullGraphNodeType(value: string): string | null {
+  const normalized = value.trim().toLowerCase().replaceAll("-", "_");
+  const aliases: Record<string, string> = {
+    people: "person",
+    communities: "community",
+    jobpilot_job: "job",
+    jobpilot_jobs: "job",
+    jobpilot_application: "application",
+    jobpilot_applications: "application",
+    initiative_touchpoint: "touchpoint",
+  };
+  const nodeType = aliases[normalized] ?? normalized;
+  return FULL_GRAPH_NODE_TYPES.has(nodeType) ? nodeType : null;
+}
+
+function fullGraphNodeId(nodeType: string, recordId: string): string {
+  return `${nodeType}:${recordId}`;
+}
+
+function fullGraphDatabase(nodeType: string): { id: string; label: string; moduleId: string } {
+  const databases: Record<string, { id: string; label: string; moduleId: string }> = {
+    person: { id: "people", label: "People", moduleId: "relationship" },
+    community: { id: "communities", label: "Communities", moduleId: "relationship" },
+    signal: { id: "signals", label: "Signals", moduleId: "relationship" },
+    event: { id: "events", label: "Events", moduleId: "relationship" },
+    initiative: { id: "initiatives", label: "Initiatives", moduleId: "initiative" },
+    touchpoint: { id: "touchpoints", label: "Touchpoints", moduleId: "initiative" },
+    file: { id: "files", label: "Files", moduleId: "files" },
+    job: { id: "jobpilot.jobs", label: "Jobs", moduleId: "job-pilot" },
+    application: { id: "jobpilot.applications", label: "Applications", moduleId: "job-pilot" },
+    goal: { id: "task-manager.goals", label: "Goals", moduleId: "task-manager" },
+    task: { id: "task-manager.tasks", label: "Tasks", moduleId: "task-manager" },
+    resource: { id: "resources", label: "Resources", moduleId: "resources" },
+  };
+  return databases[nodeType] ?? { id: nodeType, label: nodeType, moduleId: nodeType };
+}
+
+function graphMetadataLabel(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const values = metadata as Record<string, unknown>;
+  for (const key of ["name", "fileName", "title"]) {
+    if (typeof values[key] === "string" && values[key].trim()) return values[key].trim();
+  }
+  return null;
+}
+
 export interface PersonRecord {
   id: string;
   workspaceId: string;
@@ -80,6 +191,7 @@ export interface PersonRecord {
   visibility: string;
   displayName: string | null;
   currentTitle: string | null;
+  location?: string | null;
   currentCommunityId: string | null;
   source: string | null;
   lastInteractionAt: Date | null;
@@ -96,6 +208,7 @@ export interface CommunityRecord {
   displayName: string | null;
   description: string | null;
   kind: string | null;
+  location?: string | null;
   source: string;
   isUserConfirmed: boolean;
   memberCount: number;
@@ -129,6 +242,7 @@ export interface CreatePersonInput extends DecisionProvenance {
   displayName: string;
   currentTitle?: string | null;
   bio?: string | null;
+  location?: string | null;
   emails?: string[];
   visibility: RelationshipRecordVisibility;
   source: string;
@@ -141,6 +255,7 @@ export interface UpdatePersonInput extends DecisionProvenance {
   displayName?: string;
   currentTitle?: string | null;
   bio?: string | null;
+  location?: string | null;
   emails?: string[];
   visibility?: RelationshipRecordVisibility;
 }
@@ -151,6 +266,7 @@ export interface CreateCommunityInput extends DecisionProvenance {
   ownerUserId: string;
   displayName: string;
   description?: string | null;
+  location?: string | null;
   kind?: string | null;
   visibility: RelationshipRecordVisibility;
   source: string;
@@ -162,6 +278,7 @@ export interface UpdateCommunityInput extends DecisionProvenance {
   ownerUserId: string;
   displayName?: string;
   description?: string | null;
+  location?: string | null;
   kind?: string | null;
   visibility?: RelationshipRecordVisibility;
 }
@@ -1223,6 +1340,10 @@ export class DrizzleGraphStore {
                 WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
                 ELSE nullif(${people.currentTitleOverride}, '')
               END`,
+              location: sql<string | null>`CASE
+                WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+                ELSE nullif(${people.locationOverride}, '')
+              END`,
               currentCommunityId: people.currentCommunityId,
               source: people.source,
               lastInteractionAt: people.lastInteractionAt,
@@ -1429,6 +1550,7 @@ export class DrizzleGraphStore {
         store.listRelations(workspaceId, viewerUserId, anchor, opts),
       );
     }
+
     if (!(await this.#canReadNode(workspaceId, viewerUserId, anchor.nodeType, anchor.nodeId))) {
       return { items: [], total: 0, nextCursor: null };
     }
@@ -1511,6 +1633,611 @@ export class DrizzleGraphStore {
               id: last.id,
             }
           : null,
+    };
+  }
+
+  async listGraphRelations(
+    workspaceId: string,
+    viewerUserId: string,
+    opts: { limit: number; nodeTypes?: string[] },
+  ): Promise<GraphRelationPage> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listGraphRelations(workspaceId, viewerUserId, opts),
+      );
+    }
+    const limit = clamp(opts.limit, 1, 500);
+    const nodeTypes = [...new Set((opts.nodeTypes ?? []).map((value) => value.trim()).filter(Boolean))];
+    const where = and(
+      eq(edges.workspaceId, workspaceId),
+      or(
+        eq(edges.ownerUserId, viewerUserId),
+        inArray(edges.visibility, ["workspace", "public"]),
+      ),
+      nodeTypes.length > 0 ? inArray(edges.srcType, nodeTypes) : undefined,
+      nodeTypes.length > 0 ? inArray(edges.dstType, nodeTypes) : undefined,
+      this.#accessibleNodeCondition(edges.srcType, edges.srcId, workspaceId, viewerUserId),
+      this.#accessibleNodeCondition(edges.dstType, edges.dstId, workspaceId, viewerUserId),
+    );
+    const [rows, totalRows] = await Promise.all([
+      this.#db
+        .select()
+        .from(edges)
+        .where(where)
+        .orderBy(desc(edges.observedAt), desc(edges.createdAt), desc(edges.id))
+        .limit(limit + 1),
+      this.#db.select({ value: count() }).from(edges).where(where),
+    ]);
+    const pageRows = rows.slice(0, limit);
+    const evidenceReferences = pageRows.flatMap((relation) =>
+      relationEvidenceCandidates(relation).map((reference) => ({
+        nodeType: reference.entityType,
+        nodeId: reference.entityId,
+      })),
+    );
+    const accessible = await this.#loadAccessibleNodes(
+      workspaceId,
+      viewerUserId,
+      evidenceReferences,
+    );
+    const total = Number(totalRows[0]?.value ?? 0);
+    return {
+      items: pageRows.map((relation) => this.#pruneRelationEvidence(relation, accessible)),
+      total,
+      hasMore: rows.length > limit || total > limit,
+    };
+  }
+
+  async listFullGraph(
+    workspaceId: string,
+    viewerUserId: string,
+    opts: { limit: number },
+  ): Promise<FullGraphPage> {
+    if (!this.#hasRlsContext(workspaceId, viewerUserId)) {
+      return this.#withRlsContext(workspaceId, viewerUserId, (store) =>
+        store.listFullGraph(workspaceId, viewerUserId, opts),
+      );
+    }
+    const limit = clamp(opts.limit, 1, 200);
+    const sourceLimit = Math.max(10, Math.ceil(limit / 8));
+    const [
+      relationPage,
+      initiativePersonRows,
+      initiativeCommunityRows,
+      touchpointRows,
+      fileReferenceRows,
+      applicationRows,
+      taskRows,
+      entityEventRows,
+    ] = await Promise.all([
+      this.listGraphRelations(workspaceId, viewerUserId, { limit: sourceLimit }),
+      this.#db
+        .select({
+          initiativeId: initiativeParticipants.initiativeId,
+          personId: initiativeParticipants.personId,
+          createdAt: initiatives.createdAt,
+        })
+        .from(initiativeParticipants)
+        .innerJoin(initiatives, eq(initiatives.id, initiativeParticipants.initiativeId))
+        .where(and(eq(initiatives.workspaceId, workspaceId), isNull(initiatives.archivedAt)))
+        .orderBy(desc(initiatives.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          initiativeId: initiativeCommunities.initiativeId,
+          communityId: initiativeCommunities.communityId,
+          createdAt: initiatives.createdAt,
+        })
+        .from(initiativeCommunities)
+        .innerJoin(initiatives, eq(initiatives.id, initiativeCommunities.initiativeId))
+        .where(and(eq(initiatives.workspaceId, workspaceId), isNull(initiatives.archivedAt)))
+        .orderBy(desc(initiatives.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: touchpoints.id,
+          initiativeId: touchpoints.initiativeId,
+          parentTouchpointId: touchpoints.parentTouchpointId,
+          createdAt: touchpoints.createdAt,
+        })
+        .from(touchpoints)
+        .where(eq(touchpoints.workspaceId, workspaceId))
+        .orderBy(desc(touchpoints.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          fileId: fileRefs.fileId,
+          entityType: fileRefs.entityType,
+          entityId: fileRefs.entityId,
+          createdAt: files.createdAt,
+        })
+        .from(fileRefs)
+        .innerJoin(files, eq(files.id, fileRefs.fileId))
+        .where(and(eq(files.workspaceId, workspaceId), isNull(files.archivedAt)))
+        .orderBy(desc(files.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: jobpilotApplications.id,
+          jobId: jobpilotApplications.jobId,
+          updatedAt: jobpilotApplications.updatedAt,
+        })
+        .from(jobpilotApplications)
+        .where(eq(jobpilotApplications.workspaceId, workspaceId))
+        .orderBy(desc(jobpilotApplications.updatedAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: tasks.id,
+          goalId: tasks.goalId,
+          createdAt: tasks.createdAt,
+        })
+        .from(tasks)
+        .where(eq(tasks.workspaceId, workspaceId))
+        .orderBy(desc(tasks.createdAt))
+        .limit(sourceLimit + 1),
+      this.#db
+        .select({
+          id: events.id,
+          type: events.type,
+          entityType: events.entityType,
+          entityId: events.entityId,
+          createdAt: events.createdAt,
+        })
+        .from(events)
+        .where(eq(events.workspaceId, workspaceId))
+        .orderBy(desc(events.createdAt))
+        .limit(sourceLimit + 1),
+    ]);
+
+    const candidates: FullGraphEdgeCandidate[] = relationPage.items.map((relation) => ({
+      id: `relation:${relation.id}`,
+      sourceId: fullGraphNodeId(relation.srcType, relation.srcId),
+      targetId: fullGraphNodeId(relation.dstType, relation.dstId),
+      label: relation.edgeType,
+      relationType: relation.edgeType,
+      sourceModule: relation.sourceModule,
+      evidence: `${relation.evidenceRefs.length} permitted evidence ${relation.evidenceRefs.length === 1 ? "reference" : "references"} · source ${relation.sourceModule}`,
+      sortAt: relation.observedAt,
+    }));
+    for (const row of initiativePersonRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `initiative-person:${row.initiativeId}:${row.personId}`,
+        sourceId: fullGraphNodeId("initiative", row.initiativeId),
+        targetId: fullGraphNodeId("person", row.personId),
+        label: "participant",
+        relationType: "participant",
+        sourceModule: "initiative",
+        evidence: "Initiative participant · source initiative",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of initiativeCommunityRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `initiative-community:${row.initiativeId}:${row.communityId}`,
+        sourceId: fullGraphNodeId("initiative", row.initiativeId),
+        targetId: fullGraphNodeId("community", row.communityId),
+        label: "community",
+        relationType: "community",
+        sourceModule: "initiative",
+        evidence: "Initiative Community · source initiative",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of touchpointRows.slice(0, sourceLimit)) {
+      if (row.initiativeId) {
+        candidates.push({
+          id: `touchpoint-initiative:${row.id}:${row.initiativeId}`,
+          sourceId: fullGraphNodeId("touchpoint", row.id),
+          targetId: fullGraphNodeId("initiative", row.initiativeId),
+          label: "belongs to",
+          relationType: "belongs_to",
+          sourceModule: "initiative",
+          evidence: "Touchpoint Initiative reference · source initiative",
+          sortAt: row.createdAt,
+        });
+      }
+      if (row.parentTouchpointId) {
+        candidates.push({
+          id: `touchpoint-parent:${row.id}:${row.parentTouchpointId}`,
+          sourceId: fullGraphNodeId("touchpoint", row.id),
+          targetId: fullGraphNodeId("touchpoint", row.parentTouchpointId),
+          label: "parent",
+          relationType: "parent",
+          sourceModule: "initiative",
+          evidence: "Touchpoint parent reference · source initiative",
+          sortAt: row.createdAt,
+        });
+      }
+    }
+    for (const row of fileReferenceRows.slice(0, sourceLimit)) {
+      const targetType = normalizeFullGraphNodeType(row.entityType);
+      if (!targetType) continue;
+      candidates.push({
+        id: `file-reference:${row.fileId}:${targetType}:${row.entityId}`,
+        sourceId: fullGraphNodeId("file", row.fileId),
+        targetId: fullGraphNodeId(targetType, row.entityId),
+        label: "attached to",
+        relationType: "file_reference",
+        sourceModule: "files",
+        evidence: `File reference · source ${row.entityType}`,
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of applicationRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `application-job:${row.id}:${row.jobId}`,
+        sourceId: fullGraphNodeId("application", row.id),
+        targetId: fullGraphNodeId("job", row.jobId),
+        label: "tracks",
+        relationType: "tracks",
+        sourceModule: "job-pilot",
+        evidence: "Application Job reference · source job-pilot",
+        sortAt: row.updatedAt,
+      });
+    }
+    for (const row of taskRows.slice(0, sourceLimit)) {
+      candidates.push({
+        id: `task-goal:${row.id}:${row.goalId}`,
+        sourceId: fullGraphNodeId("task", row.id),
+        targetId: fullGraphNodeId("goal", row.goalId),
+        label: "advances",
+        relationType: "advances",
+        sourceModule: "task-manager",
+        evidence: "Task Goal reference · source task-manager",
+        sortAt: row.createdAt,
+      });
+    }
+    for (const row of entityEventRows.slice(0, sourceLimit)) {
+      const targetType = normalizeFullGraphNodeType(row.entityType);
+      if (!targetType || (targetType === "event" && row.entityId === row.id)) continue;
+      const targetDatabase = fullGraphDatabase(targetType);
+      candidates.push({
+        id: `event-entity:${row.id}:${targetType}:${row.entityId}`,
+        sourceId: fullGraphNodeId("event", row.id),
+        targetId: fullGraphNodeId(targetType, row.entityId),
+        label: row.type,
+        relationType: "recorded_for",
+        sourceModule: targetDatabase.moduleId,
+        evidence: `Event ${row.type} · source ${targetDatabase.moduleId}`,
+        sortAt: row.createdAt,
+      });
+    }
+
+    candidates.sort((left, right) => right.sortAt.getTime() - left.sortAt.getTime());
+    const nodeSourceLimit = Math.max(5, Math.ceil(limit / 16));
+    const [
+      basePeople,
+      baseCommunities,
+      baseSignals,
+      baseInitiatives,
+      baseTouchpoints,
+      baseFiles,
+      baseJobs,
+      baseApplications,
+      baseGoals,
+      baseTasks,
+      baseResources,
+    ] = await Promise.all([
+      this.listPeople(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listCommunities(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.listSignals(workspaceId, viewerUserId, { limit: nodeSourceLimit, offset: 0 }),
+      this.#db.select({ id: initiatives.id }).from(initiatives).where(and(
+        eq(initiatives.workspaceId, workspaceId),
+        isNull(initiatives.archivedAt),
+      )).orderBy(desc(initiatives.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: touchpoints.id }).from(touchpoints).where(
+        eq(touchpoints.workspaceId, workspaceId),
+      ).orderBy(desc(touchpoints.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: files.id }).from(files).where(and(
+        eq(files.workspaceId, workspaceId),
+        isNull(files.archivedAt),
+      )).orderBy(desc(files.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: jobpilotJobs.id }).from(jobpilotJobs).where(and(
+        eq(jobpilotJobs.workspaceId, workspaceId),
+        isNull(jobpilotJobs.archivedAt),
+      )).orderBy(desc(jobpilotJobs.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: jobpilotApplications.id }).from(jobpilotApplications).where(
+        eq(jobpilotApplications.workspaceId, workspaceId),
+      ).orderBy(desc(jobpilotApplications.updatedAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: goals.id }).from(goals).where(
+        eq(goals.workspaceId, workspaceId),
+      ).orderBy(desc(goals.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: tasks.id }).from(tasks).where(
+        eq(tasks.workspaceId, workspaceId),
+      ).orderBy(desc(tasks.createdAt)).limit(nodeSourceLimit + 1),
+      this.#db.select({ id: resources.id }).from(resources).where(and(
+        eq(resources.workspaceId, workspaceId),
+        isNull(resources.archivedAt),
+      )).orderBy(desc(resources.createdAt)).limit(nodeSourceLimit + 1),
+    ]);
+    const baseReferences = [
+      ...basePeople.items.map((row) => ({ nodeType: "person", nodeId: row.id })),
+      ...baseCommunities.items.map((row) => ({ nodeType: "community", nodeId: row.id })),
+      ...baseSignals.items.map((row) => ({ nodeType: "signal", nodeId: row.id })),
+      ...baseInitiatives.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "initiative", nodeId: row.id })),
+      ...baseTouchpoints.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "touchpoint", nodeId: row.id })),
+      ...baseFiles.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "file", nodeId: row.id })),
+      ...baseJobs.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "job", nodeId: row.id })),
+      ...baseApplications.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "application", nodeId: row.id })),
+      ...baseGoals.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "goal", nodeId: row.id })),
+      ...baseTasks.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "task", nodeId: row.id })),
+      ...baseResources.slice(0, nodeSourceLimit).map((row) => ({ nodeType: "resource", nodeId: row.id })),
+    ];
+    const references = [...candidates.flatMap((edge) => [edge.sourceId, edge.targetId]).map((id) => {
+      const separator = id.indexOf(":");
+      return { nodeType: id.slice(0, separator), nodeId: id.slice(separator + 1) };
+    }), ...baseReferences];
+    const baseNodeIds = new Set(baseReferences.map((reference) =>
+      fullGraphNodeId(reference.nodeType, reference.nodeId)));
+    const idsByType = new Map<string, Set<string>>();
+    for (const reference of references) {
+      idsByType.set(reference.nodeType, new Set([
+        ...(idsByType.get(reference.nodeType) ?? []),
+        reference.nodeId,
+      ]));
+    }
+    const ids = (nodeType: string) => [...(idsByType.get(nodeType) ?? [])];
+    const accessible = await this.#loadAccessibleNodes(
+      workspaceId,
+      viewerUserId,
+      references.filter((reference) =>
+        reference.nodeType === "person" ||
+        reference.nodeType === "community" ||
+        reference.nodeType === "signal" ||
+        reference.nodeType === "event"),
+    );
+    const [
+      signalRows,
+      eventRows,
+      initiativeRows,
+      resolvedTouchpoints,
+      fileRows,
+      jobRows,
+      resolvedApplications,
+      goalRows,
+      resolvedTasks,
+      resourceRows,
+    ] = await Promise.all([
+      accessible.signalIds.size === 0
+        ? Promise.resolve<Array<typeof signals.$inferSelect>>([])
+        : this.#db.select().from(signals).where(and(
+            eq(signals.workspaceId, workspaceId),
+            inArray(signals.id, [...accessible.signalIds]),
+          )),
+      ids("event").length === 0
+        ? Promise.resolve<Array<typeof events.$inferSelect>>([])
+        : this.#db.select().from(events).where(and(
+            eq(events.workspaceId, workspaceId),
+            inArray(events.id, ids("event")),
+          )),
+      ids("initiative").length === 0
+        ? Promise.resolve<Array<typeof initiatives.$inferSelect>>([])
+        : this.#db.select().from(initiatives).where(and(
+            eq(initiatives.workspaceId, workspaceId),
+            inArray(initiatives.id, ids("initiative")),
+            isNull(initiatives.archivedAt),
+          )),
+      ids("touchpoint").length === 0
+        ? Promise.resolve<Array<typeof touchpoints.$inferSelect>>([])
+        : this.#db.select().from(touchpoints).where(and(
+            eq(touchpoints.workspaceId, workspaceId),
+            inArray(touchpoints.id, ids("touchpoint")),
+          )),
+      ids("file").length === 0
+        ? Promise.resolve<Array<typeof files.$inferSelect>>([])
+        : this.#db.select().from(files).where(and(
+            eq(files.workspaceId, workspaceId),
+            inArray(files.id, ids("file")),
+            isNull(files.archivedAt),
+          )),
+      ids("job").length === 0
+        ? Promise.resolve<Array<typeof jobpilotJobs.$inferSelect>>([])
+        : this.#db.select().from(jobpilotJobs).where(and(
+            eq(jobpilotJobs.workspaceId, workspaceId),
+            inArray(jobpilotJobs.id, ids("job")),
+            isNull(jobpilotJobs.archivedAt),
+          )),
+      ids("application").length === 0
+        ? Promise.resolve<Array<typeof jobpilotApplications.$inferSelect>>([])
+        : this.#db.select().from(jobpilotApplications).where(and(
+            eq(jobpilotApplications.workspaceId, workspaceId),
+            inArray(jobpilotApplications.id, ids("application")),
+          )),
+      ids("goal").length === 0
+        ? Promise.resolve<Array<typeof goals.$inferSelect>>([])
+        : this.#db.select().from(goals).where(and(
+            eq(goals.workspaceId, workspaceId),
+            inArray(goals.id, ids("goal")),
+          )),
+      ids("task").length === 0
+        ? Promise.resolve<Array<typeof tasks.$inferSelect>>([])
+        : this.#db.select().from(tasks).where(and(
+            eq(tasks.workspaceId, workspaceId),
+            inArray(tasks.id, ids("task")),
+          )),
+      ids("resource").length === 0
+        ? Promise.resolve<Array<typeof resources.$inferSelect>>([])
+        : this.#db.select().from(resources).where(and(
+            eq(resources.workspaceId, workspaceId),
+            inArray(resources.id, ids("resource")),
+            isNull(resources.archivedAt),
+          )),
+    ]);
+
+    const nodes = new Map<string, FullGraphNodeRecord>();
+    const addNode = (
+      nodeType: string,
+      recordId: string,
+      values: Pick<FullGraphNodeRecord, "label" | "provenance"> & {
+        subtitle?: string | undefined;
+        recordPath?: string | undefined;
+        actionKind?: "signal" | undefined;
+        moduleId?: string | undefined;
+      },
+    ) => {
+      const database = fullGraphDatabase(nodeType);
+      const node: FullGraphNodeRecord = {
+        id: fullGraphNodeId(nodeType, recordId),
+        recordId,
+        recordType: nodeType,
+        label: values.label,
+        databaseId: database.id,
+        databaseLabel: database.label,
+        moduleId: values.moduleId ?? database.moduleId,
+        provenance: values.provenance,
+        ...(values.subtitle ? { subtitle: values.subtitle } : {}),
+        ...(values.recordPath ? { recordPath: values.recordPath } : {}),
+        ...(values.actionKind ? { actionKind: values.actionKind } : {}),
+      };
+      nodes.set(node.id, node);
+    };
+    for (const person of accessible.people.values()) {
+      addNode("person", person.id, {
+        label: person.displayName ?? "Unnamed Person",
+        subtitle: person.currentTitle ?? person.location ?? undefined,
+        recordPath: `/module/relationship/people/${person.id}`,
+        provenance: `Person · source ${person.source ?? "relationship"}`,
+      });
+    }
+    for (const community of accessible.communities.values()) {
+      addNode("community", community.id, {
+        label: community.displayName ?? "Unnamed Community",
+        subtitle: community.kind ?? undefined,
+        recordPath: `/module/relationship/communities/${community.id}`,
+        provenance: `Community · source ${community.source}`,
+      });
+    }
+    for (const signal of signalRows) {
+      addNode("signal", signal.id, {
+        label: `Signal · ${signal.type}`,
+        subtitle: signal.status,
+        recordPath: `/module/relationship/signals/${signal.id}`,
+        actionKind: "signal",
+        provenance: "Signal · source relationship",
+      });
+    }
+    for (const event of eventRows) {
+      const relationshipEvent = event.entityType === "signal" || event.entityType === "interaction";
+      if (relationshipEvent && !accessible.eventIds.has(event.id)) continue;
+      const targetType = normalizeFullGraphNodeType(event.entityType);
+      const targetDatabase = targetType ? fullGraphDatabase(targetType) : fullGraphDatabase("event");
+      addNode("event", event.id, {
+        label: `Event · ${event.type}`,
+        subtitle: event.entityType,
+        moduleId: targetDatabase.moduleId,
+        recordPath: event.entityType === "signal"
+          ? `/module/relationship/signals/${event.entityId}/event`
+          : undefined,
+        provenance: `Event · source ${targetDatabase.moduleId}`,
+      });
+    }
+    for (const initiative of initiativeRows) {
+      addNode("initiative", initiative.id, {
+        label: initiative.title,
+        subtitle: initiative.status ?? undefined,
+        recordPath: `/initiative/${initiative.id}`,
+        provenance: "Initiative · source initiative",
+      });
+    }
+    for (const touchpoint of resolvedTouchpoints) {
+      addNode("touchpoint", touchpoint.id, {
+        label: touchpoint.context ?? touchpoint.touchpointKind ?? "Touchpoint",
+        subtitle: touchpoint.status,
+        recordPath: "/workspace",
+        provenance: "Touchpoint · source initiative",
+      });
+    }
+    for (const file of fileRows) {
+      const storageName = file.storageRef?.split(/[\\/]/).at(-1);
+      addNode("file", file.id, {
+        label: graphMetadataLabel(file.metadata) ?? storageName ?? `File ${file.id.slice(0, 8)}`,
+        subtitle: file.source,
+        moduleId: file.source,
+        provenance: `File · source ${file.source}`,
+      });
+    }
+    for (const job of jobRows) {
+      addNode("job", job.id, {
+        label: job.title,
+        subtitle: `${job.company}${job.location ? ` · ${job.location}` : ""}`,
+        recordPath: "/jobpilot",
+        provenance: `Job · source ${job.source ?? "job-pilot"}`,
+      });
+    }
+    for (const application of resolvedApplications) {
+      addNode("application", application.id, {
+        label: `Application · ${application.stage}`,
+        subtitle: application.flag ?? undefined,
+        recordPath: "/jobpilot",
+        provenance: "Application · source job-pilot",
+      });
+    }
+    for (const goal of goalRows) {
+      addNode("goal", goal.id, {
+        label: goal.title,
+        subtitle: goal.type,
+        recordPath: "/task-manager",
+        provenance: "Goal · source task-manager",
+      });
+    }
+    for (const task of resolvedTasks) {
+      addNode("task", task.id, {
+        label: task.type,
+        subtitle: task.status,
+        recordPath: "/task-manager",
+        provenance: "Task · source task-manager",
+      });
+    }
+    for (const resource of resourceRows) {
+      addNode("resource", resource.id, {
+        label: resource.title,
+        subtitle: resource.kind,
+        recordPath: "/resources",
+        provenance: "Resource · source resources",
+      });
+    }
+
+    const permittedEdges = candidates.filter(
+      (edge) => nodes.has(edge.sourceId) && nodes.has(edge.targetId),
+    );
+    const selectedEdges = permittedEdges.slice(0, limit).map(({ sortAt: _sortAt, ...edge }) => edge);
+    const connectedNodeIds = new Set(selectedEdges.flatMap((edge) => [edge.sourceId, edge.targetId]));
+    const selectedNodes = [...nodes.values()].filter(
+      (node) => connectedNodeIds.has(node.id) || baseNodeIds.has(node.id),
+    );
+    const databases = [...new Map(selectedNodes.map((node) => [
+      node.databaseId,
+      { id: node.databaseId, label: node.databaseLabel, moduleId: node.moduleId },
+    ])).values()];
+    const sourceTruncated = [
+      initiativePersonRows,
+      initiativeCommunityRows,
+      touchpointRows,
+      fileReferenceRows,
+      applicationRows,
+      taskRows,
+      entityEventRows,
+    ].some((rows) => rows.length > sourceLimit);
+    const nodeSourceTruncated =
+      basePeople.total > basePeople.items.length ||
+      baseCommunities.total > baseCommunities.items.length ||
+      baseSignals.total > baseSignals.items.length ||
+      [
+        baseInitiatives,
+        baseTouchpoints,
+        baseFiles,
+        baseJobs,
+        baseApplications,
+        baseGoals,
+        baseTasks,
+        baseResources,
+      ].some((rows) => rows.length > nodeSourceLimit);
+    return {
+      nodes: selectedNodes,
+      edges: selectedEdges,
+      databases,
+      hasMore: relationPage.hasMore || sourceTruncated || nodeSourceTruncated || permittedEdges.length > limit,
     };
   }
 
@@ -2267,6 +2994,10 @@ export class DrizzleGraphStore {
             WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
             ELSE nullif(${people.currentTitleOverride}, '')
           END`,
+          location: sql<string | null>`CASE
+            WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+            ELSE nullif(${people.locationOverride}, '')
+          END`,
           currentCommunityId: people.currentCommunityId,
           source: people.source,
           lastInteractionAt: people.lastInteractionAt,
@@ -2312,6 +3043,10 @@ export class DrizzleGraphStore {
         currentTitle: sql<string | null>`CASE
           WHEN ${people.currentTitleOverride} IS NULL THEN ${peopleCanonical.currentTitle}
           ELSE nullif(${people.currentTitleOverride}, '')
+        END`,
+        location: sql<string | null>`CASE
+          WHEN ${people.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${peopleCanonical.locationCity}, ${peopleCanonical.locationCountry}), '')
+          ELSE nullif(${people.locationOverride}, '')
         END`,
         currentCommunityId: people.currentCommunityId,
         source: people.source,
@@ -2483,6 +3218,10 @@ export class DrizzleGraphStore {
             WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
             ELSE nullif(${communities.kind}, '')
           END`,
+          location: sql<string | null>`CASE
+            WHEN ${communities.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${communitiesCanonical.headquartersCity}, ${communitiesCanonical.headquartersCountry}), '')
+            ELSE nullif(${communities.locationOverride}, '')
+          END`,
           source: communities.source,
           isUserConfirmed: communities.isUserConfirmed,
           memberCount,
@@ -2530,6 +3269,10 @@ export class DrizzleGraphStore {
         kind: sql<string | null>`CASE
           WHEN ${communities.kind} IS NULL THEN ${communitiesCanonical.kind}
           ELSE nullif(${communities.kind}, '')
+        END`,
+        location: sql<string | null>`CASE
+          WHEN ${communities.locationOverride} IS NULL THEN nullif(concat_ws(', ', ${communitiesCanonical.headquartersCity}, ${communitiesCanonical.headquartersCountry}), '')
+          ELSE nullif(${communities.locationOverride}, '')
         END`,
         source: communities.source,
         isUserConfirmed: communities.isUserConfirmed,
@@ -2676,6 +3419,7 @@ export class DrizzleGraphStore {
         fullNameOverride: input.displayName.trim(),
         currentTitleOverride: input.currentTitle?.trim() || null,
         bioOverride: input.bio?.trim() || null,
+        locationOverride: input.location?.trim() || null,
         emailsOverride: emails,
         source: input.source.trim(),
       })
@@ -2705,6 +3449,7 @@ export class DrizzleGraphStore {
       values.currentTitleOverride = input.currentTitle?.trim() ?? "";
     }
     if (input.bio !== undefined) values.bioOverride = input.bio?.trim() ?? "";
+    if (input.location !== undefined) values.locationOverride = input.location?.trim() ?? "";
     if (input.emails !== undefined) values.emailsOverride = normalizeEmails(input.emails);
     if (input.visibility !== undefined) values.visibility = input.visibility;
     if (Object.keys(values).length === 0) throw new Error("Person update requires at least one field");
@@ -2853,6 +3598,7 @@ export class DrizzleGraphStore {
         visibility: input.visibility,
         nameOverride: input.displayName.trim(),
         descriptionOverride: input.description?.trim() || null,
+        locationOverride: input.location?.trim() || null,
         kind: input.kind?.trim() || null,
         source: input.source.trim(),
         isUserConfirmed: true,
@@ -2882,6 +3628,7 @@ export class DrizzleGraphStore {
     if (input.description !== undefined) {
       values.descriptionOverride = input.description?.trim() ?? "";
     }
+    if (input.location !== undefined) values.locationOverride = input.location?.trim() ?? "";
     if (input.kind !== undefined) values.kind = input.kind?.trim() ?? "";
     if (input.visibility !== undefined) values.visibility = input.visibility;
     if (Object.keys(values).length === 0) throw new Error("Community update requires at least one field");

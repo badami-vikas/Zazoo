@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import {
   ShieldCheck, Check, X, PencilLine, Bot, User, ArrowRight, Sparkles,
-  CornerDownRight, Inbox, FileText, GitCompareArrows, Info, List as ListIcon,
+  CornerDownRight, Inbox, FileText, GitCompareArrows, Info,
   AlertTriangle, RotateCw,
 } from 'lucide-react';
 import { Header } from '../components/shared/Header';
@@ -280,12 +280,8 @@ export function ApprovalsPage() {
       <StandardToolbar
         insightsExpanded={insightsOpen}
         onToggleInsights={() => setInsightsOpen(o => !o)}
-        view="list"
-        views={[{ id: 'list', label: 'List', icon: ListIcon }]}
-        onViewChange={() => {}}
         search={search}
         onSearchChange={setSearch}
-        moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Nothing here yet</div>}
       />
       <CollapsibleInsights
         expanded={insightsOpen}

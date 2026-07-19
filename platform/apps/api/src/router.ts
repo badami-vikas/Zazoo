@@ -15,6 +15,7 @@ import {
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
+import { LocalGeocodingProviderError } from "./geocoding-provider.js";
 import {
   applyApprovedRelationshipMaterialization,
   isRelationshipSignalEvidence,
@@ -167,6 +168,7 @@ import {
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
 import {
+  jobsTableSpec,
   scoreJobFit,
   transition,
   InvalidTransitionError,
@@ -190,7 +192,9 @@ import {
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import {
   listModuleFiles,
+  MAX_MODULE_FILE_BYTES,
   ModuleFilesPathError,
+  saveModuleFile,
   OrganizationFilesConflictError,
   OrganizationFilesRecoveryError,
 } from "./module-files.js";
@@ -2350,6 +2354,11 @@ const blueprintFieldInput = z.object({
   kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool", "location"]),
   options: z.array(z.string()).optional(),
   toolId: z.string().optional(),
+  required: z.boolean().optional(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number(), z.boolean()]))]).optional(),
+  relationTarget: z.string().min(1).optional(),
+  relationParent: z.boolean().optional(),
+  hiddenInForm: z.boolean().optional(),
 });
 
 const blueprintEntityInput = z.object({
@@ -2360,7 +2369,7 @@ const blueprintEntityInput = z.object({
 
 const blueprintViewInput = z.object({
   entity: z.string().min(1),
-  kind: z.enum(["table", "gallery", "kanban", "calendar", "map", "network", "chatbot", "dashboard", "canvas"]),
+  kind: z.enum(["table", "board", "gallery", "form", "calendar", "map", "graph", "tree", "chatbot", "dashboard", "canvas"]),
   config: z
     .object({
       sorts: z.array(z.object({ id: z.string(), dir: z.enum(["asc", "desc"]) })).optional(),
@@ -2375,6 +2384,12 @@ const blueprintViewInput = z.object({
         .optional(),
       filterMatch: z.enum(["all", "any"]).optional(),
       groupBy: z.string().nullable().optional(),
+      dateBy: z.string().optional(),
+      locationBy: z.string().optional(),
+      relationBy: z.string().optional(),
+      parentBy: z.string().optional(),
+      graphScope: z.enum(["single_database", "multi_database", "full"]).optional(),
+      graphDatabaseIds: z.array(z.string().min(1)).optional(),
     })
     .optional(),
 });
@@ -2402,6 +2417,11 @@ function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): W
         kind: f.kind,
         ...(f.options ? { options: f.options } : {}),
         ...(f.toolId ? { toolId: f.toolId } : {}),
+        ...(f.required !== undefined ? { required: f.required } : {}),
+        ...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {}),
+        ...(f.relationTarget ? { relationTarget: f.relationTarget } : {}),
+        ...(f.relationParent !== undefined ? { relationParent: f.relationParent } : {}),
+        ...(f.hiddenInForm !== undefined ? { hiddenInForm: f.hiddenInForm } : {}),
       })),
     })),
     views: input.views.map((v) => ({
@@ -2414,6 +2434,12 @@ function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): W
               ...(v.config.rowFilters ? { rowFilters: v.config.rowFilters } : {}),
               ...(v.config.filterMatch ? { filterMatch: v.config.filterMatch } : {}),
               ...(v.config.groupBy !== undefined ? { groupBy: v.config.groupBy } : {}),
+              ...(v.config.dateBy ? { dateBy: v.config.dateBy } : {}),
+              ...(v.config.locationBy ? { locationBy: v.config.locationBy } : {}),
+              ...(v.config.relationBy ? { relationBy: v.config.relationBy } : {}),
+              ...(v.config.parentBy ? { parentBy: v.config.parentBy } : {}),
+              ...(v.config.graphScope ? { graphScope: v.config.graphScope } : {}),
+              ...(v.config.graphDatabaseIds ? { graphDatabaseIds: v.config.graphDatabaseIds } : {}),
             },
           }
         : {}),
@@ -3030,6 +3056,88 @@ async function retryApprovedRelationship(
 
 export const appRouter = t.router({
   health: procedure.query(() => ({ ok: true, service: "bridge-api" })),
+
+  view: t.router({
+    geocoderStatus: authenticatedProcedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(
+          ctx.wiring.workspaceStore,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        const provider = ctx.wiring.geocodingProvider;
+        return {
+          available: provider !== null,
+          providerId: provider?.id ?? null,
+          plane: provider?.plane ?? null,
+          attribution: provider?.attribution ?? null,
+        };
+      }),
+
+    resolveLocations: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          labels: z
+            .array(z.string().trim().min(1).max(500))
+            .min(1)
+            .max(20),
+          confirmedLocalProvider: z.literal(true),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(
+          ctx.wiring.workspaceStore,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        const provider = ctx.wiring.geocodingProvider;
+        if (!provider) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "No private Local Plane geocoder is configured. Enter coordinates directly or configure BRIDGE_LOCAL_GEOCODER_URL.",
+          });
+        }
+
+        const labels = new Map<string, string>();
+        for (const label of input.labels) {
+          const trimmed = label.trim();
+          const key = trimmed.toLocaleLowerCase("en-US");
+          if (!labels.has(key)) labels.set(key, trimmed);
+        }
+
+        const results: Array<{
+          query: string;
+          coordinate: Awaited<ReturnType<typeof provider.geocode>>;
+        }> = [];
+        for (const query of labels.values()) {
+          try {
+            results.push({
+              query,
+              coordinate: await provider.geocode({ query }),
+            });
+          } catch (error) {
+            if (error instanceof LocalGeocodingProviderError) {
+              throw new TRPCError({
+                code: "BAD_GATEWAY",
+                message: error.message,
+                cause: error,
+              });
+            }
+            throw error;
+          }
+        }
+        return {
+          providerId: provider.id,
+          attribution: provider.attribution ?? null,
+          results,
+        };
+      }),
+  }),
 
   action: t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
@@ -5321,6 +5429,91 @@ export const appRouter = t.router({
         return ctx.wiring.graphStore.getNodeTypeOwner(input.nodeType);
       }),
 
+    graph: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          limit: z.number().int().min(1).max(500).default(200),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const nodeLimit = Math.min(input.limit, 100);
+        const [personPage, communityPage, relationPage] = await Promise.all([
+          ctx.wiring.graphStore.listPeople(
+            input.workspaceId,
+            ctx.identity.id,
+            { limit: nodeLimit, offset: 0 },
+          ),
+          ctx.wiring.graphStore.listCommunities(
+            input.workspaceId,
+            ctx.identity.id,
+            { limit: nodeLimit, offset: 0 },
+          ),
+          ctx.wiring.graphStore.listGraphRelations(
+            input.workspaceId,
+            ctx.identity.id,
+            { limit: input.limit, nodeTypes: ["person", "community"] },
+          ),
+        ]);
+        const personNodes = personPage.items.map((person) => ({
+          id: `person:${person.id}`,
+          recordId: person.id,
+          label: person.displayName ?? "Unnamed Person",
+          databaseId: "people",
+          databaseLabel: "People",
+          moduleId: "relationship",
+          recordType: "person",
+          subtitle: person.currentTitle ?? person.location ?? undefined,
+          recordPath: `/module/relationship/people/${person.id}`,
+          provenance: `Person · source ${person.source ?? "relationship"}`,
+        }));
+        const communityNodes = communityPage.items.map((community) => ({
+          id: `community:${community.id}`,
+          recordId: community.id,
+          label: community.displayName ?? "Unnamed Community",
+          databaseId: "communities",
+          databaseLabel: "Communities",
+          moduleId: "relationship",
+          recordType: "community",
+          subtitle: community.kind ?? community.location ?? undefined,
+          recordPath: `/module/relationship/communities/${community.id}`,
+          provenance: `Community · source ${community.source}`,
+        }));
+        const nodes = [...personNodes, ...communityNodes];
+        const visibleNodeIds = new Set(nodes.map((node) => node.id));
+        const edges = relationPage.items.flatMap((relation) => {
+          const sourceId = `${relation.srcType}:${relation.srcId}`;
+          const targetId = `${relation.dstType}:${relation.dstId}`;
+          if (!visibleNodeIds.has(sourceId) || !visibleNodeIds.has(targetId)) return [];
+          const evidenceCount = relation.evidenceRefs.length;
+          return [{
+            id: relation.id,
+            sourceId,
+            targetId,
+            label: relation.edgeType,
+            relationType: relation.edgeType,
+            sourceModule: relation.sourceModule,
+            evidence:
+              `${evidenceCount} permitted evidence ${evidenceCount === 1 ? "reference" : "references"} · source ${relation.sourceModule}`,
+          }];
+        });
+        return {
+          nodes,
+          edges,
+          databases: [
+            { id: "people", label: "People", moduleId: "relationship" },
+            { id: "communities", label: "Communities", moduleId: "relationship" },
+          ],
+          hasMore:
+            personPage.total > personPage.items.length ||
+            communityPage.total > communityPage.items.length ||
+            relationPage.hasMore ||
+            edges.length < relationPage.items.length,
+        };
+      }),
+
     listRelations: authenticatedProcedure
       .input(
         z.object({
@@ -7436,6 +7629,23 @@ export const appRouter = t.router({
    * manifest-driven `relationship` Module router above.
    */
   graph: t.router({
+    full: authenticatedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          limit: z.number().int().min(1).max(200).default(100),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        return ctx.wiring.graphStore.listFullGraph(
+          input.workspaceId,
+          ctx.identity.id,
+          { limit: input.limit },
+        );
+      }),
+
     listInitiatives: procedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
@@ -7577,8 +7787,15 @@ export const appRouter = t.router({
    * `transition` validates against @bridge/jobpilot's own state machine BEFORE
    * persisting, so an invalid stage jump is rejected here, not silently written.
    */
-    jobpilot: t.router({
-      create: procedure
+  jobpilot: t.router({
+    definition: procedure
+      .input(z.object({ workspaceId: z.string().min(1) }))
+      .query(({ input }) => {
+        assertPilotWorkspace(input.workspaceId);
+        return jobsTableSpec;
+      }),
+
+    create: procedure
       .input(
         z.object({
           workspaceId: z.string().min(1),
@@ -8959,20 +9176,61 @@ export const appRouter = t.router({
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
         }
-        const workspaces = await ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
-        const organization = workspaces.find((workspace) => workspace.id === input.workspaceId);
-        if (!organization) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "workspace membership required" });
-        }
         try {
-          return await listModuleFiles(
-            organization.name,
-            installation.manifest.module?.displayName ?? installation.packageName,
-            200,
-            ctx.wiring.moduleFilesBridgeRoot,
+          return await ctx.wiring.workspaceStore.withLockedWorkspaceFiles(
+            input.workspaceId,
+            (organization) => listModuleFiles(
+              organization.name,
+              installation.manifest.module?.displayName ?? installation.packageName,
+              200,
+              ctx.wiring.moduleFilesBridgeRoot,
+            ),
           );
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    addFile: authenticatedProcedure
+      .input(z.object({
+        workspaceId: z.string().min(1),
+        moduleName: z.string().min(1),
+        fileName: z.string().trim().min(1).max(255),
+        contentBase64: z.string().max(Math.ceil(MAX_MODULE_FILE_BYTES * 4 / 3) + 4).regex(
+          /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
+          "File content must be valid base64",
+        ),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const installation = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.moduleName);
+        if (!installation || installation.status !== "installed") {
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
+        }
+        const content = Buffer.from(input.contentBase64, "base64");
+        if (content.byteLength > MAX_MODULE_FILE_BYTES) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `File exceeds the ${MAX_MODULE_FILE_BYTES}-byte local File limit`,
+          });
+        }
+        try {
+          return await ctx.wiring.workspaceStore.withLockedWorkspaceFiles(
+            input.workspaceId,
+            (organization) => saveModuleFile(
+              organization.name,
+              installation.manifest.module?.displayName ?? installation.packageName,
+              input.fileName,
+              content,
+              ctx.wiring.moduleFilesBridgeRoot,
+            ),
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError || error instanceof RangeError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
           }
           throw error;

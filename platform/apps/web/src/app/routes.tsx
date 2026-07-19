@@ -5,7 +5,6 @@ import { AgentCreate } from "./pages/AgentCreate";
 import { AgentDetail } from "./pages/AgentDetail";
 import { IntegrationDetail } from "./pages/IntegrationDetail";
 import { GoogleIntegrationPanel } from "./pages/GoogleIntegrationPanel";
-import { CalendarPage } from "./pages/CalendarPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { JobPilotPage } from "./pages/JobPilotPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
@@ -21,7 +20,7 @@ import { WorkPage } from "./pages/WorkPage";
 import { ItemDetail } from "./pages/ItemDetail";
 import { InitiativeDetail } from "./pages/InitiativeDetail";
 import { ControlPanelPage } from "./pages/ControlPanelPage";
-import { DataEngine } from "./components/DataEngine";
+import { SecondBrainPage } from "./pages/SecondBrainPage";
 // TASK-001 / VOCAB6: manifest-driven Module Detail (§4b)
 import { ModuleDetailPage } from "./pages/ModuleDetailPage";
 import { InstalledModuleBoundary } from "./components/InstalledModuleBoundary";
@@ -87,10 +86,7 @@ export const router = createBrowserRouter([
       { path: "module/relationship/helpdesk", Component: RelationshipHelpdeskPage },
       { path: "module/relationship/:page", Component: RelationshipPage },
 
-      // Ported prototype surface (2026-07-07): the prototype mounted the
-      // network DataEngine at "/" — here it lives at /network so HomePage
-      // can own the index.
-      { path: "network", Component: DataEngine },
+      { path: "second-brain", Component: SecondBrainPage },
       { path: "item/:id", Component: ItemDetail },
       { path: "work", Component: WorkPage },
       { path: "initiative/:id", Component: InitiativeDetail },
@@ -100,15 +96,6 @@ export const router = createBrowserRouter([
       { path: "agent/create", Component: AgentCreate },
       { path: "agent/:id", Component: AgentDetail },
       { path: "integration/:id", Component: IntegrationDetail },
-      { path: "calendar", Component: TaskManagerPage },
-      {
-        path: "calendar/google",
-        element: (
-          <InstalledModuleBoundary packageName="calendar">
-            <CalendarPage />
-          </InstalledModuleBoundary>
-        ),
-      },
       { path: "task-manager", Component: TaskManagerPage },
 
       { path: "approvals", Component: ApprovalsPage },

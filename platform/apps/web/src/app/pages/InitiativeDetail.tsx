@@ -1,11 +1,16 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, Calendar, Target, Flag, Ban, FileText, FileSpreadsheet, Plus, Trash2, Check, Upload, LayoutList, BarChart3, Repeat, Table as TableIcon, Edit2, MoreVertical, SlidersHorizontal } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { ChevronLeft, Target, Flag, Ban, Plus, Trash2, Edit2, MoreVertical, SlidersHorizontal } from 'lucide-react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router';
 import { motion } from 'motion/react';
 import clsx from 'clsx';
+import { normalizeViewKind, type TableSpec, type ViewConfig } from '@bridge/tables';
 import { useInitiatives, updateInitiative } from '../data/initiatives';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import { ModuleFilesSection } from '../components/shared/ModuleFilesSection';
+import { DataViews } from '../dataviews/DataViews';
+import { computeEligibleKinds, viewConfigForKind } from '../dataviews/eligibility';
+import type { DataRow } from '../dataviews/types';
 
 // Small inline-editable text (click to edit, Enter/blur to save).
 function Editable({ text, onSave, multiline = false, className, placeholder }: { text: string; onSave: (v: string) => void; multiline?: boolean; className?: string; placeholder?: string }) {
@@ -28,7 +33,6 @@ function Editable({ text, onSave, multiline = false, className, placeholder }: {
 
 // Vocabulary: a Touchpoint is the work node (the to-do/task unit). It nests to any depth.
 interface Touchpoint { id: string; name: string; done: boolean; parentId: string | null; collapsed?: boolean }
-interface Doc { name: string; type: string; size: string }
 interface Overview { brief: string; objectives: string[]; boundaries: string[]; metrics: { label: string; value: string }[] }
 
 function load<T>(key: string, fallback: T): T { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
@@ -49,15 +53,24 @@ const DEFAULT_OVERVIEW: Overview = {
 const INITIATIVE_PAGES = [
   { slug: 'overview', label: 'Overview' },
   { slug: 'touchpoints', label: 'Touchpoints' },
-  { slug: 'knowledge', label: 'Knowledge Base' },
+  { slug: 'files', label: 'Files' },
 ] as const;
 
-const TOUCHPOINT_VIEWS = [
-  { id: 'list', icon: LayoutList, label: 'List' },
-  { id: 'table', icon: TableIcon, label: 'Table' },
-  { id: 'gantt', icon: BarChart3, label: 'Gantt' },
-  { id: 'calendar', icon: Calendar, label: 'Calendar' },
-] as const;
+const TOUCHPOINT_SPEC: TableSpec = {
+  id: 'initiative-touchpoints',
+  columns: [
+    { id: 'name', label: 'Touchpoint', kind: 'text', required: true, editable: true },
+    { id: 'done', label: 'Done', kind: 'checkbox', editable: true, defaultValue: false },
+    {
+      id: 'parentId',
+      label: 'Parent Touchpoint',
+      kind: 'relation',
+      relationTarget: 'initiative-touchpoints',
+      relationParent: true,
+      editable: false,
+    },
+  ],
+};
 
 export function InitiativeDetail() {
   const { id } = useParams();
@@ -73,71 +86,38 @@ export function InitiativeDetail() {
   const [overview, setOverview] = useState<Overview>(() => ({ ...DEFAULT_OVERVIEW, ...load(`bridge.initiative.${iid}.overview`, DEFAULT_OVERVIEW) }));
   // Storage key kept as `.tasks` to preserve any existing local data; the model is Touchpoints.
   const [touchpoints, setTouchpoints] = useState<Touchpoint[]>(() => load(`bridge.initiative.${iid}.tasks`, []));
-  const [docs, setDocs] = useState<Doc[]>(() => load(`bridge.initiative.${iid}.docs`, []));
+  const requestedView = searchParams.get('view');
+  const normalizedView = normalizeViewKind(requestedView);
+  const initialTouchpointKind = normalizedView && computeEligibleKinds(TOUCHPOINT_SPEC).includes(normalizedView)
+    ? normalizedView
+    : 'tree';
+  const [touchpointsView, setTouchpointsView] = useState<ViewConfig>(
+    viewConfigForKind(TOUCHPOINT_SPEC, initialTouchpointKind, { id: `initiative-touchpoints:${iid}` }),
+  );
+  const [touchpointFormRecord, setTouchpointFormRecord] = useState<DataRow | null>(null);
 
   const persistOverview = (o: Overview) => { setOverview(o); save(`bridge.initiative.${iid}.overview`, o); };
   const persistTouchpoints = (t: Touchpoint[]) => { setTouchpoints(t); save(`bridge.initiative.${iid}.tasks`, t); };
-  const persistDocs = (d: Doc[]) => { setDocs(d); save(`bridge.initiative.${iid}.docs`, d); };
 
   const pageParam = searchParams.get('page');
   const activeTab = INITIATIVE_PAGES.find((page) => page.slug === pageParam)?.label ?? INITIATIVE_PAGES[0].label;
-  const viewParam = searchParams.get('view');
-  const touchpointsView = TOUCHPOINT_VIEWS.find((view) => view.id === viewParam)?.id ?? TOUCHPOINT_VIEWS[0].id;
   function selectPage(page: (typeof INITIATIVE_PAGES)[number]) {
     const next = new URLSearchParams(searchParams);
     next.set('page', page.slug);
     if (page.slug !== 'touchpoints') next.delete('view');
     setSearchParams(next);
   }
-  function selectTouchpointsView(view: (typeof TOUCHPOINT_VIEWS)[number]['id']) {
+  function selectTouchpointsView(view: ViewConfig, preserveFormRecord = false) {
+    setTouchpointsView(view);
+    if (!preserveFormRecord) setTouchpointFormRecord(null);
     const next = new URLSearchParams(searchParams);
     next.set('page', 'touchpoints');
-    next.set('view', view);
+    next.set('view', view.kind);
     setSearchParams(next);
   }
 
-  // ── Touchpoint tree ops (flat model with parentId → arbitrary depth) ──────────────────────────
   const nid = () => `t-${++counter.current}-${touchpoints.length}`;
-  const addTouchpoint = (parentId: string | null) => persistTouchpoints([...touchpoints, { id: nid(), name: 'New touchpoint', done: false, parentId, collapsed: false }]);
-  const renameTouchpoint = (tid: string, v: string) => persistTouchpoints(touchpoints.map(t => t.id === tid ? { ...t, name: v } : t));
-  const toggleDone = (tid: string) => persistTouchpoints(touchpoints.map(t => t.id === tid ? { ...t, done: !t.done } : t));
-  const toggleCollapse = (tid: string) => persistTouchpoints(touchpoints.map(t => t.id === tid ? { ...t, collapsed: !t.collapsed } : t));
-  const deleteTouchpoint = (tid: string) => {
-    const drop = new Set<string>([tid]);
-    let changed = true;
-    while (changed) { changed = false; for (const t of touchpoints) { if (t.parentId && drop.has(t.parentId) && !drop.has(t.id)) { drop.add(t.id); changed = true; } } }
-    persistTouchpoints(touchpoints.filter(t => !drop.has(t.id)));
-  };
-  const childrenOf = (pid: string | null) => touchpoints.filter(t => t.parentId === pid);
   const progress = (() => { const total = touchpoints.length; const done = touchpoints.filter(t => t.done).length; return total ? Math.round((done / total) * 100) : 0; })();
-
-  const TouchpointRow = ({ tp, depth }: { tp: Touchpoint; depth: number }): ReactNode => {
-    const kids = childrenOf(tp.id);
-    return (
-      <div>
-        <div className="group flex items-center gap-2 py-1.5 pr-2 rounded-lg hover:bg-[var(--color-surface)] transition-colors" style={{ paddingLeft: 8 + depth * 22 }}>
-          {kids.length > 0 ? (
-            <button onClick={() => toggleCollapse(tp.id)} className="p-0.5 rounded hover:bg-[var(--color-border)]/50" title={tp.collapsed ? 'Expand' : 'Collapse'}>
-              {tp.collapsed ? <ChevronRight className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} /> : <ChevronDown className="w-3.5 h-3.5" style={{ color: 'var(--color-warm-gray)' }} />}
-            </button>
-          ) : <span className="w-[18px]" />}
-          <button onClick={() => toggleDone(tp.id)} className="w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all active:scale-90" style={{ borderColor: tp.done ? 'var(--color-steel)' : 'var(--color-border)', backgroundColor: tp.done ? 'var(--color-steel)' : 'white' }} title={tp.done ? 'Mark not done' : 'Mark done'}>
-            {tp.done && <Check className="w-3 h-3 text-white" />}
-          </button>
-          <Editable text={tp.name} onSave={v => renameTouchpoint(tp.id, v || 'Untitled')} className={clsx('flex-1 text-sm', tp.done && 'line-through opacity-60')} />
-          <button onClick={() => addTouchpoint(tp.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--color-warm-gray)] hover:text-[var(--color-steel)] transition-all" title="Add sub-touchpoint"><Plus className="w-3.5 h-3.5" /></button>
-          <button onClick={() => deleteTouchpoint(tp.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--color-warm-gray)] hover:text-[var(--danger)] transition-all" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
-        </div>
-        {!tp.collapsed && kids.map(k => <TouchpointRow key={k.id} tp={k} depth={depth + 1} />)}
-      </div>
-    );
-  };
-
-  const onUpload = (list: FileList | null) => {
-    if (!list || !list.length) return;
-    const next = Array.from(list).map(f => ({ name: f.name, type: (f.name.split('.').pop() || 'file').toUpperCase(), size: `${Math.max(1, Math.round(f.size / 1024))} KB` }));
-    persistDocs([...next, ...docs]);
-  };
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: 'var(--color-background)' }}>
@@ -255,79 +235,51 @@ export function InitiativeDetail() {
 
           {activeTab === 'Touchpoints' && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  {TOUCHPOINT_VIEWS.map(view => (
-                    <button key={view.id} onClick={() => selectTouchpointsView(view.id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all" style={{ backgroundColor: touchpointsView === view.id ? 'var(--color-steel)' : 'var(--color-surface)', color: touchpointsView === view.id ? 'white' : 'var(--color-navy-mid)' }}>
-                      <view.icon className="w-4 h-4" /> {view.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Rituals are GLOBAL — this opens the single ritual factory (same screen as Tools→Rituals). */}
-                  <button onClick={() => navigate(`/rituals?initiative=${encodeURIComponent(iid)}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }} title="Attach or create a Workflow (automation) for this initiative"><Repeat className="w-4 h-4" /> Add Workflow</button>
-                  <button onClick={() => addTouchpoint(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-white shadow-sm active:scale-95 transition-transform" style={{ backgroundColor: 'var(--color-steel)' }}><Plus className="w-4 h-4" /> Add Touchpoint</button>
-                </div>
-              </div>
-
-              {touchpointsView === 'list' && (
-                <div className="border rounded-xl p-2 bg-white" style={{ borderColor: 'var(--color-border)' }}>
-                  {touchpoints.length === 0 ? (
-                    <div className="py-12 text-center">
-                      <p className="text-sm mb-3" style={{ color: 'var(--color-warm-gray)' }}>No touchpoints yet. Touchpoints nest into sub-touchpoints, to any depth.</p>
-                      <button onClick={() => addTouchpoint(null)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold text-white" style={{ backgroundColor: 'var(--color-steel)' }}><Plus className="w-4 h-4" /> Add the first Touchpoint</button>
-                    </div>
-                  ) : childrenOf(null).map(t => <TouchpointRow key={t.id} tp={t} depth={0} />)}
-                </div>
-              )}
-
-              {touchpointsView === 'table' && (
-                <div className="border rounded-xl overflow-hidden bg-white" style={{ borderColor: 'var(--color-border)' }}>
-                  <table className="w-full text-sm border-collapse">
-                    <thead><tr style={{ backgroundColor: 'var(--color-surface)' }}>{['Touchpoint', 'Depth', 'Done'].map(c => <th key={c} className="text-left px-4 py-2 text-[11px] font-semibold uppercase tracking-wider border-b" style={{ color: 'var(--color-warm-gray)', borderColor: 'var(--color-border)' }}>{c}</th>)}</tr></thead>
-                    <tbody>
-                      {touchpoints.map(t => { let d = 0, p = t.parentId; while (p) { d++; p = touchpoints.find(x => x.id === p)?.parentId || null; } return (
-                        <tr key={t.id} className="hover:bg-[var(--color-surface)]/50"><td className="px-4 py-2 border-b" style={{ borderColor: 'var(--color-border)', paddingLeft: 16 + d * 16, color: 'var(--color-navy)' }}>{t.name}</td><td className="px-4 py-2 border-b" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>{d === 0 ? 'Root' : `L${d}`}</td><td className="px-4 py-2 border-b" style={{ borderColor: 'var(--color-border)', color: 'var(--color-navy-mid)' }}>{t.done ? '✓' : '—'}</td></tr>
-                      ); })}
-                      {touchpoints.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center" style={{ color: 'var(--color-warm-gray)' }}>No touchpoints yet.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {(touchpointsView === 'gantt' || touchpointsView === 'calendar') && (
-                <div className="border rounded-xl p-12 text-center bg-[var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
-                  <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>{TOUCHPOINT_VIEWS.find(v => v.id === touchpointsView)?.label} view coming soon — List is the standard cascaded-touchpoint view.</p>
-                </div>
-              )}
+              <DataViews
+                spec={TOUCHPOINT_SPEC}
+                view={touchpointsView}
+                data={touchpoints.map((touchpoint) => ({ ...touchpoint }))}
+                onViewChange={selectTouchpointsView}
+                formRecord={touchpointFormRecord}
+                onInsert={async (draft) => {
+                  const touchpointName = typeof draft['name'] === 'string' ? draft['name'].trim() : '';
+                  if (!touchpointName) throw new Error('Touchpoint is required.');
+                  persistTouchpoints([
+                    ...touchpoints,
+                    {
+                      id: nid(),
+                      name: touchpointName,
+                      done: draft['done'] === true,
+                      parentId: null,
+                      collapsed: false,
+                    },
+                  ]);
+                }}
+                onUpdate={async (touchpointId, draft) => {
+                  persistTouchpoints(touchpoints.map((touchpoint) => touchpoint.id === touchpointId
+                    ? {
+                        ...touchpoint,
+                        ...(typeof draft['name'] === 'string' && draft['name'].trim()
+                          ? { name: draft['name'].trim() }
+                          : {}),
+                        ...(typeof draft['done'] === 'boolean' ? { done: draft['done'] } : {}),
+                      }
+                    : touchpoint));
+                }}
+                onEditRecord={(row) => {
+                  setTouchpointFormRecord(row);
+                  selectTouchpointsView(
+                    viewConfigForKind(TOUCHPOINT_SPEC, 'form', touchpointsView),
+                    true,
+                  );
+                }}
+              />
             </motion.div>
           )}
 
-          {activeTab === 'Knowledge Base' && (
+          {activeTab === 'Files' && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold" style={{ fontFamily: 'var(--font-editorial)', color: 'var(--color-navy)' }}>Documents &amp; data</h3>
-                <label className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white cursor-pointer shadow-sm active:scale-95 transition-transform" style={{ backgroundColor: 'var(--color-steel)' }} title="Upload documents (stored locally in this prototype)">
-                  <Upload className="w-4 h-4" /> Add document
-                  <input type="file" multiple className="hidden" onChange={e => { onUpload(e.target.files); e.currentTarget.value = ''; }} />
-                </label>
-              </div>
-              {docs.length === 0 ? (
-                <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-14 cursor-pointer hover:border-[var(--color-steel)]/50 transition-colors" style={{ borderColor: 'var(--color-border)', color: 'var(--color-warm-gray)' }}>
-                  <Upload className="w-7 h-7" /><span className="text-sm font-medium">Drop or upload documents to this initiative's knowledge base</span>
-                  <input type="file" multiple className="hidden" onChange={e => { onUpload(e.target.files); e.currentTarget.value = ''; }} />
-                </label>
-              ) : (
-                <div className="grid gap-3">
-                  {docs.map((doc, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group border rounded-xl p-4 flex items-center gap-4 bg-white hover:shadow-md transition-all" style={{ borderColor: 'var(--color-border)' }}>
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: 'var(--color-surface)' }}>{/xls/i.test(doc.type) ? <FileSpreadsheet className="w-5 h-5" style={{ color: 'var(--color-steel)' }} /> : <FileText className="w-5 h-5" style={{ color: 'var(--color-steel)' }} />}</div>
-                      <div className="flex-1 min-w-0"><h4 className="font-medium text-sm truncate" style={{ color: 'var(--color-navy)' }}>{doc.name}</h4><p className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>{doc.type} · {doc.size}</p></div>
-                      <button onClick={() => persistDocs(docs.filter((_, j) => j !== i))} className="opacity-0 group-hover:opacity-100 p-2 rounded-lg hover:bg-[var(--danger)]/10 transition-all" title="Remove"><Trash2 className="w-4 h-4" style={{ color: 'var(--color-warm-gray)' }} /></button>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
+              <ModuleFilesSection moduleName={`initiative-${iid}`} />
             </motion.div>
           )}
         </div>

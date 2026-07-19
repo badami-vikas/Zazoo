@@ -13,8 +13,8 @@ test("jobsCardFeedView: groups by flag, kind gallery", () => {
   assert.equal(view.groupBy, "flag");
 });
 
-test("jobsTrackerView: groups by stage, kind kanban", () => {
+test("jobsTrackerView: groups by stage, kind board", () => {
   const view = jobsTrackerView();
-  assert.equal(view.kind, "kanban");
+  assert.equal(view.kind, "board");
   assert.equal(view.groupBy, "stage");
 });

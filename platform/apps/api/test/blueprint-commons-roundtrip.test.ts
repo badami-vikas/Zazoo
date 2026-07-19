@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
+  BLUEPRINT_SCHEMA_VERSION,
   BlueprintValidationError,
   compileBlueprint,
   parseWorkspaceBlueprint,
@@ -62,7 +63,7 @@ test("BLUEPRINT-1: a blueprint round-trips manifest -> transport(verify) -> extr
   assert.equal(manifest.kind, "workspace_definition");
   assert.equal(manifest.capabilities.length, 0);
   assert.ok(manifest.blueprint);
-  assert.equal(manifest.blueprint?.schemaVersion, 1);
+  assert.equal(manifest.blueprint?.schemaVersion, BLUEPRINT_SCHEMA_VERSION);
 
   const entry = signCommonsEntryForTest(manifest, keyPair);
   t.mock.method(globalThis, "fetch", async () => jsonResponse(entry));

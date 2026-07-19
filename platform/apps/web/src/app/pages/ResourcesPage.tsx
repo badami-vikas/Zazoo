@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BookOpen, ExternalLink, Star, Plus, Trash2, Download, Table as TableIcon } from 'lucide-react';
+import { BookOpen, ExternalLink, Star, Plus, Trash2, Download } from 'lucide-react';
 import { Link } from 'react-router';
 import { Header } from '../components/shared/Header';
 import { StandardToolbar } from '../components/shared/StandardToolbar';
@@ -148,9 +148,6 @@ export function ResourcesPage({ embedded = false }: { embedded?: boolean } = {})
       <StandardToolbar
         insightsExpanded={insightsOpen}
         onToggleInsights={() => setInsightsOpen(o => !o)}
-        view="table"
-        views={[{ id: 'table', label: 'Table', icon: TableIcon }]}
-        onViewChange={() => {}}
         search={query}
         onSearchChange={setQuery}
         onFilterClick={() => setFilterOpen(o => !o)}
