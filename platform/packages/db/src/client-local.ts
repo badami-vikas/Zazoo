@@ -48,11 +48,25 @@ export class LocalDbInitializationCleanupError extends AggregateError {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const LEGACY_EXTERNAL_RECORDS = "local_external_records_legacy";
+const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
+  ["workspace_id", "text"],
+  ["source", "text"],
+  ["source_record_id", "text"],
+  ["entity_type", "text"],
+  ["entity_id", "text"],
+  ["created_at", "text"],
+]);
 
-async function hasLegacyExternalRecordShape(
+type ExternalRecordTableShape =
+  | "missing"
+  | "legacy"
+  | "canonical"
+  | "unsupported";
+
+async function inspectExternalRecordTable(
   client: PGlite,
   tableName: string,
-): Promise<boolean> {
+): Promise<ExternalRecordTableShape> {
   const result = await client.query<{
     column_name: string;
     data_type: string;
@@ -62,17 +76,29 @@ async function hasLegacyExternalRecordShape(
       WHERE table_schema = 'public' AND table_name = $1`,
     [tableName],
   );
+  if (result.rows.length === 0) return "missing";
   const columns = new Map(
     result.rows.map((row) => [row.column_name, row.data_type]),
   );
-  return (
-    columns.get("workspace_id") === "text" &&
+  const isExactLegacyShape =
+    columns.size === LEGACY_EXTERNAL_RECORD_COLUMNS.size &&
+    [...LEGACY_EXTERNAL_RECORD_COLUMNS].every(
+      ([name, dataType]) => columns.get(name) === dataType,
+    );
+  if (isExactLegacyShape) return "legacy";
+  if (
+    tableName === "external_records" &&
+    columns.get("id") === "uuid" &&
+    columns.get("workspace_id") === "uuid" &&
     columns.get("source") === "text" &&
     columns.get("source_record_id") === "text" &&
     columns.get("entity_type") === "text" &&
-    columns.get("entity_id") === "text" &&
-    columns.get("created_at") === "text"
-  );
+    columns.get("entity_id") === "uuid" &&
+    columns.get("created_at") === "timestamp with time zone"
+  ) {
+    return "canonical";
+  }
+  return "unsupported";
 }
 
 /**
@@ -83,20 +109,24 @@ async function hasLegacyExternalRecordShape(
 export async function prepareLegacyLocalExternalRecords(
   client: PGlite,
 ): Promise<void> {
-  const backupExists = await client.query<{ exists: boolean }>(
-    `SELECT to_regclass('public.${LEGACY_EXTERNAL_RECORDS}') IS NOT NULL AS exists`,
+  const backupShape = await inspectExternalRecordTable(
+    client,
+    LEGACY_EXTERNAL_RECORDS,
   );
-  const hasBackup = backupExists.rows[0]?.exists === true;
-  const backupIsLegacy =
-    hasBackup &&
-    (await hasLegacyExternalRecordShape(client, LEGACY_EXTERNAL_RECORDS));
-  if (hasBackup && !backupIsLegacy) {
+  if (backupShape === "unsupported" || backupShape === "canonical") {
     throw new Error(
       `${LEGACY_EXTERNAL_RECORDS} exists with an unsupported schema`,
     );
   }
-  if (!(await hasLegacyExternalRecordShape(client, "external_records"))) return;
-  if (backupIsLegacy) {
+  const sourceShape = await inspectExternalRecordTable(
+    client,
+    "external_records",
+  );
+  if (sourceShape === "missing" || sourceShape === "canonical") return;
+  if (sourceShape === "unsupported") {
+    throw new Error("external_records exists with an unsupported schema");
+  }
+  if (backupShape === "legacy") {
     await client.exec(`
       INSERT INTO ${LEGACY_EXTERNAL_RECORDS}
         (workspace_id, source, source_record_id, entity_type, entity_id, created_at)

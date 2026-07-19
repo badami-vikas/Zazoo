@@ -2,12 +2,13 @@
  * Migration 0016 (TASK-010 review round-6, post-TASK-008-RM4) — proves the
  * UPGRADE path from the real 0015 snapshot, not a hand-approximated schema:
  * builds a database on migrations 0000-0015 only (a temp copy of the real
- * migrations folder with 0016 excluded), seeds pre-migration-shaped rows
+ * migrations folder truncated before 0016), seeds pre-migration-shaped rows
  * (a legacy JobPilot `flag` value; red-flag/preference-adjustment Memories
- * with no `lineage_revision`), then applies ONLY 0016 via drizzle-orm's own
- * migrator (which tracks already-applied migrations, so re-running it
- * against the SAME migrations folder that now includes 0016 applies just
- * the one new migration — never re-executes 0000-0015). This is the
+ * with no `lineage_revision`), then applies ONLY 0016 from another temp copy
+ * truncated after 0016 via drizzle-orm's own migrator (which tracks
+ * already-applied migrations, so re-running it against the SAME migrations
+ * folder applies just the one new migration — never re-executes 0000-0015
+ * or accidentally advances to a later migration). This is the
  * "upgrade/no-drift" evidence the coordinator asked for: the migration is
  * exercised via drizzle's real apply mechanism against a real prior schema
  * state, not fabricated from scratch.
@@ -39,28 +40,30 @@ function readFileSyncSafe(path: string): string | null {
   }
 }
 
-/** A temp copy of the real migrations folder with 0016 and every later
- * migration excluded — the "pre-this-migration" upgrade starting
- * point, built from the REAL 0000-0015 files, not a re-derived approximation. */
-function pre0016MigrationsFolder(): string {
+type Journal = {
+  entries: Array<{ idx: number; tag: string }>;
+};
+
+/** Copy the real migration history through `lastIdx`, removing every later
+ * SQL/snapshot/journal entry so future migrations cannot change this test's
+ * starting point or advance Drizzle's migration high-water mark. */
+function migrationsThrough(lastIdx: number): string {
   const real = realMigrationsFolder();
-  const dir = mkdtempSync(join(tmpdir(), "bridge-db-pre-0016-"));
+  const dir = mkdtempSync(join(tmpdir(), `bridge-db-through-${lastIdx}-`));
   cpSync(real, dir, { recursive: true });
-  const journal = JSON.parse(readFileSync(join(dir, "meta/_journal.json"), "utf8")) as {
-    entries: Array<{ idx: number; tag: string }>;
-  };
-  const laterEntries = journal.entries.filter((entry) => entry.idx >= 16);
-  for (const entry of laterEntries) {
+  const journal = JSON.parse(readFileSync(join(dir, "meta/_journal.json"), "utf8")) as Journal;
+  for (const entry of journal.entries.filter(({ idx }) => idx > lastIdx)) {
     rmSync(join(dir, `${entry.tag}.sql`), { force: true });
-    rmSync(join(dir, `meta/${String(entry.idx).padStart(4, "0")}_snapshot.json`), { force: true });
+    rmSync(join(dir, "meta", `${entry.tag.slice(0, 4)}_snapshot.json`), { force: true });
   }
-  journal.entries = journal.entries.filter((entry) => entry.idx < 16);
+  journal.entries = journal.entries.filter(({ idx }) => idx <= lastIdx);
   writeFileSync(join(dir, "meta/_journal.json"), JSON.stringify(journal, null, 2));
   return dir;
 }
 
 test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and then enforces the CHECK constraint", async () => {
-  const preDir = pre0016MigrationsFolder();
+  const preDir = migrationsThrough(15);
+  const through0016Dir = migrationsThrough(16);
   const { db, close } = await createLocalDb({ migrationsFolder: preDir });
   try {
     const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_migration_0016_jobpilot" }).returning({ id: schema.workspaces.id });
@@ -84,7 +87,7 @@ test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and t
     }
 
     // Apply ONLY 0016 (0000-0015 are already applied and tracked).
-    await migrate(db, { migrationsFolder: realMigrationsFolder() });
+    await migrate(db, { migrationsFolder: through0016Dir });
 
     const rows = await db.select({ id: schema.jobpilotApplications.id, flag: schema.jobpilotApplications.flag }).from(schema.jobpilotApplications);
     const byId = new Map(rows.map((r) => [r.id, r.flag]));
@@ -104,11 +107,13 @@ test("migration 0016 (upgrade path): backfills legacy JobPilot flag values and t
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });
+    rmSync(through0016Dir, { recursive: true, force: true });
   }
 });
 
 test("migration 0016 (upgrade path): adds memories.lineage_revision as a nullable, backward-compatible column (no backfill fabricated for pre-existing rows)", async () => {
-  const preDir = pre0016MigrationsFolder();
+  const preDir = migrationsThrough(15);
+  const through0016Dir = migrationsThrough(16);
   const { db, close } = await createLocalDb({ migrationsFolder: preDir });
   try {
     const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_migration_0016_memories" }).returning({ id: schema.workspaces.id });
@@ -126,7 +131,7 @@ test("migration 0016 (upgrade path): adds memories.lineage_revision as a nullabl
     const existing = existingRows.rows[0];
     assert.ok(existing);
 
-    await migrate(db, { migrationsFolder: realMigrationsFolder() });
+    await migrate(db, { migrationsFolder: through0016Dir });
 
     const [row] = await db.select({ lineageRevision: schema.memories.lineageRevision }).from(schema.memories).where(sql`${schema.memories.id} = ${existing.id}`);
     assert.equal(row?.lineageRevision, null, "a pre-migration row must get NULL, never a fabricated revision number");
@@ -152,21 +157,24 @@ test("migration 0016 (upgrade path): adds memories.lineage_revision as a nullabl
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });
+    rmSync(through0016Dir, { recursive: true, force: true });
   }
 });
 
 test("migration 0016 (upgrade path): re-running the SAME migrations folder a second time is a no-op (idempotent, no drift)", async () => {
-  const preDir = pre0016MigrationsFolder();
+  const preDir = migrationsThrough(15);
+  const through0016Dir = migrationsThrough(16);
   const { db, close } = await createLocalDb({ migrationsFolder: preDir });
   try {
-    await migrate(db, { migrationsFolder: realMigrationsFolder() });
+    await migrate(db, { migrationsFolder: through0016Dir });
     // Re-applying against the identical (already-fully-migrated) folder must
     // not error and must not re-run 0016's statements a second time (which
     // would fail outright on the ADD COLUMN / ADD CONSTRAINT statements if
     // drizzle's own migration-tracking table were not being honored).
-    await migrate(db, { migrationsFolder: realMigrationsFolder() });
+    await migrate(db, { migrationsFolder: through0016Dir });
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });
+    rmSync(through0016Dir, { recursive: true, force: true });
   }
 });

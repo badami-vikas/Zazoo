@@ -29,6 +29,7 @@
     "@bridge/integrations-google": "workspace:*",
     "@bridge/jobpilot": "workspace:*",
     "@bridge/local": "workspace:*",
+    "@bridge/net-guard": "workspace:*",
     "@bridge/models": "workspace:*",
     "@bridge/tool-kit": "workspace:*",
     "@fastify/cors": "^10.0.1",

@@ -12,4 +12,5 @@ Scale: 30k canonical / <100 hot → virtualize 30k surfaces, WebGL graph, E2EE c
 - **Desktop shell**: `apps/desktop` = Tauri v2 scaffold. Hosts apps/web (devUrl :5173 / frontendDist ../../web/dist). Rust `sensor_bridge` = typed stubs (sensor_list/start/stop, capture_screenshot_on_demand) naming their macOS APIs (NSWorkspace/AX/CGWindowList) — capture core = Phase-0 follow-up. JS build/test no-op → turbo stays green without Rust.
 - **Embeddings**: model NOT freely swappable (`vector(N)` fixed dim) → pin one canonical embedding model/dim, decouple from chat model. dev Ollama (768) vs prod OpenAI (1536) differ → re-embed on switch.
 - **API**: tRPC for app; add REST/OpenAPI later for MCP/external agents.
+- **Migrations**: append-only Drizzle journal. Divergent parent histories reconcile with a newer idempotent data migration; never lower or rewrite an applied high-water timestamp (ADR-126).
 - **Avoid licenses**: AGPL/SSPL/BUSL/fair-code/commercial → see [oss](oss.md).

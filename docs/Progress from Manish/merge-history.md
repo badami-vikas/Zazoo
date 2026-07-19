@@ -4,10 +4,14 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- Latest `main` baseline merged for this handoff:
-  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
+- TASK-005 implementation/certification checkpoint `166a01b` landed through progress handoff
+  commit `d4de355`. Both were verified in `origin/main@d153094` ancestry; the later commits through
+  `d153094` belong to the unrelated Zazoo storyboard merge.
 - TASK-006 code landed at `7f44186` under AP-045 after validating and normally merging base
   `bab32ea`.
+- TASK-011 (JobPilot culture research) landed at final head `5e826ad` via PR #22 under AP-049 on
+  2026-07-19, merged forward through `origin/main@d153094` plus its own subsequent `9030aa1` docs
+  reconciliation commit.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -36,6 +40,11 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `5091dae` | Recorded the landed TASK-006 integration and refreshed its canonical resume evidence. |
 | `f78e47c` | Canonically closed the exact TASK-008 prototype after the validated RM4 and Relationship continuation evidence; advanced RM6/evaluation work remains future scope. |
 | `3741a41` | Reconciled the historical RM4 worktree with the canonical TASK-008 closure, refreshed fresh-session guidance, and regenerated Task Manager data; no RM4 code was re-merged. |
+| `5ca30ca` | TASK-010 live JobPilot Red Flag certification and closure; preserved migration `0016_new_ink`. |
+| `166a01b` | TASK-005 final implementation/certification checkpoint: signed no-egress Commons Skill under Learning Agent, private recommendation migration `0017`, exact binding/provenance, crash-safe Organization Files rename, final desktop/mobile/native evidence, and AP-047/ADR-121/122 closure. |
+| `5e826ad` | TASK-011 JobPilot culture-research final head, merged into `main` via PR #22 under AP-049: durable child-Run terminal-audit repair, full-lineage artifact purge/redaction, merged forward through TASK-010 and TASK-005; no new migration. |
+| `d4de355` | TASK-005 progress handoff and fast-forward landing on `main`; updated AP-047, all four Progress-from-Manish files, and the final change log. |
+| `d153094` | Verified later `main` baseline containing TASK-005 plus the unrelated Zazoo storyboard merge from PR #21. |
 
 ## Historical source branches
 
@@ -49,8 +58,11 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-008 competing candidate B: `manishsbhoopalam8498-implement-relationship-rm1-rm2`; superseded
   historical dirty worktree, not safe to merge wholesale.
 - TASK-009 planning source: `manishsbhoopalam8498-plan-second-brain-graph` at `3b51aaf`; handoff merged, no implementation branch.
+- TASK-005 certification source: `manishsbhoopalam8498-certify-task-005-demo`; implementation
+  checkpoint `166a01b`, progress handoff / `main` landing `d4de355`, then historical branch
+  fast-forward through `d153094`. Merged and done; do not merge again.
 - TASK-010 prior clean pushed milestone: `24e4eab`; final round-7 head merged into `main` as `e532b15` (branch `manishsbhoopalam8498-platform-red-flag-feedback` remains at the same commit, pushed).
-- TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
+- TASK-011 source: `manishsbhoopalam8498-shiny-adventure`; final head `5e826ad`. Merged into `main` via PR #22 under AP-049 on 2026-07-19; do not merge again.
 - TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
   `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
@@ -62,10 +74,12 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0014`: TASK-007.
 - `0015_task008_relation_contract`: TASK-008 RM4.
 - `0016_new_ink`: TASK-010, LANDED (backfill/constraint for JobPilot flags, owner-aware `memories` RLS, `lineage_revision` column) — merged into `main` as `e532b15`.
+- `0017_task005_private_learning_recommendations`: TASK-005, LANDED (owner-scopes current/legacy
+  Learning recommendation proposals and linked rows).
 - TASK-006 durability: no numbered migration.
-- TASK-011: no new migration currently required.
+- TASK-011: no new migration required (LANDED, application-logic only).
 
-Next new migration allocates `0017`; do not reuse `0016`.
+Next new migration allocates `0018`; do not reuse `0016` or `0017`.
 
 ## Approval and ADR coordination
 
@@ -83,6 +97,10 @@ Next new migration allocates `0017`; do not reuse `0016`.
 - AP-044: TASK-006 durability and OS credential vault; DealPilot ADRs are ADR-117–ADR-120 after
   reconciling current `main`'s Relationship ADR-115/ADR-116.
 - AP-045: TASK-006 validated main integration.
+- AP-046: TASK-010 live certification and closure.
+- AP-047: TASK-005 exact combined demo certification and closure.
+- ADR-121: exact private no-egress Commons Skill + owning-Module runtime binding.
+- ADR-122: serialized Organization DB identity/local Files rename with durable fail-closed recovery.
 
 Known current branch-local collision:
 

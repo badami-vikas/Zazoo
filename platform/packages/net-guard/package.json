@@ -1,0 +1,22 @@
+{
+  "name": "@bridge/net-guard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixed-host/SSRF outbound-fetch guard (TASK-011 handoff — see outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md's TASK-011 handoff item 4). Node-only (node:dns/node:net) — deliberately kept OUT of @bridge/core's browser-bundled barrel (@bridge/core is isomorphic/browser-safe; this package is not and must never be imported by @bridge/web). Ported from Tools/recon/lib/ssrf.ts's identical logic for any server-side governed Skill (apps/api) that performs its own outbound fetch, e.g. JobPilot's culture-research sourcing.",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "test": "node --experimental-test-coverage --test-coverage-exclude='**/test/**' --test-coverage-lines=80 --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.3"
+  }
+}

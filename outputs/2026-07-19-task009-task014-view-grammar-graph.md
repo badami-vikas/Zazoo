@@ -33,14 +33,26 @@ Authenticated isolated browser evidence passed at desktop and 375×812:
 
 Affected Core, Tables, DealPilot, JobPilot, DB, API, and Web builds/tests passed.
 
+The final integration merged `origin/main@3c9646c` without dropping TASK-005 or TASK-011.
+TASK-005 retains data-only migration `0017`; Location schema changes are `0018`. The merged
+23-package build passed, Core 451/451, DB 172/172, JobPilot 125/125, Net Guard 24/24, and Web
+98/98. The final 317-test API run passed 316 and reproduced one previously documented
+load-sensitive socket-close flake; the complete 57-test culture-research socket suite passed
+in isolation.
+Merge review added idempotent higher-water `0019` so either parent migration history receives
+TASK-005's privacy backfill, and serialized Module File list/upload with Organization rename.
+A fresh focused review of both remediations found no issues.
+
 ## Durable links
 
 - [Canonical tasks](../docs/TASKS.md)
 - [View Grammar BRD](../docs/raw/brd-dataengine-views-2026-07.md)
 - [UI architecture wiki](../docs/wiki/ui-architecture.md)
 - [Calendar wiki](../docs/wiki/calendar.md)
-- [ADR-121](../docs/raw/decisions-log.md)
-- [ADR-122](../docs/raw/decisions-log.md)
+- [ADR-123](../docs/raw/decisions-log.md)
+- [ADR-124](../docs/raw/decisions-log.md)
+- [ADR-125](../docs/raw/decisions-log.md)
+- [ADR-126](../docs/raw/decisions-log.md)
 - [Bug evidence](../docs/BUGS.md)
 
 ## Explicit follow-ups

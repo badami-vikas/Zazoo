@@ -134,6 +134,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "google.syncGmail",
   "dealpilot.discoverDeals",
   "ritual.runById",
+  "commons.runInstalledSkill",
   "helpdesk.public.",
 ] as const;
 

@@ -25,6 +25,11 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-19 — TASK-009/TASK-014 merge regressions** (`platform/packages/db/test/migration-0019.test.ts`, `platform/apps/api/test/workspace-membership.test.ts`, `platform/apps/api/test/packages.test.ts`).
+  **Reason:** deterministic divergent-migration ancestry and concurrent Organization rename/File upload cannot safely mutate a real user's migration journal or private Files.
+  **Real elements they stand in for:** an upgraded Local Plane database, private Learning recommendation rows, an Organization Files root, and a Human-uploaded Module File.
+  **Removal condition:** retain as permanent migration/privacy/concurrency regressions; use user-approved local data only for product certification.
+
 - **2026-07-19 — TASK-014 private Map/geocoder regression fixtures** (`platform/packages/tables/test/location.test.ts`, `platform/apps/api/test/map-geocoding.test.ts`).
   **Reason:** deterministic coordinate parsing, fail-closed provider configuration, label deduplication, not-found handling, and loopback-origin tests cannot send real private place labels to a live service or mutate user Records.
   **Real elements they stand in for:** Location Record values, a user-installed Local Plane geocoder, and provider coordinates.
@@ -39,6 +44,33 @@ its real data source exists, and an empty state would hide the thing being revie
   parent/child Runs, budgets, lifecycle decisions, and audit entries.
   **Removal condition:** retain as isolated governance/security regressions; use user-approved local workspace
   data for product demonstrations and future end-to-end child-executor evidence.
+
+- **2026-07-17 — TASK-011 JobPilot culture-research fixtures** (`platform/apps/api/test/jobpilot-culture-research.test.ts`,
+  `platform/packages/net-guard/test/net-guard.test.ts`, `platform/tools/jobpilot/test/culture-research.test.ts`,
+  `platform/apps/api/test/agent-eligibility.test.ts`).
+  **Reason (updated after the 2026-07-18 coordinator final-review remediation pass):** these tests must
+  never make a real network call in CI, yet must exercise REAL redirect/byte-cap/abort/reservation/
+  durability mechanics rather than mocking them away. `net-guard`'s tests spin up real local `node:http`/
+  `node:https` servers (loopback is allowlisted ONLY via the test-only `unsafeTestOverrides` seam, every
+  other private range stays blocked; the HTTPS downgrade test generates a real, throwaway self-signed
+  certificate via `openssl` at test time and relaxes `NODE_TLS_REJECT_UNAUTHORIZED` for that one test
+  only) to prove genuine redirect-following, cross-origin header-stripping, downgrade rejection, cycle
+  detection, byte-cap streaming, and `AbortSignal` cancellation over real sockets. `apps/api`'s tests
+  register additional TEST-ONLY entries in the server-owned `CULTURE_SOURCE_REGISTRY` via
+  `unsafeRegisterTestOnlyCultureSource` (never reachable from production code) pointing at real local
+  test servers, and call `materializeCultureSourceFetch`/`cancelCultureSourceFetch` directly with the
+  same loopback-allow override to prove the real durable-record/CAS/reservation/idempotency/completion
+  logic end-to-end (including a genuine restart-durability proof via a second `DurableCultureFetchStore`
+  wrapping the same underlying `memoryStore`). All test-only company/claim/source text is
+  `test_fixture_`-prefixed in spirit (labelled "test_fixture Co"/"test_fixture source N" etc.) even
+  though it is plain string data, not a `dummy_` identifier.
+  **Real elements they stand in for:** a real candidate company's official careers page fetch, a real
+  Learning-Agent-owned bounded child Agent Run, and a real Internal-Strategist culture-evidence synthesis.
+  **Removal condition:** retain as the permanent deterministic regression suite for this Skill. The BCG
+  Application Record (`platform/apps/web/src/app/data/bcg-application.ts`) no longer carries ANY
+  hand-authored `cultureResearch` data as of 2026-07-18 — `JobPilotApplicationDetail.tsx`'s
+  `CultureResearchSection` now queries the live `jobpilot.cultureResearch.*` procedures directly, so
+  there is nothing left to remove from that file; this row is retained solely for the TEST fixtures above.
 
 - **2026-07-17 — TASK-004 migration compatibility fixtures** (`platform/packages/db/test/migration-0011.test.ts`,
   `platform/packages/db/test/migration-0013.test.ts`, `platform/packages/db/test/package-store.test.ts`).

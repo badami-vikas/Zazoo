@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048 — no re-rank requested.
 
 ## Operating standard
 
@@ -68,19 +68,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Movable cross-screen Avatar desktop prototype
 - ID: TASK-003
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome; BUGS 2026-07-18 physical Avatar drag inert (live retest pending); `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)
+- Evidence: RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome; RESOLVED BUGS 2026-07-18 physical Avatar drag inert; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (the user confirmed physical pointer drag/relaunch restoration, VoiceOver control activation, and external-display detach/reconnect)
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
 - Approval: AP-020, AP-026, AP-040, and AP-041 applied
 - Dependencies: none
 - Verification: 2026-07-18 software gates passed (desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, production build, typecheck, targeted ESLint, no-dummy). The user then confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect. Prototype test complete.
-- Unblock: Retest direct dragging from the Avatar surface with the 2026-07-18 native threshold fix, then confirm drag→save→quit/relaunch. The previously certified Spaces/fullscreen, VoiceOver-control, and display-detach paths remain passing unless the retest disproves them.
-
 ## Commons install and trust prototype
 - ID: TASK-004
 - Status: done
@@ -96,18 +94,18 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Avatar + Commons end-to-end demo certification
 - ID: TASK-005
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A short, repeatable demo proves the combined product rather than isolated screens.
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; TASK-003 physical Avatar certification completed 2026-07-18; outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md
-- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
+- Evidence: `outputs/2026-07-18-task-005-demo-certification.md`; TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`; clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md`; signed `cited-role-model-practice@1.0.1` is installed only for Relationship's Learning Agent, declares only private Signal read/write with no egress, consumes an already approved local cited Signal, and fails closed unless the stored/current signed Skill contracts and exact current built-in Relationship Module identity, need, installed attachment, content hash, private scope, and runtime Agent binding all match; registry/trust drift removes the visible Run binding with an explanation; the shared classifier owner-isolates current/legacy private proposals and linked rows; Organization rename uses a generation-tagged, fsynced Local Plane intent under database row-lock serialization, re-locks to recover update/commit/crash failures, preserves ambiguous dual-root intents fail-closed, refuses conflicting/symlinked roots, supports case-only names, and migrates legacy bootstrap state through the same path
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
+- Approval: AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
-- Unblock: run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
+- Verification: 2026-07-19 uninterrupted authenticated runs on the final post-review code passed at desktop 1440×913 (`task005-final10-desktop-result.json`) and exact mobile 375×812 (`task005-final11-mobile-result.json`) with body/document widths equal to the viewport, no trace-drawer overflow, failed resources, JavaScript errors, unhandled rejections, console errors, retired visible terms, or runtime dummy data. Both fresh runs installed signed `cited-role-model-practice@1.0.1`, invoked it only through the allowed Learning Agent, edited its proposal from weekly to monthly before approval, inspected immutable provenance, vetoed a second run with no downstream Event, and deleted the learned preference. Visual review reverified the repaired Settings → Capabilities Module link and physically reachable Settings/Approvals layouts. The branch had already normally merged `origin/main@5ca30ca`; both final responsive runs therefore cover the combined TASK-005/TASK-010 code. A rebuilt release Tauri bundle launched Bridge main, Companion, and Annotate windows with a healthy authenticated managed API sidecar on the currently connected display; TASK-003 separately certifies the three-display mobility/topology matrix. Final independent review found no blockers. Final gates: API 251/251, DB 159/159, web 81/81, desktop Rust 44/44, typecheck 37/37 tasks, build 20/20 tasks, no-runtime-dummy, native release bundle, and all 36 non-Sensor test tasks forced uncached. The migration upgrade harness now bounds SQL, snapshots, and journal entries so later migration `0017` cannot suppress `0016`. The known TASK-017 Sensor aggregate-coverage debt remains 7/7 tests passing at 36.97% versus the 38% floor.
 
 ## Repository and manifest cleanup
 - ID: TASK-013
@@ -183,11 +181,11 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Outcome: Every Module receives the compiler-owned Page/View/Record Detail, toolbar, context-menu, Files, and Control Panel grammar proven in the shell prototype, consuming ONE canonical View Grammar registry (table/board/gallery/form/calendar/map/graph/tree) with no informal per-Page hardcoded view lists, no View kind owning a dedicated Module/Tool/route/nav identity, and no Integration determining which View kinds a Page offers.
 - Prototype test: DealPilot plus two unrelated Modules pass the complete UI architecture audit, including Form view, DB-backed-only Add/Remove Page, all standard column commands, dependency preview/undo, Files layout, accessibility, and honest empty states; additionally — a Page with a date column renders Calendar view sourced from `dataviews/views/CalendarView.tsx` with zero source-specific code (Google-Calendar-synced rows render identically to Form-created rows on the same calendar); the `/calendar` route, `InstalledModuleBoundary packageName="calendar"`, and the `tools.ts`/`moduleRoutes.ts` "calendar" catalog entries no longer exist; a Relationship People/Communities Page renders real node/edge Graph view (not the current table-with-banner placeholder) at `scope:single_database`; the scope selector expands to `scope:full` and renders the same canvas with cross-Module nodes — confirming Second Brain is this view at full scope, not a separate surface (ADR-110); a Task Manager Queue Page renders Tree view over its self-referential Task type.
 - Scope: docs/raw/ui-architecture-rules-2026-07.md alignment audit; docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)
-- Evidence: RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, and grouped-list Map fallback; one metadata-gated registry now owns table/board/gallery/form/calendar/map/graph/tree; `DataViews` is the only renderer path; Map uses a bundled local basemap plus stored coordinate contract and an opt-in Local Plane geocoder port with no automatic public geocoding/tile egress; DealPilot, JobPilot, Relationship, Work, Initiative, and Task Manager consume the shared grammar; [TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)
+- Evidence: RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, grouped-list Map fallback, divergent migration high-water, and concurrent Organization rename/File upload; one metadata-gated registry now owns table/board/gallery/form/calendar/map/graph/tree; `DataViews` is the only renderer path; Map uses a bundled local basemap plus stored coordinate contract and an opt-in Local Plane geocoder port with no automatic public geocoding/tile egress; DealPilot, JobPilot, Relationship, Work, Initiative, and Task Manager consume the shared grammar; [TASK-014/TASK-009 implementation and live evidence](../outputs/2026-07-19-task009-task014-view-grammar-graph.md)
 - Requests: table/actionability directives 2026-07-14–15; R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)
-- Approval: AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-047, and AP-048 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-122 records Map's Local Plane privacy boundary
+- Approval: AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-050, and AP-051 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-124 records Map's Local Plane privacy boundary
 - Dependencies: TASK-001; TASK-006; TASK-008
-- Verification: 2026-07-19 exact desktop and 375×812 live audit passed against authenticated isolated API/web processes. All eight canonical View kinds rendered through the shared registry; Calendar and Graph tabs were exercised through pointer input; Calendar has no route/package/catalog identity; Task Manager rendered Tree; Map plots private structured coordinates on a bundled local basemap, clusters/searches/opens Records, keeps labels unresolved without a provider, and requires a Human-triggered loopback provider before any label resolution; standard column commands and DB-backed-only Page commands remained capability-aware and destructive schema mutations stayed disabled rather than bypassing dependency preview/confirmation/undo; Module Files and honest empty states rendered without document overflow. Core/Tables/DealPilot/JobPilot/DB/API/Web affected builds and suites passed.
+- Verification: 2026-07-19 exact desktop and 375×812 live audit passed against authenticated isolated API/web processes. All eight canonical View kinds rendered through the shared registry; Calendar and Graph tabs were exercised through pointer input; Calendar has no route/package/catalog identity; Task Manager rendered Tree; Map plots private structured coordinates on a bundled local basemap, clusters/searches/opens Records, keeps labels unresolved without a provider, and requires a Human-triggered loopback provider before any label resolution; standard column commands and DB-backed-only Page commands remained capability-aware and destructive schema mutations stayed disabled rather than bypassing dependency preview/confirmation/undo; Module Files and honest empty states rendered without document overflow. Core/Tables/DealPilot/JobPilot/DB/API/Web affected builds and suites passed. Post-merge regressions prove TASK-005 privacy backfill from the former local migration high-water and serialize File upload with Organization rename.
 
 ## Task Manager Module
 - ID: TASK-021
@@ -257,16 +255,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## JobPilot culture-research slice
 - ID: TASK-011
-- Status: ready
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.
 - Prototype test: For one target company, Learning gathers permitted evidence; Internal Strategist separates fact, opinion, theme, contradiction, and inference; the user sees citations and a rights/access warning before using recommendations.
 - Scope: docs/raw/brd-jobpilot-2026-07.md; docs/raw/jobpilot-module-plan-2026-07.md JP3B
-- Evidence: BCG application workspace live-evidence gap
+- Evidence: BCG application workspace live-evidence gap; `outputs/2026-07-17-jobpilot-culture-research-task011.md` (full round-by-round evidence: two-phase intent-then-approve-then-fetch lifecycle, pinned-DNS/manual-redirect SSRF guard, server-owned source registry, cross-instance CAS/distributed cancellation/lease-recovery, grounding DAG with quote/hash verification, artifact taint/expiry/retention, and the final central-merge-review closure — durable child-Run terminal-audit repair plus full-lineage artifact purge/redaction, in-memory and Drizzle parity, restart-durability proof)
 - Requests: JobPilot culture-research directive 2026-07-15
-- Approval: AP-023 and AP-029 applied
+- Approval: AP-023, AP-029, and AP-049 applied
 - Dependencies: TASK-007
+- Verification: 2026-07-19 exact Prototype test passed for Boston Consulting Group: `cultureResearch.propose` resolved only server-owned registry sources, `action.decide` approval gated the real fetch (veto/no-decision guarantees zero network calls), the guarded fetch ran through the pinned-DNS/bounded-redirect/byte-capped SSRF guard, and `cultureResearch.synthesize` produced a well-grounded claim (rejecting an absent-quote claim and a mutated-hash claim) exposed via `synthesisResult` with citations, contradictions, and a rights/access disclosure gating recommendations. 13+ rounds of independent/coordinator security review closed every raised defect; the final round closed a HIGH child-Run terminal-audit-durability gap and a MEDIUM artifact-retention privacy gap, then merged `origin/main` forward twice (through TASK-010's red-flag correction and TASK-005's demo certification) with a fresh independent review of the reconciliation finding no defects. Full gates: monorepo build 21/21, typecheck 39/39, `@bridge/core` 449/449, `@bridge/db` 169/169, `@bridge/jobpilot` 125/125, `@bridge/net-guard` 24/24, `@bridge/api` 312/312, `@bridge/local` 10/10, `@bridge/commons` 22/22, `@bridge/web` 93/93, no schema drift, no-runtime-dummy clean, lint's 2 findings confirmed pre-existing/unrelated.
 
 ## Actionable Second Brain graph (converged into TASK-014 Graph renderer)
 - ID: TASK-009
@@ -359,3 +358,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
 - Approval: AP-039 applied
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
+
+## Zazoo public website cinematic implementation
+- ID: TASK-024
+- Status: ready
+- Priority: P2
+- Horizon: Public Brand
+- Outcome: The public Zazoo homepage is one continuous, accessible day-in-the-life film that shows Aeva and the Zazoo crew working, coordinating, respecting permission, supporting the owner's progress, resting privately, and returning the next morning, with displayed copy strictly separated from visual, animation, interaction, emotion, and transition direction.
+- Prototype test: At desktop and 375px widths, play the homepage from hero through final morning; confirm every mandatory scene and transition in the storyboard occurs in order, every interaction works by pointer and keyboard/touch, reduced-motion preserves the narrative without continuous locomotion, only approved Copy text is visible, the dictionary contains no Origin entry and uses the approved AI-companion definition, and no rejected-PDF composition or invented CTA/service copy appears.
+- Scope: outputs/2026-07-19-zazoo-website-storyboard/README.md; outputs/2026-07-19-zazoo-website-storyboard/00-global-build-contract.md; outputs/2026-07-19-zazoo-website-storyboard/01-hero-working-world.md through 10-morning-and-final-invitation.md
+- Evidence: user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md
+- Requests: user website/brand storyboard directive 2026-07-19; dictionary-copy correction and task-update directive 2026-07-19
+- Approval: AP-048 applied
+- Dependencies: none

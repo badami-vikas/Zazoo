@@ -16,7 +16,7 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **Context menus:** shared across ALL Modules. Column right-click: rename/edit/type · AI Smartfill · filter/sort/group/calculate · lock/hide · add left/right · duplicate/delete. DB-backed source only → Add page/Remove page, also on toggle right-click; changes toggle presentation, never deletes DB/data. Capability/permission aware; dependency preview+undo; keyboard path required. Prove on DealPilot + 2 unrelated Modules.
 
-**Local Files:** `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/` — ALL user-visible Files live here; cloud-resident data mirrored locally too. External rename/move tracked by watcher+hash index; never overwrite user-moved File. Legacy folder discovery/migration occurs under VOCAB4.
+**Local Files:** `~/Documents/Bridge/<Organization>/<Module>/<Sub-module>/` — ALL user-visible Files live here; cloud-resident data mirrored locally too. List/upload/Organization rename share one DB row lock and recover rename intent first (ADR-125). External rename/move tracked by watcher+hash index; never overwrite user-moved File. Legacy folder discovery/migration occurs under VOCAB4.
 
 **Deep linking:** every toggle page = routable URL (§4a).
 
@@ -36,6 +36,6 @@ full: [../raw/ui-architecture-rules-2026-07.md](../raw/ui-architecture-rules-202
 
 **View Grammar implemented 2026-07-19 (ADR-108/ADR-110, TASK-014, full: [BRD](../raw/brd-dataengine-views-2026-07.md)):** table/board/gallery/form/calendar/map/graph/tree. Metadata decides eligibility. `DataViews` registry is only renderer path. v1 `kanban`/`network` migrate to board/graph; v2 aliases fail. Calendar has no Module/Tool/route identity. Google Calendar = Integration only. Graph scopes: one Database · selected Databases · full. Full = Second Brain preset. Same canvas everywhere.
 
-**Map privacy (ADR-122):** local basemap. Stored coordinates plot. Labels stay local. No public geocoder. No remote tiles. Human may run configured Local Plane geocoder, inspect pins, save through normal Record write.
+**Map privacy (ADR-124):** local basemap. Stored coordinates plot. Labels stay local. No public geocoder. No remote tiles. Human may run configured Local Plane geocoder, inspect pins, save through normal Record write.
 
 **Still open elsewhere:** VOCAB4 local File watcher/hash index must connect Module Files to canonical File/Relation provenance (TASK-012). Legacy `/item/:name` Associations still consumes prototype network data (TASK-013). CoS smart grouping begins only after >20 real Files.

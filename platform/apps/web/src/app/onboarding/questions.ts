@@ -88,7 +88,6 @@ const Q_WATCH_FIRST: OnboardingQuestion = {
   options: [
     { value: "track_stage", label: "Track stage/status changes" },
     { value: "surface_signals", label: "Surface signals that need a response" },
-    { value: "log_touchpoints", label: "Log meetings/calls/emails as touchpoints" },
     { value: "calendar", label: "Keep an eye on my calendar" },
   ],
 };
@@ -121,7 +120,7 @@ const Q_NAME: OnboardingQuestion = {
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
   why: "A clear Organization name helps you recognize its scope.",
-  consequence: "What changes: this name appears in your sidebar. You can rename it later.",
+  consequence: "What changes: this name appears in your sidebar. You can change it by re-entering Onboarding later.",
 };
 
 /** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
@@ -214,21 +213,21 @@ export function answeredCount(answers: OnboardingAnswers): number {
  * - Extract domain after @
  * - Strip common TLDs and generic free-mail providers (gmail, yahoo, hotmail,
  *   outlook, icloud, me, mac, proton, protonmail)
- * - Titlecase the remainder → workspace name
- * - Fallback: "<FirstName>'s Workspace" using the local part before @
+ * - Titlecase the remainder → Organization name
+ * - Fallback: "<FirstName>'s Organization" using the local part before @
  *
  * Examples:
  *   alice@acmecorp.com  → "Acmecorp"
  *   bob@stripe.com      → "Stripe"
- *   carol@gmail.com     → "Carol's Workspace"
+ *   carol@gmail.com     → "Carol's Organization"
  */
 export function workspaceNameFromEmail(email: string): string {
   const [local, domain] = email.split('@');
-  if (!domain) return `${toTitleCase(local ?? 'My')}'s Workspace`;
+  if (!domain) return `${toTitleCase(local ?? 'My')}'s Organization`;
   const genericDomains = ['gmail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'me', 'mac', 'proton', 'protonmail'];
   const domainBase = domain.split('.')[0] ?? '';
   if (genericDomains.includes(domainBase.toLowerCase())) {
-    return `${toTitleCase(local ?? 'My')}'s Workspace`;
+    return `${toTitleCase(local ?? 'My')}'s Organization`;
   }
   return toTitleCase(domainBase);
 }
@@ -241,13 +240,12 @@ function toTitleCase(s: string): string {
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
-// "label" is display-only text (R-020 vocab sweep: canonical default label is
-// "Initiative", matching the kernel nodeType — CLAUDE.md's two-scope vocab rule).
-// A user's own `vocab_name` answer still overrides this default via `vocabulary` below.
+// Display labels use the domain's canonical Record name while legacy nodeType
+// identifiers remain time-boxed under VOCAB2.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Initiative" },
-  job_search: { nodeType: "initiative", label: "Initiative" },
-  support: { nodeType: "touchpoint", label: "Touchpoint" },
+  sales_deals: { nodeType: "initiative", label: "Deal" },
+  job_search: { nodeType: "initiative", label: "Application" },
+  support: { nodeType: "touchpoint", label: "Ticket" },
   relationships: { nodeType: "person", label: "Person" },
 };
 
@@ -271,6 +269,7 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   const profession = (answers.profession as string | undefined)?.trim();
 
   const wantsCalendar = watchFirst.includes("calendar");
+  const wantsSignals = watchFirst.includes("surface_signals");
 
   const fields = [
     { id: "name", label: "Name", kind: "text" as const },
@@ -296,7 +295,19 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
 
   return {
     vocabulary,
-    entities: [{ nodeType: entityDef.nodeType, label: entityDef.label, fields }],
+    entities: [
+      { nodeType: entityDef.nodeType, label: entityDef.label, fields },
+      ...(wantsSignals && entityDef.nodeType !== "signal"
+        ? [{
+            nodeType: "signal",
+            label: "Signal",
+            fields: [
+              { id: "name", label: "Name", kind: "text" as const },
+              { id: "occurred_at", label: "Occurred at", kind: "date" as const },
+            ],
+          }]
+        : []),
+    ],
     views: [
       {
         entity: entityDef.nodeType,
@@ -310,10 +321,7 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
           : {}),
       },
       ...(wantsCalendar ? [{ entity: entityDef.nodeType, kind: "calendar" as const }] : []),
-      ...(watchFirst.includes("surface_signals") ? [{ entity: "signal", kind: "table" as const }] : []),
-      ...(watchFirst.includes("log_touchpoints") && entityDef.nodeType !== "touchpoint"
-        ? [{ entity: "touchpoint", kind: "table" as const }]
-        : []),
+      ...(wantsSignals ? [{ entity: "signal", kind: "table" as const }] : []),
     ],
     capabilities: [],
   };

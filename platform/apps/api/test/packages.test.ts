@@ -427,18 +427,31 @@ test("built-in bootstrap retires standalone Helpdesk and all Calendar versions w
   assert.equal((await store.get(calendarAvailable.id))?.state, "legacy");
   assert.equal((await store.get(calendarDraft.id))?.state, "legacy");
 });
-test("packages.files: returns the real canonical File root for an installed Module", async () => {
-  const wiring = await buildWiring();
+test("packages.files: reads and writes through the configured canonical File root", async () => {
+  const bridgeRoot = await mkdtemp(join(tmpdir(), "bridge-package-files-"));
+  const wiring = await buildWiring({ moduleFilesBridgeRoot: bridgeRoot });
   try {
     const caller = await makeCaller(wiring);
+    const added = await caller.packages.addFile({
+      workspaceId: PILOT_WORKSPACE,
+      moduleName: "deal-pilot",
+      fileName: "notes.txt",
+      contentBase64: Buffer.from("private local evidence").toString("base64"),
+    });
     const inventory = await caller.packages.files({
       workspaceId: PILOT_WORKSPACE,
       moduleName: "deal-pilot",
     });
-    assert.match(inventory.root, /Documents[/\\]Bridge[/\\].+[/\\]DealPilot$/);
-    assert.ok(Array.isArray(inventory.items));
+    assert.equal(inventory.root, join(bridgeRoot, "Pilot Organization", "DealPilot"));
+    assert.equal(added.path, "notes.txt");
+    assert.deepEqual(inventory.items.map((item) => item.path), ["notes.txt"]);
+    assert.equal(
+      await readFile(join(inventory.root, added.path), "utf8"),
+      "private local evidence",
+    );
   } finally {
     await wiring.close();
+    await rm(bridgeRoot, { recursive: true, force: true });
   }
 });
 

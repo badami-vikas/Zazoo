@@ -12,6 +12,8 @@ const layout = readFileSync(new URL("../src/app/Layout.tsx", import.meta.url), "
 const trpcClient = readFileSync(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
 const pagination = readFileSync(new URL("../src/app/lib/pagination.ts", import.meta.url), "utf8");
 const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta.url), "utf8");
+const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
+const settingsPage = readFileSync(new URL("../src/app/pages/SettingsPage.tsx", import.meta.url), "utf8");
 const toolDetail = readFileSync(new URL("../src/app/pages/ToolDetail.tsx", import.meta.url), "utf8");
 const cameraCaptures = readFileSync(new URL("../src/app/components/tools/camera/CameraCaptures.tsx", import.meta.url), "utf8");
 const localMedia = readFileSync(new URL("../src/app/data/localMedia.ts", import.meta.url), "utf8");
@@ -85,6 +87,14 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(ledgerData, /trpc\.relationship\.retryMaterialization/);
   assert.match(ledgerData, /normalizeDecision\(result\.recordedDecision\)/);
   assert.match(ledgerData, /decision: persistedDecision/);
+  assert.match(ledgerData, /originalRecord\?\.kind === 'learning_recommendation'/);
+  assert.match(ledgerData, /entry\.proposalOutput = applied\.proposalOutput/);
+  assert.match(ledgerData, /commonsAgentActorLabel/);
+  assert.match(executionLedger, /Applied after correction/);
+  assert.match(executionLedger, /label: 'Automation'/);
+  assert.doesNotMatch(executionLedger, /label: 'Workflow'/);
+  assert.match(executionLedger, /label: 'Record'/);
+  assert.doesNotMatch(executionLedger, /label: 'Initiative'/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);
@@ -137,6 +147,18 @@ test("375px shell keeps installed Modules reachable", () => {
   assert.match(layout, /aria-controls="mobile-module-menu"/);
   assert.match(layout, /Installed Modules/);
   assert.match(layout, /installedModules\.map/);
+});
+
+test("375px Settings and Approvals keep governed actions in the visible content flow", () => {
+  assert.match(settingsPage, /className="sm:hidden shrink-0/);
+  assert.match(settingsPage, /id="settings-section"/);
+  assert.match(settingsPage, /className="hidden sm:flex w-56/);
+  assert.match(settingsPage, /className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-8"/);
+  assert.match(approvalsPage, /flex-1 flex flex-col overflow-y-auto sm:flex-row sm:overflow-hidden/);
+  assert.match(approvalsPage, /w-full shrink-0 border-b sm:w-\[380px\]/);
+  assert.match(approvalsPage, /\[overflow-wrap:anywhere\]/);
+  assert.match(executionLedger, /rounded-xl border overflow-x-auto shadow-sm/);
+  assert.match(executionLedger, /overflow-x-hidden overflow-y-auto shadow-2xl/);
 });
 
 test("private Relationship requests forward the authenticated Supabase session", () => {

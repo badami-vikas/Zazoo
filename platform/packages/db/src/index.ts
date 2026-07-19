@@ -59,7 +59,16 @@ export {
   type ScopeGrant,
 } from "./integration-store.js";
 export { PgliteMediaStore, createLocalMediaStore } from "./media-store.js";
-export { DrizzleWorkspaceStore, type WorkspaceRow, type MemberRow } from "./workspace-store.js";
+export {
+  DrizzleWorkspaceStore,
+  UnknownWorkspaceError,
+  WorkspaceRenameCoordinatorUnavailableError,
+  WorkspaceRenameRollbackError,
+  type WorkspaceRenameCoordinator,
+  type WorkspaceRenameLease,
+  type WorkspaceRow,
+  type MemberRow,
+} from "./workspace-store.js";
 export {
   DrizzleGraphStore,
   type ArchiveRelationshipRecordInput,
@@ -146,12 +155,18 @@ import {
   DrizzleToolRegistry,
   DrizzleRitualRunRecorder,
 } from "./ritual-stores.js";
-import { DrizzleWorkspaceStore } from "./workspace-store.js";
+import {
+  DrizzleWorkspaceStore,
+  type WorkspaceRenameCoordinator,
+} from "./workspace-store.js";
 
 /** All Drizzle-backed ports, ready to hand to the core pipeline + executor. */
 export function createDrizzlePorts(
   db: Db,
-  options: { defaultWorkspaceId?: string } = {},
+  options: {
+    defaultWorkspaceId?: string;
+    workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+  } = {},
 ) {
   return {
     roles: new DrizzleRoleStore(db),
@@ -163,6 +178,6 @@ export function createDrizzlePorts(
     ritualRegistry: new DrizzleRitualRegistry(db),
     toolRegistry: new DrizzleToolRegistry(db),
     ritualRunRecorder: new DrizzleRitualRunRecorder(db),
-    workspaceStore: new DrizzleWorkspaceStore(db),
+    workspaceStore: new DrizzleWorkspaceStore(db, options.workspaceRenameCoordinator),
   };
 }

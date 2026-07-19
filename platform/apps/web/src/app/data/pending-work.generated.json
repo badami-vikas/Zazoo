@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T07:52:00.408Z",
+  "generatedAt": "2026-07-19T08:28:21.726Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -49,10 +49,10 @@
       ],
       "evidence": [
         "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
-        "BUGS 2026-07-18 physical Avatar drag inert (live retest pending)",
+        "RESOLVED BUGS 2026-07-18 physical Avatar drag inert",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
         "`outputs/2026-07-16-task-003-macos-avatar.md`",
-        "`outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)"
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (the user confirmed physical pointer drag/relaunch restoration, VoiceOver control activation, and external-display detach/reconnect)"
       ],
       "requests": [
         "R-001",
@@ -62,7 +62,7 @@
       ],
       "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -96,13 +96,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 85,
+      "sourceLine": 83,
       "rank": 3
     },
     {
       "id": "TASK-005",
       "title": "TASK-005 — Avatar + Commons end-to-end demo certification",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A short, repeatable demo proves the combined product rather than isolated screens.",
@@ -112,24 +112,24 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "TASK-003 physical Avatar certification completed 2026-07-18",
-        "outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md"
+        "`outputs/2026-07-18-task-005-demo-certification.md`",
+        "TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`",
+        "clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "AP-031 applied for the bounded gate-glue implementation only; no DONE approval",
+      "approval": "AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure",
       "dependencies": [
         "TASK-001",
         "TASK-002",
         "TASK-003",
         "TASK-004"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 98,
+      "sourceLine": 96,
       "rank": 4
     },
     {
@@ -161,7 +161,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 113,
+      "sourceLine": 111,
       "rank": 5
     },
     {
@@ -195,7 +195,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 126,
+      "sourceLine": 124,
       "rank": 6
     },
     {
@@ -249,7 +249,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 139,
+      "sourceLine": 137,
       "rank": 7
     },
     {
@@ -290,7 +290,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
+      "sourceLine": 151,
       "rank": 8
     },
     {
@@ -328,7 +328,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 166,
+      "sourceLine": 164,
       "rank": 9
     },
     {
@@ -344,7 +344,7 @@
         "docs/raw/brd-dataengine-views-2026-07.md (full View Grammar BRD — canonical 8 View kinds, eligibility rules, feature list per kind, Calendar/Integration decoupling rule, Second-Brain-vs-Page-Graph distinction, code audit of the 2026-07-17 duplicate-implementation state)"
       ],
       "evidence": [
-        "RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, and grouped-list Map fallback",
+        "RESOLVED BUGS 2026-07-17 Calendar Module/Tool route identity, four independent Calendar renderers, placeholder Graph renderer, `network` vocabulary mismatch, grouped-list Map fallback, divergent migration high-water, and concurrent Organization rename/File upload",
         "one metadata-gated registry now owns table/board/gallery/form/calendar/map/graph/tree",
         "`DataViews` is the only renderer path",
         "Map uses a bundled local basemap plus stored coordinate contract and an opt-in Local Plane geocoder port with no automatic public geocoding/tile egress",
@@ -355,7 +355,7 @@
         "table/actionability directives 2026-07-14–15",
         "R-038 (2026-07-17: Calendar/Graph-as-view confirmation, View Grammar BRD)"
       ],
-      "approval": "AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-047, and AP-048 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-122 records Map's Local Plane privacy boundary",
+      "approval": "AP-010/AP-011, AP-021, AP-029, AP-036, AP-037, AP-050, and AP-051 applied; ADR-108 records the Calendar-decouples-from-Google-and-from-Module-identity call; ADR-110 supersedes ADR-108's Second-Brain-vs-Page-Graph distinction; ADR-124 records Map's Local Plane privacy boundary",
       "dependencies": [
         "TASK-001",
         "TASK-006",
@@ -364,7 +364,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 179,
+      "sourceLine": 177,
       "rank": 10
     },
     {
@@ -403,7 +403,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 193,
+      "sourceLine": 191,
       "rank": 11
     },
     {
@@ -439,7 +439,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 206,
+      "sourceLine": 204,
       "rank": 12
     },
     {
@@ -468,7 +468,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 219,
+      "sourceLine": 217,
       "rank": 13
     },
     {
@@ -502,7 +502,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 232,
+      "sourceLine": 230,
       "rank": 14
     },
     {
@@ -530,13 +530,13 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 245,
+      "sourceLine": 243,
       "rank": 15
     },
     {
       "id": "TASK-011",
       "title": "TASK-011 — JobPilot culture-research slice",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.",
@@ -546,19 +546,20 @@
         "docs/raw/jobpilot-module-plan-2026-07.md JP3B"
       ],
       "evidence": [
-        "BCG application workspace live-evidence gap"
+        "BCG application workspace live-evidence gap",
+        "`outputs/2026-07-17-jobpilot-culture-research-task011.md` (full round-by-round evidence: two-phase intent-then-approve-then-fetch lifecycle, pinned-DNS/manual-redirect SSRF guard, server-owned source registry, cross-instance CAS/distributed cancellation/lease-recovery, grounding DAG with quote/hash verification, artifact taint/expiry/retention, and the final central-merge-review closure — durable child-Run terminal-audit repair plus full-lineage artifact purge/redaction, in-memory and Drizzle parity, restart-durability proof)"
       ],
       "requests": [
         "JobPilot culture-research directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-049 applied",
       "dependencies": [
         "TASK-007"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 259,
+      "sourceLine": 257,
       "rank": 16
     },
     {
@@ -593,7 +594,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 272,
+      "sourceLine": 271,
       "rank": 17
     },
     {
@@ -626,7 +627,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 286,
+      "sourceLine": 285,
       "rank": 18
     },
     {
@@ -657,7 +658,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 299,
+      "sourceLine": 298,
       "rank": 19
     },
     {
@@ -685,7 +686,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 312,
+      "sourceLine": 311,
       "rank": 20
     },
     {
@@ -712,7 +713,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 325,
+      "sourceLine": 324,
       "rank": 21
     },
     {
@@ -743,7 +744,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 338,
+      "sourceLine": 337,
       "rank": 22
     },
     {
@@ -770,8 +771,36 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 351,
+      "sourceLine": 350,
       "rank": 23
+    },
+    {
+      "id": "TASK-024",
+      "title": "TASK-024 — Zazoo public website cinematic implementation",
+      "status": "pending",
+      "priority": "P2",
+      "horizon": "Public Brand",
+      "outcome": "The public Zazoo homepage is one continuous, accessible day-in-the-life film that shows Aeva and the Zazoo crew working, coordinating, respecting permission, supporting the owner's progress, resting privately, and returning the next morning, with displayed copy strictly separated from visual, animation, interaction, emotion, and transition direction.",
+      "prototypeTest": "At desktop and 375px widths, play the homepage from hero through final morning; confirm every mandatory scene and transition in the storyboard occurs in order, every interaction works by pointer and keyboard/touch, reduced-motion preserves the narrative without continuous locomotion, only approved Copy text is visible, the dictionary contains no Origin entry and uses the approved AI-companion definition, and no rejected-PDF composition or invented CTA/service copy appears.",
+      "scope": [
+        "outputs/2026-07-19-zazoo-website-storyboard/README.md",
+        "outputs/2026-07-19-zazoo-website-storyboard/00-global-build-contract.md",
+        "outputs/2026-07-19-zazoo-website-storyboard/01-hero-working-world.md through 10-morning-and-final-invitation.md"
+      ],
+      "evidence": [
+        "user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md"
+      ],
+      "requests": [
+        "user website/brand storyboard directive 2026-07-19",
+        "dictionary-copy correction and task-update directive 2026-07-19"
+      ],
+      "approval": "AP-048 applied",
+      "dependencies": [],
+      "canonicalStatus": "ready",
+      "sourceType": "task",
+      "sourceFile": "docs/TASKS.md",
+      "sourceLine": 363,
+      "rank": 24
     }
   ]
 }

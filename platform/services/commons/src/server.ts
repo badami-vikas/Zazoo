@@ -281,7 +281,7 @@ export function buildCommonsServer(
     if (securityScan.status !== "passed") {
       return reply.status(422).send({
         error: "security_scan_failed",
-        message: "deterministic Commons security scan rejected the artifact",
+        message: "deterministic Commons security scan rejected the capability",
         securityScan,
       });
     }

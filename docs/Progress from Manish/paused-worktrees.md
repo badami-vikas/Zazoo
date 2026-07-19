@@ -1,16 +1,40 @@
 # Paused worktrees
 
-All workers were stopped on 2026-07-18. Re-check every status before resuming because these are uncommitted snapshots, not immutable releases.
+All listed paused workers were stopped on 2026-07-18. TASK-005's later landing session is complete.
+Re-check every status before resuming because remaining entries are uncommitted snapshots, not
+immutable releases.
 
 ## Central baseline
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
-- Latest `main` baseline merged for this handoff:
-  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
+- TASK-005 implementation/certification checkpoint `166a01b` landed on `main` through
+  progress handoff commit `d4de355`. Both were verified in `origin/main@d153094` ancestry.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
+
+## TASK-005 combined demo certification — MERGED 2026-07-19
+
+- Session: `18c7a8c6-49b0-4cd8-a964-ae47cdbd648a`
+- Branch: `manishsbhoopalam8498-certify-task-005-demo`
+- Implementation/certification checkpoint: `166a01b`
+- Progress handoff / `main` landing: `d4de355`
+- Historical branch synchronization: fast-forwarded and pushed to then-current
+  `origin/main@d153094` with zero divergence
+- Canon: TASK-005 `done`; AP-047; ADR-121/ADR-122
+- Migration: `0017_task005_private_learning_recommendations`; next new migration is `0018`
+
+Fresh isolated desktop `1440×913` and exact mobile `375×812` runs completed the entire
+Onboarding→Owl→Relationship→Commons→Learning Agent→provenance→correction/veto/delete path on the
+final post-review code. The package is signed `cited-role-model-practice@1.0.1`, declares private
+Signal read/write with no runtime egress, and binds only while its current signed Skill and exact
+owning Relationship Module contracts match. Distinct dual Files roots preserve rename intent and
+stop. API 251, DB 159, web 81, Rust 44, typecheck 37/37, build 20/20, all 36 non-Sensor test tasks,
+lint, no-runtime-dummy, release-native launch, and final independent review passed.
+
+This worktree is historical after merge. Do not resume it, re-run its migration under another
+number, or merge it again.
 
 ## TASK-006 durability — MERGED 2026-07-19
 
@@ -62,22 +86,9 @@ Remaining:
 
 TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. Authenticated desktop and 375px live certification closed the exact Prototype test on 2026-07-19 after fixing the missing JobPilot default-table cell controls; this historical worktree must not be resumed or merged again.
 
-## TASK-011 culture research
+## TASK-011 culture research — MERGED 2026-07-19
 
-- Session: `9ec89b18-83f1-4ce2-a825-ba5380537ad5`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-shiny-adventure`
-- Branch/head: `manishsbhoopalam8498-shiny-adventure` / local WIP `75bd595`
-- Prior pushed head: `16af4dc`
-- Dirty snapshot: `wiring.ts`, core Memory store, and DB Memory store, approximately +195/-3.
-
-Completed branch scope includes governed public-evidence research, pinned DNS/manual redirects, bounded artifacts, rights registry, two-phase approval/fetch, cancellation, durable intent, grounding DAG, taint, expiry, live UI state, and restart durability.
-
-Central review blockers:
-
-1. Terminal child-Run status and outcome audit must reconcile durably after append failure and restart.
-2. Artifact purge must remove raw bytes across the full superseded Memory lineage in in-memory and Drizzle modes.
-
-Resume from the WIP commit and three dirty files; do not redo the prior twelve review rounds. No new migration is currently required.
+TASK-011's central-merge review closure (durable child-Run terminal audit repair + full-lineage artifact purge/redaction) landed and merged into `main` via PR #22 (`manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). This worktree is no longer paused/dirty; see `merge-history.md`'s row and `subagent-progress.md`'s TASK-011 row for the full account. No new migration was required. This historical worktree must not be resumed or merged again.
 
 ## TASK-022 inference optimization
 

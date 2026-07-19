@@ -153,6 +153,93 @@ test("pglite local plane: tokens, bodies, entities round-trip", async () => {
   }
 });
 
+test("pglite local plane migrates its recognized legacy external record table", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "bridge-local-plane-legacy-"));
+  let plane: Awaited<ReturnType<typeof createPgliteLocalPlane>> | undefined;
+  try {
+    const legacyDb = new PGlite(dataDir);
+    try {
+      await legacyDb.exec(`
+        CREATE TABLE external_records (
+          workspace_id text NOT NULL,
+          source text NOT NULL,
+          source_record_id text NOT NULL,
+          entity_type text NOT NULL,
+          entity_id text NOT NULL,
+          created_at text NOT NULL,
+          UNIQUE(workspace_id, source, source_record_id)
+        );
+        INSERT INTO external_records
+          (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+        VALUES
+          ('test_fixture_workspace', 'test_fixture_source', 'test_fixture_record',
+           'test_fixture_event', 'test_fixture_entity', '2026-07-18T00:00:00.000Z');
+      `);
+    } finally {
+      await legacyDb.close();
+    }
+
+    plane = await createPgliteLocalPlane({ dataDir });
+    assert.equal(
+      await plane.graph.hasExternal(
+        "test_fixture_workspace",
+        "test_fixture_source",
+        "test_fixture_record",
+      ),
+      true,
+    );
+  } finally {
+    await plane?.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("pglite local plane preserves an unsupported legacy external record table", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "bridge-local-plane-unsupported-"));
+  try {
+    const seed = new PGlite(dataDir);
+    try {
+      await seed.exec(`
+        CREATE TABLE external_records (
+          workspace_id text NOT NULL,
+          source text NOT NULL,
+          source_record_id text NOT NULL,
+          entity_type text NOT NULL,
+          entity_id text NOT NULL,
+          created_at text NOT NULL,
+          unrecognized_payload text NOT NULL,
+          UNIQUE(workspace_id, source, source_record_id)
+        );
+        INSERT INTO external_records
+          (workspace_id, source, source_record_id, entity_type, entity_id, created_at, unrecognized_payload)
+        VALUES
+          ('test_fixture_workspace', 'test_fixture_source', 'test_fixture_record',
+           'test_fixture_event', 'test_fixture_entity', '2026-07-18T00:00:00.000Z',
+           'must remain');
+      `);
+    } finally {
+      await seed.close();
+    }
+
+    await assert.rejects(
+      () => createPgliteLocalPlane({ dataDir }),
+      /external_records exists with an unsupported schema/,
+    );
+
+    const preserved = new PGlite(dataDir);
+    try {
+      const result = await preserved.query<{ unrecognized_payload: string }>(
+        "SELECT unrecognized_payload FROM external_records",
+      );
+      assert.equal(result.rows[0]?.unrecognized_payload, "must remain");
+    } finally {
+      await preserved.close();
+    }
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("pglite ownership is retained when client close fails", async () => {
   let releases = 0;
   await assert.rejects(
