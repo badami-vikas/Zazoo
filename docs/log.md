@@ -1882,3 +1882,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Kept all approved public prose in `src/copy.json`; shipped original responsive SVG character rigs, continuous scroll-linked scenes, pointer/keyboard/touch controls, explicit Decision gating, Escape cancellation, visible focus, and reduced-motion states.
 - Certified the exact storyboard at desktop and 375×812 with no document overflow, then passed the website contract tests, targeted lint, typecheck, and production build. Integrated current `origin/main@512cf35` without conflicts.
 - Marked TASK-024 `done` under the user's explicit merge directive. Durable outcome: `outputs/2026-07-19-task024-zazoo-website-implementation.md`.
+
+# 2026-07-19 — TASK-024 Zazoo GitHub Pages deployment
+- Built the merged TASK-024 website from source represented by `relationship-os@932ed80` and published it to `badami-vikas/badami-vikas.github.io@2306808`.
+- Preserved the `zazoo.me` `CNAME`, Consulting page, Training page, and their existing assets.
+- GitHub Pages run `29683315854` completed successfully; the custom domain serves the new hashed JavaScript/CSS bundle over HTTPS.
+- Updated TASK-024, its durable output, and all four Progress-from-Manish handoff records with the live deployment evidence.
