@@ -23,3 +23,11 @@ ratchet and completes the Avatar/Onboarding identifier migration.
 
 Inventory and remaining counts:
 [`docs/raw/vocabulary-code-inventory-2026-07-19.md`](../docs/raw/vocabulary-code-inventory-2026-07-19.md).
+
+## Main integration
+
+PR #26 landed source checkpoint `dd51797` plus website-reconciliation checkpoint `bd7de18`.
+The reconciliation migrated TASK-024's newer DOM aliases and paired illustration selectors rather
+than increasing the 7,515-occurrence baseline. The vocabulary gate, website typecheck, six website
+tests, production build, and targeted lint pass on the integrated tree. TASK-012 remains
+`in_progress` for VOCAB2–VOCAB6 and compatibility deletion.

@@ -9,8 +9,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm TASK-024 PR #23 plus TASK-005 landing commit `d4de355`
-   remain in its ancestry; `a4bf5fb` and `166a01b` are their implementation checkpoints.
+4. Fetch `origin/main` and confirm TASK-012 PR #26, TASK-024 PR #23, and TASK-005 landing commit
+   `d4de355` remain in its ancestry; `dd51797`/`bd7de18`, `a4bf5fb`, and `166a01b` are their
+   implementation or integration checkpoints.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -18,6 +19,10 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26 from `task-012-vocab01`. Source checkpoint
+  `dd51797` carries the vocabulary ratchet and canonical Avatar/Onboarding migration; `bd7de18`
+  reconciles TASK-024's newer website identifiers without baseline growth. TASK-012 remains
+  `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
 - Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
   `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
   `task-024-zazoo-website`.
@@ -52,6 +57,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
 - TASK-005 migration `0017_task005_private_learning_recommendations` is the next landed migration.
   The next NEW migration allocates `0018`; never reuse `0016` or `0017`.
+- TASK-012's VOCAB0–VOCAB1 milestone landed through PR #26 with no numbered migration. Continue
+  from current `main`; the old `manishsbhoopalam8498-fuzzy-adventure` branch is planning-only and
+  must not be resumed or merged as implementation.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
   `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
