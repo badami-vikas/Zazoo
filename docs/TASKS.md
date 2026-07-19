@@ -68,19 +68,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Movable cross-screen Avatar desktop prototype
 - ID: TASK-003
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.
 - Prototype test: Drag the Avatar, change Spaces, enter/exit fullscreen, attach/detach an extended display, and move between displays; position persists/reconciles and close/minimize/zoom remain accessible in the supplied-reference layout.
 - Scope: docs/raw/desktop-companion-agent-roadmap-2026-07.md AV0; docs/raw/egg-commons-feature-roadmap-2026-07.md AV0
-- Evidence: RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome; BUGS 2026-07-18 physical Avatar drag inert (live retest pending); `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)
+- Evidence: RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome; RESOLVED BUGS 2026-07-18 physical Avatar drag inert; `outputs/2026-07-16-task-003-avatar-drag-persistence.md`; `outputs/2026-07-16-task-003-macos-avatar.md`; `outputs/2026-07-18-task-003-avatar-certification.md` (the user confirmed physical pointer drag/relaunch restoration, VoiceOver control activation, and external-display detach/reconnect)
 - Requests: R-001; R-002; R-016; desktop overlay/chrome directive 2026-07-14
 - Approval: AP-020, AP-026, AP-040, and AP-041 applied
 - Dependencies: none
 - Verification: 2026-07-18 software gates passed (desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, production build, typecheck, targeted ESLint, no-dummy). The user then confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect. Prototype test complete.
-- Unblock: Retest direct dragging from the Avatar surface with the 2026-07-18 native threshold fix, then confirm drag→save→quit/relaunch. The previously certified Spaces/fullscreen, VoiceOver-control, and display-detach paths remain passing unless the retest disproves them.
-
 ## Commons install and trust prototype
 - ID: TASK-004
 - Status: done

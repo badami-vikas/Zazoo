@@ -4,8 +4,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 
 ## Current central baseline
 
-- Latest `main` baseline merged for this handoff:
-  TASK-005 implementation/certification checkpoint `166a01b`.
+- TASK-005 implementation/certification checkpoint `166a01b` landed through progress handoff
+  commit `d4de355`. Both were verified in `origin/main@d153094` ancestry; the later commits through
+  `d153094` belong to the unrelated Zazoo storyboard merge.
 - TASK-006 code landed at `7f44186` under AP-045 after validating and normally merging base
   `bab32ea`.
 - Working tree was clean when this package was created.
@@ -38,6 +39,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `3741a41` | Reconciled the historical RM4 worktree with the canonical TASK-008 closure, refreshed fresh-session guidance, and regenerated Task Manager data; no RM4 code was re-merged. |
 | `5ca30ca` | TASK-010 live JobPilot Red Flag certification and closure; preserved migration `0016_new_ink`. |
 | `166a01b` | TASK-005 final implementation/certification checkpoint: signed no-egress Commons Skill under Learning Agent, private recommendation migration `0017`, exact binding/provenance, crash-safe Organization Files rename, final desktop/mobile/native evidence, and AP-047/ADR-121/122 closure. |
+| `d4de355` | TASK-005 progress handoff and fast-forward landing on `main`; updated AP-047, all four Progress-from-Manish files, and the final change log. |
+| `d153094` | Verified later `main` baseline containing TASK-005 plus the unrelated Zazoo storyboard merge from PR #21. |
 
 ## Historical source branches
 
@@ -51,8 +54,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-008 competing candidate B: `manishsbhoopalam8498-implement-relationship-rm1-rm2`; superseded
   historical dirty worktree, not safe to merge wholesale.
 - TASK-009 planning source: `manishsbhoopalam8498-plan-second-brain-graph` at `3b51aaf`; handoff merged, no implementation branch.
-- TASK-005 certification source: `manishsbhoopalam8498-certify-task-005-demo` at `166a01b`;
-  merged and done, do not merge again.
+- TASK-005 certification source: `manishsbhoopalam8498-certify-task-005-demo`; implementation
+  checkpoint `166a01b`, progress handoff / `main` landing `d4de355`, then historical branch
+  fast-forward through `d153094`. Merged and done; do not merge again.
 - TASK-010 prior clean pushed milestone: `24e4eab`; final round-7 head merged into `main` as `e532b15` (branch `manishsbhoopalam8498-platform-red-flag-feedback` remains at the same commit, pushed).
 - TASK-011 prior pushed milestone: `16af4dc`; current local WIP head is `75bd595`.
 - TASK-006 durability source: `manishsbhoopalam8498-persist-dealpilot-locally`; validated

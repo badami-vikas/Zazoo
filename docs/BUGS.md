@@ -174,13 +174,15 @@ Execution Ledger preserve the package/capability/attachment/Agent identity acros
 server-side edits cannot replace Commons provenance, and corrected decisions display the applied
 output instead of the original draft. Desktop and exact-375px Runs showed attributable Agent,
 Action Pipeline, correction/veto, zero-overflow, and zero-runtime-error evidence. Attached to TASK-005.
-## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
+## RESOLVED 2026-07-18 — TASK-003 physical Avatar drag is inert
 User report (verbatim): “avatar dragging is not working.”
 The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
 while the Avatar itself remained a click-only button. That fails TASK-003's physical
 “Drag the Avatar” acceptance path even if the narrow handle works. The Avatar surface now
 uses a movement threshold before invoking a server-owned native window drag, preserving
-ordinary click/keyboard activation. Physical retest is pending before this evidence closes.
+ordinary click/keyboard activation. The user subsequently confirmed physical cross-display
+pointer drag, save, full quit/relaunch restoration, VoiceOver control activation, and external-
+display detach/reconnect; `outputs/2026-07-18-task-003-avatar-certification.md` preserves the matrix.
 Attached to canonical TASK-003.
 
 ## RESOLVED 2026-07-18 — release desktop bootstrap failed and sidecar loss aborted on macOS

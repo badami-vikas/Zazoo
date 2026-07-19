@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T05:39:48.229Z",
+  "generatedAt": "2026-07-19T06:18:17.034Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -49,10 +49,10 @@
       ],
       "evidence": [
         "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
-        "BUGS 2026-07-18 physical Avatar drag inert (live retest pending)",
+        "RESOLVED BUGS 2026-07-18 physical Avatar drag inert",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
         "`outputs/2026-07-16-task-003-macos-avatar.md`",
-        "`outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)"
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (the user confirmed physical pointer drag/relaunch restoration, VoiceOver control activation, and external-display detach/reconnect)"
       ],
       "requests": [
         "R-001",
@@ -62,7 +62,7 @@
       ],
       "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -96,7 +96,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 85,
+      "sourceLine": 83,
       "rank": 3
     },
     {
@@ -129,7 +129,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 98,
+      "sourceLine": 96,
       "rank": 4
     },
     {
@@ -160,7 +160,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 113,
+      "sourceLine": 111,
       "rank": 5
     },
     {
@@ -193,7 +193,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 126,
+      "sourceLine": 124,
       "rank": 6
     },
     {
@@ -247,7 +247,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 139,
+      "sourceLine": 137,
       "rank": 7
     },
     {
@@ -288,7 +288,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 153,
+      "sourceLine": 151,
       "rank": 8
     },
     {
@@ -326,7 +326,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 166,
+      "sourceLine": 164,
       "rank": 9
     },
     {
@@ -364,7 +364,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 179,
+      "sourceLine": 177,
       "rank": 10
     },
     {
@@ -403,7 +403,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 192,
+      "sourceLine": 190,
       "rank": 11
     },
     {
@@ -439,7 +439,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 205,
+      "sourceLine": 203,
       "rank": 12
     },
     {
@@ -468,7 +468,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 218,
+      "sourceLine": 216,
       "rank": 13
     },
     {
@@ -501,7 +501,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 231,
+      "sourceLine": 229,
       "rank": 14
     },
     {
@@ -529,7 +529,7 @@
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 244,
+      "sourceLine": 242,
       "rank": 15
     },
     {
@@ -557,7 +557,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 258,
+      "sourceLine": 256,
       "rank": 16
     },
     {
@@ -589,7 +589,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 271,
+      "sourceLine": 269,
       "rank": 17
     },
     {
@@ -622,7 +622,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 284,
+      "sourceLine": 282,
       "rank": 18
     },
     {
@@ -653,7 +653,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 297,
+      "sourceLine": 295,
       "rank": 19
     },
     {
@@ -681,7 +681,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 310,
+      "sourceLine": 308,
       "rank": 20
     },
     {
@@ -708,7 +708,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 323,
+      "sourceLine": 321,
       "rank": 21
     },
     {
@@ -739,7 +739,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 336,
+      "sourceLine": 334,
       "rank": 22
     },
     {
@@ -766,7 +766,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 349,
+      "sourceLine": 347,
       "rank": 23
     },
     {
@@ -794,7 +794,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 362,
+      "sourceLine": 360,
       "rank": 24
     }
   ]

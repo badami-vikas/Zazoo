@@ -9,7 +9,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and compare it with the current documented TASK-005 landing checkpoint `166a01b`.
+4. Fetch `origin/main` and confirm TASK-005 landing commit `d4de355` remains in its ancestry;
+   `166a01b` is the implementation/certification checkpoint.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -17,20 +18,24 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Current documented `main` code checkpoint: `166a01b` (TASK-005 certification). Always re-fetch
-  before resuming any worktree.
+- Verified TASK-005 `main` ancestry: implementation/certification checkpoint `166a01b`, followed
+  by progress handoff/landing commit `d4de355`. At final reconciliation, `origin/main@d153094`
+  contained both commits plus the later unrelated Zazoo storyboard merge. Always re-fetch before
+  resuming any worktree.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
   status and evidence live in [`docs/TASKS.md`](../TASKS.md) and
   [`outputs/2026-07-18-task-008-relationship-continuity.md`](../../outputs/2026-07-18-task-008-relationship-continuity.md).
 - TASK-006 landed on `main` at `7f441869d1d4bc3ca92f0c62aeff655f23b998ad` under AP-045 after
   validating and normally merging base `bab32ea`.
-- TASK-005 is complete under AP-047 at implementation/certification checkpoint `166a01b`.
+- TASK-005 is complete under AP-047 at implementation/certification checkpoint `166a01b` and
+  landed on `main` through `d4de355`.
   Fresh uninterrupted desktop `1440×913` and exact mobile `375×812` runs installed signed
   `cited-role-model-practice@1.0.1`, invoked it only through Relationship's Learning Agent,
   corrected weekly→monthly, proved veto/no Event, and deleted the learned preference. ADR-121/122
   govern the exact private Skill contract and fail-closed Organization Files rename.
-- Central working tree: clean when this package was written.
+- The TASK-005 worktree was clean, then fast-forwarded and pushed to the then-current
+  `origin/main@d153094`; it is historical and must not be resumed.
 - Background agents: none.
 - `relationship-os` worker processes: none.
 - Unfinished implementations may be committed or WIP in their named worktrees; consult the exact
