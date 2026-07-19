@@ -1,0 +1,433 @@
+/* Section 4: interactive transformation journey.
+   Stage-to-stage morphs run 850ms; triggered by click, tap, arrow keys, focus.
+   Resting frame: the selected stage visibly connected to the next state. */
+.scene--journey {
+  display: flex;
+  align-items: stretch;
+  background:
+    radial-gradient(circle at 82% 12%, rgb(77 126 168 / 6%), transparent 26rem),
+    var(--parchment);
+}
+
+.journey-stage {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2.4vh, 1.8rem);
+  width: 100%;
+  padding: clamp(1.6rem, 4vw, 3.2rem) clamp(1rem, 4vw, 3.5rem) clamp(2rem, 5vh, 3.4rem);
+}
+
+.journey-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.journey-copy h2 {
+  font-size: clamp(2rem, 4vw, 3.6rem);
+}
+
+.journey-copy p {
+  max-width: 56ch;
+  color: var(--body-ink);
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+}
+
+/* One organization, five states, one continuous path */
+.journey-illustration {
+  position: relative;
+  align-self: center;
+  width: min(92vw, 640px);
+  height: clamp(180px, 30vh, 280px);
+}
+
+.journey-org {
+  position: absolute;
+  inset: 0;
+  transition: transform 850ms ease;
+}
+
+.journey-org__outline {
+  position: absolute;
+  inset: -4% -3%;
+  border: 2px solid transparent;
+  border-radius: 30px;
+  transition: border-color 850ms ease, border-radius 850ms ease, box-shadow 850ms ease;
+}
+
+.journey-stage[data-stage="4"] .journey-org__outline {
+  border-color: var(--steel);
+  border-radius: 34% 22% 38% 24%;
+  box-shadow: 0 24px 60px rgb(77 126 168 / 14%);
+}
+
+.journey-dept {
+  position: absolute;
+  top: 16%;
+  width: 26%;
+  height: 56%;
+  transition: transform 850ms ease;
+}
+
+.journey-dept--one {
+  left: 4%;
+}
+
+.journey-dept--two {
+  left: 37%;
+}
+
+.journey-dept--three {
+  left: 70%;
+}
+
+.journey-dept__frame {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgb(46 64 87 / 40%);
+  border-radius: 14px;
+  transition: border-color 850ms ease, border-style 850ms ease, opacity 850ms ease;
+}
+
+.journey-stage[data-stage="3"] .journey-dept__frame,
+.journey-stage[data-stage="4"] .journey-dept__frame {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+.journey-worker--a {
+  top: 18%;
+  left: 16%;
+}
+
+.journey-worker--b {
+  top: 40%;
+  left: 54%;
+}
+
+/* State 1: tools in individual hands */
+.journey-tool {
+  position: absolute;
+  top: 26%;
+  left: 44%;
+  width: 10px;
+  height: 10px;
+  background: var(--amber);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  opacity: 0;
+  transition: opacity 850ms ease, transform 850ms ease;
+}
+
+.journey-stage:not([data-stage="-"]) .journey-tool {
+  opacity: 1;
+}
+
+.journey-stage[data-stage="2"] .journey-tool,
+.journey-stage[data-stage="3"] .journey-tool,
+.journey-stage[data-stage="4"] .journey-tool {
+  transform: translateY(34px);
+  opacity: 0.5;
+}
+
+/* State 2: redesigned workflow inside teams */
+.journey-workflow {
+  position: absolute;
+  right: 14%;
+  bottom: 14%;
+  left: 14%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--sage) 0 8px, transparent 8px 14px);
+  opacity: 0;
+  transition: opacity 850ms ease;
+}
+
+.journey-stage[data-stage="1"] .journey-workflow,
+.journey-stage[data-stage="2"] .journey-workflow,
+.journey-stage[data-stage="3"] .journey-workflow,
+.journey-stage[data-stage="4"] .journey-workflow {
+  opacity: 1;
+}
+
+/* State 3: a shared current connects the teams */
+.journey-shared {
+  position: absolute;
+  right: 6%;
+  bottom: 8%;
+  left: 6%;
+  height: 8%;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgb(107 124 101 / 20%) 0 30px,
+      rgb(77 126 168 / 16%) 30px 60px
+    );
+  opacity: 0;
+  transition: opacity 850ms ease;
+}
+
+.journey-stage[data-stage="2"] .journey-shared,
+.journey-stage[data-stage="3"] .journey-shared,
+.journey-stage[data-stage="4"] .journey-shared {
+  opacity: 1;
+}
+
+/* State 4: governance, roles, and operating model change together */
+.journey-governance {
+  position: absolute;
+  top: 6%;
+  left: 50%;
+  width: 30%;
+  height: 84%;
+  border: 2px solid rgb(107 124 101 / 55%);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateX(-50%) scale(0.7);
+  transition: opacity 850ms ease, transform 850ms ease;
+}
+
+.journey-stage[data-stage="3"] .journey-governance,
+.journey-stage[data-stage="4"] .journey-governance {
+  opacity: 1;
+  transform: translateX(-50%) scale(1.5);
+}
+
+/* State 5: value created in a way competitors cannot copy */
+.journey-value {
+  position: absolute;
+  top: 30%;
+  right: -4%;
+  width: 14px;
+  height: 40%;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--amber), rgb(196 149 90 / 25%));
+  opacity: 0;
+  transition: opacity 850ms ease, transform 850ms ease;
+}
+
+.journey-stage[data-stage="4"] .journey-value {
+  opacity: 1;
+  transform: translateX(10px);
+}
+
+/* Leadership stays present and becomes more consequential at every state. */
+.journey-leader {
+  top: -6%;
+  left: 47%;
+  transition: transform 850ms ease;
+}
+
+.journey-leader .alt-person__body {
+  background: var(--ink);
+}
+
+.journey-stage[data-stage="1"] .journey-leader {
+  transform: scale(1.08);
+}
+
+.journey-stage[data-stage="2"] .journey-leader {
+  transform: scale(1.16);
+}
+
+.journey-stage[data-stage="3"] .journey-leader {
+  transform: scale(1.26);
+}
+
+.journey-stage[data-stage="4"] .journey-leader {
+  transform: scale(1.38);
+}
+
+/* The visible connection toward the next possible state */
+.journey-next-link {
+  position: absolute;
+  top: 50%;
+  right: -9%;
+  width: 8%;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--steel) 0 7px, transparent 7px 13px);
+  opacity: 0;
+  transition: opacity 850ms ease;
+}
+
+.journey-next-link[data-visible="true"] {
+  opacity: 1;
+}
+
+/* Lens emphasis: the same illustration, re-lit */
+.journey-stage[data-lens="1"] .journey-value,
+.journey-stage[data-lens="1"] .journey-shared,
+.journey-stage[data-lens="1"] .journey-tool {
+  filter: drop-shadow(0 0 6px rgb(196 149 90 / 55%));
+}
+
+.journey-stage[data-lens="2"] .journey-leader {
+  filter: drop-shadow(0 4px 10px rgb(26 43 60 / 35%));
+}
+
+.journey-stage[data-lens="3"] .journey-next-link {
+  height: 5px;
+  background: repeating-linear-gradient(90deg, var(--amber) 0 7px, transparent 7px 13px);
+}
+
+/* The path of five states */
+.journey-path {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.4rem;
+}
+
+.journey-path__line {
+  position: absolute;
+  top: 50%;
+  right: 4%;
+  left: 4%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--border) 12%, var(--border) 88%, transparent);
+}
+
+.journey-node {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--body-ink);
+  background: rgb(255 255 255 / 82%);
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: border-color 300ms ease, background 300ms ease, transform 300ms ease;
+}
+
+.journey-node:hover {
+  transform: translateY(-2px);
+}
+
+.journey-node[aria-expanded="true"] {
+  border-color: var(--steel);
+  color: var(--ink);
+  background: rgb(77 126 168 / 12%);
+}
+
+.journey-node__marker {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--steel);
+  border-radius: 50%;
+  background: #fff;
+  transition: background 300ms ease;
+}
+
+.journey-node[aria-expanded="true"] .journey-node__marker {
+  background: var(--steel);
+}
+
+/* The expanded state */
+.journey-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: center;
+  align-self: center;
+  max-width: 760px;
+  text-align: center;
+  animation: journey-panel-in 850ms ease;
+}
+
+@keyframes journey-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.journey-panel h3 {
+  max-width: none;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.4rem, 2.6vw, 2.2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.journey-panel > p {
+  color: var(--body-ink);
+  font-size: clamp(0.98rem, 1.4vw, 1.15rem);
+  line-height: 1.6;
+}
+
+.journey-lenses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.journey-lenses button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.45rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--body-ink);
+  background: transparent;
+  font-size: 0.9rem;
+  transition: border-color 300ms ease, background 300ms ease;
+}
+
+.journey-lenses button[aria-pressed="true"] {
+  border-color: var(--sage);
+  color: var(--ink);
+  background: rgb(107 124 101 / 12%);
+}
+
+@media (max-width: 720px) {
+  .journey-illustration {
+    height: 160px;
+  }
+
+  .journey-path {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .journey-path__line {
+    top: 4%;
+    right: auto;
+    bottom: 4%;
+    left: 22px;
+    width: 2px;
+    height: auto;
+    background: linear-gradient(180deg, transparent, var(--border) 12%, var(--border) 88%, transparent);
+  }
+
+  .journey-node {
+    justify-content: flex-start;
+  }
+
+  .journey-panel {
+    text-align: left;
+  }
+
+  .journey-lenses {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journey-panel {
+    animation: none;
+  }
+}

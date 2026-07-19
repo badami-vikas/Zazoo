@@ -1,0 +1,78 @@
+.alternative-home {
+  width: 100%;
+  overflow: clip;
+  background: var(--paper);
+}
+
+.alternative-home .scene {
+  background: linear-gradient(180deg, transparent, rgb(226 222 213 / 22%) 50%, transparent);
+}
+
+.alternative-home [data-revealed] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 600ms ease, transform 600ms ease;
+}
+
+.alternative-home [data-revealed="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.alt-person {
+  position: absolute;
+  width: 26px;
+  height: 52px;
+  transition: opacity 700ms ease, transform 700ms ease;
+}
+
+.alt-person__head {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--body-ink);
+  transform: translateX(-50%);
+}
+
+.alt-person__body {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  width: 22px;
+  height: 32px;
+  border-radius: 10px 10px 7px 7px;
+  background: var(--steel-soft);
+  transform: translateX(-50%);
+}
+
+.doc-chip {
+  position: absolute;
+  display: block;
+  width: 20px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--border) 1px, transparent 1px) 4px 7px / 12px 5px no-repeat,
+    linear-gradient(var(--border) 1px, transparent 1px) 4px 13px / 12px 5px no-repeat,
+    #fff;
+  box-shadow: 0 3px 10px rgb(26 43 60 / 8%);
+  transition: transform 900ms ease, opacity 900ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alternative-home [data-revealed] {
+    transition-duration: 240ms;
+    transform: none;
+  }
+
+  .alternative-home *,
+  .alternative-home *::before,
+  .alternative-home *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

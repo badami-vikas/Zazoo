@@ -1,0 +1,83 @@
+{
+  "shifts": {
+    "heading": "History doesn't repeat. Patterns do.",
+    "body": [
+      "Every major paradigm shift transforms the market.",
+      "The organizations that merely adopt the new technology have faded with the past.",
+      "The organizations that transform themselves around it defined the future."
+    ],
+    "reflection": "When history looks back at the AI era, where will your organization stand?",
+    "book": "Book a strategy session",
+    "bookHref": "https://zazoo.me/consulting.html#cta",
+    "assess": "Assess your organization",
+    "columns": ["Transitional Thinking", "Transformational Thinking"],
+    "eras": ["Steam Engine", "Electricity", "Computing", "Internet", "Artificial Intelligence"],
+    "internetObservation": [
+      "The market didn't reward organizations that adopted the Internet.",
+      "It rewarded organizations designed around it."
+    ],
+    "bottomObservation": "Technology changes what's possible. Transformation changes who leads.",
+    "aiClosing": "Every previous paradigm created a new generation of market leaders. AI will too.",
+    "more": "More examples"
+  },
+  "organization": {
+    "heading": "AI-native organizations don't use AI. They are designed around it.",
+    "subheading": "The difference isn't how much AI they deploy. It's how intelligence flows, compounds, and creates value across the organization.",
+    "lines": [
+      "Knowledge no longer belongs to individuals.",
+      "Capability no longer depends on departments.",
+      "Every success makes the organization stronger."
+    ],
+    "closing": "AI no longer supports work. It becomes part of how the organization thinks, learns, and creates value.",
+    "controls": ["Knowledge flows", "Decisions shorten", "Capability compounds", "Memory persists"],
+    "compare": "Compare before"
+  },
+  "infrastructure": {
+    "task": "Prepare the board presentation.",
+    "questions": [
+      "Where is the latest version?",
+      "Who owns this?",
+      "Who approves this?",
+      "Has someone solved this before?",
+      "Is this still current?",
+      "Who needs to review this?"
+    ],
+    "definitionHeading": "Business AI Infrastructure",
+    "definition": "Business AI Infrastructure is the invisible environment that allows people and AI to work together effortlessly.",
+    "supporting": "It is made up of the knowledge, context, ownership, governance, workflows, decision pathways, organizational memory, and operating practices that remove friction from everyday work.",
+    "contrast": "Technology enables it. People experience it.",
+    "closing": "Great organizations don't ask people to overcome friction. They design environments where great work happens naturally."
+  },
+  "journey": {
+    "heading": "Managing Intelligence",
+    "intro": "Transformation changes where organizational value comes from - and what leadership must make possible.",
+    "stages": [
+      {
+        "title": "Doing the Same Work Differently",
+        "description": "AI improves individual productivity. Existing work becomes faster, but the organization remains unchanged. Capability stays personal - when people leave, the capability leaves with them."
+      },
+      {
+        "title": "Doing Different Work the Same Way",
+        "description": "Teams redesign workflows and begin delegating work to AI. Processes improve and efficiency increases, but the company still creates value the same way."
+      },
+      {
+        "title": "Working Differently",
+        "description": "Knowledge, decisions, and intelligence begin compounding across the organization. AI becomes a shared organizational capability. Memory, skills, and successful practices become reusable. Intelligence improves continuously."
+      },
+      {
+        "title": "Organizing Differently",
+        "description": "The organization redesigns itself around intelligence. Governance, decision systems, operating models, incentives, roles, and workflows evolve together. AI becomes embedded into how the organization functions."
+      },
+      {
+        "title": "Competing Differently",
+        "description": "AI is no longer visible because it has become part of the organization's DNA. The company creates value in fundamentally new ways that competitors cannot easily replicate. Competitive advantage comes from the transformed organization itself."
+      }
+    ],
+    "lenses": [
+      "What changes?",
+      "Where does organizational value come from?",
+      "How does leadership evolve?",
+      "What becomes possible next?"
+    ]
+  }
+}

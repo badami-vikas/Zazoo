@@ -1888,3 +1888,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Preserved the `zazoo.me` `CNAME`, Consulting page, Training page, and their existing assets.
 - GitHub Pages run `29683315854` completed successfully; the custom domain serves the new hashed JavaScript/CSS bundle over HTTPS.
 - Updated TASK-024, its durable output, and all four Progress-from-Manish handoff records with the live deployment evidence.
+
+## 2026-07-19 — Zazoo alternative homepage experiment (isolated branch)
+
+- Built experimental cinematic homepage at `/alternative-home.html` in `@zazoo/website` on branch `codex/zazoo-alt-home-creative-direction` (never merged; `/` untouched, only vite.config.ts gained a second entry).
+- Four scroll-driven chapters (paradigm patterns → AI-native org → Business AI Infrastructure → Managing Intelligence) with design decisions, 22+-case verified case-study library, contract tests, and headless-Chrome verification (desktop/375px/reduced-motion).
+- Output: outputs/2026-07-19-zazoo-alternative-homepage-experiment.md
