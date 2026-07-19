@@ -1,8 +1,8 @@
 # Paused worktrees
 
-All listed paused workers were stopped on 2026-07-18. TASK-005's later landing session is complete.
-Re-check every status before resuming because remaining entries are uncommitted snapshots, not
-immutable releases.
+All listed paused workers were stopped on 2026-07-18. TASK-005 and TASK-024 landing sessions are
+complete. Re-check every status before resuming because remaining entries are uncommitted
+snapshots, not immutable releases.
 
 ## Central baseline
 
@@ -11,6 +11,8 @@ immutable releases.
 - TASK-005 implementation/certification checkpoint `166a01b` landed on `main` through
   progress handoff commit `d4de355`. Both were verified in `origin/main@d153094` ancestry.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
+- TASK-024 landed through PR #23 under AP-052 after implementation checkpoint `a4bf5fb` normally
+  merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -89,6 +91,26 @@ TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fas
 ## TASK-011 culture research — MERGED 2026-07-19
 
 TASK-011's central-merge review closure (durable child-Run terminal audit repair + full-lineage artifact purge/redaction) landed and merged into `main` via PR #22 (`manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). This worktree is no longer paused/dirty; see `merge-history.md`'s row and `subagent-progress.md`'s TASK-011 row for the full account. No new migration was required. This historical worktree must not be resumed or merged again.
+
+## TASK-024 Zazoo public website — MERGED 2026-07-19
+
+- Session: `3d96fe73-2f17-4e87-868f-e8ca692f9e4b`
+- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/task-024-zazoo-website`
+- Branch: `task-024-zazoo-website`
+- Implementation checkpoint: `a4bf5fb`
+- Integrated baseline: `origin/main@512cf35`
+- Integration checkpoint: `69ffbff`
+- Landing: PR #23 under AP-052
+- Migration: none
+
+The standalone `@zazoo/website` app implements the approved ten-scene day-to-night-to-morning
+storyboard without changing the authenticated Bridge app. Approved visible prose comes from one
+governed source; Library navigation, the Process Human Decision gate, and the Impact notebook work
+through pointer, keyboard, and touch; reduced motion preserves the narrative; and the unapproved
+final destination remains honestly disabled. Six contract tests, typecheck, production build,
+ESLint, desktop, and exact 375×812 live walkthroughs passed. The user explicitly skipped the
+optional independent review before landing. This worktree is historical after merge; do not resume
+or merge it again.
 
 ## TASK-022 inference optimization
 
