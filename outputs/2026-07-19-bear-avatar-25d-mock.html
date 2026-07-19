@@ -1,0 +1,436 @@
+<title>Bear Avatar — 2.5D Action Mock</title>
+<style>
+  :root {
+    --stage: #EDEFF3;
+    --stage-deep: #E2E6EC;
+    --ink: #3A4350;
+    --ink-soft: #7C8694;
+    --chip-bg: #FFFFFF;
+    --chip-border: #D5DAE2;
+    --chip-active: #37485F;
+    --chip-active-ink: #F4F1E9;
+    --plinth: rgba(55, 72, 95, 0.16);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --stage: #252A32;
+      --stage-deep: #1E232A;
+      --ink: #DDE3EA;
+      --ink-soft: #8A94A2;
+      --chip-bg: #2E343E;
+      --chip-border: #414957;
+      --chip-active: #BCCADB;
+      --chip-active-ink: #252A32;
+      --plinth: rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --stage: #252A32;
+    --stage-deep: #1E232A;
+    --ink: #DDE3EA;
+    --ink-soft: #8A94A2;
+    --chip-bg: #2E343E;
+    --chip-border: #414957;
+    --chip-active: #BCCADB;
+    --chip-active-ink: #252A32;
+    --plinth: rgba(0, 0, 0, 0.4);
+  }
+  :root[data-theme="light"] {
+    --stage: #EDEFF3;
+    --stage-deep: #E2E6EC;
+    --ink: #3A4350;
+    --ink-soft: #7C8694;
+    --chip-bg: #FFFFFF;
+    --chip-border: #D5DAE2;
+    --chip-active: #37485F;
+    --chip-active-ink: #F4F1E9;
+    --plinth: rgba(55, 72, 95, 0.16);
+  }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 26px;
+    min-height: 100vh;
+    background: radial-gradient(900px 600px at 50% 30%, var(--stage) 0%, var(--stage-deep) 100%);
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .caption { font-size: 13px; color: var(--ink-soft); letter-spacing: 0.2px; }
+  .state-name {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 2.2px;
+    color: var(--ink-soft); min-height: 16px;
+  }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 16px; }
+  .chip {
+    font: inherit; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase;
+    padding: 9px 16px; border-radius: 999px; cursor: pointer;
+    background: var(--chip-bg); color: var(--ink);
+    border: 1px solid var(--chip-border);
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+  }
+  .chip:hover { border-color: var(--chip-active); }
+  .chip:focus-visible { outline: 2px solid var(--chip-active); outline-offset: 2px; }
+  .chip[aria-pressed="true"] {
+    background: var(--chip-active); color: var(--chip-active-ink); border-color: var(--chip-active);
+  }
+  .cycle {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.6px; color: var(--ink-soft);
+    cursor: pointer; user-select: none;
+  }
+  .cycle input { accent-color: var(--chip-active); cursor: pointer; }
+
+  /* ————— rig plumbing ————— */
+  svg { overflow: visible; display: block; }
+  svg * { transform-box: fill-box; transform-origin: center; }
+
+  .bear-root, .face, .paw, .paw-inner, .prop, .pencil-jitter, .sheet, .lens-arm, .doc-lines
+    { transition: transform 0.55s cubic-bezier(0.34, 1.3, 0.5, 1), opacity 0.45s ease; }
+
+  .prop { opacity: 0; }
+  .prop-mug { opacity: 1; }
+
+  /* breathing — the whole egg swells gently from its base */
+  .breather { animation: breathe 4.6s ease-in-out infinite; transform-origin: 50% 100%; }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1, 1); }
+    50%      { transform: scale(0.997, 1.014); }
+  }
+
+  .eye { animation: blink 4.8s infinite; }
+  .eye.late { animation-delay: 0.05s; }
+  @keyframes blink {
+    0%, 93.5%, 100% { transform: scaleY(1); }
+    95.5%           { transform: scaleY(0.08); }
+    97.5%           { transform: scaleY(1); }
+  }
+
+  .steam path { animation: steam 3.4s ease-in-out infinite; opacity: 0; }
+  .steam path:nth-child(2) { animation-delay: 1.6s; }
+  @keyframes steam {
+    0%   { opacity: 0;    transform: translateY(2px); }
+    35%  { opacity: 0.45; }
+    100% { opacity: 0;    transform: translateY(-7px); }
+  }
+
+  /* ————— taking meeting notes ————— */
+  [data-action="notes"] .prop-mug, [data-action="review"] .prop-mug, [data-action="search"] .prop-mug,
+  [data-action="notes"] .steam,    [data-action="review"] .steam,    [data-action="search"] .steam
+    { opacity: 0; }
+  [data-action="notes"] .prop-notes { opacity: 1; }
+
+  .pencil-tilt { transform: translate(-13px, 11px) rotate(38deg); }
+  [data-action="notes"] .paw-l { transform: translate(-3px, -8px) rotate(-6deg); }
+  [data-action="notes"] .paw-r { transform: translate(-15px, -14px) rotate(-20deg); }
+  [data-action="notes"] .paw-r ellipse { animation: scribble 0.42s linear infinite; }
+
+  /* head down at the pad; brief glance up "to the room", then back down */
+  [data-action="notes"] .face { animation: notes-face 7.5s ease-in-out infinite; }
+  @keyframes notes-face {
+    0%, 55%   { transform: translate(-1px, 4.5px); }
+    63%, 76%  { transform: translate(0.5px, -1.5px); }
+    84%, 100% { transform: translate(-1px, 4.5px); }
+  }
+  /* pencil writes in bursts and rests exactly while the bear glances up */
+  [data-action="notes"] .pencil-jitter { animation: scribble 0.42s linear infinite; }
+  [data-action="notes"] .pencil, [data-action="notes"] .paw-r .paw-inner
+    { animation: write-session 7.5s ease-in-out infinite; }
+  @keyframes scribble {
+    0%   { transform: translate(0, 0) rotate(0deg); }
+    25%  { transform: translate(1.3px, -0.5px) rotate(1.4deg); }
+    50%  { transform: translate(0.2px, 0.4px) rotate(-0.8deg); }
+    75%  { transform: translate(1.1px, -0.2px) rotate(0.9deg); }
+    100% { transform: translate(0, 0) rotate(0deg); }
+  }
+  @keyframes write-session {
+    0%, 55%   { transform: translate(0, 0); }
+    63%, 76%  { transform: translate(0.5px, -3px) rotate(4deg); }
+    84%, 100% { transform: translate(0, 0); }
+  }
+
+  /* ————— reviewing documents ————— */
+  [data-action="review"] .prop-doc { opacity: 1; }
+  [data-action="review"] .paw-l { transform: translate(-7px, -13px) rotate(-9deg); }
+  [data-action="review"] .paw-r { transform: translate(7px, -13px) rotate(9deg); }
+
+  /* eyes track line by line: left→right sweep with a quick carriage return */
+  [data-action="review"] .face { animation: read-scan 2.6s linear infinite; }
+  @keyframes read-scan {
+    0%   { transform: translate(-2.2px, 4px); }
+    82%  { transform: translate(2.2px, 4.5px); }
+    100% { transform: translate(-2.2px, 4px); }
+  }
+  [data-action="review"] .sheet { animation: page-flip 6.5s ease-in-out infinite; }
+  @keyframes page-flip {
+    0%, 74%   { transform: scaleX(1); }
+    78.5%     { transform: scaleX(0.07); }
+    83%, 100% { transform: scaleX(1); }
+  }
+  [data-action="review"] .doc-lines { animation: fresh-page 6.5s linear infinite; }
+  @keyframes fresh-page {
+    0%, 74% { opacity: 0.75; }
+    78.5%   { opacity: 0.15; }
+    83%, 100% { opacity: 0.75; }
+  }
+
+  /* ————— searching ————— */
+  [data-action="search"] .prop-lens { opacity: 1; }
+  /* the paw rides the same sweep as the magnifier so it stays on the handle */
+  [data-action="search"] .paw-r { animation: sweep-paw 4.2s ease-in-out infinite; }
+  [data-action="search"] .paw-l { transform: translate(-2px, -3px); }
+  @keyframes sweep-paw {
+    0%, 100% { transform: translate(19px, -26px) rotate(22deg); }
+    50%      { transform: translate(37px, -26px) rotate(22deg); }
+  }
+
+  [data-action="search"] .lens-arm { animation: sweep 4.2s ease-in-out infinite; }
+  [data-action="search"] .face    { animation: sweep-face 4.2s ease-in-out infinite; }
+  @keyframes sweep {
+    0%, 100% { transform: translateX(-9px); }
+    50%      { transform: translateX(9px); }
+  }
+  @keyframes sweep-face {
+    0%, 100% { transform: translate(-2.5px, 2px) rotate(-1.6deg); }
+    50%      { transform: translate(2.5px, 2px) rotate(1.6deg); }
+  }
+  /* the "found it" beat: sparkle pop + one small delighted bounce */
+  [data-action="search"] .burst { animation: found 8.4s ease-out infinite; }
+  [data-action="search"] .bear-root { animation: found-hop 8.4s ease-in-out infinite; }
+  @keyframes found {
+    0%, 88%   { opacity: 0; transform: scale(0.5); }
+    92%       { opacity: 0.9; transform: scale(1.05); }
+    97%, 100% { opacity: 0; transform: scale(1.15); }
+  }
+  @keyframes found-hop {
+    0%, 89%, 96%, 100% { transform: translateY(0); }
+    92.5%              { transform: translateY(-4.5px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="stage">
+  <svg width="330" viewBox="0 0 260 330" role="img" aria-label="Plush blue bear companion mock">
+    <defs>
+      <radialGradient id="body-g" cx="0.42" cy="0.28" r="0.95">
+        <stop offset="0%"  stop-color="#BCCADB"/>
+        <stop offset="62%" stop-color="#92A7C0"/>
+        <stop offset="100%" stop-color="#7B90A9"/>
+      </radialGradient>
+      <radialGradient id="ear-g" cx="0.42" cy="0.35" r="0.9">
+        <stop offset="0%"  stop-color="#B2C1D4"/>
+        <stop offset="100%" stop-color="#8296AE"/>
+      </radialGradient>
+      <linearGradient id="suit-g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stop-color="#43556E"/>
+        <stop offset="100%" stop-color="#2E3D52"/>
+      </linearGradient>
+      <radialGradient id="muzzle-g" cx="0.45" cy="0.32" r="0.9">
+        <stop offset="0%"  stop-color="#F8F4EA"/>
+        <stop offset="100%" stop-color="#EDE6D8"/>
+      </radialGradient>
+      <linearGradient id="mug-g" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%"  stop-color="#F8F5EC"/>
+        <stop offset="100%" stop-color="#E7E1D2"/>
+      </linearGradient>
+      <!-- soft felt: barely-there grain, no fur definition -->
+      <filter id="felt" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="2" result="n"/>
+        <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.55  0 0 0 0.04 0"/>
+        <feComposite in2="SourceGraphic" operator="atop" result="grain"/>
+        <feMerge>
+          <feMergeNode in="SourceGraphic"/>
+          <feMergeNode in="grain"/>
+        </feMerge>
+      </filter>
+    </defs>
+
+    <ellipse cx="130" cy="308" rx="66" ry="9" fill="var(--plinth)"/>
+
+    <g class="bear-root">
+      <g class="breather">
+        <g filter="url(#felt)">
+          <!-- small round ears, tucked into the top of the egg -->
+          <circle cx="88"  cy="54" r="15" fill="url(#ear-g)"/>
+          <circle cx="172" cy="54" r="15" fill="url(#ear-g)"/>
+          <circle cx="90"  cy="57" r="7"  fill="#7B90A9" opacity="0.7"/>
+          <circle cx="170" cy="57" r="7"  fill="#7B90A9" opacity="0.7"/>
+
+          <!-- ONE continuous egg — no neck, no head/torso break -->
+          <path d="M 130,38 C 192,38 216,124 216,208 C 216,270 178,300 130,300
+                   C 82,300 44,270 44,208 C 44,124 68,38 130,38 Z"
+                fill="url(#body-g)"/>
+          <!-- key light, sells the round 2.5D volume -->
+          <ellipse cx="100" cy="98" rx="46" ry="34" fill="#FFFFFF" opacity="0.13"/>
+
+          <!-- suit painted onto the lower egg: no shoulders, no lapels -->
+          <path d="M 52,226 C 74,213 100,207 130,207 C 160,207 186,213 208,226
+                   C 208,272 178,300 130,300 C 82,300 52,272 52,226 Z"
+                fill="url(#suit-g)"/>
+          <path d="M 119,208 L 130,220 L 141,208 L 135.5,204.5 L 130,211.5 L 124.5,204.5 Z" fill="#F4F1E9"/>
+        </g>
+
+        <!-- face sits in the middle third of the whole volume -->
+        <g class="face">
+          <!-- barely-there brow seams -->
+          <path d="M 96,133 q 8,-3 15,-1" stroke="#5F7086" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.3"/>
+          <path d="M 164,133 q -8,-3 -15,-1" stroke="#5F7086" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.3"/>
+
+          <!-- standardized small eyes: same size, spacing, highlights -->
+          <g class="eye">
+            <circle cx="104" cy="151" r="9.2" fill="#2C2B33"/>
+            <circle cx="100.8" cy="147.6" r="3.1" fill="#FFF" opacity="0.95"/>
+            <circle cx="107"   cy="154.4" r="1.3" fill="#FFF" opacity="0.5"/>
+          </g>
+          <g class="eye late">
+            <circle cx="156" cy="151" r="9.2" fill="#2C2B33"/>
+            <circle cx="152.8" cy="147.6" r="3.1" fill="#FFF" opacity="0.95"/>
+            <circle cx="159"   cy="154.4" r="1.3" fill="#FFF" opacity="0.5"/>
+          </g>
+
+          <ellipse cx="92"  cy="172" rx="8" ry="5" fill="#D8A8A6" opacity="0.35"/>
+          <ellipse cx="168" cy="172" rx="8" ry="5" fill="#D8A8A6" opacity="0.35"/>
+
+          <!-- compact muzzle patch, tiny nose, one small thread smile -->
+          <ellipse cx="130" cy="182" rx="24" ry="16" fill="url(#muzzle-g)"/>
+          <ellipse cx="130" cy="173.5" rx="4.4" ry="3.2" fill="#3F434B"/>
+          <circle cx="128.6" cy="172.5" r="0.9" fill="#FFF" opacity="0.5"/>
+          <path d="M 124,186 Q 130,189 136,186" fill="none" stroke="#8A6355" stroke-width="1.8" stroke-linecap="round"/>
+        </g>
+
+        <!-- ————— hand props (each ≤ 20% of body width) ————— -->
+
+        <g class="prop prop-mug">
+          <g class="steam" stroke="#FFF" stroke-linecap="round" fill="none">
+            <path d="M 124,232 C 121,227 126,223 123,218" stroke-width="2.2"/>
+            <path d="M 137,231 C 134,226 139,222 136,217" stroke-width="1.8"/>
+          </g>
+          <path d="M 145,243 a 7.5,7.5 0 1 1 0,13" fill="none" stroke="#DDD5C3" stroke-width="4.5"/>
+          <rect x="115" y="236" width="30" height="27" rx="6" fill="url(#mug-g)" stroke="#D9D1BF" stroke-width="1.1"/>
+          <ellipse cx="130" cy="237.5" rx="13.5" ry="2.8" fill="#7A5C48" opacity="0.85"/>
+          <text x="130" y="256" text-anchor="middle" font-size="13.5" font-weight="700"
+                font-family="Georgia, serif" fill="#37485F">Z</text>
+        </g>
+
+        <g class="prop prop-notes">
+          <g transform="rotate(-6 115 244)">
+            <rect x="100" y="225" width="30" height="38" rx="4" fill="#F8F5EC" stroke="#D9D1BF" stroke-width="1.1"/>
+            <g fill="#98A1AE">
+              <circle cx="106" cy="226.5" r="1.2"/><circle cx="113" cy="226.5" r="1.2"/>
+              <circle cx="120" cy="226.5" r="1.2"/><circle cx="127" cy="226.5" r="1.2"/>
+            </g>
+            <g stroke="#BFC7D2" stroke-width="1.4" stroke-linecap="round">
+              <line x1="105" y1="235" x2="125" y2="235"/>
+              <line x1="105" y1="242" x2="123" y2="242"/>
+              <line x1="105" y1="249" x2="125" y2="249"/>
+              <line x1="105" y1="256" x2="117" y2="256"/>
+            </g>
+          </g>
+          <g class="pencil">
+            <g class="pencil-jitter">
+              <!-- CSS rotation about the pencil's own center (attribute
+                   rotate(a,x,y) misbehaves under transform-box: fill-box) -->
+              <g class="pencil-tilt">
+                <rect x="139.5" y="213.5" width="6" height="24" rx="1.8" fill="#D9B26A"/>
+                <path d="M 139.5,237.5 L 145.5,237.5 L 142.5,244.5 Z" fill="#EBDDBE"/>
+                <path d="M 141.4,241.9 L 143.6,241.9 L 142.5,244.5 Z" fill="#4A4640"/>
+                <rect x="139.5" y="210" width="6" height="4" rx="1.6" fill="#D19B98"/>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g class="prop prop-doc">
+          <g class="sheet">
+            <rect x="113" y="222" width="34" height="44" rx="3.5" fill="#F8F5EC" stroke="#D9D1BF" stroke-width="1.1"/>
+            <rect x="119" y="228" width="17" height="3.6" rx="1.8" fill="#98A1AE"/>
+            <g class="doc-lines" stroke="#BFC7D2" stroke-width="1.4" stroke-linecap="round" opacity="0.75">
+              <line x1="119" y1="238" x2="141" y2="238"/>
+              <line x1="119" y1="244" x2="139" y2="244"/>
+              <line x1="119" y1="250" x2="141" y2="250"/>
+              <line x1="119" y1="256" x2="135" y2="256"/>
+            </g>
+          </g>
+        </g>
+
+        <g class="prop prop-lens">
+          <g class="lens-arm">
+            <line x1="166" y1="216" x2="174" y2="232" stroke="#75849A" stroke-width="4.5" stroke-linecap="round"/>
+            <circle cx="159" cy="205" r="11" fill="rgba(206,222,238,0.3)" stroke="#75849A" stroke-width="3.4"/>
+            <path d="M 153,201 a 8,8 0 0 1 5,-3.5" fill="none" stroke="#FFF" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>
+            <g class="burst" opacity="0" stroke="#E3C878" stroke-width="2" stroke-linecap="round">
+              <line x1="159" y1="188" x2="159" y2="182"/>
+              <line x1="171" y1="193" x2="175" y2="189"/>
+              <line x1="147" y1="193" x2="143" y2="189"/>
+            </g>
+          </g>
+        </g>
+
+        <!-- tiny jointless nub paws, resting on the mug -->
+        <g class="paw paw-l"><g class="paw-inner">
+          <ellipse cx="116" cy="256" rx="10.5" ry="8.5" fill="#92A7C0" stroke="#7B90A9" stroke-width="1.3"/>
+        </g></g>
+        <g class="paw paw-r"><g class="paw-inner">
+          <ellipse cx="144" cy="256" rx="10.5" ry="8.5" fill="#92A7C0" stroke="#7B90A9" stroke-width="1.3"/>
+        </g></g>
+      </g>
+    </g>
+  </svg>
+
+  <div class="state-name" id="stateName">Idle</div>
+  <div class="caption">One egg volume &middot; painted-on suit &middot; props under 20% of body width</div>
+</div>
+
+<div class="chips" role="group" aria-label="Avatar action">
+  <button class="chip" data-set="idle"   aria-pressed="true">Idle</button>
+  <button class="chip" data-set="notes"  aria-pressed="false">Taking notes</button>
+  <button class="chip" data-set="review" aria-pressed="false">Reviewing</button>
+  <button class="chip" data-set="search" aria-pressed="false">Searching</button>
+</div>
+<label class="cycle"><input type="checkbox" id="cycleBox" checked> Auto-cycle</label>
+
+<script>
+  const svg = document.querySelector("svg");
+  const stateName = document.getElementById("stateName");
+  const cycleBox = document.getElementById("cycleBox");
+  const chips = [...document.querySelectorAll(".chip")];
+  const NAMES = { idle: "Idle", notes: "Taking meeting notes", review: "Reviewing documents", search: "Searching" };
+  const ORDER = ["idle", "notes", "review", "search"];
+  let timer = null;
+
+  function setAction(a) {
+    svg.dataset.action = a;
+    stateName.textContent = NAMES[a];
+    chips.forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.set === a)));
+  }
+
+  function startCycle() {
+    stopCycle();
+    let i = ORDER.indexOf(svg.dataset.action || "idle");
+    timer = setInterval(() => { i = (i + 1) % ORDER.length; setAction(ORDER[i]); }, 8000);
+  }
+  function stopCycle() { if (timer) { clearInterval(timer); timer = null; } }
+
+  chips.forEach((c) =>
+    c.addEventListener("click", () => {
+      cycleBox.checked = false;
+      stopCycle();
+      setAction(c.dataset.set);
+    }),
+  );
+  cycleBox.addEventListener("change", () => (cycleBox.checked ? startCycle() : stopCycle()));
+
+  setAction("idle");
+  startCycle();
+</script>

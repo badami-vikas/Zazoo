@@ -1916,3 +1916,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Integrated the first TASK-012 milestone through PR #26 at source checkpoints `dd51797` and `bd7de18`; TASK-012 remains `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
 - Reconciled TASK-024's later website source by replacing its newly introduced retired DOM aliases and paired illustration selectors rather than increasing the 7,515-occurrence ratchet baseline.
 - Synchronized `docs/TASKS.md`, the durable output, and all four `docs/Progress from Manish/` handoff files with the landed milestone and correct next cursor.
+
+# 2026-07-19 — Bear avatar 2.5D action mock
+- Delivered a standalone mock (no engine/product code) of the plush blue bear crew avatar with idle / taking meeting notes / reviewing documents / searching states, built to the user's 12-point collectible style guide: `outputs/2026-07-19-bear-avatar-25d-mock.html` (+ `.md` summary, published artifact).
+- Reverted the initial in-repo approach (bear rig + work actions in the Zazoo director/lab) after the user redirected to mock-only; zazoo source is untouched.
