@@ -345,7 +345,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
       permissionId: "b0000000-0000-4000-a000-0000000000c7",
     });
 
-    test("persistent governance provisions DealPilot's Human tool permissions without widening Agent roles", async () => {
+    test("persistent governance provisions DealPilot's Human Module permissions without widening Agent roles", async () => {
       const workspaceId = "b0000000-0000-4000-a000-000000000012";
       const userId = "e0f0053b-fc44-476e-be27-1371e179e912";
       const { db, close } = await createLocalDb();
@@ -366,7 +366,7 @@ test("persistent governance aligns Egress and Intake authority with their govern
         assert.equal(
           direct.filter(
             (grant) =>
-              grant.resourceType === "tool" &&
+              grant.resourceType === "module" &&
               (grant.action === "read" || grant.action === "write") &&
               grant.effect === "allow",
           ).length,

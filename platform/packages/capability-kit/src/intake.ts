@@ -1,9 +1,5 @@
-// The ONE intake seam for manifest-composed external tools (docs/wiki/known-issues.md:
-// "Recon stranded outside the tool system" / "Tool registry desync" — this closes both).
-// Every external tool's manifest forces `intakePolicy.quarantine = true` (registry.ts,
-// mirrors the agent-floor rule): sourced data must land in QUARANTINE, never straight into
-// a tool's committed store. A human "Add" step (capture ≠ commit, same UX as Camera/Card
-// Scanner) materializes it. The skill itself still runs through the Universal Action
+// Shared intake seam for surfaced Modules. Sourced data lands in quarantine;
+// a Human "Add" decision materializes it. The Skill still runs through the Universal Action
 // Pipeline as an `external:fetch` proposal — authority/policy/audit apply exactly as for
 // every other read (google.sourceGmail is the pattern this generalizes).
 import type { Skill } from "@bridge/core";
@@ -11,17 +7,17 @@ import type { CaptureEnvelope, SourceConnector, SourceQuery } from "@bridge/sour
 
 export interface QuarantinedCapture extends CaptureEnvelope {
   captureId: string;
-  toolId: string;
+  moduleId: string;
 }
 
 /** Where quarantined captures wait between propose() and the human's Add. */
-export interface ToolCaptureStore {
+export interface ModuleCaptureStore {
   put(capture: QuarantinedCapture): Promise<void>;
   get(captureId: string): Promise<QuarantinedCapture | undefined>;
-  list(toolId: string): Promise<QuarantinedCapture[]>;
+  list(moduleId: string): Promise<QuarantinedCapture[]>;
 }
 
-export function createInMemoryCaptureStore(): ToolCaptureStore {
+export function createInMemoryCaptureStore(): ModuleCaptureStore {
   const rows = new Map<string, QuarantinedCapture>();
   return {
     async put(capture) {
@@ -30,25 +26,25 @@ export function createInMemoryCaptureStore(): ToolCaptureStore {
     async get(captureId) {
       return rows.get(captureId);
     },
-    async list(toolId) {
-      return [...rows.values()].filter((r) => r.toolId === toolId);
+    async list(moduleId) {
+      return [...rows.values()].filter((row) => row.moduleId === moduleId);
     },
   };
 }
 
 /**
- * Builds the pipeline Skill a tool registers for its `<toolId>.source` action. Running it
+ * Builds the pipeline Skill a Module registers for its `<moduleId>.source` Action. Running it
  * fetches through the connector and quarantines every envelope — the skill's proposedOutput
  * is a LIGHT manifest (counts + capture ids + a small sample), never the full payload, same
  * "light manifest, audit trail rides the store" shape as google.sourceGmail.
  */
-export function createToolSourceSkill(deps: {
-  toolId: string;
-  captures: ToolCaptureStore;
+export function createModuleSourceSkill(deps: {
+  moduleId: string;
+  captures: ModuleCaptureStore;
   connector: SourceConnector;
 }): Skill {
   return {
-    name: `${deps.toolId}.source`,
+    name: `${deps.moduleId}.source`,
     async run(inputs, ctx) {
       const query = inputs as SourceQuery;
       const envelopes = await deps.connector.fetch(query);
@@ -61,14 +57,14 @@ export function createToolSourceSkill(deps: {
         await deps.captures.put({
           ...envelope,
           captureId,
-          toolId: deps.toolId,
+          moduleId: deps.moduleId,
           trustOrigin: envelope.trustOrigin ?? "untrusted_external",
         });
         captureIds.push(captureId);
       }
       return {
         proposedOutput: {
-          toolId: deps.toolId,
+          moduleId: deps.moduleId,
           count: envelopes.length,
           captureIds,
           sample: envelopes.slice(0, 3).map((e) => e.payload),
@@ -80,16 +76,16 @@ export function createToolSourceSkill(deps: {
 }
 
 /**
- * The human "Add" step: commits ONE quarantined capture into the tool's own store.
- * `commit` is tool-owned (DealPilot appends to @bridge/facts + rescoring; a future Recon
+ * The Human "Add" step commits one quarantined capture into the Module's own store.
+ * `commit` is Module-owned (DealPilot appends to @bridge/facts + rescoring; a future Recon
  * migration would append to its own facts store the same way) — this class only owns the
- * quarantine lifecycle (fetch-once semantics), never the tool's data shape.
+ * quarantine lifecycle (fetch-once semantics), never the Module's data shape.
  */
-export class ToolIntakeMaterializer {
-  #captures: ToolCaptureStore;
+export class ModuleIntakeMaterializer {
+  #captures: ModuleCaptureStore;
   #commit: (capture: QuarantinedCapture) => Promise<void>;
 
-  constructor(deps: { captures: ToolCaptureStore; commit: (capture: QuarantinedCapture) => Promise<void> }) {
+  constructor(deps: { captures: ModuleCaptureStore; commit: (capture: QuarantinedCapture) => Promise<void> }) {
     this.#captures = deps.captures;
     this.#commit = deps.commit;
   }

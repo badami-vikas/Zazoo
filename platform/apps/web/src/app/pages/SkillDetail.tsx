@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Edit2, Trash2, Plus, Brain, Clock, CheckCircle, AlertCircle, TrendingUp, Activity, Copy, Bot, ArrowRight, BookOpen, Zap, Code2, FileCode, BarChart2 } from 'lucide-react';
+import { ChevronRight, Edit2, Trash2, Plus, Sparkles, Clock, CheckCircle, AlertCircle, TrendingUp, Activity, Copy, Bot, ArrowRight, BookOpen, Zap, Code2, FileCode, BarChart2 } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion } from 'motion/react';
@@ -85,7 +85,7 @@ export function SkillDetail() {
             {/* Hero */}
             <div className="flex items-start gap-5">
               <div className="w-14 h-14 rounded-xl bg-[var(--success)]/10 border border-[var(--success)]/30 flex items-center justify-center shrink-0">
-                <Brain className="w-7 h-7 text-[var(--success)]" />
+                <Sparkles className="w-7 h-7 text-[var(--success)]" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2 flex-wrap">

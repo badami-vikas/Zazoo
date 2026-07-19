@@ -7,7 +7,7 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "references": [
-    { "path": "../../packages/tool-kit" },
+    { "path": "../../packages/capability-kit" },
     { "path": "../../packages/sourcing" },
     { "path": "../../packages/dedupe" },
     { "path": "../../packages/facts" },

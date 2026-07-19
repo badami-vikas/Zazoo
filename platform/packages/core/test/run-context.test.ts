@@ -174,7 +174,7 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
       governance: {
         approvalRequirement: "user_pref",
         trustGrants: [],
-        ephemeralContext: { type: "ritual", id: "ritual_1", runId: "run_xyz" },
+        ephemeralContext: { type: "automation", id: "automation_1", runId: "run_xyz" },
       },
       memory: [{ source: "test_fixture_memory_store", text: "Acme Corp deal opened 2026-06-01" }],
     }),
@@ -202,7 +202,7 @@ test("projectToPrompt: a fully-populated context renders every section in ADR-02
   assert.ok(prompt.includes("[clipboard/selection]"));
   assert.ok(prompt.includes("dealpilot.score (skill, private) — message mentions deals"));
   assert.ok(prompt.includes("Approval mode: user_pref"));
-  assert.ok(prompt.includes("Ephemeral run scope: ritual:ritual_1 (run run_xyz)"));
+  assert.ok(prompt.includes("Ephemeral run scope: automation:automation_1 (run run_xyz)"));
   assert.ok(prompt.includes("[test_fixture_memory_store] Acme Corp deal opened 2026-06-01"));
 });
 

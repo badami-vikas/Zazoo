@@ -1,9 +1,9 @@
 {
-  "name": "@bridge/tool-kit",
+  "name": "@bridge/capability-kit",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Tool manifest schema + registry loader + conformance tests — the single source of truth for internal/external tools (docs/raw/tool-standardization-plan.md, ADR-006).",
+  "description": "Skill and Module manifest schema, registry loader, and conformance tests.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

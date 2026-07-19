@@ -247,10 +247,10 @@ test("buildPersistentPorts: logs a loud, specific warning for the ledger-residen
   assert.match(hit!, /Phase 1 item 7/, "warning should point at the tracked, still-open decision item");
 });
 
-test("buildPersistentPorts: does not report the resolved DealPilot ToolCaptureStore gap", () => {
+test("buildPersistentPorts: does not report the resolved DealPilot ModuleCaptureStore gap", () => {
   const { warnings } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
-  const hit = warnings.find((w) => w.includes("ToolCaptureStore"));
-  assert.equal(hit, undefined, `resolved ToolCaptureStore gap must not be reported: ${JSON.stringify(warnings)}`);
+  const hit = warnings.find((warning) => warning.includes("ModuleCaptureStore"));
+  assert.equal(hit, undefined, `resolved ModuleCaptureStore gap must not be reported: ${JSON.stringify(warnings)}`);
 });
 
 test("buildPersistentPorts: exposes ensureInternalStrategistGovernance (TASK-007 persistent-mode governance seed hook)", () => {

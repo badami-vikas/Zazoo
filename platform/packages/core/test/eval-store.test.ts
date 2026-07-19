@@ -51,7 +51,7 @@ test("runEvalDataset: deterministic scorers write an aggregate EvalRun to capabi
     cases: [
       {
         id: "case_success",
-        input: { text: "organize the next ritual" },
+        input: { text: "organize the next Automation" },
         reference: { route: "string", answer: "string" },
         labels: { correct_route: "learning-agent" },
         origin: "seed",

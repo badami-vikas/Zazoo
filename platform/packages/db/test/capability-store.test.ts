@@ -95,7 +95,7 @@ test("capability store: listManifests paginates within a workspace", async () =>
       await store.createManifest({
         id: `30000000-0000-4000-8000-00000000000${i}`,
         workspaceId,
-        capabilityType: "tool",
+        capabilityType: "skill",
         name: `test_fixture_tool_${i}`,
         version: "1.0.0",
         origin: "built_in",
@@ -153,8 +153,8 @@ test("capability store: upsertState creates then updates the ONE current-state r
     const manifestRow = await store.createManifest({
       id: "40000000-0000-4000-8000-000000000001",
       workspaceId,
-      capabilityType: "workflow",
-      name: "test_fixture_workflow",
+      capabilityType: "automation",
+      name: "test_fixture_automation",
       version: "1.0.0",
       origin: "ai_generated",
       audience: "private",

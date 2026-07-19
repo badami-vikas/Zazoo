@@ -1,33 +1,32 @@
 /**
- * Tool manifest (edges only) — mirrors the Tools-model net-new surface from
- * wiki/tools.md. Declares run modes, model bindings, capabilities (with the gate's
+ * Google Integration manifest. Declares run modes, model bindings, permissions,
  * egress flags), the typed output_contract (vocabulary: Person/Memory/Event/
  * Signal — never Lead/Deal/Contact) and the gated intake_policy.
  */
-export interface ToolCapability {
+export interface IntegrationCapability {
   resourceType: string;
   action: string;
   dataScope: "public" | "private" | "all";
   egress: boolean;
 }
-export interface ToolOutputMapping {
+export interface IntegrationOutputMapping {
   from: string;
   to: "Person" | "Memory" | "Event" | "Signal" | "Initiative";
   note?: string;
 }
-export interface ToolManifest {
+export interface IntegrationManifest {
   id: string;
   name: string;
   version: string;
   source_repo: string;
   run_modes: Array<"standalone" | "account_bound">;
   model_bindings: Array<{ use: "vision" | "transcription" | "llm"; plane_default: "local" | "cloud" }>;
-  capabilities: ToolCapability[];
-  output_contract: ToolOutputMapping[];
+  capabilities: IntegrationCapability[];
+  output_contract: IntegrationOutputMapping[];
   intake_policy: { quarantine: boolean; commit_via: "pipeline_proposal" };
 }
 
-export const GOOGLE_MANIFEST: ToolManifest = {
+export const GOOGLE_MANIFEST: IntegrationManifest = {
   id: "integration-google",
   name: "Gmail + Google Calendar",
   version: "0.1.0",

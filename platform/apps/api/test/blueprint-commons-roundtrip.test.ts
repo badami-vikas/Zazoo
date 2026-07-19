@@ -92,7 +92,7 @@ test("BLUEPRINT-1: extraction re-validates — a non-workspace_definition manife
   const notABlueprint: PackageManifest = {
     name: "test-fixture-plain-tool",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "plain tool",
     description: "plain tool",
     lineageManifestId: null,

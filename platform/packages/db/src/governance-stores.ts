@@ -50,8 +50,8 @@ function stableGovernanceId(value: string): string {
  * exists; `@bridge/core` is a types-only package (no zod dependency; ports.ts
  * only declares the TS interface), so this schema is colocated here in
  * `@bridge/db`, the only place that validates the jsonb wire shape at
- * read/write boundaries. `RitualStepDef`'s equivalent schema lives colocated
- * in `ritual-stores.ts` for the same reason — the shapes are unrelated so
+ * read/write boundaries. `AutomationStepDef`'s equivalent schema lives in
+ * `automation-stores.ts` for the same reason — the shapes are unrelated so
  * there is nothing to share between the two files.
  */
 const dataScopeSchema = z.enum(["all", "public", "private"]);
@@ -291,8 +291,8 @@ export async function ensureDealPilotPrincipalGovernance(
   config: PrincipalGovernanceConfig,
 ): Promise<void> {
   const grants = [
-    { resourceType: "tool" as const, action: "read" as const },
-    { resourceType: "tool" as const, action: "write" as const },
+    { resourceType: "module" as const, action: "read" as const },
+    { resourceType: "module" as const, action: "write" as const },
   ];
   for (const grant of grants) {
     const existing = await db

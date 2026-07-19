@@ -80,15 +80,15 @@ import type {
   MemoryEntry,
   OnBehalfOf,
   ResourceType,
-  RitualDefinition,
   RunContext,
 } from "@bridge/core";
 import {
   AgentFloorDeniedError,
   AlreadyResolvedError,
+  KERNEL_PASSTHROUGH_SKILL,
   NotPendingProposalError,
   buildAgentCapability,
-  validateRitualWithinAgents,
+  validateAutomationWithinAgents,
   computeRisk,
   advance,
   demoteOnDependencyChange,
@@ -187,11 +187,11 @@ import {
   BUILT_IN_PACKAGES,
   COMMONS_BUILT_IN_PACKAGES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
-  DEALPILOT_SOURCE_RITUAL_ID,
+  DEALPILOT_SOURCE_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
-  isModuleRuntimeRitualId,
+  isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
-  resolveModuleRitualRuntimeId,
+  resolveModuleAutomationRuntimeId,
 } from "./built-in-packages.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import {
@@ -336,7 +336,7 @@ function isDealPilotCaptureProposal(
     entry.workspaceId !== workspaceId ||
     entry.actorType !== "user" ||
     entry.action !== "write" ||
-    entry.resourceType !== "tool" ||
+    entry.resourceType !== "module" ||
     entry.refLedgerId !== undefined ||
     typeof entry.inputs !== "object" ||
     entry.inputs === null ||
@@ -799,7 +799,7 @@ function resolveClientOnBehalfOf(
 }
 
 function cleanContext(
-  c: { type: "initiative" | "community" | "ritual" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
+  c: { type: "initiative" | "community" | "automation" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
 ): RunContext | undefined {
   if (!c) return undefined;
   return { type: c.type, id: c.id, ...(c.runId ? { runId: c.runId } : {}) };
@@ -1582,8 +1582,8 @@ const resourceTypeEnum = z.enum([
   "event",
   "initiative",
   "touchpoint",
-  "ritual",
-  "tool",
+  "automation",
+  "module",
   "file",
   "signal",
   "policy",
@@ -1628,11 +1628,11 @@ const proposeInput = z.object({
   resourceType: resourceTypeEnum,
   resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
-  skill: z.string().min(1),
+  skill: z.literal(KERNEL_PASSTHROUGH_SKILL).optional(),
   dataScope: dataScopeEnum.optional(),
   context: z
     .object({
-      type: z.enum(["initiative", "community", "ritual", "child_agent_run"]),
+      type: z.enum(["initiative", "community", "automation", "child_agent_run"]),
       id: z.string().min(1),
       runId: z.string().optional(),
     })
@@ -2198,37 +2198,25 @@ const resolveSkillInput = z.object({
   requestedDataScope: dataScopeEnum.optional(),
 });
 
-const ritualStep = z.object({
+const automationStep = z.object({
   skill: z.string().min(1),
   action: actionEnum,
   resourceType: resourceTypeEnum,
   resourceId: z.string().uuid().optional(),
   inputs: z.unknown(),
   dataScope: dataScopeEnum.optional(),
-  /** AGS1/TASK-007 — see RitualStepDef.goalTaskRef's doc comment (@bridge/core's ports.ts). */
+  /** AGS1/TASK-007 — see AutomationStepDef.goalTaskRef's doc comment. */
   goalTaskRef: z.object({ goalId: z.string().min(1), taskId: z.string().min(1) }).optional(),
 });
 
-const ritualRunInput = z.object({
+const automationRunByIdInput = z.object({
   workspaceId: z.string().min(1),
-  ritualId: z.string().min(1),
-  actor: actorSchema,
-  onBehalfOf: onBehalfOfSchema.optional(),
-  steps: z.array(ritualStep).min(1),
-  seed: z.string().optional(),
-});
-
-const ritualRunByIdInput = z.object({
-  workspaceId: z.string().min(1),
-  ritualId: z.string().min(1),
+  automationId: z.string().min(1),
   modulePackageName: z.string().min(1).optional(),
-  actor: actorSchema.optional(),
   onBehalfOf: onBehalfOfSchema.optional(),
   params: z.record(z.unknown()).optional(),
   seed: z.string().optional(),
 });
-
-const toolRunInput = ritualRunByIdInput.extend({ actor: actorSchema });
 
 /** Layered, gated agent permissions (least-privilege; cf. Google incremental scopes).
  * `send` is intentionally NOT an egress tier — agents may never send (human-only). */
@@ -2246,11 +2234,11 @@ const agentUpdateInput = z.object({
   roleTemplateId: z.string().min(1).optional(),
 });
 
-const ritualCreateInput = z.object({
+const automationCreateInput = z.object({
   workspaceId: z.string().min(1),
   name: z.string().min(1),
-  agentIds: z.array(z.string().min(1)).min(1),
-  steps: z.array(ritualStep).min(1),
+  agentId: z.string().min(1),
+  steps: z.array(automationStep).min(1),
 });
 
 // ---------------------------------------------------------------------------
@@ -2259,7 +2247,7 @@ const ritualCreateInput = z.object({
 // namespace; governance (approve) routes through the pipeline's decide()
 // semantics — human identity from ctx.identity, agents blocked by the floor.
 // ---------------------------------------------------------------------------
-const capabilityTypeEnum = z.enum(["skill", "workflow", "agent", "tool", "integration", "view", "dashboard"]);
+const capabilityTypeEnum = z.enum(["skill", "automation", "agent", "integration", "view", "dashboard"]);
 const capabilityOriginEnum = z.enum(["built_in", "template", "community", "ai_generated", "user_code"]);
 const capabilityAudienceEnum = z.enum(["private", "team", "external_visible"]);
 
@@ -2355,9 +2343,9 @@ const BLUEPRINT_RELATIONSHIP_NODE_TYPES = ["edge"] as const;
 const blueprintFieldInput = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool", "location"]),
+  kind: z.enum(["text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "skill", "location"]),
   options: z.array(z.string()).optional(),
-  toolId: z.string().optional(),
+  skillId: z.string().optional(),
   required: z.boolean().optional(),
   defaultValue: z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(z.union([z.string(), z.number(), z.boolean()]))]).optional(),
   relationTarget: z.string().min(1).optional(),
@@ -2420,7 +2408,7 @@ function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): W
         label: f.label,
         kind: f.kind,
         ...(f.options ? { options: f.options } : {}),
-        ...(f.toolId ? { toolId: f.toolId } : {}),
+        ...(f.skillId ? { skillId: f.skillId } : {}),
         ...(f.required !== undefined ? { required: f.required } : {}),
         ...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {}),
         ...(f.relationTarget ? { relationTarget: f.relationTarget } : {}),
@@ -3167,7 +3155,7 @@ export const appRouter = t.router({
           resourceType: input.resourceType as ResourceType,
           ...(input.resourceId ? { resourceId: input.resourceId } : {}),
           inputs: input.inputs,
-          skill: input.skill,
+          skill: KERNEL_PASSTHROUGH_SKILL,
           ...(input.dataScope ? { dataScope: input.dataScope as DataScope } : {}),
           ...(cleanContext(input.context) ? { context: cleanContext(input.context)! } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
@@ -3254,7 +3242,7 @@ export const appRouter = t.router({
                 dataScope: "public",
                 goalTaskRef,
                 ...(input.runId
-                  ? { context: { type: "ritual", id: input.runId, runId: input.runId } }
+                  ? { context: { type: "automation", id: input.runId, runId: input.runId } }
                   : {}),
                 seed: input.sourceId,
                 trustOrigin: "user_content",
@@ -4428,40 +4416,46 @@ export const appRouter = t.router({
     }),
   }),
 
-  ritual: t.router({
-    /** Create a ritual/workflow — REJECTED if any step exceeds its assigned agents'
-     * authority (ritual ⊆ agent). The gate cannot be widened by a workflow. */
-    create: procedure.input(ritualCreateInput).mutation(async ({ input, ctx }) => {
+  automation: t.router({
+    /** Create an Automation only when every Skill step fits its owning Agent. */
+    create: procedure.input(automationCreateInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      if (input.agentIds.length !== 1) {
-        throw new Error("ritual.create: exactly one owning Agent is required");
+      const [agentWorkspaceId, agentActive, agentScope, agentDataScope] =
+        await Promise.all([
+          ctx.wiring.agents.workspaceId(input.agentId),
+          ctx.wiring.agents.isActive(input.agentId),
+          ctx.wiring.agents.capabilityScope(input.agentId),
+          ctx.wiring.agents.dataScope(input.agentId),
+        ]);
+      if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Automation owner must be an active Agent in the Organization",
+        });
       }
-      const agentId = input.agentIds[0]!;
-      const agentViews = await Promise.all(
-        input.agentIds.map(async (id) => ({
-          id,
-          scope: await ctx.wiring.agents.capabilityScope(id),
-          dataScope: await ctx.wiring.agents.dataScope(id),
-        })),
-      );
-      const violations = validateRitualWithinAgents(
+      const agentView = {
+        id: input.agentId,
+        scope: agentScope,
+        dataScope: agentDataScope,
+      };
+      const violations = validateAutomationWithinAgents(
         input.steps.map((s) => ({
           action: s.action as Action,
           resourceType: s.resourceType as ResourceType,
           ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
         })),
-        agentViews,
+        [agentView],
       );
       if (violations.length > 0) {
-        return { ok: false as const, violations, reason: "ritual exceeds assigned agents' authority (ritual ⊆ agent)" };
+        return { ok: false as const, violations, reason: "Automation exceeds its owning Agent's authority" };
       }
-      const ritualId = ctx.run.ids.next();
-      await ctx.wiring.ritualRegistry.save({
-        id: ritualId,
+      const automationId = ctx.run.ids.next();
+      await ctx.wiring.automationRegistry.save({
+        id: automationId,
         name: input.name,
         workspaceId: input.workspaceId,
-        agentId,
+        agentId: input.agentId,
         agentPlane: "local",
         steps: input.steps.map((s) => ({
           skill: s.skill,
@@ -4473,102 +4467,48 @@ export const appRouter = t.router({
           ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
         })),
       });
-      return { ok: true as const, ritualId, agentId, agentIds: [agentId] };
+      return { ok: true as const, automationId, agentId: input.agentId };
     }),
 
-    /** Run a ritual: ordered, governed steps through the pipeline. */
-    run: procedure.input(ritualRunInput).mutation(async ({ input, ctx }) => {
+    /** Start the stored owning Agent's Run; callers cannot provide an actor or steps. */
+    runById: procedure.input(automationRunByIdInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "ritual.run actor must match the authenticated workspace member",
-        });
-      }
       const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
-      return ctx.wiring.ritualExecutor.run(
-        {
-          workspaceId: input.workspaceId,
-          ritualId: input.ritualId,
-          actor: {
-            type: input.actor.type as ActorType,
-            id: input.actor.id,
-            plane: "local",
-          },
-          ...(onBehalfOf ? { onBehalfOf } : {}),
-          steps: input.steps.map((s) => ({
-            skill: s.skill,
-            action: s.action as Action,
-            resourceType: s.resourceType as ResourceType,
-            ...(s.resourceId ? { resourceId: s.resourceId } : {}),
-            inputs: s.inputs,
-            ...(s.dataScope ? { dataScope: s.dataScope as DataScope } : {}),
-            ...(s.goalTaskRef ? { goalTaskRef: s.goalTaskRef } : {}),
-          })),
-          ...(input.seed ? { seed: input.seed } : {}),
-        },
-        ctx.run,
-      );
-    }),
-
-    /** Run a ritual by id — loads its step config from the registry (P2). */
-    runById: procedure.input(ritualRunByIdInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      if (
-        input.actor &&
-        (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id)
-      ) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "ritual.runById actor must match the authenticated workspace member",
-        });
-      }
-      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
-      if (isModuleRuntimeRitualId(input.ritualId)) {
+      if (isModuleRuntimeAutomationId(input.automationId)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Module Automations must run through their manifest Ritual key and package binding",
+          message: "Module Automations must run through their manifest key and Module binding",
         });
       }
-      let ritualId = input.ritualId;
+      let automationId = input.automationId;
       if (input.modulePackageName) {
         const moduleInstallation = await ctx.wiring.packageStore.getAvailable(
           input.workspaceId,
           input.modulePackageName,
         );
         const automation = moduleInstallation?.manifest.module?.automations.find(
-          (candidate) => candidate.ritualId === input.ritualId,
+          (candidate) => candidate.automationId === input.automationId,
         );
         const runtimeAgentId = automation
           ? resolveModuleAgentRuntimeId(input.modulePackageName, automation.agentId)
           : undefined;
-        const runtimeRitualId = resolveModuleRitualRuntimeId(input.modulePackageName, input.ritualId);
-        const definition = runtimeRitualId
-          ? await ctx.wiring.ritualRegistry.load(input.workspaceId, runtimeRitualId)
+        const runtimeAutomationId = resolveModuleAutomationRuntimeId(input.modulePackageName, input.automationId);
+        const definition = runtimeAutomationId
+          ? await ctx.wiring.automationRegistry.load(input.workspaceId, runtimeAutomationId)
           : null;
-        if (!automation || !runtimeAgentId || !runtimeRitualId || definition?.agentId !== runtimeAgentId) {
+        if (!automation || !runtimeAgentId || !runtimeAutomationId || definition?.agentId !== runtimeAgentId) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Module Automation has no verified runtime binding",
           });
         }
-        ritualId = runtimeRitualId;
+        automationId = runtimeAutomationId;
       }
-      return ctx.wiring.ritualExecutor.runById(
+      return ctx.wiring.automationExecutor.runById(
         {
           workspaceId: input.workspaceId,
-          ritualId,
-          ...(input.actor
-            ? {
-                actor: {
-                  type: input.actor.type as ActorType,
-                  id: input.actor.id,
-                  ...(input.actor.plane ? { plane: input.actor.plane } : {}),
-                },
-              }
-            : {}),
+          automationId,
           ...(onBehalfOf ? { onBehalfOf } : {}),
           ...(input.params ? { params: input.params } : {}),
           ...(input.seed ? { seed: input.seed } : {}),
@@ -5866,7 +5806,7 @@ export const appRouter = t.router({
   }),
 
   /**
-   * DealPilot — the first tool on the generic manifest intake seam (@bridge/tool-kit).
+   * DealPilot — the first Module on the generic manifest intake seam.
    * `source` quarantines through the pipeline as `external:fetch` (audited, policy-gated);
    * `commit` is the human "Add" that materializes ONE quarantined capture into DealPilot's
    * facts + candidate list (capture ≠ commit). Thesis storage is basic get/set, in-memory
@@ -6101,7 +6041,7 @@ export const appRouter = t.router({
             workspaceId: input.workspaceId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "read",
-            resourceType: "tool",
+            resourceType: "module",
             skill: "stageMutation",
             inputs: discoveryTask,
           },
@@ -6121,10 +6061,10 @@ export const appRouter = t.router({
         assertPilotWorkspace(input.workspaceId);
         let proposal;
         try {
-          const result = await ctx.wiring.ritualExecutor.runById(
+          const result = await ctx.wiring.automationExecutor.runById(
             {
               workspaceId: input.workspaceId,
-              ritualId: DEALPILOT_SOURCE_RITUAL_ID,
+              automationId: DEALPILOT_SOURCE_AUTOMATION_ID,
               onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
               params: { workspaceId: input.workspaceId, sourceId: input.sourceId },
             },
@@ -6196,7 +6136,7 @@ export const appRouter = t.router({
           workspaceId: input.workspaceId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "write" as const,
-          resourceType: "tool" as const,
+          resourceType: "module" as const,
           skill: "stageMutation",
           inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
           trustOrigin: capture.trustOrigin ?? "untrusted_external",
@@ -6399,36 +6339,6 @@ export const appRouter = t.router({
           throw error;
         }
       }),
-  }),
-
-  tool: t.router({
-    /** Invoke a tool — its composition runs through the pipeline (config → pipeline). */
-    run: procedure.input(toolRunInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      if (input.actor.type !== ctx.identity.type || input.actor.id !== ctx.identity.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "tool.run actor must match the authenticated workspace member",
-        });
-      }
-      const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
-      return ctx.wiring.ritualExecutor.runTool(
-        {
-          workspaceId: input.workspaceId,
-          ritualId: input.ritualId,
-          actor: {
-            type: input.actor.type as ActorType,
-            id: input.actor.id,
-            plane: "local",
-          },
-          ...(onBehalfOf ? { onBehalfOf } : {}),
-          ...(input.params ? { params: input.params } : {}),
-          ...(input.seed ? { seed: input.seed } : {}),
-        },
-        ctx.run,
-      );
-    }),
   }),
 
   /**
@@ -9689,13 +9599,13 @@ export const appRouter = t.router({
           const runtimeSkillIds: string[] = [];
           const runtimeBindingIssues: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
-            if (!automation.ritualId) continue;
-            const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
+            if (!automation.automationId) continue;
+            const automationId = resolveModuleAutomationRuntimeId(installation.packageName, automation.automationId);
             const agentId = resolveModuleAgentRuntimeId(installation.packageName, automation.agentId);
-            const definition = ritualId
-              ? await ctx.wiring.ritualRegistry.load(input.workspaceId, ritualId)
+            const definition = automationId
+              ? await ctx.wiring.automationRegistry.load(input.workspaceId, automationId)
               : null;
-            if (ritualId && agentId && definition?.agentId === agentId) {
+            if (automationId && agentId && definition?.agentId === agentId) {
               runtimeAutomationIds.push(automation.id);
             }
           }
@@ -9842,7 +9752,7 @@ export const appRouter = t.router({
     list: procedure
       .input(
         z.object({
-          kind: z.enum(["workspace_definition", "skill", "workflow", "agent", "tool", "view", "integration_bundle"]).optional(),
+          kind: z.enum(["workspace_definition", "skill", "automation", "agent", "module", "view", "integration_bundle"]).optional(),
           tag: z.string().optional(),
           search: z.string().trim().min(1).optional(),
           limit: z.number().int().min(1).max(100).optional(),

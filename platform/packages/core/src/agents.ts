@@ -110,7 +110,7 @@ export const FOUNDATIONAL_AGENTS: readonly FoundationalAgent[] = [
     mentions: ["builder", "capability-builder", "capabilitybuilder"],
     mission: "Expand Bridge by creating and evolving capabilities, after approval.",
     responsibilities: [
-      "create agents, workflows, skills, tools, integrations, automations, dashboards, UIs, templates, and reusable packages",
+      "create Agents, Automations, Skills, Integrations, Modules, dashboards, UIs, templates, and reusable packages",
       "evolve existing capabilities",
       "draft only — every output still goes through the governed pipeline (draft, propose, approve, execute), never shipped live from this agent directly",
     ],
@@ -157,11 +157,11 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
  */
 export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
   "Kernel boundary: default every new capability to Commons content (installed on demand), never Engine core. If a draft does not need shared actor, governance, execution, surface, Memory, registry, or provider infrastructure, identify it explicitly as Commons content.",
-  "Kernel vocabulary: if this capability touches kernel-scope code (packages/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Initiative / Ritual / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Workspace-scope compiled products (tools/*, generated workspace UI) may use their own domain vocabulary.",
+  "Kernel vocabulary: if this capability touches kernel-scope code (packages/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Initiative / Automation / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Domain-specific extension code and generated Module UI may use their own vocabulary.",
   "No dummy data: never invent placeholder/sample/dummy data for a runtime surface — show real, connected data or an honest empty state. If a dummy is genuinely unavoidable, name it explicitly, state what real element it stands in for, and its removal condition.",
   "Manifest completeness: state declared permissions (resourceType/action/dataScope/egress), connectors, and dependencies explicitly. Anything above 'informational' risk needs a stated rollback plan and evaluation approach — don't leave risk/rollback/eval implicit in a draft.",
   "Lethal-trifecta: if this capability combines a private-data read, an untrusted/external ingest, and any egress, say so explicitly — that combination always escalates to the External risk band and always requires a human approver, regardless of any lower per-permission score.",
-  "Tool budget: don't propose an agent or workflow needing more than roughly 20 tools active in a single turn — defer additional capabilities to registry lookup instead of loading them all at once.",
+  "Capability budget: don't propose an Agent or Automation needing more than roughly 20 Skills or Integrations active in one turn — defer additional capabilities to registry lookup.",
 ];
 
 /**
@@ -308,7 +308,7 @@ export function checkDesignConstraintViolations(draftText: string): string[] {
     });
     const mentionsDealPilot = /dealpilot/i.test(draftText);
     if (hasBannedKernelVocab && !mentionsDealPilot) {
-      violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Initiative/Ritual/Touchpoint/Signal only (see tools/eslint-rules/src/no-crm-vocab.js).");
+      violations.push("draft claims kernel scope and uses CRM vocabulary ('Deal') — kernel scope is Person/Relationship/Memory/Community/Initiative/Automation/Touchpoint/Signal only (see the no-crm-vocab ESLint rule).");
     }
   }
 

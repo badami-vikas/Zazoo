@@ -119,9 +119,9 @@ test("workspaceBlueprintFromPackageManifest: rejects a non-workspace_definition 
   const notWorkspace = parsePackageManifest({
     name: "test-fixture-tool",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "s",
-    capabilities: [{ id: "c", capabilityType: "tool", permissions: [] }],
+    capabilities: [{ id: "c", capabilityType: "skill", permissions: [] }],
   });
   assert.throws(() => workspaceBlueprintFromPackageManifest(notWorkspace), BlueprintValidationError);
 });

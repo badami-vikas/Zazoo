@@ -564,52 +564,68 @@ export const agents = pgTable(
     assumesRoleId: uuid("assumes_role_id"),
     goal: text("goal"),
     allowedSkills: text("allowed_skills").array().notNull().default(sql`'{}'`),
-    allowedTools: uuid("allowed_tools").array().notNull().default(sql`'{}'`),
     capabilityScope: jsonb("capability_scope").notNull().default({}),
     status: text("status").notNull().default("active"),
   },
   (t) => [unique("agents_workspace_id_id_uq").on(t.workspaceId, t.id)],
 );
 
-export const rituals = pgTable("rituals", {
-  id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-  name: text("name").notNull(),
-  trigger: jsonb("trigger").notNull(),
-  cadence: text("cadence"),
-  agentId: uuid("agent_id").references(() => agents.id),
-  agentPlane: text("agent_plane"),
-  /** Legacy multi-owner field retained only for migration compatibility. */
-  agentIds: uuid("agent_ids").array().notNull().default(sql`'{}'`),
-  skillPipeline: jsonb("skill_pipeline").notNull().default([]),
-  policyScopeId: uuid("policy_scope_id"),
-  outputSurface: text("output_surface"),
-  supportsInitiative: uuid("supports_initiative").references(() => initiatives.id),
-  isTemplate: boolean("is_template").notNull().default(false),
-  status: text("status").notNull().default("active"),
-  archivedAt: timestamp("archived_at", { withTimezone: true }),
-});
+export const automations = pgTable(
+  "automations",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    name: text("name").notNull(),
+    trigger: jsonb("trigger").notNull(),
+    cadence: text("cadence"),
+    agentId: uuid("agent_id").notNull(),
+    agentPlane: text("agent_plane").notNull(),
+    skillPipeline: jsonb("skill_pipeline").notNull().default([]),
+    policyScopeId: uuid("policy_scope_id"),
+    outputSurface: text("output_surface"),
+    supportsInitiative: uuid("supports_initiative").references(() => initiatives.id),
+    isTemplate: boolean("is_template").notNull().default(false),
+    status: text("status").notNull().default("active"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    unique("automations_workspace_id_id_uq").on(t.workspaceId, t.id),
+    unique("automations_workspace_id_agent_id_uq").on(
+      t.workspaceId,
+      t.id,
+      t.agentId,
+    ),
+    foreignKey({
+      columns: [t.workspaceId, t.agentId],
+      foreignColumns: [agents.workspaceId, agents.id],
+      name: "automations_workspace_agent_fk",
+    }),
+    check("automations_agent_plane_check", sql`${t.agentPlane} IN ('local', 'cloud')`),
+  ],
+);
 
-export const ritualRuns = pgTable("ritual_runs", {
-  id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-  ritualId: uuid("ritual_id").notNull().references(() => rituals.id),
-  runId: text("run_id"),
-  status: text("status").notNull().default("running"),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-  output: jsonb("output"),
-  ledgerId: uuid("ledger_id"),
-});
-
-export const tools = pgTable("tools", {
-  id: uuidPk(),
-  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-  name: text("name").notNull(),
-  surface: text("surface").notNull(),
-  composition: jsonb("composition").notNull().default({}),
-  status: text("status").notNull().default("active"),
-});
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuidPk(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
+    automationId: uuid("automation_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    runId: text("run_id"),
+    status: text("status").notNull().default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    output: jsonb("output"),
+    ledgerId: uuid("ledger_id"),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.workspaceId, t.automationId, t.agentId],
+      foreignColumns: [automations.workspaceId, automations.id, automations.agentId],
+      name: "automation_runs_workspace_automation_owner_fk",
+    }),
+  ],
+);
 
 export const integrations = pgTable("integrations", {
   id: uuidPk(),
@@ -792,7 +808,7 @@ export const ledger = pgTable("ledger", {
   seed: text("seed"),
   /** Data tier this action touched (the access dropdown) — audit completeness. */
   dataScope: text("data_scope"),
-  /** Original run context (initiative/community/ritual + runId) — audit completeness;
+  /** Original Run context (Initiative/Community/Automation + runId) — audit completeness;
    * lets a replayed decide() thread the SAME context instead of a synthetic one. */
   context: jsonb("context"),
   /** Provenance / trust origin of the input that drove this action (PI-1):
@@ -1036,7 +1052,7 @@ export const resources = pgTable(
 // =====================================================================
 
 /**
- * One row per registered capability (skill/workflow/agent/tool/integration/
+ * One row per registered capability (skill/automation/agent/integration/
  * view/dashboard). Risk is COMPUTED (packages/core/src/capability/risk.ts),
  * never self-declared by the generator — `computedRisk` here is the cached
  * result of that computation, recomputed whenever the manifest or its
@@ -1051,11 +1067,11 @@ export const capabilityManifests = pgTable(
   {
     id: uuidPk(),
     workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id),
-    capabilityType: text("capability_type").notNull(), // skill | workflow | agent | tool | integration | view | dashboard
+    capabilityType: text("capability_type").notNull(), // skill | automation | agent | integration | view | dashboard
     /** REG-1 Component Registry discriminator (undefined-elements §2) — reuse
      * this table as the registry rather than forking a second source of truth.
      * Nullable: pre-REG-1 rows have no kind; overlap detection falls back to
-     * capability_type. Values: agent|skill|automation|workflow|tool|prompt|
+     * capability_type. Values: agent|skill|automation|prompt|
      * eval_set|routing_rule|policy|integration|template. */
     kind: text("kind"),
     name: text("name").notNull(),
@@ -1063,8 +1079,7 @@ export const capabilityManifests = pgTable(
     origin: text("origin").notNull().default("user_code"), // built_in | template | community | ai_generated | user_code
     audience: text("audience").notNull().default("private"), // private | team | external_visible
     /** inputs/outputs/permissions/connectors/evidence/rollback/evaluation — the
-     * generalized Capability Manifest (tool-kit's ToolManifest is the tool-shaped
-     * special case; this is the superset covering every capability_type). */
+     * generalized Capability Manifest covering every capability_type. */
     manifest: jsonb("manifest").notNull().default({}),
     /** Computed (never self-declared): informational | advisory | transformational | operational | external. */
     computedRisk: text("computed_risk").notNull().default("informational"),

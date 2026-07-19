@@ -16,7 +16,7 @@ import type { GoogleGatewayFactory } from "@bridge/integrations-google";
 // which this platform does not operate. There is nothing to scrape here anyway: the documented
 // pattern is a SAVED-SEARCH ALERT EMAIL the user already receives in their own inbox. Real wiring
 // therefore composes the ONE governed Google integration (createGmailFetchMessages below) rather
-// than owning any OAuth/HTTP client — per the plan's "no tool-owned OAuth" rule.
+// rather than owning any OAuth/HTTP client; credential ownership stays with the Integration.
 
 const MONEY_RE = /\$\s?([\d,]+(?:\.\d+)?)\s*([kKmM])?/;
 const LOCATION_RE = /\b([A-Z][a-zA-Z.\s]+,\s*[A-Z]{2})\b/;

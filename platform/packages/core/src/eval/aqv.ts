@@ -133,7 +133,7 @@ function agentCost(snapshot: ExecutionSnapshot | undefined): number | null {
   const started = snapshot.startedAt ? Date.parse(snapshot.startedAt) : NaN;
   const finished = snapshot.finishedAt ? Date.parse(snapshot.finishedAt) : NaN;
   const durationMs = Number.isNaN(started) || Number.isNaN(finished) ? 0 : Math.max(finished - started, 0);
-  const derived = (snapshot.tokenCount ?? 0) + (snapshot.toolInputCount ?? 0) + durationMs;
+  const derived = (snapshot.tokenCount ?? 0) + (snapshot.actionInputCount ?? 0) + durationMs;
   return derived > 0 ? derived : null;
 }
 

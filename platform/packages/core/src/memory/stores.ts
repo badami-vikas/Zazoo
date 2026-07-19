@@ -14,10 +14,9 @@ import type {
   ModelProvider,
   PolicyEvalInput,
   PolicyStore,
-  RitualDefinition,
-  RitualRegistry,
-  RitualRunRecorder,
-  ToolRegistry,
+  AutomationDefinition,
+  AutomationRegistry,
+  AutomationRunRecorder,
   RoleQuery,
   RunCtx,
   Skill,
@@ -464,58 +463,46 @@ export class RecordingVarianceAdjuster implements VarianceAdjuster {
   }
 }
 
-export class InMemoryRitualRegistry implements RitualRegistry {
-  readonly rituals = new Map<string, RitualDefinition>();
-  register(def: RitualDefinition): this {
-    this.rituals.set(`${def.workspaceId}:${def.id}`, def);
+export class InMemoryAutomationRegistry implements AutomationRegistry {
+  readonly automations = new Map<string, AutomationDefinition>();
+  register(def: AutomationDefinition): this {
+    this.automations.set(`${def.workspaceId}:${def.id}`, def);
     return this;
   }
-  async save(def: RitualDefinition): Promise<void> {
-    if (!def.agentId) throw new Error("RitualRegistry.save: owning agentId is required");
-    if (!def.agentPlane) throw new Error("RitualRegistry.save: owning agentPlane is required");
+  async save(def: AutomationDefinition): Promise<void> {
     this.register(def);
   }
-  async load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null> {
-    return this.rituals.get(`${workspaceId}:${ritualId}`) ?? null;
-  }
-}
-
-export class InMemoryToolRegistry implements ToolRegistry {
-  readonly tools = new Map<string, RitualDefinition>();
-  register(def: RitualDefinition): this {
-    this.tools.set(`${def.workspaceId}:${def.id}`, def);
-    return this;
-  }
-  async load(workspaceId: string, toolId: string): Promise<RitualDefinition | null> {
-    return this.tools.get(`${workspaceId}:${toolId}`) ?? null;
+  async load(workspaceId: string, automationId: string): Promise<AutomationDefinition | null> {
+    return this.automations.get(`${workspaceId}:${automationId}`) ?? null;
   }
 }
 
 interface RunRecord {
   runId: string;
-  ritualId: string;
+  automationId: string;
   workspaceId: string;
-  actorId: string;
+  agentId: string;
   status: "running" | "completed" | "halted";
   output: unknown;
 }
 
-export class InMemoryRitualRunRecorder implements RitualRunRecorder {
+export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
   readonly runs = new Map<string, RunRecord>();
   async start(
-    run: { runId: string; ritualId: string; workspaceId: string; actorId: string },
+    run: { runId: string; automationId: string; workspaceId: string; agentId: string },
     _ctx: RunCtx,
   ): Promise<void> {
     this.runs.set(run.runId, { ...run, status: "running", output: null });
   }
   async finish(
-    run: { runId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; workspaceId: string; status: "completed" | "halted"; output: unknown },
     _ctx: RunCtx,
   ): Promise<void> {
     const existing = this.runs.get(run.runId);
-    if (existing) {
-      existing.status = run.status;
-      existing.output = run.output;
+    if (!existing || existing.workspaceId !== run.workspaceId) {
+      throw new Error(`AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.workspaceId}`);
     }
+    existing.status = run.status;
+    existing.output = run.output;
   }
 }

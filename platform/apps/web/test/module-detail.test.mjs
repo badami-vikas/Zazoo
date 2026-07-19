@@ -217,12 +217,12 @@ test("Commons install retries resume promotion after an interrupted install", ()
   assert.equal(nextStep({ state: "available", status: "installed" }), "done");
 });
 
-test("Module Automation Run delegates to server-owned ritual execution and existing Approvals", () => {
+test("Module Automation Run delegates to server-owned Agent execution and existing Approvals", () => {
   const source = readFileSync(new URL("../src/app/pages/ModuleDetailPage.tsx", import.meta.url), "utf8");
-  assert.match(source, /trpc\.ritual\.runById\.mutate/);
-  assert.match(source, /ritualId,/);
+  assert.match(source, /trpc\.automation\.runById\.mutate/);
+  assert.match(source, /automationId:\s*manifestAutomationId/);
   assert.match(source, /modulePackageName:\s*pkg\.packageName/);
-  assert.match(source, /automation\.ritualId/);
+  assert.match(source, /automation\.automationId/);
   assert.match(source, /runtimeAutomationIds\.has\(automation\.id\)/);
   assert.match(source, /automation\.runRoute/);
   assert.match(source, /to=\{automation\.runRoute\}/);

@@ -94,8 +94,8 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
 
     await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
       captureId: "test_fixture_capture",
-      toolId: "dealpilot",
-      sourceToolId: "test_fixture_connector",
+      moduleId: "dealpilot",
+      sourceConnectorId: "test_fixture_connector",
       tier: "email",
       query: { kind: "company", hints: { sourceId: source.id } },
       payload: {
@@ -136,8 +136,8 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     assert.equal(deals.total, 1);
     await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
       captureId: "test_fixture_capture_update",
-      toolId: "dealpilot",
-      sourceToolId: "test_fixture_connector",
+      moduleId: "dealpilot",
+      sourceConnectorId: "test_fixture_connector",
       tier: "email",
       query: { kind: "company", hints: { sourceId: source.id } },
       payload: {
@@ -175,8 +175,8 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
 
     await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
       captureId: "test_fixture_capture_restart",
-      toolId: "dealpilot",
-      sourceToolId: "test_fixture_connector",
+      moduleId: "dealpilot",
+      sourceConnectorId: "test_fixture_connector",
       tier: "email",
       query: { kind: "company", hints: { sourceId: source.id } },
       payload: { name: "test_fixture_restart_company" },
@@ -341,19 +341,17 @@ test("Deal discovery fails closed before connector access when Source rights are
       }),
       /attest data rights/,
     );
-    const bypass = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: PILOT_USER, plane: "cloud" },
-      action: "read",
-      resourceType: "external:fetch",
-      inputs: { workspaceId: PILOT_WORKSPACE, sourceId: source.id },
-      skill: "dealpilot.source",
-    });
-    assert.equal(bypass.status, "rejected");
-    assert.match(
-      bypass.rejectionReason ?? "",
-      /local plane may not reach the internet/,
-      "browser proposals cannot self-select the Cloud Plane",
+    await assert.rejects(
+      () =>
+        Reflect.apply(caller.action.propose, caller.action, [{
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: PILOT_USER, plane: "cloud" },
+          action: "read",
+          resourceType: "external:fetch",
+          inputs: { workspaceId: PILOT_WORKSPACE, sourceId: source.id },
+          skill: "dealpilot.source",
+        }]),
+      /stageMutation|invalid literal/i,
     );
   } finally {
     await wiring.close();
@@ -522,8 +520,8 @@ test("concurrent distinct captures for one company materialize one Deal", async 
     ] as const) {
       await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
         captureId,
-        toolId: "dealpilot",
-        sourceToolId: "test_fixture_connector",
+        moduleId: "dealpilot",
+        sourceConnectorId: "test_fixture_connector",
         tier: "email",
         query: { kind: "company", hints: {} },
         payload: {

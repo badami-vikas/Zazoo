@@ -1451,30 +1451,19 @@ test("action.propose: a Human directly invoking jobpilot.researchCultureSource f
       type: "research_culture_source",
       assignedAgentId: LEARNING_AGENT,
     });
-    const proposal = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
-      // A client-claimed `plane: "cloud"` is deliberately ignored server-side
-      // (router.ts's action.propose hard-codes plane:"local" for every Human
-      // proposal — a Human can never claim any other plane for itself). That
-      // means the local-first gate (authority.ts's planeGate: local plane may
-      // never reach an `external:fetch` resource) now fires UNCONDITIONALLY
-      // for any Human-proposed external:fetch action, before the
-      // eligible-Agent-Run check this test originally targeted ever runs.
-      // The security property under test — a Human cannot directly invoke
-      // jobpilot.researchCultureSource — still holds (it is now enforced
-      // even more fundamentally); the sibling
-      // "jobpilot.synthesizeCultureProfile" test below (resourceType
-      // "signal", not an egress resource) still exercises and asserts the
-      // "eligible Agent Run" reason specifically.
-      actor: { type: "user", id: PILOT_USER, plane: "cloud" },
-      action: "read",
-      resourceType: "external:fetch",
-      inputs: { sourceId: "bcg-careers-interview-process", workspaceId: PILOT_WORKSPACE, company: "Boston Consulting Group" },
-      skill: "jobpilot.researchCultureSource",
-      goalTaskRef: { goalId: goal.id, taskId: task.id },
-    });
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /local-first gate: local plane may not reach the internet/);
+    await assert.rejects(
+      () =>
+        Reflect.apply(caller.action.propose, caller.action, [{
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: PILOT_USER, plane: "cloud" },
+          action: "read",
+          resourceType: "external:fetch",
+          inputs: { sourceId: "bcg-careers-interview-process", workspaceId: PILOT_WORKSPACE, company: "Boston Consulting Group" },
+          skill: "jobpilot.researchCultureSource",
+          goalTaskRef: { goalId: goal.id, taskId: task.id },
+        }]),
+      /stageMutation|invalid literal/i,
+    );
   } finally {
     await wiring.close();
   }
@@ -1491,17 +1480,19 @@ test("action.propose: a Human directly invoking jobpilot.synthesizeCultureProfil
       type: "synthesize_culture_profile",
       assignedAgentId: INTERNAL_STRATEGIST_AGENT,
     });
-    const proposal = await caller.action.propose({
-      workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: PILOT_USER },
-      action: "write",
-      resourceType: "signal",
-      inputs: { parentRunId: "parent-run", claims: [], artifacts: [], skippedSources: [] },
-      skill: "jobpilot.synthesizeCultureProfile",
-      goalTaskRef: { goalId: goal.id, taskId: task.id },
-    });
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
+    await assert.rejects(
+      () =>
+        Reflect.apply(caller.action.propose, caller.action, [{
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "signal",
+          inputs: { parentRunId: "parent-run", claims: [], artifacts: [], skippedSources: [] },
+          skill: "jobpilot.synthesizeCultureProfile",
+          goalTaskRef: { goalId: goal.id, taskId: task.id },
+        }]),
+      /stageMutation|invalid literal/i,
+    );
   } finally {
     await wiring.close();
   }

@@ -22,7 +22,7 @@ function modelReturning(text: string): ModelProvider {
 function caseInput(overrides: Partial<EvalCase> = {}): EvalCase {
   return {
     id: "case-1",
-    input: { request: "draft a ritual summary" },
+    input: { request: "draft an Automation summary" },
     origin: "seed",
     ...overrides,
   };

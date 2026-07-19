@@ -19,10 +19,10 @@
  *  - multiselect         → checkbox list from col.options (comma-joined on submit)
  *  - checkbox            → <Checkbox>
  *  - location            → <Input type="text"> (label or local coordinates)
- *  - relation / formula / tool → read-only note; computed/relational fields are
+ *  - relation / formula / skill → read-only note; computed/relational fields are
  *    excluded from user input — the backend fills them (same as every other write path)
  *
- * Locked or non-editable columns are skipped; formula/tool columns are skipped
+ * Locked or non-editable columns are skipped; formula/skill columns are skipped
  * because their values are computed server-side.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -40,7 +40,7 @@ import {
 } from "../../components/ui/select.js";
 import type { DataViewProps, DataRow } from "../types.js";
 
-const EXCLUDED_KINDS = new Set<ColumnSpec["kind"]>(["formula", "tool"]);
+const EXCLUDED_KINDS = new Set<ColumnSpec["kind"]>(["formula", "skill"]);
 
 function isFormEditable(col: ColumnSpec): boolean {
   if (col.locked) return false;

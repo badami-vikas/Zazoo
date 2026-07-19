@@ -23,7 +23,6 @@ import {
   type LedgerSource,
   type OutstandingRelationshipMaterialization,
 } from '../data/ledger';
-import { materializeApprovedCapture } from '../data/toolCaptures';
 
 // crude line-diff for the drawer — marks removed (prior-only) and added (proposed-only) lines
 function lineDiff(prior: string | null | undefined, proposed: string) {
@@ -52,7 +51,7 @@ function ActorChip({ kind, name }: { kind: 'agent' | 'human'; name: string }) {
   );
 }
 
-// "Drafted by Agent on behalf of User · ritual run" — provenance on every AI action
+// "Drafted by Agent on behalf of User · Automation Run" — provenance on every AI action
 function Provenance({ e }: { e: LedgerEntry }) {
   const dlg = e.delegationId ? delegations[e.delegationId] : null;
   return (
@@ -239,8 +238,6 @@ export function ApprovalsPage() {
     );
     if (localAlias) resolveAction(localAlias.id);
     setLive(items => items.filter(item => item.id !== proposalEntry.id));
-    const materializationEntry = entry.sourceId ? { ...entry, id: entry.sourceId } : entry;
-    await materializeApprovedCapture(materializationEntry, recordedDecision);
     setResolved(null);
     setResolvingId(null);
     setEditing(false);

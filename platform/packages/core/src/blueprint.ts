@@ -56,7 +56,7 @@ export type BlueprintColumnKind =
   | "url"
   | "relation"
   | "formula"
-  | "tool"
+  | "skill"
   | "location";
 export type BlueprintDefaultValue =
   | string
@@ -71,7 +71,7 @@ export interface BlueprintColumnSpec {
   label: string;
   kind: BlueprintColumnKind;
   options?: string[];
-  toolId?: string;
+  skillId?: string;
   required?: boolean;
   defaultValue?: BlueprintDefaultValue;
   relationTarget?: string;
@@ -124,7 +124,7 @@ export interface BlueprintFieldSpec {
   label: string;
   kind: BlueprintColumnKind;
   options?: string[];
-  toolId?: string;
+  skillId?: string;
   required?: boolean;
   defaultValue?: BlueprintDefaultValue;
   relationTarget?: string;
@@ -345,7 +345,7 @@ export function compileBlueprint(
         label: applyVocabulary(f.label, blueprint.vocabulary),
         kind: f.kind,
         ...(f.options ? { options: f.options } : {}),
-        ...(f.toolId ? { toolId: f.toolId } : {}),
+        ...(f.skillId ? { skillId: f.skillId } : {}),
         ...(f.required !== undefined ? { required: f.required } : {}),
         ...(f.defaultValue !== undefined ? { defaultValue: f.defaultValue } : {}),
         ...(f.relationTarget ? { relationTarget: f.relationTarget } : {}),
@@ -512,7 +512,7 @@ function rejectUnknownKeys(obj: Record<string, unknown>, allowed: readonly strin
 }
 
 const BLUEPRINT_FIELD_KINDS: readonly BlueprintColumnKind[] = [
-  "text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "tool", "location",
+  "text", "number", "select", "multiselect", "date", "checkbox", "url", "relation", "formula", "skill", "location",
 ];
 const FILTER_OPS: readonly BlueprintFilterOp[] = ["contains", "is", "is_not", "is_empty", "is_not_empty", "starts_with"];
 
@@ -536,7 +536,7 @@ function parseField(raw: unknown, where: string): BlueprintFieldSpec {
       "label",
       "kind",
       "options",
-      "toolId",
+      "skillId",
       "required",
       "defaultValue",
       "relationTarget",
@@ -556,7 +556,7 @@ function parseField(raw: unknown, where: string): BlueprintFieldSpec {
     if (!Array.isArray(raw.options) || raw.options.some((o) => typeof o !== "string")) bfail(`${where}.options must be a string[]`);
     options = raw.options as string[];
   }
-  if (raw.toolId !== undefined && typeof raw.toolId !== "string") bfail(`${where}.toolId must be a string`);
+  if (raw.skillId !== undefined && typeof raw.skillId !== "string") bfail(`${where}.skillId must be a string`);
   if (raw.required !== undefined && typeof raw.required !== "boolean") bfail(`${where}.required must be a boolean`);
   if (raw.defaultValue !== undefined && !isDefaultValue(raw.defaultValue)) {
     bfail(`${where}.defaultValue must be a scalar or scalar array`);
@@ -575,7 +575,7 @@ function parseField(raw: unknown, where: string): BlueprintFieldSpec {
     label,
     kind: kind as BlueprintColumnKind,
     ...(options ? { options } : {}),
-    ...(typeof raw.toolId === "string" ? { toolId: raw.toolId } : {}),
+    ...(typeof raw.skillId === "string" ? { skillId: raw.skillId } : {}),
     ...(typeof raw.required === "boolean" ? { required: raw.required } : {}),
     ...(raw.defaultValue !== undefined ? { defaultValue: raw.defaultValue } : {}),
     ...(typeof raw.relationTarget === "string" ? { relationTarget: raw.relationTarget } : {}),

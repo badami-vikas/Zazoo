@@ -35,9 +35,8 @@ import { DuplicateVersionError, type CommonsStore } from "./store.js";
 
 const PACKAGE_KINDS: readonly string[] = [
   "skill",
-  "workflow",
+  "automation",
   "agent",
-  "tool",
   "view",
   "integration_bundle",
   "workspace_definition",

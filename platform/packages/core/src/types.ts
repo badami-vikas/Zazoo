@@ -2,7 +2,7 @@
  * Core domain types for the Universal Action Pipeline.
  *
  * Vocabulary is the brand: Person / Community / Event / Signal. Never Lead /
- * Contact. Legacy Initiative/Ritual/Touchpoint identifiers remain only while
+ * Contact. Legacy Initiative/Touchpoint identifiers remain only while
  * their approved vocabulary migrations are incomplete.
  */
 
@@ -28,8 +28,8 @@ export type ResourceType =
   | "event"
   | "initiative"
   | "touchpoint"
-  | "ritual"
-  | "tool"
+  | "automation"
+  | "module"
   | "file"
   | "signal"
   | "policy"
@@ -79,14 +79,14 @@ export interface GrantRule {
   dataScope?: import("./data-scope.js").DataScope;
 }
 
-/** Context for ephemeral grants — minted per ritual/initiative run, expiring.
+/** Context for ephemeral grants — minted per Automation/Initiative run, expiring.
  * `child_agent_run` (AGS2) is a bounded delegated Run created by a parent
  * Agent — see child-agent-run.ts. It reuses this same context shape (id =
  * the child run id, runId = the parent run id) purely for ledger/audit
  * attribution; a child run's authority is bounded by construction
  * (`deriveChildAgentRun`'s intersection), not by an ephemeral-grant lookup. */
 export interface RunContext {
-  type: "initiative" | "community" | "ritual" | "child_agent_run";
+  type: "initiative" | "community" | "automation" | "child_agent_run";
   id: string;
   runId?: string;
 }
@@ -197,7 +197,7 @@ export interface ExecutionSnapshot {
   approvalBypassAttempted?: boolean;
   modelVersion?: string;
   tokenCount?: number;
-  toolInputCount?: number;
+  actionInputCount?: number;
   startedAt?: string;
   finishedAt?: string;
   cost?: number;
@@ -248,7 +248,7 @@ export interface LedgerEntry {
    * threaded through unchanged when decide() replays this entry as a Proposal's
    * request instead of being silently dropped. */
   dataScope?: import("./data-scope.js").DataScope;
-  /** Original run context (initiative/community/ritual + runId) this action ran
+  /** Original run context (Initiative/Community/Automation + runId) this action ran
    * under — audit completeness; threaded through unchanged on replay. */
   context?: RunContext;
   /** Provenance of the input that drove this action (PI-1) — threaded through

@@ -133,7 +133,7 @@ function LayerRow({
 }
 
 // ─── Shared layered-scope control ─────────────────────────────────────────────
-// Used by AgentCreate, AgentDetail (edit), and (read-only) RitualCreate's effective view.
+// Used by AgentCreate and AgentDetail (edit).
 
 export function PermissionLayers({
   value,

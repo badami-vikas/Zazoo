@@ -6,7 +6,7 @@ import { peopleSourcingManifest } from "../src/manifest.js";
 import { sourcePeople, matchPerson } from "../src/engine.js";
 
 test("manifest: kind internal, has no surfaces, quarantine forced true", () => {
-  assert.equal(peopleSourcingManifest.kind, "internal");
+  assert.equal(peopleSourcingManifest.kind, "skill");
   assert.equal(peopleSourcingManifest.intakePolicy.quarantine, true);
   assert.ok(peopleSourcingManifest.provides.some((p) => p.id === "source.people"));
 });

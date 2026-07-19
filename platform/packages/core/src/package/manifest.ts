@@ -24,9 +24,9 @@ import { parseWorkspaceBlueprint } from "../blueprint.js";
 
 const PACKAGE_KINDS: readonly PackageKind[] = [
   "skill",
-  "workflow",
+  "automation",
   "agent",
-  "tool",
+  "module",
   "view",
   "integration_bundle",
   "workspace_definition",
@@ -269,7 +269,7 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
   if (!Array.isArray(automationsRaw)) fail("package.module.automations must be an array");
   const automations: ModuleAutomationBinding[] = automationsRaw.map((automation, index) => {
     if (!isPlainObject(automation)) fail(`package.module.automations[${index}] must be an object`);
-    const ritualId = automation.ritualId ?? automation.ritual_id;
+    const automationId = automation.automationId ?? automation.automation_id;
     const runRoute = automation.runRoute ?? automation.run_route;
     const binding: ModuleAutomationBinding = {
       id: requiredString(automation.id, `package.module.automations[${index}].id`),
@@ -281,15 +281,15 @@ function parseModuleSurface(raw: unknown, capabilities: CapabilityManifest[]): M
       agentId: requiredString(automation.agentId ?? automation.agent_id, `package.module.automations[${index}].agent_id`),
       trigger: requiredString(automation.trigger, `package.module.automations[${index}].trigger`),
       procedure: requiredString(automation.procedure, `package.module.automations[${index}].procedure`),
-      ...(ritualId !== undefined
-        ? { ritualId: requiredString(ritualId, `package.module.automations[${index}].ritual_id`) }
+      ...(automationId !== undefined
+        ? { automationId: requiredString(automationId, `package.module.automations[${index}].automation_id`) }
         : {}),
       ...(runRoute !== undefined
         ? { runRoute: requiredString(runRoute, `package.module.automations[${index}].run_route`) }
         : {}),
     };
-    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "workflow") {
-      fail(`package.module.automations[${index}].capability_id must reference a workflow capability`);
+    if (capabilityById.get(binding.capabilityId)?.capabilityType !== "automation") {
+      fail(`package.module.automations[${index}].capability_id must reference an Automation capability`);
     }
     if (!agentIds.has(binding.agentId)) {
       fail(`package.module.automations[${index}].agent_id must reference a declared module agent`);

@@ -919,12 +919,12 @@ test("commons install stages and governs exact pinned dependency artifacts", asy
   const wiring = await buildWiring();
   const dependency: PackageManifest = {
     ...commonsManifest({ name: "shared-tool", version: "1.0.0" }),
-    kind: "tool",
+    kind: "module",
     capabilities: [{
       ...commonsManifest({ name: "shared-tool", version: "1.0.0" }).capabilities[0]!,
       id: "shared-tool.core",
       name: "shared-tool core",
-      capabilityType: "tool",
+      capabilityType: "skill",
     }],
   };
   const dependencyEntry = makeUnsignedCommonsEntry(dependency);
@@ -1012,7 +1012,7 @@ test("commons.installPropose: rejects an authenticated workspace nonmember befor
       run: makeRun(),
       identity: { type: "user", id: "d0000000-0000-4000-a000-00000000dead" },
       authenticated: true,
-      verifying: true,
+      verifying: false,
     });
     await assert.rejects(
       () =>

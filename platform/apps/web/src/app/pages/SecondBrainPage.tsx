@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrainCircuit } from "lucide-react";
+import { Network } from "lucide-react";
 import { useNavigate } from "react-router";
 import type { TableSpec, ViewConfig, ViewKind } from "@bridge/tables";
 import { Header } from "../components/shared/Header";
@@ -99,7 +99,7 @@ export function SecondBrainPage() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white">
       <Header
-        tabs={[{ id: "Second Brain", icon: BrainCircuit }]}
+        tabs={[{ id: "Second Brain", icon: Network }]}
         activeTab="Second Brain"
         onTabChange={() => {}}
       />

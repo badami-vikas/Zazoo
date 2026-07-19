@@ -417,12 +417,12 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
     message?: string;
   }>>({});
 
-  const runAutomation = async (automationId: string, ritualId: string) => {
+  const runAutomation = async (automationId: string, manifestAutomationId: string) => {
     setRunStates((current) => ({ ...current, [automationId]: { status: "running" } }));
     try {
-      const result = await trpc.ritual.runById.mutate({
+      const result = await trpc.automation.runById.mutate({
         workspaceId: PILOT_WORKSPACE,
-        ritualId,
+        automationId: manifestAutomationId,
         modulePackageName: pkg.packageName,
       });
       setRunStates((current) => ({
@@ -462,7 +462,7 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
                     Trigger: {automation.trigger} · Agent: {agents.get(automation.agentId)?.name ?? automation.agentId}
                   </p>
                 </div>
-                {automation.ritualId && runtimeAutomationIds.has(automation.id) ? (
+                {automation.automationId && runtimeAutomationIds.has(automation.id) ? (
                   automation.runRoute ? (
                     <Link
                       to={automation.runRoute}
@@ -474,7 +474,7 @@ function AutomationsSection({ pkg }: { pkg: PackageRow }) {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => void runAutomation(automation.id, automation.ritualId!)}
+                      onClick={() => void runAutomation(automation.id, automation.automationId!)}
                       disabled={runState?.status === "running"}
                       className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
                       style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}

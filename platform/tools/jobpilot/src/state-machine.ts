@@ -4,7 +4,7 @@ import type { ApplicationStage } from "./types.js";
 // stage_events row; no status is ever updated without one — enforced in one
 // `transition(application, to, actor, meta)` helper, the only code path allowed to touch
 // status"). This module IS that helper: a pure validate-and-log function, not a persistence
-// layer — applying the returned stage to a stored `applications` row is a future DB/ritual
+// layer — applying the returned stage to a stored `applications` row is a future DB/Automation
 // concern, deliberately out of scope for this anchor.
 
 export type StageActor = "system" | "user" | "gmail_router" | string; // agent name, per architecture doc

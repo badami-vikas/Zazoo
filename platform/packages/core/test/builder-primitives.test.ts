@@ -2,20 +2,20 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  classifyToolbeltRisk,
+  classifyBuilderPrimitiveRisk,
   checkGrantScope,
   checkCommandAllowed,
   runShellExecute,
-  type ToolbeltGrant,
-  type ToolbeltRequest,
-} from "../src/capability/toolbelt.js";
+  type BuilderPrimitiveGrant,
+  type BuilderPrimitiveRequest,
+} from "../src/capability/builder-primitives.js";
 import {
   InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
   type SandboxProvider,
 } from "../src/capability/sandbox-provider.js";
 
-function test_fixture_grant(overrides: Partial<ToolbeltGrant> = {}): ToolbeltGrant {
+function test_fixture_grant(overrides: Partial<BuilderPrimitiveGrant> = {}): BuilderPrimitiveGrant {
   return {
     workspaceId: "test_fixture_workspace_1",
     token: "file:read",
@@ -25,16 +25,16 @@ function test_fixture_grant(overrides: Partial<ToolbeltGrant> = {}): ToolbeltGra
   };
 }
 
-test("classifyToolbeltRisk: file:read/write/edit are operational, not sandbox-mandatory", () => {
+test("classifyBuilderPrimitiveRisk: file Skills are operational, not sandbox-mandatory", () => {
   for (const token of ["file:read", "file:write", "file:edit"] as const) {
-    const c = classifyToolbeltRisk(token);
+    const c = classifyBuilderPrimitiveRisk(token);
     assert.equal(c.riskBand, "operational");
     assert.equal(c.sandboxMandatory, false);
   }
 });
 
-test("classifyToolbeltRisk: shell:execute is operational AND sandbox-mandatory", () => {
-  const c = classifyToolbeltRisk("shell:execute");
+test("classifyBuilderPrimitiveRisk: shell:execute is operational AND sandbox-mandatory", () => {
+  const c = classifyBuilderPrimitiveRisk("shell:execute");
   assert.equal(c.riskBand, "operational");
   assert.equal(c.sandboxMandatory, true);
 });
@@ -130,7 +130,7 @@ test("checkCommandAllowed: an allow-list restricts to exact command names", () =
 
 test("runShellExecute: shell:execute cannot be satisfied by the in-process-js sandbox provider", async () => {
   const provider: SandboxProvider = new InProcessJsSandboxProvider();
-  const req: Extract<ToolbeltRequest, { token: "shell:execute" }> = {
+  const req: Extract<BuilderPrimitiveRequest, { token: "shell:execute" }> = {
     token: "shell:execute",
     workspaceId: "test_fixture_workspace_1",
     command: "echo",
@@ -146,7 +146,7 @@ test("runShellExecute: shell:execute cannot be satisfied by the in-process-js sa
 
 test("runShellExecute: a not-implemented container provider surfaces as a denial, never a silent success", async () => {
   const provider: SandboxProvider = new NotImplementedContainerSandboxProvider();
-  const req: Extract<ToolbeltRequest, { token: "shell:execute" }> = {
+  const req: Extract<BuilderPrimitiveRequest, { token: "shell:execute" }> = {
     token: "shell:execute",
     workspaceId: "test_fixture_workspace_1",
     command: "echo",

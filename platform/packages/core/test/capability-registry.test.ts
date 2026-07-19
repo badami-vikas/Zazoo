@@ -12,29 +12,29 @@ import type { ModelProvider } from "../src/ports.js";
 
 test("detects a near duplicate structurally before creation without a model", async () => {
   const candidate: OverlapCandidate = {
-    name: "Memory Ritual Summarizer",
+    name: "Memory Automation Summarizer",
     kind: "skill",
     capabilityType: "skill",
-    permissions: ["memory:read", "ritual:write"],
-    purpose: "Summarize Memory entries for recurring Ritual review.",
+    permissions: ["memory:read", "automation:write"],
+    purpose: "Summarize Memory entries for recurring Automation review.",
   };
   const existing = row({
-    id: "manifest-memory-ritual-summarizer",
-    name: "Memory Ritual Summarizer",
+    id: "manifest-memory-automation-summarizer",
+    name: "Memory Automation Summarizer",
     kind: "skill",
     capabilityType: "skill",
     manifest: {
-      purpose: "Summarize Memory entries for recurring Ritual review.",
+      purpose: "Summarize Memory entries for recurring Automation review.",
       permissions: [
         { resourceType: "memory", action: "read" },
-        { resourceType: "ritual", action: "write" },
+        { resourceType: "automation", action: "write" },
       ],
     },
   });
 
   const matches = await findOverlaps(candidate, [existing]);
 
-  assert.equal(matches[0]?.manifestId, "manifest-memory-ritual-summarizer");
+  assert.equal(matches[0]?.manifestId, "manifest-memory-automation-summarizer");
   assert.equal(matches[0]?.tier, "structural");
   assert.equal(matches[0]?.nearDuplicate, true);
   assert.equal(matches[0]?.score, 1);
@@ -44,8 +44,8 @@ test("marks a clearly distinct candidate as not near duplicate", async () => {
   const candidate: OverlapCandidate = {
     name: "Community Signal Router",
     kind: "routing_rule",
-    capabilityType: "workflow",
-    purpose: "Route inbound Community Signals to appropriate workspace Rituals.",
+    capabilityType: "automation",
+    purpose: "Route inbound Community Signals to appropriate Automations.",
   };
   const existing = row({
     id: "manifest-memory-summary-skill",
@@ -65,13 +65,13 @@ test("marks a clearly distinct candidate as not near duplicate", async () => {
 test("falls back to capabilityType when an existing row has null kind", () => {
   const candidate: OverlapCandidate = {
     name: "Touchpoint Planner",
-    capabilityType: "workflow",
+    capabilityType: "automation",
   };
   const existing = row({
     id: "manifest-touchpoint-planner",
     name: "Different Name",
     kind: null,
-    capabilityType: "workflow",
+    capabilityType: "automation",
     manifest: {},
   });
 
@@ -83,7 +83,7 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
     name: "Memory Pattern Builder",
     kind: "skill",
     capabilityType: "skill",
-    purpose: "Identify repeated Memory themes and suggest a Ritual.",
+    purpose: "Identify repeated Memory themes and suggest an Automation.",
   };
   const existing = [
     row({
@@ -91,7 +91,7 @@ test("uses semantic tier for inconclusive structural matches when embeddings exi
       name: "Touchpoint Theme Detector",
       kind: "skill",
       capabilityType: "skill",
-      manifest: { purpose: "Identify repeated Memory themes and suggest a Ritual." },
+      manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },
     }),
     row({
       id: "manifest-community-map-view",
@@ -119,14 +119,14 @@ test("degrades gracefully when semantic comparison is inconclusive but embedding
     name: "Memory Pattern Builder",
     kind: "skill",
     capabilityType: "skill",
-    purpose: "Identify repeated Memory themes and suggest a Ritual.",
+    purpose: "Identify repeated Memory themes and suggest an Automation.",
   };
   const existing = row({
     id: "manifest-touchpoint-theme-detector",
     name: "Touchpoint Theme Detector",
     kind: "skill",
     capabilityType: "skill",
-    manifest: { purpose: "Identify repeated Memory themes and suggest a Ritual." },
+    manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },
   });
   const modelWithoutEmbed: ModelProvider = {
     id: "fixture-no-embed",
@@ -150,7 +150,7 @@ test("returns an empty list when there are no existing manifests", async () => {
   const matches = await findOverlaps({
     name: "Initiative Brief Writer",
     kind: "prompt",
-    capabilityType: "tool",
+    capabilityType: "skill",
   }, []);
 
   assert.deepEqual(matches, []);
@@ -161,14 +161,14 @@ test("degrades to structural matches when embedding execution fails", async () =
     name: "Memory Pattern Builder",
     kind: "skill",
     capabilityType: "skill",
-    purpose: "Identify repeated Memory themes and suggest a Ritual.",
+    purpose: "Identify repeated Memory themes and suggest an Automation.",
   };
   const existing = row({
     id: "manifest-touchpoint-theme-detector",
     name: "Touchpoint Theme Detector",
     kind: "skill",
     capabilityType: "skill",
-    manifest: { purpose: "Identify repeated Memory themes and suggest a Ritual." },
+    manifest: { purpose: "Identify repeated Memory themes and suggest an Automation." },
   });
   const model = embeddingModel(() => {
     throw new Error("fixture embedding unavailable");
@@ -184,14 +184,14 @@ test("omits permission weighting when either side lacks permissions", () => {
   const candidate: OverlapCandidate = {
     name: "Signal Review Prompt",
     kind: "prompt",
-    capabilityType: "tool",
+    capabilityType: "skill",
     permissions: ["signal:read"],
   };
   const existing = row({
     id: "manifest-signal-review-prompt",
     name: "Signal Review Prompt",
     kind: "prompt",
-    capabilityType: "tool",
+    capabilityType: "skill",
     manifest: { purpose: "Review Signal context." },
   });
 

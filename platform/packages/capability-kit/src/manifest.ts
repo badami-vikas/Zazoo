@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-// The single manifest contract for every Bridge tool — internal (headless capability) or
-// external (UI surface). See docs/raw/tool-standardization-plan.md (ADR-006) +
-// docs/raw/tools-internalization.md. "Manifest first" is a hard rule: no tool ships without
-// one, and the tool registry is DERIVED from these, never hand-maintained separately.
+// Manifest contract for executable Skills and surfaced Modules.
 
 const modelBinding = z.object({
   use: z.enum(["vision", "transcription", "llm", "embedding", "other"]),
@@ -62,33 +59,32 @@ const baseFields = {
   intakePolicy,
 };
 
-// Internal tool: a headless capability. No nav, no route — mounted by external tools or
-// rituals via `composes`. Declares what it PROVIDES.
-export const internalToolManifest = z.object({
+export const skillExecutableManifest = z.object({
   ...baseFields,
-  kind: z.literal("internal"),
+  kind: z.literal("skill"),
   provides: z.array(providesEntry).min(1),
 });
 
-// External tool: a UI surface. Declares its routes/nav AND which internal tools it composes.
-// Must not re-declare capability it gets for free by composing (compose, don't copy).
-export const externalToolManifest = z.object({
+export const moduleExecutableManifest = z.object({
   ...baseFields,
-  kind: z.literal("external"),
+  kind: z.literal("module"),
   surfaces: z.array(surfaceEntry).min(1),
-  composes: z.array(z.string()).default([]),
+  skillDependencies: z.array(z.string()).default([]),
 });
 
-export const toolManifest = z.discriminatedUnion("kind", [internalToolManifest, externalToolManifest]);
+export const executableManifest = z.discriminatedUnion("kind", [
+  skillExecutableManifest,
+  moduleExecutableManifest,
+]);
 
 export type ModelBinding = z.infer<typeof modelBinding>;
 export type Capability = z.infer<typeof capability>;
 export type OutputContractEntry = z.infer<typeof outputContractEntry>;
 export type IntakePolicy = z.infer<typeof intakePolicy>;
-export type InternalToolManifest = z.infer<typeof internalToolManifest>;
-export type ExternalToolManifest = z.infer<typeof externalToolManifest>;
-export type ToolManifest = z.infer<typeof toolManifest>;
+export type SkillExecutableManifest = z.infer<typeof skillExecutableManifest>;
+export type ModuleExecutableManifest = z.infer<typeof moduleExecutableManifest>;
+export type ExecutableManifest = z.infer<typeof executableManifest>;
 
-export function parseToolManifest(input: unknown): ToolManifest {
-  return toolManifest.parse(input);
+export function parseExecutableManifest(input: unknown): ExecutableManifest {
+  return executableManifest.parse(input);
 }

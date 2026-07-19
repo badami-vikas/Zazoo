@@ -133,7 +133,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "onboarding.verifyPhoneOtp",
   "google.syncGmail",
   "dealpilot.discoverDeals",
-  "ritual.runById",
+  "automation.runById",
   "commons.runInstalledSkill",
   "helpdesk.public.",
 ] as const;

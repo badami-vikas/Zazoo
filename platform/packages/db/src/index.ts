@@ -42,7 +42,11 @@ export {
   type OutreachAgentGovernanceConfig,
   type PrincipalGovernanceConfig,
 } from "./governance-stores.js";
-export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export {
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+  parseAutomationSteps,
+} from "./automation-stores.js";
 export {
   DrizzleCanonicalIdentityStore,
   InMemoryCanonicalIdentityStore,
@@ -151,10 +155,9 @@ import {
   DrizzleRoleStore,
 } from "./governance-stores.js";
 import {
-  DrizzleRitualRegistry,
-  DrizzleToolRegistry,
-  DrizzleRitualRunRecorder,
-} from "./ritual-stores.js";
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+} from "./automation-stores.js";
 import {
   DrizzleWorkspaceStore,
   type WorkspaceRenameCoordinator,
@@ -175,9 +178,8 @@ export function createDrizzlePorts(
     policies: new DrizzlePolicyStore(db),
     ledger: new DrizzleLedgerStore(db, options),
     relationMaterializations: new DrizzleRelationMaterializationStore(db),
-    ritualRegistry: new DrizzleRitualRegistry(db),
-    toolRegistry: new DrizzleToolRegistry(db),
-    ritualRunRecorder: new DrizzleRitualRunRecorder(db),
+    automationRegistry: new DrizzleAutomationRegistry(db),
+    automationRunRecorder: new DrizzleAutomationRunRecorder(db),
     workspaceStore: new DrizzleWorkspaceStore(db, options.workspaceRenameCoordinator),
   };
 }
