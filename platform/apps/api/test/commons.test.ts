@@ -342,11 +342,14 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
   assert.ok(builtIn);
   const wiring = await buildWiring();
   const registry = new InMemoryTestCommonsRegistry();
-  registry.seed(makeEntry(builtIn.manifest, [...builtIn.commons.tags]));
+  const registryEntry = makeEntry(builtIn.manifest, [...builtIn.commons.tags]);
+  registry.seed(registryEntry);
   (wiring as { commonsRegistry: CommonsRegistry }).commonsRegistry = registry;
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response(
       JSON.stringify({
         query: {
           pages: {
@@ -359,6 +362,7 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
+  };
 
   try {
     const caller = await makeCaller(wiring);
@@ -372,6 +376,12 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
       verificationMethod: null,
       connectedSourceIds: [],
     });
+    const onboardingRecommendation = await caller.onboarding.recommendFromRoleModel({
+      workspaceId: PILOT_WORKSPACE,
+      figure: "Test Fixture Leader",
+      admiredFor: "clear preparation",
+    });
+    assert.equal(fetchCalls, 1);
     const proposed = await caller.commons.installPropose({
       workspaceId: PILOT_WORKSPACE,
       name: builtIn.manifest.name,
@@ -405,6 +415,24 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
     });
     const attachment = listed.items.find((item) => item.id === proposed.installation.id);
     assert.deepEqual(attachment?.runtimeSkillIds, [LEARNING_RECOMMENDATION_SKILL_ID]);
+
+    const currentRegistryHash = registryEntry.integrity.value;
+    registryEntry.integrity.value = `sha256:${"0".repeat(64)}`;
+    const listedAfterRegistryDrift = await caller.packages.list({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.deepEqual(
+      listedAfterRegistryDrift.items.find((item) => item.id === proposed.installation.id)?.runtimeSkillIds,
+      [],
+    );
+    assert.match(
+      listedAfterRegistryDrift.items.find((item) => item.id === proposed.installation.id)
+        ?.runtimeBindingIssues[0] ?? "",
+      /pinned root artifact/,
+    );
+    registryEntry.integrity.value = currentRegistryHash;
 
     const storedInstallation = await wiring.packageStore.get(proposed.installation.id);
     assert.ok(storedInstallation);
@@ -490,10 +518,24 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
       ownerModule.manifest.summary = ownerSummary;
     }
 
+    await assert.rejects(
+      () =>
+        caller.commons.runInstalledSkill({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: proposed.installation.id,
+        }),
+      /Approve a cited role-model onboarding recommendation/,
+    );
+    assert.equal(fetchCalls, 1);
+    await caller.action.decide({
+      proposalId: onboardingRecommendation.proposal.id,
+      decision: "approve",
+    });
     const result = await caller.commons.runInstalledSkill({
       workspaceId: PILOT_WORKSPACE,
       installationId: proposed.installation.id,
     });
+    assert.equal(fetchCalls, 1, "the installed no-egress Skill must reuse the approved local Signal");
     assert.equal(result.proposal.status, "pending_review");
     assert.deepEqual(result.proposal.request.actor, {
       type: "agent",

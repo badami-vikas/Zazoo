@@ -331,6 +331,7 @@ function AgentsSection({
                       const runKey = `${attachment.id}:${capability.id}`;
                       const runState = skillRunStates[runKey];
                       const runnable = attachment.runtimeSkillIds.includes(capability.id);
+                      const bindingIssue = attachment.runtimeBindingIssues[0];
                       return (
                         <li key={`${attachment.id}-${capability.id}`} className="p-3 space-y-2">
                           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -358,10 +359,15 @@ function AgentsSection({
                                 className="shrink-0 rounded border px-2 py-1 text-xs"
                                 style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
                               >
-                                Runtime binding pending
+                                Runtime binding unavailable
                               </span>
                             )}
                           </div>
+                          {!runnable && bindingIssue && (
+                            <p className="text-xs break-words" style={{ color: "var(--destructive)" }}>
+                              {bindingIssue}
+                            </p>
+                          )}
                           {runState && runState.status !== "running" && (
                             <p
                               className="text-xs break-words"

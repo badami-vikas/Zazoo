@@ -211,7 +211,8 @@ function packageManifestHash(manifest: PackageManifest): string {
 
 function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
   const capability = manifest.capabilities[0];
-  const permission = capability?.permissions[0];
+  const readPermission = capability?.permissions[0];
+  const writePermission = capability?.permissions[1];
   return manifest.name === "cited-role-model-practice"
     && manifest.version === CITED_ROLE_MODEL_PRACTICE_VERSION
     && manifest.kind === "skill"
@@ -226,11 +227,15 @@ function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
     && capability.capabilityType === "skill"
     && capability.origin === "built_in"
     && capability.audience === "private"
-    && capability.permissions.length === 1
-    && permission?.resourceType === "signal"
-    && permission.action === "write"
-    && permission.dataScope === "private"
-    && permission.egress === false
+    && capability.permissions.length === 2
+    && readPermission?.resourceType === "signal"
+    && readPermission.action === "read"
+    && readPermission.dataScope === "private"
+    && readPermission.egress === false
+    && writePermission?.resourceType === "signal"
+    && writePermission.action === "write"
+    && writePermission.dataScope === "private"
+    && writePermission.egress === false
     && capability.connectors.length === 0
     && capability.dependencies.length === 0
     && capability.execution === undefined;
@@ -849,30 +854,32 @@ interface CommonsSkillInvocation {
   capabilityId: string;
 }
 
-async function proposeRoleModelRecommendation(
+const roleModelRecommendationSchema = z.object({
+  kind: z.literal("learning_recommendation"),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  documentedContext: z.string().min(1),
+  interpretation: z.string().min(1),
+  citation: z.object({
+    label: z.string().min(1),
+    url: z.string().url(),
+  }),
+  cadence: z.string().min(1),
+  stopCondition: z.string().min(1),
+});
+type RoleModelRecommendation = z.infer<typeof roleModelRecommendationSchema>;
+
+async function stageRoleModelRecommendation(
   wiring: Wiring,
   run: ApiContext["run"],
   identityId: string,
-  input: { workspaceId: string; figure: string; admiredFor: string },
+  workspaceId: string,
+  recommendation: RoleModelRecommendation,
   commonsInvocation?: CommonsSkillInvocation,
 ) {
-  const source = await researchPublicFigure(input.figure);
-  const recommendation = {
-    kind: "learning_recommendation" as const,
-    title: `Practice ${input.admiredFor} deliberately`,
-    summary:
-      `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
-      "your preparation or communication. Review the outcome before repeating it.",
-    documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
-    interpretation:
-      `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
-    citation: { label: source.title, url: source.url },
-    cadence: "weekly",
-    stopCondition: "Pause or remove it whenever it stops being useful.",
-  };
   const proposal = await wiring.pipeline.propose(
     {
-      workspaceId: input.workspaceId,
+      workspaceId,
       actor: { type: "agent", id: LEARNING_AGENT },
       onBehalfOf: { type: "user", id: identityId },
       action: "write",
@@ -884,13 +891,43 @@ async function proposeRoleModelRecommendation(
       },
       skill: LEARNING_RECOMMENDATION_SKILL_ID,
       trustOrigin: "untrusted_external",
-      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, input.workspaceId),
+      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, workspaceId),
     },
     run,
   );
+  return { recommendation, proposal };
+}
+
+async function proposeRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  input: { workspaceId: string; figure: string; admiredFor: string },
+) {
+  const source = await researchPublicFigure(input.figure);
+  const recommendation: RoleModelRecommendation = {
+    kind: "learning_recommendation",
+    title: `Practice ${input.admiredFor} deliberately`,
+    summary:
+      `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
+      "your preparation or communication. Review the outcome before repeating it.",
+    documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
+    interpretation:
+      `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
+    citation: { label: source.title, url: source.url },
+    cadence: "weekly",
+    stopCondition: "Pause or remove it whenever it stops being useful.",
+  };
+  const result = await stageRoleModelRecommendation(
+    wiring,
+    run,
+    identityId,
+    input.workspaceId,
+    recommendation,
+  );
   const existing = await wiring.memoryStore.retrieve(
     { limit: 100 },
-    { workspaceId: input.workspaceId, userId: wiring.pilotUserId },
+    { workspaceId: input.workspaceId, userId: identityId },
   );
   if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
     await wiring.memoryStore.write({
@@ -907,10 +944,60 @@ async function proposeRoleModelRecommendation(
       trustOrigin: "user_content",
       plane: "local",
       createdBy: identityId,
-      ownerUserId: wiring.pilotUserId,
+      ownerUserId: identityId,
     });
   }
-  return { recommendation, proposal };
+  return result;
+}
+
+async function latestApprovedRoleModelRecommendation(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerUserId: string,
+): Promise<RoleModelRecommendation | null> {
+  const pageSize = 100;
+  const maxRows = 1_000;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const page = await wiring.ledger.listHistory(workspaceId, {
+      limit: pageSize,
+      offset,
+      privateOwnerUserId: ownerUserId,
+    });
+    for (const entry of page.items) {
+      if (
+        entry.refLedgerId
+        || entry.actorType !== "agent"
+        || entry.actorId !== LEARNING_AGENT
+        || entry.onBehalfOfType !== "user"
+        || entry.onBehalfOfId !== ownerUserId
+        || entry.action !== "write"
+        || entry.resourceType !== "signal"
+        || entry.dataScope !== "private"
+        || entry.trustOrigin !== "untrusted_external"
+        || typeof entry.inputs !== "object"
+        || entry.inputs === null
+        || Array.isArray(entry.inputs)
+        || "commonsInvocation" in entry.inputs
+      ) {
+        continue;
+      }
+      const parsed = roleModelRecommendationSchema.safeParse(entry.inputs);
+      if (!parsed.success) continue;
+      const citation = new URL(parsed.data.citation.url);
+      if (citation.protocol !== "https:" || citation.origin !== "https://en.wikipedia.org") {
+        continue;
+      }
+      const decision = await wiring.ledger.decisionFor(entry.id);
+      if (decision?.userDecision === "approve" || decision?.userDecision === "edit") {
+        return parsed.data;
+      }
+    }
+    if (offset + page.items.length >= page.total) return null;
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: "Too many Learning recommendations exist to resolve the approved local source safely",
+  });
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
@@ -8494,6 +8581,7 @@ export const appRouter = t.router({
         items.map(async (installation) => {
           const runtimeAutomationIds: string[] = [];
           const runtimeSkillIds: string[] = [];
+          const runtimeBindingIssues: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
             if (!automation.ritualId) continue;
             const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
@@ -8509,11 +8597,39 @@ export const appRouter = t.router({
           if (
             attachment
             && isSupportedCitedRoleModelInstallation(installation)
-            && await currentSupportedRelationshipOwner(ctx.wiring, installation)
           ) {
-            runtimeSkillIds.push(LEARNING_RECOMMENDATION_SKILL_ID);
+            try {
+              const currentEntry = await assertCurrentCommonsAttachment(
+                ctx.wiring,
+                installation,
+              );
+              if (!currentEntry || !isSupportedCitedRoleModelManifest(currentEntry.manifest)) {
+                runtimeBindingIssues.push(
+                  "The current signed Commons artifact no longer matches the supported runtime contract",
+                );
+              } else if (!await currentSupportedRelationshipOwner(ctx.wiring, installation)) {
+                runtimeBindingIssues.push(
+                  "The owning Relationship Module no longer matches the supported runtime contract",
+                );
+              } else {
+                runtimeSkillIds.push(
+                  LEARNING_RECOMMENDATION_SKILL_ID,
+                );
+              }
+            } catch (error) {
+              runtimeBindingIssues.push(
+                error instanceof TRPCError
+                  ? error.message
+                  : "Commons registry is unavailable; the runtime binding could not be revalidated",
+              );
+            }
           }
-          return { ...installation, runtimeAutomationIds, runtimeSkillIds };
+          return {
+            ...installation,
+            runtimeAutomationIds,
+            runtimeSkillIds,
+            runtimeBindingIssues,
+          };
         }),
       );
       return {
@@ -8875,22 +8991,23 @@ export const appRouter = t.router({
             message: "installed Commons Skill is not bound to its attributable runtime Agent",
           });
         }
-        const profile = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
-        const rawFigure = profile?.answers.role_model;
-        const rawAdmiredFor = profile?.answers.role_model_why;
-        const figure = typeof rawFigure === "string" ? rawFigure.trim() : "";
-        const admiredFor = typeof rawAdmiredFor === "string" ? rawAdmiredFor.trim() : "";
-        if (figure.length < 2 || admiredFor.length < 2) {
+        const recommendation = await latestApprovedRoleModelRecommendation(
+          ctx.wiring,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        if (!recommendation) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "Complete the role-model onboarding questions before running this Skill",
+            message: "Approve a cited role-model onboarding recommendation before running this Skill",
           });
         }
-        return proposeRoleModelRecommendation(
+        return stageRoleModelRecommendation(
           ctx.wiring,
           ctx.run,
           ctx.identity.id,
-          { workspaceId: input.workspaceId, figure, admiredFor },
+          input.workspaceId,
+          recommendation,
           {
             source: "commons",
             installationId: installation.id,

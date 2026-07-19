@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:48:59.723Z",
+  "generatedAt": "2026-07-19T00:56:23.827Z",
   "items": [
     {
       "id": "TASK-001",
@@ -114,12 +114,12 @@
       "evidence": [
         "`outputs/2026-07-18-task-005-demo-certification.md`",
         "TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`",
-        "clean isolated desktop and exact 375×812 evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, and physically reachable mobile Settings/Approvals controls"
+        "clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "AP-031 applied for bounded gate glue; AP-046 applied for exact TASK-005 certification and closure",
+      "approval": "AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure",
       "dependencies": [
         "TASK-001",
         "TASK-002",

@@ -238,6 +238,8 @@ test("installed Commons Skill Run uses the server-owned Agent binding and existi
   assert.match(source, /trpc\.commons\.runInstalledSkill\.mutate/);
   assert.match(source, /installationId:\s*attachment\.id/);
   assert.match(source, /Run with \$\{agent\.name\}/);
+  assert.match(source, /attachment\.runtimeBindingIssues\[0\]/);
+  assert.match(source, /Runtime binding unavailable/);
   assert.match(source, /to="\/approvals"/);
   assert.match(source, /Review or correct in Approvals/);
   assert.doesNotMatch(source, /actor:\s*\{/);

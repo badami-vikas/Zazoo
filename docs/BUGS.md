@@ -18,6 +18,41 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — TASK-005 signed Skill performed undeclared external research
+Final branch review found that `cited-role-model-practice@1.0.0` declared one private Signal write and
+no egress, but its runtime reread private onboarding answers and sent the role-model name to Wikipedia.
+Version `1.0.1` now declares one private Signal read plus one private Signal write and still has no
+egress. The bounded onboarding research action owns the only external fetch; after Human approval, the
+installed Skill reads that owner-visible immutable local Signal and restages it through the Learning
+Agent without a network call. Tests count fetches and prove installed execution adds none. Attached to
+TASK-005 because manifest truth and local/private residency are part of its trusted invocation gate.
+
+## RESOLVED 2026-07-19 — TASK-005 registry drift left a stale visible Run binding
+Execution freshly revalidated the signed Commons artifact, but `packages.list` projected a Run button
+from only the stored installation and owning Module. Registry deletion, hash/signature drift, or trust
+failure could therefore leave an enabled control that only failed after click. Listing now performs
+the current registry/hash/signature and exact-contract checks too; drift removes `runtimeSkillIds` and
+returns an explicit binding issue rendered beside the unavailable Skill. Direct execution still fails
+closed with its precise reason. Attached to TASK-005.
+
+## RESOLVED 2026-07-19 — TASK-005 ambiguous Files roots erased recovery evidence
+Organization rename recovery deleted its durable intent whenever both old and new roots existed, even
+when they were different directories. A recreated old root after a crash could therefore make the DB
+select new empty Files while orphaning original data under the other name. Recovery now clears only
+when both names identify the same filesystem entry (the case-only path); distinct dual roots preserve
+the intent and fail closed until one conflict is explicitly resolved. The regression proves both trees
+and the intent survive, then recovery succeeds after the conflicting root is removed. Attached to
+TASK-005.
+
+## RESOLVED 2026-07-19 — TASK-005 migration test advanced past the migration under test
+Adding TASK-005 migration `0017` exposed that TASK-010's `0016` upgrade fixture removed only `0016`
+from a copy of the real migration tree. The resulting "pre-0016" database applied newer `0017`,
+advanced Drizzle's migration high-water mark, and then skipped `0016`, failing two upgrade assertions.
+The fixture now truncates SQL, snapshots, and journal entries through an explicit migration index;
+its pre-state ends at `0015` and its upgrade folder ends at `0016`, regardless of future migrations.
+Both migration regressions and all 36 forced uncached non-Sensor test tasks pass. Attached to TASK-005
+because its new migration revealed and directly triggered the merge-boundary failure.
+
 ## RESOLVED 2026-07-19 — TASK-010 JobPilot table cells lacked Red Flag controls
 Live certification found that the default JobPilot table rendered persisted Role, Company, and Stage
 values as plain text even though TASK-010 requires every eligible data cell to expose the shared,
@@ -52,10 +87,12 @@ package named `relationship` could also inherit the Agent binding without matchi
 Module version and manifest. Attached to TASK-005
 because trusted installation does not authorize different runtime behavior. FIX: runtime binding and
 execution now require the stored installation and freshly fetched signed entry to match the one
-supported private built-in Skill contract exactly, including one private Signal write, no egress,
-and no connectors, dependencies, execution, context providers, Module, or Blueprint. Tampering
+supported private built-in Skill contract exactly, including one private Signal read, one private
+Signal write, no egress, and no connectors, dependencies, execution, context providers, Module, or
+Blueprint. Tampering
 removes the binding and blocks the Run; the current signed envelope hash remains revalidated rather
-than hardcoded. The owning Module must also be the exact current built-in Relationship manifest and
+than hardcoded. Listing performs the same registry/trust check and surfaces drift instead of leaving a
+stale Run control. The owning Module must also be the exact current built-in Relationship manifest and
 version. Every Run records that Module installation ID, version, and manifest hash with the Commons
 package/hash/Agent provenance; a replacement version removes the binding and cannot run.
 

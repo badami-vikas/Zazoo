@@ -262,9 +262,12 @@ async function recoverOrganizationRenameIntent(
         await rename(actualRoot, currentRoot);
         await syncDirectory(resolve(bridgeRoot));
       }
+      await rm(intentPath, { force: true });
+      return;
     }
-    await rm(intentPath, { force: true });
-    return;
+    throw new OrganizationFilesRecoveryError(
+      "Both Organization Files roots exist; preserving the rename intent for explicit recovery",
+    );
   }
   let moved = false;
   if (currentRoot === previousRoot && nextMetadata) {

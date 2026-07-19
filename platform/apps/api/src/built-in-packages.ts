@@ -21,7 +21,7 @@ export const DEALPILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1"
 export const DEALPILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
-export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.0";
+export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
 
 export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
   return packageName === "deal-pilot" && manifestRitualId === DEALPILOT_SOURCE_RITUAL_KEY
@@ -605,7 +605,7 @@ const citedRoleModelPractice: BuiltInPackage = {
     kind: "skill",
     summary: "Stage a cited role-model practice recommendation for review.",
     description:
-      "Reuses Bridge's governed Learning Agent Skill to turn the user's saved onboarding preference into a cited recommendation that remains editable or vetoable in Approvals.",
+      "Reuses Bridge's governed Learning Agent Skill to restage an approved local onboarding recommendation that remains editable or vetoable in Approvals.",
     lineageManifestId: null,
     dependencies: [],
     capabilities: [
@@ -616,7 +616,7 @@ const citedRoleModelPractice: BuiltInPackage = {
         capabilityType: "skill",
         origin: "built_in",
         audience: "private",
-        permissions: [writePrivate("signal")],
+        permissions: [readPrivate("signal"), writePrivate("signal")],
         connectors: [],
         dependencies: [],
       },

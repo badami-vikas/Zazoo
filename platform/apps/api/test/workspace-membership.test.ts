@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { WorkspaceRenameRollbackError } from "@bridge/db";
 import { TRPCError } from "@trpc/server";
 import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
@@ -176,19 +177,27 @@ test("workspace.rename: an existing target Files root blocks both filesystem and
         createdAt: new Date().toISOString(),
       }),
     );
-    await migrateLegacyPilotOrganization(wiring.workspaceStore);
-    await assert.rejects(() => access(interruptedIntentPath), { code: "ENOENT" });
-    await Promise.all([access(previousOrganizationRoot), access(targetOrganizationRoot)]);
-    await rm(previousOrganizationRoot, { recursive: true });
     await assert.rejects(
-      () => caller.workspace.rename({
-        workspaceId: PILOT_WORKSPACE,
-        name: "Existing Organization",
-      }),
-      (err: unknown) => err instanceof TRPCError && err.code === "CONFLICT",
+      () => migrateLegacyPilotOrganization(wiring.workspaceStore),
+      (error: unknown) =>
+        error instanceof WorkspaceRenameRollbackError
+        && [error.renameError, error.rollbackError].every(
+          (cause) =>
+            cause instanceof Error
+            && cause.message.includes("Both Organization Files roots exist"),
+        ),
     );
-    assert.equal((await caller.workspace.list()).find((row) => row.id === PILOT_WORKSPACE)?.name, "Pilot Organization");
+    await access(interruptedIntentPath);
+    await Promise.all([access(previousOrganizationRoot), access(targetOrganizationRoot)]);
+    await rm(targetOrganizationRoot, { recursive: true });
+    const recovered = await caller.workspace.rename({
+      workspaceId: PILOT_WORKSPACE,
+      name: "Existing Organization",
+    });
+    assert.equal(recovered.name, "Existing Organization");
     await assert.rejects(() => access(interruptedIntentPath), { code: "ENOENT" });
+    await access(targetOrganizationRoot);
+    await assert.rejects(() => access(previousOrganizationRoot), { code: "ENOENT" });
   } finally {
     await wiring.close();
     await rm(tempRoot, { recursive: true, force: true });
