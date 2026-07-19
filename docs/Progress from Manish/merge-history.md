@@ -14,8 +14,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   reconciliation commit.
 - TASK-024 (Zazoo public website) landed via PR #23 under AP-052 on 2026-07-19. Implementation
   checkpoint `a4bf5fb` normally merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
-  The production artifact is live at `https://zazoo.me` through external Pages repository commit
-  `2306808` and successful run `29683315854`. No migration was added.
+  External Pages publication `2306808` succeeded in run `29683315854`, then user-directed revert
+  `6b76466` restored the older `https://zazoo.me` experience through successful run `29683837490`.
+  The TASK-024 source remains merged. No migration was added.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -52,6 +53,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `a4bf5fb` | TASK-024 standalone Zazoo cinematic public website: ten scenes, governed copy, accessible interactions, responsive/reduced-motion behavior, and contract tests. |
 | `69ffbff` | TASK-024 normal integration of `origin/main@512cf35` before its AP-052 landing through PR #23. |
 | `2306808` (Pages repository) | Published TASK-024 at `https://zazoo.me` while preserving the custom-domain `CNAME` plus Consulting/Training pages; Pages run `29683315854` passed. |
+| `6b76466` (Pages repository) | Reverted publication `2306808` under AP-053, restoring the pre-TASK-024 homepage while preserving `CNAME`, `consulting.html`, and `training.html`; Pages run `29683837490` passed. |
 
 ## Historical source branches
 

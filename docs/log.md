@@ -1888,3 +1888,9 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Preserved the `zazoo.me` `CNAME`, Consulting page, Training page, and their existing assets.
 - GitHub Pages run `29683315854` completed successfully; the custom domain serves the new hashed JavaScript/CSS bundle over HTTPS.
 - Updated TASK-024, its durable output, and all four Progress-from-Manish handoff records with the live deployment evidence.
+
+# 2026-07-19 — TASK-024 GitHub Pages rollback (AP-053)
+- Applied the user's explicit rollback directive with Pages commit `6b76466`, which cleanly reverses publication commit `2306808` without rewriting history or removing the merged `relationship-os` source.
+- GitHub Pages run `29683837490` completed successfully. The live `https://zazoo.me` response is byte-for-byte identical to the restored pre-TASK-024 `index.html` at Pages commit `063997a`.
+- Preserved the `zazoo.me` `CNAME`; `/consulting.html` and `/training.html` return 200; the removed TASK-024 hashed JavaScript/CSS assets return 404 as expected.
+- Reconciled TASK-024, AP-053, the durable output, and all four Progress-from-Manish handoff records with the current production state.

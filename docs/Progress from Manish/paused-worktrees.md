@@ -13,8 +13,8 @@ snapshots, not immutable releases.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - TASK-024 landed through PR #23 under AP-052 after implementation checkpoint `a4bf5fb` normally
   merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
-- TASK-024 is live at `https://zazoo.me` through Pages repository commit `2306808`; deployment run
-  `29683315854` passed.
+- TASK-024 Pages publication `2306808` was reverted under AP-053 by `6b76466`; rollback run
+  `29683837490` passed and `https://zazoo.me` serves the older experience.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -103,8 +103,8 @@ TASK-011's central-merge review closure (durable child-Run terminal audit repair
 - Integrated baseline: `origin/main@512cf35`
 - Integration checkpoint: `69ffbff`
 - Landing: PR #23 under AP-052
-- Deployment: `badami-vikas/badami-vikas.github.io@2306808`; Pages run `29683315854`; live at
-  `https://zazoo.me`
+- Publication history: `badami-vikas/badami-vikas.github.io@2306808`; user-directed rollback
+  `6b76466`; Pages run `29683837490`; pre-TASK-024 experience live at `https://zazoo.me`
 - Migration: none
 
 The standalone `@zazoo/website` app implements the approved ten-scene day-to-night-to-morning
