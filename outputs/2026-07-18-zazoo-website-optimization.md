@@ -12,3 +12,12 @@ Shipped the optimized zazoo marketing site to https://github.com/badami-vikas/ba
 
 ## Verification
 All three pages exercised in Chrome against a local server: family selector lock/dim, journey wheel select, program tabs filter, blocker chips, zero console errors.
+
+## Follow-up same day: homepage as a day in a Zazoo's life (commit 063997a)
+Rebuilt `index.html` around the core principle "follow a Zazoo through its day; every animation answers: what is my Zazoo doing while I'm busy?":
+- Hero: living circular workspace orbiting owl-Aeva, task ticker, companionship bubbles, yawn/stretch appeal.
+- Dictionary scene: Oxford-style "Zazoo /za·zoo/ noun" entry + the new unique-animal family (🦉 Aeva, 🦊 Lina, 🐘 Nori, 🦫 Bomi, 🦢 Jia, 🐬 Neva). Hover pauses the world; the chosen companion looks at the visitor (cursor eye-tracking) and introduces itself with weekly numbers + its Pixar-appeal quirk.
+- Governance castle: guardian Zazoos (Owl Judge, Elephant Security, Dog Gatekeeper, Bear Auditor), looping gentle robot refusal ("Sorry. Not authorized."), mirrored trust statements.
+- Four chapter books: Values storybook, Process footprints (pause at Decision, "waits for you"), behavior-based Difference stories (8 "Some AI vs A Zazoo" vignettes + the Mountain signature visual + "companions improve one another" differentiator), Impact.
+- Night finale: Privacy Mode, Aeva's cottage, the dream ("She never climbs the mountain. She makes the climb possible.").
+- New `assets/menagerie.js` (animal SVG library, eye tracking, quirks; reduced-motion safe). Brand guidelines rewritten in `docs/experience-guide.md`. Verified scene-by-scene in Chrome; live at zazoo.me.
