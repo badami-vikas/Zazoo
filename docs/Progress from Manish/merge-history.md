@@ -12,6 +12,9 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-011 (JobPilot culture research) landed at final head `5e826ad` via PR #22 under AP-049 on
   2026-07-19, merged forward through `origin/main@d153094` plus its own subsequent `9030aa1` docs
   reconciliation commit.
+- TASK-024 (Zazoo public website) landed via PR #23 under AP-052 on 2026-07-19. Implementation
+  checkpoint `a4bf5fb` normally merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
+  No migration was added.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -45,6 +48,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `5e826ad` | TASK-011 JobPilot culture-research final head, merged into `main` via PR #22 under AP-049: durable child-Run terminal-audit repair, full-lineage artifact purge/redaction, merged forward through TASK-010 and TASK-005; no new migration. |
 | `d4de355` | TASK-005 progress handoff and fast-forward landing on `main`; updated AP-047, all four Progress-from-Manish files, and the final change log. |
 | `d153094` | Verified later `main` baseline containing TASK-005 plus the unrelated Zazoo storyboard merge from PR #21. |
+| `a4bf5fb` | TASK-024 standalone Zazoo cinematic public website: ten scenes, governed copy, accessible interactions, responsive/reduced-motion behavior, and contract tests. |
+| `69ffbff` | TASK-024 normal integration of `origin/main@512cf35` before its AP-052 landing through PR #23. |
 
 ## Historical source branches
 
@@ -67,6 +72,8 @@ This file prevents a new session from re-merging historical branches or reusing 
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
   `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
   Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
+- TASK-024 source: `task-024-zazoo-website`; implementation checkpoint `a4bf5fb`, integration
+  checkpoint `69ffbff`, landed through PR #23 under AP-052. Merged and done; do not merge again.
 
 ## Migration sequence
 
@@ -78,6 +85,7 @@ This file prevents a new session from re-merging historical branches or reusing 
   Learning recommendation proposals and linked rows).
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration required (LANDED, application-logic only).
+- TASK-024: no new migration required (LANDED, standalone public website only).
 
 Next new migration allocates `0018`; do not reuse `0016` or `0017`.
 
@@ -99,6 +107,7 @@ Next new migration allocates `0018`; do not reuse `0016` or `0017`.
 - AP-045: TASK-006 validated main integration.
 - AP-046: TASK-010 live certification and closure.
 - AP-047: TASK-005 exact combined demo certification and closure.
+- AP-052: TASK-024 exact storyboard implementation, optional review skip, and `main` landing.
 - ADR-121: exact private no-egress Commons Skill + owning-Module runtime binding.
 - ADR-122: serialized Organization DB identity/local Files rename with durable fail-closed recovery.
 

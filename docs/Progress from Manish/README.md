@@ -9,8 +9,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm TASK-005 landing commit `d4de355` remains in its ancestry;
-   `166a01b` is the implementation/certification checkpoint.
+4. Fetch `origin/main` and confirm TASK-024 PR #23 plus TASK-005 landing commit `d4de355`
+   remain in its ancestry; `a4bf5fb` and `166a01b` are their implementation checkpoints.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -18,10 +18,13 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Verified TASK-005 `main` ancestry: implementation/certification checkpoint `166a01b`, followed
-  by progress handoff/landing commit `d4de355`. At final reconciliation, `origin/main@d153094`
-  contained both commits plus the later unrelated Zazoo storyboard merge. Always re-fetch before
-  resuming any worktree.
+- Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
+  `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
+  `task-024-zazoo-website`.
+- TASK-024 is complete under AP-052. The standalone `@zazoo/website` app delivers the approved
+  ten-scene cinematic homepage with governed copy, pointer/keyboard/touch interactions,
+  reduced-motion behavior, and certified desktop plus exact 375×812 layouts. The six storyboard
+  contract tests, TypeScript check, production build, and ESLint passed.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
   status and evidence live in [`docs/TASKS.md`](../TASKS.md) and
@@ -47,6 +50,9 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-005 migration `0017_task005_private_learning_recommendations` is the next landed migration.
   The next NEW migration allocates `0018`; never reuse `0016` or `0017`.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
+- TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
+  `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
+  migration. Do not resume or re-merge the historical `task-024-zazoo-website` worktree.
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
