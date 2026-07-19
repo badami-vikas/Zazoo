@@ -201,9 +201,9 @@ function hasRelationshipDirective(entry: LedgerEntry): boolean {
   );
 }
 
-/** Owner-scopes both TASK-008 Relationship rows (including legacy rows without
- * dataScope) and TASK-010's private non-Relation correction proposals. */
-function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
+/** Owner-scopes every private/Relationship shape, including rows created before
+ * dataScope and legacy Learning recommendations. */
+export function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
   const inputs =
     typeof entry.inputs === "object" &&
     entry.inputs !== null &&
@@ -218,19 +218,33 @@ function isOwnerScopedLedgerEntry(entry: LedgerEntry): boolean {
     entry.resourceType === "event" ||
     entry.resourceType === "touchpoint" ||
     hasRelationshipDirective(entry) ||
-    inputs?.visibility === "private"
+    inputs?.visibility === "private" ||
+    (
+      entry.dataScope === undefined &&
+      entry.resourceType === "signal" &&
+      inputs?.kind === "learning_recommendation"
+    )
   );
 }
 
 function ledgerEntryVisibleToPrivateOwner(
   entry: LedgerEntry,
   privateOwnerUserId: string | undefined,
+  entries: readonly LedgerEntry[],
 ): boolean {
-  if (!privateOwnerUserId || !isOwnerScopedLedgerEntry(entry)) return true;
-  if (entry.onBehalfOfType === "user") {
-    return entry.onBehalfOfId === privateOwnerUserId;
+  if (!privateOwnerUserId) return true;
+  const referenced = entry.refLedgerId
+    ? entries.find((candidate) => candidate.id === entry.refLedgerId)
+    : undefined;
+  const privateEntry = [entry, referenced].find(
+    (candidate): candidate is LedgerEntry =>
+      candidate !== undefined && isOwnerScopedLedgerEntry(candidate),
+  );
+  if (!privateEntry) return true;
+  if (privateEntry.onBehalfOfType === "user") {
+    return privateEntry.onBehalfOfId === privateOwnerUserId;
   }
-  return entry.actorType === "user" && entry.actorId === privateOwnerUserId;
+  return privateEntry.actorType === "user" && privateEntry.actorId === privateOwnerUserId;
 }
 
 export class InMemoryLedger implements LedgerStore {
@@ -299,7 +313,7 @@ export class InMemoryLedger implements LedgerStore {
             !Array.isArray(entry.diff) &&
             "rejected" in entry.diff
           ) &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId) &&
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries) &&
           !this.#resolved.has(entry.id),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -314,7 +328,7 @@ export class InMemoryLedger implements LedgerStore {
       .filter(
         (entry) =>
           entry.workspaceId === workspaceId &&
-          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId),
+          ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries),
       )
       .sort((left, right) => (right.appendSequence ?? 0) - (left.appendSequence ?? 0));
     return {

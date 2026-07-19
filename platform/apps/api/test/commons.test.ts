@@ -20,8 +20,12 @@ import type {
   CommonsRegistry,
 } from "@bridge/core";
 import type { PackageManifest } from "@bridge/core";
+import {
+  COMMONS_BUILT_IN_PACKAGES,
+  LEARNING_RECOMMENDATION_SKILL_ID,
+} from "../src/built-in-packages.js";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, LEARNING_AGENT, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 import { makeUnsignedCommonsEntry, TEST_COMMONS_SCAN } from "./commons-fixtures.js";
 
 // ---------------------------------------------------------------------------
@@ -34,11 +38,11 @@ function makeRun(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
-async function makeCaller(wiring: Wiring) {
+async function makeCaller(wiring: Wiring, identityId = PILOT_USER) {
   return appRouter.createCaller({
     wiring,
     run: makeRun(),
-    identity: { type: "user", id: PILOT_USER },
+    identity: { type: "user", id: identityId },
     authenticated: true,
     verifying: false,
   });
@@ -327,6 +331,311 @@ test("commons.installPropose: fetches from registry, registers private installat
     );
     assert.equal((await caller.packages.get({ installationId: installation.id })).installation.state, "available");
   } finally {
+    await wiring.close();
+  }
+});
+
+test("commons.runInstalledSkill invokes the pinned Skill through its owning Agent and preserves correction provenance", async () => {
+  const builtIn = COMMONS_BUILT_IN_PACKAGES.find(
+    (candidate) => candidate.manifest.name === "cited-role-model-practice",
+  );
+  assert.ok(builtIn);
+  const wiring = await buildWiring();
+  const registry = new InMemoryTestCommonsRegistry();
+  const registryEntry = makeEntry(builtIn.manifest, [...builtIn.commons.tags]);
+  registry.seed(registryEntry);
+  (wiring as { commonsRegistry: CommonsRegistry }).commonsRegistry = registry;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response(
+      JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "Test Fixture Leader",
+              extract: "Test Fixture Leader is documented for public work. This is source context.",
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  try {
+    const caller = await makeCaller(wiring);
+    await caller.onboarding.saveProfile({
+      workspaceId: PILOT_WORKSPACE,
+      animal: "owl",
+      answers: {
+        role_model: "Test Fixture Leader",
+        role_model_why: "clear preparation",
+      },
+      verificationMethod: null,
+      connectedSourceIds: [],
+    });
+    const onboardingRecommendation = await caller.onboarding.recommendFromRoleModel({
+      workspaceId: PILOT_WORKSPACE,
+      figure: "Test Fixture Leader",
+      admiredFor: "clear preparation",
+    });
+    assert.equal(fetchCalls, 1);
+    const proposed = await caller.commons.installPropose({
+      workspaceId: PILOT_WORKSPACE,
+      name: builtIn.manifest.name,
+      modulePackageName: "relationship",
+      agentId: "learning-agent",
+      needId: "cited-role-model-practice",
+    });
+    await assert.rejects(
+      () =>
+        caller.commons.runInstalledSkill({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: proposed.installation.id,
+        }),
+      /must be installed and available/i,
+    );
+    const installed = await caller.packages.install({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: proposed.installation.id,
+      todayKey: "2026-07-18",
+    });
+    assert.equal(installed.installed, true);
+    await caller.packages.promote({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: proposed.installation.id,
+    });
+
+    const listed = await caller.packages.list({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    const attachment = listed.items.find((item) => item.id === proposed.installation.id);
+    assert.deepEqual(attachment?.runtimeSkillIds, [LEARNING_RECOMMENDATION_SKILL_ID]);
+
+    const currentRegistryHash = registryEntry.integrity.value;
+    registryEntry.integrity.value = `sha256:${"0".repeat(64)}`;
+    const listedAfterRegistryDrift = await caller.packages.list({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.deepEqual(
+      listedAfterRegistryDrift.items.find((item) => item.id === proposed.installation.id)?.runtimeSkillIds,
+      [],
+    );
+    assert.match(
+      listedAfterRegistryDrift.items.find((item) => item.id === proposed.installation.id)
+        ?.runtimeBindingIssues[0] ?? "",
+      /pinned root artifact/,
+    );
+    registryEntry.integrity.value = currentRegistryHash;
+
+    const storedInstallation = await wiring.packageStore.get(proposed.installation.id);
+    assert.ok(storedInstallation);
+    const storedPermission = storedInstallation.manifest.capabilities[0]?.permissions[0];
+    assert.ok(storedPermission);
+    storedPermission.dataScope = "all";
+    const listedAfterContractTamper = await caller.packages.list({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.deepEqual(
+      listedAfterContractTamper.items.find((item) => item.id === proposed.installation.id)?.runtimeSkillIds,
+      [],
+    );
+    await assert.rejects(
+      () =>
+        caller.commons.runInstalledSkill({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: proposed.installation.id,
+        }),
+      /supported signed runtime contract/i,
+    );
+    storedPermission.dataScope = "private";
+
+    const ownerModule = await wiring.packageStore.getAvailable(PILOT_WORKSPACE, "relationship");
+    assert.ok(ownerModule);
+    await wiring.packageStore.setState(ownerModule.id, "legacy");
+    const replacementModule = await wiring.packageStore.create({
+      workspaceId: PILOT_WORKSPACE,
+      packageName: ownerModule.packageName,
+      packageVersion: "99.0.0",
+      manifest: {
+        ...ownerModule.manifest,
+        version: "99.0.0",
+        summary: "Replacement Relationship contract",
+      },
+      computedRisk: ownerModule.computedRisk,
+      state: "available",
+      status: "installed",
+      lineageManifestId: ownerModule.lineageManifestId,
+    });
+    const listedWithReplacementOwner = await caller.packages.list({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.deepEqual(
+      listedWithReplacementOwner.items.find((item) => item.id === proposed.installation.id)?.runtimeSkillIds,
+      [],
+    );
+    await assert.rejects(
+      () =>
+        caller.commons.runInstalledSkill({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: proposed.installation.id,
+        }),
+      /supported owning Module contract/i,
+    );
+    await wiring.packageStore.setState(replacementModule.id, "legacy");
+    await wiring.packageStore.setState(ownerModule.id, "available");
+    const ownerSummary = ownerModule.manifest.summary;
+    try {
+      ownerModule.manifest.summary = "Tampered Relationship contract";
+      const listedWithTamperedOwner = await caller.packages.list({
+        workspaceId: PILOT_WORKSPACE,
+        limit: 100,
+        offset: 0,
+      });
+      assert.deepEqual(
+        listedWithTamperedOwner.items.find((item) => item.id === proposed.installation.id)?.runtimeSkillIds,
+        [],
+      );
+      await assert.rejects(
+        () =>
+          caller.commons.runInstalledSkill({
+            workspaceId: PILOT_WORKSPACE,
+            installationId: proposed.installation.id,
+          }),
+        /supported owning Module contract/i,
+      );
+    } finally {
+      ownerModule.manifest.summary = ownerSummary;
+    }
+
+    await assert.rejects(
+      () =>
+        caller.commons.runInstalledSkill({
+          workspaceId: PILOT_WORKSPACE,
+          installationId: proposed.installation.id,
+        }),
+      /Approve a cited role-model onboarding recommendation/,
+    );
+    assert.equal(fetchCalls, 1);
+    await caller.action.decide({
+      proposalId: onboardingRecommendation.proposal.id,
+      decision: "approve",
+    });
+    const result = await caller.commons.runInstalledSkill({
+      workspaceId: PILOT_WORKSPACE,
+      installationId: proposed.installation.id,
+    });
+    assert.equal(fetchCalls, 1, "the installed no-egress Skill must reuse the approved local Signal");
+    assert.equal(result.proposal.status, "pending_review");
+    assert.deepEqual(result.proposal.request.actor, {
+      type: "agent",
+      id: LEARNING_AGENT,
+    });
+    assert.equal(result.proposal.request.skill, LEARNING_RECOMMENDATION_SKILL_ID);
+    assert.equal(result.proposal.request.dataScope, "private");
+    const proposedOutput = result.proposal.output?.proposedOutput as {
+      title: string;
+      commonsInvocation: {
+        installationId: string;
+        contentHash: string;
+        moduleInstallationId: string;
+        modulePackageName: string;
+        modulePackageVersion: string;
+        moduleManifestHash: string;
+        moduleAgentId: string;
+        runtimeAgentId: string;
+        capabilityId: string;
+      };
+    };
+    assert.equal(proposedOutput.commonsInvocation.installationId, proposed.installation.id);
+    assert.equal(proposedOutput.commonsInvocation.contentHash, proposed.installation.moduleAttachment?.contentHash);
+    assert.equal(proposedOutput.commonsInvocation.moduleInstallationId, ownerModule.id);
+    assert.equal(proposedOutput.commonsInvocation.modulePackageName, "relationship");
+    assert.equal(proposedOutput.commonsInvocation.modulePackageVersion, ownerModule.packageVersion);
+    assert.match(proposedOutput.commonsInvocation.moduleManifestHash, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(proposedOutput.commonsInvocation.moduleAgentId, "learning-agent");
+    assert.equal(proposedOutput.commonsInvocation.runtimeAgentId, LEARNING_AGENT);
+    assert.equal(proposedOutput.commonsInvocation.capabilityId, LEARNING_RECOMMENDATION_SKILL_ID);
+    const privateProposal = await wiring.ledger.get(result.proposal.id);
+    assert.equal(privateProposal?.dataScope, "private");
+    assert.ok(privateProposal);
+    delete privateProposal.dataScope;
+
+    const invited = await wiring.workspaceStore.inviteMember(
+      PILOT_WORKSPACE,
+      "test_fixture_intruder@example.com",
+    );
+    const otherCaller = await makeCaller(wiring, invited.userId);
+    const otherPending = await otherCaller.action.listPending({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.equal(otherPending.items.some((entry) => entry.id === result.proposal.id), false);
+    await assert.rejects(
+      () => otherCaller.action.resolution({ proposalId: result.proposal.id }),
+      /proposal not found/i,
+    );
+    await assert.rejects(
+      () =>
+        otherCaller.action.decide({
+          proposalId: result.proposal.id,
+          decision: "approve",
+        }),
+      /proposal not found/i,
+    );
+
+    const editedOutput = {
+      ...proposedOutput,
+      title: "Practice careful preparation deliberately",
+      commonsInvocation: {
+        ...proposedOutput.commonsInvocation,
+        contentHash: "sha256:tampered-client-value",
+      },
+    };
+    const decision = await caller.action.decide({
+      proposalId: result.proposal.id,
+      decision: "edit",
+      editedOutput,
+    });
+    assert.equal(decision.status, "applied");
+    const decisionEntry = await wiring.ledger.decisionFor(result.proposal.id);
+    const ledgerEntry = await wiring.ledger.get(result.proposal.id);
+    assert.equal(decisionEntry?.userDecision, "edit");
+    const committedOutput = decisionEntry?.proposedOutput as typeof proposedOutput;
+    assert.equal(committedOutput.title, editedOutput.title);
+    assert.deepEqual(
+      committedOutput.commonsInvocation,
+      proposedOutput.commonsInvocation,
+      "the server must preserve installed-package provenance across a Human correction",
+    );
+    assert.equal(
+      (ledgerEntry?.inputs as { commonsInvocation?: { installationId?: string } }).commonsInvocation?.installationId,
+      proposed.installation.id,
+    );
+    const otherHistory = await otherCaller.action.listHistory({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+      offset: 0,
+    });
+    assert.equal(
+      otherHistory.items.some(
+        (entry) => entry.id === result.proposal.id || entry.refLedgerId === result.proposal.id,
+      ),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
     await wiring.close();
   }
 });
@@ -730,13 +1039,13 @@ test("commons.publishBuiltins: publishes BUILT_IN_PACKAGES to the mock registry"
     const caller = await makeCaller(wiring);
     const result = await caller.commons.publishBuiltins();
 
-    assert.equal(result.published.length + result.skipped.length, 4);
+    assert.equal(result.published.length + result.skipped.length, COMMONS_BUILT_IN_PACKAGES.length);
     assert.equal(result.skipped.length, 0); // fresh registry, nothing pre-published
 
     // Second call: all should be skipped as duplicate
     const repeat = await caller.commons.publishBuiltins();
     assert.equal(repeat.published.length, 0);
-    assert.equal(repeat.skipped.length, 4);
+    assert.equal(repeat.skipped.length, COMMONS_BUILT_IN_PACKAGES.length);
   } finally {
     await wiring.close();
   }

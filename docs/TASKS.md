@@ -6,9 +6,9 @@ This is the **only active execution queue**. A roadmap or plan defines scope; a 
 
 Task Manager and Claude read this single ordered list top-to-bottom — the physical section order below IS the execution order. Status remains part of each task record: in-progress work is pulled first, pending work follows this order, and completed work is retained at the bottom for audit.
 
-IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023`
+IDs for cross-reference: `TASK-001, TASK-003, TASK-004, TASK-005, TASK-013, TASK-012, TASK-010, TASK-008, TASK-007, TASK-014, TASK-021, TASK-015, TASK-016, TASK-017, TASK-006, TASK-011, TASK-009, TASK-002, TASK-020, TASK-018, TASK-019, TASK-022, TASK-023, TASK-024`
 
-Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039) — no re-rank requested.
+Captured from the user-provided Task Manager ranking on 2026-07-16. TASK-021 placed immediately after TASK-014 on 2026-07-16 per user directive (AP-033/AP-034). TASK-022 (inference cost optimization) appended at queue end 2026-07-17 per AP-038; TASK-023 (Learning Agent web-research Skill, renumbered from this session's original TASK-022 which collided with TASK-022 landing on main in parallel) appended immediately after per user directive (AP-039); TASK-024 (Zazoo public website) appended at queue end 2026-07-19 per AP-048 — no re-rank requested.
 
 ## Operating standard
 
@@ -96,18 +96,18 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Avatar + Commons end-to-end demo certification
 - ID: TASK-005
-- Status: blocked
+- Status: done
 - Priority: P0
 - Horizon: Prototype
 - Outcome: A short, repeatable demo proves the combined product rather than isolated screens.
 - Prototype test: On desktop and 375px, complete Onboarding, meet the movable Avatar, open an actionable Module, obtain a governed recommendation, install one trusted Commons capability, run it through an Agent/Automation, inspect provenance, and exercise correction/undo with no deprecated vocabulary or console-blocking defects.
 - Scope: docs/raw/egg-commons-feature-roadmap-2026-07.md prototype gate; docs/raw/ui-architecture-rules-2026-07.md
-- Evidence: outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md; TASK-003 physical Avatar certification completed 2026-07-18; outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md
-- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md` — singular stored Automation owner, server-derived Agent actor/Plane, persistent/in-memory Ritual stores, one manifest-declared governed DealPilot Run, and existing Approvals correction route; full certification remains blocked
+- Evidence: `outputs/2026-07-18-task-005-demo-certification.md`; TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`; clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls
+- Implementation evidence: `outputs/2026-07-16-task004-commons-task005-glue.md`; signed `cited-role-model-practice@1.0.1` is installed only for Relationship's Learning Agent, declares only private Signal read/write with no egress, consumes an already approved local cited Signal, and fails closed unless the stored/current signed Skill contracts and exact current built-in Relationship Module identity, need, installed attachment, content hash, private scope, and runtime Agent binding all match; registry/trust drift removes the visible Run binding with an explanation; the shared classifier owner-isolates current/legacy private proposals and linked rows; Organization rename uses a generation-tagged, fsynced Local Plane intent under database row-lock serialization, re-locks to recover update/commit/crash failures, preserves ambiguous dual-root intents fail-closed, refuses conflicting/symlinked roots, supports case-only names, and migrates legacy bootstrap state through the same path
 - Requests: user prototype-priority directives 2026-07-13–15
-- Approval: AP-031 applied for the bounded gate-glue implementation only; no DONE approval
+- Approval: AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure
 - Dependencies: TASK-001; TASK-002; TASK-003; TASK-004
-- Unblock: run the full TASK-005 desktop+375px combined Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals correction/undo Prototype test.
+- Verification: 2026-07-19 uninterrupted authenticated runs on the final post-review code passed at desktop 1440×913 (`task005-final10-desktop-result.json`) and exact mobile 375×812 (`task005-final11-mobile-result.json`) with body/document widths equal to the viewport, no trace-drawer overflow, failed resources, JavaScript errors, unhandled rejections, console errors, retired visible terms, or runtime dummy data. Both fresh runs installed signed `cited-role-model-practice@1.0.1`, invoked it only through the allowed Learning Agent, edited its proposal from weekly to monthly before approval, inspected immutable provenance, vetoed a second run with no downstream Event, and deleted the learned preference. Visual review reverified the repaired Settings → Capabilities Module link and physically reachable Settings/Approvals layouts. The branch had already normally merged `origin/main@5ca30ca`; both final responsive runs therefore cover the combined TASK-005/TASK-010 code. A rebuilt release Tauri bundle launched Bridge main, Companion, and Annotate windows with a healthy authenticated managed API sidecar on the currently connected display; TASK-003 separately certifies the three-display mobility/topology matrix. Final independent review found no blockers. Final gates: API 251/251, DB 159/159, web 81/81, desktop Rust 44/44, typecheck 37/37 tasks, build 20/20 tasks, no-runtime-dummy, native release bundle, and all 36 non-Sensor test tasks forced uncached. The migration upgrade harness now bounds SQL, snapshots, and journal entries so later migration `0017` cannot suppress `0016`. The known TASK-017 Sensor aggregate-coverage debt remains 7/7 tests passing at 36.97% versus the 38% floor.
 
 ## Repository and manifest cleanup
 - ID: TASK-013
@@ -357,3 +357,16 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Requests: user directive 2026-07-17 (recon-capability provider research, tiering, roadmap, task)
 - Approval: AP-039 applied
 - Dependencies: TASK-007 (Agent/Skill/child-Run orchestration — Skill resolution this reuses)
+
+## Zazoo public website cinematic implementation
+- ID: TASK-024
+- Status: ready
+- Priority: P2
+- Horizon: Public Brand
+- Outcome: The public Zazoo homepage is one continuous, accessible day-in-the-life film that shows Aeva and the Zazoo crew working, coordinating, respecting permission, supporting the owner's progress, resting privately, and returning the next morning, with displayed copy strictly separated from visual, animation, interaction, emotion, and transition direction.
+- Prototype test: At desktop and 375px widths, play the homepage from hero through final morning; confirm every mandatory scene and transition in the storyboard occurs in order, every interaction works by pointer and keyboard/touch, reduced-motion preserves the narrative without continuous locomotion, only approved Copy text is visible, the dictionary contains no Origin entry and uses the approved AI-companion definition, and no rejected-PDF composition or invented CTA/service copy appears.
+- Scope: outputs/2026-07-19-zazoo-website-storyboard/README.md; outputs/2026-07-19-zazoo-website-storyboard/00-global-build-contract.md; outputs/2026-07-19-zazoo-website-storyboard/01-hero-working-world.md through 10-morning-and-final-invitation.md
+- Evidence: user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md
+- Requests: user website/brand storyboard directive 2026-07-19; dictionary-copy correction and task-update directive 2026-07-19
+- Approval: AP-048 applied
+- Dependencies: none

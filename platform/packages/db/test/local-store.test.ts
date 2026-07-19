@@ -105,6 +105,51 @@ test("local plane renames the legacy text external-record table before Drizzle m
   }
 });
 
+test("local plane preserves an unsupported legacy external-record table", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-unsupported-local-plane-"));
+  const seed = new PGlite({ dataDir: root });
+  try {
+    await seed.exec(`
+      CREATE TABLE external_records (
+        workspace_id text NOT NULL,
+        source text NOT NULL,
+        source_record_id text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text NOT NULL,
+        created_at text NOT NULL,
+        unrecognized_payload text NOT NULL,
+        PRIMARY KEY (workspace_id, source, source_record_id)
+      );
+      INSERT INTO external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at, unrecognized_payload)
+      VALUES
+        ('workspace-a', 'gmail', 'message-a', 'event', 'entity-a',
+         '2026-07-18T00:00:00.000Z', 'must remain');
+    `);
+  } finally {
+    await seed.close();
+  }
+
+  try {
+    await assert.rejects(
+      () => createLocalDb({ dataDir: root }),
+      /external_records exists with an unsupported schema/,
+    );
+
+    const preserved = new PGlite({ dataDir: root });
+    try {
+      const result = await preserved.query<{ unrecognized_payload: string }>(
+        "SELECT unrecognized_payload FROM external_records",
+      );
+      assert.equal(result.rows[0]?.unrecognized_payload, "must remain");
+    } finally {
+      await preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("persistent governance provisions and verifies the attributable Learning Agent Signal grant", async () => {
   const workspaceId = "b0000000-0000-4000-a000-000000000001";
   const userId = "e0f0053b-fc44-476e-be27-1371e179e958";

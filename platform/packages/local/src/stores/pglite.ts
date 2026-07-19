@@ -89,27 +89,54 @@ CREATE TABLE IF NOT EXISTS local_state (
 );
 `;
 
-async function hasLegacyExternalRecordShape(
+const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
+  ["workspace_id", "text"],
+  ["source", "text"],
+  ["source_record_id", "text"],
+  ["entity_type", "text"],
+  ["entity_id", "text"],
+  ["created_at", "text"],
+]);
+
+type ExternalRecordTableShape =
+  | "missing"
+  | "legacy"
+  | "canonical"
+  | "unsupported";
+
+async function inspectExternalRecordTable(
   db: PGlite,
   tableName: string,
-): Promise<boolean> {
+): Promise<ExternalRecordTableShape> {
   const result = await db.query<{ column_name: string; data_type: string }>(
     `SELECT column_name, data_type
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = $1`,
     [tableName],
   );
+  if (result.rows.length === 0) return "missing";
   const columns = new Map(
     result.rows.map((row) => [row.column_name, row.data_type]),
   );
-  return (
-    columns.get("workspace_id") === "text" &&
+  const isExactLegacyShape =
+    columns.size === LEGACY_EXTERNAL_RECORD_COLUMNS.size &&
+    [...LEGACY_EXTERNAL_RECORD_COLUMNS].every(
+      ([name, dataType]) => columns.get(name) === dataType,
+    );
+  if (isExactLegacyShape) return "legacy";
+  if (
+    tableName === "external_records" &&
+    columns.get("id") === "uuid" &&
+    columns.get("workspace_id") === "uuid" &&
     columns.get("source") === "text" &&
     columns.get("source_record_id") === "text" &&
     columns.get("entity_type") === "text" &&
-    columns.get("entity_id") === "text" &&
-    columns.get("created_at") === "text"
-  );
+    columns.get("entity_id") === "uuid" &&
+    columns.get("created_at") === "timestamp with time zone"
+  ) {
+    return "canonical";
+  }
+  return "unsupported";
 }
 
 async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
@@ -117,7 +144,13 @@ async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
     "local_external_records_legacy",
     "external_records",
   ]) {
-    if (!(await hasLegacyExternalRecordShape(db, tableName))) continue;
+    const shape = await inspectExternalRecordTable(db, tableName);
+    if (shape === "missing" || shape === "canonical") continue;
+    if (shape === "unsupported") {
+      throw new Error(
+        `${tableName} exists with an unsupported schema; refusing to migrate or drop it`,
+      );
+    }
     await db.exec(`
       INSERT INTO local_external_records
         (workspace_id, source, source_record_id, entity_type, entity_id, created_at)

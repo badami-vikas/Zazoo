@@ -130,6 +130,7 @@ import {
   createLocalMediaStore,
   DrizzleCanonicalIdentityStore,
   DrizzleWorkspaceStore,
+  type WorkspaceRenameCoordinator,
   DrizzleGraphStore,
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
@@ -198,10 +199,17 @@ import {
 import type { QuarantinedCapture } from "@bridge/tool-kit";
 import {
   BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
+  LEARNING_AGENT_RUNTIME_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
+import {
+  createOrganizationRenameLease,
+  defaultBridgeFilesRoot,
+} from "./module-files.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -212,7 +220,7 @@ export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
-export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
+export const LEARNING_AGENT = LEARNING_AGENT_RUNTIME_ID;
 export const EGRESS_AGENT = DEALPILOT_SOURCING_AGENT_ID;
 const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
 const EGRESS_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c7";
@@ -253,6 +261,16 @@ const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
+export async function migrateLegacyPilotOrganization(
+  workspaceStore: DrizzleWorkspaceStore,
+): Promise<void> {
+  await workspaceStore.renameWorkspace(
+    PILOT_WORKSPACE,
+    "Pilot Organization",
+    { ifCurrentName: "Pilot workspace" },
+  );
+}
+
 export async function retireSupersededBuiltIns(
   packageStore: PackageStore,
   workspaceId: string,
@@ -278,6 +296,8 @@ export interface Wiring {
   localMedia: LocalMediaStore;
   /** True when any durable store is active (DATABASE_URL or file-backed Local Plane). */
   persistent: boolean;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot: string;
   /** The LOCAL plane (pglite) — private tier. */
   localPlane: LocalPlane;
   /** The Google integration surface. */
@@ -421,7 +441,7 @@ const stageMutation: Skill = {
 };
 
 const stageLearningRecommendation: Skill = {
-  name: "stageLearningRecommendation",
+  name: LEARNING_RECOMMENDATION_SKILL_ID,
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -483,13 +503,13 @@ export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
-  skillId: "stageLearningRecommendation",
-  version: "1.0.0",
+  skillId: LEARNING_RECOMMENDATION_SKILL_ID,
+  version: CITED_ROLE_MODEL_PRACTICE_VERSION,
   goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
   taskTypes: [PRODUCE_RECOMMENDATION_TASK_TYPE],
   permissions: ["signal:write"],
   plane: "local",
-  dataScopes: ["all"],
+  dataScopes: ["private"],
   riskBand: "advisory",
   evalVersion: "1.0.0",
   defaultAgents: ["learning"],
@@ -2809,7 +2829,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   agents.scope.set(LEARNING_AGENT, ["signal:write", "event:write", "external:fetch:read"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
-    "stageLearningRecommendation",
+    LEARNING_RECOMMENDATION_SKILL_ID,
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
@@ -2994,10 +3014,16 @@ export interface ModePorts {
  *    which may be cloud — so the historical "ledger MUST stay local" guarantee is not
  *    actually enforced. We warn rather than silently uphold a promise we don't keep.
  */
-export function buildPersistentPorts(env: { url: string }): ModePorts {
+export function buildPersistentPorts(env: {
+  url: string;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+}): ModePorts {
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db, {
     defaultWorkspaceId: PILOT_WORKSPACE,
+    ...(env.workspaceRenameCoordinator
+      ? { workspaceRenameCoordinator: env.workspaceRenameCoordinator }
+      : {}),
   });
   // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
   // once DATABASE_URL is set. `skillManifestRegistry`'s `refresh()` is awaited
@@ -3135,6 +3161,7 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
  */
 export async function buildInMemoryPorts(env: {
   localDir: string | undefined;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
   localDatabase?: Awaited<ReturnType<typeof createLocalDb>>;
 }): Promise<ModePorts> {
   const mRoles = new InMemoryRoleStore();
@@ -3224,7 +3251,7 @@ export async function buildInMemoryPorts(env: {
     toolRegistry: new InMemoryToolRegistry(),
     ritualRunRecorder: new InMemoryRitualRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
-    workspaceStore: new DrizzleWorkspaceStore(localDb),
+    workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
     graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
@@ -3350,12 +3377,13 @@ export interface BuildWiringOptions {
   /** Test-only opt-in; runtime must name a durable Local Plane directory. */
   allowEphemeralLocalPlane?: boolean;
   localDir?: string;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot?: string;
 }
 
 function runningUnderNodeTest(): boolean {
   return process.env.NODE_TEST_CONTEXT !== undefined;
 }
-
 export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wiring> {
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry()
@@ -3370,6 +3398,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
+  const moduleFilesBridgeRoot =
+    options.moduleFilesBridgeRoot
+    ?? process.env.BRIDGE_FILES_ROOT
+    ?? defaultBridgeFilesRoot();
 
   // Runtime Local Plane is file-backed. Only the isolated Node test runner may
   // opt into ephemeral PGlite; web/server launches otherwise fail loudly.
@@ -3475,11 +3507,19 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
 
   // Mode ports: one fully-typed object per mode, no let-sprawl reassignment.
+  const workspaceRenameCoordinator: WorkspaceRenameCoordinator = {
+    createLease: (workspaceId) =>
+      createOrganizationRenameLease(
+        workspaceId,
+        moduleFilesBridgeRoot,
+      ),
+  };
   const modePorts: ModePorts = url
-    ? buildPersistentPorts({ url })
+    ? buildPersistentPorts({ url, workspaceRenameCoordinator })
     : await buildInMemoryPorts({
         localDir,
         localDatabase,
+        workspaceRenameCoordinator,
       });
   modePortsForCleanup = modePorts;
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
@@ -3727,6 +3767,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
+  await migrateLegacyPilotOrganization(workspaceStore);
   if (url) {
     await localWorkspaceStore.bootstrapPilotIdentities({
       workspaceId: PILOT_WORKSPACE,
@@ -3924,6 +3965,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     relationMaterializations,
     events,
     persistent: Boolean(url || localDir),
+    moduleFilesBridgeRoot,
     localPlane,
     google,
     googleOAuth,

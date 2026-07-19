@@ -244,6 +244,35 @@ function AgentsSection({
   const agents = pkg.manifest?.module?.agents ?? [];
   const capabilities = new Map((pkg.manifest?.capabilities ?? []).map((capability) => [capability.id, capability]));
   const needs = pkg.manifest?.module?.commonsNeeds ?? [];
+  const [skillRunStates, setSkillRunStates] = useState<Record<string, {
+    status: "running" | "pending_review" | "error";
+    proposalId?: string;
+    message?: string;
+  }>>({});
+
+  const runInstalledSkill = async (attachment: PackageRow, capabilityId: string) => {
+    const key = `${attachment.id}:${capabilityId}`;
+    setSkillRunStates((current) => ({ ...current, [key]: { status: "running" } }));
+    try {
+      const result = await trpc.commons.runInstalledSkill.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        installationId: attachment.id,
+      });
+      setSkillRunStates((current) => ({
+        ...current,
+        [key]: {
+          status: "pending_review",
+          proposalId: result.proposal.id,
+        },
+      }));
+    } catch (failure) {
+      setSkillRunStates((current) => ({
+        ...current,
+        [key]: { status: "error", message: String(failure) },
+      }));
+    }
+  };
+
   return (
     <section className="space-y-3">
       <SectionHeader icon={Bot} title="Agents" />
@@ -298,16 +327,65 @@ function AgentsSection({
                         </li>
                       );
                     })}
-                    {attachedSkills.map(({ capability, attachment }) => (
-                      <li key={`${attachment.id}-${capability.id}`} className="p-3">
-                        <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-                          {capability.name}
-                        </p>
-                        <p className="mt-0.5 text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
-                          {capability.id} · installed from Commons · invoked only by {agent.name}
-                        </p>
-                      </li>
-                    ))}
+                    {attachedSkills.map(({ capability, attachment }) => {
+                      const runKey = `${attachment.id}:${capability.id}`;
+                      const runState = skillRunStates[runKey];
+                      const runnable = attachment.runtimeSkillIds.includes(capability.id);
+                      const bindingIssue = attachment.runtimeBindingIssues[0];
+                      return (
+                        <li key={`${attachment.id}-${capability.id}`} className="p-3 space-y-2">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
+                                {capability.name}
+                              </p>
+                              <p className="mt-0.5 text-xs break-all" style={{ color: "var(--color-warm-gray)" }}>
+                                {capability.id} · installed from Commons · invoked only by {agent.name}
+                              </p>
+                            </div>
+                            {runnable ? (
+                              <button
+                                type="button"
+                                onClick={() => void runInstalledSkill(attachment, capability.id)}
+                                disabled={runState?.status === "running"}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 text-xs disabled:opacity-60"
+                                style={{ borderColor: "var(--color-border)", color: "var(--color-steel)" }}
+                              >
+                                {runState?.status === "running" ? <Loader className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
+                                {runState?.status === "running" ? "Running…" : `Run with ${agent.name}`}
+                              </button>
+                            ) : (
+                              <span
+                                className="shrink-0 rounded border px-2 py-1 text-xs"
+                                style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}
+                              >
+                                Runtime binding unavailable
+                              </span>
+                            )}
+                          </div>
+                          {!runnable && bindingIssue && (
+                            <p className="text-xs break-words" style={{ color: "var(--destructive)" }}>
+                              {bindingIssue}
+                            </p>
+                          )}
+                          {runState && runState.status !== "running" && (
+                            <p
+                              className="text-xs break-words"
+                              style={{ color: runState.status === "error" ? "var(--destructive)" : "var(--color-warm-gray)" }}
+                            >
+                              {runState.status === "error"
+                                ? `Run failed: ${runState.message}`
+                                : `Proposal ${runState.proposalId} is awaiting review. `}
+                              {runState.status === "pending_review" && (
+                                <Link to="/approvals" className="font-medium underline" style={{ color: "var(--color-steel)" }}>
+                                  Review or correct in Approvals
+                                </Link>
+                              )}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   {needs.filter((need) => need.agentId === agent.id).map((need) => (
                     <CommonsCapabilityPanel

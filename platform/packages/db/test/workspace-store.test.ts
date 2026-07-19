@@ -5,8 +5,36 @@
  * member list. Plain CRUD, no pipeline/ledger involvement.
  */
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { createLocalDb, DrizzleWorkspaceStore, schema } from "../src/index.js";
+import { sql } from "drizzle-orm";
+import {
+  createLocalDb,
+  DrizzleWorkspaceStore,
+  schema,
+  type WorkspaceRenameCoordinator,
+} from "../src/index.js";
+
+function renameCoordinator() {
+  const observed: Array<{ previous: string; next: string }> = [];
+  let recoveryCount = 0;
+  const coordinator: WorkspaceRenameCoordinator = {
+    createLease: async () => ({
+      recover: async () => {
+        recoveryCount += 1;
+      },
+      rename: async (previous, next) => {
+        observed.push({ previous, next });
+      },
+      complete: async () => {},
+    }),
+  };
+  return {
+    coordinator,
+    observed,
+    recoveryCount: () => recoveryCount,
+  };
+}
 
 test("create workspace -> appears in creator's list -> invite -> appears in members list", async () => {
   const { db, close } = await createLocalDb();
@@ -15,20 +43,35 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     const [creator] = await db.insert(schema.users).values({ email: "test_fixture_creator@example.com" }).returning({
       id: schema.users.id,
     });
+
     assert.ok(creator, "creator user seeded");
 
-    const store = new DrizzleWorkspaceStore(db);
+    const unconfiguredStore = new DrizzleWorkspaceStore(db);
 
-    const ws = await store.createWorkspace("test_fixture_workspace", creator.id);
+    const ws = await unconfiguredStore.createWorkspace("test_fixture_workspace", creator.id);
     assert.equal(ws.name, "test_fixture_workspace");
     assert.ok(ws.id);
     assert.ok(ws.createdAt);
 
     // Creator sees the new workspace in their list.
-    const creatorWorkspaces = await store.listWorkspaces(creator.id);
+    const creatorWorkspaces = await unconfiguredStore.listWorkspaces(creator.id);
     assert.deepEqual(
       creatorWorkspaces.map((w) => w.id),
       [ws.id],
+    );
+
+    await assert.rejects(
+      () => unconfiguredStore.renameWorkspace(ws.id, "Uncoordinated"),
+      /rename coordinator is not configured/,
+    );
+    const { coordinator } = renameCoordinator();
+    const store = new DrizzleWorkspaceStore(db, coordinator);
+    const renamed = await store.renameWorkspace(ws.id, "Product Leadership");
+    assert.equal(renamed.name, "Product Leadership");
+    assert.equal((await store.listWorkspaces(creator.id))[0]?.name, "Product Leadership");
+    await assert.rejects(
+      () => store.renameWorkspace("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Unknown"),
+      /workspace: unknown id/,
     );
 
     // A different user has no workspaces yet.
@@ -64,6 +107,77 @@ test("create workspace -> appears in creator's list -> invite -> appears in memb
     const membersAfterReinvite = await store.listMembers(ws.id);
     // No duplicate row for otherUser despite inviting twice.
     assert.equal(membersAfterReinvite.filter((m) => m.userId === otherUser!.id).length, 1);
+  } finally {
+    await close();
+  }
+});
+
+test("pilot identity bootstrap preserves existing names for the Files-aware API migration", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const store = new DrizzleWorkspaceStore(db);
+    const legacyWorkspaceId = randomUUID();
+    const legacyUserId = randomUUID();
+    const customWorkspaceId = randomUUID();
+    const customUserId = randomUUID();
+    await db.insert(schema.workspaces).values([
+      { id: legacyWorkspaceId, name: "Pilot workspace" },
+      { id: customWorkspaceId, name: "Custom Organization" },
+    ]);
+
+    await store.bootstrapPilotIdentities({
+      workspaceId: legacyWorkspaceId,
+      userId: legacyUserId,
+      userEmail: "test_fixture_legacy_pilot@example.com",
+    });
+    await store.bootstrapPilotIdentities({
+      workspaceId: customWorkspaceId,
+      userId: customUserId,
+      userEmail: "test_fixture_custom_pilot@example.com",
+    });
+
+    const [migratedOrganization] = await store.listWorkspaces(legacyUserId);
+    const [customOrganization] = await store.listWorkspaces(customUserId);
+    assert.equal(migratedOrganization?.name, "Pilot workspace");
+    assert.equal(customOrganization?.name, "Custom Organization");
+  } finally {
+    await close();
+  }
+});
+
+test("workspace rename row lock serializes current-name reads and recovers external state", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const [creator] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_rename_lock@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(creator);
+    const rename = renameCoordinator();
+    const store = new DrizzleWorkspaceStore(db, rename.coordinator);
+    const workspace = await store.createWorkspace("Before", creator.id);
+    await Promise.all([
+      store.renameWorkspace(workspace.id, "First"),
+      store.renameWorkspace(workspace.id, "Second"),
+    ]);
+    assert.equal(rename.observed.length, 2);
+    assert.equal(rename.observed.filter(({ previous }) => previous === "Before").length, 1);
+    assert.ok(rename.observed.some(({ previous }) => previous === "First" || previous === "Second"));
+    const currentName = (await store.listWorkspaces(creator.id))[0]?.name ?? "";
+    assert.ok(["First", "Second"].includes(currentName));
+
+    await db.execute(sql`
+      ALTER TABLE workspaces
+      ADD CONSTRAINT workspace_rename_test_reject
+      CHECK (name <> 'Rejected')
+    `);
+    const recoveriesBeforeFailure = rename.recoveryCount();
+    await assert.rejects(
+      () => store.renameWorkspace(workspace.id, "Rejected"),
+      /Failed query: update "workspaces"/,
+    );
+    assert.equal(rename.recoveryCount(), recoveriesBeforeFailure + 2);
+    assert.equal((await store.listWorkspaces(creator.id))[0]?.name, currentName);
   } finally {
     await close();
   }

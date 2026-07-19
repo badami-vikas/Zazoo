@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   IntegrationFloorScopeError,
+  UnknownWorkspaceError,
+  WorkspaceRenameRollbackError,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -96,6 +98,7 @@ import {
   resolveGates,
   classifyApprovalBand,
   canGovernanceAutoApprove,
+  isOwnerScopedLedgerEntry,
   rollupOrgHealth,
   InvalidTransitionError as CapabilityInvalidTransitionError,
   EvidenceThresholdError,
@@ -108,6 +111,7 @@ import {
   parseSkillMention,
   invokeAgent,
   buildCommunicationsSystemPrompt,
+  canonicalizeManifest,
   canonicalizeJson,
   normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
@@ -174,14 +178,22 @@ import {
   type GroundedClaimInput,
 } from "@bridge/jobpilot";
 import {
+  BUILT_IN_PACKAGES,
   COMMONS_BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_RITUAL_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeRitualId,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
-import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
+import {
+  listModuleFiles,
+  ModuleFilesPathError,
+  OrganizationFilesConflictError,
+  OrganizationFilesRecoveryError,
+} from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
@@ -207,6 +219,99 @@ function stableOutreachProposalId(key: string): string {
 
 function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
   return stableProposalId(`package-install:${workspaceId}:${installationId}`);
+}
+
+const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
+  const relationship = BUILT_IN_PACKAGES.find(
+    (candidate) => candidate.manifest.name === "relationship",
+  );
+  if (!relationship) throw new Error("Relationship built-in manifest is missing");
+  return {
+    name: relationship.manifest.name,
+    version: relationship.manifest.version,
+    canonicalManifest: canonicalizeManifest(relationship.manifest),
+  };
+})();
+
+function packageManifestHash(manifest: PackageManifest): string {
+  return `sha256:${createHash("sha256").update(canonicalizeManifest(manifest)).digest("hex")}`;
+}
+
+function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
+  const capability = manifest.capabilities[0];
+  const readPermission = capability?.permissions[0];
+  const writePermission = capability?.permissions[1];
+  return manifest.name === "cited-role-model-practice"
+    && manifest.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && manifest.kind === "skill"
+    && manifest.dependencies.length === 0
+    && manifest.capabilities.length === 1
+    && manifest.contextProviders.length === 0
+    && manifest.module === undefined
+    && manifest.blueprint === undefined
+    && capability?.id === LEARNING_RECOMMENDATION_SKILL_ID
+    && capability.name === "Stage cited role-model practice"
+    && capability.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && capability.capabilityType === "skill"
+    && capability.origin === "built_in"
+    && capability.audience === "private"
+    && capability.permissions.length === 2
+    && readPermission?.resourceType === "signal"
+    && readPermission.action === "read"
+    && readPermission.dataScope === "private"
+    && readPermission.egress === false
+    && writePermission?.resourceType === "signal"
+    && writePermission.action === "write"
+    && writePermission.dataScope === "private"
+    && writePermission.egress === false
+    && capability.connectors.length === 0
+    && capability.dependencies.length === 0
+    && capability.execution === undefined;
+}
+
+function isSupportedCitedRoleModelInstallation(
+  installation: PackageInstallationRow,
+): boolean {
+  const { manifest, moduleAttachment } = installation;
+  return installation.packageName === "cited-role-model-practice"
+    && installation.packageVersion === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && installation.state === "available"
+    && installation.status === "installed"
+    && manifest.name === installation.packageName
+    && manifest.version === installation.packageVersion
+    && isSupportedCitedRoleModelManifest(manifest)
+    && moduleAttachment?.source === "commons"
+    && moduleAttachment.modulePackageName === "relationship"
+    && resolveModuleAgentRuntimeId(
+      moduleAttachment.modulePackageName,
+      moduleAttachment.agentId,
+    ) === LEARNING_AGENT;
+}
+
+async function currentSupportedRelationshipOwner(
+  wiring: Wiring,
+  installation: PackageInstallationRow,
+): Promise<PackageInstallationRow | null> {
+  const attachment = installation.moduleAttachment;
+  if (!attachment || attachment.modulePackageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name) {
+    return null;
+  }
+  const ownerModule = await wiring.packageStore.getAvailable(
+    installation.workspaceId,
+    attachment.modulePackageName,
+  );
+  if (
+    !ownerModule
+    || ownerModule.status !== "installed"
+    || ownerModule.packageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name
+    || ownerModule.packageVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version
+    || ownerModule.manifest.name !== ownerModule.packageName
+    || ownerModule.manifest.version !== ownerModule.packageVersion
+    || canonicalizeManifest(ownerModule.manifest) !== SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest
+  ) {
+    return null;
+  }
+  return ownerModule;
 }
 
 function stableDealPilotCaptureProposalId(workspaceId: string, captureId: string): string {
@@ -760,6 +865,167 @@ async function provisionRoleModelRecommendationTask(
     PRODUCE_RECOMMENDATION_TASK_TYPE,
     LEARNING_AGENT,
   );
+}
+
+interface CommonsSkillInvocation {
+  source: "commons";
+  installationId: string;
+  packageName: string;
+  packageVersion: string;
+  contentHash: string;
+  moduleInstallationId: string;
+  modulePackageName: string;
+  modulePackageVersion: string;
+  moduleManifestHash: string;
+  moduleAgentId: string;
+  runtimeAgentId: string;
+  capabilityId: string;
+}
+
+const roleModelRecommendationSchema = z.object({
+  kind: z.literal("learning_recommendation"),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  documentedContext: z.string().min(1),
+  interpretation: z.string().min(1),
+  citation: z.object({
+    label: z.string().min(1),
+    url: z.string().url(),
+  }),
+  cadence: z.string().min(1),
+  stopCondition: z.string().min(1),
+});
+type RoleModelRecommendation = z.infer<typeof roleModelRecommendationSchema>;
+
+async function stageRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  workspaceId: string,
+  recommendation: RoleModelRecommendation,
+  commonsInvocation?: CommonsSkillInvocation,
+) {
+  const proposal = await wiring.pipeline.propose(
+    {
+      workspaceId,
+      actor: { type: "agent", id: LEARNING_AGENT },
+      onBehalfOf: { type: "user", id: identityId },
+      action: "write",
+      resourceType: "signal",
+      dataScope: "private",
+      inputs: {
+        ...recommendation,
+        ...(commonsInvocation ? { commonsInvocation } : {}),
+      },
+      skill: LEARNING_RECOMMENDATION_SKILL_ID,
+      trustOrigin: "untrusted_external",
+      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, workspaceId),
+    },
+    run,
+  );
+  return { recommendation, proposal };
+}
+
+async function proposeRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  input: { workspaceId: string; figure: string; admiredFor: string },
+) {
+  const source = await researchPublicFigure(input.figure);
+  const recommendation: RoleModelRecommendation = {
+    kind: "learning_recommendation",
+    title: `Practice ${input.admiredFor} deliberately`,
+    summary:
+      `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
+      "your preparation or communication. Review the outcome before repeating it.",
+    documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
+    interpretation:
+      `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
+    citation: { label: source.title, url: source.url },
+    cadence: "weekly",
+    stopCondition: "Pause or remove it whenever it stops being useful.",
+  };
+  const result = await stageRoleModelRecommendation(
+    wiring,
+    run,
+    identityId,
+    input.workspaceId,
+    recommendation,
+  );
+  const existing = await wiring.memoryStore.retrieve(
+    { limit: 100 },
+    { workspaceId: input.workspaceId, userId: identityId },
+  );
+  if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
+    await wiring.memoryStore.write({
+      id: uuidv7(),
+      workspaceId: input.workspaceId,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({
+        kind: "onboarding_preference",
+        figure: input.figure,
+        admiredFor: input.admiredFor,
+      }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: identityId,
+      ownerUserId: identityId,
+    });
+  }
+  return result;
+}
+
+async function latestApprovedRoleModelRecommendation(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerUserId: string,
+): Promise<RoleModelRecommendation | null> {
+  const pageSize = 100;
+  const maxRows = 1_000;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const page = await wiring.ledger.listHistory(workspaceId, {
+      limit: pageSize,
+      offset,
+      privateOwnerUserId: ownerUserId,
+    });
+    for (const entry of page.items) {
+      if (
+        entry.refLedgerId
+        || entry.actorType !== "agent"
+        || entry.actorId !== LEARNING_AGENT
+        || entry.onBehalfOfType !== "user"
+        || entry.onBehalfOfId !== ownerUserId
+        || entry.action !== "write"
+        || entry.resourceType !== "signal"
+        || entry.dataScope !== "private"
+        || entry.trustOrigin !== "untrusted_external"
+        || typeof entry.inputs !== "object"
+        || entry.inputs === null
+        || Array.isArray(entry.inputs)
+        || "commonsInvocation" in entry.inputs
+      ) {
+        continue;
+      }
+      const parsed = roleModelRecommendationSchema.safeParse(entry.inputs);
+      if (!parsed.success) continue;
+      const citation = new URL(parsed.data.citation.url);
+      if (citation.protocol !== "https:" || citation.origin !== "https://en.wikipedia.org") {
+        continue;
+      }
+      const decision = await wiring.ledger.decisionFor(entry.id);
+      if (decision?.userDecision === "approve" || decision?.userDecision === "edit") {
+        return parsed.data;
+      }
+    }
+    if (offset + page.items.length >= page.total) return null;
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: "Too many Learning recommendations exist to resolve the approved local source safely",
+  });
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
@@ -1535,7 +1801,7 @@ async function getCaptureReviewEnvelope(
   return captureReviewEnvelopeSchema.parse(body.content);
 }
 
-function assertRelationshipProposalOwner(
+function assertPrivateProposalOwner(
   proposal: LedgerEntry,
   identity: { type: ActorType; id: string },
   google: ApiContext["wiring"]["google"],
@@ -1557,8 +1823,7 @@ function assertRelationshipProposalOwner(
     );
   if (
     (
-      proposal.dataScope === "private" ||
-      proposal.resourceType === "relation" ||
+      isOwnerScopedLedgerEntry(proposal) ||
       isRelationshipMutation(proposal.inputs) ||
       googleProposal
     ) &&
@@ -3019,18 +3284,7 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
-        assertRelationshipProposalOwner(proposal, ctx.identity, ctx.wiring.google);
-        // TASK-010: a private red-flag correction proposal (`resourceType`
-        // never "relation" — always "signal") gets the SAME "hide existence
-        // entirely from a non-owner" treatment RM4's relation rows get above,
-        // via TASK-010's own `inputs.visibility === "private"` marker. The
-        // `resourceType !== "relation"` guard keeps this from re-interpreting
-        // a relation proposal's OWN `visibility` enum value (which can
-        // legitimately be `"private"`/`"workspace"`/`"public"` and is already
-        // fully handled by `assertRelationshipProposalOwner` above).
-        if (proposal.resourceType !== "relation" && isPrivateProposalInputs(proposal.inputs) && proposal.onBehalfOfId !== ctx.identity.id) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
-        }
+        assertPrivateProposalOwner(proposal, ctx.identity, ctx.wiring.google);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -3063,14 +3317,21 @@ export const appRouter = t.router({
       // decision is resolved: a proposal shaped like a culture-research/
       // synthesis output must carry a valid durable binding.
       await assertCultureProposalBindingValid(ctx.wiring, original);
-      assertRelationshipProposalOwner(original, ctx.identity, ctx.wiring.google);
       // TASK-010: same non-relation-scoped private-proposal guard as
       // `resolution` above — a red-flag correction proposal may only be
       // decided by the user it was raised `onBehalfOf`, even though it
       // passes the ordinary workspace-membership gate.
-      if (original.resourceType !== "relation" && isPrivateProposalInputs(original.inputs) && original.onBehalfOfId !== ctx.identity.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "This proposal is private to its own owner" });
+      if (
+        original.resourceType !== "relation" &&
+        isPrivateProposalInputs(original.inputs) &&
+        original.onBehalfOfId !== ctx.identity.id
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This proposal is private to its own owner",
+        });
       }
+      assertPrivateProposalOwner(original, ctx.identity, ctx.wiring.google);
       const isSignalEvidenceProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -3114,6 +3375,38 @@ export const appRouter = t.router({
         }
       }
       let committedEditedOutput = input.editedOutput;
+      if (input.decision === "edit") {
+        const originalInputs =
+          typeof original.inputs === "object" &&
+          original.inputs !== null &&
+          !Array.isArray(original.inputs)
+            ? (original.inputs as Record<string, unknown>)
+            : null;
+        if (originalInputs?.kind === "learning_recommendation") {
+          if (
+            typeof committedEditedOutput !== "object" ||
+            committedEditedOutput === null ||
+            Array.isArray(committedEditedOutput) ||
+            (committedEditedOutput as Record<string, unknown>).kind !==
+              "learning_recommendation"
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Learning output must remain a learning recommendation object",
+            });
+          }
+          const canonical = {
+            ...(committedEditedOutput as Record<string, unknown>),
+          };
+          if (originalInputs.commonsInvocation === undefined) {
+            delete canonical.commonsInvocation;
+          } else {
+            canonical.commonsInvocation = originalInputs.commonsInvocation;
+          }
+          committedEditedOutput = canonical;
+        }
+      }
       if (
         !resolved &&
         input.decision === "edit" &&
@@ -6200,53 +6493,12 @@ export const appRouter = t.router({
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const source = await researchPublicFigure(input.figure);
-          const recommendation = {
-            kind: "learning_recommendation" as const,
-            title: `Practice ${input.admiredFor} deliberately`,
-            summary:
-              `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
-              "your preparation or communication. Review the outcome before repeating it.",
-            documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
-            interpretation:
-              `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
-            citation: { label: source.title, url: source.url },
-            cadence: "weekly",
-            stopCondition: "Pause or remove it whenever it stops being useful.",
-          };
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: "agent", id: LEARNING_AGENT },
-              onBehalfOf: { type: "user", id: ctx.identity.id },
-              action: "write",
-              resourceType: "signal",
-              inputs: recommendation,
-              skill: "stageLearningRecommendation",
-              trustOrigin: "untrusted_external",
-              goalTaskRef: await provisionRoleModelRecommendationTask(ctx.wiring, input.workspaceId),
-            },
+          return proposeRoleModelRecommendation(
+            ctx.wiring,
             ctx.run,
+            ctx.identity.id,
+            input,
           );
-          const existing = await ctx.wiring.memoryStore.retrieve(
-            { limit: 100 },
-            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
-          );
-          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
-            await ctx.wiring.memoryStore.write({
-              id: uuidv7(),
-              workspaceId: input.workspaceId,
-              type: "preference",
-              scope: "private",
-              content: JSON.stringify({ kind: "onboarding_preference", figure: input.figure, admiredFor: input.admiredFor }),
-              confidence: 1,
-              trustOrigin: "user_content",
-              plane: "local",
-              createdBy: ctx.identity.id,
-              ownerUserId: ctx.wiring.pilotUserId,
-            });
-          }
-          return { recommendation, proposal };
         }),
 
     correctMemory: procedure
@@ -7005,6 +7257,44 @@ export const appRouter = t.router({
     list: procedure.query(async ({ ctx }) => {
       return ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
     }),
+
+    rename: procedure
+      .input(z.object({ workspaceId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        try {
+          return await ctx.wiring.workspaceStore.renameWorkspace(
+            input.workspaceId,
+            input.name,
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
+          }
+          if (error instanceof OrganizationFilesConflictError) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Rename or merge the existing Organization Files directory first",
+              cause: error,
+            });
+          }
+          if (error instanceof OrganizationFilesRecoveryError) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message, cause: error });
+          }
+          if (error instanceof WorkspaceRenameRollbackError) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Organization rename failed and its Files directory could not be restored",
+              cause: error,
+            });
+          }
+          if (error instanceof UnknownWorkspaceError) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "unknown Organization", cause: error });
+          }
+          throw error;
+        }
+      }),
 
     inviteMember: procedure
       .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
@@ -8678,6 +8968,8 @@ export const appRouter = t.router({
           return await listModuleFiles(
             organization.name,
             installation.manifest.module?.displayName ?? installation.packageName,
+            200,
+            ctx.wiring.moduleFilesBridgeRoot,
           );
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
@@ -9137,6 +9429,8 @@ export const appRouter = t.router({
       const itemsWithRuntimeBindings = await Promise.all(
         items.map(async (installation) => {
           const runtimeAutomationIds: string[] = [];
+          const runtimeSkillIds: string[] = [];
+          const runtimeBindingIssues: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
             if (!automation.ritualId) continue;
             const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
@@ -9148,7 +9442,43 @@ export const appRouter = t.router({
               runtimeAutomationIds.push(automation.id);
             }
           }
-          return { ...installation, runtimeAutomationIds };
+          const attachment = installation.moduleAttachment;
+          if (
+            attachment
+            && isSupportedCitedRoleModelInstallation(installation)
+          ) {
+            try {
+              const currentEntry = await assertCurrentCommonsAttachment(
+                ctx.wiring,
+                installation,
+              );
+              if (!currentEntry || !isSupportedCitedRoleModelManifest(currentEntry.manifest)) {
+                runtimeBindingIssues.push(
+                  "The current signed Commons artifact no longer matches the supported runtime contract",
+                );
+              } else if (!await currentSupportedRelationshipOwner(ctx.wiring, installation)) {
+                runtimeBindingIssues.push(
+                  "The owning Relationship Module no longer matches the supported runtime contract",
+                );
+              } else {
+                runtimeSkillIds.push(
+                  LEARNING_RECOMMENDATION_SKILL_ID,
+                );
+              }
+            } catch (error) {
+              runtimeBindingIssues.push(
+                error instanceof TRPCError
+                  ? error.message
+                  : "Commons registry is unavailable; the runtime binding could not be revalidated",
+              );
+            }
+          }
+          return {
+            ...installation,
+            runtimeAutomationIds,
+            runtimeSkillIds,
+            runtimeBindingIssues,
+          };
         }),
       );
       return {
@@ -9442,6 +9772,106 @@ export const appRouter = t.router({
         });
 
         return { installation: created };
+      }),
+
+    runInstalledSkill: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          installationId: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const installation = await ctx.wiring.packageStore.get(input.installationId);
+        if (!installation || installation.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown Commons installation" });
+        }
+        if (installation.state !== "available" || installation.status !== "installed") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Commons capability must be installed and available before it can run",
+          });
+        }
+        const attachment = installation.moduleAttachment;
+        const entry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
+        if (!attachment || !entry) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "capability is not attached from Commons to a Module Agent",
+          });
+        }
+        if (
+          !isSupportedCitedRoleModelInstallation(installation)
+          || !isSupportedCitedRoleModelManifest(entry.manifest)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported signed runtime contract",
+          });
+        }
+        const ownerModule = await currentSupportedRelationshipOwner(ctx.wiring, installation);
+        if (!ownerModule) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported owning Module contract",
+          });
+        }
+        const skillCapabilities = entry.manifest.capabilities.filter(
+          (capability) => capability.capabilityType === "skill",
+        );
+        if (
+          skillCapabilities.length !== 1 ||
+          skillCapabilities[0]?.id !== LEARNING_RECOMMENDATION_SKILL_ID
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill has no supported runtime binding",
+          });
+        }
+        const runtimeAgentId = resolveModuleAgentRuntimeId(
+          attachment.modulePackageName,
+          attachment.agentId,
+        );
+        if (runtimeAgentId !== LEARNING_AGENT) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill is not bound to its attributable runtime Agent",
+          });
+        }
+        const recommendation = await latestApprovedRoleModelRecommendation(
+          ctx.wiring,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        if (!recommendation) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Approve a cited role-model onboarding recommendation before running this Skill",
+          });
+        }
+        return stageRoleModelRecommendation(
+          ctx.wiring,
+          ctx.run,
+          ctx.identity.id,
+          input.workspaceId,
+          recommendation,
+          {
+            source: "commons",
+            installationId: installation.id,
+            packageName: entry.name,
+            packageVersion: entry.version,
+            contentHash: attachment.contentHash,
+            moduleInstallationId: ownerModule.id,
+            modulePackageName: attachment.modulePackageName,
+            modulePackageVersion: ownerModule.packageVersion,
+            moduleManifestHash: packageManifestHash(ownerModule.manifest),
+            moduleAgentId: attachment.agentId,
+            runtimeAgentId,
+            capabilityId: LEARNING_RECOMMENDATION_SKILL_ID,
+          },
+        );
       }),
 
     /**

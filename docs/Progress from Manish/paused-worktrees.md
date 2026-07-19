@@ -1,16 +1,37 @@
 # Paused worktrees
 
-All workers were stopped on 2026-07-18. Re-check every status before resuming because these are uncommitted snapshots, not immutable releases.
+All listed paused workers were stopped on 2026-07-18. TASK-005's later landing session is complete.
+Re-check every status before resuming because remaining entries are uncommitted snapshots, not
+immutable releases.
 
 ## Central baseline
 
 - Checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Branch: `main`
 - Latest `main` baseline merged for this handoff:
-  `3741a4144544a4a60bb06bec32b5e9dc17b693cd`.
+  TASK-005 implementation/certification checkpoint `166a01b`.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
+
+## TASK-005 combined demo certification — MERGED 2026-07-19
+
+- Session: `18c7a8c6-49b0-4cd8-a964-ae47cdbd648a`
+- Branch: `manishsbhoopalam8498-certify-task-005-demo`
+- Implementation/certification checkpoint: `166a01b`
+- Canon: TASK-005 `done`; AP-047; ADR-121/ADR-122
+- Migration: `0017_task005_private_learning_recommendations`; next new migration is `0018`
+
+Fresh isolated desktop `1440×913` and exact mobile `375×812` runs completed the entire
+Onboarding→Owl→Relationship→Commons→Learning Agent→provenance→correction/veto/delete path on the
+final post-review code. The package is signed `cited-role-model-practice@1.0.1`, declares private
+Signal read/write with no runtime egress, and binds only while its current signed Skill and exact
+owning Relationship Module contracts match. Distinct dual Files roots preserve rename intent and
+stop. API 251, DB 159, web 81, Rust 44, typecheck 37/37, build 20/20, all 36 non-Sensor test tasks,
+lint, no-runtime-dummy, release-native launch, and final independent review passed.
+
+This worktree is historical after merge. Do not resume it, re-run its migration under another
+number, or merge it again.
 
 ## TASK-006 durability — MERGED 2026-07-19
 
