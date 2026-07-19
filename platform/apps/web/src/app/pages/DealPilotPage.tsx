@@ -20,7 +20,7 @@ import {
 import { DataViews } from "../dataviews/DataViews";
 import type { DataRow, GraphNode } from "../dataviews/types";
 import { defaultViewConfig, type ColumnSpec, type TableSpec, type ViewConfig } from "@bridge/tables";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { supabase } from "../lib/supabase";
 
 type PageId = "deals" | "sources" | "theses";
@@ -125,7 +125,7 @@ function buildTableSpec(
 
 async function queryAllRecords(page: PageId): Promise<RecordPage> {
   let current = await trpc.dealpilot.records.query({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     page,
     limit: 200,
     offset: 0,
@@ -133,7 +133,7 @@ async function queryAllRecords(page: PageId): Promise<RecordPage> {
   const items = [...current.items];
   while (current.hasMore && current.items.length > 0) {
     current = await trpc.dealpilot.records.query({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       page,
       limit: 200,
       offset: items.length,
@@ -181,15 +181,15 @@ export function DealPilotPage() {
     try {
       if (recordId) {
         const [module, selected, sourceCaptures] = await Promise.all([
-          trpc.dealpilot.module.query({ workspaceId: PILOT_WORKSPACE }),
+          trpc.dealpilot.module.query({ organizationId: PILOT_ORGANIZATION }),
           trpc.dealpilot.detail.query({
-            workspaceId: PILOT_WORKSPACE,
+            organizationId: PILOT_ORGANIZATION,
             kind: PAGE_META[pageId].kind,
             id: recordId,
           }),
           pageId === "sources"
             ? trpc.dealpilot.captures.query({
-                workspaceId: PILOT_WORKSPACE,
+                organizationId: PILOT_ORGANIZATION,
                 sourceId: recordId,
                 limit: 200,
                 offset: 0,
@@ -202,7 +202,7 @@ export function DealPilotPage() {
         setCaptures(sourceCaptures.items);
       } else {
         const [module, page] = await Promise.all([
-          trpc.dealpilot.module.query({ workspaceId: PILOT_WORKSPACE }),
+          trpc.dealpilot.module.query({ organizationId: PILOT_ORGANIZATION }),
           queryAllRecords(pageId),
         ]);
         if (!isCurrent()) return false;
@@ -255,7 +255,7 @@ export function DealPilotPage() {
   async function createRecord(draft: Partial<DataRow>) {
     if (pageId === "deals") {
       await trpc.dealpilot.createDeal.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         company: String(draft["company"] ?? ""),
         ...(draft["revenue"] !== undefined ? { revenue: Number(draft["revenue"]) } : {}),
         ...(draft["askingPrice"] !== undefined ? { askingPrice: Number(draft["askingPrice"]) } : {}),
@@ -266,7 +266,7 @@ export function DealPilotPage() {
     }
     if (pageId === "sources") {
       await trpc.dealpilot.createSource.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         name: String(draft["name"] ?? ""),
         link: String(draft["link"] ?? ""),
         connectionType: String(draft["connectionType"] ?? "url") as "url" | "email_alert" | "api" | "account",
@@ -278,7 +278,7 @@ export function DealPilotPage() {
       return;
     }
     const result = await trpc.dealpilot.createThesis.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: String(draft["name"] ?? ""),
       focus: String(draft["focus"] ?? ""),
       criteria: String(draft["criteria"] ?? "").split("\n").map((value) => value.trim()).filter(Boolean),
@@ -480,7 +480,7 @@ function RecordDetailSurface({
       });
       if (signInError) throw signInError;
       const session = await trpc.dealpilot.reauthenticateCredential.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: record.id,
       });
       setReauthToken(session.token);
@@ -509,7 +509,7 @@ function RecordDetailSurface({
     }
     try {
       const result = await trpc.dealpilot.accessCredential.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: record.id,
         token: reauthToken,
         field,
@@ -563,7 +563,7 @@ function RecordDetailSurface({
     }
     try {
       await trpc.dealpilot.clearCredential.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: record.id,
         token: reauthToken,
       });
@@ -584,7 +584,7 @@ function RecordDetailSurface({
   }
 
   const fields = Object.entries(record).filter(
-    ([key]) => !["workspaceId", "kind", "credentialRef", "credentialOwnerId"].includes(key),
+    ([key]) => !["organizationId", "kind", "credentialRef", "credentialOwnerId"].includes(key),
   );
   return (
     <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -603,7 +603,7 @@ function RecordDetailSurface({
               setDiscovering(true);
               try {
                 const result = await trpc.dealpilot.discoverDeals.mutate({
-                  workspaceId: PILOT_WORKSPACE,
+                  organizationId: PILOT_ORGANIZATION,
                   sourceId: record.id,
                 });
                 if (await onReload()) {
@@ -755,7 +755,7 @@ function RecordDetailSurface({
                 onClick={async () => {
                   try {
                     await trpc.dealpilot.commit.mutate({
-                      workspaceId: PILOT_WORKSPACE,
+                      organizationId: PILOT_ORGANIZATION,
                       captureId: capture.captureId,
                     });
                     if (await onReload()) {

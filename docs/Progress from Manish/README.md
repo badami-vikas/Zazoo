@@ -9,8 +9,8 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 1. Read [`subagent-progress.md`](subagent-progress.md).
 2. Read [`paused-worktrees.md`](paused-worktrees.md) before touching any child branch.
 3. Read [`merge-history.md`](merge-history.md) before merging or allocating a migration.
-4. Fetch `origin/main` and confirm TASK-005 landing commit `d4de355` remains in its ancestry;
-   `166a01b` is the implementation/certification checkpoint.
+4. Fetch `origin/main` and confirm TASK-012 PRs #26/#27 plus partial VOCAB3 checkpoint `58573ba`,
+   TASK-024 PR #23, and TASK-005 landing commit `d4de355` remain in its ancestry.
 5. Confirm no agent/process is running and take a fresh `git status` snapshot of the chosen worktree.
 6. Resume exactly one owner per worktree. Never duplicate or merge competing implementations blindly.
 
@@ -18,10 +18,30 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 
 - Central checkout: `/Users/manishsbhoopalam/.copilot/repos/relationship-os`
 - Central branch: `main`
-- Verified TASK-005 `main` ancestry: implementation/certification checkpoint `166a01b`, followed
-  by progress handoff/landing commit `d4de355`. At final reconciliation, `origin/main@d153094`
-  contained both commits plus the later unrelated Zazoo storyboard merge. Always re-fetch before
-  resuming any worktree.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26 from `task-012-vocab01`. Source checkpoint
+  `dd51797` carries the vocabulary ratchet and canonical Avatar/Onboarding migration; `bd7de18`
+  reconciles TASK-024's newer website identifiers without baseline growth. VOCAB2 landed through
+  PR #27 at source `88be310` and merge `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` from `task-012-vocab3`. It contains the
+  Organization/Module/Record runtime migration, numbered migration
+  `0021_vocab3_organization_module_record`, Local Plane compatibility, and targeted regression
+  fixes. It is a resumable checkpoint, not a completed VOCAB3 milestone.
+- Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` was recovered from a
+  defunct parent. Its five displayed workers were stale, completed work was preserved at
+  `6590c71`, and this merge ports only the deployment slice onto current Organization-era
+  `main`. Runtime-role migration `0022_supabase_runtime_role`, hosted Auth, encrypted
+  credentials, residency routing, container assets, and the deployment runbook are integrated
+  locally under AP-054; no push or cloud provisioning occurred.
+- Verified pre-landing baseline `origin/main@512cf35`. TASK-024 implementation checkpoint
+  `a4bf5fb` normally merged that baseline at `69ffbff` and landed through PR #23 from
+  `task-024-zazoo-website`.
+- TASK-024 implementation is complete under AP-052. The standalone `@zazoo/website` app delivers the approved
+  ten-scene cinematic homepage with governed copy, pointer/keyboard/touch interactions,
+  reduced-motion behavior, and certified desktop plus exact 375×812 layouts. The six storyboard
+  contract tests, TypeScript check, production build, and ESLint passed. Publication commit `2306808`
+  was reverted at the user's request under AP-053 by Pages commit `6b76466`; `https://zazoo.me` now
+  serves the older experience. The domain `CNAME` and existing `consulting.html`/`training.html`
+  pages remain available.
 - TASK-008's validated Relationship implementation landed through `bab32ea` after RM4 migration
   `0015_task008_relation_contract` landed at `590cca6`. Its exact prototype is complete; canonical
   status and evidence live in [`docs/TASKS.md`](../TASKS.md) and
@@ -38,15 +58,27 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   `origin/main@d153094`; it is historical and must not be resumed.
 - Background agents: none.
 - `relationship-os` worker processes: none.
-- Unfinished implementations may be committed or WIP in their named worktrees; consult the exact
-  row before resuming.
+- TASK-012 remains `in_progress`. Resume from current `main`, not from an older TASK-012 branch.
 
 ## Critical resume constraints
 
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
-- TASK-005 migration `0017_task005_private_learning_recommendations` is the next landed migration.
-  The next NEW migration allocates `0018`; never reuse `0016` or `0017`.
+- Migrations `0018_tense_warbound`, `0019_repeat_private_learning_backfill`,
+  `0020_vocab2_automation_engine`, partial-VOCAB3 migration
+  `0021_vocab3_organization_module_record`, and Supabase runtime-role migration
+  `0022_supabase_runtime_role` are allocated. The next NEW migration is `0023`.
+- TASK-012 VOCAB0–VOCAB2 is merged. Partial VOCAB3 checkpoint `58573ba` is on `main`; continue from
+  there. The old `manishsbhoopalam8498-fuzzy-adventure` branch remains planning-only.
+- Before claiming VOCAB3 complete, finish signed legacy Commons manifest/content-hash compatibility
+  (including the old filesystem registry directory), resolve the ratchet fingerprint moves without
+  growing its baseline, run the remaining targeted Module/Organization/Record API and RLS tests,
+  and collect the required browser evidence.
 - TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
+- TASK-024 landed on `main` through PR #23 under AP-052. Its implementation checkpoint is
+  `a4bf5fb`, its `origin/main@512cf35` integration checkpoint is `69ffbff`, and it added no
+  migration. Pages publication `2306808` was rolled back through `6b76466` and run `29683837490`;
+  `https://zazoo.me` serves the pre-TASK-024 experience. Do not resume or re-merge the historical
+  `task-024-zazoo-website` implementation worktree.
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head

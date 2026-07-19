@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { compileBlueprint, type CompiledWorkspace } from "@bridge/core";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { compileBlueprint, type CompiledOrganization } from "@bridge/core";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
-import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, workspaceNameFromEmail, type OnboardingAnswers } from "./questions";
+import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, organizationNameFromEmail, type OnboardingAnswers } from "./questions";
 import { AvatarSetupProgress, type AvatarSetupState } from "../avatar/AvatarSetupProgress";
 import {
   dispatchCaptureEvent,
@@ -15,13 +15,13 @@ import {
 } from "../avatar/avatar-store";
 
 /** Mirrors apps/api/src/router.ts's BLUEPRINT_NODE_TYPE_REGISTRY /
- * WorkspacePage.tsx's REGISTERED_NODE_TYPES — same hand-kept-in-sync caveat
+ * OrganizationPage.tsx's REGISTERED_NODE_TYPES — same hand-kept-in-sync caveat
  * documented there (no shared runtime registry endpoint yet). Kept local to
  * the preview compile only; the server independently re-validates on propose. */
 const REGISTERED_NODE_TYPES = [
   "person",
   "community",
-  "initiative",
+  "record",
   "touchpoint",
   "automation",
   "module",
@@ -46,7 +46,7 @@ export interface OnboardingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called after a successful propose — lets the caller (App shell) refresh
-   * its "does an active workspace exist" check without a full page reload.
+   * its "does an active organization exist" check without a full page reload.
    * MUST NOT close the dialog itself (that was the cause of the "dialog
    * auto-closes before the success message can be read" cosmetic bug,
    * docs/BUGS.md 2026-07-06): this component is `open`-controlled, so if the
@@ -56,9 +56,9 @@ export interface OnboardingDialogProps {
   onProposed?: (organization: { id: string; name: string }) => void;
   /** Called after activation with persisted visual preferences. */
   onAvatarReady?: (prefs: AvatarPrefs) => void;
-  /** User's email address — used to pre-populate the workspace_name question
-   * via workspaceNameFromEmail() per spec-workspace-naming.md. Optional: if
-   * absent, the workspace_name field starts empty for the user to fill in. */
+  /** User's email address — used to pre-populate the organization_name question
+   * via organizationNameFromEmail() per spec-organization-naming.md. Optional: if
+   * absent, the organization_name field starts empty for the user to fill in. */
   userEmail?: string;
 }
 
@@ -97,7 +97,7 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
  * page/app" — user decision 2026-07-06). Runs the adaptive question set from
  * ./questions.ts, compiles a live preview with the SAME compileBlueprint()
  * apps/api validates against server-side, and submits via
- * workspace.blueprint.propose followed by workspace.blueprint.activate — the
+ * organization.blueprint.propose followed by organization.blueprint.activate — the
  * activation is itself a governed pipeline proposal (ledgered; parks in
  * Approvals when policy requires human review), so chaining them never skips
  * governance, it just makes the outcome visible. The pre-apply preview +
@@ -107,7 +107,7 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
  * Dismissible + re-openable: this component is purely controlled (`open`/
  * `onOpenChange`) so the sidebar can reopen it at any time; it does not track
  * "has onboarding ever run" itself — App.tsx's mount-time
- * workspace.blueprint.get check owns that decision.
+ * organization.blueprint.get check owns that decision.
  */
 export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady, userEmail }: OnboardingDialogProps) {
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
@@ -171,12 +171,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
             ? "ready"
             : "saving";
 
-  // Pre-populate the workspace_name text field with the email-derived name
-  // (spec-workspace-naming.md) when that question becomes active. Only seeds
+  // Pre-populate the organization_name text field with the email-derived name
+  // (spec-organization-naming.md) when that question becomes active. Only seeds
   // the draft once — the user can freely edit it before pressing Next.
   useEffect(() => {
-    if (question?.id === "workspace_name" && textDraft === "" && userEmail) {
-      setTextDraft(workspaceNameFromEmail(userEmail));
+    if (question?.id === "organization_name" && textDraft === "" && userEmail) {
+      setTextDraft(organizationNameFromEmail(userEmail));
     }
   }, [question?.id]);
 
@@ -202,7 +202,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     };
   }, [open, step]);
 
-  const compiled: CompiledWorkspace | { error: string } | null = useMemo(() => {
+  const compiled: CompiledOrganization | { error: string } | null = useMemo(() => {
     if (step !== "preview") return null;
     try {
       return compileBlueprint(blueprint, REGISTERED_NODE_TYPES, ["edge"]);
@@ -249,7 +249,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
       if (!observation?.fields.app_name) throw new Error("No foreground app observation arrived. Try the check once more.");
       const capturedAt = new Date(observation.ts).toISOString();
       const { memory } = await trpc.onboarding.recordTrustCapture.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         appName: observation.fields.app_name,
         ...(observation.fields.bundle_id ? { bundleId: observation.fields.bundle_id } : {}),
         capturedAt,
@@ -302,26 +302,26 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
     setError(null);
     try {
       const organizationName =
-        typeof answers.workspace_name === "string" ? answers.workspace_name.trim() : "";
+        typeof answers.organization_name === "string" ? answers.organization_name.trim() : "";
       if (!organizationName) throw new Error("An Organization name is required to finish setup.");
       if (organizationName.length > 120) {
         throw new Error("Organization names must be 120 characters or fewer.");
       }
-      const organization = await trpc.workspace.rename.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const organization = await trpc.organization.rename.mutate({
+        organizationId: PILOT_ORGANIZATION,
         name: organizationName,
       });
 
       // propose writes the draft; activate is the governed step (pipeline
       // round-trip, ledgered). Without chaining them the draft was orphaned:
-      // Approvals showed nothing and /workspace stayed empty (BUGS.md
+      // Approvals showed nothing and /organization stayed empty (BUGS.md
       // 2026-07-06 "onboarding leaves an orphaned draft").
-      const { definition } = await trpc.workspace.blueprint.propose.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const { definition } = await trpc.organization.blueprint.propose.mutate({
+        organizationId: PILOT_ORGANIZATION,
         blueprint,
       });
-      const result = await trpc.workspace.blueprint.activate.mutate({
-        workspaceId: PILOT_WORKSPACE,
+      const result = await trpc.organization.blueprint.activate.mutate({
+        organizationId: PILOT_ORGANIZATION,
         definitionId: definition.id,
       });
       setOutcome(result.activated ? "activated" : "pending_review");
@@ -333,7 +333,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
       }
       try {
         await trpc.onboarding.saveProfile.mutate({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           avatarStyle,
           answers: Object.fromEntries(
             Object.entries(answers).filter((e): e is [string, string | string[]] => e[1] !== undefined)
@@ -350,7 +350,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
         try {
           setRecommendationResult(
             await trpc.onboarding.recommendFromRoleModel.mutate({
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               figure,
               admiredFor,
             }),
@@ -500,7 +500,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady
                 <Input
                   autoFocus
                   placeholder={question.placeholder}
-                  maxLength={question.id === "workspace_name" ? 120 : undefined}
+                  maxLength={question.id === "organization_name" ? 120 : undefined}
                   value={textDraft}
                   onChange={(e) => setTextDraft(e.target.value)}
                   onKeyDown={(e) => {

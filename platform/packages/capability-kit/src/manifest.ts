@@ -21,7 +21,7 @@ const capability = z.object({
 
 const outputContractEntry = z.object({
   from: z.string(),
-  to: z.enum(["Person", "Community", "Memory", "Touchpoint", "Signal", "Initiative"]),
+  to: z.enum(["Person", "Community", "Memory", "Touchpoint", "Signal", "Record"]),
   note: z.string().optional(),
 });
 

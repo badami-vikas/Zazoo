@@ -51,7 +51,7 @@ const THREAD_FETCH_CONCURRENCY = 15;
 
 /** Bounded retries for a single transient Gmail API call (network blip, momentary
  * 429/5xx). Mirrors intake.ts's `withRetry` (bounded linear backoff, logs each retry) —
- * this package didn't have a retry helper before; scoped to this file only. */
+ * this module didn't have a retry helper before; scoped to this file only. */
 async function withRetry<T>(label: string, attempts: number, delayMs: number, fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {

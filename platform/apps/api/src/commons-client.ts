@@ -1,13 +1,13 @@
 /**
  * HttpCommonsClient — fetch adapter binding @bridge/core's `CommonsRegistry`
  * port to the Commons HTTP contract (services/commons/src/server.ts). Same
- * seam discipline as ModelProvider/PackageStore: consumers depend on the
+ * seam discipline as ModelProvider/ModuleStore: consumers depend on the
  * port; the Bridge Cloud swap is COMMONS_URL config only.
  *
  * PKG-2 (Month-6) supply-chain trust lives at THIS transport seam:
  *  - TLS-by-default — the constructor rejects a non-loopback plaintext
  *    COMMONS_URL (assertCommonsUrlTls).
- *  - verify-on-install — every fetched package entry's publisher signature is
+ *  - verify-on-install — every fetched module entry's publisher signature is
  *    verified with node:crypto ed25519 before it is handed back, so an
  *    UNSIGNED or ALTERED manifest is rejected at the boundary (any consumer —
  *    install flow, Learning Agent — is protected without repeating the check).
@@ -22,12 +22,12 @@ import {
   verifyCommonsEntryContent,
   type CommonsListQuery,
   type CommonsListResult,
-  type CommonsPackageDetail,
-  type CommonsPackageEntry,
+  type CommonsModuleDetail,
+  type CommonsModuleEntry,
   type CommonsEntryVerificationFailure,
   type CommonsProvenance,
   type CommonsRegistry,
-  type PackageManifest,
+  type ModuleManifest,
   type SignatureVerifier,
 } from "@bridge/core";
 
@@ -91,7 +91,7 @@ export class CommonsResponseMismatchError extends Error {
 }
 
 /** Install seam repeats the deterministic content/scan/provenance check. */
-export function assertCommonsEntryContentTrusted(entry: CommonsPackageEntry): void {
+export function assertCommonsEntryContentTrusted(entry: CommonsModuleEntry): void {
   const result = verifyCommonsEntryContent(entry, sha256);
   if (!result.valid) throw new CommonsSignatureError(entry.name, entry.version, result.reason);
 }
@@ -125,7 +125,7 @@ export class HttpCommonsClient implements CommonsRegistry {
   }
 
   /** PKG-2 verify-on-install: reject an unsigned or altered fetched entry. */
-  #verifyEntry(entry: CommonsPackageEntry): void {
+  #verifyEntry(entry: CommonsModuleEntry): void {
     if (!this.#verify) return;
     const result = verifyCommonsEntry(
       entry,
@@ -144,16 +144,16 @@ export class HttpCommonsClient implements CommonsRegistry {
     if (query.limit !== undefined) params.set("limit", String(query.limit));
     if (query.offset !== undefined) params.set("offset", String(query.offset));
     const qs = params.size > 0 ? `?${params.toString()}` : "";
-    const res = await fetch(`${this.#baseUrl}/v1/packages${qs}`);
+    const res = await fetch(`${this.#baseUrl}/v1/modules${qs}`);
     if (!res.ok) throw new Error(`commons list failed: ${res.status}`);
     return (await res.json()) as CommonsListResult;
   }
 
-  async get(name: string): Promise<CommonsPackageDetail | null> {
-    const res = await fetch(`${this.#baseUrl}/v1/packages/${encodeURIComponent(name)}`);
+  async get(name: string): Promise<CommonsModuleDetail | null> {
+    const res = await fetch(`${this.#baseUrl}/v1/modules/${encodeURIComponent(name)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`commons get failed: ${res.status}`);
-    const detail = (await res.json()) as CommonsPackageDetail;
+    const detail = (await res.json()) as CommonsModuleDetail;
     this.#verifyEntry(detail.latest);
     if (detail.name !== name || detail.latest.name !== name) {
       throw new CommonsResponseMismatchError(name, `${detail.name}/${detail.latest.name}`);
@@ -161,11 +161,11 @@ export class HttpCommonsClient implements CommonsRegistry {
     return detail;
   }
 
-  async getVersion(name: string, version: string): Promise<CommonsPackageEntry | null> {
-    const res = await fetch(`${this.#baseUrl}/v1/packages/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+  async getVersion(name: string, version: string): Promise<CommonsModuleEntry | null> {
+    const res = await fetch(`${this.#baseUrl}/v1/modules/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`commons getVersion failed: ${res.status}`);
-    const entry = (await res.json()) as CommonsPackageEntry;
+    const entry = (await res.json()) as CommonsModuleEntry;
     this.#verifyEntry(entry);
     if (entry.name !== name || entry.version !== version) {
       throw new CommonsResponseMismatchError(`${name}@${version}`, `${entry.name}@${entry.version}`);
@@ -174,10 +174,10 @@ export class HttpCommonsClient implements CommonsRegistry {
   }
 
   async publish(
-    manifest: PackageManifest,
+    manifest: ModuleManifest,
     options: { tags?: string[]; provenance: CommonsProvenance; expectedContentHash?: string },
   ): Promise<{ name: string; version: string; contentHash: string }> {
-    const res = await fetch(`${this.#baseUrl}/v1/packages`, {
+    const res = await fetch(`${this.#baseUrl}/v1/modules`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -195,7 +195,7 @@ export class HttpCommonsClient implements CommonsRegistry {
     }
     const body = (await res.json().catch(() => ({}))) as { message?: string; offendingPaths?: string[] };
     if (res.status === 422) {
-      throw new CommonsPublishRejectedError(body.message ?? "workspace data rejected", body.offendingPaths ?? []);
+      throw new CommonsPublishRejectedError(body.message ?? "organization data rejected", body.offendingPaths ?? []);
     }
     throw new CommonsPublishRejectedError(body.message ?? `publish failed: ${res.status}`);
   }

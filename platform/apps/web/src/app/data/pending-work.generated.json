@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T13:03:42.857Z",
+  "generatedAt": "2026-07-19T15:28:41.948Z",
   "items": [
     {
       "id": "TASK-001",
@@ -184,7 +184,9 @@
         "deprecated Tools/Knowledge/Workflows evidence attached to TASK-001",
         "OPEN BUGS Module File writes are not yet indexed into canonical `files`/`file_refs` for Graph/File provenance (VOCAB4)",
         "[VOCAB0 inventory](raw/vocabulary-code-inventory-2026-07-19.md)",
-        "[VOCAB0–VOCAB1 implementation](../outputs/2026-07-19-task012-vocab0-vocab1.md)"
+        "[VOCAB0–VOCAB1 implementation](../outputs/2026-07-19-task012-vocab0-vocab1.md), integrated through PR #26 at source checkpoints `dd51797` and `bd7de18`",
+        "VOCAB2 source `88be310`, integrated through PR #27 at `f6c4376`",
+        "partial VOCAB3 checkpoint `58573ba` with migration `0021_vocab3_organization_module_record`"
       ],
       "requests": [
         "R-020",
@@ -435,8 +437,8 @@
       "approval": "AP-020 and AP-029 applied",
       "dependencies": [
         "TASK-007 (done)",
-        "TASK-012 (still `ready` — remains the blocking gate",
-        "`ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types against vocabulary TASK-012 is about to rename)"
+        "TASK-012 (now `in_progress` and remains the blocking gate",
+        "`ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types before TASK-012 renames it)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
@@ -460,10 +462,11 @@
         "BUGS partial dedup conflict",
         "BUGS incomplete Drizzle metadata",
         "BUGS pglite invalid UUID",
-        "BUGS concurrent DB flake. The 2026-07-19 Supabase runtime-role/RLS-context finding is resolved under AP-052: dedicated `bridge_app`, transaction-local identity around every protected store, fail-closed production posture checks, and canonical role/isolation/reset tests passed in the 173-test DB suite."
+        "BUGS concurrent DB flake",
+        "RESOLVED 2026-07-19 Supabase least-privilege runtime role and transaction-local Organization/user RLS context, migration `0022_supabase_runtime_role`, and focused recovery evidence in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)"
       ],
       "requests": [],
-      "approval": "AP-052 applied for the resolved Supabase slice; remaining backlog has none",
+      "approval": "AP-054 applied for the Supabase runtime-role/RLS slice; none for the remaining backlog",
       "dependencies": [
         "TASK-012"
       ],
@@ -493,12 +496,12 @@
         "BUGS client-only pin persistence",
         "BUGS post-decision effect retry",
         "BUGS 2026-07-16 baseline lint/typecheck failures",
-        "BUGS 2026-07-15 sensor coverage floor (current 7/7 tests, 35.76% lines vs 38% floor)",
-        "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page. The 2026-07-19 API-container and hosted-browser Auth findings are resolved under AP-052: protected Supabase Auth lifecycle, fail-closed production configuration, Turbo-pruned non-root image, and CI liveness/readiness smoke gate",
-        "clean builder/runtime-stage simulation passed locally because no Docker daemon is installed."
+        "BUGS 2026-07-15 sensor coverage floor",
+        "BUGS 2026-07-19 paginated Relationship Views filter/sort only the loaded page",
+        "RESOLVED 2026-07-19 API container build/readiness and exact hosted Supabase Auth admission, documented in [Supabase cloud deployment readiness](../outputs/2026-07-19-supabase-cloud-deployment-readiness.md)"
       ],
       "requests": [],
-      "approval": "AP-052 applied for the resolved Supabase slice; remaining backlog has none",
+      "approval": "AP-054 applied for the Supabase container/Auth slice; none for the remaining backlog",
       "dependencies": [
         "TASK-012"
       ],
@@ -521,13 +524,12 @@
         "docs/raw/dealpilot-module-plan-2026-07.md DP0–DP1"
       ],
       "evidence": [
-        "user DealPilot corrections 2026-07-14–15",
-        "BUGS 2026-07-19 headless-cloud Source credential vault (resolved 2026-07-19 under AP-052)"
+        "user DealPilot corrections 2026-07-14–15"
       ],
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023, AP-029, AP-044, AP-045, and AP-052 applied",
+      "approval": "AP-023, AP-029, AP-044, AP-045, and AP-054 applied",
       "dependencies": [
         "TASK-001"
       ],
@@ -781,7 +783,7 @@
     {
       "id": "TASK-024",
       "title": "TASK-024 — Zazoo public website cinematic implementation",
-      "status": "pending",
+      "status": "completed",
       "priority": "P2",
       "horizon": "Public Brand",
       "outcome": "The public Zazoo homepage is one continuous, accessible day-in-the-life film that shows Aeva and the Zazoo crew working, coordinating, respecting permission, supporting the owner's progress, resting privately, and returning the next morning, with displayed copy strictly separated from visual, animation, interaction, emotion, and transition direction.",
@@ -792,15 +794,19 @@
         "outputs/2026-07-19-zazoo-website-storyboard/01-hero-working-world.md through 10-morning-and-final-invitation.md"
       ],
       "evidence": [
-        "user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md"
+        "user-supplied intended brief and rejected five-page PDF audit summarized in outputs/2026-07-19-zazoo-website-storyboard/README.md",
+        "implementation, exact verification, publication, and rollback evidence in outputs/2026-07-19-task024-zazoo-website-implementation.md",
+        "source `relationship-os@932ed80` remains merged, while user-directed Pages revert `badami-vikas/badami-vikas.github.io@6b76466` restored the pre-TASK-024 homepage at `https://zazoo.me` through successful run `29683837490`"
       ],
       "requests": [
         "user website/brand storyboard directive 2026-07-19",
-        "dictionary-copy correction and task-update directive 2026-07-19"
+        "dictionary-copy correction and task-update directive 2026-07-19",
+        "GitHub Pages publication directive 2026-07-19",
+        "GitHub Pages rollback directive 2026-07-19"
       ],
-      "approval": "AP-048 applied",
+      "approval": "AP-048 applied; AP-052 applied; AP-053 applied",
       "dependencies": [],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 364,

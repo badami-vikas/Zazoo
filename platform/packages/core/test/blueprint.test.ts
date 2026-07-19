@@ -1,24 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { compileBlueprint, BlueprintCompileError, type WorkspaceBlueprint } from "../src/index.js";
+import { compileBlueprint, BlueprintCompileError, type OrganizationBlueprint } from "../src/index.js";
 
-const REGISTRY = ["initiative", "touchpoint", "relationship"] as const;
+const REGISTRY = ["record", "touchpoint", "relationship"] as const;
 
-function blueprint(overrides: Partial<WorkspaceBlueprint> = {}): WorkspaceBlueprint {
+function blueprint(overrides: Partial<OrganizationBlueprint> = {}): OrganizationBlueprint {
   return {
     vocabulary: {},
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
           { id: "stage", label: "Stage", kind: "select", options: ["new", "active", "closed"] },
         ],
       },
     ],
-    views: [{ entity: "initiative", kind: "table" }],
+    views: [{ entity: "record", kind: "table" }],
     capabilities: [],
     ...overrides,
   };
@@ -27,13 +27,13 @@ function blueprint(overrides: Partial<WorkspaceBlueprint> = {}): WorkspaceBluepr
 test("valid blueprint compiles: tableSpecs, viewConfigs, navigation all populated", () => {
   const compiled = compileBlueprint(blueprint(), [...REGISTRY]);
   assert.equal(compiled.tableSpecs.length, 1);
-  assert.equal(compiled.tableSpecs[0]?.id, "initiative");
+  assert.equal(compiled.tableSpecs[0]?.id, "record");
   assert.equal(compiled.tableSpecs[0]?.columns.length, 2);
   assert.equal(compiled.viewConfigs.length, 1);
   assert.equal(compiled.viewConfigs[0]?.kind, "table");
-  assert.equal(compiled.viewConfigs[0]?.entity, "initiative");
+  assert.equal(compiled.viewConfigs[0]?.entity, "record");
   assert.equal(compiled.navigation.length, 1);
-  assert.equal(compiled.navigation[0]?.nodeType, "initiative");
+  assert.equal(compiled.navigation[0]?.nodeType, "record");
   assert.deepEqual(compiled.navigation[0]?.viewIds, [compiled.viewConfigs[0]?.id]);
 });
 
@@ -50,8 +50,8 @@ test("convertibleKinds: adds calendar when a date-kind column exists", () => {
   const bp = blueprint({
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
           { id: "due", label: "Due", kind: "date" },
@@ -67,8 +67,8 @@ test("convertibleKinds: adds map when a location-kind column exists", () => {
   const bp = blueprint({
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
           { id: "hq", label: "Headquarters", kind: "location" },
@@ -84,8 +84,8 @@ test("convertibleKinds: adds graph when a cross-database relation column exists"
   const bp = blueprint({
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
           { id: "owner", label: "Owner", kind: "relation", relationTarget: "person" },
@@ -101,8 +101,8 @@ test("convertibleKinds: all three conditional kinds stack together, in canonical
   const bp = blueprint({
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
           { id: "due", label: "Due", kind: "date" },
@@ -120,11 +120,11 @@ test("convertibleKinds: a self-parent relation adds tree without incorrectly add
   const bp = blueprint({
     entities: [
       {
-        nodeType: "initiative",
-        label: "Initiative",
+        nodeType: "record",
+        label: "Record",
         fields: [
           { id: "name", label: "Name", kind: "text" },
-          { id: "parent", label: "Parent", kind: "relation", relationTarget: "initiative", relationParent: true },
+          { id: "parent", label: "Parent", kind: "relation", relationTarget: "record", relationParent: true },
         ],
       },
     ],
@@ -134,33 +134,33 @@ test("convertibleKinds: a self-parent relation adds tree without incorrectly add
 });
 
 test("convertibleKinds: non-tabular views (chatbot/dashboard/canvas) carry an empty array", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "dashboard" }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "dashboard" }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, []);
 });
 
 test("board groupBy: defaults to the entity's select-kind column when the blueprint doesn't specify one", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "board" }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "board" }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.groupBy, "stage");
 });
 
 test("board groupBy: an explicit eligible config.groupBy always wins over the default", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "board", config: { groupBy: "stage" } }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "board", config: { groupBy: "stage" } }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.groupBy, "stage");
 });
 
 test("board groupBy: an explicit null means intentionally ungrouped, not defaulted", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "board", config: { groupBy: null } }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "board", config: { groupBy: null } }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.groupBy, null);
 });
 
 test("board is rejected when the entity has no select-kind column", () => {
   const bp = blueprint({
-    entities: [{ nodeType: "initiative", label: "Initiative", fields: [{ id: "name", label: "Name", kind: "text" }] }],
-    views: [{ entity: "initiative", kind: "board" }],
+    entities: [{ nodeType: "record", label: "Record", fields: [{ id: "name", label: "Name", kind: "text" }] }],
+    views: [{ entity: "record", kind: "board" }],
   });
   assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
@@ -171,7 +171,7 @@ test("non-board view kinds are never defaulted a groupBy", () => {
 });
 
 test("invalid view kind is rejected", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "not_a_real_kind" as never }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "not_a_real_kind" as never }] });
   assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
 
@@ -223,14 +223,14 @@ test("relationship view accepts graph when it declares a typed relation column",
 });
 
 test("non-tabular view kinds (chatbot/dashboard/canvas) compile through with no TableSpec required", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "dashboard" }] });
+  const bp = blueprint({ views: [{ entity: "record", kind: "dashboard" }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.kind, "dashboard");
 });
 
 test("vocabulary override applied to entity + field labels", () => {
   const bp = blueprint({
-    vocabulary: { Initiative: "Deal", Name: "Deal Name" },
+    vocabulary: { Record: "Deal", Name: "Deal Name" },
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.navigation[0]?.label, "Deal");
@@ -242,8 +242,8 @@ test("vocabulary override applied to entity + field labels", () => {
 test("duplicate entity node types are rejected", () => {
   const bp = blueprint({
     entities: [
-      { nodeType: "initiative", label: "Initiative", fields: [] },
-      { nodeType: "initiative", label: "Initiative Again", fields: [] },
+      { nodeType: "record", label: "Record", fields: [] },
+      { nodeType: "record", label: "Record Again", fields: [] },
     ],
     views: [],
   });

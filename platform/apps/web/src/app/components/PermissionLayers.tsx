@@ -37,7 +37,7 @@ export const CAPABILITY_TOKENS: { value: string; label: string; kind: 'read' | '
   { value: 'signal:read', label: 'signal:read', kind: 'read' },
   { value: 'touchpoint:write', label: 'touchpoint:write', kind: 'write' },
   { value: 'memory:write', label: 'memory:write', kind: 'write' },
-  { value: 'initiative:write', label: 'initiative:write', kind: 'write' },
+  { value: 'record:write', label: 'record:write', kind: 'write' },
 ];
 
 // Skills an agent may be allowed to run. Allow-list is intersected against the agent's

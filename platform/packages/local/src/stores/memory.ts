@@ -135,7 +135,7 @@ function sameToken(
   if (left === null || right === null) return left === right;
   return (
     left.integrationId === right.integrationId &&
-    left.workspaceId === right.workspaceId &&
+    left.organizationId === right.organizationId &&
     left.provider === right.provider &&
     left.accessToken === right.accessToken &&
     left.refreshToken === right.refreshToken &&
@@ -146,20 +146,20 @@ function sameToken(
   );
 }
 
-function bodyKey(workspaceId: string, source: string, sourceRecordId: string): string {
-  return `${workspaceId}::${source}::${sourceRecordId}`;
+function bodyKey(organizationId: string, source: string, sourceRecordId: string): string {
+  return `${organizationId}::${source}::${sourceRecordId}`;
 }
 
 export class InMemoryBodyStore implements BodyStore {
   readonly bodies = new Map<string, StoredBody>();
   async put(body: StoredBody): Promise<void> {
-    this.bodies.set(bodyKey(body.workspaceId, body.source, body.sourceRecordId), { ...body });
+    this.bodies.set(bodyKey(body.organizationId, body.source, body.sourceRecordId), { ...body });
   }
-  async get(workspaceId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
-    return this.bodies.get(bodyKey(workspaceId, source, sourceRecordId)) ?? null;
+  async get(organizationId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
+    return this.bodies.get(bodyKey(organizationId, source, sourceRecordId)) ?? null;
   }
-  async list(workspaceId: string, source: string): Promise<StoredBody[]> {
-    return [...this.bodies.values()].filter((b) => b.workspaceId === workspaceId && b.source === source);
+  async list(organizationId: string, source: string): Promise<StoredBody[]> {
+    return [...this.bodies.values()].filter((b) => b.organizationId === organizationId && b.source === source);
   }
 }
 
@@ -169,10 +169,10 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
   readonly external: ExternalRecordRow[] = [];
   readonly cursors = new Map<string, string>();
 
-  async findPeopleByEmail(workspaceId: string, email: string): Promise<LocalPerson[]> {
+  async findPeopleByEmail(organizationId: string, email: string): Promise<LocalPerson[]> {
     const needle = email.trim().toLowerCase();
     return this.people.filter(
-      (p) => p.workspaceId === workspaceId && p.emails.some((e) => e.trim().toLowerCase() === needle),
+      (p) => p.organizationId === organizationId && p.emails.some((e) => e.trim().toLowerCase() === needle),
     );
   }
   async upsertPerson(person: LocalPerson): Promise<void> {
@@ -180,8 +180,8 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
     if (idx >= 0) this.people[idx] = { ...person };
     else this.people.push({ ...person });
   }
-  async listPeople(workspaceId: string): Promise<LocalPerson[]> {
-    return this.people.filter((p) => p.workspaceId === workspaceId);
+  async listPeople(organizationId: string): Promise<LocalPerson[]> {
+    return this.people.filter((p) => p.organizationId === organizationId);
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
     // Idempotent: a retry after a partial dual-write failure re-commits the same
@@ -189,16 +189,16 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
     if (this.entities.some((e) => e.id === entry.id)) return;
     this.entities.push({ ...entry });
   }
-  async listEntities(workspaceId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]> {
-    return this.entities.filter((e) => e.workspaceId === workspaceId && (kind ? e.kind === kind : true));
+  async listEntities(organizationId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]> {
+    return this.entities.filter((e) => e.organizationId === organizationId && (kind ? e.kind === kind : true));
   }
   async recordExternal(row: ExternalRecordRow): Promise<void> {
-    if (await this.hasExternal(row.workspaceId, row.source, row.sourceRecordId)) return;
+    if (await this.hasExternal(row.organizationId, row.source, row.sourceRecordId)) return;
     this.external.push({ ...row });
   }
-  async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
+  async hasExternal(organizationId: string, source: string, sourceRecordId: string): Promise<boolean> {
     return this.external.some(
-      (r) => r.workspaceId === workspaceId && r.source === source && r.sourceRecordId === sourceRecordId,
+      (r) => r.organizationId === organizationId && r.source === source && r.sourceRecordId === sourceRecordId,
     );
   }
   async getSyncCursor(integrationId: string, source: string): Promise<string | null> {
@@ -209,26 +209,26 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
   }
 }
 
-function stateKey(workspaceId: string, namespace: string): string {
-  return `${workspaceId}::${namespace}`;
+function stateKey(organizationId: string, namespace: string): string {
+  return `${organizationId}::${namespace}`;
 }
 
 export class InMemoryLocalStateStore implements LocalStateStore {
   readonly rows = new Map<string, unknown>();
   readonly #tails = new Map<string, Promise<void>>();
 
-  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
-    const value = this.rows.get(stateKey(workspaceId, namespace));
+  async read(organizationId: string, namespace: string): Promise<unknown | null> {
+    const value = this.rows.get(stateKey(organizationId, namespace));
     return value === undefined ? null : structuredClone(value);
   }
 
   async update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => LocalStateMutation<T>,
   ): Promise<T> {
-    const key = stateKey(workspaceId, namespace);
+    const key = stateKey(organizationId, namespace);
     return this.#exclusive(key, async () => {
       const current = this.rows.has(key) ? this.rows.get(key) : initialState;
       const mutation = reduce(structuredClone(current));

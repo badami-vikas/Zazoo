@@ -7,7 +7,7 @@ related_wiki: ../wiki/ontology.md
 updated: 2026-07-07
 companions:
   - primitive-specifications.md
-  - capability-package-format.md
+  - capability-module-format.md
   - tool-standardization-plan.md
 tags: [capability, evolution, promotion, trust, maturity, autonomy, kill-switch]
 ---

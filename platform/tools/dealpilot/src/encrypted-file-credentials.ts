@@ -99,8 +99,8 @@ function parseAccount(value: string): CredentialAccount {
     parsed === null ||
     !("version" in parsed) ||
     parsed.version !== 1 ||
-    !("workspaceId" in parsed) ||
-    typeof parsed.workspaceId !== "string" ||
+    !("organizationId" in parsed) ||
+    typeof parsed.organizationId !== "string" ||
     !("sourceId" in parsed) ||
     typeof parsed.sourceId !== "string" ||
     !("entryId" in parsed) ||
@@ -351,7 +351,7 @@ export class EncryptedFileSourceCredentialVault
     }
     const stored = this.#decrypt(envelope);
     if (
-      stored.account.workspaceId !== account.workspaceId ||
+      stored.account.organizationId !== account.organizationId ||
       stored.account.sourceId !== account.sourceId ||
       stored.account.entryId !== account.entryId
     ) {
@@ -520,7 +520,7 @@ export class EncryptedFileSourceCredentialVault
     }
     const account = parseAccount(encoded);
     if (
-      account.workspaceId !== scope.workspaceId ||
+      account.organizationId !== scope.organizationId ||
       account.sourceId !== scope.sourceId
     ) {
       throw new EncryptedFileCredentialError(

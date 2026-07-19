@@ -1,13 +1,13 @@
 /**
  * Foreign capability import (docs/wiki/vision.md "Integration over custom
- * development" + ADR-018 package format) — the shape a capability arriving
- * from OUTSIDE the workspace's own authoring (a Pi-extension package, an MCP
+ * development" + ADR-018 module format) — the shape a capability arriving
+ * from OUTSIDE the organization's own authoring (a Pi-extension module, an MCP
  * server, an Activepieces piece, or an open-source-based fallback build)
  * takes on its way into the Capability Trust Model. This module is
- * READ-ONLY against ./types.ts and ../package/types.ts — it builds ON TOP of
- * CapabilityManifest/RiskBand/PackageManifest, never redefines them, per
- * this package's existing "extend, never fork" discipline (see
- * package/types.ts's own header comment).
+ * READ-ONLY against ./types.ts and ../module/types.ts — it builds ON TOP of
+ * CapabilityManifest/RiskBand/ModuleManifest, never redefines them, per
+ * this module's existing "extend, never fork" discipline (see
+ * module/types.ts's own header comment).
  *
  * Every import is `origin: "community"` (capability/types.ts's
  * CapabilityOrigin) — a foreign import is by definition not built_in/
@@ -17,13 +17,13 @@
  * refuse to let risk state advance without evidence.
  */
 import type { CapabilityManifest, RiskBand } from "./types.js";
-import type { PackageManifest } from "../package/types.js";
+import type { ModuleManifest } from "../module/types.js";
 
 /** Where a foreign capability is imported from — the Learning Agent's
  * "integration over custom development" sources (CLAUDE.md), plus the
  * open-source-based fallback path when no existing integration covers the
  * need. */
-export type ForeignCapabilitySource = "pi-package" | "mcp-server" | "activepieces-piece" | "oss-integration";
+export type ForeignCapabilitySource = "pi-module" | "mcp-server" | "activepieces-piece" | "oss-integration";
 
 /** Bridge's own audit conclusion on where a foreign-declared permission risk
  * lands, prior to computeRisk()'s pass — this is the record of WHAT was
@@ -52,13 +52,13 @@ export interface ForeignImportSandboxPolicy {
 export interface ForeignCapabilityImport {
   /** Which foreign ecosystem this capability was sourced from. */
   source: ForeignCapabilitySource;
-  /** Source-specific locator — e.g. a Pi-package registry id, an MCP server
+  /** Source-specific locator — e.g. a Pi-module registry id, an MCP server
    * URL/name, an Activepieces piece slug, or an OSS repo ref. Opaque to the
    * kernel; only meaningful to the source-specific importer that produced
    * this record. */
   sourceRef: string;
   /** Exact-pinned version at the source — no ranges, mirroring
-   * PackageDependency's version discipline (package/types.ts). */
+   * ModuleDependency's version discipline (module/types.ts). */
   versionPin: string;
   /** The permissions the foreign source itself declares it needs, in its own
    * native shape — kept verbatim (not yet translated) so the audit trail
@@ -82,13 +82,13 @@ export interface ForeignCapabilityImport {
    * capability carries strictly higher rollback risk than a user_code one. */
   rollbackRef: string;
   /** The kernel-native CapabilityManifest this foreign capability translates
-   * to, and (when the source shipped a full capability package rather than a
-   * single capability) the enclosing PackageManifest it was translated into.
+   * to, and (when the source shipped a full capability module rather than a
+   * single capability) the enclosing ModuleManifest it was translated into.
    * `origin` on the translated manifest is always "community" — a foreign
    * import is never built_in/template/ai_generated/user_code. */
   translatedManifest: CapabilityManifest & { origin: "community" };
-  /** Present when the foreign source shipped a whole package.yaml-shaped
-   * bundle (ADR-018) rather than a single capability — reuses PackageManifest
-   * verbatim rather than forking a parallel "foreign package" shape. */
-  translatedPackage?: PackageManifest;
+  /** Present when the foreign source shipped a whole module.yaml-shaped
+   * bundle (ADR-018) rather than a single capability — reuses ModuleManifest
+   * verbatim rather than forking a parallel "foreign module" shape. */
+  translatedModule?: ModuleManifest;
 }

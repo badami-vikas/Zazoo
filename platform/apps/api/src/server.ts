@@ -12,9 +12,9 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/a
 import { appRouter, type AppRouter } from "./router.js";
 import { makeContextFactory } from "./context.js";
 import { isVerifierConfigured } from "./identity.js";
-import { buildWiring, PILOT_WORKSPACE } from "./wiring.js";
+import { buildWiring, PILOT_ORGANIZATION } from "./wiring.js";
 import { registerGoogleOAuthRoutes } from "./google-oauth-routes.js";
-import { reconcileWorkspaceRelationshipMaterializations } from "./relationship-materializer.js";
+import { reconcileOrganizationRelationshipMaterializations } from "./relationship-materializer.js";
 import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
 
 /**
@@ -480,11 +480,11 @@ export async function buildServer() {
     if (relationReconciliationRunning) return;
     relationReconciliationRunning = true;
     try {
-      const result = await reconcileWorkspaceRelationshipMaterializations(
+      const result = await reconcileOrganizationRelationshipMaterializations(
         wiring.graphStore,
         wiring.relationMaterializations,
         wiring.ledger,
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         new Date(),
         {
           ...(relationOwnerCursor

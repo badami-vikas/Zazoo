@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import {
-  parsePackageManifest,
+  parseModuleManifest,
   verifyCommonsEntry,
   toSignedEnvelope,
   verifyManifestSignature,
-  type CommonsPackageEntry,
+  type CommonsModuleEntry,
   type ManifestSignature,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 import { buildCommonsServer } from "../src/server.js";
 import { ed25519ManifestVerifier, resolveCommonsSigningKeyPair, signManifest, type CommonsSigningKeyPair } from "../src/signing.js";
@@ -29,13 +29,13 @@ const TEST_PUBLISH_TOKEN = "test-commons-publisher-token-00000001";
 const AUTH_HEADERS = { authorization: `Bearer ${TEST_PUBLISH_TOKEN}` };
 
 async function publish(app: ReturnType<typeof buildCommonsServer>, payload: Record<string, unknown>) {
-  return await app.inject({ method: "POST", url: "/v1/packages", headers: AUTH_HEADERS, payload });
+  return await app.inject({ method: "POST", url: "/v1/modules", headers: AUTH_HEADERS, payload });
 }
 
 const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
 
-function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): PackageManifest {
-  return parsePackageManifest({
+function generalizedManifest(name = "test-fixture-signed", version = "1.0.0"): ModuleManifest {
+  return parseModuleManifest({
     name,
     version,
     kind: "view",
@@ -70,7 +70,7 @@ test("publishing a valid manifest stores a server signature", async (t) => {
   const published = await publish(app, { manifest: generalizedManifest(), tags: ["signed"], provenance });
   assert.equal(published.statusCode, 201);
 
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-signed/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-signed/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
   assert.equal(entry.signature.algorithm, "ed25519");
   assert.ok(entry.signature.signature.length > 0);
@@ -82,7 +82,7 @@ test("served signature verifies against the signing-key route", async (t) => {
   const manifest = generalizedManifest("test-fixture-verifies");
 
   assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-verifies/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-verifies/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
   const signingKey = (await app.inject({ url: "/v1/signing-key" })).json() as { publicKey: string; algorithm: "ed25519" };
 
@@ -100,7 +100,7 @@ test("altering a signed manifest invalidates the served signature", async (t) =>
   const manifest = generalizedManifest("test-fixture-tamper");
 
   assert.equal((await publish(app, { manifest, provenance })).statusCode, 201);
-  const entry = (await app.inject({ url: "/v1/packages/test-fixture-tamper/1.0.0" })).json() as CommonsPackageEntry;
+  const entry = (await app.inject({ url: "/v1/modules/test-fixture-tamper/1.0.0" })).json() as CommonsModuleEntry;
   assert.ok(entry.signature);
 
   const mutated = {
@@ -185,7 +185,7 @@ test("persisted signing keys keep stored entries readable across service restart
       keyPair: secondKeyPair,
       publishToken: TEST_PUBLISH_TOKEN,
     });
-    assert.equal((await secondApp.inject({ url: "/v1/packages/test-fixture-restart/1.0.0" })).statusCode, 200);
+    assert.equal((await secondApp.inject({ url: "/v1/modules/test-fixture-restart/1.0.0" })).statusCode, 200);
     await secondApp.close();
   } finally {
     await rm(dataDir, { recursive: true, force: true });

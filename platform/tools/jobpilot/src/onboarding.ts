@@ -3,7 +3,7 @@ import type { CandidateProfile } from "./types.js";
 // Onboarding (architecture doc M1 / vision doc F1-F2: "upload resumes... LLM extracts profile +
 // proposes job categories (editable)"). This is the deterministic-heuristic half — keyword
 // presence against a known vocabulary, open-resume-style — not a real PDF/NLP parser and not an
-// LLM extraction call (no `llm` package to bind to yet, same deliberate omission as scoring.ts).
+// LLM extraction call (no `llm` module to bind to yet, same deliberate omission as scoring.ts).
 // A cheap-LLM fallback for resumes this heuristic can't confidently parse is a later concern;
 // this function must never be mistaken for that fallback.
 

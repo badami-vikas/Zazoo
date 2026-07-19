@@ -9,12 +9,12 @@ import {
   type Task,
 } from "../src/index.js";
 
-const GOAL: Goal = { id: "g1", workspaceId: "ws-1", type: "relationship.learning", title: "goal", createdAt: "2026-07-16T00:00:00.000Z" };
+const GOAL: Goal = { id: "g1", organizationId: "ws-1", type: "relationship.learning", title: "goal", createdAt: "2026-07-16T00:00:00.000Z" };
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
     id: "t1",
-    workspaceId: "ws-1",
+    organizationId: "ws-1",
     goalId: "g1",
     type: "synthesize_recommendation",
     assignedAgentId: "internal_strategist",
@@ -25,7 +25,7 @@ function task(overrides: Partial<Task> = {}): Task {
 }
 
 const BASE_MANIFEST: SkillManifest = {
-  workspaceId: "ws-1",
+  organizationId: "ws-1",
   skillId: "stageStrategicRecommendation",
   version: "1.0.0",
   goalTypes: ["relationship.learning"],
@@ -41,7 +41,7 @@ const BASE_MANIFEST: SkillManifest = {
 function eligibleAgent(id: string) {
   return {
     id,
-    workspaceId: "ws-1",
+    organizationId: "ws-1",
     active: true,
     capabilityScope: ["signal:write"],
     plane: "local" as const,
@@ -170,27 +170,27 @@ test("resolveSkillForTask: cancelled Tasks and inactive Agents fail closed", asy
     assert.equal(inactive.reason, "agent-inactive");
 });
 
-test("resolveSkillForTask: workspace mismatches fail closed", async () => {
+test("resolveSkillForTask: organization mismatches fail closed", async () => {
     const registry = new InMemorySkillManifestRegistry();
     registry.register(BASE_MANIFEST);
     const result = await resolveSkillForTask(
       registry.forSkill("ws-1", "stageStrategicRecommendation"),
       {
         goal: GOAL,
-        task: task({ workspaceId: "ws-2" }),
+        task: task({ organizationId: "ws-2" }),
         agent: eligibleAgent("internal_strategist"),
       },
     );
-    assert.equal(result.reason, "workspace-mismatch");
+    assert.equal(result.reason, "organization-mismatch");
     const foreignManifest = await resolveSkillForTask(
-      [{ ...BASE_MANIFEST, workspaceId: "ws-2" }],
+      [{ ...BASE_MANIFEST, organizationId: "ws-2" }],
       {
         goal: GOAL,
         task: task(),
         agent: eligibleAgent("internal_strategist"),
       },
     );
-    assert.equal(foreignManifest.reason, "workspace-mismatch");
+    assert.equal(foreignManifest.reason, "organization-mismatch");
 });
 
 test("resolveSkillForTask: agent authority insufficient fails closed (narrowing only, never a grant)", async () => {
@@ -199,7 +199,7 @@ test("resolveSkillForTask: agent authority insufficient fails closed (narrowing 
   const result = await resolveSkillForTask(registry.forSkill("ws-1", "stageStrategicRecommendation"), {
     goal: GOAL,
     task: task(),
-    agent: { id: "internal_strategist", workspaceId: "ws-1", active: true, capabilityScope: [], plane: "local", dataScope: "all" },
+    agent: { id: "internal_strategist", organizationId: "ws-1", active: true, capabilityScope: [], plane: "local", dataScope: "all" },
   });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "authority-insufficient");
@@ -211,7 +211,7 @@ test("resolveSkillForTask: plane mismatch fails closed", async () => {
   const result = await resolveSkillForTask(registry.forSkill("ws-1", "stageStrategicRecommendation"), {
     goal: GOAL,
     task: task(),
-    agent: { id: "internal_strategist", workspaceId: "ws-1", active: true, capabilityScope: ["signal:write"], plane: "cloud", dataScope: "all" },
+    agent: { id: "internal_strategist", organizationId: "ws-1", active: true, capabilityScope: ["signal:write"], plane: "cloud", dataScope: "all" },
   });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "plane-mismatch");

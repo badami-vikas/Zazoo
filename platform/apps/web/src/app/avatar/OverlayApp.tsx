@@ -28,7 +28,7 @@
  * fullscreen auxiliary presence.
  */
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import { AvatarFigure } from "./AvatarOverlay";
 import {
   CAPTURE_EVENT,
@@ -273,7 +273,7 @@ export function OverlayApp() {
     // for "how many actions await approval".
     setPendingError(false);
     trpc.action.listPending
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 1, offset: 0 })
       .then((res) => setPendingCount(res.total))
       .catch(() => {
         setPendingCount(null);
@@ -339,7 +339,7 @@ export function OverlayApp() {
     setChatTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
       const result = await trpc.chiefOfStaff.converse.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         message,
         chainDepth: chatChainDepth,
       });

@@ -11,7 +11,7 @@
 import type { RunPersona } from "./run-context.js";
 
 export interface OnboardingProfileRow {
-  workspaceId: string;
+  organizationId: string;
   avatarStyle: string;
   answers: Record<string, string | string[] | undefined>;
   phoneVerified: boolean;
@@ -22,25 +22,25 @@ export interface OnboardingProfileRow {
 }
 
 export interface OnboardingProfileStore {
-  get(workspaceId: string): Promise<OnboardingProfileRow | null>;
+  get(organizationId: string): Promise<OnboardingProfileRow | null>;
   save(row: OnboardingProfileRow): Promise<void>;
 }
 
 export class InMemoryOnboardingProfileStore implements OnboardingProfileStore {
   readonly rows = new Map<string, OnboardingProfileRow>();
 
-  async get(workspaceId: string): Promise<OnboardingProfileRow | null> {
-    return this.rows.get(workspaceId) ?? null;
+  async get(organizationId: string): Promise<OnboardingProfileRow | null> {
+    return this.rows.get(organizationId) ?? null;
   }
 
   async save(row: OnboardingProfileRow): Promise<void> {
-    this.rows.set(row.workspaceId, row);
+    this.rows.set(row.organizationId, row);
   }
 }
 
 /**
  * The richer, Memory-family onboarding profile (undefined-elements #11 —
- * "OnboardingProfile stored as Memory scope=workspace") that AGENTS-2 turns into
+ * "OnboardingProfile stored as Memory scope=organization") that AGENTS-2 turns into
  * the Chief of Staff's persona. Distinct from the storage-shaped
  * `OnboardingProfileRow` above (the durable row the client writes): this is the
  * kernel-facing VIEW the prompt assembler consumes, with the fields the spec
@@ -51,7 +51,7 @@ export class InMemoryOnboardingProfileStore implements OnboardingProfileStore {
  * persona, same ZERO-input graceful default as the rest of the kernel.
  */
 export interface OnboardingProfile {
-  workspaceId: string;
+  organizationId: string;
   userId?: string;
   role?: string;
   goals?: readonly string[];
@@ -92,7 +92,7 @@ export function profileFromRow(row: OnboardingProfileRow): OnboardingProfile {
   const domains = asStringArray(row.answers["domains"]);
   const notes = asString(row.answers["workingStyle"]) ?? asString(row.answers["working_style_notes"]);
   return {
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     source: "onboarding",
     ...(row.connectedSourceIds.length > 0 ? { connectedSources: row.connectedSourceIds } : {}),
     ...(role ? { role } : {}),
@@ -111,7 +111,7 @@ export function profileFromRow(row: OnboardingProfileRow): OnboardingProfile {
  * Chief-of-Staff persona.
  */
 export function buildChiefOfStaffPersona(profile: OnboardingProfile): RunPersona {
-  const who = profile.role ? `a ${profile.role}` : "the person in this workspace";
+  const who = profile.role ? `a ${profile.role}` : "the person in this organization";
   const framing: string[] = [
     `the primary interlocutor for ${who} and the sole router of every request — you answer directly when you can and delegate to one specialist when it fits, but you are the only node that decides where a turn goes.`,
   ];

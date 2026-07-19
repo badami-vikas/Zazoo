@@ -58,16 +58,16 @@ export class InMemoryRoleStore implements RoleQuery {
 export class InMemoryAgentStore implements AgentQuery {
   readonly assumed = new Map<string, string | null>();
   readonly scope = new Map<string, string[]>();
-  /** Owning workspace per agent (AgentQuery.workspaceId — added alongside
+  /** Owning organization per agent (AgentQuery.organizationId — added alongside
    * relationship-module trust boundaries; unset = unknown, never guessed). */
-  readonly workspaces = new Map<string, string>();
+  readonly organizations = new Map<string, string>();
   /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
    * RE-review) — a fail-closed Agent status vocabulary (`active` | `paused`
    * | `retired`), not a narrower ad hoc `active`/`inactive` pair. Unset
    * defaults to effectively-inactive (fail closed — an agent must be
    * explicitly seeded `active`, mirrors `DrizzleAgentStore.isActive`'s
    * real-row-or-false shape, never assumes). This branch and `origin/main`
-   * independently added the same `workspaces`/`statuses`/`workspaceId`/
+   * independently added the same `organizations`/`statuses`/`organizationId`/
    * `isActive` members off the same shared ancestor (this branch's own
    * `"active" | "inactive"` version vs. `origin/main`'s `212e65f`
    * `"active" | "paused" | "retired"` version) — a merge that auto-resolved
@@ -83,8 +83,8 @@ export class InMemoryAgentStore implements AgentQuery {
   /** Per-agent skill allow-list. Empty/unset = unrestricted. */
   readonly skills = new Map<string, string[]>();
 
-  async workspaceId(agentId: string): Promise<string | null> {
-    return this.workspaces.get(agentId) ?? null;
+  async organizationId(agentId: string): Promise<string | null> {
+    return this.organizations.get(agentId) ?? null;
   }
   async isActive(agentId: string): Promise<boolean> {
     return this.statuses.get(agentId) === "active";
@@ -297,13 +297,13 @@ export class InMemoryLedger implements LedgerStore {
     return this.entries.find((e) => e.refLedgerId === proposalId && e.userDecision !== null) ?? null;
   }
   async listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const pending = this.entries
       .filter(
         (entry) =>
-          entry.workspaceId === workspaceId &&
+          entry.organizationId === organizationId &&
           entry.userDecision === null &&
           entry.refLedgerId === undefined &&
           !(
@@ -320,13 +320,13 @@ export class InMemoryLedger implements LedgerStore {
   }
 
   async listHistory(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
     const items = this.entries
       .filter(
         (entry) =>
-          entry.workspaceId === workspaceId &&
+          entry.organizationId === organizationId &&
           ledgerEntryVisibleToPrivateOwner(entry, opts.privateOwnerUserId, this.entries),
       )
       .sort((left, right) => (right.appendSequence ?? 0) - (left.appendSequence ?? 0));
@@ -386,11 +386,11 @@ export class InMemoryMediaStore implements LocalMediaStore {
   async getBlob(id: string): Promise<Uint8Array | null> {
     return this.blobs.get(id) ?? null;
   }
-  async list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]> {
+  async list(filter?: { status?: MediaStatus; kind?: MediaKind; organizationId?: string }): Promise<MediaCaptureRecord[]> {
     return [...this.records.values()]
       .filter((r) => (filter?.status ? r.status === filter.status : true))
       .filter((r) => (filter?.kind ? r.kind === filter.kind : true))
-      .filter((r) => (filter?.workspaceId ? r.workspaceId === filter.workspaceId : true))
+      .filter((r) => (filter?.organizationId ? r.organizationId === filter.organizationId : true))
       .map((r) => ({ ...r }));
   }
   async update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord> {
@@ -401,7 +401,7 @@ export class InMemoryMediaStore implements LocalMediaStore {
       ...r,
       ...patch,
       id: r.id,
-      workspaceId: r.workspaceId,
+      organizationId: r.organizationId,
       kind: r.kind,
       mimeType: r.mimeType,
       byteSize: r.byteSize,
@@ -466,21 +466,21 @@ export class RecordingVarianceAdjuster implements VarianceAdjuster {
 export class InMemoryAutomationRegistry implements AutomationRegistry {
   readonly automations = new Map<string, AutomationDefinition>();
   register(def: AutomationDefinition): this {
-    this.automations.set(`${def.workspaceId}:${def.id}`, def);
+    this.automations.set(`${def.organizationId}:${def.id}`, def);
     return this;
   }
   async save(def: AutomationDefinition): Promise<void> {
     this.register(def);
   }
-  async load(workspaceId: string, automationId: string): Promise<AutomationDefinition | null> {
-    return this.automations.get(`${workspaceId}:${automationId}`) ?? null;
+  async load(organizationId: string, automationId: string): Promise<AutomationDefinition | null> {
+    return this.automations.get(`${organizationId}:${automationId}`) ?? null;
   }
 }
 
 interface RunRecord {
   runId: string;
   automationId: string;
-  workspaceId: string;
+  organizationId: string;
   agentId: string;
   status: "running" | "completed" | "halted";
   output: unknown;
@@ -489,18 +489,18 @@ interface RunRecord {
 export class InMemoryAutomationRunRecorder implements AutomationRunRecorder {
   readonly runs = new Map<string, RunRecord>();
   async start(
-    run: { runId: string; automationId: string; workspaceId: string; agentId: string },
+    run: { runId: string; automationId: string; organizationId: string; agentId: string },
     _ctx: RunCtx,
   ): Promise<void> {
     this.runs.set(run.runId, { ...run, status: "running", output: null });
   }
   async finish(
-    run: { runId: string; workspaceId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     _ctx: RunCtx,
   ): Promise<void> {
     const existing = this.runs.get(run.runId);
-    if (!existing || existing.workspaceId !== run.workspaceId) {
-      throw new Error(`AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.workspaceId}`);
+    if (!existing || existing.organizationId !== run.organizationId) {
+      throw new Error(`AutomationRunRecorder.finish: Run ${run.runId} not found in organization ${run.organizationId}`);
     }
     existing.status = run.status;
     existing.output = run.output;

@@ -17,7 +17,7 @@
  * store itself applies the classification predicate so a caller can never read
  * a row it is not entitled to. The predicate mirrors the database's own
  * `app_private.visible_relationship_row` (migrations/0008) exactly:
- * public/workspace → any member; team/private/restricted → owner-only (finer
+ * public/organization → any member; team/private/restricted → owner-only (finer
  * team membership + restricted grants land with the governance schema pass).
  *
  * The in-memory adapter here is the dev/test default (mirrors
@@ -36,7 +36,7 @@ export type MemorySourceRefType = "timeline_entry" | "ledger" | "feedback";
 
 /**
  * Classification governs who may read a Memory. Reuses the kernel's canonical
- * `ContextDataScope` union (public|workspace|team|private|restricted) so Memory
+ * `ContextDataScope` union (public|organization|team|private|restricted) so Memory
  * scoping never drifts from context-capture scoping.
  */
 export type MemoryClassification = ContextDataScope;
@@ -45,10 +45,10 @@ export type MemoryClassification = ContextDataScope;
  * when omitted; `supersedesId` is set only via `supersede()`, never `write()`. */
 export interface MemoryWrite {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   type: MemoryType;
-  /** The element (Person/Community/Initiative…) this fact is about, if any. */
-  subjectElementId?: string | null;
+  /** The element (Person/Community/Record…) this fact is about, if any. */
+  subjectRecordId?: string | null;
   scope: MemoryClassification;
   content: string;
   sourceRefType?: MemorySourceRefType | null;
@@ -74,7 +74,7 @@ export interface MemoryEntry extends MemoryWrite {
   /** TASK-010 review round-5/6/7 — durable, DB-backed per-lineage ordering.
    * Allocated ATOMICALLY by `casSupersede` (never by a caller — absent from
    * `MemoryWrite`, only ever set by the store itself): `(current?.lineageRevision
-   * ?? 0) + 1` for the SAME (workspaceId, ownerUserId, subjectElementId) triple
+   * ?? 0) + 1` for the SAME (organizationId, ownerUserId, subjectRecordId) triple
    * `currentForLineage`/`casSupersede` already key a lineage on, computed
    * inside the same transaction/turn that already establishes the lineage's
    * current head — correct across any number of processes/restarts, unlike a
@@ -88,7 +88,7 @@ export interface MemoryEntry extends MemoryWrite {
 
 export interface MemoryQuery {
   type?: MemoryType;
-  subjectElementId?: string;
+  subjectRecordId?: string;
   /** Filter to rows derived from one MemorySourceRefType — e.g. `"feedback"`
    * to push a "kind of correction" filter into the store's own query instead
    * of fetching an unbounded page and scanning `content` app-side (TASK-010
@@ -101,7 +101,7 @@ export interface MemoryQuery {
    * capped page (TASK-010 review round-4 item 7: "extend Memory query
    * support for structured red-flag metadata (JSON predicates acceptable
    * without migration)"). Each entry is a dot-path into the Memory's opaque
-   * JSON `content` (e.g. `{ path: "anchor.moduleId", equals: "initiative" }`)
+   * JSON `content` (e.g. `{ path: "anchor.moduleId", equals: "record" }`)
    * — every predicate must match (AND). No schema migration needed:
    * `content` stays free-form text; the persistent adapter casts it to
    * `jsonb` at query time (`content::jsonb #>> '{a,b}'`), the in-memory
@@ -143,8 +143,8 @@ export interface MemoryQuery {
    * GLOBAL total order used for cross-lineage listings (e.g. the red-flag
    * audit list) — always valid, never ambiguous. `"lineageRevision"` is
    * ONLY meaningful for a query already scoped to ONE lineage (i.e. a
-   * `subjectElementId` filter identifying a single (workspaceId,
-   * ownerUserId, subjectElementId) lineage) — `lineage_revision` values are
+   * `subjectRecordId` filter identifying a single (organizationId,
+   * ownerUserId, subjectRecordId) lineage) — `lineage_revision` values are
    * allocated per-lineage (every lineage's first row is revision 1), so
    * comparing them ACROSS different lineages would be meaningless. Callers
    * MUST NOT set `orderBy: "lineageRevision"` on a query spanning more than
@@ -211,10 +211,10 @@ export function matchesContentPathEquals(content: string, predicates: Array<{ pa
 
 /**
  * The authority a caller reads Memory under. `userId` absent = a system/no-user
- * context, which may read only public/workspace-classified Memories.
+ * context, which may read only public/organization-classified Memories.
  */
 export interface MemoryAuthScope {
-  workspaceId: string;
+  organizationId: string;
   userId?: string | null;
 }
 
@@ -223,7 +223,7 @@ export interface MemoryAuthScope {
  * OR, for the Drizzle-backed adapter, a genuinely different process/instance
  * sharing the same Postgres/pglite database — already superseded `id` first.
  * Distinct from the plain `Error` `supersede()` throws for "unknown id" or
- * "workspace/owner mismatch", so callers can distinguish "lost a real race"
+ * "organization/owner mismatch", so callers can distinguish "lost a real race"
  * (retry/reconcile) from "this call was simply malformed" (bug).
  */
 export class MemoryConflictError extends Error {
@@ -256,13 +256,13 @@ export interface MemoryStore {
    */
   compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
   /**
-   * Cross-instance-safe FIRST-INSERT-WINS write, keyed by `entry.subjectElementId`
+   * Cross-instance-safe FIRST-INSERT-WINS write, keyed by `entry.subjectRecordId`
    * (TASK-011 remediation, 2026-07-19 coordinator distributed-defects
    * re-review — a genuine TOCTOU `compareAndSupersede` cannot close, since it
    * only guards updates to an EXISTING known row, not "is this the first
    * writer for a not-yet-existing key"). Atomically checks whether a current
-   * (non-superseded) row already exists for `(entry.workspaceId,
-   * entry.subjectElementId)`; if so, returns that EXISTING row unchanged
+   * (non-superseded) row already exists for `(entry.organizationId,
+   * entry.subjectRecordId)`; if so, returns that EXISTING row unchanged
    * (idempotent create — never a second "current" row for the same key). If
    * not, inserts `entry` and returns it. Two callers racing to create the
    * FIRST row for the same key can never both win — exactly one insert
@@ -290,7 +290,7 @@ export interface MemoryStore {
    * `retrieve({ includeSuperseded: true })` — a genuine retention/privacy
    * gap for anything whose raw content must not outlive its retention
    * window. This method walks the SAME bidirectional lineage `forget()`
-   * uses (ancestors AND descendants of `id`, scoped to the SAME workspace
+   * uses (ancestors AND descendants of `id`, scoped to the SAME organization
    * + owner as `id`'s own row — never a broad, unrelated-Memory purge) and,
    * for each row, calls `redact(entry)`: a `null` return leaves that row's
    * content completely untouched (the caller's chosen retention rule did
@@ -315,19 +315,19 @@ export interface MemoryStore {
     authScope: MemoryAuthScope,
     redact: (entry: MemoryEntry) => string | null,
   ): Promise<number>;
-  /** The current (non-superseded) row for one (workspaceId, ownerUserId,
+  /** The current (non-superseded) row for one (organizationId, ownerUserId,
    * lineageKey) lineage, or null if none exists yet. Internal/server-side
    * lookup backing `casSupersede`'s own compare step — deliberately takes no
    * `MemoryAuthScope` and is not a general read path; callers needing an
    * authority-scoped read still go through `get()`/`retrieve()`. CONTRACT:
    * every `MemoryWrite` passed through `casSupersede` for this lineage MUST
-   * set `subjectElementId` to the SAME `lineageKey` — adapters locate the
-   * lineage by (workspaceId, ownerUserId, subjectElementId), so a caller
+   * set `subjectRecordId` to the SAME `lineageKey` — adapters locate the
+   * lineage by (organizationId, ownerUserId, subjectRecordId), so a caller
    * that omits or changes it breaks its own lineage's CAS guarantee. */
-  currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null>;
+  currentForLineage(organizationId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null>;
   /**
    * Atomic optimistic-concurrency create-or-supersede over one lineage
-   * (workspaceId, ownerUserId, lineageKey). At most one non-superseded row
+   * (organizationId, ownerUserId, lineageKey). At most one non-superseded row
    * may exist per lineage at a time — this is the ONLY sanctioned way to
    * mutate a lineage-tracked Memory when more than one caller could race
    * (e.g. a red flag's create/clear/reopen/update). Pass
@@ -343,7 +343,7 @@ export interface MemoryStore {
    * since multiple server processes/connections can race concurrently.
    */
   casSupersede(params: {
-    workspaceId: string;
+    organizationId: string;
     ownerUserId: string;
     lineageKey: string;
     expectedCurrentId: string | null;
@@ -355,14 +355,14 @@ export interface MemoryStore {
  * Authority predicate — the single source of truth for Memory read visibility,
  * shared by every adapter so in-memory and Drizzle agree. Mirrors the DB's
  * `app_private.visible_relationship_row` (migrations/0008_rls_as_code.sql):
- * tenant match always required; public/workspace visible to any member;
+ * tenant match always required; public/organization visible to any member;
  * team/private/restricted visible only to the owner.
  */
 export function memoryVisible(entry: MemoryEntry, authScope: MemoryAuthScope): boolean {
-  if (entry.workspaceId !== authScope.workspaceId) return false;
+  if (entry.organizationId !== authScope.organizationId) return false;
   switch (entry.scope) {
     case "public":
-    case "workspace":
+    case "organization":
       return true;
     case "team":
     case "private":
@@ -386,16 +386,16 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (!current) {
       throw new Error(`memory store: cannot supersede unknown id ${id}`);
     }
-    if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
-      throw new Error("memory store: a correction cannot change workspace or owner");
+    if (current.organizationId !== next.organizationId || current.ownerUserId !== next.ownerUserId) {
+      throw new Error("memory store: a correction cannot change organization or owner");
     }
     const successor = this.entries.find((entry) => entry.supersedesId === id);
     if (successor) {
       if (
         successor.id === next.id &&
-        successor.workspaceId === next.workspaceId &&
+        successor.organizationId === next.organizationId &&
         successor.type === next.type &&
-        successor.subjectElementId === next.subjectElementId &&
+        successor.subjectRecordId === next.subjectRecordId &&
         successor.scope === next.scope &&
         successor.content === next.content &&
         successor.sourceRefType === next.sourceRefType &&
@@ -426,8 +426,8 @@ export class InMemoryMemoryStore implements MemoryStore {
     if (!current) {
       throw new Error(`memory store: cannot supersede unknown id ${id}`);
     }
-    if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
-      throw new Error("memory store: a correction cannot change workspace or owner");
+    if (current.organizationId !== next.organizationId || current.ownerUserId !== next.ownerUserId) {
+      throw new Error("memory store: a correction cannot change organization or owner");
     }
     const alreadySuperseded = this.entries.some((e) => e.supersedesId === id);
     if (alreadySuperseded) {
@@ -444,7 +444,7 @@ export class InMemoryMemoryStore implements MemoryStore {
       this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null),
     );
     const existing = this.entries.find(
-      (e) => e.workspaceId === entry.workspaceId && e.subjectElementId === entry.subjectElementId && !superseded.has(e.id),
+      (e) => e.organizationId === entry.organizationId && e.subjectRecordId === entry.subjectRecordId && !superseded.has(e.id),
     );
     if (existing) return { ...existing };
     return this.#insert(entry, null);
@@ -466,7 +466,7 @@ export class InMemoryMemoryStore implements MemoryStore {
     let rows = snapshotEntries.filter((e) => memoryVisible(e, authScope));
     if (!query.includeSuperseded) rows = rows.filter((e) => !superseded.has(e.id));
     if (query.type) rows = rows.filter((e) => e.type === query.type);
-    if (query.subjectElementId) rows = rows.filter((e) => e.subjectElementId === query.subjectElementId);
+    if (query.subjectRecordId) rows = rows.filter((e) => e.subjectRecordId === query.subjectRecordId);
     if (query.sourceRefType) rows = rows.filter((e) => e.sourceRefType === query.sourceRefType);
     if (query.contentPathEquals) rows = rows.filter((e) => matchesContentPathEquals(e.content, query.contentPathEquals));
     const order = query.order ?? "desc";
@@ -489,7 +489,7 @@ export class InMemoryMemoryStore implements MemoryStore {
   }
 
   /** Shared bidirectional lineage walk (ancestors AND descendants of `id`,
-   * scoped to the same workspace + owner) — factored out so `forget()`
+   * scoped to the same organization + owner) — factored out so `forget()`
    * (full deletion) and `redactLineageContent()` (in-place content
    * redaction) can never silently diverge on WHICH rows count as "this
    * lineage." Returns `null` if `id` is unknown or not visible to
@@ -548,22 +548,22 @@ export class InMemoryMemoryStore implements MemoryStore {
 
   /** Computed the same way `retrieve()`'s superseded-set/emptiness logic
    * already works: the CONTRACT (documented on the `MemoryStore` interface)
-   * is that a lineage-tracked write always sets `next.subjectElementId` to
+   * is that a lineage-tracked write always sets `next.subjectRecordId` to
    * the lineage key, so both this in-memory adapter and the Drizzle
    * adapter (which has no separate lineage column) can locate "the current
-   * row" the same way — by (workspaceId, ownerUserId, subjectElementId)
+   * row" the same way — by (organizationId, ownerUserId, subjectRecordId)
    * plus "nothing else supersedes it." */
-  async currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
-    return this.#currentForLineageSync(workspaceId, ownerUserId, lineageKey);
+  async currentForLineage(organizationId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+    return this.#currentForLineageSync(organizationId, ownerUserId, lineageKey);
   }
 
-  #currentForLineageSync(workspaceId: string, ownerUserId: string, lineageKey: string): MemoryEntry | null {
+  #currentForLineageSync(organizationId: string, ownerUserId: string, lineageKey: string): MemoryEntry | null {
     const superseded = new Set(this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null));
     const row = this.entries.find(
       (e) =>
-        e.workspaceId === workspaceId &&
+        e.organizationId === organizationId &&
         e.ownerUserId === ownerUserId &&
-        e.subjectElementId === lineageKey &&
+        e.subjectRecordId === lineageKey &&
         !superseded.has(e.id),
     );
     return row ? { ...row } : null;
@@ -589,13 +589,13 @@ export class InMemoryMemoryStore implements MemoryStore {
    * gives the persistent adapter.
    */
   async casSupersede(params: {
-    workspaceId: string;
+    organizationId: string;
     ownerUserId: string;
     lineageKey: string;
     expectedCurrentId: string | null;
     next: MemoryWrite;
   }): Promise<MemoryEntry | null> {
-    const current = this.#currentForLineageSync(params.workspaceId, params.ownerUserId, params.lineageKey);
+    const current = this.#currentForLineageSync(params.organizationId, params.ownerUserId, params.lineageKey);
     if ((current?.id ?? null) !== params.expectedCurrentId) return null;
     // review round-7: atomically allocate the next per-lineage revision in
     // the SAME synchronous turn as the compare above (no `await` between

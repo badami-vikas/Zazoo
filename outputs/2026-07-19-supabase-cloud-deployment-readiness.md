@@ -4,7 +4,7 @@
 
 Repository-side Supabase pilot blockers are remediated:
 
-- migration `0020_supabase_runtime_role.sql` creates a login-capable `bridge_app`
+- migration `0022_supabase_runtime_role.sql` creates a login-capable `bridge_app`
   role with no superuser, database-create, role-create, inheritance, replication, or
   RLS-bypass capability and grants the runtime schema/table/sequence/function access;
 - every RLS-backed runtime store enters transaction-local Organization/user context,
@@ -27,6 +27,22 @@ container, one static web deployment, and one Supabase project in the same regio
 Private Local Plane content lives on the API host only when the owner explicitly accepts
 an encrypted persistent cloud volume. If private data must stay on the user's device,
 deploy the desktop sidecar topology instead of the hosted-browser topology.
+
+## Recovered session and integration
+
+- Session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the central `main` checkout; it
+  had no separate branch to merge.
+- Its parent process was defunct. The five displayed background tasks were stale UI state:
+  four read-only deployment mappers and one vocabulary-reconciliation worker that died with
+  the parent.
+- Completed work was preserved in `6590c71`, then normally reconciled with
+  `origin/main@5ab4568`. Canonical upstream Organization/Module/Record vocabulary won shared
+  conflicts; only the deployment-specific behavior was re-ported.
+- Landed migrations `0020_vocab2_automation_engine` and
+  `0021_vocab3_organization_module_record` were retained unchanged. The runtime-role
+  migration is the next allocation, `0022_supabase_runtime_role`.
+- This integration is local only. Nothing was pushed and no Supabase or hosting resource was
+  provisioned.
 
 ## Deployment procedure
 
@@ -61,7 +77,7 @@ deploy the desktop sidecar topology instead of the hosted-browser topology.
 
 4. **Set the runtime-role password outside migrations.**
 
-   Migration `0020` deliberately creates `bridge_app` without a committed password. Use
+   Migration `0022` deliberately creates `bridge_app` without a committed password. Use
    `psql`'s interactive password command so the password is not placed in shell history:
 
    ```bash
@@ -195,11 +211,13 @@ The web publishable key is intentionally public but is still required as a build
 
 ## Verification evidence and remaining external gates
 
-- Full workspace typecheck/build: 42/42 tasks.
-- Changed packages: DB 173/173, DealPilot 93/93, API 323/323 with 74.50% line
-  coverage, web 102/102.
-- RLS, encrypted vault, and residency routing focused tests: 12/12.
-- Turbo-pruned clean builder simulation produced a 225 MB production-only API bundle,
+- The recovered pre-reconciliation snapshot reported a 42/42 workspace typecheck/build,
+  DB 173/173, DealPilot 93/93, API 323/323, web 102/102, and 12/12 focused
+  RLS/vault/residency tests.
+- After reconciling with the Organization-era `main`, API and web typechecks pass and the
+  focused hosted-Auth, wiring, residency, runtime-role/migration, RLS, and encrypted-vault
+  command passes 55/55.
+- A Turbo-pruned clean builder simulation produced a 225 MB production-only API bundle,
   retained DB migrations, excluded TypeScript, started from durable Local Plane paths,
   passed `/health` and `/health/ready`, and failed closed without production configuration.
 - This machine has no Docker daemon, so the literal image launch remains delegated to the

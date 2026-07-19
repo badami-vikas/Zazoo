@@ -100,7 +100,7 @@ export async function materializeApprovedGoogleInteraction(
   if (
     resolution.refLedgerId !== original.id ||
     (resolution.userDecision !== "approve" && resolution.userDecision !== "edit") ||
-    original.workspaceId !== resolution.workspaceId ||
+    original.organizationId !== resolution.organizationId ||
     original.actorType !== resolution.actorType ||
     original.actorId !== resolution.actorId ||
     original.onBehalfOfType !== resolution.onBehalfOfType ||
@@ -148,7 +148,7 @@ export async function materializeApprovedGoogleInteraction(
   if (parsed.person) {
     await graphStore.createPerson({
       id: parsed.person.localPersonId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       displayName: parsed.person.fullName ?? parsed.person.emails[0]!,
       ...(parsed.person.company ? { currentTitle: parsed.person.company } : {}),
@@ -161,7 +161,7 @@ export async function materializeApprovedGoogleInteraction(
     });
   }
   const participant = await graphStore.getPerson(
-    original.workspaceId,
+    original.organizationId,
     ownerUserId,
     parsed.event.personId,
   );
@@ -172,7 +172,7 @@ export async function materializeApprovedGoogleInteraction(
   }
   return graphStore.createInteraction({
     id: parsed.event.localId,
-    workspaceId: original.workspaceId,
+    organizationId: original.organizationId,
     ownerUserId,
     kind: parsed.event.payload.interactionKind,
     occurredAt: new Date(parsed.event.payload.occurredAt),

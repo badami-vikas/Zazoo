@@ -1,5 +1,5 @@
 /**
- * `policy_params` — the typed, per-workspace TUNABLE SPACE (undefined-elements
+ * `policy_params` — the typed, per-organization TUNABLE SPACE (undefined-elements
  * §4 "Variance Adjuster" + agent-quality-eval-model §5 "Thresholds as
  * policy_params"). Every number the pipeline reads that is NOT a hard invariant
  * lives here so it can be adjusted from real feedback (the Variance Adjuster,
@@ -104,13 +104,13 @@ export function cloneDefaultPolicyParams(): PolicyParams {
   };
 }
 
-/** A partial override document (what a workspace stores on top of the defaults). */
+/** A partial override document (what a organization stores on top of the defaults). */
 export interface PolicyParamsOverride {
   aqv?: { windowDays?: number; gates?: Partial<AqvGates> };
   variance?: { delta?: number; params?: Record<string, Partial<TunableParam>> };
 }
 
-/** Merge a workspace override over the defaults. Unspecified fields fall back
+/** Merge a organization override over the defaults. Unspecified fields fall back
  * to `DEFAULT_POLICY_PARAMS`; a tunable param present in the override replaces
  * only the fields it names (value/floor/ceil), keeping the default bounds when
  * the override sets only `value`. */
@@ -144,7 +144,7 @@ export function resolveGates(params: PolicyParams): AqvGates {
   return params.aqv.gates;
 }
 
-/** Look up a tunable parameter by key (undefined when the workspace has no such
+/** Look up a tunable parameter by key (undefined when the organization has no such
  * knob — the adjuster then proposes nothing rather than inventing one). */
 export function getTunable(params: PolicyParams, key: string): TunableParam | undefined {
   return params.variance.params[key];
@@ -157,38 +157,38 @@ export function clampToBounds(value: number, param: Pick<TunableParam, "floor" |
 }
 
 /**
- * PolicyParamStore — reads the resolved `PolicyParams` for a workspace
+ * PolicyParamStore — reads the resolved `PolicyParams` for a organization
  * (defaults merged with any stored overrides). The port stays minimal so both
  * this in-memory adapter and a future Drizzle-backed one (mapping to
  * `policy_params` rows) satisfy it trivially, mirroring the budget/kill-switch
  * ports in capability/approvals.ts.
  */
 export interface PolicyParamStore {
-  get(workspaceId: string): Promise<PolicyParams>;
+  get(organizationId: string): Promise<PolicyParams>;
 }
 
-/** In-memory `PolicyParamStore` — dev/test default. Holds per-workspace partial
- * overrides; `get` merges them over the defaults. A workspace with no stored
+/** In-memory `PolicyParamStore` — dev/test default. Holds per-organization partial
+ * overrides; `get` merges them over the defaults. A organization with no stored
  * override resolves to `DEFAULT_POLICY_PARAMS`. */
 export class InMemoryPolicyParamStore implements PolicyParamStore {
   readonly overrides = new Map<string, PolicyParamsOverride>();
 
-  async get(workspaceId: string): Promise<PolicyParams> {
-    return mergePolicyParams(this.overrides.get(workspaceId));
+  async get(organizationId: string): Promise<PolicyParams> {
+    return mergePolicyParams(this.overrides.get(organizationId));
   }
 
-  /** Replace a workspace's whole override document. */
-  setOverride(workspaceId: string, override: PolicyParamsOverride): void {
-    this.overrides.set(workspaceId, override);
+  /** Replace a organization's whole override document. */
+  setOverride(organizationId: string, override: PolicyParamsOverride): void {
+    this.overrides.set(organizationId, override);
   }
 
-  /** Set (or replace) a single tunable param for a workspace — the write a
+  /** Set (or replace) a single tunable param for a organization — the write a
    * governed Variance-Adjuster nudge performs once a human approves it. */
-  setTunable(workspaceId: string, key: string, param: TunableParam): void {
-    const current = this.overrides.get(workspaceId) ?? {};
+  setTunable(organizationId: string, key: string, param: TunableParam): void {
+    const current = this.overrides.get(organizationId) ?? {};
     const variance = current.variance ?? {};
     const params = { ...(variance.params ?? {}) };
     params[key] = param;
-    this.overrides.set(workspaceId, { ...current, variance: { ...variance, params } });
+    this.overrides.set(organizationId, { ...current, variance: { ...variance, params } });
   }
 }

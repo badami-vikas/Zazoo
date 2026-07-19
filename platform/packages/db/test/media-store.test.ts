@@ -9,7 +9,7 @@ import type { MediaCaptureRecord } from "@bridge/core";
 
 function rec(partial: Partial<MediaCaptureRecord> = {}): MediaCaptureRecord {
   return {
-    id: "m1", workspaceId: "ws-1", kind: "photo", mimeType: "image/jpeg",
+    id: "m1", organizationId: "ws-1", kind: "photo", mimeType: "image/jpeg",
     byteSize: 4, status: "pending",
     provenance: { skill: "camera.capture", version: "1.0.0" },
     capturedAt: "2026-06-20T00:00:00.000Z", ...partial,

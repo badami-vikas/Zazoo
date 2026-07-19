@@ -191,14 +191,14 @@ export async function loadCanonicalCommunities(): Promise<{ rows: NetworkCompany
   }
 }
 
-export interface WorkspaceList {
+export interface OrganizationList {
   id: string;
   name: string;
   memberIds: Set<string>;
 }
 
-// Load workspace communities of kind='list' and their member person IDs.
-export async function loadWorkspaceLists(): Promise<WorkspaceList[]> {
+// Load organization communities of kind='list' and their member person IDs.
+export async function loadOrganizationLists(): Promise<OrganizationList[]> {
   try {
     const { data, error } = await supabase
       .from('communities')
@@ -215,7 +215,7 @@ export async function loadWorkspaceLists(): Promise<WorkspaceList[]> {
     }));
     return results;
   } catch (err) {
-    console.warn('[db] loadWorkspaceLists: Supabase unreachable, returning no lists', err);
+    console.warn('[db] loadOrganizationLists: Supabase unreachable, returning no lists', err);
     return [];
   }
 }

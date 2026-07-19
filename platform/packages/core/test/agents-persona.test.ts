@@ -11,13 +11,13 @@ import {
 
 test("AGENTS-2: profile context changes framing without deriving a visual-style tone", () => {
   const a: OnboardingProfile = {
-    workspaceId: "w-a",
+    organizationId: "w-a",
     source: "onboarding",
     role: "investor",
     goals: ["close the fund"],
   };
   const b: OnboardingProfile = {
-    workspaceId: "w-b",
+    organizationId: "w-b",
     source: "onboarding",
     role: "recruiter",
     goals: ["fill three roles"],
@@ -32,16 +32,16 @@ test("AGENTS-2: profile context changes framing without deriving a visual-style 
 });
 
 test("AGENTS-2: a sparse profile produces a valid persona without a tone line", () => {
-  const none = buildChiefOfStaffPersona({ workspaceId: "w", source: "onboarding" });
+  const none = buildChiefOfStaffPersona({ organizationId: "w", source: "onboarding" });
   assert.equal(none.tone, undefined);
   assert.equal(none.name, "Chief of Staff");
   assert.ok((none.responsibilities?.length ?? 0) > 0);
-  assert.match(none.role, /the person in this workspace/);
+  assert.match(none.role, /the person in this organization/);
 });
 
 test("AGENTS-2: rich profile framing carries role, goals, domains, and working style", () => {
   const persona = buildChiefOfStaffPersona({
-    workspaceId: "w",
+    organizationId: "w",
     source: "onboarding",
     role: "solo founder",
     goals: ["ship v1", "raise a seed"],
@@ -56,7 +56,7 @@ test("AGENTS-2: rich profile framing carries role, goals, domains, and working s
 
 test("AGENTS-2: profileFromRow maps stored fields honestly and omits absent ones (no invented data)", () => {
   const row: OnboardingProfileRow = {
-    workspaceId: "w-1",
+    organizationId: "w-1",
     avatarStyle: "turtle",
     answers: { role: "GP", goals: ["deploy capital"], domains: "venture", workingStyle: "  calm and unhurried  " },
     phoneVerified: true,
@@ -65,7 +65,7 @@ test("AGENTS-2: profileFromRow maps stored fields honestly and omits absent ones
     updatedAtISO: "2026-07-14T00:00:00.000Z",
   };
   const profile = profileFromRow(row);
-  assert.equal(profile.workspaceId, "w-1");
+  assert.equal(profile.organizationId, "w-1");
   assert.equal(profile.source, "onboarding");
   assert.deepEqual(profile.connectedSources, ["gmail", "calendar"]);
   assert.equal(profile.role, "GP");
@@ -74,7 +74,7 @@ test("AGENTS-2: profileFromRow maps stored fields honestly and omits absent ones
   assert.equal(profile.workingStyleNotes, "calm and unhurried");
 
   const sparse = profileFromRow({
-    workspaceId: "w-2",
+    organizationId: "w-2",
     avatarStyle: "",
     answers: {},
     phoneVerified: false,
@@ -88,7 +88,7 @@ test("AGENTS-2: profileFromRow maps stored fields honestly and omits absent ones
 });
 
 test("AGENTS-2: the CoS persona projects through the shared seam without Avatar-derived tone", () => {
-  const persona = buildChiefOfStaffPersona({ workspaceId: "w", source: "onboarding", role: "operator" });
+  const persona = buildChiefOfStaffPersona({ organizationId: "w", source: "onboarding", role: "operator" });
   const preamble = renderPersonaSystemPreamble(persona).join("\n");
   assert.match(preamble, /## Kernel invariants \(non-negotiable\)/);
   assert.match(preamble, /You are Chief of Staff\./);

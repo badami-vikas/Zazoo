@@ -15,7 +15,7 @@ const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta
 const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
 const settingsPage = readFileSync(new URL("../src/app/pages/SettingsPage.tsx", import.meta.url), "utf8");
 const browserCaptureStore = new URL("../src/app/data/localMedia.ts", import.meta.url);
-const builtIns = readFileSync(new URL("../../api/src/built-in-packages.ts", import.meta.url), "utf8");
+const builtIns = readFileSync(new URL("../../api/src/built-in-modules.ts", import.meta.url), "utf8");
 
 test("Relationship is one installed Module with canonical primary Pages", () => {
   assert.match(builtIns, /name: "relationship"/);
@@ -37,7 +37,7 @@ test("Relationship routes are deep linked and legacy global surfaces are absent"
   assert.doesNotMatch(routes, /path: "helpdesk"/);
 });
 
-test("nested Helpdesk uses the workspace-scoped API instead of the legacy local store", () => {
+test("nested Helpdesk uses the organization-scoped API instead of the legacy local store", () => {
   assert.match(relationshipHelpdesk, /trpc\.helpdesk\.list/);
   assert.match(relationshipHelpdesk, /trpc\.helpdesk\.get/);
   assert.match(relationshipHelpdesk, /trpc\.helpdesk\.reply/);
@@ -92,7 +92,7 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(executionLedger, /label: 'Automation'/);
   assert.doesNotMatch(executionLedger, /label: 'Workflow'/);
   assert.match(executionLedger, /label: 'Record'/);
-  assert.doesNotMatch(executionLedger, /label: 'Initiative'/);
+  assert.doesNotMatch(executionLedger, /label: 'Record'/);
   assert.match(ledgerData, /case 'relation'/);
   assert.match(ledgerData, /originalRecord\?\.kind === 'relationship_signal_evidence'/);
   assert.match(ledgerData, /JSON\.parse\(nextText\)/);
@@ -197,14 +197,14 @@ test("Relationship Record detail has standard sections and governed Actions", ()
   assert.match(relationshipPage, /trpc\.relationship\.createIntroduction\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.recordIntroductionConsent\.mutate/);
   assert.match(relationshipPage, /trpc\.relationship\.transitionIntroduction\.mutate/);
-  assert.match(relationshipPage, /trpc\.relationship\.communityWorkspace\.query/);
+  assert.match(relationshipPage, /trpc\.relationship\.communityOrganization\.query/);
   assert.match(relationshipPage, /trpc\.relationship\.findPaths\.query/);
   assert.match(relationshipPage, /id="record-overview-title"/);
   assert.match(relationshipPage, /id="record-meeting-prep-title"/);
   assert.match(relationshipPage, /id="record-memory-title"/);
   assert.match(relationshipPage, /id="record-commitments-title"/);
   assert.match(relationshipPage, /id="record-introductions-title"/);
-  assert.match(relationshipPage, /id="community-workspace-title"/);
+  assert.match(relationshipPage, /id="community-organization-title"/);
   assert.match(relationshipPage, /id="record-connections-title"/);
   assert.match(relationshipPage, /id="record-timeline-title"/);
   assert.match(relationshipPage, /id="record-sources-title"/);

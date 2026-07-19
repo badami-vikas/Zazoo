@@ -6,7 +6,7 @@ import { Header } from "../components/shared/Header";
 import { DataViews } from "../dataviews/DataViews";
 import { viewConfigForKind } from "../dataviews/eligibility";
 import type { DataRow, GraphNode } from "../dataviews/types";
-import { PILOT_WORKSPACE, trpc } from "../lib/trpc";
+import { PILOT_ORGANIZATION, trpc } from "../lib/trpc";
 
 const FULL_GRAPH_VIEWS: ViewKind[] = ["table", "graph"];
 
@@ -48,7 +48,7 @@ export function SecondBrainPage() {
     let active = true;
     setError(null);
     void trpc.graph.full.query({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit,
     }).then((next) => {
       if (active) setGraph(next);
@@ -87,7 +87,7 @@ export function SecondBrainPage() {
     setActionStatus("Submitting governed Signal Action…");
     try {
       const proposal = await trpc.graph.proposeSignalAction.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         signalId,
       });
       setActionStatus(`Governed Signal Action ${proposal.status.replace(/_/g, " ")}.`);

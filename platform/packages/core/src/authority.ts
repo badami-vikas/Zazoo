@@ -105,7 +105,7 @@ function grantMatches(
 }
 
 export interface ResolveArgs {
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   action: Action;
   resourceType: ResourceType;
@@ -127,15 +127,15 @@ export interface AuthorityDeps {
 /** Collect (allow/deny) grants for a principal (role grants ∪ direct grants). */
 async function principalGrants(
   deps: AuthorityDeps,
-  workspaceId: string,
+  organizationId: string,
   actor: Actor,
 ): Promise<GrantRule[]> {
-  const roleIds = await deps.roles.rolesForPrincipal(workspaceId, actor);
+  const roleIds = await deps.roles.rolesForPrincipal(organizationId, actor);
   const fromRoles: GrantRule[] = [];
   for (const rid of roleIds) {
     fromRoles.push(...(await deps.roles.grantsForRole(rid)));
   }
-  const direct = await deps.roles.directGrants(workspaceId, actor);
+  const direct = await deps.roles.directGrants(organizationId, actor);
   return [...fromRoles, ...direct];
 }
 
@@ -221,7 +221,7 @@ interface EphemeralGrantResult {
  */
 async function evaluateEphemeralGrant(
   deps: AuthorityDeps,
-  workspaceId: string,
+  organizationId: string,
   actor: Actor,
   action: Action,
   resourceType: ResourceType,
@@ -230,7 +230,7 @@ async function evaluateEphemeralGrant(
   base: boolean,
   inScope: boolean,
 ): Promise<EphemeralGrantResult> {
-  const eph = await deps.ephemeral.activeGrants(workspaceId, actor, context, deps.nowISO);
+  const eph = await deps.ephemeral.activeGrants(organizationId, actor, context, deps.nowISO);
   const ephEval = grantsAllow(eph, action, resourceType, resourceId);
   if (ephEval.deny) {
     return {
@@ -291,7 +291,7 @@ interface DelegationResult {
  */
 async function evaluateDelegation(
   deps: AuthorityDeps,
-  workspaceId: string,
+  organizationId: string,
   onBehalfOf: { type: "user" | "team"; id: string },
   action: Action,
   resourceType: ResourceType,
@@ -299,7 +299,7 @@ async function evaluateDelegation(
   effective: EffectiveDataScope,
 ): Promise<DelegationResult> {
   const principalActor: Actor = { type: onBehalfOf.type, id: onBehalfOf.id };
-  const pGrants = await principalGrants(deps, workspaceId, principalActor);
+  const pGrants = await principalGrants(deps, organizationId, principalActor);
   const pEval = grantsAllow(pGrants, action, resourceType, resourceId);
   if (pEval.deny || !pEval.allow) {
     return {
@@ -325,7 +325,7 @@ async function resolveAgentAuthority(
   deps: AuthorityDeps,
   requested: EffectiveDataScope,
 ): Promise<AuthorityDecision> {
-  const { actor, action, resourceType, resourceId, workspaceId } = args;
+  const { actor, action, resourceType, resourceId, organizationId } = args;
 
   const roleScope = await evaluateAgentRoleScope(deps, actor, action, resourceType, resourceId);
   if (roleScope.decision) return roleScope.decision;
@@ -333,7 +333,7 @@ async function resolveAgentAuthority(
 
   const ephResult = await evaluateEphemeralGrant(
     deps,
-    workspaceId,
+    organizationId,
     actor,
     action,
     resourceType,
@@ -351,7 +351,7 @@ async function resolveAgentAuthority(
   if (args.onBehalfOf) {
     const delegation = await evaluateDelegation(
       deps,
-      workspaceId,
+      organizationId,
       args.onBehalfOf,
       action,
       resourceType,
@@ -381,7 +381,7 @@ export async function resolveAuthority(
   args: ResolveArgs,
   deps: AuthorityDeps,
 ): Promise<AuthorityDecision> {
-  const { actor, action, resourceType, resourceId, workspaceId } = args;
+  const { actor, action, resourceType, resourceId, organizationId } = args;
   let requested: EffectiveDataScope = args.requestedDataScope ?? "all";
 
   // Layer 0 — seeded agent-floor DENY. Non-removable, wins over everything.
@@ -401,7 +401,7 @@ export async function resolveAuthority(
   }
 
   // Human principal (user/team): role grants ∪ direct grants − deny. Ceiling = all.
-  const grants = await principalGrants(deps, workspaceId, actor);
+  const grants = await principalGrants(deps, organizationId, actor);
   const ev = grantsAllow(grants, action, resourceType, resourceId);
   if (ev.deny) return { allowed: false, reason: "explicit deny", basis: "deny", dataScope: "none" };
   if (!ev.allow) {

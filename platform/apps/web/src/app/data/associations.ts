@@ -1,6 +1,6 @@
 // Associations — ONE global relationship map, derived from the real network (people + communities),
 // re-centered on whichever entity is selected. The "public" layer is people↔community membership;
-// the "local" overlay is the user's initiatives, appended per-center.
+// the "local" overlay is the user's records, appended per-center.
 //
 // Degrees are computed relative to the chosen center:
 //   1st  — direct ties (co-members of the center's community, or members of a community)
@@ -22,7 +22,7 @@ export interface AssocPerson {
   id: string; name: string; rel: string; community: string;
   warmth: number; trust: number; warmthBand: string; trustBand: string; ring: string;
 }
-export interface AssocInitiative { id: string; name: string; rel: string }
+export interface AssocRecord { id: string; name: string; rel: string }
 export interface AssocResult {
   centerLabel: string;
   centerKind: 'person' | 'community' | 'self';
@@ -30,7 +30,7 @@ export interface AssocResult {
   degrees: { one: AssocPerson[]; two: AssocPerson[]; three: AssocPerson[] };
   counts: { one: number; two: number; three: number };
   communities: { home: string[]; related: string[] };
-  initiatives: AssocInitiative[];
+  records: AssocRecord[];
 }
 
 // ── prebuilt global indices ──────────────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ export function buildAssociations(centerName: string, isCommunity = false): Asso
       degrees: { one: one.slice(0, CAP), two: two.slice(0, CAP), three: three.slice(0, CAP) },
       counts: { one: one.length, two: two.length, three: three.length },
       communities: { home: [], related: [] },
-      initiatives: [{ id: 'ini_checkin', name: 'Monthly inner-ring check-in', rel: 'Local Automation' }],
+      records: [{ id: 'ini_checkin', name: 'Monthly inner-ring check-in', rel: 'Local Automation' }],
     };
   }
 
@@ -165,12 +165,12 @@ export function buildAssociations(centerName: string, isCommunity = false): Asso
 
   const related = relatedKeys.map(k => companyByKey.get(k)?.name || k);
 
-  // local overlay — the user's initiatives, appended onto the public map
-  const initiatives: AssocInitiative[] = [];
+  // local overlay — the user's records, appended onto the public map
+  const records: AssocRecord[] = [];
   const homeName = homeCommunities[0];
   if (homeName) {
-    initiatives.push({ id: `ini_intro_${lc(homeName)}`, name: `${homeName} — warm-intro round`, rel: 'Local initiative' });
-    if (one.length >= 4) initiatives.push({ id: `ini_gather_${lc(homeName)}`, name: `${homeName} gathering`, rel: 'Local initiative' });
+    records.push({ id: `ini_intro_${lc(homeName)}`, name: `${homeName} — warm-intro round`, rel: 'Local record' });
+    if (one.length >= 4) records.push({ id: `ini_gather_${lc(homeName)}`, name: `${homeName} gathering`, rel: 'Local record' });
   }
 
   return {
@@ -179,6 +179,6 @@ export function buildAssociations(centerName: string, isCommunity = false): Asso
     degrees: { one: one.slice(0, CAP), two: two.slice(0, CAP), three: three.slice(0, CAP) },
     counts: { one: one.length, two: two.length, three: three.length },
     communities: { home: homeCommunities, related },
-    initiatives,
+    records,
   };
 }

@@ -9,7 +9,7 @@
  *   (2) UUIDv7 PK defaults on ledger/events/timeline_entries — ids minted via
  *       Drizzle's $defaultFn are RFC 9562 version-7 (time-prefixed, sortable),
  *       not version-4 (random).
- *   (3) timeline_entries(workspace_id, occurred_at) composite index exists.
+ *   (3) timeline_entries(organization_id, occurred_at) composite index exists.
  *   (4) people_canonical.emails GIN index exists.
  *   (5) dedup_key partial-unique: many NULLs allowed, duplicate non-NULLs rejected.
  *   (6) CHECK constraints reject an invalid enum value on visibility/effect/
@@ -70,15 +70,15 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_uuidv7" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
 
     const [ledgerRow] = await db
       .insert(schema.ledger)
       .values({
-        workspaceId: ws.id,
+        organizationId: ws.id,
         actorType: "user",
         actorId: "00000000-0000-0000-0000-00000000dead",
         action: "write",
@@ -89,7 +89,7 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
     const [eventRow] = await db
       .insert(schema.events)
       .values({
-        workspaceId: ws.id,
+        organizationId: ws.id,
         type: "test_fixture_event",
         entityType: "person",
         entityId: "00000000-0000-0000-0000-00000000dead",
@@ -98,7 +98,7 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
     const [timelineRow] = await db
       .insert(schema.timelineEntries)
       .values({
-        workspaceId: ws.id,
+        organizationId: ws.id,
         occurredAt: new Date(),
         type: "test_fixture_note",
         createdBy: "test_fixture_user",
@@ -119,12 +119,12 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
     // when compared lexicographically (the point of UUIDv7 over v4).
     const [firstId] = await db
       .insert(schema.events)
-      .values({ workspaceId: ws.id, type: "test_fixture_first", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
+      .values({ organizationId: ws.id, type: "test_fixture_first", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
       .returning({ id: schema.events.id });
     await new Promise((r) => setTimeout(r, 5));
     const [secondId] = await db
       .insert(schema.events)
-      .values({ workspaceId: ws.id, type: "test_fixture_second", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
+      .values({ organizationId: ws.id, type: "test_fixture_second", entityType: "person", entityId: "00000000-0000-0000-0000-00000000dead" })
       .returning({ id: schema.events.id });
     assert.ok(firstId!.id < secondId!.id, "later-minted UUIDv7 id must sort after an earlier one");
   } finally {
@@ -132,13 +132,13 @@ test("schema hardening: ledger/events/timeline_entries ids are UUIDv7 (time-pref
   }
 });
 
-test("schema hardening: timeline_entries(workspace_id, occurred_at) composite index exists", async () => {
+test("schema hardening: timeline_entries(organization_id, occurred_at) composite index exists", async () => {
   const { db, close } = await createLocalDb();
   try {
     const rows = (await db.execute(
-      sql`select indexname from pg_indexes where tablename = 'timeline_entries' and indexname = 'timeline_entries_ws_occurred_idx'`,
+      sql`select indexname from pg_indexes where tablename = 'timeline_entries' and indexname = 'timeline_entries_org_occurred_idx'`,
     )) as unknown as { rows: Array<{ indexname: string }> };
-    assert.equal(rows.rows.length, 1, "timeline_entries_ws_occurred_idx must exist");
+    assert.equal(rows.rows.length, 1, "timeline_entries_org_occurred_idx must exist");
   } finally {
     await close();
   }
@@ -195,9 +195,9 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_check_constraints" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
 
     // visibility (people)
@@ -208,7 +208,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.people).values({
-          workspaceId: ws!.id,
+          organizationId: ws!.id,
           userId: checkUser!.id,
           visibility: "test_fixture_bogus_visibility",
         }),
@@ -219,7 +219,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.permissions).values({
-          workspaceId: ws!.id,
+          organizationId: ws!.id,
           actorType: "user",
           actorId: "00000000-0000-0000-0000-00000000dead",
           resourceType: "person",
@@ -233,8 +233,8 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.policies).values({
-          workspaceId: ws!.id,
-          scopeType: "workspace",
+          organizationId: ws!.id,
+          scopeType: "organization",
           name: "test_fixture_policy",
           rule: {},
           effect: "test_fixture_bogus_effect",
@@ -246,7 +246,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.ledger).values({
-          workspaceId: ws!.id,
+          organizationId: ws!.id,
           actorType: "user",
           actorId: "00000000-0000-0000-0000-00000000dead",
           action: "write",
@@ -260,7 +260,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.ledger).values({
-          workspaceId: ws!.id,
+          organizationId: ws!.id,
           actorType: "test_fixture_bogus_actor",
           actorId: "00000000-0000-0000-0000-00000000dead",
           action: "write",
@@ -274,7 +274,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     await assert.rejects(
       () =>
         db.insert(schema.permissions).values({
-          workspaceId: ws!.id,
+          organizationId: ws!.id,
           actorType: "test_fixture_bogus_actor",
           actorId: "00000000-0000-0000-0000-00000000dead",
           resourceType: "person",
@@ -287,7 +287,7 @@ test("schema hardening: CHECK constraints reject invalid enum values", async () 
     // rejected (this is the value integration-store.ts's INTEGRATION_ACTOR_TYPE
     // writes — proves the widened CHECK list didn't just move the bug).
     await db.insert(schema.permissions).values({
-      workspaceId: ws!.id,
+      organizationId: ws!.id,
       actorType: "integration",
       actorId: "00000000-0000-0000-0000-00000000dead",
       resourceType: "integration",
@@ -322,12 +322,12 @@ test("schema hardening: role_permissions has exactly one uniqueness constraint (
     const [role] = await db
       .insert(schema.roles)
       .values({
-        workspaceId: (
-          await db.insert(schema.workspaces).values({ name: "test_fixture_ws_role_perms" }).returning({ id: schema.workspaces.id })
+        organizationId: (
+          await db.insert(schema.organizations).values({ name: "test_fixture_ws_role_perms" }).returning({ id: schema.organizations.id })
         )[0]!.id,
         name: "test_fixture_role",
       })
-      .returning({ id: schema.roles.id, workspaceId: schema.roles.workspaceId });
+      .returning({ id: schema.roles.id, organizationId: schema.roles.organizationId });
     assert.ok(role);
 
     await db.insert(schema.rolePermissions).values({

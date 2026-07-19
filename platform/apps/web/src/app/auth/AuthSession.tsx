@@ -55,7 +55,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     }
     setStatus("activating");
     try {
-      await trpc.workspace.activateSession.mutate();
+      await trpc.organization.activateSession.mutate();
       if (generation.current === currentGeneration) {
         setStatus("authenticated");
       }

@@ -10,8 +10,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   IntegrationFloorScopeError,
-  UnknownWorkspaceError,
-  WorkspaceRenameRollbackError,
+  UnknownOrganizationError,
+  OrganizationRenameRollbackError,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -46,7 +46,7 @@ import {
   LEARNING_AGENT,
   OUTREACH_AGENT,
   INTERNAL_STRATEGIST_AGENT,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   LEARNING_ROLE_MODEL_GOAL_TYPE,
   PRODUCE_RECOMMENDATION_TASK_TYPE,
   HELPDESK_ROUTING_GOAL_TYPE,
@@ -119,17 +119,17 @@ import {
   findFoundationalAgent,
   buildChiefOfStaffPersona,
   profileFromRow,
-  parsePackageManifest,
-  PackageManifestValidationError,
-  computePackageRisk,
+  parseModuleManifest,
+  ModuleManifestValidationError,
+  computeModuleRisk,
   maxRisk,
   evaluateSandboxRequirement,
   isUntrustedOrigin,
   trustGrantsForOrigin,
-  advancePackageState,
+  advanceModuleState,
   promoteToAvailable,
   rollbackFromHistory,
-  InvalidPackageTransitionError,
+  InvalidModuleTransitionError,
   resolveSkillForTask,
   cancelChildAgentRun,
   completeChildAgentRun,
@@ -145,13 +145,13 @@ import {
   type PendingProposalRecord,
   type Proposal,
   type RunCtx,
-  type WorkspaceBlueprint,
+  type OrganizationBlueprint,
   type RoutableCapability,
-  type PackageInstallationRow,
-  type PackageManifest,
-  type CommonsPackageEntry,
+  type ModuleInstallationRow,
+  type ModuleManifest,
+  type CommonsModuleEntry,
   type CommonsListQuery,
-  type CommonsPackageDetail,
+  type CommonsModuleDetail,
   type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
@@ -184,15 +184,15 @@ import {
   type GroundedClaimInput,
 } from "@bridge/jobpilot";
 import {
-  BUILT_IN_PACKAGES,
-  COMMONS_BUILT_IN_PACKAGES,
+  BUILT_IN_MODULES,
+  COMMONS_BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_AUTOMATION_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeAutomationId,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
-} from "./built-in-packages.js";
+} from "./built-in-modules.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
 import {
   listModuleFiles,
@@ -225,12 +225,12 @@ function stableOutreachProposalId(key: string): string {
   return stableProposalId(key);
 }
 
-function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
-  return stableProposalId(`package-install:${workspaceId}:${installationId}`);
+function stableModuleInstallProposalId(organizationId: string, installationId: string): string {
+  return stableProposalId(`module-install:${organizationId}:${installationId}`);
 }
 
 const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
-  const relationship = BUILT_IN_PACKAGES.find(
+  const relationship = BUILT_IN_MODULES.find(
     (candidate) => candidate.manifest.name === "relationship",
   );
   if (!relationship) throw new Error("Relationship built-in manifest is missing");
@@ -241,11 +241,11 @@ const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
   };
 })();
 
-function packageManifestHash(manifest: PackageManifest): string {
+function moduleManifestHash(manifest: ModuleManifest): string {
   return `sha256:${createHash("sha256").update(canonicalizeManifest(manifest)).digest("hex")}`;
 }
 
-function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
+function isSupportedCitedRoleModelManifest(manifest: ModuleManifest): boolean {
   const capability = manifest.capabilities[0];
   const readPermission = capability?.permissions[0];
   const writePermission = capability?.permissions[1];
@@ -278,43 +278,43 @@ function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
 }
 
 function isSupportedCitedRoleModelInstallation(
-  installation: PackageInstallationRow,
+  installation: ModuleInstallationRow,
 ): boolean {
   const { manifest, moduleAttachment } = installation;
-  return installation.packageName === "cited-role-model-practice"
-    && installation.packageVersion === CITED_ROLE_MODEL_PRACTICE_VERSION
+  return installation.moduleName === "cited-role-model-practice"
+    && installation.moduleVersion === CITED_ROLE_MODEL_PRACTICE_VERSION
     && installation.state === "available"
     && installation.status === "installed"
-    && manifest.name === installation.packageName
-    && manifest.version === installation.packageVersion
+    && manifest.name === installation.moduleName
+    && manifest.version === installation.moduleVersion
     && isSupportedCitedRoleModelManifest(manifest)
     && moduleAttachment?.source === "commons"
-    && moduleAttachment.modulePackageName === "relationship"
+    && moduleAttachment.ownerModuleName === "relationship"
     && resolveModuleAgentRuntimeId(
-      moduleAttachment.modulePackageName,
+      moduleAttachment.ownerModuleName,
       moduleAttachment.agentId,
     ) === LEARNING_AGENT;
 }
 
 async function currentSupportedRelationshipOwner(
   wiring: Wiring,
-  installation: PackageInstallationRow,
-): Promise<PackageInstallationRow | null> {
+  installation: ModuleInstallationRow,
+): Promise<ModuleInstallationRow | null> {
   const attachment = installation.moduleAttachment;
-  if (!attachment || attachment.modulePackageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name) {
+  if (!attachment || attachment.ownerModuleName !== SUPPORTED_RELATIONSHIP_CONTRACT.name) {
     return null;
   }
-  const ownerModule = await wiring.packageStore.getAvailable(
-    installation.workspaceId,
-    attachment.modulePackageName,
+  const ownerModule = await wiring.moduleStore.getAvailable(
+    installation.organizationId,
+    attachment.ownerModuleName,
   );
   if (
     !ownerModule
     || ownerModule.status !== "installed"
-    || ownerModule.packageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name
-    || ownerModule.packageVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version
-    || ownerModule.manifest.name !== ownerModule.packageName
-    || ownerModule.manifest.version !== ownerModule.packageVersion
+    || ownerModule.moduleName !== SUPPORTED_RELATIONSHIP_CONTRACT.name
+    || ownerModule.moduleVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version
+    || ownerModule.manifest.name !== ownerModule.moduleName
+    || ownerModule.manifest.version !== ownerModule.moduleVersion
     || canonicalizeManifest(ownerModule.manifest) !== SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest
   ) {
     return null;
@@ -322,18 +322,18 @@ async function currentSupportedRelationshipOwner(
   return ownerModule;
 }
 
-function stableDealPilotCaptureProposalId(workspaceId: string, captureId: string): string {
-  return stableProposalId(`dealpilot-capture:${workspaceId}:${captureId}`);
+function stableDealPilotCaptureProposalId(organizationId: string, captureId: string): string {
+  return stableProposalId(`dealpilot-capture:${organizationId}:${captureId}`);
 }
 
 function isDealPilotCaptureProposal(
   entry: LedgerEntry,
-  workspaceId: string,
+  organizationId: string,
   captureId: string,
 ): boolean {
   if (
-    entry.id !== stableDealPilotCaptureProposalId(workspaceId, captureId) ||
-    entry.workspaceId !== workspaceId ||
+    entry.id !== stableDealPilotCaptureProposalId(organizationId, captureId) ||
+    entry.organizationId !== organizationId ||
     entry.actorType !== "user" ||
     entry.action !== "write" ||
     entry.resourceType !== "module" ||
@@ -352,15 +352,15 @@ function isDealPilotCaptureProposal(
 }
 
 /**
- * Translate `NonPilotWorkspaceError` → `TRPCError({code:"FORBIDDEN"})` in ONE place
+ * Translate `NonPilotOrganizationError` → `TRPCError({code:"FORBIDDEN"})` in ONE place
  * (a middleware every procedure below runs through) rather than repeating the
  * `IntegrationFloorScopeError`/`AlreadyResolvedError` try/catch pattern at every one
- * of the dozen-plus call sites that now call `assertPilotWorkspace`. The typed error
+ * of the dozen-plus call sites that now call `assertPilotOrganization`. The typed error
  * is still the thing procedures throw (matching the existing pattern); only the
  * translation step is centralized to avoid duplicating the same three-line catch
  * block everywhere.
  */
-const withPilotWorkspaceGuard = t.middleware(async ({ next }) => {
+const withPilotOrganizationGuard = t.middleware(async ({ next }) => {
   const result = await next();
   // tRPC v11's `next()` does NOT throw when the resolver throws — `callRecursive`
   // catches it internally (converting it to a generic TRPCError via
@@ -368,8 +368,8 @@ const withPilotWorkspaceGuard = t.middleware(async ({ next }) => {
   // RETURNS `{ ok: false, error }` instead. A try/catch around `next()` here would
   // never fire; the result's `.ok`/`.error` must be checked explicitly, and the
   // ORIGINAL cause (not the already-generic-wrapped `error`) is what still carries
-  // the real `NonPilotWorkspaceError` instance, via `error.cause`.
-  if (!result.ok && result.error.cause instanceof NonPilotWorkspaceError) {
+  // the real `NonPilotOrganizationError` instance, via `error.cause`.
+  if (!result.ok && result.error.cause instanceof NonPilotOrganizationError) {
     throw new TRPCError({ code: "FORBIDDEN", message: result.error.cause.message });
   }
   return result;
@@ -396,11 +396,10 @@ const requireAuthenticatedIdentity = t.middleware(async ({ ctx, next }) => {
 });
 
 // All non-public procedures require a verified identity on hosted/persistent
-// deployments. Helpdesk's token-capability surface is the sole explicit public
-// router; pure local development retains its existing no-verifier behavior.
-const procedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotWorkspaceGuard);
-const authenticatedProcedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotWorkspaceGuard);
-const publicProcedure = t.procedure.use(withPilotWorkspaceGuard);
+// deployments. Helpdesk's token-capability surface is the sole public router.
+const procedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotOrganizationGuard);
+const authenticatedProcedure = t.procedure.use(requireAuthenticatedIdentity).use(withPilotOrganizationGuard);
+const publicProcedure = t.procedure.use(withPilotOrganizationGuard);
 
 /**
  * TASK-010 (docs/raw/ui-architecture-rules-2026-07.md §5d) — the anchor a Red
@@ -469,7 +468,7 @@ const redFlagAnchorInput = z.discriminatedUnion("kind", [
  * real-world cell/bullet's correction history into two independent,
  * non-colliding lineages depending on which caller's spelling happened to
  * construct the anchor. Same issue for DealPilot's underlying node type
- * `"initiative"` vs. the module name `"dealpilot"`, and `"person"`/
+ * `"record"` vs. the module name `"dealpilot"`, and `"person"`/
  * `"people"`, `"community"`/`"communities"`. `validateAnchorTarget`
  * switches on the SAME canonical form this produces, so both are always
  * kept in lockstep. */
@@ -477,7 +476,7 @@ function canonicalModuleId(moduleId: string): string {
   switch (moduleId) {
     case "job-pilot":
       return "jobpilot";
-    case "initiative":
+    case "record":
       return "dealpilot";
     case "people":
       return "person";
@@ -508,13 +507,13 @@ function canonicalAnchorString(anchor: RedFlagAnchor): string {
 
 /**
  * A stable, valid-UUID lineage key derived from the canonical anchor string.
- * `memories.subject_element_id` is a `uuid` column (schema.ts) — this lets
- * `MemoryStore.casSupersede`'s lineage-uniqueness contract (workspaceId,
- * ownerUserId, lineageKey === subjectElementId) work WITHOUT a new "lineage
+ * `memories.subject_record_id` is a `uuid` column (schema.ts) — this lets
+ * `MemoryStore.casSupersede`'s lineage-uniqueness contract (organizationId,
+ * ownerUserId, lineageKey === subjectRecordId) work WITHOUT a new "lineage
  * key" schema column (review item 4's "extend MemoryStore... if necessary"
  * is satisfied by reusing this existing, indexed column). Not
  * cryptographically sensitive — only needs to be deterministic and
- * collision-resistant for a bounded per-workspace anchor space, which
+ * collision-resistant for a bounded per-organization anchor space, which
  * SHA-256 easily provides.
  */
 export function anchorLineageKey(anchor: RedFlagAnchor): string {
@@ -563,8 +562,8 @@ export function deterministicUuid(seed: string): string {
  * revision is meaningless — see `MemoryQuery.orderBy`'s doc). What IS now
  * fixed (post-TASK-008-RM4 migration `0016`): `memories.lineage_revision`
  * is allocated atomically inside `casSupersede`'s own SERIALIZABLE
- * transaction, scoped to `(workspace_id, owner_user_id,
- * subject_element_id)` — correct across any number of processes/restarts.
+ * transaction, scoped to `(organization_id, owner_user_id,
+ * subject_record_id)` — correct across any number of processes/restarts.
  * `history`'s single-lineage keyset order now uses
  * `orderBy: "lineageRevision"` (`(lineage_revision, id)`) instead of
  * `(created_at, id)`, closing the exact gap this comment used to describe
@@ -608,7 +607,7 @@ type LearningMemoryContent =
       proposalId?: string;
       /** The private PreferenceAdjustment Memory this flag's governed step
        * synthesized (review round-4 item 1) — opaque back-reference, owner-
-       * scoped, never exposed to the workspace-wide ledger. */
+       * scoped, never exposed to the organization-wide ledger. */
       preferenceAdjustmentId?: string;
       /** Set only when learningStatus === "failed" — why the governed step
        * didn't start, never implying the correction itself failed. */
@@ -773,7 +772,7 @@ function resolveClientOnBehalfOf(
 }
 
 function cleanContext(
-  c: { type: "initiative" | "community" | "automation" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
+  c: { type: "record" | "community" | "automation" | "child_agent_run"; id: string; runId?: string | undefined } | undefined,
 ): RunContext | undefined {
   if (!c) return undefined;
   return { type: c.type, id: c.id, ...(c.runId ? { runId: c.runId } : {}) };
@@ -781,33 +780,33 @@ function cleanContext(
 
 /**
  * Interim single-tenant safety fix (All fixes.md Phase 3 item 11a): the platform is
- * single-tenant by construction (`PILOT_WORKSPACE` baked into `buildWiring()`), but
- * several procedures accepted a `workspaceId` param and either silently ignored it
+ * single-tenant by construction (`PILOT_ORGANIZATION` baked into `buildWiring()`), but
+ * several procedures accepted a `organizationId` param and either silently ignored it
  * (`dealpilot.list`, pre-fix) or never had the param to begin with (`google.*`).
  * Full multi-tenancy is out of scope for this pass (Phase 5, pilot-recruitment-
  * driven) — so instead of threading real per-tenant scoping through every store,
- * every workspace-scoped procedure now EXPLICITLY REJECTS any workspaceId that isn't
- * the pilot workspace, rather than silently proceeding as if it were. This turns a
- * silent cross-tenant leak (if a second workspace id were ever passed) into a loud,
- * typed 403 — an honest reflection of "this platform only serves one workspace right
+ * every organization-scoped procedure now EXPLICITLY REJECTS any organizationId that isn't
+ * the pilot organization, rather than silently proceeding as if it were. This turns a
+ * silent cross-tenant leak (if a second organization id were ever passed) into a loud,
+ * typed 403 — an honest reflection of "this platform only serves one organization right
  * now," not a promise of real isolation.
  */
-class NonPilotWorkspaceError extends Error {
-  constructor(readonly workspaceId: string) {
-    super(`workspaceId "${workspaceId}" is not the pilot workspace — multi-tenancy is not yet supported`);
-    this.name = "NonPilotWorkspaceError";
+class NonPilotOrganizationError extends Error {
+  constructor(readonly organizationId: string) {
+    super(`organizationId "${organizationId}" is not the pilot organization — multi-tenancy is not yet supported`);
+    this.name = "NonPilotOrganizationError";
   }
 }
 
-function assertPilotWorkspace(workspaceId: string): void {
-  if (workspaceId !== PILOT_WORKSPACE) throw new NonPilotWorkspaceError(workspaceId);
+function assertPilotOrganization(organizationId: string): void {
+  if (organizationId !== PILOT_ORGANIZATION) throw new NonPilotOrganizationError(organizationId);
 }
 
 /**
  * AGS1 (TASK-007) real-catalog migration — `stageLearningRecommendation` is a
  * governed Skill now (see wiring.ts's `LEARNING_RECOMMENDATION_SKILL_MANIFEST`),
  * so every `pipeline.propose` call naming it needs a resolved Goal/Task. This
- * find-or-create helper keeps ONE durable Goal per workspace (reused across
+ * find-or-create helper keeps ONE durable Goal per organization (reused across
  * calls — a Goal is a durable intended outcome, not reminted per request) and
  * mints one bounded Task per recommendation request (each recommendation IS
  * its own bounded unit of work), assigned to `LEARNING_AGENT`.
@@ -820,28 +819,28 @@ function assertPilotWorkspace(workspaceId: string): void {
  */
 async function provisionGoalTask(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   goalType: string,
   goalTitle: string,
   taskType: string,
   assignedAgentId: string,
 ): Promise<{ goalId: string; taskId: string }> {
   const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
-  const existingGoals = await wiring.goalTasks.listGoals(workspaceId);
+  const existingGoals = await wiring.goalTasks.listGoals(organizationId);
   const goal =
     existingGoals.find((g) => g.type === goalType) ??
-    (await wiring.goalTasks.createGoal({ workspaceId, type: goalType, title: goalTitle }, seam));
-  const task = await wiring.goalTasks.createTask({ workspaceId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
+    (await wiring.goalTasks.createGoal({ organizationId, type: goalType, title: goalTitle }, seam));
+  const task = await wiring.goalTasks.createTask({ organizationId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
   return { goalId: goal.id, taskId: task.id };
 }
 
 async function provisionRoleModelRecommendationTask(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
 ): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     LEARNING_ROLE_MODEL_GOAL_TYPE,
     "Role-model deliberate-practice recommendations",
     PRODUCE_RECOMMENDATION_TASK_TYPE,
@@ -852,14 +851,14 @@ async function provisionRoleModelRecommendationTask(
 interface CommonsSkillInvocation {
   source: "commons";
   installationId: string;
-  packageName: string;
-  packageVersion: string;
+  moduleName: string;
+  moduleVersion: string;
   contentHash: string;
   moduleInstallationId: string;
-  modulePackageName: string;
-  modulePackageVersion: string;
-  moduleManifestHash: string;
-  moduleAgentId: string;
+  ownerModuleName: string;
+  ownerModuleVersion: string;
+  ownerModuleManifestHash: string;
+  ownerModuleAgentId: string;
   runtimeAgentId: string;
   capabilityId: string;
 }
@@ -883,13 +882,13 @@ async function stageRoleModelRecommendation(
   wiring: Wiring,
   run: ApiContext["run"],
   identityId: string,
-  workspaceId: string,
+  organizationId: string,
   recommendation: RoleModelRecommendation,
   commonsInvocation?: CommonsSkillInvocation,
 ) {
   const proposal = await wiring.pipeline.propose(
     {
-      workspaceId,
+      organizationId,
       actor: { type: "agent", id: LEARNING_AGENT },
       onBehalfOf: { type: "user", id: identityId },
       action: "write",
@@ -901,7 +900,7 @@ async function stageRoleModelRecommendation(
       },
       skill: LEARNING_RECOMMENDATION_SKILL_ID,
       trustOrigin: "untrusted_external",
-      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, workspaceId),
+      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, organizationId),
     },
     run,
   );
@@ -912,7 +911,7 @@ async function proposeRoleModelRecommendation(
   wiring: Wiring,
   run: ApiContext["run"],
   identityId: string,
-  input: { workspaceId: string; figure: string; admiredFor: string },
+  input: { organizationId: string; figure: string; admiredFor: string },
 ) {
   const source = await researchPublicFigure(input.figure);
   const recommendation: RoleModelRecommendation = {
@@ -932,17 +931,17 @@ async function proposeRoleModelRecommendation(
     wiring,
     run,
     identityId,
-    input.workspaceId,
+    input.organizationId,
     recommendation,
   );
   const existing = await wiring.memoryStore.retrieve(
     { limit: 100 },
-    { workspaceId: input.workspaceId, userId: identityId },
+    { organizationId: input.organizationId, userId: identityId },
   );
   if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
     await wiring.memoryStore.write({
       id: uuidv7(),
-      workspaceId: input.workspaceId,
+      organizationId: input.organizationId,
       type: "preference",
       scope: "private",
       content: JSON.stringify({
@@ -962,13 +961,13 @@ async function proposeRoleModelRecommendation(
 
 async function latestApprovedRoleModelRecommendation(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   ownerUserId: string,
 ): Promise<RoleModelRecommendation | null> {
   const pageSize = 100;
   const maxRows = 1_000;
   for (let offset = 0; offset < maxRows; offset += pageSize) {
-    const page = await wiring.ledger.listHistory(workspaceId, {
+    const page = await wiring.ledger.listHistory(organizationId, {
       limit: pageSize,
       offset,
       privateOwnerUserId: ownerUserId,
@@ -1011,10 +1010,10 @@ async function latestApprovedRoleModelRecommendation(
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
-async function provisionHelpdeskAnswerTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+async function provisionHelpdeskAnswerTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     HELPDESK_ROUTING_GOAL_TYPE,
     "Helpdesk routing and Help Offer drafting",
     DRAFT_HELP_OFFER_TASK_TYPE,
@@ -1024,10 +1023,10 @@ async function provisionHelpdeskAnswerTask(wiring: Wiring, workspaceId: string):
 
 /** AGS1 (TASK-007 closure) — a raw human capture is modeled as Learning
  * "observing authorized evidence" (its stated mandate). */
-async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+async function provisionCaptureTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     RELATIONSHIP_CAPTURE_GOAL_TYPE,
     "Relationship evidence capture",
     STAGE_CAPTURE_TASK_TYPE,
@@ -1041,47 +1040,47 @@ async function provisionCaptureTask(wiring: Wiring, workspaceId: string): Promis
  * how to verify existence for; a record-shaped target (`cell.recordId`,
  * `bullet.target.type === "record"`) is checked against THAT module's own
  * store — never accepted merely because it is a non-empty string — and must
- * belong to `workspaceId` (never leaks cross-workspace existence: a foreign-
- * workspace record and a nonexistent one are indistinguishable, both
+ * belong to `organizationId` (never leaks cross-organization existence: a foreign-
+ * organization record and a nonexistent one are indistinguishable, both
  * NOT_FOUND). `file`/`result` bullet targets have no backing existence store
  * yet (no currently-wired bullet surface uses one) — documented, bounded
  * limitation: accepted structurally, not existence-checked, until those
  * stores exist. An unrecognized `moduleId` fails closed rather than being
  * silently accepted as an existence-proof-free anchor. Switches on
  * `canonicalModuleId` (review round-5 item 6) so an alias (`"job-pilot"`,
- * `"initiative"`, `"people"`, `"communities"`) is validated identically to
+ * `"record"`, `"people"`, `"communities"`) is validated identically to
  * its canonical spelling — never a SEPARATE, accidentally-more-permissive
  * code path. */
-async function validateAnchorTarget(wiring: Wiring, workspaceId: string, viewerUserId: string, anchor: RedFlagAnchor): Promise<void> {
+async function validateAnchorTarget(wiring: Wiring, organizationId: string, viewerUserId: string, anchor: RedFlagAnchor): Promise<void> {
   const recordId = anchor.kind === "cell" ? anchor.recordId : anchor.target.type === "record" ? anchor.target.recordId : null;
   if (recordId === null) return; // file/result — documented limitation above
 
   switch (canonicalModuleId(anchor.moduleId)) {
     case "jobpilot": {
-      const application = await wiring.jobpilotStore.getApplication(recordId, workspaceId);
-      if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      const application = await wiring.jobpilotStore.getApplication(recordId, organizationId);
+      if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       return;
     }
     case "dealpilot": {
-      const initiative = await wiring.graphStore.getInitiative(recordId);
-      if (!initiative || initiative.workspaceId !== workspaceId) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      const record = await wiring.graphStore.getRecord(recordId);
+      if (!record || record.organizationId !== organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       }
       return;
     }
     case "touchpoint": {
-      const touchpoint = await wiring.graphStore.getTouchpoint(workspaceId, recordId);
-      if (!touchpoint) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      const touchpoint = await wiring.graphStore.getTouchpoint(organizationId, recordId);
+      if (!touchpoint) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       return;
     }
     case "person": {
-      const person = await wiring.graphStore.getPerson(workspaceId, viewerUserId, recordId);
-      if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      const person = await wiring.graphStore.getPerson(organizationId, viewerUserId, recordId);
+      if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       return;
     }
     case "community": {
-      const community = await wiring.graphStore.getCommunity(workspaceId, viewerUserId, recordId);
-      if (!community) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this workspace" });
+      const community = await wiring.graphStore.getCommunity(organizationId, viewerUserId, recordId);
+      if (!community) throw new TRPCError({ code: "NOT_FOUND", message: "target record does not exist in this organization" });
       return;
     }
     default:
@@ -1094,7 +1093,7 @@ async function validateAnchorTarget(wiring: Wiring, workspaceId: string, viewerU
  * — never client-toggleable afterward since `inputs` is immutable ledger
  * content). A private proposal is visible/decidable ONLY to the user it was
  * raised `onBehalfOf` — team-visible semantics are completely unchanged for
- * every OTHER (non-private) proposal shape in this workspace. */
+ * every OTHER (non-private) proposal shape in this organization. */
 function isPrivateProposalInputs(inputs: unknown): boolean {
   return typeof inputs === "object" && inputs !== null && !Array.isArray(inputs) && (inputs as Record<string, unknown>).visibility === "private";
 }
@@ -1115,11 +1114,11 @@ function isProposalVisibleTo(proposal: { request: { inputs: unknown; onBehalfOf?
  * of throwing a duplicate-id error. */
 async function synthesizePreferenceAdjustment(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   ownerId: string,
   params: { preferenceAdjustmentId: string; flagMemoryId: string; anchor: RedFlagAnchor; reason: string | undefined; proposalId: string },
 ): Promise<MemoryEntry> {
-  const evidence = await wiring.memoryStore.get(params.flagMemoryId, { workspaceId, userId: ownerId });
+  const evidence = await wiring.memoryStore.get(params.flagMemoryId, { organizationId, userId: ownerId });
   if (!evidence) {
     throw new Error("cannot synthesize a preference adjustment: the flagged evidence is not readable under owner authorization");
   }
@@ -1134,15 +1133,15 @@ async function synthesizePreferenceAdjustment(
     status: "proposed",
   };
   const created = await wiring.memoryStore.casSupersede({
-    workspaceId,
+    organizationId,
     ownerUserId: ownerId,
     lineageKey: params.preferenceAdjustmentId,
     expectedCurrentId: null,
     next: {
       id: params.preferenceAdjustmentId,
-      workspaceId,
+      organizationId,
       type: "preference",
-      subjectElementId: params.preferenceAdjustmentId,
+      subjectRecordId: params.preferenceAdjustmentId,
       scope: "private",
       content: JSON.stringify(content),
       sourceRefType: "feedback",
@@ -1155,13 +1154,13 @@ async function synthesizePreferenceAdjustment(
     },
   });
   if (created) return created;
-  const existing = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, params.preferenceAdjustmentId);
+  const existing = await wiring.memoryStore.currentForLineage(organizationId, ownerId, params.preferenceAdjustmentId);
   if (!existing) throw new Error("preference adjustment lineage disappeared between create and re-read");
   return existing;
 }
 
 /** TASK-010 (review remediation item 3 — saga/idempotency) — one durable
- * Goal for the workspace's platform red-flag learning, one bounded Task per
+ * Goal for the organization's platform red-flag learning, one bounded Task per
  * flag-create OPERATION (not per call): `taskId` is caller-supplied and
  * deterministic from the client's idempotency key, so a retried `create`
  * reuses the SAME Task instead of accumulating one per attempt. Unlike the
@@ -1175,44 +1174,44 @@ async function synthesizePreferenceAdjustment(
  * `seam.nextId()`). Two genuinely concurrent callers (different processes,
  * e.g. two API server instances handling two retries of the same flag-
  * create at once) could BOTH see no matching Goal yet and BOTH insert a
- * SEPARATE one — either silently duplicating the workspace's "platform
+ * SEPARATE one — either silently duplicating the organization's "platform
  * red-flag learning" Goal, or throwing an unhandled unique-constraint error
  * if one ever gets added. The Goal id is now DETERMINISTIC (one per
- * workspace, derived the same way every other red-flag id in this file is)
+ * organization, derived the same way every other red-flag id in this file is)
  * and looked up by that EXACT id via `getGoal` — mirroring the Task logic
  * immediately below: check first, then create with a catch-and-recheck
  * fallback so a losing concurrent insert recovers to the WINNER's Goal
  * rather than erroring. */
 async function provisionRedFlagLearningTask(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   taskId: string,
 ): Promise<{ goalId: string; taskId: string }> {
   const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
-  const goalId = deterministicUuid(`redflag-learning-goal:${workspaceId}`);
-  let goal = await wiring.goalTasks.getGoal(workspaceId, goalId);
+  const goalId = deterministicUuid(`redflag-learning-goal:${organizationId}`);
+  let goal = await wiring.goalTasks.getGoal(organizationId, goalId);
   if (!goal) {
     try {
       goal = await wiring.goalTasks.createGoal(
-        { id: goalId, workspaceId, type: PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE, title: "Platform red-flag correction learning" },
+        { id: goalId, organizationId, type: PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE, title: "Platform red-flag correction learning" },
         seam,
       );
     } catch (err) {
       // A concurrent call (a different process/instance provisioning the
-      // SAME workspace's Goal at once) may have created it between our
+      // SAME organization's Goal at once) may have created it between our
       // check above and this insert — re-check rather than propagating a
       // duplicate-key error as a genuine failure (review round-5 item 10:
       // "treat as CAS loss/reconcile, not 500").
-      const retryGoal = await wiring.goalTasks.getGoal(workspaceId, goalId);
+      const retryGoal = await wiring.goalTasks.getGoal(organizationId, goalId);
       if (!retryGoal) throw err;
       goal = retryGoal;
     }
   }
-  const existingTask = await wiring.goalTasks.getTask(workspaceId, taskId);
+  const existingTask = await wiring.goalTasks.getTask(organizationId, taskId);
   if (existingTask) return { goalId: goal.id, taskId: existingTask.id };
   try {
     const task = await wiring.goalTasks.createTask(
-      { id: taskId, workspaceId, goalId: goal.id, type: PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE, assignedAgentId: LEARNING_AGENT },
+      { id: taskId, organizationId, goalId: goal.id, type: PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE, assignedAgentId: LEARNING_AGENT },
       seam,
     );
     return { goalId: goal.id, taskId: task.id };
@@ -1220,7 +1219,7 @@ async function provisionRedFlagLearningTask(
     // A concurrent retry (same idempotency key) may have created it between
     // our check above and this insert — re-check rather than propagating a
     // duplicate-key error as a genuine failure.
-    const retryFetch = await wiring.goalTasks.getTask(workspaceId, taskId);
+    const retryFetch = await wiring.goalTasks.getTask(organizationId, taskId);
     if (retryFetch) return { goalId: goal.id, taskId: retryFetch.id };
     throw err;
   }
@@ -1262,7 +1261,7 @@ async function withdrawPendingRedFlagProposal(wiring: Wiring, run: RunCtx, propo
  * effect later. Idempotent: a lineage already `"revoked"` is left alone. */
 async function revokePreferenceAdjustmentPermanently(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   ownerId: string,
   preferenceAdjustmentId: string,
 ): Promise<void> {
@@ -1273,13 +1272,13 @@ async function revokePreferenceAdjustmentPermanently(
   // id, which would only ever return the frozen "proposed" row it started
   // as (the exact class of bug review round 3 already caught once for the
   // red-flag lineage itself).
-  const current = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, preferenceAdjustmentId);
+  const current = await wiring.memoryStore.currentForLineage(organizationId, ownerId, preferenceAdjustmentId);
   const value = current && parseLearningMemory(current.content);
   if (!current || !isPreferenceAdjustmentContent(value) || value.status === "revoked") return;
   await wiring.memoryStore.casSupersede({
-    workspaceId,
+    organizationId,
     ownerUserId: ownerId,
-    lineageKey: current.subjectElementId!,
+    lineageKey: current.subjectRecordId!,
     expectedCurrentId: current.id,
     next: {
       ...current,
@@ -1311,7 +1310,7 @@ async function revokePreferenceAdjustmentPermanently(
 async function attemptGovernedLearningStep(
   wiring: Wiring,
   run: RunCtx,
-  workspaceId: string,
+  organizationId: string,
   ownerId: string,
   currentRow: MemoryEntry,
   flagMemoryId: string,
@@ -1329,7 +1328,7 @@ async function attemptGovernedLearningStep(
   if (currentValue.learningStatus !== "none" && currentValue.learningStatus !== "failed") {
     return currentRow;
   }
-  const anchorKey = currentRow.subjectElementId!;
+  const anchorKey = currentRow.subjectRecordId!;
   const taskId = deterministicUuid(`redflag-task:${seed}`);
   const proposalId = deterministicUuid(`redflag-proposal:${seed}`);
   const preferenceAdjustmentId = deterministicUuid(`redflag-preference:${seed}`);
@@ -1365,10 +1364,10 @@ async function attemptGovernedLearningStep(
   if (existingLedgerEntry) {
     learningStatus = "proposed";
     resolvedProposalId = proposalId;
-    resolvedPreferenceAdjustmentId = (await wiring.memoryStore.currentForLineage(workspaceId, ownerId, preferenceAdjustmentId))?.id ?? preferenceAdjustmentId;
+    resolvedPreferenceAdjustmentId = (await wiring.memoryStore.currentForLineage(organizationId, ownerId, preferenceAdjustmentId))?.id ?? preferenceAdjustmentId;
   } else {
     try {
-      const adjustment = await synthesizePreferenceAdjustment(wiring, workspaceId, ownerId, {
+      const adjustment = await synthesizePreferenceAdjustment(wiring, organizationId, ownerId, {
         preferenceAdjustmentId,
         flagMemoryId,
         anchor: currentValue.anchor,
@@ -1377,10 +1376,10 @@ async function attemptGovernedLearningStep(
       });
       resolvedPreferenceAdjustmentId = adjustment.id;
 
-      const goalTaskRef = await provisionRedFlagLearningTask(wiring, workspaceId, taskId);
+      const goalTaskRef = await provisionRedFlagLearningTask(wiring, organizationId, taskId);
       const proposal = await wiring.pipeline.propose(
         {
-          workspaceId,
+          organizationId,
           actor: { type: "agent", id: LEARNING_AGENT },
           onBehalfOf: { type: "user", id: ownerId },
           action: "write",
@@ -1388,7 +1387,7 @@ async function attemptGovernedLearningStep(
           skill: "learning.proposePreferenceAdjustment",
           trustOrigin: "user_content",
           goalTaskRef,
-          // PRIVACY (review item 2): the ledger is a workspace-wide-
+          // PRIVACY (review item 2): the ledger is a organization-wide-
           // readable audit spine (any member may query pending proposals
           // via action.listPending/decide). It must NEVER carry this
           // flag's anchor/renderedValue/reason/rationale — only OPAQUE,
@@ -1436,7 +1435,7 @@ async function attemptGovernedLearningStep(
   // base spread entirely rather than nulled afterward.
   const { learningFailureReason: _staleFailureReason, ...currentValueBase } = currentValue;
   const updated = await wiring.memoryStore.casSupersede({
-    workspaceId,
+    organizationId,
     ownerUserId: ownerId,
     lineageKey: anchorKey,
     expectedCurrentId: currentRow.id,
@@ -1469,7 +1468,7 @@ async function attemptGovernedLearningStep(
   if (!updated) {
     // Another concurrent call (a genuine retry racing itself) already
     // recorded the outcome — re-read rather than erroring.
-    const latest = await wiring.memoryStore.currentForLineage(workspaceId, ownerId, anchorKey);
+    const latest = await wiring.memoryStore.currentForLineage(organizationId, ownerId, anchorKey);
     return latest ?? currentRow;
   }
   return updated;
@@ -1478,11 +1477,11 @@ async function attemptGovernedLearningStep(
 
 async function provisionOutreachDraftTask(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
 ): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     RELATIONSHIP_OUTREACH_GOAL_TYPE,
     "Relationship outreach drafting",
     DRAFT_OUTREACH_TASK_TYPE,
@@ -1490,12 +1489,12 @@ async function provisionOutreachDraftTask(
   );
 }
 
-/** TASK-011 (JP3B) — one durable culture-research Goal per workspace; one bounded
+/** TASK-011 (JP3B) — one durable culture-research Goal per organization; one bounded
  * research Task per company, assigned to LEARNING_AGENT (the source-gathering half). */
-async function provisionCultureResearchTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+async function provisionCultureResearchTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE,
     "JobPilot company-culture research",
     RESEARCH_CULTURE_SOURCE_TASK_TYPE,
@@ -1505,10 +1504,10 @@ async function provisionCultureResearchTask(wiring: Wiring, workspaceId: string)
 
 /** TASK-011 (JP3B) — the synthesis half, assigned to INTERNAL_STRATEGIST_AGENT,
  * sharing the SAME durable culture-research Goal (one Goal, two Task types). */
-async function provisionCultureSynthesisTask(wiring: Wiring, workspaceId: string): Promise<{ goalId: string; taskId: string }> {
+async function provisionCultureSynthesisTask(wiring: Wiring, organizationId: string): Promise<{ goalId: string; taskId: string }> {
   return provisionGoalTask(
     wiring,
-    workspaceId,
+    organizationId,
     JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE,
     "JobPilot company-culture research",
     SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE,
@@ -1517,23 +1516,23 @@ async function provisionCultureSynthesisTask(wiring: Wiring, workspaceId: string
 }
 
 /**
- * SEC-6: a workspace-scoped procedure must confirm the caller is actually a MEMBER
- * of the workspace, not merely that the id is the pilot workspace. `assertPilotWorkspace`
+ * SEC-6: a organization-scoped procedure must confirm the caller is actually a MEMBER
+ * of the organization, not merely that the id is the pilot organization. `assertPilotOrganization`
  * stays as the first (single-tenancy) layer; this membership check is the second, so
  * the guarantee survives multi-tenancy. `ctx.identity` is server-resolved, never
  * client-asserted. Applied to the membership surface (invite / listMembers / help route)
- * now; extend to every workspace-scoped procedure as the test harness seeds member
+ * now; extend to every organization-scoped procedure as the test harness seeds member
  * identities for its fixtures (see docs/raw/decisions-log.md, SEC-6).
  */
 async function assertMembership(
-  workspaceStore: Wiring["workspaceStore"],
-  workspaceId: string,
+  organizationStore: Wiring["organizationStore"],
+  organizationId: string,
   userId: string,
 ): Promise<void> {
-  if (!(await workspaceStore.isMember(workspaceId, userId))) {
+  if (!(await organizationStore.isMember(organizationId, userId))) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: `actor "${userId}" is not a member of workspace "${workspaceId}"`,
+      message: `actor "${userId}" is not a member of organization "${organizationId}"`,
     });
   }
 }
@@ -1544,7 +1543,7 @@ const dealpilotProcedure = procedure.use(async ({ ctx, next }) => {
   if (authenticationRequired && !ctx.authenticated) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: "authentication required for DealPilot" });
   }
-  await assertMembership(ctx.wiring.workspaceStore, PILOT_WORKSPACE, ctx.identity.id);
+  await assertMembership(ctx.wiring.organizationStore, PILOT_ORGANIZATION, ctx.identity.id);
   return next();
 });
 
@@ -1554,7 +1553,7 @@ const resourceTypeEnum = z.enum([
   "person",
   "community",
   "event",
-  "initiative",
+  "record",
   "touchpoint",
   "automation",
   "module",
@@ -1578,9 +1577,9 @@ const resourceTypeEnum = z.enum([
 const dataScopeEnum = z.enum(["all", "public", "private"]);
 
 /** Shared list-endpoint shape (dealpilot.list/integration.list/action.listPending
- * convention) — workspaceId + limit/offset. */
+ * convention) — organizationId + limit/offset. */
 const paginatedInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -1595,7 +1594,7 @@ const onBehalfOfSchema = z.object({
 });
 
 const proposeInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   actor: actorSchema,
   onBehalfOf: onBehalfOfSchema.optional(),
   action: actionEnum,
@@ -1606,7 +1605,7 @@ const proposeInput = z.object({
   dataScope: dataScopeEnum.optional(),
   context: z
     .object({
-      type: z.enum(["initiative", "community", "automation", "child_agent_run"]),
+      type: z.enum(["record", "community", "automation", "child_agent_run"]),
       id: z.string().min(1),
       runId: z.string().optional(),
     })
@@ -1629,10 +1628,10 @@ const relationshipNodeTypeEnum = z.enum(["person", "community", "signal", "event
 const relationshipSignalEvidenceInput = relationshipSignalEvidencePayloadSchema
   .omit({ kind: true })
   .extend({
-    workspaceId: z.string().uuid().transform((value) => value.toLowerCase()),
+    organizationId: z.string().uuid().transform((value) => value.toLowerCase()),
   });
 const relationshipListInput = z.object({
-  workspaceId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   query: z.string().trim().max(120).optional(),
   limit: z.number().int().min(1).max(100).default(50),
   offset: z.number().int().min(0).max(10_000).default(0),
@@ -1699,14 +1698,14 @@ async function withCaptureStageLock<T>(
 
 async function findPendingCaptureProposal(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   ownerUserId: string,
   localMediaId: string,
 ): Promise<LedgerEntry | null> {
   const pageSize = 100;
   const maxRows = 1_000;
   for (let offset = 0; offset < maxRows; offset += pageSize) {
-    const page = await wiring.ledger.listPending(workspaceId, {
+    const page = await wiring.ledger.listPending(organizationId, {
       limit: pageSize,
       offset,
       privateOwnerUserId: ownerUserId,
@@ -1728,7 +1727,7 @@ function pendingProposalFromLedger(entry: LedgerEntry): Proposal {
     id: entry.id,
     status: "pending_review",
     request: {
-      workspaceId: entry.workspaceId,
+      organizationId: entry.organizationId,
       actor: { type: entry.actorType, id: entry.actorId, plane: "local" },
       ...(entry.onBehalfOfType && entry.onBehalfOfId
         ? { onBehalfOf: { type: entry.onBehalfOfType, id: entry.onBehalfOfId } }
@@ -1756,11 +1755,11 @@ function pendingProposalFromLedger(entry: LedgerEntry): Proposal {
 
 async function putCaptureReviewEnvelope(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   envelope: z.infer<typeof captureReviewEnvelopeSchema>,
 ): Promise<void> {
   await wiring.localPlane.bodies.put({
-    workspaceId,
+    organizationId,
     source: CAPTURE_REVIEW_BODY_SOURCE,
     sourceRecordId: envelope.localMediaId,
     dataScope: "private",
@@ -1771,11 +1770,11 @@ async function putCaptureReviewEnvelope(
 
 async function getCaptureReviewEnvelope(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   localMediaId: string,
 ): Promise<z.infer<typeof captureReviewEnvelopeSchema> | null> {
   const body = await wiring.localPlane.bodies.get(
-    workspaceId,
+    organizationId,
     CAPTURE_REVIEW_BODY_SOURCE,
     localMediaId,
   );
@@ -1813,7 +1812,7 @@ function assertPrivateProposalOwner(
       identity.type !== "user" ||
       relationshipOwnerFromLedger(proposal) !== identity.id ||
       (googleProposal && (
-        proposal.workspaceId !== google.workspaceId ||
+        proposal.organizationId !== google.organizationId ||
         identity.id !== google.ownerUserId
       ))
     )
@@ -1826,8 +1825,8 @@ async function assertGoogleIntegrationOwner(
   ctx: Pick<ApiContext, "wiring" | "identity">,
 ): Promise<void> {
   await assertMembership(
-    ctx.wiring.workspaceStore,
-    ctx.wiring.google.workspaceId,
+    ctx.wiring.organizationStore,
+    ctx.wiring.google.organizationId,
     ctx.identity.id,
   );
   if (
@@ -1840,7 +1839,7 @@ async function assertGoogleIntegrationOwner(
 
 async function proposeRelationshipMutation(
   ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
-  workspaceId: string,
+  organizationId: string,
   payload: RelationshipMutationPayload,
 ) {
   if (ctx.identity.type !== "user") {
@@ -1873,7 +1872,7 @@ async function proposeRelationshipMutation(
       : "write";
   const proposal = await ctx.wiring.pipeline.propose(
     {
-      workspaceId,
+      organizationId,
       actor: { type: "user", id: ctx.identity.id, plane: "local" },
       action,
       resourceType,
@@ -1931,11 +1930,11 @@ async function materializeApprovedCapture(
   }
   const envelope = await getCaptureReviewEnvelope(
     wiring,
-    original.workspaceId,
+    original.organizationId,
     inputs.local_media_id,
   );
   const eventId =
-    `capture:${original.workspaceId}:${inputs.local_media_id}`;
+    `capture:${original.organizationId}:${inputs.local_media_id}`;
   if (
     envelope?.status === "applied" &&
     envelope.ownerUserId === ownerUserId &&
@@ -1956,8 +1955,8 @@ async function materializeApprovedCapture(
     );
   }
   const media = await wiring.localMedia.get(inputs.local_media_id);
-  if (media && media.workspaceId !== original.workspaceId) {
-    throw new Error("Capture Local Media belongs to a different workspace");
+  if (media && media.organizationId !== original.organizationId) {
+    throw new Error("Capture Local Media belongs to a different organization");
   }
   if (media?.status === "archived" || media?.archivedAt) {
     throw new Error("Archived Local Media cannot be materialized");
@@ -1968,7 +1967,7 @@ async function materializeApprovedCapture(
   const occurredAt = envelope.capturedAt;
   await wiring.localPlane.graph.commitEntity({
     id: eventId,
-    workspaceId: original.workspaceId,
+    organizationId: original.organizationId,
     kind: "event",
     ...(output.link?.type === "person"
       ? { personId: output.link.id }
@@ -1996,14 +1995,14 @@ async function materializeApprovedCapture(
     });
   }
   await wiring.localPlane.graph.recordExternal({
-    workspaceId: original.workspaceId,
+    organizationId: original.organizationId,
     source: "capture",
     sourceRecordId: inputs.local_media_id,
     entityType: "event",
     entityId: eventId,
     createdAt: run.clock.nowISO(),
   });
-  await putCaptureReviewEnvelope(wiring, original.workspaceId, {
+  await putCaptureReviewEnvelope(wiring, original.organizationId, {
     ...envelope,
     status: "applied",
     decisionLedgerId: resolved.id,
@@ -2020,7 +2019,7 @@ async function recordRejectedCapture(
   const ownerUserId = relationshipOwnerFromLedger(original);
   const envelope = await getCaptureReviewEnvelope(
     wiring,
-    original.workspaceId,
+    original.organizationId,
     inputs.local_media_id,
   );
   if (
@@ -2034,7 +2033,7 @@ async function recordRejectedCapture(
       "Capture rejection requires its owner-bound pending Local metadata envelope",
     );
   }
-  await putCaptureReviewEnvelope(wiring, original.workspaceId, {
+  await putCaptureReviewEnvelope(wiring, original.organizationId, {
     ...envelope,
     status: "rejected",
     decisionLedgerId: decision.id,
@@ -2121,7 +2120,7 @@ function intakeReviewView(
 }
 
 const outreachDraftInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   sourceId: z.string().trim().min(1).max(500),
   label: z.string().trim().min(1).max(200),
   resource: z.string().trim().min(1).max(500),
@@ -2142,26 +2141,26 @@ const outreachDraftInput = z.object({
 // child-agent-run.ts for the governed primitives these procedures wrap.
 // ---------------------------------------------------------------------------
 const goalCreateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   type: z.string().min(1),
   title: z.string().min(1),
 });
 
 const taskCreateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   goalId: z.string().min(1),
   type: z.string().min(1),
   assignedAgentId: z.string().min(1),
 });
 
 const taskReassignInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   taskId: z.string().min(1),
   assignedAgentId: z.string().min(1),
 });
 
 const resolveSkillInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   goalId: z.string().min(1),
   taskId: z.string().min(1),
   /** The Agent attempting to use a Skill for this Task — server-resolved
@@ -2184,9 +2183,9 @@ const automationStep = z.object({
 });
 
 const automationRunByIdInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   automationId: z.string().min(1),
-  modulePackageName: z.string().min(1).optional(),
+  moduleName: z.string().min(1).optional(),
   onBehalfOf: onBehalfOfSchema.optional(),
   params: z.record(z.unknown()).optional(),
   seed: z.string().optional(),
@@ -2197,7 +2196,7 @@ const automationRunByIdInput = z.object({
 const egressTierEnum = z.enum(["none", "read-graph", "draft-graph", "source-internet"]);
 
 const agentCreateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   name: z.string().min(1),
   roleTemplateId: z.string().min(1),
 });
@@ -2209,7 +2208,7 @@ const agentUpdateInput = z.object({
 });
 
 const automationCreateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   name: z.string().min(1),
   agentId: z.string().min(1),
   steps: z.array(automationStep).min(1),
@@ -2235,7 +2234,7 @@ const capabilityConnectorSchema = z.object({ id: z.string().min(1), externalSend
 const capabilityDependencySchema = z.object({ manifestId: z.string().min(1), versionRange: z.string().min(1) });
 
 const capabilityRegisterInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   capabilityType: capabilityTypeEnum,
   name: z.string().min(1),
   version: z.string().min(1).default("1.0.0"),
@@ -2250,7 +2249,7 @@ const capabilityRegisterInput = z.object({
 const capabilityIdInput = z.object({ manifestId: z.string().min(1) });
 const capabilitySuspendInput = z.object({ manifestId: z.string().min(1), reason: z.string().min(1) });
 const capabilityActivateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   manifestId: z.string().min(1),
   /** Calendar-day key for the auto-activation budget (UTC "YYYY-MM-DD"). Caller-
    * injected so the router stays a determinism-seam consumer, not a wall-clock reader. */
@@ -2258,49 +2257,49 @@ const capabilityActivateInput = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// P2 Capability packages (docs/raw/capability-package-format.md, ADR-018) — the
+// P2 Capability modules (docs/raw/capability-module-format.md, ADR-018) — the
 // shipping unit above one capability_manifests row. `register` parses+validates
-// a raw package.yaml-shaped object (accepts either already-parsed YAML or a
+// a raw module.yaml-shaped object (accepts either already-parsed YAML or a
 // plain JSON body) and stores it as a `private`-state installation row, no risk
 // computed yet (register != propose-for-install, mirrors capability.register's
-// "generation only ever creates draft"). `install` computes package risk over
+// "generation only ever creates draft"). `install` computes module risk over
 // the full bundled+dependency closure, applies the lethal-trifecta union
 // check, and routes through the SAME pipeline propose/decide semantics
-// `capability.approve`/`workspace.blueprint.activate` use — external band is
+// `capability.approve`/`organization.blueprint.activate` use — external band is
 // the same non-removable hard floor, no trust grant can shortcut it.
 // ---------------------------------------------------------------------------
 
-const packageRegisterInput = z.object({
-  workspaceId: z.string().min(1),
-  /** Already-parsed package.yaml (or an equivalent plain object) — parsed+
-   * validated by parsePackageManifest at this seam. */
+const moduleRegisterInput = z.object({
+  organizationId: z.string().min(1),
+  /** Already-parsed module.yaml (or an equivalent plain object) — parsed+
+   * validated by parseModuleManifest at this seam. */
   manifest: z.unknown(),
 });
 
-const packageIdInput = z.object({ installationId: z.string().min(1) });
+const moduleIdInput = z.object({ installationId: z.string().min(1) });
 
-const packageInstallInput = z.object({
-  workspaceId: z.string().min(1),
+const moduleInstallInput = z.object({
+  organizationId: z.string().min(1),
   installationId: z.string().min(1),
   /** Calendar-day key for the auto-activation budget (mirrors capability.activate's todayKey). */
   todayKey: z.string().min(1),
 });
 
-const packagePromoteInput = z.object({
-  workspaceId: z.string().min(1),
+const modulePromoteInput = z.object({
+  organizationId: z.string().min(1),
   installationId: z.string().min(1),
 });
 
-const packageRollbackInput = z.object({
-  workspaceId: z.string().min(1),
+const moduleRollbackInput = z.object({
+  organizationId: z.string().min(1),
   /** The historical installation row (any state) to fork a new draft from. */
   rollbackTargetId: z.string().min(1),
 });
 
 // ---------------------------------------------------------------------------
-// P1 Workspace Generator — blueprint -> view grammar (docs/wiki/vision.md "View
+// P1 Organization Generator — blueprint -> view grammar (docs/wiki/vision.md "View
 // grammar"). Blueprint changes are GOVERNED PROPOSALS: propose() writes a DRAFT
-// workspace_definition (no direct activation), activate() is the governed step
+// organization_definition (no direct activation), activate() is the governed step
 // (routes through the SAME pipeline propose/decide semantics `capability.approve`
 // uses — human identity only, agent-floor applies unchanged).
 // ---------------------------------------------------------------------------
@@ -2360,17 +2359,17 @@ const blueprintViewInput = z.object({
     .optional(),
 });
 
-const workspaceBlueprintInput = z.object({
+const organizationBlueprintInput = z.object({
   vocabulary: z.record(z.string(), z.string()),
   entities: z.array(blueprintEntityInput),
   views: z.array(blueprintViewInput),
   capabilities: z.array(z.string()),
 });
 
-/** Strip zod-optional `undefined` keys so the payload satisfies WorkspaceBlueprint's
+/** Strip zod-optional `undefined` keys so the payload satisfies OrganizationBlueprint's
  * exactOptionalPropertyTypes shape (same reasoning as cleanOnBehalfOf/cleanContext
  * above) before it reaches compileBlueprint or the store. */
-function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): WorkspaceBlueprint {
+function toOrganizationBlueprint(input: z.infer<typeof organizationBlueprintInput>): OrganizationBlueprint {
   return {
     vocabulary: input.vocabulary,
     capabilities: input.capabilities,
@@ -2413,17 +2412,17 @@ function toWorkspaceBlueprint(input: z.infer<typeof workspaceBlueprintInput>): W
   };
 }
 
-const blueprintGetInput = z.object({ workspaceId: z.string().min(1) });
+const blueprintGetInput = z.object({ organizationId: z.string().min(1) });
 const blueprintGetByIdInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   definitionId: z.string().min(1),
 });
 const blueprintProposeInput = z.object({
-  workspaceId: z.string().min(1),
-  blueprint: workspaceBlueprintInput,
+  organizationId: z.string().min(1),
+  blueprint: organizationBlueprintInput,
 });
 const blueprintActivateInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   definitionId: z.string().min(1),
 });
 
@@ -2465,7 +2464,7 @@ const CHIEF_OF_STAFF_REGISTRY: RoutableCapability[] = [
 ];
 
 const chiefOfStaffConverseInput = z.object({
-  workspaceId: z.string().min(1),
+  organizationId: z.string().min(1),
   message: z.string().min(1),
   /** How many routing hops this conversation has already taken — the caller
    * (frontend chat panel) tracks this per-conversation and passes it back each
@@ -2513,23 +2512,23 @@ function resolverFrom(rows: Map<string, CapabilityManifestRow>): (id: string) =>
   };
 }
 
-function packageInstallIdFromProposal(entry: LedgerEntry): string | undefined {
+function moduleInstallIdFromProposal(entry: LedgerEntry): string | undefined {
   if (typeof entry.inputs !== "object" || entry.inputs === null || Array.isArray(entry.inputs)) return undefined;
   const inputs = entry.inputs as Record<string, unknown>;
-  if (inputs.operation !== "package_install" || typeof inputs.installationId !== "string") return undefined;
+  if (inputs.operation !== "module_install" || typeof inputs.installationId !== "string") return undefined;
   if (entry.resourceId !== inputs.installationId) return undefined;
-  if (entry.id !== stablePackageInstallProposalId(entry.workspaceId, inputs.installationId)) return undefined;
+  if (entry.id !== stableModuleInstallProposalId(entry.organizationId, inputs.installationId)) return undefined;
   return inputs.installationId;
 }
 
 async function findPendingProposalById(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   proposalId: string,
 ): Promise<(Proposal & { createdAt: string }) | null> {
   let offset = 0;
   while (true) {
-    const page = await wiring.pipeline.listPending(workspaceId, { limit: 200, offset });
+    const page = await wiring.pipeline.listPending(organizationId, { limit: 200, offset });
     const found = page.items.find((proposal) => proposal.id === proposalId);
     if (found) return found;
     offset += page.items.length;
@@ -2539,18 +2538,18 @@ async function findPendingProposalById(
 
 async function assertCurrentCommonsAttachment(
   wiring: Wiring,
-  installation: PackageInstallationRow,
-): Promise<CommonsPackageEntry | null> {
+  installation: ModuleInstallationRow,
+): Promise<CommonsModuleEntry | null> {
   const attachment = installation.moduleAttachment;
   if (!attachment) return null;
-  const ownerModule = await wiring.packageStore.getAvailable(
-    installation.workspaceId,
-    attachment.modulePackageName,
+  const ownerModule = await wiring.moduleStore.getAvailable(
+    installation.organizationId,
+    attachment.ownerModuleName,
   );
   if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `owning Module "${attachment.modulePackageName}" is no longer installed`,
+      message: `owning Module "${attachment.ownerModuleName}" is no longer installed`,
     });
   }
   const need = ownerModule.manifest.module.commonsNeeds?.find(
@@ -2563,8 +2562,8 @@ async function assertCurrentCommonsAttachment(
     });
   }
   const entry = await wiring.commonsRegistry.getVersion(
-    installation.packageName,
-    installation.packageVersion,
+    installation.moduleName,
+    installation.moduleVersion,
   );
   if (!entry || entry.integrity.value !== attachment.contentHash) {
     throw new TRPCError({
@@ -2583,7 +2582,7 @@ async function assertCurrentCommonsAttachment(
   if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "Commons package no longer satisfies the declared Module need",
+      message: "Commons module no longer satisfies the declared Module need",
     });
   }
   if (
@@ -2592,7 +2591,7 @@ async function assertCurrentCommonsAttachment(
   ) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "Only Skill packages can remain attached beneath a Module Agent",
+      message: "Only Skill modules can remain attached beneath a Module Agent",
     });
   }
   return entry;
@@ -2600,19 +2599,19 @@ async function assertCurrentCommonsAttachment(
 
 async function verifiedCommonsDependencyInstallations(
   wiring: Wiring,
-  root: PackageInstallationRow,
-  rootEntry: CommonsPackageEntry | null,
-): Promise<PackageInstallationRow[]> {
+  root: ModuleInstallationRow,
+  rootEntry: CommonsModuleEntry | null,
+): Promise<ModuleInstallationRow[]> {
   if (!root.moduleAttachment || !rootEntry) return [];
-  const { items } = await wiring.packageStore.list(root.workspaceId, { limit: 10_000, offset: 0 });
+  const { items } = await wiring.moduleStore.list(root.organizationId, { limit: 10_000, offset: 0 });
   const pins = new Map<string, string>(
     (rootEntry.securityScan.dependencyPins ?? []).map(
       (pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const,
     ),
   );
-  const found = new Map<string, PackageInstallationRow>();
+  const found = new Map<string, ModuleInstallationRow>();
   const visited = new Set<string>();
-  const visit = async (entry: CommonsPackageEntry): Promise<void> => {
+  const visit = async (entry: CommonsModuleEntry): Promise<void> => {
     for (const dependency of entry.manifest.dependencies) {
       const key = `${dependency.manifestId}@${dependency.version}`;
       if (visited.has(key)) continue;
@@ -2638,10 +2637,10 @@ async function verifiedCommonsDependencyInstallations(
       }
       const local = items.find(
         (candidate) =>
-          candidate.packageName === dependency.manifestId &&
-          candidate.packageVersion === dependency.version &&
+          candidate.moduleName === dependency.manifestId &&
+          candidate.moduleVersion === dependency.version &&
           candidate.moduleAttachment?.source === "commons" &&
-          candidate.moduleAttachment.modulePackageName === root.moduleAttachment?.modulePackageName &&
+          candidate.moduleAttachment.ownerModuleName === root.moduleAttachment?.ownerModuleName &&
           candidate.moduleAttachment.agentId === root.moduleAttachment?.agentId &&
           candidate.moduleAttachment.needId === root.moduleAttachment?.needId &&
           candidate.moduleAttachment.contentHash === expectedHash,
@@ -2663,35 +2662,35 @@ async function verifiedCommonsDependencyInstallations(
   return [...found.values()];
 }
 
-async function activateApprovedPackageInstallation(
+async function activateApprovedModuleInstallation(
   wiring: Wiring,
-  workspaceId: string,
+  organizationId: string,
   installationId: string,
-): Promise<PackageInstallationRow> {
-  let installation = await wiring.packageStore.get(installationId);
-  if (!installation || installation.workspaceId !== workspaceId) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+): Promise<ModuleInstallationRow> {
+  let installation = await wiring.moduleStore.get(installationId);
+  if (!installation || installation.organizationId !== organizationId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "unknown module installation" });
   }
   const rootEntry = await assertCurrentCommonsAttachment(wiring, installation);
   const dependencies = await verifiedCommonsDependencyInstallations(wiring, installation, rootEntry);
   for (const dependency of dependencies) {
-    await wiring.packageStore.setComputedRisk(
+    await wiring.moduleStore.setComputedRisk(
       dependency.id,
       maxRisk(dependency.computedRisk, installation.computedRisk),
     );
-    await wiring.packageStore.setStatus(dependency.id, "installed");
-    let current = (await wiring.packageStore.get(dependency.id))!;
-    if (current.state === "private") current = await wiring.packageStore.setState(current.id, "promoted");
+    await wiring.moduleStore.setStatus(dependency.id, "installed");
+    let current = (await wiring.moduleStore.get(dependency.id))!;
+    if (current.state === "private") current = await wiring.moduleStore.setState(current.id, "promoted");
     if (current.state === "promoted") {
-      const available = await wiring.packageStore.getAvailable(
-        workspaceId,
-        current.packageName,
+      const available = await wiring.moduleStore.getAvailable(
+        organizationId,
+        current.moduleName,
         current.moduleAttachment,
       );
       const promotion = promoteToAvailable(current, available);
-      await wiring.packageStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
+      await wiring.moduleStore.setState(promotion.promoted.installationId, promotion.promoted.nextState);
       if (promotion.demoted) {
-        await wiring.packageStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
+        await wiring.moduleStore.setState(promotion.demoted.installationId, promotion.demoted.nextState);
       }
     } else if (current.state !== "available") {
       throw new TRPCError({
@@ -2701,14 +2700,14 @@ async function activateApprovedPackageInstallation(
     }
   }
   if (installation.status !== "installed") {
-    installation = await wiring.packageStore.setStatus(installation.id, "installed");
+    installation = await wiring.moduleStore.setStatus(installation.id, "installed");
   }
   if (installation.state === "private") {
-    installation = await wiring.packageStore.setState(installation.id, "promoted");
+    installation = await wiring.moduleStore.setState(installation.id, "promoted");
   } else if (installation.state !== "promoted" && installation.state !== "available") {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: `package installation cannot activate from state "${installation.state}"`,
+      message: `module installation cannot activate from state "${installation.state}"`,
     });
   }
   return installation;
@@ -2717,22 +2716,22 @@ async function activateApprovedPackageInstallation(
 async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown, output: unknown) {
   const request = inputs as {
     kind?: unknown;
-    workspaceId?: unknown;
+    organizationId?: unknown;
     thesisId?: unknown;
   };
   if (request.kind !== "thesis_source_discovery") return null;
   const proposed = output as ThesisSourceDiscoveryProposal | undefined;
   if (
     proposed?.kind !== "thesis_source_discovery" ||
-    typeof request.workspaceId !== "string" ||
+    typeof request.organizationId !== "string" ||
     typeof request.thesisId !== "string" ||
-    proposed.workspaceId !== request.workspaceId ||
+    proposed.organizationId !== request.organizationId ||
     proposed.thesisId !== request.thesisId ||
     !Array.isArray(proposed.relations)
   ) {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery proposal binding is invalid" });
   }
-  const thesis = await wiring.dealpilot.store.get("thesis", request.workspaceId, request.thesisId);
+  const thesis = await wiring.dealpilot.store.get("thesis", request.organizationId, request.thesisId);
   if (!thesis || thesis.kind !== "thesis") {
     throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery Thesis is unavailable" });
   }
@@ -2746,7 +2745,7 @@ async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown,
     ) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "DealPilot discovery Relation is invalid" });
     }
-    const source = await wiring.dealpilot.store.get("source", request.workspaceId, relation.sourceId);
+    const source = await wiring.dealpilot.store.get("source", request.organizationId, relation.sourceId);
     if (!source || source.kind !== "source" || source.rightsState !== "attested") {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
@@ -2763,7 +2762,7 @@ async function validateDealPilotDiscoveryOutput(wiring: Wiring, inputs: unknown,
   }
   return {
     kind: "thesis_source_discovery",
-    workspaceId: request.workspaceId,
+    organizationId: request.organizationId,
     thesisId: request.thesisId,
     relations: authorizedRelations,
   } satisfies ThesisSourceDiscoveryProposal;
@@ -2860,7 +2859,7 @@ const synthesizeCultureProfileOutputSchema = z.object({
 async function assertCultureProposalBindingValid(wiring: Wiring, original: LedgerEntry): Promise<void> {
   if (original.resourceType === "external:fetch" && original.context?.type === "child_agent_run") {
     const childRunId = original.context.id;
-    const record = await wiring.cultureFetchStore.get(original.workspaceId, childRunId);
+    const record = await wiring.cultureFetchStore.get(original.organizationId, childRunId);
     if (!record || record.proposalId !== original.id) {
       throw new TRPCError({
         code: "BAD_REQUEST",
@@ -2871,7 +2870,7 @@ async function assertCultureProposalBindingValid(wiring: Wiring, original: Ledge
   }
   const inputs = original.inputs as { parentRunId?: unknown; claims?: unknown } | null;
   if (original.resourceType === "signal" && original.action === "write" && typeof inputs?.parentRunId === "string" && Array.isArray(inputs.claims)) {
-    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(original.workspaceId, inputs.parentRunId);
+    const pointer = await wiring.cultureSynthesisPointerStore.getForParentRun(original.organizationId, inputs.parentRunId);
     if (!pointer || pointer.proposalId !== original.id) {
       throw new TRPCError({
         code: "BAD_REQUEST",
@@ -2903,13 +2902,13 @@ function relationshipEffectView(effect: RelationMaterializationEffect) {
 
 async function approvedRelationshipResolution(
   ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
-  workspaceId: string,
+  organizationId: string,
   proposalId: string,
 ): Promise<{ original: LedgerEntry; decision: LedgerEntry; ownerUserId: string }> {
   const original = await ctx.wiring.ledger.get(proposalId);
   if (
     !original ||
-    original.workspaceId !== workspaceId ||
+    original.organizationId !== organizationId ||
     (
       !(
         original.resourceType === "relation" &&
@@ -2949,11 +2948,11 @@ async function approvedRelationshipResolution(
 
 async function retryApprovedRelationship(
   ctx: Pick<ApiContext, "wiring" | "identity" | "run">,
-  workspaceId: string,
+  organizationId: string,
   proposalId: string,
 ) {
   const { original, decision, ownerUserId } =
-    await approvedRelationshipResolution(ctx, workspaceId, proposalId);
+    await approvedRelationshipResolution(ctx, organizationId, proposalId);
   try {
     const result = await applyApprovedRelationshipMaterialization(
       ctx.wiring.graphStore,
@@ -2993,7 +2992,7 @@ async function retryApprovedRelationship(
     };
   } catch (cause) {
     const effect = await ctx.wiring.relationMaterializations.getByProposal(
-      workspaceId,
+      organizationId,
       ownerUserId,
       proposalId,
     );
@@ -3020,12 +3019,12 @@ export const appRouter = t.router({
 
   view: t.router({
     geocoderStatus: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await assertMembership(
-          ctx.wiring.workspaceStore,
-          input.workspaceId,
+          ctx.wiring.organizationStore,
+          input.organizationId,
           ctx.identity.id,
         );
         const provider = ctx.wiring.geocodingProvider;
@@ -3040,7 +3039,7 @@ export const appRouter = t.router({
     resolveLocations: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           labels: z
             .array(z.string().trim().min(1).max(500))
             .min(1)
@@ -3049,10 +3048,10 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await assertMembership(
-          ctx.wiring.workspaceStore,
-          input.workspaceId,
+          ctx.wiring.organizationStore,
+          input.organizationId,
           ctx.identity.id,
         );
         const provider = ctx.wiring.geocodingProvider;
@@ -3103,8 +3102,8 @@ export const appRouter = t.router({
   action: t.router({
     /** Propose a governed mutation → Proposal (pending_review | applied | rejected). */
     propose: procedure.input(proposeInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       if (input.actor.type === "agent") {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -3122,7 +3121,7 @@ export const appRouter = t.router({
       const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       return ctx.wiring.pipeline.propose(
         {
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           actor,
           ...(onBehalfOf ? { onBehalfOf } : {}),
           action: input.action as Action,
@@ -3145,8 +3144,8 @@ export const appRouter = t.router({
     proposeOutreachDraft: authenticatedProcedure
       .input(outreachDraftInput)
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({
             code: "FORBIDDEN",
@@ -3154,7 +3153,7 @@ export const appRouter = t.router({
           });
         }
 
-        const idempotencyKey = `${input.workspaceId}:${ctx.identity.id}:${input.sourceId}`;
+        const idempotencyKey = `${input.organizationId}:${ctx.identity.id}:${input.sourceId}`;
         const proposalId = stableOutreachProposalId(idempotencyKey);
         const active = outreachDraftsInFlight.get(idempotencyKey);
         if (active) return active;
@@ -3162,7 +3161,7 @@ export const appRouter = t.router({
         const operation = (async (): Promise<OutreachDraftResult> => {
           let offset = 0;
           while (true) {
-            const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+            const pending = await ctx.wiring.pipeline.listPending(input.organizationId, {
               limit: 200,
               offset,
             });
@@ -3186,12 +3185,12 @@ export const appRouter = t.router({
 
           const goalTaskRef = await provisionOutreachDraftTask(
             ctx.wiring,
-            input.workspaceId,
+            input.organizationId,
           );
           try {
             return await ctx.wiring.pipeline.propose(
               {
-                workspaceId: input.workspaceId,
+                organizationId: input.organizationId,
                 actor: { type: "agent", id: OUTREACH_AGENT },
                 onBehalfOf: { type: "user", id: ctx.identity.id },
                 action: "write",
@@ -3229,7 +3228,7 @@ export const appRouter = t.router({
             // of the insert race returns the winner's pending proposal.
             let offset = 0;
             while (true) {
-              const pending = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+              const pending = await ctx.wiring.pipeline.listPending(input.organizationId, {
                 limit: 200,
                 offset,
               });
@@ -3282,15 +3281,15 @@ export const appRouter = t.router({
       .input(
         z
           .object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             limit: z.number().int().min(1).max(200).default(50),
             offset: z.number().int().min(0).default(0),
           })
-          .default({ workspaceId: PILOT_WORKSPACE }),
+          .default({ organizationId: PILOT_ORGANIZATION }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         // TASK-010 review round-4 item 2 + TASK-008 RM4: `privateOwnerUserId`
         // is enforced at the STORE level (`privateProposalOwnerScope` in
         // packages/db/src/ledger-store.ts / `ledgerEntryVisibleToPrivateOwner`
@@ -3300,7 +3299,7 @@ export const appRouter = t.router({
         // proposals), so a single query-level filter now protects every
         // private proposal shape without the app-side accumulate-and-filter
         // loop this endpoint previously needed.
-        const { items, total } = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+        const { items, total } = await ctx.wiring.pipeline.listPending(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
           privateOwnerUserId: ctx.identity.id,
@@ -3316,20 +3315,20 @@ export const appRouter = t.router({
     listHistory: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           limit: z.number().int().min(1).max(100).default(100),
           offset: z.number().int().min(0).default(0),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await assertMembership(
-          ctx.wiring.workspaceStore,
-          input.workspaceId,
+          ctx.wiring.organizationStore,
+          input.organizationId,
           ctx.identity.id,
         );
         const { items, total } = await ctx.wiring.ledger.listHistory(
-          input.workspaceId,
+          input.organizationId,
           {
             limit: input.limit,
             offset: input.offset,
@@ -3351,8 +3350,8 @@ export const appRouter = t.router({
       .query(async ({ input, ctx }) => {
         const proposal = await ctx.wiring.ledger.get(input.proposalId);
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
-        assertPilotWorkspace(proposal.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
+        assertPilotOrganization(proposal.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, proposal.organizationId, ctx.identity.id);
         assertPrivateProposalOwner(proposal, ctx.identity, ctx.wiring.google);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
@@ -3372,15 +3371,15 @@ export const appRouter = t.router({
     /** Resolve a pending proposal: approve | veto | edit. TASK-010 review
      * round-4 item 2: a PRIVATE proposal may only be decided by the user it
      * was raised `onBehalfOf` — a non-owning member (even though they pass
-     * the ordinary workspace-membership gate) is rejected FORBIDDEN, never
+     * the ordinary organization-membership gate) is rejected FORBIDDEN, never
      * merely filtered from a list. */
     decide: authenticatedProcedure.input(decideInput).mutation(async ({ input, ctx }) => {
       // Decider is the SERVER-RESOLVED identity (ctx.identity), never the client's
       // claimed actor — the agent-floor in decide() blocks any agent from approving.
       const original = await ctx.wiring.ledger.get(input.proposalId);
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
-      assertPilotWorkspace(original.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
+      assertPilotOrganization(original.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, original.organizationId, ctx.identity.id);
       // TASK-011 remediation (2026-07-19 coordinator distributed-defects
       // RE-review round 2, issue 6) — fail-closed backstop BEFORE any
       // decision is resolved: a proposal shaped like a culture-research/
@@ -3389,7 +3388,7 @@ export const appRouter = t.router({
       // TASK-010: same non-relation-scoped private-proposal guard as
       // `resolution` above — a red-flag correction proposal may only be
       // decided by the user it was raised `onBehalfOf`, even though it
-      // passes the ordinary workspace-membership gate.
+      // passes the ordinary organization-membership gate.
       if (
         original.resourceType !== "relation" &&
         isPrivateProposalInputs(original.inputs) &&
@@ -3512,7 +3511,7 @@ export const appRouter = t.router({
             });
           }
           const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
-            original.workspaceId,
+            original.organizationId,
             ownerUserId,
             editedPayload.data.signalId,
             editedPayload.data.sourceEventId,
@@ -3534,7 +3533,7 @@ export const appRouter = t.router({
           }
           const editedParticipantsAccessible =
             await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
-              original.workspaceId,
+              original.organizationId,
               ownerUserId,
               editedPayload.data.participants,
             );
@@ -3603,7 +3602,7 @@ export const appRouter = t.router({
             committedEditedOutput,
           );
           const participant = await ctx.wiring.graphStore.getPerson(
-            original.workspaceId,
+            original.organizationId,
             ctx.identity.id,
             edited.event.personId,
           );
@@ -3743,13 +3742,13 @@ export const appRouter = t.router({
           relationshipDecisionCandidate?.userDecision === "edit"
             ? relationshipDecisionCandidate
             : null;
-        const packageInstallationId = packageInstallIdFromProposal(original);
-        const packageInstallation =
-          packageInstallationId && input.decision !== "veto"
-            ? await activateApprovedPackageInstallation(
+        const moduleInstallationId = moduleInstallIdFromProposal(original);
+        const moduleInstallation =
+          moduleInstallationId && input.decision !== "veto"
+            ? await activateApprovedModuleInstallation(
                 ctx.wiring,
-                original.workspaceId,
-                packageInstallationId,
+                original.organizationId,
+                moduleInstallationId,
               )
             : undefined;
         relationshipEffect =
@@ -3817,7 +3816,7 @@ export const appRouter = t.router({
             effectsStatus: "failed" as const,
             effectsError,
             effectsAuditId: undefined,
-            ...(packageInstallation ? { packageInstallation } : {}),
+            ...(moduleInstallation ? { moduleInstallation } : {}),
             relationshipMaterialization: {
               status: relationshipEffect.effect.status,
               error: effectsError,
@@ -3842,7 +3841,7 @@ export const appRouter = t.router({
           effects,
           dealPilotEffects,
           effectsStatus: "confirmed" as const,
-          ...(packageInstallation ? { packageInstallation } : {}),
+          ...(moduleInstallation ? { moduleInstallation } : {}),
           ...(relationshipEffect?.effect.status === "applied"
             ? {
                 relationshipMaterialization: {
@@ -3872,7 +3871,7 @@ export const appRouter = t.router({
           relationshipOwnerUserId &&
           isRelationshipProposal
             ? await ctx.wiring.relationMaterializations.getByProposal(
-              original.workspaceId,
+              original.organizationId,
               relationshipOwnerUserId,
               original.id,
             )
@@ -3899,7 +3898,7 @@ export const appRouter = t.router({
           const auditId = ctx.run.ids.next();
           await ctx.wiring.ledger.append({
             id: auditId,
-            workspaceId: resolved.request.workspaceId,
+            organizationId: resolved.request.organizationId,
             actorType: resolved.request.actor.type,
             actorId: resolved.request.actor.id,
             action: resolved.request.action,
@@ -3980,16 +3979,16 @@ export const appRouter = t.router({
    * generic `integration` router below (social providers + governed scopes).
    *
    * Single-tenant note (All fixes.md Phase 3 item 11a): these procedures take NO
-   * `workspaceId` param at all — they are workspace-IMPLICIT, always resolving
-   * through `ctx.wiring.google`, which is itself pinned to `PILOT_WORKSPACE` inside
-   * `buildWiring()`. We deliberately did NOT add an optional `workspaceId` param here
+   * `organizationId` param at all — they are organization-IMPLICIT, always resolving
+   * through `ctx.wiring.google`, which is itself pinned to `PILOT_ORGANIZATION` inside
+   * `buildWiring()`. We deliberately did NOT add an optional `organizationId` param here
    * (unlike `dealpilot.list`): no frontend caller (`Design Bridge AI Interface
-   * (Copy)/src/app/data/api.ts`) ever attempts to pass a workspace context to any
+   * (Copy)/src/app/data/api.ts`) ever attempts to pass a organization context to any
    * `google.*` call, so there is no existing behavior that silently ignores a
-   * client-supplied workspace id to fix — these procedures never claimed
+   * client-supplied organization id to fix — these procedures never claimed
    * multi-tenancy in the first place. Adding an unused, always-optional param would
    * only add surface area without closing a real gap; if a caller ever needs
-   * multi-workspace Google integration, that's the same Phase 5 multi-tenancy work
+   * multi-organization Google integration, that's the same Phase 5 multi-tenancy work
    * the rest of this fix explicitly defers, not a one-off param here. */
   /**
    * AGS1 (TASK-007 closure) — raw human capture (camera tool), migrated off a
@@ -4004,7 +4003,7 @@ export const appRouter = t.router({
     stage: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           localMediaId: z.string().trim().min(1).max(500),
           kind: z.enum(["photo", "video"]).optional(),
           caption: z.string().trim().max(4_000).optional(),
@@ -4013,15 +4012,15 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         return withCaptureStageLock(
-          `${input.workspaceId}:${ctx.identity.id}:${input.localMediaId}`,
+          `${input.organizationId}:${ctx.identity.id}:${input.localMediaId}`,
           async () => {
             const receivedAt = ctx.run.clock.nowISO();
             const existingEnvelope = await getCaptureReviewEnvelope(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
               input.localMediaId,
             );
             if (
@@ -4042,7 +4041,7 @@ export const appRouter = t.router({
 
             let pending = await findPendingCaptureProposal(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
               ctx.identity.id,
               input.localMediaId,
             );
@@ -4067,7 +4066,7 @@ export const appRouter = t.router({
               }
             }
             if (pending) {
-              await putCaptureReviewEnvelope(ctx.wiring, input.workspaceId, {
+              await putCaptureReviewEnvelope(ctx.wiring, input.organizationId, {
                 kind: "capture_review_envelope",
                 localMediaId: input.localMediaId,
                 ownerUserId: ctx.identity.id,
@@ -4089,23 +4088,23 @@ export const appRouter = t.router({
             };
             await putCaptureReviewEnvelope(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
               stagingEnvelope,
             );
             const goalTaskRef = await provisionCaptureTask(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
             );
             const proposal = await ctx.wiring.pipeline.propose(
               {
-                workspaceId: input.workspaceId,
+                organizationId: input.organizationId,
                 actor: { type: "agent", id: LEARNING_AGENT, plane: "local" },
                 onBehalfOf: { type: "user", id: ctx.identity.id },
                 action: "write",
                 resourceType: "event",
                 dataScope: "private" as DataScope,
                 skill: "stageCapture",
-                seed: `capture:${input.workspaceId}:${input.localMediaId}`,
+                seed: `capture:${input.organizationId}:${input.localMediaId}`,
                 inputs: {
                   local_media_id: input.localMediaId,
                   ...(input.kind ? { kind: input.kind } : {}),
@@ -4121,7 +4120,7 @@ export const appRouter = t.router({
                 "Capture staging bypassed its required review policy",
               );
             }
-            await putCaptureReviewEnvelope(ctx.wiring, input.workspaceId, {
+            await putCaptureReviewEnvelope(ctx.wiring, input.organizationId, {
               ...stagingEnvelope,
               status:
                 proposal.status === "pending_review"
@@ -4135,21 +4134,21 @@ export const appRouter = t.router({
       }),
     status: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().min(1),
+        organizationId: z.string().min(1),
         localMediaIds: z.array(z.string().trim().min(1).max(500)).max(100),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await assertMembership(
-          ctx.wiring.workspaceStore,
-          input.workspaceId,
+          ctx.wiring.organizationStore,
+          input.organizationId,
           ctx.identity.id,
         );
         const items = await Promise.all(
           input.localMediaIds.map(async (localMediaId) => {
             const envelope = await getCaptureReviewEnvelope(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
               localMediaId,
             );
             if (!envelope || envelope.ownerUserId !== ctx.identity.id) {
@@ -4194,7 +4193,7 @@ export const appRouter = t.router({
       }
       const { state, codeChallenge } =
         await ctx.wiring.googleOAuthStates.issue(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         ctx.wiring.google.integrationId,
         ctx.identity.id,
       );
@@ -4292,17 +4291,17 @@ export const appRouter = t.router({
     create: procedure.input(agentCreateInput).mutation(async ({ input, ctx }) => {
       // TASK-011 remediation (2026-07-18 coordinator final review, issue 5) —
       // membership/authority checks apply to agent creation like every other
-      // workspace-scoped mutation; a caller may not mint an Agent into a
-      // workspace they don't belong to.
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      // organization-scoped mutation; a caller may not mint an Agent into a
+      // organization they don't belong to.
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       const mem = ctx.wiring.memory;
       if (!mem) throw new Error("agent.create: in-memory governance store required (persistent agent CRUD pending)");
-      const template = resolveAuthorizedAgentRoleTemplate(input.workspaceId, input.roleTemplateId);
+      const template = resolveAuthorizedAgentRoleTemplate(input.organizationId, input.roleTemplateId);
       if (!template) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this workspace`,
+          message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this organization`,
         });
       }
       const built = buildAgentCapability({
@@ -4316,18 +4315,18 @@ export const appRouter = t.router({
       mem.agents.skills.set(agentId, [...template.allowedSkills]);
       mem.agents.assumed.set(agentId, template.roleId);
       // TASK-011 remediation (2026-07-18 final review, issue 5) — `AgentQuery`
-      // now requires `workspaceId`/`isActive` (added alongside relationship-
+      // now requires `organizationId`/`isActive` (added alongside relationship-
       // module trust boundaries; `InMemoryAgentStore`'s own implementation is
-      // fail-closed: unset = unknown workspace / inactive). Before this fix,
+      // fail-closed: unset = unknown organization / inactive). Before this fix,
       // an agent created here was PERMANENTLY unusable — it could never pass
-      // the AGS1 workspace-match check, nor any "must be active" gate — a
+      // the AGS1 organization-match check, nor any "must be active" gate — a
       // silent, total break of `agent.create`'s own contract. A freshly
-      // created agent is bound to the workspace it was created in and made
+      // created agent is bound to the organization it was created in and made
       // active immediately (this endpoint IS the explicit, governed creation
       // act — there is no separate "activate" step for API-created agents
       // elsewhere in this codebase); unknown/paused/retired agents remain
       // fail-closed exactly as before.
-      mem.agents.workspaces.set(agentId, input.workspaceId);
+      mem.agents.organizations.set(agentId, input.organizationId);
       mem.agents.statuses.set(agentId, "active");
       return {
         agentId,
@@ -4347,20 +4346,20 @@ export const appRouter = t.router({
       const mem = ctx.wiring.memory;
       if (!mem) throw new Error("agent.update: in-memory governance store required (persistent agent CRUD pending)");
       if (!mem.agents.scope.has(input.agentId)) throw new Error(`agent.update: unknown agent ${input.agentId}`);
-      const workspaceId = await ctx.wiring.agents.workspaceId(input.agentId);
-      if (!workspaceId) throw new Error(`agent.update: agent ${input.agentId} has no workspace binding`);
-      assertPilotWorkspace(workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, workspaceId, ctx.identity.id);
+      const organizationId = await ctx.wiring.agents.organizationId(input.agentId);
+      if (!organizationId) throw new Error(`agent.update: agent ${input.agentId} has no organization binding`);
+      assertPilotOrganization(organizationId);
+      await assertMembership(ctx.wiring.organizationStore, organizationId, ctx.identity.id);
       let dropped: string[] = [];
       let roleTemplateId: string | undefined;
       let allowedSkills = mem.agents.skills.get(input.agentId) ?? [];
       let egressTier: EgressTier | undefined;
       if (input.roleTemplateId !== undefined) {
-        const template = resolveAuthorizedAgentRoleTemplate(workspaceId, input.roleTemplateId);
+        const template = resolveAuthorizedAgentRoleTemplate(organizationId, input.roleTemplateId);
         if (!template) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this workspace`,
+            message: `unknown or unauthorized agent role template "${input.roleTemplateId}" for this organization`,
           });
         }
         const built = buildAgentCapability({
@@ -4393,16 +4392,16 @@ export const appRouter = t.router({
   automation: t.router({
     /** Create an Automation only when every Skill step fits its owning Agent. */
     create: procedure.input(automationCreateInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      const [agentWorkspaceId, agentActive, agentScope, agentDataScope] =
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const [agentOrganizationId, agentActive, agentScope, agentDataScope] =
         await Promise.all([
-          ctx.wiring.agents.workspaceId(input.agentId),
+          ctx.wiring.agents.organizationId(input.agentId),
           ctx.wiring.agents.isActive(input.agentId),
           ctx.wiring.agents.capabilityScope(input.agentId),
           ctx.wiring.agents.dataScope(input.agentId),
         ]);
-      if (agentWorkspaceId !== input.workspaceId || !agentActive) {
+      if (agentOrganizationId !== input.organizationId || !agentActive) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Automation owner must be an active Agent in the Organization",
@@ -4428,7 +4427,7 @@ export const appRouter = t.router({
       await ctx.wiring.automationRegistry.save({
         id: automationId,
         name: input.name,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         agentId: input.agentId,
         agentPlane: "local",
         steps: input.steps.map((s) => ({
@@ -4446,8 +4445,8 @@ export const appRouter = t.router({
 
     /** Start the stored owning Agent's Run; callers cannot provide an actor or steps. */
     runById: procedure.input(automationRunByIdInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
       const onBehalfOf = resolveClientOnBehalfOf(ctx.identity, input.onBehalfOf);
       if (isModuleRuntimeAutomationId(input.automationId)) {
         throw new TRPCError({
@@ -4456,20 +4455,20 @@ export const appRouter = t.router({
         });
       }
       let automationId = input.automationId;
-      if (input.modulePackageName) {
-        const moduleInstallation = await ctx.wiring.packageStore.getAvailable(
-          input.workspaceId,
-          input.modulePackageName,
+      if (input.moduleName) {
+        const moduleInstallation = await ctx.wiring.moduleStore.getAvailable(
+          input.organizationId,
+          input.moduleName,
         );
         const automation = moduleInstallation?.manifest.module?.automations.find(
           (candidate) => candidate.automationId === input.automationId,
         );
         const runtimeAgentId = automation
-          ? resolveModuleAgentRuntimeId(input.modulePackageName, automation.agentId)
+          ? resolveModuleAgentRuntimeId(input.moduleName, automation.agentId)
           : undefined;
-        const runtimeAutomationId = resolveModuleAutomationRuntimeId(input.modulePackageName, input.automationId);
+        const runtimeAutomationId = resolveModuleAutomationRuntimeId(input.moduleName, input.automationId);
         const definition = runtimeAutomationId
-          ? await ctx.wiring.automationRegistry.load(input.workspaceId, runtimeAutomationId)
+          ? await ctx.wiring.automationRegistry.load(input.organizationId, runtimeAutomationId)
           : null;
         if (!automation || !runtimeAgentId || !runtimeAutomationId || definition?.agentId !== runtimeAgentId) {
           throw new TRPCError({
@@ -4481,7 +4480,7 @@ export const appRouter = t.router({
       }
       return ctx.wiring.automationExecutor.runById(
         {
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           automationId,
           ...(onBehalfOf ? { onBehalfOf } : {}),
           ...(input.params ? { params: input.params } : {}),
@@ -4501,10 +4500,10 @@ export const appRouter = t.router({
     listPeople: authenticatedProcedure
       .input(relationshipListInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { items, total } = await ctx.wiring.graphStore.listPeople(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           {
             limit: input.limit,
@@ -4516,18 +4515,18 @@ export const appRouter = t.router({
       }),
 
     getPerson: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.id);
       }),
 
     createPerson: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), values: personCreateFieldsSchema }))
+      .input(z.object({ organizationId: z.string().uuid(), values: personCreateFieldsSchema }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const recordId = ctx.run.ids.next();
         const payload = relationshipMutationPayloadSchema.parse({
           kind: "relationship_record_mutation",
@@ -4536,20 +4535,20 @@ export const appRouter = t.router({
           recordId,
           values: input.values,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     updatePerson: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         id: z.string().uuid(),
         values: personUpdateFieldsSchema,
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.id,
         );
@@ -4563,16 +4562,16 @@ export const appRouter = t.router({
           recordId: input.id,
           values: input.values,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     archivePerson: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.id,
         );
@@ -4585,16 +4584,16 @@ export const appRouter = t.router({
           operation: "archive",
           recordId: input.id,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     listCommunities: authenticatedProcedure
       .input(relationshipListInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { items, total } = await ctx.wiring.graphStore.listCommunities(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           {
             limit: input.limit,
@@ -4606,18 +4605,18 @@ export const appRouter = t.router({
       }),
 
     getCommunity: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.graphStore.getCommunity(input.workspaceId, ctx.identity.id, input.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.graphStore.getCommunity(input.organizationId, ctx.identity.id, input.id);
       }),
 
     createCommunity: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), values: communityCreateFieldsSchema }))
+      .input(z.object({ organizationId: z.string().uuid(), values: communityCreateFieldsSchema }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const recordId = ctx.run.ids.next();
         const payload = relationshipMutationPayloadSchema.parse({
           kind: "relationship_record_mutation",
@@ -4626,20 +4625,20 @@ export const appRouter = t.router({
           recordId,
           values: input.values,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     updateCommunity: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         id: z.string().uuid(),
         values: communityUpdateFieldsSchema,
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const community = await ctx.wiring.graphStore.getCommunity(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.id,
         );
@@ -4653,16 +4652,16 @@ export const appRouter = t.router({
           recordId: input.id,
           values: input.values,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     archiveCommunity: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), id: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().uuid(), id: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const community = await ctx.wiring.graphStore.getCommunity(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.id,
         );
@@ -4675,17 +4674,17 @@ export const appRouter = t.router({
           operation: "archive",
           recordId: input.id,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     createInteraction: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), values: humanInteractionFieldsSchema }))
+      .input(z.object({ organizationId: z.string().uuid(), values: humanInteractionFieldsSchema }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const participantsAccessible =
           await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             input.values.participants,
           );
@@ -4701,25 +4700,25 @@ export const appRouter = t.router({
           recordId,
           values: { ...input.values, source: "user" },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     memories: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
         snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory requires a Human user principal" });
         }
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
         );
@@ -4727,12 +4726,12 @@ export const appRouter = t.router({
         const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const rows = await ctx.wiring.memoryStore.retrieve(
           {
-            subjectElementId: input.personId,
+            subjectRecordId: input.personId,
             snapshotAt,
             limit: input.limit + 1,
             offset: input.offset,
           },
-          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+          { organizationId: input.organizationId, userId: ctx.identity.id },
         );
         return {
           items: rows.slice(0, input.limit),
@@ -4744,17 +4743,17 @@ export const appRouter = t.router({
 
     addMemory: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         type: z.enum(["episodic", "semantic", "procedural", "preference"]).default("semantic"),
         content: z.string().trim().min(1).max(5_000),
-        scope: z.enum(["private", "workspace"]).default("private"),
+        scope: z.enum(["private", "organization"]).default("private"),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
         );
@@ -4770,33 +4769,33 @@ export const appRouter = t.router({
             scope: input.scope,
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     correctMemory: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         memoryId: z.string().uuid(),
         content: z.string().trim().min(1).max(5_000),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory changes require a Human user principal" });
         }
         const [person, memory] = await Promise.all([
-          ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.personId),
+          ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.personId),
           ctx.wiring.memoryStore.get(input.memoryId, {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             userId: ctx.identity.id,
           }),
         ]);
         if (
           !person?.isOwner ||
           !memory ||
-          memory.subjectElementId !== input.personId ||
+          memory.subjectRecordId !== input.personId ||
           memory.ownerUserId !== ctx.identity.id
         ) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Relationship Memory not found" });
@@ -4809,32 +4808,32 @@ export const appRouter = t.router({
           replacementMemoryId: ctx.run.ids.next(),
           values: { content: input.content },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     forgetMemory: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         memoryId: z.string().uuid(),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Relationship Memory changes require a Human user principal" });
         }
         const [person, memory] = await Promise.all([
-          ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.personId),
+          ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.personId),
           ctx.wiring.memoryStore.get(input.memoryId, {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             userId: ctx.identity.id,
           }),
         ]);
         if (
           !person?.isOwner ||
           !memory ||
-          memory.subjectElementId !== input.personId ||
+          memory.subjectRecordId !== input.personId ||
           memory.ownerUserId !== ctx.identity.id
         ) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Relationship Memory not found" });
@@ -4845,12 +4844,12 @@ export const appRouter = t.router({
           personId: input.personId,
           memoryId: input.memoryId,
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     commitments: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
@@ -4858,11 +4857,11 @@ export const appRouter = t.router({
         snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const page = await ctx.wiring.graphStore.listCommitments(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           {
@@ -4887,16 +4886,16 @@ export const appRouter = t.router({
 
     createCommitment: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         text: z.string().trim().min(1).max(2_000),
         dueAt: relationshipDateTimeSchema.nullable().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
         );
@@ -4914,12 +4913,12 @@ export const appRouter = t.router({
             status: "pending",
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     updateCommitment: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         commitmentId: z.string().uuid(),
         text: z.string().trim().min(1).max(2_000),
@@ -4927,10 +4926,10 @@ export const appRouter = t.router({
         status: z.enum(["pending", "completed", "cancelled"]),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const current = await ctx.wiring.graphStore.listCommitments(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           {
@@ -4956,20 +4955,20 @@ export const appRouter = t.router({
             status: input.status,
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     archiveCommitment: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         commitmentId: z.string().uuid(),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const current = await ctx.wiring.graphStore.listCommitments(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           {
@@ -4996,23 +4995,23 @@ export const appRouter = t.router({
             status: "archived",
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     introductions: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
         snapshotAt: z.string().datetime({ offset: true }).optional(),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const snapshotAt = input.snapshotAt ?? ctx.run.clock.nowISO();
         const page = await ctx.wiring.graphStore.listIntroductions(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           {
@@ -5026,7 +5025,7 @@ export const appRouter = t.router({
             ? item.targetPersonId
             : item.sourcePersonId;
           const counterpart = await ctx.wiring.graphStore.getPerson(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             counterpartId,
           );
@@ -5049,18 +5048,18 @@ export const appRouter = t.router({
 
     createIntroduction: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         sourcePersonId: z.string().uuid(),
         targetPersonId: z.string().uuid(),
       }).refine((input) => input.sourcePersonId !== input.targetPersonId, {
         message: "An Introduction requires two different People",
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const [sourcePerson, targetPerson] = await Promise.all([
-          ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.sourcePersonId),
-          ctx.wiring.graphStore.getPerson(input.workspaceId, ctx.identity.id, input.targetPersonId),
+          ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.sourcePersonId),
+          ctx.wiring.graphStore.getPerson(input.organizationId, ctx.identity.id, input.targetPersonId),
         ]);
         if (!sourcePerson?.isOwner || !targetPerson) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Introduction People not found" });
@@ -5079,12 +5078,12 @@ export const appRouter = t.router({
             status: "awaiting_consents",
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     recordIntroductionConsent: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         introductionId: z.string().uuid(),
         party: z.enum(["initiator", "recipient"]),
@@ -5107,10 +5106,10 @@ export const appRouter = t.router({
         }
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const page = await ctx.wiring.graphStore.listIntroductions(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           { limit: 1, offset: 0, introductionId: input.introductionId },
@@ -5144,21 +5143,21 @@ export const appRouter = t.router({
             declineReason: input.declineReason ?? null,
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     transitionIntroduction: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         introductionId: z.string().uuid(),
         transition: z.enum(["cancel", "complete"]),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const page = await ctx.wiring.graphStore.listIntroductions(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
           { limit: 1, offset: 0, introductionId: input.introductionId },
@@ -5184,47 +5183,47 @@ export const appRouter = t.router({
             status: input.transition === "complete" ? "introduced" : "cancelled",
           },
         });
-        return proposeRelationshipMutation(ctx, input.workspaceId, payload);
+        return proposeRelationshipMutation(ctx, input.organizationId, payload);
       }),
 
     meetingPrep: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         personId: z.string().uuid(),
         limit: z.number().int().min(1).max(25).default(10),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({ code: "FORBIDDEN", message: "Meeting preparation requires a Human user principal" });
         }
         const person = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.personId,
         );
         if (!person) throw new TRPCError({ code: "NOT_FOUND", message: "Person not found" });
         const [timeline, memories, commitments, pendingCommitments] = await Promise.all([
           ctx.wiring.graphStore.listTimeline(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             "person",
             input.personId,
             { limit: input.limit },
           ),
           ctx.wiring.memoryStore.retrieve(
-            { subjectElementId: input.personId, limit: input.limit },
-            { workspaceId: input.workspaceId, userId: ctx.identity.id },
+            { subjectRecordId: input.personId, limit: input.limit },
+            { organizationId: input.organizationId, userId: ctx.identity.id },
           ),
           ctx.wiring.graphStore.listCommitments(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             input.personId,
             { limit: input.limit, offset: 0 },
           ),
           ctx.wiring.graphStore.listCommitments(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             input.personId,
             { limit: 5, offset: 0, status: "pending" },
@@ -5261,7 +5260,7 @@ export const appRouter = t.router({
 
     timeline: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         recordType: z.enum(["person", "community"]),
         recordId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
@@ -5271,10 +5270,10 @@ export const appRouter = t.router({
         }).optional(),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const page = await ctx.wiring.graphStore.listTimeline(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.recordType,
           input.recordId,
@@ -5308,14 +5307,14 @@ export const appRouter = t.router({
 
     intakeReview: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
         offset: z.number().int().min(0).max(10_000).default(0),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const page = await ctx.wiring.pipeline.listPending(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const page = await ctx.wiring.pipeline.listPending(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
           privateOwnerUserId: ctx.identity.id,
@@ -5335,37 +5334,37 @@ export const appRouter = t.router({
       }),
 
     nodeTypeOwner: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), nodeType: relationshipNodeTypeEnum }))
+      .input(z.object({ organizationId: z.string().uuid(), nodeType: relationshipNodeTypeEnum }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         return ctx.wiring.graphStore.getNodeTypeOwner(input.nodeType);
       }),
 
     graph: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().uuid(),
+          organizationId: z.string().uuid(),
           limit: z.number().int().min(1).max(500).default(200),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const nodeLimit = Math.min(input.limit, 100);
         const [personPage, communityPage, relationPage] = await Promise.all([
           ctx.wiring.graphStore.listPeople(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             { limit: nodeLimit, offset: 0 },
           ),
           ctx.wiring.graphStore.listCommunities(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             { limit: nodeLimit, offset: 0 },
           ),
           ctx.wiring.graphStore.listGraphRelations(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             { limit: input.limit, nodeTypes: ["person", "community"] },
           ),
@@ -5430,7 +5429,7 @@ export const appRouter = t.router({
     listRelations: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().uuid(),
+          organizationId: z.string().uuid(),
           nodeType: relationshipNodeTypeEnum,
           nodeId: z.string().uuid(),
           limit: z.number().int().min(1).max(100).default(50),
@@ -5444,10 +5443,10 @@ export const appRouter = t.router({
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { items, total, nextCursor } = await ctx.wiring.graphStore.listRelations(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           { nodeType: input.nodeType, nodeId: input.nodeId },
           {
@@ -5479,7 +5478,7 @@ export const appRouter = t.router({
 
     findPaths: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         start: z.object({
           nodeType: z.enum(["person", "community"]),
           nodeId: z.string().uuid(),
@@ -5492,10 +5491,10 @@ export const appRouter = t.router({
         maxPaths: z.number().int().min(1).max(5).default(3),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const result = await ctx.wiring.graphStore.findRelationshipPaths(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.start,
           input.end,
@@ -5525,37 +5524,37 @@ export const appRouter = t.router({
         };
       }),
 
-    communityWorkspace: authenticatedProcedure
+    communityOrganization: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().uuid(),
+        organizationId: z.string().uuid(),
         communityId: z.string().uuid(),
         limit: z.number().int().min(1).max(50).default(25),
       }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const community = await ctx.wiring.graphStore.getCommunity(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.communityId,
         );
         if (!community) throw new TRPCError({ code: "NOT_FOUND", message: "Community not found" });
         const [timeline, relationPage, signalPage, memberPage] = await Promise.all([
           ctx.wiring.graphStore.listTimeline(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             "community",
             input.communityId,
             { limit: input.limit },
           ),
           ctx.wiring.graphStore.listRelations(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             { nodeType: "community", nodeId: input.communityId },
             { limit: input.limit },
           ),
           ctx.wiring.graphStore.listSignals(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             {
               limit: input.limit,
@@ -5565,7 +5564,7 @@ export const appRouter = t.router({
             },
           ),
           ctx.wiring.graphStore.listCommunityMembers(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             input.communityId,
             { limit: input.limit, offset: 0 },
@@ -5593,7 +5592,7 @@ export const appRouter = t.router({
         const directPeople = await Promise.all(
           [...new Set(directlyRelatedPersonIds)].map(async (personId) => {
             const person = await ctx.wiring.graphStore.getPerson(
-              input.workspaceId,
+              input.organizationId,
               ctx.identity.id,
               personId,
             );
@@ -5645,8 +5644,8 @@ export const appRouter = t.router({
     proposeSignalEvidence: authenticatedProcedure
       .input(relationshipSignalEvidenceInput)
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         if (ctx.identity.type !== "user") {
           throw new TRPCError({
             code: "FORBIDDEN",
@@ -5654,7 +5653,7 @@ export const appRouter = t.router({
           });
         }
         const detail = await ctx.wiring.graphStore.getSignalEvidenceAnchor(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.signalId,
           input.sourceEventId,
@@ -5664,7 +5663,7 @@ export const appRouter = t.router({
         }
         const participantsAccessible =
           await ctx.wiring.graphStore.areRelationshipRecordsAccessible(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             input.participants,
           );
@@ -5689,7 +5688,7 @@ export const appRouter = t.router({
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
             action: "write",
             resourceType: "relation",
@@ -5718,17 +5717,17 @@ export const appRouter = t.router({
       }),
 
     materializationStatus: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { ownerUserId } = await approvedRelationshipResolution(
           ctx,
-          input.workspaceId,
+          input.organizationId,
           input.proposalId,
         );
         const effect = await ctx.wiring.relationMaterializations.getByProposal(
-          input.workspaceId,
+          input.organizationId,
           ownerUserId,
           input.proposalId,
         );
@@ -5738,17 +5737,17 @@ export const appRouter = t.router({
     outstandingMaterializations: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().uuid(),
+          organizationId: z.string().uuid(),
           limit: z.number().int().min(1).max(100).default(50),
           cursor: z.object({ id: z.string().uuid() }).optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { items, nextCursor } =
           await ctx.wiring.relationMaterializations.listOutstandingPage(
-            input.workspaceId,
+            input.organizationId,
             ctx.identity.id,
             {
               limit: input.limit,
@@ -5763,19 +5762,19 @@ export const appRouter = t.router({
       }),
 
     retryMaterialization: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return retryApprovedRelationship(ctx, input.workspaceId, input.proposalId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return retryApprovedRelationship(ctx, input.organizationId, input.proposalId);
       }),
 
     reconcileApproved: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().uuid(), proposalId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().uuid(), proposalId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return retryApprovedRelationship(ctx, input.workspaceId, input.proposalId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return retryApprovedRelationship(ctx, input.organizationId, input.proposalId);
       }),
   }),
 
@@ -5788,24 +5787,24 @@ export const appRouter = t.router({
    */
   dealpilot: t.router({
     module: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1) }))
       .query(({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return dealPilotModuleManifest(ctx.wiring.dealpilot.bindings);
       }),
 
     records: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           page: z.enum(["deals", "sources", "theses"]),
           limit: z.number().int().min(1).max(200).default(50),
           offset: z.number().int().min(0).default(0),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        return ctx.wiring.dealpilot.store.list(input.page, input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.dealpilot.store.list(input.page, input.organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
@@ -5816,22 +5815,22 @@ export const appRouter = t.router({
       .input(
         z
           .object({
-            workspaceId: z.string().min(1).optional(),
+            organizationId: z.string().min(1).optional(),
             limit: z.number().int().min(1).max(200).default(50),
             offset: z.number().int().min(0).default(0),
           })
           .default({}),
       )
       .query(async ({ input, ctx }) => {
-        if (input.workspaceId) assertPilotWorkspace(input.workspaceId);
-        const workspaceId = input.workspaceId ?? PILOT_WORKSPACE;
-        const records = await ctx.wiring.dealpilot.store.list("deals", workspaceId, {
+        if (input.organizationId) assertPilotOrganization(input.organizationId);
+        const organizationId = input.organizationId ?? PILOT_ORGANIZATION;
+        const records = await ctx.wiring.dealpilot.store.list("deals", organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
         const items = await Promise.all(
           records.items.map(async (record) => {
-            const profile = (await ctx.wiring.dealpilot.store.candidateProfile(workspaceId, record.id)) ?? {
+            const profile = (await ctx.wiring.dealpilot.store.candidateProfile(organizationId, record.id)) ?? {
               name: record.kind === "deal" ? record.company : record.id,
             };
             return {
@@ -5847,16 +5846,16 @@ export const appRouter = t.router({
     detail: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           kind: z.enum(["deal", "source", "thesis"]),
           id: z.string().min(1),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const detail = await ctx.wiring.dealpilot.store.detail(
           input.kind,
-          input.workspaceId,
+          input.organizationId,
           input.id,
           ctx.wiring.dealpilot.bindings,
         );
@@ -5864,8 +5863,8 @@ export const appRouter = t.router({
         if (detail.record.kind !== "source") return detail;
         return {
           ...detail,
-          credentialProjection: await ctx.wiring.dealpilot.credentials.project(
-            { workspaceId: input.workspaceId, sourceId: detail.record.id },
+          credentialProjection: await ctx.wiring.dealpilot.credentials.metadata(
+            { organizationId: input.organizationId, sourceId: detail.record.id },
             detail.record.credentialRef,
           ),
           credentialCleanupAvailable: Boolean(
@@ -5878,7 +5877,7 @@ export const appRouter = t.router({
     createDeal: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           company: z.string().trim().min(1).max(300),
           revenue: z.number().nonnegative().optional(),
           ebitda: z.number().optional(),
@@ -5887,9 +5886,9 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return ctx.wiring.dealpilot.store.createDeal({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           company: input.company,
           ...(input.revenue != null ? { revenue: input.revenue } : {}),
           ...(input.ebitda != null ? { ebitda: input.ebitda } : {}),
@@ -5901,7 +5900,7 @@ export const appRouter = t.router({
     createSource: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           name: z.string().trim().min(1).max(300),
           link: z.string().url(),
           connectionType: z.enum(["url", "email_alert", "api", "account"]),
@@ -5912,11 +5911,11 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const sourceId = ctx.run.ids.next();
         const sourceInput = {
           id: sourceId,
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           name: input.name,
           link: input.link,
           connectionType: input.connectionType,
@@ -5927,7 +5926,7 @@ export const appRouter = t.router({
         if (!input.userId && !input.password) {
           return ctx.wiring.dealpilot.store.createSource(sourceInput);
         }
-        const scope = { workspaceId: input.workspaceId, sourceId };
+        const scope = { organizationId: input.organizationId, sourceId };
         const credentialRef =
           ctx.wiring.dealpilot.credentialVault.reserve(scope);
         await ctx.wiring.dealpilot.store.prepareCredentialCreate({
@@ -5945,7 +5944,7 @@ export const appRouter = t.router({
             },
           );
           return await ctx.wiring.dealpilot.store.completeCredentialCreate(
-            input.workspaceId,
+            input.organizationId,
             sourceId,
             credentialRef,
           );
@@ -5964,7 +5963,7 @@ export const appRouter = t.router({
           if (credentialDeleted) {
             try {
               await ctx.wiring.dealpilot.store.discardCredentialCreate(
-                input.workspaceId,
+                input.organizationId,
                 sourceId,
                 credentialRef,
               );
@@ -5985,7 +5984,7 @@ export const appRouter = t.router({
     createThesis: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           name: z.string().trim().min(1).max(300),
           focus: z.string().trim().min(1).max(1_000),
           targetCagr: z.number().optional(),
@@ -5995,9 +5994,9 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const thesis = await ctx.wiring.dealpilot.store.createThesis({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           name: input.name,
           focus: input.focus,
           criteria: input.criteria,
@@ -6007,12 +6006,12 @@ export const appRouter = t.router({
         });
         const discoveryTask = await proposeThesisSourceDiscovery(
           ctx.wiring.dealpilot.store,
-          input.workspaceId,
+          input.organizationId,
           thesis.id,
         );
         const discovery = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "read",
             resourceType: "module",
@@ -6027,20 +6026,20 @@ export const appRouter = t.router({
     discoverDeals: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           sourceId: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         let proposal;
         try {
           const result = await ctx.wiring.automationExecutor.runById(
             {
-              workspaceId: input.workspaceId,
+              organizationId: input.organizationId,
               automationId: DEALPILOT_SOURCE_AUTOMATION_ID,
               onBehalfOf: { type: ctx.identity.type === "team" ? "team" : "user", id: ctx.identity.id },
-              params: { workspaceId: input.workspaceId, sourceId: input.sourceId },
+              params: { organizationId: input.organizationId, sourceId: input.sourceId },
             },
             ctx.run,
           );
@@ -6071,15 +6070,15 @@ export const appRouter = t.router({
     captures: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           sourceId: z.string().min(1).optional(),
           limit: z.number().int().min(1).max(200).default(50),
           offset: z.number().int().min(0).default(0),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        return ctx.wiring.dealpilot.store.listPendingCaptures(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        return ctx.wiring.dealpilot.store.listPendingCaptures(input.organizationId, {
           ...(input.sourceId ? { sourceId: input.sourceId } : {}),
           limit: input.limit,
           offset: input.offset,
@@ -6087,11 +6086,11 @@ export const appRouter = t.router({
       }),
 
     commit: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1), captureId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1), captureId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const captureStatus = await ctx.wiring.dealpilot.store.captureStatus(
-          input.workspaceId,
+          input.organizationId,
           input.captureId,
         );
         if (captureStatus === "committed") {
@@ -6100,14 +6099,14 @@ export const appRouter = t.router({
         if (captureStatus === null) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
         }
-        const capture = await ctx.wiring.dealpilot.store.getCapture(input.workspaceId, input.captureId);
+        const capture = await ctx.wiring.dealpilot.store.getCapture(input.organizationId, input.captureId);
         if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
         const proposalId = stableDealPilotCaptureProposalId(
-          input.workspaceId,
+          input.organizationId,
           input.captureId,
         );
         const request = {
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "write" as const,
           resourceType: "module" as const,
@@ -6117,7 +6116,7 @@ export const appRouter = t.router({
         };
         const materialize = async (proposal?: Proposal) => {
           const committed = await ctx.wiring.dealpilot.store.commitCapture(
-            input.workspaceId,
+            input.organizationId,
             input.captureId,
           );
           if (!committed.committed && committed.alreadyCommitted) {
@@ -6142,7 +6141,7 @@ export const appRouter = t.router({
         const recoverProposal = async () => {
           const existing = await ctx.wiring.ledger.get(proposalId);
           if (!existing) return null;
-          if (!isDealPilotCaptureProposal(existing, input.workspaceId, input.captureId)) {
+          if (!isDealPilotCaptureProposal(existing, input.organizationId, input.captureId)) {
             throw new TRPCError({
               code: "CONFLICT",
               message: "DealPilot capture proposal identity collides with a different ledger entry",
@@ -6180,10 +6179,10 @@ export const appRouter = t.router({
       }),
 
     reauthenticateCredential: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1), sourceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1), sourceId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const source = await ctx.wiring.dealpilot.store.get("source", input.workspaceId, input.sourceId);
+        assertPilotOrganization(input.organizationId);
+        const source = await ctx.wiring.dealpilot.store.get("source", input.organizationId, input.sourceId);
         if (!source) throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
         if (source.kind !== "source" || source.credentialOwnerId !== ctx.identity.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Source credential access is not authorized" });
@@ -6192,7 +6191,7 @@ export const appRouter = t.router({
           return ctx.wiring.dealpilot.credentials.reauthenticate({
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             sourceId: input.sourceId,
             ...(ctx.reauthenticatedAt != null ? { reauthenticatedAt: ctx.reauthenticatedAt } : {}),
           });
@@ -6207,7 +6206,7 @@ export const appRouter = t.router({
     accessCredential: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           sourceId: z.string().min(1),
           token: z.string().min(1),
           field: z.enum(["userId", "password"]),
@@ -6215,8 +6214,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const source = await ctx.wiring.dealpilot.store.get("source", input.workspaceId, input.sourceId);
+        assertPilotOrganization(input.organizationId);
+        const source = await ctx.wiring.dealpilot.store.get("source", input.organizationId, input.sourceId);
         if (!source || source.kind !== "source") {
           throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
         }
@@ -6226,7 +6225,7 @@ export const appRouter = t.router({
         try {
           return await ctx.wiring.dealpilot.credentials.access({
             reference: source.credentialRef,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             sourceId: source.id,
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
@@ -6245,16 +6244,16 @@ export const appRouter = t.router({
     clearCredential: dealpilotProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           sourceId: z.string().min(1),
           token: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const source = await ctx.wiring.dealpilot.store.get(
           "source",
-          input.workspaceId,
+          input.organizationId,
           input.sourceId,
         );
         if (!source || source.kind !== "source") {
@@ -6273,26 +6272,26 @@ export const appRouter = t.router({
           const audit =
             ctx.wiring.dealpilot.credentials.authorizeCredentialRevocation({
             reference: source.credentialRef,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             sourceId: source.id,
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
             token: input.token,
           });
           await ctx.wiring.dealpilot.store.prepareCredentialRevocation(
-            input.workspaceId,
+            input.organizationId,
             source.id,
             ctx.identity.id,
             source.credentialRef,
             audit,
           );
           await ctx.wiring.dealpilot.credentialVault.delete(
-            { workspaceId: input.workspaceId, sourceId: source.id },
+            { organizationId: input.organizationId, sourceId: source.id },
             source.credentialRef,
           );
           const revocation =
             await ctx.wiring.dealpilot.store.completeCredentialRevocation(
-              input.workspaceId,
+              input.organizationId,
               source.id,
               ctx.identity.id,
               source.credentialRef,
@@ -6301,8 +6300,8 @@ export const appRouter = t.router({
             revoked: true as const,
             cleared: revocation.cleared,
             credentialProjection:
-              await ctx.wiring.dealpilot.credentials.project(
-                { workspaceId: input.workspaceId, sourceId: source.id },
+              await ctx.wiring.dealpilot.credentials.metadata(
+                { organizationId: input.organizationId, sourceId: source.id },
                 revocation.source.credentialRef,
               ),
           };
@@ -6335,14 +6334,14 @@ export const appRouter = t.router({
     list: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           limit: z.number().int().min(1).max(200).default(50),
           offset: z.number().int().min(0).default(0),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const all = await ctx.wiring.integrationStore.list(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        const all = await ctx.wiring.integrationStore.list(input.organizationId);
         const total = all.length;
         const items = all.slice(input.offset, input.offset + input.limit);
         return { items, total, hasMore: input.offset + items.length < total };
@@ -6351,36 +6350,36 @@ export const appRouter = t.router({
     connect: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           provider: z.enum(["x", "instagram", "facebook", "linkedin"]),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return ctx.wiring.integrationStore.connect(
-          input.workspaceId,
+          input.organizationId,
           input.provider,
           oauthScopesFor(input.provider),
         );
       }),
 
     disconnect: procedure
-      .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), integrationId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await ctx.wiring.integrationStore.disconnect(
-          input.workspaceId,
+          input.organizationId,
           input.integrationId,
         );
         return { ok: true };
       }),
 
     listScopes: procedure
-      .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), integrationId: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return ctx.wiring.integrationStore.listScopes(
-          input.workspaceId,
+          input.organizationId,
           input.integrationId,
         );
       }),
@@ -6388,17 +6387,17 @@ export const appRouter = t.router({
     grantScope: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           integrationId: z.string().uuid(),
           resourceType: z.string().min(1),
           action: actionEnum,
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         try {
           return await ctx.wiring.integrationStore.grantScope({
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             integrationId: input.integrationId,
             resourceType: input.resourceType,
             action: input.action,
@@ -6413,11 +6412,11 @@ export const appRouter = t.router({
       }),
 
     revokeScope: procedure
-      .input(z.object({ workspaceId: z.string().min(1), permissionId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), permissionId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         await ctx.wiring.integrationStore.revokeScope(
-          input.workspaceId,
+          input.organizationId,
           input.permissionId,
         );
         return { ok: true };
@@ -6425,8 +6424,8 @@ export const appRouter = t.router({
   }),
 
   /**
-   * Workspace + team-member management — plain authenticated CRUD (direct DB
-   * writes), NOT a governed pipeline action. Creating a workspace or inviting a
+   * Organization + team-member management — plain authenticated CRUD (direct DB
+   * writes), NOT a governed pipeline action. Creating a organization or inviting a
    * teammate doesn't have an external effect requiring approval, so this bypasses
    * pipeline.propose() and calls the store directly.
    */
@@ -6440,16 +6439,16 @@ export const appRouter = t.router({
    */
   onboarding: t.router({
     getProfile: procedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        return { profile: await ctx.wiring.onboardingProfileStore.get(input.workspaceId) };
+        assertPilotOrganization(input.organizationId);
+        return { profile: await ctx.wiring.onboardingProfileStore.get(input.organizationId) };
       }),
 
     saveProfile: procedure
       .input(
         z.intersection(z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
           // SEC-7: `linkedin` was removed from this trust-bearing enum. There is no
           // real LinkedIn OAuth proof wired, so accepting a client-asserted
@@ -6461,11 +6460,11 @@ export const appRouter = t.router({
         }), onboardingAvatarStyleInput),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const existing = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        const existing = await ctx.wiring.onboardingProfileStore.get(input.organizationId);
         const avatarStyle = resolveOnboardingAvatarStyle(input);
         const row = {
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           avatarStyle,
           answers: normalizeOnboardingAnswers(input.answers, avatarStyle),
           phoneVerified: input.verificationMethod === "phone" ? true : (existing?.phoneVerified ?? false),
@@ -6476,12 +6475,12 @@ export const appRouter = t.router({
         await ctx.wiring.onboardingProfileStore.save(row);
         const existingMemories = await ctx.wiring.memoryStore.retrieve(
           { limit: 100 },
-          { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
+          { organizationId: input.organizationId, userId: ctx.wiring.pilotUserId },
         );
         if (!existingMemories.some((memory) => parseLearningMemory(memory.content)?.kind === "reflection_schedule")) {
           await ctx.wiring.memoryStore.write({
             id: uuidv7(),
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             type: "procedural",
             scope: "private",
             content: JSON.stringify({
@@ -6501,7 +6500,7 @@ export const appRouter = t.router({
 
     /** TASK-010 review round-5 item 1 — this legacy onboarding surface must
      * NEVER leak `red_flag`/`preference_adjustment` content: it now (a)
-     * requires authentication + workspace membership (was a bare
+     * requires authentication + organization membership (was a bare
      * `procedure`, which only gates MUTATIONS, leaving this QUERY reachable
      * unauthenticated), (b) is owner-scoped to the REAL caller
      * (`ctx.identity.id`), never the shared `pilotUserId` constant, and (c)
@@ -6512,13 +6511,13 @@ export const appRouter = t.router({
      * a red-flag correction or its synthesized preference adjustment must
      * only ever be read through the owner-scoped `redFlag.*` surface. */
     learningState: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           const rows = await ctx.wiring.memoryStore.retrieve(
             { limit: 100 },
-            { workspaceId: input.workspaceId, userId: ctx.identity.id },
+            { organizationId: input.organizationId, userId: ctx.identity.id },
           );
           return {
             memories: rows
@@ -6530,17 +6529,17 @@ export const appRouter = t.router({
     recordTrustCapture: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           appName: z.string().trim().min(1).max(200),
           bundleId: z.string().trim().min(1).max(300).optional(),
           capturedAt: z.string().datetime(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const memory = await ctx.wiring.memoryStore.write({
           id: uuidv7(),
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           type: "episodic",
           scope: "private",
           content: JSON.stringify({
@@ -6561,14 +6560,14 @@ export const appRouter = t.router({
     recommendFromRoleModel: procedure
         .input(
           z.object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             figure: z.string().trim().min(2).max(120),
             admiredFor: z.string().trim().min(2).max(500),
           }),
         )
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           return proposeRoleModelRecommendation(
             ctx.wiring,
             ctx.run,
@@ -6578,10 +6577,10 @@ export const appRouter = t.router({
         }),
 
     correctMemory: procedure
-        .input(z.object({ workspaceId: z.string().min(1), memoryId: z.string().uuid(), content: z.string().trim().min(1).max(500) }))
+        .input(z.object({ organizationId: z.string().min(1), memoryId: z.string().uuid(), content: z.string().trim().min(1).max(500) }))
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          const auth = { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId };
+          assertPilotOrganization(input.organizationId);
+          const auth = { organizationId: input.organizationId, userId: ctx.wiring.pilotUserId };
           const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
           const value = current && parseLearningMemory(current.content);
           if (!current || value?.kind !== "onboarding_preference") throw new TRPCError({ code: "NOT_FOUND" });
@@ -6603,11 +6602,11 @@ export const appRouter = t.router({
      * delete the evidence while leaving an approvable/appliable proposal
      * referencing nothing. */
     forgetMemory: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), memoryId: z.string().uuid() }))
+        .input(z.object({ organizationId: z.string().min(1), memoryId: z.string().uuid() }))
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const auth = { workspaceId: input.workspaceId, userId: ctx.identity.id };
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const auth = { organizationId: input.organizationId, userId: ctx.identity.id };
           const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
           const value = current && parseLearningMemory(current.content);
           if (current && (isRedFlagContent(value) || isPreferenceAdjustmentContent(value))) {
@@ -6624,14 +6623,14 @@ export const appRouter = t.router({
     setReflection: procedure
         .input(
           z.object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             memoryId: z.string().uuid(),
             action: z.enum(["snooze", "pause", "resume", "skip"]),
           }),
         )
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          const auth = { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId };
+          assertPilotOrganization(input.organizationId);
+          const auth = { organizationId: input.organizationId, userId: ctx.wiring.pilotUserId };
           const current = await ctx.wiring.memoryStore.get(input.memoryId, auth);
           const value = current && parseLearningMemory(current.content);
           if (!current || value?.kind !== "reflection_schedule") throw new TRPCError({ code: "NOT_FOUND" });
@@ -6715,7 +6714,7 @@ export const appRouter = t.router({
     create: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           operationId: z.string().uuid(),
           anchor: redFlagAnchorInput,
           renderedValue: z.string().max(2000),
@@ -6724,11 +6723,11 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const authScope = { workspaceId: input.workspaceId, userId: ownerId };
-        await validateAnchorTarget(ctx.wiring, input.workspaceId, ownerId, input.anchor);
+        const authScope = { organizationId: input.organizationId, userId: ownerId };
+        await validateAnchorTarget(ctx.wiring, input.organizationId, ownerId, input.anchor);
         const anchorKey = anchorLineageKey(input.anchor);
         const memoryId = deterministicUuid(`redflag-memory:${ownerId}:${input.operationId}`);
 
@@ -6746,15 +6745,15 @@ export const appRouter = t.router({
           }
         } else {
           const created = await ctx.wiring.memoryStore.casSupersede({
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             ownerUserId: ownerId,
             lineageKey: anchorKey,
             expectedCurrentId: null,
             next: {
               id: memoryId,
-              workspaceId: input.workspaceId,
+              organizationId: input.organizationId,
               type: "semantic",
-              subjectElementId: anchorKey,
+              subjectRecordId: anchorKey,
               scope: "private",
               content: JSON.stringify({
                 kind: "red_flag",
@@ -6791,8 +6790,8 @@ export const appRouter = t.router({
         // Step 2 (idempotent, resumable): the SEPARATE governed learning
         // step, shared with `reopen` (review round-4 item 4: reopening a
         // withdrawn/dismissed flag must also start a FRESH governed review).
-        const currentRow = (await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, anchorKey)) ?? flagged;
-        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, currentRow, flagged.id, `${ownerId}:${input.operationId}`) };
+        const currentRow = (await ctx.wiring.memoryStore.currentForLineage(input.organizationId, ownerId, anchorKey)) ?? flagged;
+        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.organizationId, ownerId, currentRow, flagged.id, `${ownerId}:${input.operationId}`) };
       }),
 
     /** TASK-010 review round-5 item 4 — "exposes retry for failed
@@ -6810,12 +6809,12 @@ export const appRouter = t.router({
      * `attemptGovernedLearningStep` fix), so there is nothing to reconcile
      * against there; a fresh seed simply starts over cleanly. */
     retryLearning: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid(), operationId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid(), operationId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -6824,7 +6823,7 @@ export const appRouter = t.router({
         if (value.learningStatus !== "failed") {
           throw new TRPCError({ code: "CONFLICT", message: `Only a failed learning step can be retried (current status: "${value.learningStatus}")` });
         }
-        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, current, current.id, `${ownerId}:retry:${input.flagId}:${input.operationId}`) };
+        return { memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.organizationId, ownerId, current, current.id, `${ownerId}:retry:${input.flagId}:${input.operationId}`) };
       }),
 
     /** Reversible: appends a new row tagged "cleared" — the flagged Memory's
@@ -6834,12 +6833,12 @@ export const appRouter = t.router({
      * some other action) is rejected with CONFLICT rather than silently
      * forking the lineage. */
     clear: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -6855,13 +6854,13 @@ export const appRouter = t.router({
         // cleared flag with an approvable proposal on withdrawal failure."
         if (value.proposalId) await withdrawPendingRedFlagProposal(ctx.wiring, ctx.run, value.proposalId, ownerId);
         if (value.preferenceAdjustmentId) {
-          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, value.preferenceAdjustmentId);
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.organizationId, ownerId, value.preferenceAdjustmentId);
         }
 
         const updated = await ctx.wiring.memoryStore.casSupersede({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: ownerId,
-          lineageKey: current.subjectElementId!,
+          lineageKey: current.subjectRecordId!,
           expectedCurrentId: input.flagId,
           next: {
             ...current,
@@ -6893,12 +6892,12 @@ export const appRouter = t.router({
      * (vetoed/withdrawn/revoked) proposal, which stays permanently resolved
      * exactly as it was. */
     reopen: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -6911,9 +6910,9 @@ export const appRouter = t.router({
         // an optional field to `undefined` explicitly).
         const { proposalId: _staleProposalId, preferenceAdjustmentId: _staleAdjustmentId, learningFailureReason: _staleFailureReason, ...valueBase } = value;
         const updated = await ctx.wiring.memoryStore.casSupersede({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: ownerId,
-          lineageKey: current.subjectElementId!,
+          lineageKey: current.subjectRecordId!,
           expectedCurrentId: input.flagId,
           next: {
             ...current,
@@ -6932,19 +6931,19 @@ export const appRouter = t.router({
           throw new TRPCError({ code: "CONFLICT", message: "This flag was already changed by another action — refresh and try again" });
         }
         return {
-          memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.workspaceId, ownerId, updated, updated.id, `${ownerId}:reopen:${reopenedId}`),
+          memory: await attemptGovernedLearningStep(ctx.wiring, ctx.run, input.organizationId, ownerId, updated, updated.id, `${ownerId}:reopen:${reopenedId}`),
         };
       }),
 
     /** The "edit" half of inspect/edit/clear (§5d). CAS-protected like
      * clear/reopen above. */
     updateReason: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -6952,9 +6951,9 @@ export const appRouter = t.router({
         }
         if (value.reason === input.reason) return { memory: current }; // no-op: nothing changed, don't fork the lineage for free
         const updated = await ctx.wiring.memoryStore.casSupersede({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: ownerId,
-          lineageKey: current.subjectElementId!,
+          lineageKey: current.subjectRecordId!,
           expectedCurrentId: input.flagId,
           next: {
             ...current,
@@ -6980,12 +6979,12 @@ export const appRouter = t.router({
      * visibly withholds the flagged rendered value. Idempotent (already-
      * applied is a no-op); fully reversible via `revokeCorrection`. */
     enactCorrection: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -6999,7 +6998,7 @@ export const appRouter = t.router({
         if (!decision || decision.userDecision !== "approve") {
           throw new TRPCError({ code: "CONFLICT", message: "This correction has not been approved yet — approve it in Approvals first" });
         }
-        const adjustment = await ctx.wiring.memoryStore.currentForLineage(input.workspaceId, ownerId, value.preferenceAdjustmentId);
+        const adjustment = await ctx.wiring.memoryStore.currentForLineage(input.organizationId, ownerId, value.preferenceAdjustmentId);
         const adjustmentValue = adjustment && parseLearningMemory(adjustment.content);
         if (!adjustment || !isPreferenceAdjustmentContent(adjustmentValue) || adjustment.ownerUserId !== ownerId) {
           throw new TRPCError({ code: "NOT_FOUND", message: "the linked preference adjustment could not be found" });
@@ -7009,9 +7008,9 @@ export const appRouter = t.router({
         }
         if (adjustmentValue.status !== "applied") {
           const appliedAdjustment = await ctx.wiring.memoryStore.casSupersede({
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             ownerUserId: ownerId,
-            lineageKey: adjustment.subjectElementId!,
+            lineageKey: adjustment.subjectRecordId!,
             expectedCurrentId: adjustment.id,
             next: {
               ...adjustment,
@@ -7027,9 +7026,9 @@ export const appRouter = t.router({
           }
         }
         const updatedFlag = await ctx.wiring.memoryStore.casSupersede({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: ownerId,
-          lineageKey: current.subjectElementId!,
+          lineageKey: current.subjectRecordId!,
           expectedCurrentId: input.flagId,
           next: {
             ...current,
@@ -7053,12 +7052,12 @@ export const appRouter = t.router({
      * the flag's `learningStatus` to "dismissed," the same terminal state
      * `clear`'s own withdrawal path uses. */
     revokeCorrection: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -7068,12 +7067,12 @@ export const appRouter = t.router({
           throw new TRPCError({ code: "CONFLICT", message: "This flag has no applied correction to revoke" });
         }
         if (value.preferenceAdjustmentId) {
-          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, value.preferenceAdjustmentId);
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.organizationId, ownerId, value.preferenceAdjustmentId);
         }
         const updatedFlag = await ctx.wiring.memoryStore.casSupersede({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           ownerUserId: ownerId,
-          lineageKey: current.subjectElementId!,
+          lineageKey: current.subjectRecordId!,
           expectedCurrentId: input.flagId,
           next: {
             ...current,
@@ -7100,12 +7099,12 @@ export const appRouter = t.router({
      * proposal/preference-adjustment id found, so nothing actionable can
      * survive referencing evidence that no longer exists. */
     forget: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), flagId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), flagId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -7117,7 +7116,7 @@ export const appRouter = t.router({
         let cursor: { createdAt: string; id: string } | undefined;
         while (true) {
           const page = await ctx.wiring.memoryStore.retrieve(
-            { subjectElementId: current.subjectElementId!, includeSuperseded: true, order: "asc", limit: 200, ...(cursor ? { cursor } : {}) },
+            { subjectRecordId: current.subjectRecordId!, includeSuperseded: true, order: "asc", limit: 200, ...(cursor ? { cursor } : {}) },
             auth,
           );
           for (const row of page) {
@@ -7135,26 +7134,26 @@ export const appRouter = t.router({
           await withdrawPendingRedFlagProposal(ctx.wiring, ctx.run, proposalId, ownerId);
         }
         for (const preferenceAdjustmentId of preferenceAdjustmentIds) {
-          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.workspaceId, ownerId, preferenceAdjustmentId);
+          await revokePreferenceAdjustmentPermanently(ctx.wiring, input.organizationId, ownerId, preferenceAdjustmentId);
         }
         const forgotten = await ctx.wiring.memoryStore.forget(input.flagId, auth);
         return { forgotten };
       }),
 
     /** Current (non-superseded) flag for ONE exact anchor — an indexed
-     * `subjectElementId` equality lookup (review items 5+6+7: the
+     * `subjectRecordId` equality lookup (review items 5+6+7: the
      * deterministic anchor lineage key makes this O(1)-ish instead of a
      * full-table content scan). Powers a single cell/bullet's own
      * hover/focus state when a batched `listForScope` fetch isn't already
      * available. */
     listForAnchor: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), anchor: redFlagAnchorInput }))
+      .input(z.object({ organizationId: z.string().min(1), anchor: redFlagAnchorInput }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const rows = await ctx.wiring.memoryStore.retrieve(
-          { subjectElementId: anchorLineageKey(input.anchor), sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }], limit: 1 },
-          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+          { subjectRecordId: anchorLineageKey(input.anchor), sourceRefType: "feedback", contentPathEquals: [{ path: "kind", equals: "red_flag" }], limit: 1 },
+          { organizationId: input.organizationId, userId: ctx.identity.id },
         );
         const flags = rows
           .map((row) => ({ row, value: parseLearningMemory(row.content) }))
@@ -7185,7 +7184,7 @@ export const appRouter = t.router({
     listForScope: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           moduleId: z.string().min(1),
           databaseId: z.string().min(1).optional(),
           recordId: z.string().min(1).optional(),
@@ -7194,8 +7193,8 @@ export const appRouter = t.router({
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const rows = await ctx.wiring.memoryStore.retrieve(
           {
             sourceRefType: "feedback",
@@ -7204,7 +7203,7 @@ export const appRouter = t.router({
               { path: "anchor.moduleId", equals: input.moduleId },
             ],
           },
-          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+          { organizationId: input.organizationId, userId: ctx.identity.id },
         );
         const flags = rows
           .map((row) => ({ row, value: parseLearningMemory(row.content) }))
@@ -7238,15 +7237,15 @@ export const appRouter = t.router({
     listAll: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           status: z.enum(["open", "cleared"]).optional(),
           limit: z.number().int().min(1).max(100).default(50),
           cursor: z.string().optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const cursor = decodeRedFlagCursor(input.cursor);
         const rows = await ctx.wiring.memoryStore.retrieve(
           {
@@ -7259,7 +7258,7 @@ export const appRouter = t.router({
             limit: input.limit,
             ...(cursor ? { cursor } : {}),
           },
-          { workspaceId: input.workspaceId, userId: ctx.identity.id },
+          { organizationId: input.organizationId, userId: ctx.identity.id },
         );
         const flags = rows
           .map((row) => ({ row, value: parseLearningMemory(row.content) }))
@@ -7278,17 +7277,17 @@ export const appRouter = t.router({
     history: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           flagId: z.string().uuid(),
           limit: z.number().int().min(1).max(200).default(100),
           cursor: z.string().optional(),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const ownerId = ctx.identity.id;
-        const auth = { workspaceId: input.workspaceId, userId: ownerId };
+        const auth = { organizationId: input.organizationId, userId: ownerId };
         const current = await ctx.wiring.memoryStore.get(input.flagId, auth);
         const value = current && parseLearningMemory(current.content);
         if (!current || !isRedFlagContent(value) || current.ownerUserId !== ownerId) {
@@ -7297,11 +7296,11 @@ export const appRouter = t.router({
         const cursor = decodeRedFlagCursor(input.cursor);
         const rows = await ctx.wiring.memoryStore.retrieve(
           {
-            subjectElementId: current.subjectElementId!,
+            subjectRecordId: current.subjectRecordId!,
             includeSuperseded: true,
             order: "asc",
             // review round-7: this query is scoped to ONE lineage
-            // (`subjectElementId` above), so `lineageRevision` ordering is
+            // (`subjectRecordId` above), so `lineageRevision` ordering is
             // valid here (see MemoryQuery.orderBy's doc) and replaces the
             // formerly process-local `monotonicRedFlagNowISO` counter for
             // "which version of THIS lineage came first" — durable across
@@ -7323,7 +7322,7 @@ export const appRouter = t.router({
       }),
   }),
 
-  workspace: t.router({
+  organization: t.router({
     activateSession: authenticatedProcedure.mutation(async ({ ctx }) => {
       if (ctx.identity.id !== ctx.wiring.pilotUserId) {
         throw new TRPCError({
@@ -7331,13 +7330,13 @@ export const appRouter = t.router({
           message: "This Supabase account is not approved for the pilot Organization",
         });
       }
-      await ctx.wiring.workspaceStore.ensureMember({
-        workspaceId: PILOT_WORKSPACE,
+      await ctx.wiring.organizationStore.ensureMember({
+        organizationId: PILOT_ORGANIZATION,
         userId: ctx.identity.id,
         userEmail: ctx.wiring.pilotUserEmail,
       });
       return {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: ctx.identity.id,
       };
     }),
@@ -7345,21 +7344,21 @@ export const appRouter = t.router({
     create: procedure
       .input(z.object({ name: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
-        return ctx.wiring.workspaceStore.createWorkspace(input.name, ctx.identity.id);
+        return ctx.wiring.organizationStore.createOrganization(input.name, ctx.identity.id);
       }),
 
     list: procedure.query(async ({ ctx }) => {
-      return ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
+      return ctx.wiring.organizationStore.listOrganizations(ctx.identity.id);
     }),
 
     rename: procedure
-      .input(z.object({ workspaceId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
+      .input(z.object({ organizationId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         try {
-          return await ctx.wiring.workspaceStore.renameWorkspace(
-            input.workspaceId,
+          return await ctx.wiring.organizationStore.renameOrganization(
+            input.organizationId,
             input.name,
           );
         } catch (error) {
@@ -7376,14 +7375,14 @@ export const appRouter = t.router({
           if (error instanceof OrganizationFilesRecoveryError) {
             throw new TRPCError({ code: "CONFLICT", message: error.message, cause: error });
           }
-          if (error instanceof WorkspaceRenameRollbackError) {
+          if (error instanceof OrganizationRenameRollbackError) {
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message: "Organization rename failed and its Files directory could not be restored",
               cause: error,
             });
           }
-          if (error instanceof UnknownWorkspaceError) {
+          if (error instanceof UnknownOrganizationError) {
             throw new TRPCError({ code: "NOT_FOUND", message: "unknown Organization", cause: error });
           }
           throw error;
@@ -7391,26 +7390,26 @@ export const appRouter = t.router({
       }),
 
     inviteMember: procedure
-      .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
+      .input(z.object({ organizationId: z.string().min(1), email: z.string().email() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.workspaceStore.inviteMember(input.workspaceId, input.email);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.organizationStore.inviteMember(input.organizationId, input.email);
       }),
 
     listMembers: procedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.workspaceStore.listMembers(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.organizationStore.listMembers(input.organizationId);
       }),
 
     /**
-     * P1 Workspace Generator (docs/wiki/vision.md "View grammar" + roadmap.md
+     * P1 Organization Generator (docs/wiki/vision.md "View grammar" + roadmap.md
      * P1): the blueprint -> view grammar compiler's governed surface. `get`
-     * returns the current active workspace_definition (or null — no demo/dummy
-     * fallback: an un-onboarded workspace honestly has none yet). `propose`
+     * returns the current active organization_definition (or null — no demo/dummy
+     * fallback: an un-onboarded organization honestly has none yet). `propose`
      * always writes a DRAFT row (mirrors capability.register's "generation
      * only ever creates draft" — the Capability Lifecycle Platform's core
      * principle: everything is proposed, governed, continuously evolved).
@@ -7423,37 +7422,37 @@ export const appRouter = t.router({
      */
     blueprint: t.router({
       get: procedure.input(blueprintGetInput).query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const active = await ctx.wiring.workspaceDefinitionStore.getActive(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        const active = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
         return { definition: active };
       }),
 
       /**
-       * getById (ADR-023/ADR-024): returns a workspace_definition by id
+       * getById (ADR-023/ADR-024): returns a organization_definition by id
        * REGARDLESS of status (draft/active/archived) — `get` above only ever
        * returns the currently-active row, so a draft that hasn't been
        * activated yet (the common ApprovalsPage diff-preview case) was
        * previously unreachable. Identity-scoped like every sibling endpoint:
-       * the row's own `workspaceId` must match the caller-supplied
-       * `workspaceId`, so a definitionId from another workspace 404s rather
-       * than leaking cross-workspace data.
+       * the row's own `organizationId` must match the caller-supplied
+       * `organizationId`, so a definitionId from another organization 404s rather
+       * than leaking cross-organization data.
        */
       getById: procedure.input(blueprintGetByIdInput).query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const definition = await ctx.wiring.workspaceDefinitionStore.get(input.definitionId);
-        if (!definition || definition.workspaceId !== input.workspaceId) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "unknown workspace_definition" });
+        assertPilotOrganization(input.organizationId);
+        const definition = await ctx.wiring.organizationDefinitionStore.get(input.definitionId);
+        if (!definition || definition.organizationId !== input.organizationId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown organization_definition" });
         }
         return { definition };
       }),
 
-      /** Always creates a DRAFT workspace_definition — never activates it. The
+      /** Always creates a DRAFT organization_definition — never activates it. The
        * blueprint is validated against the grammar (compileBlueprint) BEFORE
        * being persisted, so an invalid draft is rejected here rather than
        * silently stored and only failing later at activation/render time. */
       propose: procedure.input(blueprintProposeInput).mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const blueprint = toWorkspaceBlueprint(input.blueprint);
+        assertPilotOrganization(input.organizationId);
+        const blueprint = toOrganizationBlueprint(input.blueprint);
         try {
           compileBlueprint(blueprint, BLUEPRINT_NODE_TYPE_REGISTRY, BLUEPRINT_RELATIONSHIP_NODE_TYPES);
         } catch (err) {
@@ -7463,14 +7462,14 @@ export const appRouter = t.router({
           throw err;
         }
 
-        const priorDrafts = await ctx.wiring.workspaceDefinitionStore.listDrafts(input.workspaceId);
-        const active = await ctx.wiring.workspaceDefinitionStore.getActive(input.workspaceId);
+        const priorDrafts = await ctx.wiring.organizationDefinitionStore.listDrafts(input.organizationId);
+        const active = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
         const nextVersion = 1 + Math.max(active?.version ?? 0, ...priorDrafts.map((d) => d.version), 0);
 
         const id = ctx.run.ids.next();
-        const created = await ctx.wiring.workspaceDefinitionStore.create({
+        const created = await ctx.wiring.organizationDefinitionStore.create({
           id,
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           blueprint,
           version: nextVersion,
           status: "draft",
@@ -7485,25 +7484,25 @@ export const appRouter = t.router({
        * never resolve it and every attempt is ledgered, whether it ends up
        * auto-resolved or parked pending_review. On resolution, flips the draft
        * to `active` and archives whatever was previously active — the only
-       * place two rows are ever active for the same workspace at once is
+       * place two rows are ever active for the same organization at once is
        * disallowed.
        */
       activate: procedure.input(blueprintActivateInput).mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const draft = await ctx.wiring.workspaceDefinitionStore.get(input.definitionId);
-        if (!draft || draft.workspaceId !== input.workspaceId) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "unknown workspace_definition draft" });
+        assertPilotOrganization(input.organizationId);
+        const draft = await ctx.wiring.organizationDefinitionStore.get(input.definitionId);
+        if (!draft || draft.organizationId !== input.organizationId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown organization_definition draft" });
         }
         if (draft.status !== "draft") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `workspace_definition ${draft.id} is "${draft.status}", not "draft"` });
+          throw new TRPCError({ code: "BAD_REQUEST", message: `organization_definition ${draft.id} is "${draft.status}", not "draft"` });
         }
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "approve",
-            resourceType: "skill", // workspace_definitions has no dedicated ResourceType yet — same interim token capability.approve uses
+            resourceType: "skill", // organization_definitions has no dedicated ResourceType yet — same interim token capability.approve uses
             resourceId: input.definitionId,
             inputs: { definitionId: input.definitionId, fromStatus: draft.status },
             skill: "stageMutation",
@@ -7514,18 +7513,18 @@ export const appRouter = t.router({
           return { activated: false, proposal, definition: draft };
         }
 
-        const priorActive = await ctx.wiring.workspaceDefinitionStore.getActive(input.workspaceId);
+        const priorActive = await ctx.wiring.organizationDefinitionStore.getActive(input.organizationId);
         if (priorActive) {
-          await ctx.wiring.workspaceDefinitionStore.setStatus(priorActive.id, "archived");
+          await ctx.wiring.organizationDefinitionStore.setStatus(priorActive.id, "archived");
         }
-        const activated = await ctx.wiring.workspaceDefinitionStore.setStatus(draft.id, "active");
+        const activated = await ctx.wiring.organizationDefinitionStore.setStatus(draft.id, "active");
         return { activated: true, proposal, definition: activated };
       }),
     }),
   }),
 
   /**
-   * Compatibility read surface for legacy Initiative/Touchpoint and canonical
+   * Compatibility read surface for legacy Record/Touchpoint and canonical
    * Signal routes. Person, Community, and Timeline contracts live only under the
    * manifest-driven `relationship` Module router above.
    */
@@ -7533,43 +7532,43 @@ export const appRouter = t.router({
     full: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().uuid(),
+          organizationId: z.string().uuid(),
           limit: z.number().int().min(1).max(200).default(100),
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         return ctx.wiring.graphStore.listFullGraph(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           { limit: input.limit },
         );
       }),
 
-    listInitiatives: procedure
+    listRecords: procedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listInitiatives(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.graphStore.listRecords(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
         return { items, total, hasMore: input.offset + items.length < total };
       }),
 
-    getInitiative: procedure.input(z.object({ id: z.string().uuid() })).query(async ({ input, ctx }) => {
-      return ctx.wiring.graphStore.getInitiative(input.id);
+    getRecord: procedure.input(z.object({ id: z.string().uuid() })).query(async ({ input, ctx }) => {
+      return ctx.wiring.graphStore.getRecord(input.id);
     }),
 
     listTouchpoints: procedure
-      .input(paginatedInput.extend({ initiativeId: z.string().uuid().optional() }))
+      .input(paginatedInput.extend({ recordId: z.string().uuid().optional() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.graphStore.listTouchpoints(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.graphStore.listTouchpoints(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
-          ...(input.initiativeId ? { initiativeId: input.initiativeId } : {}),
+          ...(input.recordId ? { recordId: input.recordId } : {}),
         });
         return { items, total, hasMore: input.offset + items.length < total };
       }),
@@ -7577,10 +7576,10 @@ export const appRouter = t.router({
     listSignals: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const { items, total } = await ctx.wiring.graphStore.listSignals(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           { limit: input.limit, offset: input.offset },
         );
@@ -7588,19 +7587,19 @@ export const appRouter = t.router({
       }),
 
     getSignalDetail: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
       }),
 
     proposeSignalAction: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), signalId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), signalId: z.string().uuid() }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
         if (!detail) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found" });
         }
@@ -7618,7 +7617,7 @@ export const appRouter = t.router({
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id, plane: "local" },
             action: "write",
             resourceType: "signal",
@@ -7642,7 +7641,7 @@ export const appRouter = t.router({
         );
         if (proposal.status !== "rejected") {
           await ctx.wiring.graphStore.recordSignalAction({
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             signalId: input.signalId,
             userId: ctx.identity.id,
             verb: "act",
@@ -7657,20 +7656,20 @@ export const appRouter = t.router({
     recordSignalAction: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           signalId: z.string().uuid(),
           verb: z.enum(["act", "dismiss", "save"]),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const detail = await ctx.wiring.graphStore.getSignalDetail(input.workspaceId, ctx.identity.id, input.signalId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const detail = await ctx.wiring.graphStore.getSignalDetail(input.organizationId, ctx.identity.id, input.signalId);
         if (!detail) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Signal not found or not accessible" });
         }
         await ctx.wiring.graphStore.recordSignalAction({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           signalId: input.signalId,
           userId: ctx.identity.id,
           verb: input.verb,
@@ -7680,26 +7679,26 @@ export const appRouter = t.router({
   }),
 
   /**
-   * JobPilot — wires the pure `@bridge/jobpilot` package (scoring, state-machine,
+   * JobPilot — wires the pure `@bridge/jobpilot` module (scoring, state-machine,
    * table spec) to real persistence for the first time (frontend-migration-
-   * scoping.md Phase 4). Job/application CRUD is workspace-authenticated, not
+   * scoping.md Phase 4). Job/application CRUD is organization-authenticated, not
    * routed through the governed pipeline — tracking a job posting has no
-   * external effect requiring approval, same tier as workspace membership.
+   * external effect requiring approval, same tier as organization membership.
    * `transition` validates against @bridge/jobpilot's own state machine BEFORE
    * persisting, so an invalid stage jump is rejected here, not silently written.
    */
   jobpilot: t.router({
     definition: procedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1) }))
       .query(({ input }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return jobsTableSpec;
       }),
 
     create: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           title: z.string().min(1),
           company: z.string().min(1),
           location: z.string().optional(),
@@ -7717,7 +7716,7 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         const job: JobProfile = {
           title: input.title,
           company: input.company,
@@ -7734,7 +7733,7 @@ export const appRouter = t.router({
         };
         const fit = scoreJobFit(job, candidate);
         const { job: jobRow, application } = await ctx.wiring.jobpilotStore.createJob({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           title: input.title,
           company: input.company,
           ...(input.location ? { location: input.location } : {}),
@@ -7749,8 +7748,8 @@ export const appRouter = t.router({
     list: procedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.jobpilotStore.listJobs(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.jobpilotStore.listJobs(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
@@ -7762,15 +7761,15 @@ export const appRouter = t.router({
     transition: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           applicationId: z.string().uuid(),
           from: z.string(),
           to: z.string(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const application = await ctx.wiring.jobpilotStore.getApplication(input.applicationId, input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        const application = await ctx.wiring.jobpilotStore.getApplication(input.applicationId, input.organizationId);
         if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "unknown application" });
         try {
           transition(application.stage as ApplicationStage, input.to as ApplicationStage, application.id, "user");
@@ -7812,11 +7811,11 @@ export const appRouter = t.router({
        * for ineligible sources, matching the disclosure the propose/synthesize
        * flow already builds server-side. */
       sources: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          return CULTURE_SOURCE_REGISTRY.filter((s) => s.workspaceId === input.workspaceId && s.company === input.company).map((s) => {
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return CULTURE_SOURCE_REGISTRY.filter((s) => s.organizationId === input.organizationId && s.company === input.company).map((s) => {
             const classification = classifyCultureSource(s.sourceType);
             return { id: s.id, sourceLabel: s.sourceLabel, sourceType: s.sourceType, eligibility: classification.eligibility, reason: classification.reason };
           });
@@ -7825,14 +7824,14 @@ export const appRouter = t.router({
       propose: authenticatedProcedure
         .input(
           z.object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             company: z.string().min(1),
             sourceIds: z.array(z.string().min(1)).min(1),
           }),
         )
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
 
           // Dedupe before anything else — a caller listing the same id many
           // times must not reserve many times the budget/fan-out.
@@ -7844,15 +7843,15 @@ export const appRouter = t.router({
             });
           }
 
-          // Resolve every id server-side. ANY unknown, or cross-workspace/
+          // Resolve every id server-side. ANY unknown, or cross-organization/
           // cross-company, id fails the WHOLE request closed — a forged id in
           // the batch is treated as a misuse signal, not a partial skip.
-          const resolved = dedupedIds.map((id) => ({ id, source: resolveAuthorizedCultureSource(input.workspaceId, input.company, id) }));
+          const resolved = dedupedIds.map((id) => ({ id, source: resolveAuthorizedCultureSource(input.organizationId, input.company, id) }));
           const unknown = resolved.filter((r) => !r.source);
           if (unknown.length > 0) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: `unknown or unauthorized source id(s) for this workspace/company: ${unknown.map((u) => u.id).join(", ")}`,
+              message: `unknown or unauthorized source id(s) for this organization/company: ${unknown.map((u) => u.id).join(", ")}`,
             });
           }
           const sources = resolved.map((r) => r.source!);
@@ -7866,7 +7865,7 @@ export const appRouter = t.router({
             });
 
           const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
-          const researchGoalTask = await provisionCultureResearchTask(ctx.wiring, input.workspaceId);
+          const researchGoalTask = await provisionCultureResearchTask(ctx.wiring, input.organizationId);
 
           const [learningScope, learningDataScope] = await Promise.all([
             ctx.wiring.agents.capabilityScope(LEARNING_AGENT),
@@ -7878,7 +7877,7 @@ export const appRouter = t.router({
           const parentEnvelope: ParentRunEnvelope = {
             runId: parentRunId,
             agentId: LEARNING_AGENT,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             authorityScope: learningScope,
             eligibleSkills: ["jobpilot.researchCultureSource"],
             dataScope: learningDataScope,
@@ -7920,7 +7919,7 @@ export const appRouter = t.router({
             await ctx.wiring.cultureFetchStore.create({
               childRunId: childRun.id,
               parentRunId,
-              workspaceId: input.workspaceId,
+              organizationId: input.organizationId,
               company: input.company,
               sourceId: source.id,
               sourceType: source.sourceType,
@@ -7959,19 +7958,19 @@ export const appRouter = t.router({
             // id permanently pointing at nothing — inert dead weight, never
             // approvable, never visible in `action.listPending`.
             const proposalId = ctx.run.ids.next();
-            await ctx.wiring.cultureFetchStore.attachProposal(input.workspaceId, childRun.id, proposalId);
+            await ctx.wiring.cultureFetchStore.attachProposal(input.organizationId, childRun.id, proposalId);
 
             // PURE — no network access. Proposing this is genuinely side-effect-free.
             const proposal = await ctx.wiring.pipeline.propose(
               {
-                workspaceId: input.workspaceId,
+                organizationId: input.organizationId,
                 actor: { type: "agent", id: LEARNING_AGENT, plane: "cloud" },
                 onBehalfOf,
                 action: "read" as Action,
                 resourceType: "external:fetch" as ResourceType,
                 skill: "jobpilot.researchCultureSource",
                 dataScope: "public" as DataScope,
-                inputs: { sourceId: source.id, workspaceId: input.workspaceId, company: input.company },
+                inputs: { sourceId: source.id, organizationId: input.organizationId, company: input.company },
                 goalTaskRef: { goalId: researchGoalTask.goalId, taskId: researchGoalTask.taskId },
                 context: { type: "child_agent_run", id: childRun.id, runId: parentRunId },
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
@@ -7994,9 +7993,9 @@ export const appRouter = t.router({
 
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review, issue 13) — record this run as the LATEST for this
-          // company via the durable O(1) pointer, replacing the workspace-
+          // company via the durable O(1) pointer, replacing the organization-
           // wide scan `listByCompany` previously used by `latestRun`.
-          await ctx.wiring.cultureLatestRunPointerStore.recordLatestRun(input.workspaceId, input.company, parentRunId);
+          await ctx.wiring.cultureLatestRunPointerStore.recordLatestRun(input.organizationId, input.company, parentRunId);
 
           return { parentRunId, pending, skipped };
         }),
@@ -8006,10 +8005,10 @@ export const appRouter = t.router({
        * caller). Idempotent: re-materializing an already-resolved source
        * returns the stored record instead of refetching. */
       materialize: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           try {
             const record = await materializeCultureSourceFetch(
               {
@@ -8018,7 +8017,7 @@ export const appRouter = t.router({
                 fetchStore: ctx.wiring.cultureFetchStore,
                 abortControllers: ctx.wiring.cultureFetchAbortControllers,
               },
-              input.workspaceId,
+              input.organizationId,
               input.proposalId,
               input.childRunId,
               ctx.run,
@@ -8032,10 +8031,10 @@ export const appRouter = t.router({
       /** Cancels a pending/in-flight source fetch — aborts a REAL in-flight
        * request when one is running, or guarantees one never starts. */
       cancel: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           try {
             const record = await cancelCultureSourceFetch(
               {
@@ -8044,7 +8043,7 @@ export const appRouter = t.router({
                 fetchStore: ctx.wiring.cultureFetchStore,
                 abortControllers: ctx.wiring.cultureFetchAbortControllers,
               },
-              input.workspaceId,
+              input.organizationId,
               input.proposalId,
               input.childRunId,
               { type: ctx.identity.type, id: ctx.identity.id },
@@ -8057,11 +8056,11 @@ export const appRouter = t.router({
         }),
 
       status: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), proposalId: z.string().min(1), childRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const record = await ctx.wiring.cultureFetchStore.getByProposal(input.workspaceId, input.proposalId, input.childRunId);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          const record = await ctx.wiring.cultureFetchStore.getByProposal(input.organizationId, input.proposalId, input.childRunId);
           if (!record) {
             throw new TRPCError({ code: "NOT_FOUND", message: "unknown culture-research proposal" });
           }
@@ -8069,13 +8068,13 @@ export const appRouter = t.router({
           // RE-review, issue 3) — self-repair any intent/child terminal
           // inconsistency on every read a client polls, not only inside
           // `materialize`'s own retry path.
-          await reconcileIntentChildConsistency(ctx.wiring, input.workspaceId, record, ctx.run);
+          await reconcileIntentChildConsistency(ctx.wiring, input.organizationId, record, ctx.run);
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review, issue 7) — never serve expired evidence: purge an
           // expired artifact's raw content on this read (idempotent,
           // metadata-preserving) and return the (possibly just-purged)
           // current record rather than the pre-purge snapshot.
-          const purged = await ctx.wiring.cultureFetchStore.purgeExpiredArtifactContentIfNeeded(input.workspaceId, input.childRunId, ctx.run.clock.nowISO());
+          const purged = await ctx.wiring.cultureFetchStore.purgeExpiredArtifactContentIfNeeded(input.organizationId, input.childRunId, ctx.run.clock.nowISO());
           return purged ?? record;
         }),
 
@@ -8088,7 +8087,7 @@ export const appRouter = t.router({
       synthesize: authenticatedProcedure
         .input(
           z.object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             company: z.string().min(1),
             /** TASK-011 remediation (2026-07-18 final review, issue 6) — the
              * EXACT parent Agent Run this synthesis is scoped to. Fetched
@@ -8119,20 +8118,20 @@ export const appRouter = t.router({
           }),
         )
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
 
           // TASK-011 remediation (2026-07-18 final review, issue 6) — resolve
           // fetched artifacts from THIS EXACT parent Run's own child Runs
           // only, via the durable `cultureFetchStore`, never by scanning
-          // every fetch this workspace/company has ever made (which would
+          // every fetch this organization/company has ever made (which would
           // silently pool evidence across historical or concurrent runs).
-          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.organizationId, input.parentRunId);
           if (childRuns.length === 0) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `unknown parent Run "${input.parentRunId}" for this workspace` });
+            throw new TRPCError({ code: "BAD_REQUEST", message: `unknown parent Run "${input.parentRunId}" for this organization` });
           }
           const intentRecords = (
-            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.organizationId, childRun.id)))
           ).filter((r): r is NonNullable<typeof r> => r != null);
           const mismatchedCompany = intentRecords.find((r) => r.company !== input.company);
           if (mismatchedCompany) {
@@ -8174,14 +8173,14 @@ export const appRouter = t.router({
             throw new TRPCError({ code: "BAD_REQUEST", message: "synthesize requires at least one unexpired fetched artifact for this parent Run — no claim can ground against zero evidence" });
           }
           const skippedSources = CULTURE_SOURCE_REGISTRY.filter(
-            (s) => s.workspaceId === input.workspaceId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
+            (s) => s.organizationId === input.organizationId && s.company === input.company && classifyCultureSource(s.sourceType).eligibility !== "permitted",
           ).map((s) => {
             const classification = classifyCultureSource(s.sourceType);
             return { sourceLabel: s.sourceLabel, sourceType: s.sourceType, reason: classification.reason };
           });
 
           const onBehalfOf = { type: (ctx.identity.type === "team" ? "team" : "user") as "user" | "team", id: ctx.identity.id };
-          const synthesisGoalTask = await provisionCultureSynthesisTask(ctx.wiring, input.workspaceId);
+          const synthesisGoalTask = await provisionCultureSynthesisTask(ctx.wiring, input.organizationId);
 
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review round 2, issue 7) — self-heal a STALE pointer before
@@ -8213,7 +8212,7 @@ export const appRouter = t.router({
           // period before ever releasing it — see its own doc comment.
           await selfHealDeadSynthesisPointer(
             { cultureSynthesisPointerStore: ctx.wiring.cultureSynthesisPointerStore, ledger: ctx.wiring.ledger },
-            input.workspaceId,
+            input.organizationId,
             input.parentRunId,
             ctx.run.clock.nowISO(),
           );
@@ -8231,7 +8230,7 @@ export const appRouter = t.router({
           // creating a real ledger proposal at all, rather than after.
           const proposalId = ctx.run.ids.next();
           try {
-            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.workspaceId, input.parentRunId, input.company, proposalId);
+            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.organizationId, input.parentRunId, input.company, proposalId);
           } catch (error) {
             throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : String(error) });
           }
@@ -8240,7 +8239,7 @@ export const appRouter = t.router({
           try {
             synthesisProposal = await ctx.wiring.pipeline.propose(
               {
-                workspaceId: input.workspaceId,
+                organizationId: input.organizationId,
                 actor: { type: "agent", id: INTERNAL_STRATEGIST_AGENT },
                 onBehalfOf,
                 action: "write" as Action,
@@ -8254,7 +8253,7 @@ export const appRouter = t.router({
                 // resolves its own artifacts internally (see
                 // `createSynthesizeCultureProfileSkill`) so the ledger never
                 // durably retains full raw fetched content.
-                inputs: { workspaceId: input.workspaceId, parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], skippedSources },
+                inputs: { organizationId: input.organizationId, parentRunId: input.parentRunId, claims: input.claims as GroundedClaimInput[], skippedSources },
                 goalTaskRef: { goalId: synthesisGoalTask.goalId, taskId: synthesisGoalTask.taskId },
                 // TASK-011 remediation (2026-07-19 coordinator distributed-
                 // defects RE-review round 2, issue 9) — Internal Strategist
@@ -8276,7 +8275,7 @@ export const appRouter = t.router({
             // preallocated pointer binding (never a different, concurrently-
             // won one) so a legitimate retry for this parentRunId is not
             // permanently blocked by a doomed attempt.
-            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.organizationId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : String(error) });
           }
           if (synthesisProposal.status === "rejected") {
@@ -8284,7 +8283,7 @@ export const appRouter = t.router({
             // OUR preallocated one — release it the same way, for the same
             // reason (an authority/policy rejection must not permanently
             // consume the pointer for this parentRunId either).
-            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.workspaceId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
+            await ctx.wiring.cultureSynthesisPointerStore.releaseIfMatching(input.organizationId, input.parentRunId, proposalId, ctx.wiring.ledger).catch(() => {});
             throw new TRPCError({ code: "BAD_REQUEST", message: synthesisProposal.rejectionReason ?? "culture-research synthesis was rejected" });
           }
           return { proposalId: synthesisProposal.id, status: synthesisProposal.status };
@@ -8294,7 +8293,7 @@ export const appRouter = t.router({
        * TASK-011 remediation (2026-07-19 coordinator distributed-defects
        * review, issue 13) — the SERVER-AUTHORITATIVE resume query. Returns
        * the latest culture-research parent Run (and its pending sources +
-       * synthesis proposal id, if any) for one (workspaceId, company),
+       * synthesis proposal id, if any) for one (organizationId, company),
        * derived entirely from durable server state via
        * `DurableCultureFetchStore.listByCompany` +
        * `DurableCultureSynthesisPointerStore` — NEVER from anything the
@@ -8302,32 +8301,32 @@ export const appRouter = t.router({
        * result as authoritative; any local `localStorage` pointer is only a
        * paint-ahead cache, overwritten by whatever this query returns
        * (including `null`, if the server has no record — e.g. storage from a
-       * stale/foreign workspace). This is what makes "clear storage / change
+       * stale/foreign organization). This is what makes "clear storage / change
        * device, still see pending/completed research" possible.
        */
       latestRun: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           // TASK-011 remediation (2026-07-19 coordinator distributed-defects
           // RE-review, issue 13) — an O(1) durable pointer lookup, NOT a
-          // workspace-wide scan-then-limit-then-filter (the prior
+          // organization-wide scan-then-limit-then-filter (the prior
           // `listByCompany` approach, which could silently hide the real
           // latest run behind enough unrelated Memories at scale). The
           // pointer names the exact `parentRunId`; its pending sources are
           // then resolved via `childAgentRuns.listByParentRun` (already
-          // indexed by workspace+parentRunId) rather than any broad scan.
-          const pointer = await ctx.wiring.cultureLatestRunPointerStore.getLatestRun(input.workspaceId, input.company);
+          // indexed by organization+parentRunId) rather than any broad scan.
+          const pointer = await ctx.wiring.cultureLatestRunPointerStore.getLatestRun(input.organizationId, input.company);
           if (!pointer) return null;
-          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, pointer.parentRunId);
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.organizationId, pointer.parentRunId);
           const intentRecords = (
-            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.organizationId, childRun.id)))
           ).filter((r): r is NonNullable<typeof r> => r != null && r.company === input.company);
           const pending = intentRecords
             .filter((r) => r.proposalId)
             .map((r) => ({ proposalId: r.proposalId!, childRunId: r.childRunId, sourceId: r.sourceId, sourceType: r.sourceType, sourceLabel: r.sourceLabel }));
-          const synthesisPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, pointer.parentRunId);
+          const synthesisPointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.organizationId, pointer.parentRunId);
           return {
             parentRunId: pointer.parentRunId,
             pending,
@@ -8345,7 +8344,7 @@ export const appRouter = t.router({
        * Only an `approve` decision unlocks the real, grounded, cited
        * partition/disclosure the Skill produced — and only if the proposal
        * is GENUINELY a `jobpilot.synthesizeCultureProfile` output bound to
-       * the caller's own (workspaceId, company, parentRunId): an arbitrary
+       * the caller's own (organizationId, company, parentRunId): an arbitrary
        * OTHER approved proposal (any skill), or a synthesis proposal for a
        * DIFFERENT run/company, is rejected as `not_available` rather than
        * rendered — never trust `resourceType`/`action`/a loose shape match
@@ -8353,12 +8352,12 @@ export const appRouter = t.router({
        * re-derivation of the run's real fetched artifacts must both agree.
        */
       synthesisResult: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), company: z.string().min(1), proposalId: z.string().min(1), parentRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), company: z.string().min(1), proposalId: z.string().min(1), parentRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
           const proposal = await ctx.wiring.ledger.get(input.proposalId);
-          if (!proposal || proposal.workspaceId !== input.workspaceId) {
+          if (!proposal || proposal.organizationId !== input.organizationId) {
             return { status: "not_available" as const };
           }
           // Corroborate the Skill's identity via its declared action/resourceType
@@ -8395,9 +8394,9 @@ export const appRouter = t.router({
           // `artifactHashes` entry against them — a persisted result whose
           // hashes no longer match the run's own durable fetch records (e.g.
           // stale/tampered) must not be rendered as if it were still valid.
-          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+          const childRuns = await ctx.wiring.childAgentRuns.listByParentRun(input.organizationId, input.parentRunId);
           const intentRecords = (
-            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.workspaceId, childRun.id)))
+            await Promise.all(childRuns.map((childRun) => ctx.wiring.cultureFetchStore.get(input.organizationId, childRun.id)))
           ).filter((r): r is NonNullable<typeof r> => r != null);
           const realCompanyMatch = intentRecords.every((r) => r.company === input.company);
           if (childRuns.length === 0 || !realCompanyMatch) {
@@ -8420,9 +8419,9 @@ export const appRouter = t.router({
           // flow permanently unable to discover an otherwise-perfectly-good
           // synthesis result. Idempotent and best-effort: a genuine
           // concurrent winner for the SAME parentRunId is left alone.
-          const pointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.workspaceId, input.parentRunId);
+          const pointer = await ctx.wiring.cultureSynthesisPointerStore.getForParentRun(input.organizationId, input.parentRunId);
           if (!pointer || pointer.proposalId !== input.proposalId) {
-            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.workspaceId, input.parentRunId, input.company, input.proposalId).catch(() => {
+            await ctx.wiring.cultureSynthesisPointerStore.recordProposal(input.organizationId, input.parentRunId, input.company, input.proposalId).catch(() => {
               // Another (also valid) proposal already legitimately holds
               // the pointer for this parentRunId — that is a real,
               // resolved outcome, not a bug to surface here; this read
@@ -8436,21 +8435,21 @@ export const appRouter = t.router({
   }),
 
   /**
-   * Helpdesk — the one workspace tool with a genuine public/unauthenticated
+   * Helpdesk — the one organization tool with a genuine public/unauthenticated
    * surface (frontend-migration-scoping.md gap #3). The `public` sub-router's
    * three procedures NEVER read `ctx.identity`; a submitter's only credential
    * is possession of the opaque `accessToken` returned by `createTicket` (the
    * same trust model as a password-reset link) — see helpdesk-store.ts's
    * header comment and docs/raw/decisions-log.md for why this avoided adding a
    * new Actor type / identity-resolution change. The top-level procedures below
-   * are the authenticated support-agent inbox (workspace members only).
+   * are the authenticated support-agent inbox (organization members only).
    */
   helpdesk: t.router({
     public: t.router({
       createTicket: publicProcedure
         .input(
           z.object({
-            workspaceId: z.string().min(1),
+            organizationId: z.string().min(1),
             subject: z.string().trim().min(1).max(200),
             submitterEmail: z.string().trim().email().max(320),
             submitterName: z.string().trim().max(120).optional(),
@@ -8460,9 +8459,9 @@ export const appRouter = t.router({
           }),
         )
         .mutation(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
+          assertPilotOrganization(input.organizationId);
           const { ticket, message } = await ctx.wiring.helpdeskStore.createTicket({
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             subject: input.subject,
             submitterEmail: input.submitterEmail,
             body: input.body,
@@ -8500,13 +8499,13 @@ export const appRouter = t.router({
         }),
     }),
 
-    /** Support-agent inbox — workspace-authenticated. */
+    /** Support-agent inbox — organization-authenticated. */
     list: authenticatedProcedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const { items, total } = await ctx.wiring.helpdeskStore.listTickets(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
@@ -8514,11 +8513,11 @@ export const appRouter = t.router({
       }),
 
     get: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), ticketId: z.string().uuid() }))
+      .input(z.object({ organizationId: z.string().min(1), ticketId: z.string().uuid() }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const result = await ctx.wiring.helpdeskStore.getTicket(input.workspaceId, input.ticketId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const result = await ctx.wiring.helpdeskStore.getTicket(input.organizationId, input.ticketId);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "unknown ticket" });
         return result;
       }),
@@ -8526,17 +8525,17 @@ export const appRouter = t.router({
     reply: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           ticketId: z.string().uuid(),
           body: z.string().trim().min(1).max(10_000),
           status: z.enum(["open", "pending", "resolved", "closed"]).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const message = await ctx.wiring.helpdeskStore.replyAsAgent(
-          input.workspaceId,
+          input.organizationId,
           input.ticketId,
           ctx.identity.id,
           input.body,
@@ -8547,10 +8546,10 @@ export const appRouter = t.router({
       }),
 
     /**
-     * Help Request routing (P2 Helpdesk package, ADR-021 — the
-     * `helpdesk.capability-routing` capability in tools/helpdesk/package.yaml).
+     * Help Request routing (P2 Helpdesk module, ADR-021 — the
+     * `helpdesk.capability-routing` capability in tools/helpdesk/module.yaml).
      * Routes a help request over the accessible Relationship graph: candidates
-     * are Person Records, not workspace-user identities. Topic tags may be
+     * are Person Records, not organization-user identities. Topic tags may be
      * supplied by the caller (the
      * graph carries no per-person topic tags yet — with none supplied the
      * result is an HONEST empty route list, never a fabricated match).
@@ -8558,7 +8557,7 @@ export const appRouter = t.router({
     route: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           subject: z.string().min(1),
           body: z.string().default(""),
           /** Optional per-person topic tags ({personId -> topics[]}) until the
@@ -8575,13 +8574,13 @@ export const appRouter = t.router({
         }),
       )
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const candidates = (
           await Promise.all(
             Object.entries(input.topicsByPerson ?? {}).map(async ([personId, topics]) => {
               const person = await ctx.wiring.graphStore.getPerson(
-                input.workspaceId,
+                input.organizationId,
                 ctx.identity.id,
                 personId,
               );
@@ -8610,7 +8609,7 @@ export const appRouter = t.router({
     stageAnswer: authenticatedProcedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           subject: z.string().min(1),
           body: z.string().default(""),
           routedToPersonId: z.string().uuid(),
@@ -8619,10 +8618,10 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         const routedPerson = await ctx.wiring.graphStore.getPerson(
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
           input.routedToPersonId,
         );
@@ -8652,10 +8651,10 @@ export const appRouter = t.router({
         // AGS1 (TASK-007 closure) — a real governed Skill: LEARNING_AGENT drafts
         // the Help Offer, never the Human directly (helpdesk.stageAnswer's own
         // manifest requires it — see wiring.ts's HELPDESK_ANSWER_SKILL_MANIFEST).
-        const goalTaskRef = await provisionHelpdeskAnswerTask(ctx.wiring, input.workspaceId);
+        const goalTaskRef = await provisionHelpdeskAnswerTask(ctx.wiring, input.organizationId);
         const proposal = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: "agent", id: LEARNING_AGENT },
             onBehalfOf: { type: "user", id: ctx.identity.id },
             action: "write",
@@ -8673,14 +8672,14 @@ export const appRouter = t.router({
 
   /**
    * Resources — replaces the prototype's Supabase-direct `resources_canonical`
-   * read (frontend-migration-scoping.md gap #4) with a governed, workspace-
+   * read (frontend-migration-scoping.md gap #4) with a governed, organization-
    * scoped catalog. Plain authenticated CRUD, not a pipeline action.
    */
   resources: t.router({
     create: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           title: z.string().min(1),
           kind: z.enum(["book", "podcast", "vlog", "article", "other"]),
           url: z.string().url().optional(),
@@ -8689,9 +8688,9 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
         return ctx.wiring.resourcesStore.create({
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           title: input.title,
           kind: input.kind,
           ...(input.url ? { url: input.url } : {}),
@@ -8703,8 +8702,8 @@ export const appRouter = t.router({
     list: procedure
       .input(paginatedInput)
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        const { items, total } = await ctx.wiring.resourcesStore.list(input.workspaceId, {
+        assertPilotOrganization(input.organizationId);
+        const { items, total } = await ctx.wiring.resourcesStore.list(input.organizationId, {
           limit: input.limit,
           offset: input.offset,
         });
@@ -8725,7 +8724,7 @@ export const appRouter = t.router({
     /** Register a new capability manifest. Always creates state=draft — "generation
      * only ever creates draft" (Capability Builder never activates). */
     register: procedure.input(capabilityRegisterInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
+      assertPilotOrganization(input.organizationId);
       const id = ctx.run.ids.next();
 
       // Pre-fetch the dependency closure's rows so computeRisk's resolver is a
@@ -8740,7 +8739,7 @@ export const appRouter = t.router({
 
       const created = await ctx.wiring.capabilityStore.createManifest({
         id,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         capabilityType: input.capabilityType,
         name: input.name,
         version: input.version,
@@ -8752,7 +8751,7 @@ export const appRouter = t.router({
       });
       const state = await ctx.wiring.capabilityStore.upsertState({
         manifestId: created.id,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         state: "draft",
         suspended: false,
         evidence: {},
@@ -8770,7 +8769,7 @@ export const appRouter = t.router({
         });
         return ctx.wiring.capabilityStore.upsertState({
           manifestId: input.manifestId,
-          workspaceId: state.workspaceId,
+          organizationId: state.organizationId,
           state: result.nextState,
           ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
           suspended: state.suspended,
@@ -8803,7 +8802,7 @@ export const appRouter = t.router({
       // unchanged (additive use of the existing pipeline, not a bypass of it).
       const proposal = await ctx.wiring.pipeline.propose(
         {
-          workspaceId: state.workspaceId,
+          organizationId: state.organizationId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "approve",
           resourceType: "skill", // capability rows are not yet their own ResourceType; skill is the closest governed registry token
@@ -8835,7 +8834,7 @@ export const appRouter = t.router({
           const candidate = candRuns.items.at(-1);
           const baseline = baseRuns.items.at(-1);
           if (candidate && baseline) {
-            const gates = resolveGates(await ctx.wiring.policyParams.get(state.workspaceId));
+            const gates = resolveGates(await ctx.wiring.policyParams.get(state.organizationId));
             const comparison = compareRuns(baseline, candidate, gates);
             whyBetter = buildWhyBetterCard(comparison, gates);
             if (comparison.verdict === "reject") {
@@ -8867,7 +8866,7 @@ export const appRouter = t.router({
       }
       const nextState = await ctx.wiring.capabilityStore.upsertState({
         manifestId: input.manifestId,
-        workspaceId: state.workspaceId,
+        organizationId: state.organizationId,
         state: result.nextState,
         ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
         suspended: state.suspended,
@@ -8879,21 +8878,21 @@ export const appRouter = t.router({
 
     /**
      * Activate: enforces requiredApproval (risk band x audience x trust grants)
-     * + the daily auto-activation budgets + the workspace kill switch before
+     * + the daily auto-activation budgets + the organization kill switch before
      * treating an activation as auto-approved. A non-"auto" outcome does NOT
      * activate here — it reports the required approval band back to the
      * caller, which routes to `approve` (governance/explicit_human) or a
      * user-pref confirmation UI, matching "Generation != activation."
      */
     activate: procedure.input(capabilityActivateInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
+      assertPilotOrganization(input.organizationId);
       const manifestRow = await ctx.wiring.capabilityStore.getManifest(input.manifestId);
       if (!manifestRow) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest" });
       const state = await ctx.wiring.capabilityStore.getState(input.manifestId);
       if (!state) throw new TRPCError({ code: "NOT_FOUND", message: "unknown capability manifest state" });
 
       const decision = await resolveActivationApproval({
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         riskBand: manifestRow.computedRisk,
         audience: manifestRow.audience,
         trustGrants: [], // trust_grants lookup is a store-layer follow-up; none in force yet
@@ -8907,11 +8906,11 @@ export const appRouter = t.router({
       }
 
       if (decision.budgeted && (manifestRow.computedRisk === "informational" || manifestRow.computedRisk === "advisory")) {
-        await ctx.wiring.capabilityBudgets.recordAutoActivation(input.workspaceId, manifestRow.computedRisk, input.todayKey);
+        await ctx.wiring.capabilityBudgets.recordAutoActivation(input.organizationId, manifestRow.computedRisk, input.todayKey);
       }
       const nextState = await ctx.wiring.capabilityStore.upsertState({
         manifestId: input.manifestId,
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         state: "active",
         suspended: false,
         evidence: state.evidence,
@@ -8926,7 +8925,7 @@ export const appRouter = t.router({
       const result = suspendOnFailure(input.reason);
       return ctx.wiring.capabilityStore.upsertState({
         manifestId: input.manifestId,
-        workspaceId: state.workspaceId,
+        organizationId: state.organizationId,
         state: state.state,
         ...(state.trustedUntil ? { trustedUntil: state.trustedUntil } : {}),
         suspended: result.suspended,
@@ -8942,7 +8941,7 @@ export const appRouter = t.router({
       const result = demoteOnDependencyChange(state.state, { creationRequiredApproval: false });
       return ctx.wiring.capabilityStore.upsertState({
         manifestId: input.manifestId,
-        workspaceId: state.workspaceId,
+        organizationId: state.organizationId,
         state: result.nextState,
         suspended: state.suspended,
         ...(state.suspendReason ? { suspendReason: state.suspendReason } : {}),
@@ -8951,8 +8950,8 @@ export const appRouter = t.router({
     }),
 
     list: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      const { items, total } = await ctx.wiring.capabilityStore.listManifests(input.workspaceId, {
+      assertPilotOrganization(input.organizationId);
+      const { items, total } = await ctx.wiring.capabilityStore.listManifests(input.organizationId, {
         limit: input.limit,
         offset: input.offset,
       });
@@ -9001,7 +9000,7 @@ export const appRouter = t.router({
       }
       const nextState = await ctx.wiring.capabilityStore.upsertState({
         manifestId: input.manifestId,
-        workspaceId: state.workspaceId,
+        organizationId: state.organizationId,
         state: result.nextState,
         ...(result.trustedUntil ? { trustedUntil: result.trustedUntil } : {}),
         suspended: state.suspended,
@@ -9014,16 +9013,16 @@ export const appRouter = t.router({
     /**
      * GOV-1 — Governance Agent org-health rollup (agent-quality doc §7):
      * autonomy-pressure / trust-debt / approval-load / violation-trend as a pure
-     * view over the workspace's REAL capability manifests + states. Pending
+     * view over the organization's REAL capability manifests + states. Pending
      * proposals are the capabilities awaiting a governed approve/activate
      * decision (state validated|approved), risk = computedRisk. `violationSeries`
      * is an honest empty until a violation-history view lands (no fabricated
-     * data — see CLAUDE.md's no-dummy-data rule). Renders for a workspace.
+     * data — see CLAUDE.md's no-dummy-data rule). Renders for a organization.
      */
     orgHealth: procedure.input(paginatedInput).query(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
+      assertPilotOrganization(input.organizationId);
       const nowMs = Date.parse(ctx.run.clock.nowISO());
-      const { items } = await ctx.wiring.capabilityStore.listManifests(input.workspaceId, {
+      const { items } = await ctx.wiring.capabilityStore.listManifests(input.organizationId, {
         limit: input.limit,
         offset: input.offset,
       });
@@ -9053,36 +9052,36 @@ export const appRouter = t.router({
   }),
 
   /**
-   * P2 Capability packages (docs/raw/capability-package-format.md, ADR-018) —
+   * P2 Capability modules (docs/raw/capability-module-format.md, ADR-018) —
    * the shipping unit ABOVE one capability_manifests row. Mirrors the
    * `capability` router's shape one level up: `register` always creates a
    * `private`-state installation row (generation != activation, same
    * invariant); `install` is the governed step — computes risk over the FULL
-   * bundled+dependency closure (computePackageRisk), applies the lethal-
+   * bundled+dependency closure (computeModuleRisk), applies the lethal-
    * trifecta union check, then routes through the SAME pipeline
-   * propose/decide semantics `capability.approve`/`workspace.blueprint.activate`
+   * propose/decide semantics `capability.approve`/`organization.blueprint.activate`
    * use (external band = same non-removable hard floor). `promote`/`rollback`
-   * enforce single-live-version-per-workspace (packages/core/src/package/
+   * enforce single-live-version-per-organization (packages/core/src/module/
    * lifecycle.ts) — promoting auto-demotes the prior available version;
    * rollback forks a NEW draft from history, never an in-place revert.
    */
-  packages: t.router({
+  modules: t.router({
     /** Real local-plane File inventory for one installed Module. */
     files: authenticatedProcedure
-      .input(z.object({ workspaceId: z.string().min(1), moduleName: z.string().min(1) }))
+      .input(z.object({ organizationId: z.string().min(1), moduleName: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const installation = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.moduleName);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.moduleName);
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
         }
         try {
-          return await ctx.wiring.workspaceStore.withLockedWorkspaceFiles(
-            input.workspaceId,
+          return await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+            input.organizationId,
             (organization) => listModuleFiles(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.packageName,
+              installation.manifest.module?.displayName ?? installation.moduleName,
               200,
               ctx.wiring.moduleFilesBridgeRoot,
             ),
@@ -9097,7 +9096,7 @@ export const appRouter = t.router({
 
     addFile: authenticatedProcedure
       .input(z.object({
-        workspaceId: z.string().min(1),
+        organizationId: z.string().min(1),
         moduleName: z.string().min(1),
         fileName: z.string().trim().min(1).max(255),
         contentBase64: z.string().max(Math.ceil(MAX_MODULE_FILE_BYTES * 4 / 3) + 4).regex(
@@ -9106,9 +9105,9 @@ export const appRouter = t.router({
         ),
       }))
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const installation = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.moduleName);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.moduleName);
         if (!installation || installation.status !== "installed") {
           throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.moduleName}" not found` });
         }
@@ -9120,11 +9119,11 @@ export const appRouter = t.router({
           });
         }
         try {
-          return await ctx.wiring.workspaceStore.withLockedWorkspaceFiles(
-            input.workspaceId,
+          return await ctx.wiring.organizationStore.withLockedOrganizationFiles(
+            input.organizationId,
             (organization) => saveModuleFile(
               organization.name,
-              installation.manifest.module?.displayName ?? installation.packageName,
+              installation.manifest.module?.displayName ?? installation.moduleName,
               input.fileName,
               content,
               ctx.wiring.moduleFilesBridgeRoot,
@@ -9138,24 +9137,24 @@ export const appRouter = t.router({
         }
       }),
 
-    /** Register a package manifest. Always creates state=private, status=
+    /** Register a module manifest. Always creates state=private, status=
      * pending_review — no risk computed yet (that happens at `install`). */
-    register: procedure.input(packageRegisterInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      let manifest: PackageManifest;
+    register: procedure.input(moduleRegisterInput).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      let manifest: ModuleManifest;
       try {
-        manifest = parsePackageManifest(input.manifest);
+        manifest = parseModuleManifest(input.manifest);
       } catch (err) {
-        if (err instanceof PackageManifestValidationError) {
+        if (err instanceof ModuleManifestValidationError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         throw err;
       }
-      const created = await ctx.wiring.packageStore.create({
-        workspaceId: input.workspaceId,
-        packageName: manifest.name,
-        packageVersion: manifest.version,
+      const created = await ctx.wiring.moduleStore.create({
+        organizationId: input.organizationId,
+        moduleName: manifest.name,
+        moduleVersion: manifest.version,
         manifest,
         computedRisk: "informational", // not yet computed — install() computes it
         state: "private",
@@ -9167,26 +9166,26 @@ export const appRouter = t.router({
 
     /**
      * Install = a governed proposal through the EXISTING pipeline, exactly
-     * like `capability.approve` (docs/raw/capability-package-format.md §2).
-     * Computes risk over the package's own capabilities AND every resolvable
-     * package dependency's capabilities, applies the lethal-trifecta union
+     * like `capability.approve` (docs/raw/capability-module-format.md §2).
+     * Computes risk over the module's own capabilities AND every resolvable
+     * module dependency's capabilities, applies the lethal-trifecta union
      * check (private-read + untrusted-ingest + egress ACROSS different bundled
      * capabilities still escalates to `external`), then defers to
      * requiredApproval/resolveActivationApproval via the same pipeline round
      * trip `capability.approve` uses — an agent can never resolve this, and
      * every attempt is audited whether auto-resolved or parked pending_review.
      */
-    install: procedure.input(packageInstallInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      const installation = await ctx.wiring.packageStore.get(input.installationId);
-      if (!installation || installation.workspaceId !== input.workspaceId) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+    install: procedure.input(moduleInstallInput).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const installation = await ctx.wiring.moduleStore.get(input.installationId);
+      if (!installation || installation.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "unknown module installation" });
       }
       if (installation.state !== "private") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `package installation must be private before install, got ${installation.state}`,
+          message: `module installation must be private before install, got ${installation.state}`,
         });
       }
       const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
@@ -9209,9 +9208,9 @@ export const appRouter = t.router({
 
       // Resolve capability dependencies (by manifestId, ignoring versionRange —
       // capability-level dependency resolution is unversioned in the existing
-      // capability.register path too) via the workspace's registered capability
-      // manifests, and package dependencies via other installations of this
-      // workspace's package store (name+version exact match, per the no-ranges rule).
+      // capability.register path too) via the organization's registered capability
+      // manifests, and module dependencies via other installations of this
+      // organization's module store (name+version exact match, per the no-ranges rule).
       const capDepRows = new Map<string, CapabilityManifestRow>();
       const bundledCapabilities = new Map<string, CapabilityManifest>();
       for (const capability of installation.manifest.capabilities) {
@@ -9243,9 +9242,9 @@ export const appRouter = t.router({
           dependencies: row.dependencies,
         };
       };
-      const { items: allInstallations } = await ctx.wiring.packageStore.list(input.workspaceId, { limit: 10000, offset: 0 });
-      const verifiedCommonsDependencies = new Map<string, PackageManifest>();
-      const verifiedDependencyInstallations = new Map<string, PackageInstallationRow>();
+      const { items: allInstallations } = await ctx.wiring.moduleStore.list(input.organizationId, { limit: 10000, offset: 0 });
+      const verifiedCommonsDependencies = new Map<string, ModuleManifest>();
+      const verifiedDependencyInstallations = new Map<string, ModuleInstallationRow>();
       if (installation.moduleAttachment) {
         const rootEntry = currentCommonsEntry!;
         const pins = new Map<string, string>(
@@ -9253,7 +9252,7 @@ export const appRouter = t.router({
             ?.map((pin) => [`${pin.name}@${pin.version}`, pin.contentHash] as const) ?? [],
         );
         const visited = new Set<string>();
-        const verifyDependencyClosure = async (manifest: PackageManifest): Promise<void> => {
+        const verifyDependencyClosure = async (manifest: ModuleManifest): Promise<void> => {
           for (const dependency of manifest.dependencies) {
             const key = `${dependency.manifestId}@${dependency.version}`;
             if (visited.has(key)) continue;
@@ -9276,10 +9275,10 @@ export const appRouter = t.router({
             }
             const local = allInstallations.find(
               (candidate) =>
-                candidate.packageName === dependency.manifestId &&
-                candidate.packageVersion === dependency.version &&
+                candidate.moduleName === dependency.manifestId &&
+                candidate.moduleVersion === dependency.version &&
                 candidate.moduleAttachment?.source === "commons" &&
-                candidate.moduleAttachment.modulePackageName === installation.moduleAttachment?.modulePackageName &&
+                candidate.moduleAttachment.ownerModuleName === installation.moduleAttachment?.ownerModuleName &&
                 candidate.moduleAttachment.agentId === installation.moduleAttachment?.agentId &&
                 candidate.moduleAttachment.needId === installation.moduleAttachment?.needId &&
                 candidate.moduleAttachment.contentHash === expectedHash,
@@ -9318,15 +9317,15 @@ export const appRouter = t.router({
           if (row) capDepRows.set(dependency.manifestId, row);
         }
       }
-      const resolvePackageDependency = (name: string, version: string) =>
+      const resolveModuleDependency = (name: string, version: string) =>
         installation.moduleAttachment
           ? verifiedCommonsDependencies.get(`${name}@${version}`)
-          : allInstallations.find((i) => i.packageName === name && i.packageVersion === version)?.manifest;
+          : allInstallations.find((i) => i.moduleName === name && i.moduleVersion === version)?.manifest;
 
-      const computedRisk = computePackageRisk(
+      const computedRisk = computeModuleRisk(
         installation.manifest,
         resolveCapabilityDependency,
-        resolvePackageDependency,
+        resolveModuleDependency,
       );
       const signedRiskFloor = installation.moduleAttachment
         ? installation.computedRisk
@@ -9337,9 +9336,9 @@ export const appRouter = t.router({
         effectiveRisk: maxRisk(computedRisk.effectiveRisk, signedRiskFloor),
       };
 
-      // Package-wide audience: the strictest (most-restrictive-raising) audience
+      // Module-wide audience: the strictest (most-restrictive-raising) audience
       // across its own bundled capabilities — mirrors raiseForAudience's
-      // "audience only ever raises, never lowers" contract at the package level.
+      // "audience only ever raises, never lowers" contract at the module level.
       const audiences = installCapabilities.map((c) => c.audience);
       const audience = audiences.includes("external_visible")
         ? "external_visible"
@@ -9347,7 +9346,7 @@ export const appRouter = t.router({
           ? "team"
           : "private";
 
-      // PKG-2 community-origin floor input: a package is treated at its
+      // PKG-2 community-origin floor input: a module is treated at its
       // LEAST-trusted capability origin — if any bundled capability is
       // community/user_code (untrusted), the whole install is floored there.
       const resolvedTrustGrants: TrustGrantView[] = []; // store-layer follow-up (same gap capability.activate has)
@@ -9356,7 +9355,7 @@ export const appRouter = t.router({
         : "built_in";
 
       const decision = await resolveActivationApproval({
-        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
         riskBand: risk.effectiveRisk,
         audience,
         // PKG-2 community-origin floor: an untrusted origin (community/user_code)
@@ -9368,14 +9367,14 @@ export const appRouter = t.router({
         todayKey: input.todayKey,
       });
 
-      // Every capability in the package is registered via the EXISTING
+      // Every capability in the module is registered via the EXISTING
       // capability.register path's semantics (draft state, never active) —
       // registration != activation, same invariant capability.register itself
       // enforces. This happens regardless of the approval outcome, mirroring
       // "install_flow.1_propose" in the format doc (registration precedes the
       // approval decision).
       //
-      // Idempotency (ADR-024): re-installing a package version whose bundled
+      // Idempotency (ADR-024): re-installing a module version whose bundled
       // capability keeps the SAME (name, version) must not collide with
       // `capability_manifests_uq`. Check-before-insert via
       // `getManifestByNameVersion` (the natural key the unique constraint
@@ -9385,7 +9384,7 @@ export const appRouter = t.router({
       const registeredManifestIds: string[] = [];
       for (const cap of installCapabilities) {
         const existingManifest = await ctx.wiring.capabilityStore.getManifestByNameVersion(
-          input.workspaceId,
+          input.organizationId,
           cap.name,
           cap.version,
         );
@@ -9418,7 +9417,7 @@ export const appRouter = t.router({
         if (!existingManifest) {
           await ctx.wiring.capabilityStore.createManifest({
             id: capId,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             capabilityType: cap.capabilityType,
             name: cap.name,
             version: cap.version,
@@ -9435,7 +9434,7 @@ export const appRouter = t.router({
         if (!existingState) {
           await ctx.wiring.capabilityStore.upsertState({
             manifestId: capId,
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             state: "draft",
             suspended: false,
             evidence: {},
@@ -9444,16 +9443,16 @@ export const appRouter = t.router({
         registeredManifestIds.push(capId);
       }
 
-      const rerisked = await ctx.wiring.packageStore.setComputedRisk(installation.id, risk.effectiveRisk);
+      const rerisked = await ctx.wiring.moduleStore.setComputedRisk(installation.id, risk.effectiveRisk);
 
       if (decision.requirement !== "auto") {
-        const proposalId = stablePackageInstallProposalId(input.workspaceId, installation.id);
+        const proposalId = stableModuleInstallProposalId(input.organizationId, installation.id);
         const priorDecision = await ctx.wiring.ledger.decisionFor(proposalId);
         if (priorDecision) {
           if (priorDecision.userDecision === "approve" || priorDecision.userDecision === "edit") {
-            const finalized = await activateApprovedPackageInstallation(
+            const finalized = await activateApprovedModuleInstallation(
               ctx.wiring,
-              input.workspaceId,
+              input.organizationId,
               installation.id,
             );
             return {
@@ -9467,27 +9466,27 @@ export const appRouter = t.router({
           }
           throw new TRPCError({
             code: "CONFLICT",
-            message: "package install proposal was vetoed; stage a new signed package version to retry",
+            message: "module install proposal was vetoed; stage a new signed module version to retry",
           });
         }
         let proposal: Proposal | null = await findPendingProposalById(
           ctx.wiring,
-          input.workspaceId,
+          input.organizationId,
           proposalId,
         );
         if (!proposal) {
           try {
             proposal = await ctx.wiring.pipeline.propose(
               {
-                workspaceId: input.workspaceId,
+                organizationId: input.organizationId,
                 actor: { type: ctx.identity.type, id: ctx.identity.id },
                 action: "write",
-                resourceType: "signal", // governed install intent; package_installation is not yet a kernel ResourceType
+                resourceType: "signal", // governed install intent; module_installation is not yet a kernel ResourceType
                 resourceId: installation.id,
                 inputs: {
-                  operation: "package_install",
+                  operation: "module_install",
                   installationId: installation.id,
-                  packageName: installation.packageName,
+                  moduleName: installation.moduleName,
                   effectiveRisk: risk.effectiveRisk,
                 },
                 skill: "stageMutation",
@@ -9496,56 +9495,56 @@ export const appRouter = t.router({
               { proposalId, requireHumanReview: true },
             );
           } catch (cause) {
-            proposal = await findPendingProposalById(ctx.wiring, input.workspaceId, proposalId);
+            proposal = await findPendingProposalById(ctx.wiring, input.organizationId, proposalId);
             if (!proposal) throw cause;
           }
         }
         if (proposal.status !== "pending_review") {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: proposal.rejectionReason ?? "package install proposal did not reach Human review",
+            message: proposal.rejectionReason ?? "module install proposal did not reach Human review",
           });
         }
         return { installed: false, decision, risk, proposal, installation: rerisked, registeredManifestIds };
       }
 
       if (decision.budgeted && (risk.effectiveRisk === "informational" || risk.effectiveRisk === "advisory")) {
-        await ctx.wiring.capabilityBudgets.recordAutoActivation(input.workspaceId, risk.effectiveRisk, input.todayKey);
+        await ctx.wiring.capabilityBudgets.recordAutoActivation(input.organizationId, risk.effectiveRisk, input.todayKey);
       }
 
       await assertCurrentCommonsAttachment(ctx.wiring, installation);
-      const installed = await ctx.wiring.packageStore.setStatus(installation.id, "installed");
-      const installedWithRisk: PackageInstallationRow = { ...installed, computedRisk: risk.effectiveRisk };
+      const installed = await ctx.wiring.moduleStore.setStatus(installation.id, "installed");
+      const installedWithRisk: ModuleInstallationRow = { ...installed, computedRisk: risk.effectiveRisk };
       for (const dependency of verifiedDependencyInstallations.values()) {
-        await ctx.wiring.packageStore.setComputedRisk(
+        await ctx.wiring.moduleStore.setComputedRisk(
           dependency.id,
           maxRisk(dependency.computedRisk, risk.effectiveRisk),
         );
-        await ctx.wiring.packageStore.setStatus(dependency.id, "installed");
+        await ctx.wiring.moduleStore.setStatus(dependency.id, "installed");
         let promotable = dependency;
         if (promotable.state === "private") {
-          promotable = await ctx.wiring.packageStore.setState(promotable.id, "promoted");
+          promotable = await ctx.wiring.moduleStore.setState(promotable.id, "promoted");
         }
         if (promotable.state === "promoted") {
-          const currentAvailable = await ctx.wiring.packageStore.getAvailable(
-            input.workspaceId,
-            promotable.packageName,
+          const currentAvailable = await ctx.wiring.moduleStore.getAvailable(
+            input.organizationId,
+            promotable.moduleName,
             promotable.moduleAttachment,
           );
           const promotion = promoteToAvailable(promotable, currentAvailable);
-          await ctx.wiring.packageStore.setState(
+          await ctx.wiring.moduleStore.setState(
             promotion.promoted.installationId,
             promotion.promoted.nextState,
           );
           if (promotion.demoted) {
-            await ctx.wiring.packageStore.setState(
+            await ctx.wiring.moduleStore.setState(
               promotion.demoted.installationId,
               promotion.demoted.nextState,
             );
           }
         }
       }
-      const advanced = await ctx.wiring.packageStore.setState(installation.id, advancePackageState(installation.state));
+      const advanced = await ctx.wiring.moduleStore.setState(installation.id, advanceModuleState(installation.state));
       return {
         installed: true,
         decision,
@@ -9560,28 +9559,28 @@ export const appRouter = t.router({
       .mutation(async ({ input, ctx }) => {
         const proposal = await ctx.wiring.ledger.get(input.proposalId);
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
-        assertPilotWorkspace(proposal.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
-        const installationId = packageInstallIdFromProposal(proposal);
+        assertPilotOrganization(proposal.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, proposal.organizationId, ctx.identity.id);
+        const installationId = moduleInstallIdFromProposal(proposal);
         if (!installationId) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "proposal is not a package install approval" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "proposal is not a module install approval" });
         }
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision?.userDecision !== "approve" && decision?.userDecision !== "edit") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "package install proposal is not approved" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "module install proposal is not approved" });
         }
-        const installation = await activateApprovedPackageInstallation(
+        const installation = await activateApprovedModuleInstallation(
           ctx.wiring,
-          proposal.workspaceId,
+          proposal.organizationId,
           installationId,
         );
         return { installation, proposalId: input.proposalId };
       }),
 
     list: authenticatedProcedure.input(paginatedInput).query(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      const { items, total } = await ctx.wiring.packageStore.list(input.workspaceId, {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const { items, total } = await ctx.wiring.moduleStore.list(input.organizationId, {
         limit: input.limit,
         offset: input.offset,
       });
@@ -9592,10 +9591,10 @@ export const appRouter = t.router({
           const runtimeBindingIssues: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
             if (!automation.automationId) continue;
-            const automationId = resolveModuleAutomationRuntimeId(installation.packageName, automation.automationId);
-            const agentId = resolveModuleAgentRuntimeId(installation.packageName, automation.agentId);
+            const automationId = resolveModuleAutomationRuntimeId(installation.moduleName, automation.automationId);
+            const agentId = resolveModuleAgentRuntimeId(installation.moduleName, automation.agentId);
             const definition = automationId
-              ? await ctx.wiring.automationRegistry.load(input.workspaceId, automationId)
+              ? await ctx.wiring.automationRegistry.load(input.organizationId, automationId)
               : null;
             if (automationId && agentId && definition?.agentId === agentId) {
               runtimeAutomationIds.push(automation.id);
@@ -9647,45 +9646,45 @@ export const appRouter = t.router({
       };
     }),
 
-    get: authenticatedProcedure.input(packageIdInput).query(async ({ input, ctx }) => {
-      const installation = await ctx.wiring.packageStore.get(input.installationId);
-      if (!installation) throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
-      await assertMembership(ctx.wiring.workspaceStore, installation.workspaceId, ctx.identity.id);
+    get: authenticatedProcedure.input(moduleIdInput).query(async ({ input, ctx }) => {
+      const installation = await ctx.wiring.moduleStore.get(input.installationId);
+      if (!installation) throw new TRPCError({ code: "NOT_FOUND", message: "unknown module installation" });
+      await assertMembership(ctx.wiring.organizationStore, installation.organizationId, ctx.identity.id);
       return { installation };
     }),
 
     /**
      * Promote a `promoted`-state installation to `available`, auto-demoting
-     * whatever installation is currently `available` for the same package
-     * name in this workspace — never two live versions side by side
-     * (packages/core/src/package/lifecycle.ts's promoteToAvailable).
+     * whatever installation is currently `available` for the same module
+     * name in this organization — never two live versions side by side
+     * (packages/core/src/module/lifecycle.ts's promoteToAvailable).
      */
-    promote: procedure.input(packagePromoteInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      const target = await ctx.wiring.packageStore.get(input.installationId);
-      if (!target || target.workspaceId !== input.workspaceId) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "unknown package installation" });
+    promote: procedure.input(modulePromoteInput).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const target = await ctx.wiring.moduleStore.get(input.installationId);
+      if (!target || target.organizationId !== input.organizationId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "unknown module installation" });
       }
       const currentCommonsEntry = await assertCurrentCommonsAttachment(ctx.wiring, target);
       await verifiedCommonsDependencyInstallations(ctx.wiring, target, currentCommonsEntry);
-      const currentlyAvailable = await ctx.wiring.packageStore.getAvailable(
-        input.workspaceId,
-        target.packageName,
+      const currentlyAvailable = await ctx.wiring.moduleStore.getAvailable(
+        input.organizationId,
+        target.moduleName,
         target.moduleAttachment,
       );
       let result;
       try {
         result = promoteToAvailable(target, currentlyAvailable);
       } catch (err) {
-        if (err instanceof InvalidPackageTransitionError || err instanceof Error) {
+        if (err instanceof InvalidModuleTransitionError || err instanceof Error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         throw err;
       }
-      const promoted = await ctx.wiring.packageStore.setState(result.promoted.installationId, result.promoted.nextState);
+      const promoted = await ctx.wiring.moduleStore.setState(result.promoted.installationId, result.promoted.nextState);
       if (result.demoted) {
-        await ctx.wiring.packageStore.setState(result.demoted.installationId, result.demoted.nextState);
+        await ctx.wiring.moduleStore.setState(result.demoted.installationId, result.demoted.nextState);
       }
       return { installation: promoted };
     }),
@@ -9696,23 +9695,23 @@ export const appRouter = t.router({
      * other Bridge mutation). The forked row still needs its own `install` to
      * go live — rollback alone does not activate it.
      */
-    rollback: procedure.input(packageRollbackInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
-      await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-      const rollbackTarget = await ctx.wiring.packageStore.get(input.rollbackTargetId);
-      if (!rollbackTarget || rollbackTarget.workspaceId !== input.workspaceId) {
+    rollback: procedure.input(moduleRollbackInput).mutation(async ({ input, ctx }) => {
+      assertPilotOrganization(input.organizationId);
+      await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+      const rollbackTarget = await ctx.wiring.moduleStore.get(input.rollbackTargetId);
+      if (!rollbackTarget || rollbackTarget.organizationId !== input.organizationId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "unknown rollback target installation" });
       }
-      const currentAvailable = await ctx.wiring.packageStore.getAvailable(
-        input.workspaceId,
-        rollbackTarget.packageName,
+      const currentAvailable = await ctx.wiring.moduleStore.getAvailable(
+        input.organizationId,
+        rollbackTarget.moduleName,
         rollbackTarget.moduleAttachment,
       );
       if (!currentAvailable) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `package "${rollbackTarget.packageName}" has no currently-available version to roll back from` });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `module "${rollbackTarget.moduleName}" has no currently-available version to roll back from` });
       }
       const forked = rollbackFromHistory({ currentAvailable, rollbackTarget });
-      const created = await ctx.wiring.packageStore.create(forked);
+      const created = await ctx.wiring.moduleStore.create(forked);
       return { installation: created };
     }),
   }),
@@ -9727,16 +9726,16 @@ export const appRouter = t.router({
   // Governance notes:
   //  - list/get/getVersion are read queries, no auth guard needed (same policy
   //    as every other .query in this router).
-  //  - installPropose is a mutation → requireAuthOnMutation applies (SEC-1).
+  //  - installPropose is a mutation, so the authenticated procedure gate applies.
   //    It fetches from the registry (PKG-2 verify-on-install via HttpCommonsClient),
-  //    registers the manifest in the workspace package store (state=private), and
-  //    returns the installationId. The caller then calls `packages.install` for the
+  //    registers the manifest in the organization module store (state=private), and
+  //    returns the installationId. The caller then calls `modules.install` for the
   //    full governed proposal → pipeline → approval flow — no logic duplication.
   //  - publishBuiltins is a mutation → same auth gate. Pushes curated built-in
-  //    packages to the running Commons service. Idempotent:
+  //    modules to the running Commons service. Idempotent:
   //    already-published versions are skipped, not failed.
-  //  - ALL mutations still go through requireAuthOnMutation (pipe middleware) and
-  //    withPilotWorkspaceGuard (error translation).
+  //  - ALL protected procedures still go through the authentication middleware and
+  //    withPilotOrganizationGuard (error translation).
   // ---------------------------------------------------------------------------
 
   commons: t.router({
@@ -9744,7 +9743,7 @@ export const appRouter = t.router({
     list: procedure
       .input(
         z.object({
-          kind: z.enum(["workspace_definition", "skill", "automation", "agent", "module", "view", "integration_bundle"]).optional(),
+          kind: z.enum(["organization_definition", "skill", "automation", "agent", "module", "view", "integration_bundle"]).optional(),
           tag: z.string().optional(),
           search: z.string().trim().min(1).optional(),
           limit: z.number().int().min(1).max(100).optional(),
@@ -9761,12 +9760,12 @@ export const appRouter = t.router({
         return ctx.wiring.commonsRegistry.listAvailable(query);
       }),
 
-    /** Package detail (latest + version history) for one package by name. */
+    /** Module detail (latest + version history) for one module by name. */
     get: procedure
       .input(z.object({ name: z.string().min(1) }))
       .query(async ({ input, ctx }) => {
-        const detail: CommonsPackageDetail | null = await ctx.wiring.commonsRegistry.get(input.name);
-        if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: `commons: package "${input.name}" not found` });
+        const detail: CommonsModuleDetail | null = await ctx.wiring.commonsRegistry.get(input.name);
+        if (!detail) throw new TRPCError({ code: "NOT_FOUND", message: `commons: module "${input.name}" not found` });
         return detail;
       }),
 
@@ -9782,34 +9781,34 @@ export const appRouter = t.router({
       }),
 
     /**
-     * Install-from-Commons Step 1: fetch a package from the registry (PKG-2
+     * Install-from-Commons Step 1: fetch a module from the registry (PKG-2
      * verify-on-install happens inside HttpCommonsClient.get/getVersion), validate
-     * its manifest, and register it in the workspace package store as a private
+     * its manifest, and register it in the organization module store as a private
      * installation. Returns the installationId so the caller can then drive the
-     * governed install flow via `packages.install(installationId, todayKey)`.
+     * governed install flow via `modules.install(installationId, todayKey)`.
      *
      * Separating fetch+register from install keeps the governed proposal logic
-     * inside the existing `packages.install` handler — no duplication.
+     * inside the existing `modules.install` handler — no duplication.
      */
     installPropose: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           name: z.string().min(1),
           /** Omit to install the latest version. */
           version: z.string().optional(),
-          modulePackageName: z.string().min(1),
+          ownerModuleName: z.string().min(1),
           agentId: z.string().min(1),
           needId: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
 
-        const ownerModule = await ctx.wiring.packageStore.getAvailable(input.workspaceId, input.modulePackageName);
+        const ownerModule = await ctx.wiring.moduleStore.getAvailable(input.organizationId, input.ownerModuleName);
         if (!ownerModule || ownerModule.status !== "installed" || !ownerModule.manifest.module) {
-          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.modulePackageName}" not found` });
+          throw new TRPCError({ code: "NOT_FOUND", message: `installed Module "${input.ownerModuleName}" not found` });
         }
         const need = ownerModule.manifest.module.commonsNeeds?.find((candidate) => candidate.id === input.needId);
         if (!need || need.agentId !== input.agentId) {
@@ -9826,7 +9825,7 @@ export const appRouter = t.router({
             code: "NOT_FOUND",
             message: input.version
               ? `commons: ${input.name}@${input.version} not found`
-              : `commons: package "${input.name}" not found`,
+              : `commons: module "${input.name}" not found`,
           });
         }
         try {
@@ -9838,21 +9837,21 @@ export const appRouter = t.router({
           });
         }
         if (entry.kind !== need.kind || !need.tags.every((tag) => entry.tags.includes(tag))) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons package does not satisfy the declared Module need" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Commons module does not satisfy the declared Module need" });
         }
 
-        // Re-validate the manifest at this seam (same guard packages.register uses).
-        let manifest: PackageManifest;
+        // Re-validate the manifest at this seam (same guard modules.register uses).
+        let manifest: ModuleManifest;
         try {
-          manifest = parsePackageManifest({ package: entry.manifest });
+          manifest = parseModuleManifest({ module: entry.manifest });
         } catch (err) {
-          if (err instanceof PackageManifestValidationError) {
+          if (err instanceof ModuleManifestValidationError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: `commons manifest invalid: ${err.message}` });
           }
           throw err;
         }
         if (manifest.capabilities.length === 0 || manifest.capabilities.some((capability) => capability.capabilityType !== "skill")) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Skill packages can attach beneath a Module Agent" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Only Skill modules can attach beneath a Module Agent" });
         }
 
         const dependencyPins = new Map<string, string>(
@@ -9861,7 +9860,7 @@ export const appRouter = t.router({
           ),
         );
         const staged = new Set<string>();
-        const stageDependencies = async (parent: PackageManifest): Promise<void> => {
+        const stageDependencies = async (parent: ModuleManifest): Promise<void> => {
           for (const dependency of parent.dependencies) {
             const key = `${dependency.manifestId}@${dependency.version}`;
             if (staged.has(key)) continue;
@@ -9885,10 +9884,10 @@ export const appRouter = t.router({
                 message: err instanceof Error ? err.message : `Commons dependency "${key}" failed trust verification`,
               });
             }
-            await ctx.wiring.packageStore.create({
-              workspaceId: input.workspaceId,
-              packageName: dependencyEntry.manifest.name,
-              packageVersion: dependencyEntry.manifest.version,
+            await ctx.wiring.moduleStore.create({
+              organizationId: input.organizationId,
+              moduleName: dependencyEntry.manifest.name,
+              moduleVersion: dependencyEntry.manifest.version,
               manifest: dependencyEntry.manifest,
               computedRisk: dependencyEntry.securityScan.riskBand,
               state: "private",
@@ -9896,7 +9895,7 @@ export const appRouter = t.router({
               lineageManifestId: dependencyEntry.manifest.lineageManifestId,
               moduleAttachment: {
                 source: "commons",
-                modulePackageName: ownerModule.packageName,
+                ownerModuleName: ownerModule.moduleName,
                 agentId: input.agentId,
                 needId: input.needId,
                 contentHash: dependencyEntry.integrity.value,
@@ -9910,12 +9909,12 @@ export const appRouter = t.router({
         };
         await stageDependencies(manifest);
 
-        // Register as a private installation — same as packages.register, but the
+        // Register as a private installation — same as modules.register, but the
         // manifest source is the verified Commons entry, not a user-supplied object.
-        const created = await ctx.wiring.packageStore.create({
-          workspaceId: input.workspaceId,
-          packageName: manifest.name,
-          packageVersion: manifest.version,
+        const created = await ctx.wiring.moduleStore.create({
+          organizationId: input.organizationId,
+          moduleName: manifest.name,
+          moduleVersion: manifest.version,
           manifest,
           computedRisk: entry.securityScan.riskBand,
           state: "private",
@@ -9923,7 +9922,7 @@ export const appRouter = t.router({
           lineageManifestId: manifest.lineageManifestId,
           moduleAttachment: {
             source: "commons",
-            modulePackageName: ownerModule.packageName,
+            ownerModuleName: ownerModule.moduleName,
             agentId: input.agentId,
             needId: input.needId,
             contentHash: entry.integrity.value,
@@ -9936,15 +9935,15 @@ export const appRouter = t.router({
     runInstalledSkill: procedure
       .input(
         z.object({
-          workspaceId: z.string().min(1),
+          organizationId: z.string().min(1),
           installationId: z.string().min(1),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const installation = await ctx.wiring.packageStore.get(input.installationId);
-        if (!installation || installation.workspaceId !== input.workspaceId) {
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const installation = await ctx.wiring.moduleStore.get(input.installationId);
+        if (!installation || installation.organizationId !== input.organizationId) {
           throw new TRPCError({ code: "NOT_FOUND", message: "unknown Commons installation" });
         }
         if (installation.state !== "available" || installation.status !== "installed") {
@@ -9990,7 +9989,7 @@ export const appRouter = t.router({
           });
         }
         const runtimeAgentId = resolveModuleAgentRuntimeId(
-          attachment.modulePackageName,
+          attachment.ownerModuleName,
           attachment.agentId,
         );
         if (runtimeAgentId !== LEARNING_AGENT) {
@@ -10001,7 +10000,7 @@ export const appRouter = t.router({
         }
         const recommendation = await latestApprovedRoleModelRecommendation(
           ctx.wiring,
-          input.workspaceId,
+          input.organizationId,
           ctx.identity.id,
         );
         if (!recommendation) {
@@ -10014,19 +10013,19 @@ export const appRouter = t.router({
           ctx.wiring,
           ctx.run,
           ctx.identity.id,
-          input.workspaceId,
+          input.organizationId,
           recommendation,
           {
             source: "commons",
             installationId: installation.id,
-            packageName: entry.name,
-            packageVersion: entry.version,
+            moduleName: entry.name,
+            moduleVersion: entry.version,
             contentHash: attachment.contentHash,
             moduleInstallationId: ownerModule.id,
-            modulePackageName: attachment.modulePackageName,
-            modulePackageVersion: ownerModule.packageVersion,
-            moduleManifestHash: packageManifestHash(ownerModule.manifest),
-            moduleAgentId: attachment.agentId,
+            ownerModuleName: attachment.ownerModuleName,
+            ownerModuleVersion: ownerModule.moduleVersion,
+            ownerModuleManifestHash: moduleManifestHash(ownerModule.manifest),
+            ownerModuleAgentId: attachment.agentId,
             runtimeAgentId,
             capabilityId: LEARNING_RECOMMENDATION_SKILL_ID,
           },
@@ -10034,7 +10033,7 @@ export const appRouter = t.router({
       }),
 
     /**
-     * Publish curated built-in packages to the running
+     * Publish curated built-in modules to the running
      * Commons service. Idempotent: already-published versions are skipped.
      * This is the runtime equivalent of `pnpm --filter @bridge/api publish-builtins`.
      * Requires authentication (mutation guard) to prevent arbitrary callers from
@@ -10045,7 +10044,7 @@ export const appRouter = t.router({
       const skipped: string[] = [];
       const failed: { name: string; reason: string }[] = [];
 
-      for (const { manifest, commons } of COMMONS_BUILT_IN_PACKAGES) {
+      for (const { manifest, commons } of COMMONS_BUILT_IN_MODULES) {
         try {
           await ctx.wiring.commonsRegistry.publish(manifest, {
             tags: commons.tags,
@@ -10106,14 +10105,14 @@ export const appRouter = t.router({
      * reply, "best-so-far", once the cap is hit rather than erroring the turn).
      */
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
-      assertPilotWorkspace(input.workspaceId);
+      assertPilotOrganization(input.organizationId);
 
       // Resolve the Chief-of-Staff persona server-side from stored onboarding
       // context. Avatar style is intentionally absent: visual choice never
       // changes an Agent's tone, authority, or behavior.
-      const profileRow = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+      const profileRow = await ctx.wiring.onboardingProfileStore.get(input.organizationId);
       const profile = profileRow ? profileFromRow(profileRow) : undefined;
-      const cosPersona = buildChiefOfStaffPersona(profile ?? { workspaceId: input.workspaceId, source: "onboarding" });
+      const cosPersona = buildChiefOfStaffPersona(profile ?? { organizationId: input.organizationId, source: "onboarding" });
       // Additive, display-only projection of the resolved CoS identity so the
       // client/avatar can reflect it — two different profiles yield two different
       // persona cards, observable at the API boundary. Never carries authority.
@@ -10189,7 +10188,7 @@ export const appRouter = t.router({
 
         const proposal = await ctx.wiring.pipeline.propose(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             actor: { type: ctx.identity.type, id: ctx.identity.id },
             action: "execute",
             resourceType: "skill",
@@ -10250,7 +10249,7 @@ export const appRouter = t.router({
       const target = CHIEF_OF_STAFF_REGISTRY.find((c) => c.id === decision.route);
       const proposal = await ctx.wiring.pipeline.propose(
         {
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           actor: { type: ctx.identity.type, id: ctx.identity.id },
           action: "execute",
           resourceType: "skill",
@@ -10283,40 +10282,40 @@ export const appRouter = t.router({
   agentOrchestration: t.router({
     goal: t.router({
       create: authenticatedProcedure.input(goalCreateInput).mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
         return ctx.wiring.goalTasks.createGoal(
-          { workspaceId: input.workspaceId, type: input.type, title: input.title },
+          { organizationId: input.organizationId, type: input.type, title: input.title },
           { nextId: () => ctx.run.ids.next(), nowISO: () => ctx.run.clock.nowISO() },
         );
       }),
       list: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        return ctx.wiring.goalTasks.listGoals(input.workspaceId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        return ctx.wiring.goalTasks.listGoals(input.organizationId);
       }),
     }),
 
     task: t.router({
       create: authenticatedProcedure.input(taskCreateInput).mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
-        const [agentWorkspaceId, agentActive] = await Promise.all([
-          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.organizationId, input.goalId);
+        const [agentOrganizationId, agentActive] = await Promise.all([
+          ctx.wiring.agents.organizationId(input.assignedAgentId),
           ctx.wiring.agents.isActive(input.assignedAgentId),
         ]);
         if (!goal) {
           throw new TRPCError({ code: "NOT_FOUND", message: `unknown goal ${input.goalId}` });
         }
-        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        if (agentOrganizationId !== input.organizationId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this organization" });
         }
         return ctx.wiring.goalTasks.createTask(
           {
-            workspaceId: input.workspaceId,
+            organizationId: input.organizationId,
             goalId: input.goalId,
             type: input.type,
             assignedAgentId: input.assignedAgentId,
@@ -10325,26 +10324,26 @@ export const appRouter = t.router({
         );
       }),
       listByGoal: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), goalId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), goalId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          return ctx.wiring.goalTasks.listTasksByGoal(input.workspaceId, input.goalId);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.goalTasks.listTasksByGoal(input.organizationId, input.goalId);
         }),
       /** The ONLY thing that changes governed-Skill eligibility for a Task —
        * never a Skill manifest's `defaultAgents` preference list. */
       reassign: authenticatedProcedure.input(taskReassignInput).mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const [agentWorkspaceId, agentActive] = await Promise.all([
-          ctx.wiring.agents.workspaceId(input.assignedAgentId),
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const [agentOrganizationId, agentActive] = await Promise.all([
+          ctx.wiring.agents.organizationId(input.assignedAgentId),
           ctx.wiring.agents.isActive(input.assignedAgentId),
         ]);
-        if (agentWorkspaceId !== input.workspaceId || !agentActive) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this workspace" });
+        if (agentOrganizationId !== input.organizationId || !agentActive) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "assigned Agent is not active in this organization" });
         }
         return ctx.wiring.goalTasks.reassignTask(
-          input.workspaceId,
+          input.organizationId,
           input.taskId,
           input.assignedAgentId,
         );
@@ -10355,28 +10354,28 @@ export const appRouter = t.router({
       /** Read-only preview of AGS1 resolution — never invokes the Skill. Lets
        * the UI show WHY an Agent is (or is not) eligible before a real call. */
       resolve: authenticatedProcedure.input(resolveSkillInput).query(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const goal = await ctx.wiring.goalTasks.getGoal(input.workspaceId, input.goalId);
-        const task = await ctx.wiring.goalTasks.getTask(input.workspaceId, input.taskId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const goal = await ctx.wiring.goalTasks.getGoal(input.organizationId, input.goalId);
+        const task = await ctx.wiring.goalTasks.getTask(input.organizationId, input.taskId);
         if (!goal || !task || task.goalId !== goal.id) {
           throw new TRPCError({ code: "NOT_FOUND", message: "unknown or mismatched Goal/Task" });
         }
-        const [agentScope, agentDataScope, agentWorkspaceId, agentActive] = await Promise.all([
+        const [agentScope, agentDataScope, agentOrganizationId, agentActive] = await Promise.all([
           ctx.wiring.agents.capabilityScope(input.agentId),
           ctx.wiring.agents.dataScope(input.agentId),
-          ctx.wiring.agents.workspaceId(input.agentId),
+          ctx.wiring.agents.organizationId(input.agentId),
           ctx.wiring.agents.isActive(input.agentId),
         ]);
         const candidates = input.skillId
-          ? ctx.wiring.skillManifests.forSkill(input.workspaceId, input.skillId)
-          : ctx.wiring.skillManifests.all(input.workspaceId);
+          ? ctx.wiring.skillManifests.forSkill(input.organizationId, input.skillId)
+          : ctx.wiring.skillManifests.all(input.organizationId);
         return resolveSkillForTask(candidates, {
           goal,
           task,
           agent: {
             id: input.agentId,
-            workspaceId: agentWorkspaceId,
+            organizationId: agentOrganizationId,
             active: agentActive,
             capabilityScope: agentScope,
             plane: "local",
@@ -10390,19 +10389,19 @@ export const appRouter = t.router({
 
     childRun: t.router({
       get: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), childRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          return ctx.wiring.childAgentRuns.get(input.workspaceId, input.childRunId);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.get(input.organizationId, input.childRunId);
         }),
 
       listByParentRun: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), parentRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), parentRunId: z.string().min(1) }))
         .query(async ({ input, ctx }) => {
-          assertPilotWorkspace(input.workspaceId);
-          await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          return ctx.wiring.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+          assertPilotOrganization(input.organizationId);
+          await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+          return ctx.wiring.childAgentRuns.listByParentRun(input.organizationId, input.parentRunId);
         }),
 
       /** Governance/Human may stop any child Run within policy. The acting
@@ -10427,11 +10426,11 @@ export const appRouter = t.router({
        * child-Run-only transition for every other (non-culture) child Run.
        */
       cancel: authenticatedProcedure
-        .input(z.object({ workspaceId: z.string().min(1), childRunId: z.string().min(1) }))
+        .input(z.object({ organizationId: z.string().min(1), childRunId: z.string().min(1) }))
         .mutation(async ({ input, ctx }) => {
-        assertPilotWorkspace(input.workspaceId);
-        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-        const cultureFetchRecord = await ctx.wiring.cultureFetchStore.get(input.workspaceId, input.childRunId);
+        assertPilotOrganization(input.organizationId);
+        await assertMembership(ctx.wiring.organizationStore, input.organizationId, ctx.identity.id);
+        const cultureFetchRecord = await ctx.wiring.cultureFetchStore.get(input.organizationId, input.childRunId);
         if (cultureFetchRecord && cultureFetchRecord.proposalId) {
           await cancelCultureSourceFetch(
             {
@@ -10440,7 +10439,7 @@ export const appRouter = t.router({
               fetchStore: ctx.wiring.cultureFetchStore,
               abortControllers: ctx.wiring.cultureFetchAbortControllers,
             },
-            input.workspaceId,
+            input.organizationId,
             cultureFetchRecord.proposalId,
             input.childRunId,
             { type: ctx.identity.type, id: ctx.identity.id },
@@ -10456,13 +10455,13 @@ export const appRouter = t.router({
           // "cancelled" that might not match what the fetch actually
           // resolved to (no fetched/cancelled mismatch is swallowed; the
           // caller sees the real converged state).
-          const current = await ctx.wiring.childAgentRuns.get(input.workspaceId, input.childRunId);
+          const current = await ctx.wiring.childAgentRuns.get(input.organizationId, input.childRunId);
           if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "unknown child Run" });
           return current;
         }
         return cancelChildAgentRun(
           { store: ctx.wiring.childAgentRuns, ledger: ctx.wiring.ledger },
-          input.workspaceId,
+          input.organizationId,
           input.childRunId,
           { type: ctx.identity.type, id: ctx.identity.id },
           ctx.run,

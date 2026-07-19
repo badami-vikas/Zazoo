@@ -4,7 +4,7 @@
  *  - migration 0009 applies (memories table + ledger.trust_origin column exist);
  *  - PI-1: a ledger row's trust_origin round-trips through the store;
  *  - MEM-1: retrieval is authority-scoped AT THE STORE BOUNDARY by classification
- *    (public/workspace → any member; private → owner only) and tenant-isolated;
+ *    (public/organization → any member; private → owner only) and tenant-isolated;
  *  - MEM-1: supersede is append-only (prior row retained, excluded by default).
  */
 import assert from "node:assert/strict";
@@ -20,10 +20,10 @@ const USER_A = "aaaaaaaa-0000-4000-8000-000000000001";
 const USER_B = "bbbbbbbb-0000-4000-8000-000000000002";
 const NIL_ACTOR = "00000000-0000-0000-0000-00000000dead";
 
-function mem(overrides: Partial<MemoryWrite> & { id: string; workspaceId: string }): MemoryWrite {
+function mem(overrides: Partial<MemoryWrite> & { id: string; organizationId: string }): MemoryWrite {
   return {
     type: "episodic",
-    scope: "workspace",
+    scope: "organization",
     content: "test_fixture_memory",
     confidence: 0.5,
     trustOrigin: "untrusted_external",
@@ -35,17 +35,17 @@ function mem(overrides: Partial<MemoryWrite> & { id: string; workspaceId: string
 
 test("in-memory memories enforce one replay-idempotent successor", async () => {
   const store = new InMemoryMemoryStore();
-  const workspaceId = "10000000-0000-4000-8000-000000000001";
+  const organizationId = "10000000-0000-4000-8000-000000000001";
   const original = await store.write(mem({
     id: "10000000-0000-4000-8000-000000000002",
-    workspaceId,
+    organizationId,
     scope: "private",
     ownerUserId: USER_A,
     createdAt: "2026-07-18T00:00:00.000Z",
   }));
   const first = mem({
     id: "10000000-0000-4000-8000-000000000003",
-    workspaceId,
+    organizationId,
     scope: "private",
     ownerUserId: USER_A,
     content: "first correction",
@@ -53,7 +53,7 @@ test("in-memory memories enforce one replay-idempotent successor", async () => {
   });
   const second = mem({
     id: "10000000-0000-4000-8000-000000000004",
-    workspaceId,
+    organizationId,
     scope: "private",
     ownerUserId: USER_A,
     content: "competing correction",
@@ -77,40 +77,40 @@ test("in-memory memories enforce one replay-idempotent successor", async () => {
 
 test("memory snapshot watermark keeps offset pages stable across later writes", async () => {
   const store = new InMemoryMemoryStore();
-  const workspaceId = "10000000-0000-4000-8000-000000000011";
+  const organizationId = "10000000-0000-4000-8000-000000000011";
   const oldest = await store.write(mem({
     id: "10000000-0000-4000-8000-000000000012",
-    workspaceId,
+    organizationId,
     createdAt: "2026-07-18T00:00:00.000Z",
   }));
   const newestAtSnapshot = await store.write(mem({
     id: "10000000-0000-4000-8000-000000000013",
-    workspaceId,
+    organizationId,
     createdAt: "2026-07-18T00:01:00.000Z",
   }));
   const snapshotAt = "2026-07-18T00:01:30.000Z";
   assert.deepEqual(
     (await store.retrieve(
       { snapshotAt, limit: 1, offset: 0 },
-      { workspaceId, userId: USER_A },
+      { organizationId, userId: USER_A },
     )).map((entry) => entry.id),
     [newestAtSnapshot.id],
   );
   await store.write(mem({
     id: "10000000-0000-4000-8000-000000000014",
-    workspaceId,
+    organizationId,
     createdAt: "2026-07-18T00:02:00.000Z",
   }));
   await store.supersede(oldest.id, mem({
     id: "10000000-0000-4000-8000-000000000015",
-    workspaceId,
+    organizationId,
     content: "later correction",
     createdAt: "2026-07-18T00:03:00.000Z",
   }));
   assert.deepEqual(
     (await store.retrieve(
       { snapshotAt, limit: 1, offset: 1 },
-      { workspaceId, userId: USER_A },
+      { organizationId, userId: USER_A },
     )).map((entry) => entry.id),
     [oldest.id],
   );
@@ -120,15 +120,15 @@ test("ledger: trust_origin round-trips through DrizzleLedgerStore (PI-1)", async
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_trust_origin" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleLedgerStore(db);
 
     const entry: LedgerEntry = {
       id: "10000000-0000-4000-8000-0000000000a1",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       actorType: "agent",
       actorId: NIL_ACTOR,
       action: "write",
@@ -151,28 +151,28 @@ test("memories: retrieval is authority-scoped by classification at the store bou
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_mem_scope" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
 
-    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "public", content: "pub" }));
-    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000002", workspaceId: ws.id, scope: "workspace", content: "ws" }));
-    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000003", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "privA" }));
-    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000004", workspaceId: ws.id, scope: "private", ownerUserId: USER_B, content: "privB" }));
+    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000001", organizationId: ws.id, scope: "public", content: "pub" }));
+    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000002", organizationId: ws.id, scope: "organization", content: "ws" }));
+    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000003", organizationId: ws.id, scope: "private", ownerUserId: USER_A, content: "privA" }));
+    await store.write(mem({ id: "c0000000-0000-4000-8000-000000000004", organizationId: ws.id, scope: "private", ownerUserId: USER_B, content: "privB" }));
 
-    // User A sees public + workspace + their own private; NOT user B's private.
-    const asA = await store.retrieve({}, { workspaceId: ws.id, userId: USER_A });
+    // User A sees public + organization + their own private; NOT user B's private.
+    const asA = await store.retrieve({}, { organizationId: ws.id, userId: USER_A });
     const contentsA = asA.map((m) => m.content).sort();
     assert.deepEqual(contentsA, ["privA", "pub", "ws"]);
 
-    // No-user (system) context sees only public + workspace.
-    const asSystem = await store.retrieve({}, { workspaceId: ws.id, userId: null });
+    // No-user (system) context sees only public + organization.
+    const asSystem = await store.retrieve({}, { organizationId: ws.id, userId: null });
     assert.deepEqual(asSystem.map((m) => m.content).sort(), ["pub", "ws"]);
 
     // get() is authority-scoped too: A cannot fetch B's private memory.
-    const bPrivateForA = await store.get("c0000000-0000-4000-8000-000000000004", { workspaceId: ws.id, userId: USER_A });
+    const bPrivateForA = await store.get("c0000000-0000-4000-8000-000000000004", { organizationId: ws.id, userId: USER_A });
     assert.equal(bPrivateForA, null);
 
     // confidence round-trips as a number.
@@ -182,16 +182,16 @@ test("memories: retrieval is authority-scoped by classification at the store bou
   }
 });
 
-test("memories: tenant isolation — a memory in another workspace is never returned (MEM-1)", async () => {
+test("memories: tenant isolation — a memory in another organization is never returned (MEM-1)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws1] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_t1" }).returning({ id: schema.workspaces.id });
-    const [ws2] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_t2" }).returning({ id: schema.workspaces.id });
+    const [ws1] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_t1" }).returning({ id: schema.organizations.id });
+    const [ws2] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_t2" }).returning({ id: schema.organizations.id });
     assert.ok(ws1 && ws2);
     const store = new DrizzleMemoryStore(db);
 
-    await store.write(mem({ id: "d0000000-0000-4000-8000-000000000001", workspaceId: ws2.id, scope: "public", content: "other_ws" }));
-    const got = await store.retrieve({}, { workspaceId: ws1.id, userId: USER_A });
+    await store.write(mem({ id: "d0000000-0000-4000-8000-000000000001", organizationId: ws2.id, scope: "public", content: "other_ws" }));
+    const got = await store.retrieve({}, { organizationId: ws1.id, userId: USER_A });
     assert.equal(got.length, 0);
   } finally {
     await close();
@@ -201,28 +201,28 @@ test("memories: tenant isolation — a memory in another workspace is never retu
 test("memories: supersede is append-only — prior row retained, excluded by default (MEM-1)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_supersede" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_supersede" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
 
-    const original = await store.write(mem({ id: "e0000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "workspace", content: "v1" }));
-    await store.supersede(original.id, mem({ id: "e0000000-0000-4000-8000-000000000002", workspaceId: ws.id, scope: "workspace", content: "v2" }));
+    const original = await store.write(mem({ id: "e0000000-0000-4000-8000-000000000001", organizationId: ws.id, scope: "organization", content: "v1" }));
+    await store.supersede(original.id, mem({ id: "e0000000-0000-4000-8000-000000000002", organizationId: ws.id, scope: "organization", content: "v2" }));
 
-    const current = await store.retrieve({}, { workspaceId: ws.id, userId: USER_A });
+    const current = await store.retrieve({}, { organizationId: ws.id, userId: USER_A });
     assert.deepEqual(current.map((m) => m.content), ["v2"]);
 
-    const withHistory = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A });
+    const withHistory = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id, userId: USER_A });
     assert.equal(withHistory.length, 2);
     const superseder = withHistory.find((m) => m.content === "v2");
     assert.equal(superseder?.supersedesId, original.id);
     await assert.rejects(
       store.supersede(original.id, mem({
         id: "e0000000-0000-4000-8000-000000000003",
-        workspaceId: ws.id,
+        organizationId: ws.id,
         scope: "private",
         ownerUserId: USER_B,
       })),
-      /cannot change workspace or owner/,
+      /cannot change organization or owner/,
     );
   } finally {
     await close();
@@ -233,15 +233,15 @@ test("memories: concurrent corrections converge on one idempotent successor", as
   const { db, close } = await createLocalDb();
   try {
     const [ws] = await db
-      .insert(schema.workspaces)
+      .insert(schema.organizations)
       .values({ name: "test_fixture_ws_mem_concurrent_correction" })
-      .returning({ id: schema.workspaces.id });
+      .returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
     const original = await store.write(
       mem({
         id: "e1000000-0000-4000-8000-000000000001",
-        workspaceId: ws.id,
+        organizationId: ws.id,
         scope: "private",
         ownerUserId: USER_A,
         content: "v1",
@@ -249,14 +249,14 @@ test("memories: concurrent corrections converge on one idempotent successor", as
     );
     const firstCorrection = mem({
       id: "e1000000-0000-4000-8000-000000000002",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       scope: "private",
       ownerUserId: USER_A,
       content: "v2-a",
     });
     const secondCorrection = mem({
       id: "e1000000-0000-4000-8000-000000000003",
-      workspaceId: ws.id,
+      organizationId: ws.id,
       scope: "private",
       ownerUserId: USER_A,
       content: "v2-b",
@@ -275,7 +275,7 @@ test("memories: concurrent corrections converge on one idempotent successor", as
     );
     const current = await store.retrieve(
       {},
-      { workspaceId: ws.id, userId: USER_A },
+      { organizationId: ws.id, userId: USER_A },
     );
     assert.equal(current.length, 1);
     assert.ok(["v2-a", "v2-b"].includes(current[0]!.content));
@@ -301,14 +301,14 @@ test("memories: concurrent corrections converge on one idempotent successor", as
 test("memories: forget removes the complete correction lineage", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_forget" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_forget" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const first = await store.write(mem({ id: "f0000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "first" }));
-    const corrected = await store.supersede(first.id, mem({ id: "f0000000-0000-4000-8000-000000000002", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "corrected" }));
+    const first = await store.write(mem({ id: "f0000000-0000-4000-8000-000000000001", organizationId: ws.id, scope: "private", ownerUserId: USER_A, content: "first" }));
+    const corrected = await store.supersede(first.id, mem({ id: "f0000000-0000-4000-8000-000000000002", organizationId: ws.id, scope: "private", ownerUserId: USER_A, content: "corrected" }));
 
-    assert.equal(await store.forget(corrected.id, { workspaceId: ws.id, userId: USER_A }), true);
-    assert.deepEqual(await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A }), []);
+    assert.equal(await store.forget(corrected.id, { organizationId: ws.id, userId: USER_A }), true);
+    assert.deepEqual(await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id, userId: USER_A }), []);
   } finally {
     await close();
   }
@@ -331,18 +331,18 @@ test("memories: forget removes the complete correction lineage", async () => {
 test("memories: redactLineageContent rewrites content across the FULL lineage (superseded ancestor row AND current row) against real Postgres — the exact gap compareAndSupersede alone leaves open", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_lineage" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_lineage" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const v1 = await store.write(mem({ id: "a1000000-0000-4000-8000-000000000001", workspaceId: ws.id, content: "SECRET raw artifact v1" }));
-    const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a1000000-0000-4000-8000-000000000002", workspaceId: ws.id, content: "SECRET raw artifact v2" }));
+    const v1 = await store.write(mem({ id: "a1000000-0000-4000-8000-000000000001", organizationId: ws.id, content: "SECRET raw artifact v1" }));
+    const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a1000000-0000-4000-8000-000000000002", organizationId: ws.id, content: "SECRET raw artifact v2" }));
 
-    const redactedCount = await store.redactLineageContent(v2.id, { workspaceId: ws.id }, (entry) =>
+    const redactedCount = await store.redactLineageContent(v2.id, { organizationId: ws.id }, (entry) =>
       entry.content.includes("SECRET") ? entry.content.replace("SECRET raw artifact", "[redacted]") : null,
     );
     assert.equal(redactedCount, 2, "both the current row and its superseded ancestor must be redacted");
 
-    const allAfter = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id });
+    const allAfter = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id });
     assert.equal(allAfter.length, 2);
     for (const row of allAfter) {
       assert.ok(!row.content.includes("SECRET"), `row ${row.id} must never retain the raw SECRET bytes after redaction`);
@@ -359,13 +359,13 @@ test("memories: redactLineageContent rewrites content across the FULL lineage (s
 test("memories: redactLineageContent leaves every other column untouched against real Postgres — id, supersedesId, timestamps, scope, sourceRefType/sourceRefId, confidence, trustOrigin, plane, createdBy, ownerUserId", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_fields" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_fields" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
     const written = await store.write(
       mem({
         id: "a2000000-0000-4000-8000-000000000001",
-        workspaceId: ws.id,
+        organizationId: ws.id,
         scope: "private",
         ownerUserId: USER_A,
         sourceRefType: "ledger",
@@ -378,10 +378,10 @@ test("memories: redactLineageContent leaves every other column untouched against
       }),
     );
 
-    const redactedCount = await store.redactLineageContent(written.id, { workspaceId: ws.id, userId: USER_A }, () => "[redacted]");
+    const redactedCount = await store.redactLineageContent(written.id, { organizationId: ws.id, userId: USER_A }, () => "[redacted]");
     assert.equal(redactedCount, 1);
 
-    const [after] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A });
+    const [after] = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id, userId: USER_A });
     assert.ok(after);
     assert.equal(after!.id, written.id);
     assert.equal(after!.content, "[redacted]");
@@ -399,46 +399,46 @@ test("memories: redactLineageContent leaves every other column untouched against
   }
 });
 
-test("memories: redactLineageContent — a null return from redact() leaves that row's content COMPLETELY untouched, and it is scoped to ONLY the target lineage (an unrelated Memory in the same workspace is never rewritten)", async () => {
+test("memories: redactLineageContent — a null return from redact() leaves that row's content COMPLETELY untouched, and it is scoped to ONLY the target lineage (an unrelated Memory in the same organization is never rewritten)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_scope" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_scope" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const untouchable = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000001", workspaceId: ws.id, content: "not sensitive at all" }));
-    const unrelated = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000002", workspaceId: ws.id, content: "SECRET unrelated" }));
+    const untouchable = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000001", organizationId: ws.id, content: "not sensitive at all" }));
+    const unrelated = await store.write(mem({ id: "a3000000-0000-4000-8000-000000000002", organizationId: ws.id, content: "SECRET unrelated" }));
 
-    const noopCount = await store.redactLineageContent(untouchable.id, { workspaceId: ws.id }, () => null);
+    const noopCount = await store.redactLineageContent(untouchable.id, { organizationId: ws.id }, () => null);
     assert.equal(noopCount, 0, "a redact() that never matches must report zero rows changed");
-    const [untouchableAfter] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id }).then((rows) => rows.filter((r) => r.id === untouchable.id));
+    const [untouchableAfter] = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id }).then((rows) => rows.filter((r) => r.id === untouchable.id));
     assert.equal(untouchableAfter!.content, "not sensitive at all");
 
     // Redacting `untouchable`'s (empty) lineage must never reach `unrelated`.
-    const rows = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id });
+    const rows = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id });
     const unrelatedAfter = rows.find((r) => r.id === unrelated.id);
-    assert.equal(unrelatedAfter!.content, "SECRET unrelated", "an unrelated Memory row in the same workspace must be completely unaffected");
+    assert.equal(unrelatedAfter!.content, "SECRET unrelated", "an unrelated Memory row in the same organization must be completely unaffected");
   } finally {
     await close();
   }
 });
 
-test("memories: redactLineageContent is authority-scoped exactly like forget() against real Postgres — a caller in a DIFFERENT workspace, or lacking ownership of a private row, redacts 0 rows", async () => {
+test("memories: redactLineageContent is authority-scoped exactly like forget() against real Postgres — a caller in a DIFFERENT organization, or lacking ownership of a private row, redacts 0 rows", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_auth" }).returning({ id: schema.workspaces.id });
-    const [otherWs] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_auth_other" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_auth" }).returning({ id: schema.organizations.id });
+    const [otherWs] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_auth_other" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     assert.ok(otherWs);
     const store = new DrizzleMemoryStore(db);
-    const privateToA = await store.write(mem({ id: "a4000000-0000-4000-8000-000000000001", workspaceId: ws.id, scope: "private", ownerUserId: USER_A, content: "SECRET" }));
+    const privateToA = await store.write(mem({ id: "a4000000-0000-4000-8000-000000000001", organizationId: ws.id, scope: "private", ownerUserId: USER_A, content: "SECRET" }));
 
-    const asOtherWorkspace = await store.redactLineageContent(privateToA.id, { workspaceId: otherWs!.id }, () => "[redacted]");
-    assert.equal(asOtherWorkspace, 0, "a caller in a DIFFERENT workspace must never redact this row");
+    const asOtherOrganization = await store.redactLineageContent(privateToA.id, { organizationId: otherWs!.id }, () => "[redacted]");
+    assert.equal(asOtherOrganization, 0, "a caller in a DIFFERENT organization must never redact this row");
 
-    const asWrongUser = await store.redactLineageContent(privateToA.id, { workspaceId: ws.id, userId: USER_B }, () => "[redacted]");
+    const asWrongUser = await store.redactLineageContent(privateToA.id, { organizationId: ws.id, userId: USER_B }, () => "[redacted]");
     assert.equal(asWrongUser, 0, "a caller who is not the owning user must never redact a private row");
 
-    const [stillIntact] = await store.retrieve({ includeSuperseded: true }, { workspaceId: ws.id, userId: USER_A });
+    const [stillIntact] = await store.retrieve({ includeSuperseded: true }, { organizationId: ws.id, userId: USER_A });
     assert.equal(stillIntact!.content, "SECRET", "the row must remain completely unredacted after two unauthorized attempts");
   } finally {
     await close();
@@ -453,14 +453,14 @@ test("memories: redactLineageContent survives a genuine process restart — cont
     {
       const { db, close } = await createLocalDb({ dataDir: dir });
       try {
-        const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_redact_restart" }).returning({ id: schema.workspaces.id });
+        const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_redact_restart" }).returning({ id: schema.organizations.id });
         assert.ok(ws);
         wsId = ws.id;
         const store = new DrizzleMemoryStore(db);
-        const v1 = await store.write(mem({ id: "a5000000-0000-4000-8000-000000000001", workspaceId: wsId, content: "SECRET raw artifact v1" }));
-        const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a5000000-0000-4000-8000-000000000002", workspaceId: wsId, content: "SECRET raw artifact v2" }));
+        const v1 = await store.write(mem({ id: "a5000000-0000-4000-8000-000000000001", organizationId: wsId, content: "SECRET raw artifact v1" }));
+        const v2 = await store.compareAndSupersede(v1.id, mem({ id: "a5000000-0000-4000-8000-000000000002", organizationId: wsId, content: "SECRET raw artifact v2" }));
         targetId = v2.id;
-        const redactedCount = await store.redactLineageContent(targetId, { workspaceId: wsId }, (entry) =>
+        const redactedCount = await store.redactLineageContent(targetId, { organizationId: wsId }, (entry) =>
           entry.content.includes("SECRET") ? "[redacted]" : null,
         );
         assert.equal(redactedCount, 2, "sanity: both rows genuinely redacted before the restart");
@@ -475,7 +475,7 @@ test("memories: redactLineageContent survives a genuine process restart — cont
       const { db, close } = await createLocalDb({ dataDir: dir });
       try {
         const store = new DrizzleMemoryStore(db);
-        const allAfterRestart = await store.retrieve({ includeSuperseded: true }, { workspaceId: wsId! });
+        const allAfterRestart = await store.retrieve({ includeSuperseded: true }, { organizationId: wsId! });
         assert.equal(allAfterRestart.length, 2);
         for (const row of allAfterRestart) {
           assert.equal(row.content, "[redacted]", "redaction performed BEFORE the restart must remain durable — never reverting to raw content, and never re-exposing it after a fresh connection");
@@ -528,14 +528,14 @@ test("memories: redactLineageContent survives a genuine process restart — cont
 test("memories: compareAndSupersede lets exactly ONE of two concurrent writers targeting the SAME id win — the other gets MemoryConflictError, never a forked current state", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_cas_race" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_cas_race" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const original = await store.write(mem({ id: "10000000-0000-4000-8000-0000000000b1", workspaceId: ws.id, scope: "workspace", content: "v1" }));
+    const original = await store.write(mem({ id: "10000000-0000-4000-8000-0000000000b1", organizationId: ws.id, scope: "organization", content: "v1" }));
 
     const [resultA, resultB] = await Promise.allSettled([
-      store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000b2", workspaceId: ws.id, scope: "workspace", content: "from-A" })),
-      store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000b3", workspaceId: ws.id, scope: "workspace", content: "from-B" })),
+      store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000b2", organizationId: ws.id, scope: "organization", content: "from-A" })),
+      store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000b3", organizationId: ws.id, scope: "organization", content: "from-B" })),
     ]);
 
     const outcomes = [resultA, resultB];
@@ -547,7 +547,7 @@ test("memories: compareAndSupersede lets exactly ONE of two concurrent writers t
 
     // The store must show exactly ONE current row for this lineage — never
     // a forked pair of "current" rows.
-    const current = await store.retrieve({}, { workspaceId: ws.id, userId: null });
+    const current = await store.retrieve({}, { organizationId: ws.id, userId: null });
     const currentForLineage = current.filter((m) => m.content === "from-A" || m.content === "from-B");
     assert.equal(currentForLineage.length, 1, "exactly one current row must exist for this lineage — no fork");
   } finally {
@@ -558,14 +558,14 @@ test("memories: compareAndSupersede lets exactly ONE of two concurrent writers t
 test("memories: compareAndSupersede rejects re-superseding an already-superseded id even when called sequentially (not just concurrently)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_cas_sequential" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_cas_sequential" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const original = await store.write(mem({ id: "10000000-0000-4000-8000-0000000000c1", workspaceId: ws.id, scope: "workspace", content: "v1" }));
-    await store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000c2", workspaceId: ws.id, scope: "workspace", content: "v2" }));
+    const original = await store.write(mem({ id: "10000000-0000-4000-8000-0000000000c1", organizationId: ws.id, scope: "organization", content: "v1" }));
+    await store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000c2", organizationId: ws.id, scope: "organization", content: "v2" }));
 
     await assert.rejects(
-      () => store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000c3", workspaceId: ws.id, scope: "workspace", content: "v3-forged" })),
+      () => store.compareAndSupersede(original.id, mem({ id: "10000000-0000-4000-8000-0000000000c3", organizationId: ws.id, scope: "organization", content: "v3-forged" })),
       (error: unknown) => {
         assert.ok(error instanceof Error && error.name === "MemoryConflictError");
         return true;
@@ -576,17 +576,17 @@ test("memories: compareAndSupersede rejects re-superseding an already-superseded
   }
 });
 
-test("memories: writeIfAbsent lets exactly ONE of two concurrent first-inserts for the SAME (workspaceId, subjectElementId) win — the other gets back the WINNER's row, never a second current row (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review — an independent reviewer found compareAndSupersede alone cannot close this race, since it only guards updates against an EXISTING known row id, not the first creation of a new keyed row)", async () => {
+test("memories: writeIfAbsent lets exactly ONE of two concurrent first-inserts for the SAME (organizationId, subjectRecordId) win — the other gets back the WINNER's row, never a second current row (TASK-011 remediation, 2026-07-19 coordinator distributed-defects RE-review — an independent reviewer found compareAndSupersede alone cannot close this race, since it only guards updates against an EXISTING known row id, not the first creation of a new keyed row)", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_write_if_absent_race" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_write_if_absent_race" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const subjectElementId = "20000000-0000-4000-8000-000000000001";
+    const subjectRecordId = "20000000-0000-4000-8000-000000000001";
 
     const [resultA, resultB] = await Promise.all([
-      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a1", workspaceId: ws.id, subjectElementId, content: "from-A" })),
-      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a2", workspaceId: ws.id, subjectElementId, content: "from-B" })),
+      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a1", organizationId: ws.id, subjectRecordId, content: "from-A" })),
+      store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000a2", organizationId: ws.id, subjectRecordId, content: "from-B" })),
     ]);
 
     // Both calls must resolve to the SAME winning row (never two distinct
@@ -596,28 +596,28 @@ test("memories: writeIfAbsent lets exactly ONE of two concurrent first-inserts f
     assert.equal(resultA.id, resultB.id);
     assert.ok(resultA.content === "from-A" || resultA.content === "from-B");
 
-    const current = await store.retrieve({ subjectElementId }, { workspaceId: ws.id, userId: null });
-    assert.equal(current.length, 1, "exactly one current row must exist for this subjectElementId — no fork from the race");
+    const current = await store.retrieve({ subjectRecordId }, { organizationId: ws.id, userId: null });
+    assert.equal(current.length, 1, "exactly one current row must exist for this subjectRecordId — no fork from the race");
     assert.equal(current[0]!.id, resultA.id);
   } finally {
     await close();
   }
 });
 
-test("memories: writeIfAbsent is idempotent for sequential calls with the SAME subjectElementId — a retry never duplicates", async () => {
+test("memories: writeIfAbsent is idempotent for sequential calls with the SAME subjectRecordId — a retry never duplicates", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_mem_write_if_absent_seq" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_mem_write_if_absent_seq" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const subjectElementId = "20000000-0000-4000-8000-000000000002";
+    const subjectRecordId = "20000000-0000-4000-8000-000000000002";
 
-    const first = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b1", workspaceId: ws.id, subjectElementId, content: "first" }));
-    const retry = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b2", workspaceId: ws.id, subjectElementId, content: "second-should-be-ignored" }));
+    const first = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b1", organizationId: ws.id, subjectRecordId, content: "first" }));
+    const retry = await store.writeIfAbsent(mem({ id: "20000000-0000-4000-8000-0000000000b2", organizationId: ws.id, subjectRecordId, content: "second-should-be-ignored" }));
 
     assert.equal(retry.id, first.id);
     assert.equal(retry.content, "first");
-    const current = await store.retrieve({ subjectElementId }, { workspaceId: ws.id, userId: null });
+    const current = await store.retrieve({ subjectRecordId }, { organizationId: ws.id, userId: null });
     assert.equal(current.length, 1);
   } finally {
     await close();
@@ -652,15 +652,15 @@ test("advisory lock key derivation: an uppercase-hex ALIAS of the same UUID hash
     );
 
     // End-to-end: writeIfAbsent with the lowercase alias, then a "would-be
-    // racer" using the UPPERCASE alias for the SAME subjectElementId must
+    // racer" using the UPPERCASE alias for the SAME subjectRecordId must
     // still correctly detect the existing row (case-insensitive row lookup
     // already worked before this fix; the fix is specifically about the
     // LOCK key, verified above).
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws_lock_alias" }).returning({ id: schema.workspaces.id });
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws_lock_alias" }).returning({ id: schema.organizations.id });
     assert.ok(ws);
     const store = new DrizzleMemoryStore(db);
-    const first = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b1", workspaceId: ws.id, subjectElementId: lower, content: "first" }));
-    const second = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b2", workspaceId: ws.id, subjectElementId: upper, content: "second" }));
+    const first = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b1", organizationId: ws.id, subjectRecordId: lower, content: "first" }));
+    const second = await store.writeIfAbsent(mem({ id: "30000000-0000-4000-8000-0000000000b2", organizationId: ws.id, subjectRecordId: upper, content: "second" }));
     assert.equal(second.id, first.id, "the uppercase alias must resolve to the SAME existing row as its canonical lowercase form");
   } finally {
     await close();

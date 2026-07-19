@@ -21,22 +21,22 @@ function runCtx(): RunCtx {
   return { clock, rng, ids: new UuidGen(clock, rng) };
 }
 
-async function seedWorkspace(db: Awaited<ReturnType<typeof createLocalDb>>["db"], suffix: string) {
+async function seedOrganization(db: Awaited<ReturnType<typeof createLocalDb>>["db"], suffix: string) {
   const [organization] = await db
-    .insert(schema.workspaces)
+    .insert(schema.organizations)
     .values({ name: `test_fixture_automation_${suffix}` })
-    .returning({ id: schema.workspaces.id });
+    .returning({ id: schema.organizations.id });
   assert.ok(organization);
   return organization.id;
 }
 
 async function seedAgent(
   db: Awaited<ReturnType<typeof createLocalDb>>["db"],
-  workspaceId: string,
+  organizationId: string,
 ) {
   const [agent] = await db
     .insert(schema.agents)
-    .values({ workspaceId, name: "test_fixture_automation_owner" })
+    .values({ organizationId, name: "test_fixture_automation_owner" })
     .returning({ id: schema.agents.id });
   assert.ok(agent);
   return agent.id;
@@ -45,14 +45,14 @@ async function seedAgent(
 test("Automation store validates steps at write and read boundaries", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db, "validation");
-    const agentId = await seedAgent(db, workspaceId);
+    const organizationId = await seedOrganization(db, "validation");
+    const agentId = await seedAgent(db, organizationId);
     const registry = new DrizzleAutomationRegistry(db);
     const automationId = "b0000000-0000-4000-a000-0000000000f1";
 
     await registry.save({
       id: automationId,
-      workspaceId,
+      organizationId,
       name: "Validated Automation",
       agentId,
       agentPlane: "local",
@@ -61,12 +61,12 @@ test("Automation store validates steps at write and read boundaries", async () =
 
     await assert.rejects(
       () =>
-        registry.saveSteps(workspaceId, automationId, [
+        registry.saveSteps(organizationId, automationId, [
           { skill: "test_fixture_bad_step", resourceType: "touchpoint" },
         ]),
       /Invalid Automation skill_pipeline jsonb/,
     );
-    assert.deepEqual((await registry.load(workspaceId, automationId))?.steps, []);
+    assert.deepEqual((await registry.load(organizationId, automationId))?.steps, []);
 
     await db
       .update(schema.automations)
@@ -81,7 +81,7 @@ test("Automation store validates steps at write and read boundaries", async () =
       })
       .where(eq(schema.automations.id, automationId));
     await assert.rejects(
-      () => registry.load(workspaceId, automationId),
+      () => registry.load(organizationId, automationId),
       /Invalid Automation skill_pipeline jsonb/,
     );
   } finally {
@@ -92,22 +92,22 @@ test("Automation store validates steps at write and read boundaries", async () =
 test("Automation store round-trips one owning Agent and rejects cross-organization ownership", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db, "owner");
-    const otherWorkspaceId = await seedWorkspace(db, "foreign");
-    const agentId = await seedAgent(db, workspaceId);
-    const foreignAgentId = await seedAgent(db, otherWorkspaceId);
+    const organizationId = await seedOrganization(db, "owner");
+    const otherOrganizationId = await seedOrganization(db, "foreign");
+    const agentId = await seedAgent(db, organizationId);
+    const foreignAgentId = await seedAgent(db, otherOrganizationId);
     const registry = new DrizzleAutomationRegistry(db);
     const automationId = "b0000000-0000-4000-a000-0000000000f2";
 
     await registry.save({
       id: automationId,
-      workspaceId,
+      organizationId,
       name: "Owned Automation",
       agentId,
       agentPlane: "cloud",
       steps: [validStep],
     });
-    const loaded = await registry.load(workspaceId, automationId);
+    const loaded = await registry.load(organizationId, automationId);
     assert.equal(loaded?.agentId, agentId);
     assert.equal(loaded?.agentPlane, "cloud");
     assert.deepEqual(loaded?.steps, [validStep]);
@@ -116,13 +116,13 @@ test("Automation store round-trips one owning Agent and rejects cross-organizati
       () =>
         registry.save({
           id: "b0000000-0000-4000-a000-0000000000f3",
-          workspaceId,
+          organizationId,
           name: "Cross-organization Automation",
           agentId: foreignAgentId,
           agentPlane: "local",
           steps: [validStep],
         }),
-      /owning Agent must belong to the Automation workspace/,
+      /owning Agent must belong to the Automation organization/,
     );
   } finally {
     await close();
@@ -132,9 +132,9 @@ test("Automation store round-trips one owning Agent and rejects cross-organizati
 test("Automation Run records retain Agent attribution and organization scope", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const workspaceId = await seedWorkspace(db, "run");
-    const otherWorkspaceId = await seedWorkspace(db, "run_foreign");
-    const agentId = await seedAgent(db, workspaceId);
+    const organizationId = await seedOrganization(db, "run");
+    const otherOrganizationId = await seedOrganization(db, "run_foreign");
+    const agentId = await seedAgent(db, organizationId);
     const automationId = "b0000000-0000-4000-a000-0000000000f4";
     const runId = "b0000000-0000-4000-a000-0000000000f5";
     const registry = new DrizzleAutomationRegistry(db);
@@ -142,23 +142,23 @@ test("Automation Run records retain Agent attribution and organization scope", a
 
     await registry.save({
       id: automationId,
-      workspaceId,
+      organizationId,
       name: "Recorded Automation",
       agentId,
       agentPlane: "local",
       steps: [validStep],
     });
-    await recorder.start({ runId, automationId, workspaceId, agentId }, runCtx());
+    await recorder.start({ runId, automationId, organizationId, agentId }, runCtx());
     await assert.rejects(
       () =>
         recorder.finish(
-          { runId, workspaceId: otherWorkspaceId, status: "completed", output: {} },
+          { runId, organizationId: otherOrganizationId, status: "completed", output: {} },
           runCtx(),
         ),
       /not found in organization/,
     );
     await recorder.finish(
-      { runId, workspaceId, status: "completed", output: { steps: 1 } },
+      { runId, organizationId, status: "completed", output: { steps: 1 } },
       runCtx(),
     );
 
@@ -168,7 +168,7 @@ test("Automation Run records retain Agent attribution and organization scope", a
       .where(eq(schema.automationRuns.id, runId));
     assert.equal(stored?.automationId, automationId);
     assert.equal(stored?.agentId, agentId);
-    assert.equal(stored?.workspaceId, workspaceId);
+    assert.equal(stored?.organizationId, organizationId);
     assert.equal(stored?.status, "completed");
   } finally {
     await close();

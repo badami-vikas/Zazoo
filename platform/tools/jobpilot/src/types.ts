@@ -1,5 +1,5 @@
 // JobPilot-owned shapes only — sourcing/dedupe/facts/table primitives are imported from the
-// shared packages, never redefined here (docs/raw/jobpilot-architecture-requirement.md S2/S3,
+// shared modules, never redefined here (docs/raw/jobpilot-architecture-requirement.md S2/S3,
 // re-based onto @bridge/facts + @bridge/dedupe + @bridge/tables per the standardization plan).
 
 export interface CandidateProfile {

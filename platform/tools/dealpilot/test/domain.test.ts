@@ -36,30 +36,30 @@ test("module manifest exposes only Deals, Sources, and Theses with conditional r
 test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () => {
   const records = store();
   const deal = await records.createDeal({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     company: "test_fixture_company",
   });
 
-  test("caller-supplied Deal ids remain isolated by workspace", async () => {
+  test("caller-supplied Deal ids remain isolated by organization", async () => {
     const records = store();
     await records.createDeal({
       id: "test_fixture_shared_deal",
-      workspaceId: "test_fixture_workspace_a",
+      organizationId: "test_fixture_organization_a",
       company: "test_fixture_company_a",
     });
     await records.createDeal({
       id: "test_fixture_shared_deal",
-      workspaceId: "test_fixture_workspace_b",
+      organizationId: "test_fixture_organization_b",
       company: "test_fixture_company_b",
     });
 
-    const workspaceA = await records.get("deal", "test_fixture_workspace_a", "test_fixture_shared_deal");
-    const workspaceB = await records.get("deal", "test_fixture_workspace_b", "test_fixture_shared_deal");
-    assert.equal(workspaceA?.kind === "deal" ? workspaceA.company : null, "test_fixture_company_a");
-    assert.equal(workspaceB?.kind === "deal" ? workspaceB.company : null, "test_fixture_company_b");
+    const organizationA = await records.get("deal", "test_fixture_organization_a", "test_fixture_shared_deal");
+    const organizationB = await records.get("deal", "test_fixture_organization_b", "test_fixture_shared_deal");
+    assert.equal(organizationA?.kind === "deal" ? organizationA.company : null, "test_fixture_company_a");
+    assert.equal(organizationB?.kind === "deal" ? organizationB.company : null, "test_fixture_company_b");
   });
   const source = await records.createSource({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     name: "test_fixture_source",
     link: "https://example.invalid/source",
     connectionType: "url",
@@ -68,13 +68,13 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
     rightsAttestedBy: "test_fixture_human",
   });
   const thesis = await records.createThesis({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     name: "test_fixture_thesis",
     focus: "test_fixture_focus",
   });
 
   await records.link({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     kind: "deal_source",
     fromId: deal.id,
     toId: source.id,
@@ -83,7 +83,7 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
     evidenceRefs: ["test_fixture_capture_a"],
   });
   const mergedRelation = await records.link({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     kind: "deal_source",
     fromId: deal.id,
     toId: source.id,
@@ -96,7 +96,7 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
     "test_fixture_capture_b",
   ]);
   await records.link({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     kind: "deal_thesis",
     fromId: deal.id,
     toId: thesis.id,
@@ -104,7 +104,7 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
     provenance: "test_fixture_manual",
   });
   await records.link({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     kind: "source_thesis",
     fromId: source.id,
     toId: thesis.id,
@@ -113,15 +113,15 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
   });
 
   const [dealDetail, sourceDetail, thesisDetail] = await Promise.all([
-    records.detail("deal", "test_fixture_workspace", deal.id, {
+    records.detail("deal", "test_fixture_organization", deal.id, {
       relationshipAuthorized: false,
       tasksAuthorized: true,
     }),
-    records.detail("source", "test_fixture_workspace", source.id, {
+    records.detail("source", "test_fixture_organization", source.id, {
       relationshipAuthorized: false,
       tasksAuthorized: true,
     }),
-    records.detail("thesis", "test_fixture_workspace", thesis.id, {
+    records.detail("thesis", "test_fixture_organization", thesis.id, {
       relationshipAuthorized: false,
       tasksAuthorized: true,
     }),
@@ -136,7 +136,7 @@ test("Deal, Source, and Thesis form a symmetric many-to-many cluster", async () 
 test("Source discovery fails closed until rights and spend gates pass", async () => {
   const records = store();
   const source = await records.createSource({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     name: "test_fixture_source",
     link: "https://example.invalid/source",
     connectionType: "account",
@@ -149,7 +149,7 @@ test("Source discovery fails closed until rights and spend gates pass", async ()
     return true;
   });
 
-  const attested = await records.updateSource(source.id, source.workspaceId, {
+  const attested = await records.updateSource(source.id, source.organizationId, {
     rightsState: "attested",
     rightsAttestedAt: "2026-07-16T00:00:00.000Z",
     rightsAttestedBy: "test_fixture_human",
@@ -165,14 +165,14 @@ test("Source discovery fails closed until rights and spend gates pass", async ()
 test("Thesis discovery proposes only authorized Sources and materializes links after approval", async () => {
   const records = store();
   const thesis = await records.createThesis({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     name: "test_fixture_thesis",
     focus: "test_fixture_focus",
   });
   const authorized = await Promise.all(
     Array.from({ length: 205 }, (_, index) =>
       records.createSource({
-        workspaceId: "test_fixture_workspace",
+        organizationId: "test_fixture_organization",
         name: `test_fixture_authorized_source_${index}`,
         link: `https://example.invalid/authorized/${index}`,
         connectionType: "url",
@@ -183,7 +183,7 @@ test("Thesis discovery proposes only authorized Sources and materializes links a
     ),
   );
   await records.createSource({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     name: "test_fixture_unattested_source",
     link: "https://example.invalid/unattested",
     connectionType: "url",
@@ -191,11 +191,11 @@ test("Thesis discovery proposes only authorized Sources and materializes links a
     rightsState: "unattested",
   });
   const deal = await records.createDeal({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     company: "test_fixture_company",
   });
   await records.link({
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     kind: "deal_source",
     fromId: deal.id,
     toId: authorized[0]!.id,
@@ -203,14 +203,14 @@ test("Thesis discovery proposes only authorized Sources and materializes links a
     provenance: "test_fixture_capture",
   });
 
-  const proposal = await proposeThesisSourceDiscovery(records, thesis.workspaceId, thesis.id);
+  const proposal = await proposeThesisSourceDiscovery(records, thesis.organizationId, thesis.id);
   assert.equal(proposal.relations.length, 205);
   assert.ok(proposal.relations.some((relation) => relation.sourceId === authorized[0]!.id));
-  assert.equal((await records.relations(thesis.workspaceId, thesis.id)).length, 0);
+  assert.equal((await records.relations(thesis.organizationId, thesis.id)).length, 0);
 
   const applied = await applyThesisSourceDiscovery(records, proposal);
   assert.equal(applied.length, 206);
-  assert.equal((await records.relations(thesis.workspaceId, thesis.id)).length, 206);
-  const dealRelations = await records.relations(thesis.workspaceId, deal.id);
+  assert.equal((await records.relations(thesis.organizationId, thesis.id)).length, 206);
+  const dealRelations = await records.relations(thesis.organizationId, deal.id);
   assert.ok(dealRelations.some((relation) => relation.kind === "deal_thesis" && relation.toId === thesis.id));
 });

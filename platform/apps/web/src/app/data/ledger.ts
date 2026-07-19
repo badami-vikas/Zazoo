@@ -4,7 +4,7 @@
 // Display fields live in the row's jsonb (`inputs.display`, `proposed_output.text`) so the UI doesn't
 // have to resolve actor_id/resource_id uuids — the same shape the real app would project server-side.
 import { useSyncExternalStore } from 'react';
-import { PILOT_WORKSPACE, trpc } from '../lib/trpc';
+import { PILOT_ORGANIZATION, trpc } from '../lib/trpc';
 import { pendingApprovals, allLedger, type LedgerEntry, type Decision } from './governance';
 
 export type LedgerSource = 'api' | 'local';
@@ -153,9 +153,9 @@ function commonsAgentActorLabel(
   if (actorType !== 'agent') return null;
   const invocation = asRecord(inputs?.commonsInvocation);
   if (asString(invocation?.runtimeAgentId) !== actorId) return null;
-  const moduleAgentId = asString(invocation?.moduleAgentId);
-  if (!moduleAgentId) return null;
-  const displayName = moduleAgentId
+  const ownerModuleAgentId = asString(invocation?.ownerModuleAgentId);
+  if (!ownerModuleAgentId) return null;
+  const displayName = ownerModuleAgentId
     .split(/[-_]/)
     .filter(Boolean)
     .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
@@ -182,7 +182,7 @@ function canonicalDecisionPrecedes(
 function displayResourceType(value: PendingProposal['request']['resourceType']): LedgerEntry['resourceType'] {
   switch (value) {
     case 'person':
-    case 'initiative':
+    case 'record':
     case 'community':
     case 'relation':
     case 'automation':
@@ -304,7 +304,7 @@ export async function loadPendingApprovals(): Promise<{
   try {
     const window = await collectLedgerWindow((offset, limit) =>
       trpc.action.listPending.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit,
         offset,
       }),
@@ -346,7 +346,7 @@ export async function loadOutstandingRelationshipMaterializations(): Promise<{
     let cursor: { id: string } | undefined;
     do {
       const page = await trpc.relationship.outstandingMaterializations.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit: 100,
         ...(cursor ? { cursor } : {}),
       });
@@ -369,7 +369,7 @@ export async function loadOutstandingRelationshipMaterializations(): Promise<{
 
 export async function retryRelationshipMaterialization(proposalId: string) {
   return trpc.relationship.retryMaterialization.mutate({
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     proposalId,
   });
 }
@@ -423,7 +423,7 @@ export async function loadLedger(): Promise<{
   try {
     const window = await collectLedgerWindow((offset, limit) =>
       trpc.action.listHistory.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit,
         offset,
       }),
@@ -550,7 +550,7 @@ export async function recordDecisionAppend(
           try {
             const reconciliation =
               await trpc.relationship.reconcileApproved.mutate({
-                workspaceId: PILOT_WORKSPACE,
+                organizationId: PILOT_ORGANIZATION,
                 proposalId: entry.id,
               });
             return {
@@ -602,7 +602,7 @@ export type StagedProposal =
 export async function proposeToLedger(entry: LedgerEntry): Promise<StagedProposal | null> {
   try {
     const proposal = await trpc.action.proposeOutreachDraft.mutate({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: entry.id,
       label: entry.action,
       resource: entry.resource,

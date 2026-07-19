@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { CapabilityManifest, ForeignCapabilityImport, PackageManifest } from "../src/index.js";
+import type { CapabilityManifest, ForeignCapabilityImport, ModuleManifest } from "../src/index.js";
 
 function test_fixture_capability_manifest(
   overrides: Partial<Omit<CapabilityManifest, "origin">> = {},
@@ -25,7 +25,7 @@ function test_fixture_foreign_import(overrides: Partial<ForeignCapabilityImport>
     source: "mcp-server",
     sourceRef: "test_fixture_mcp_server_ref",
     versionPin: "1.2.3",
-    permissionDeclarations: [{ resourceType: "filesystem", action: "read", scope: "workspace" }],
+    permissionDeclarations: [{ resourceType: "filesystem", action: "read", scope: "organization" }],
     sandboxPolicy: { isolation: "process", networkEgress: false, filesystemAccess: [] },
     riskLabel: "advisory",
     auditRequired: true,
@@ -47,7 +47,7 @@ test("ForeignCapabilityImport: auditRequired is the literal true", () => {
 
 test("ForeignCapabilityImport: covers all four foreign sources", () => {
   const sources: ForeignCapabilityImport["source"][] = [
-    "pi-package",
+    "pi-module",
     "mcp-server",
     "activepieces-piece",
     "oss-integration",
@@ -67,12 +67,12 @@ test("ForeignCapabilityImport: sandboxPolicy carries isolation/egress/filesystem
   assert.deepEqual(imp.sandboxPolicy.filesystemAccess, ["/tmp/test_fixture_scratch"]);
 });
 
-test("ForeignCapabilityImport: translatedPackage is optional and reuses PackageManifest verbatim", () => {
-  const withoutPackage = test_fixture_foreign_import();
-  assert.equal(withoutPackage.translatedPackage, undefined);
+test("ForeignCapabilityImport: translatedModule is optional and reuses ModuleManifest verbatim", () => {
+  const withoutModule = test_fixture_foreign_import();
+  assert.equal(withoutModule.translatedModule, undefined);
 
-  const translatedPackage: PackageManifest = {
-    name: "test-fixture-package",
+  const translatedModule: ModuleManifest = {
+    name: "test-fixture-module",
     version: "1.0.0",
     kind: "integration_bundle",
     summary: "test_fixture summary",
@@ -81,10 +81,10 @@ test("ForeignCapabilityImport: translatedPackage is optional and reuses PackageM
     dependencies: [],
     capabilities: [test_fixture_capability_manifest()],
     contextProviders: [],
-    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: {} },
   };
-  const withPackage = test_fixture_foreign_import({ translatedPackage });
-  assert.equal(withPackage.translatedPackage?.name, "test-fixture-package");
+  const withModule = test_fixture_foreign_import({ translatedModule });
+  assert.equal(withModule.translatedModule?.name, "test-fixture-module");
 });
 
 test("ForeignCapabilityImport: versionPin and sourceRef are opaque source-specific strings", () => {

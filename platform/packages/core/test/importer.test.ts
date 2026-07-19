@@ -23,10 +23,10 @@ function test_fixture_input(overrides: Partial<ForeignCapabilityDescriptorInput>
   };
 }
 
-test("translateForeignCapability: pi-package extension -> Skill with connector, requires sandbox", () => {
+test("translateForeignCapability: pi-module extension -> Skill with connector, requires sandbox", () => {
   const result = translateForeignCapability(
     test_fixture_input({
-      source: "pi-package",
+      source: "pi-module",
       descriptor: { primitive: "extension" },
       permissionDeclarations: [{ resourceType: "touchpoint", action: "read", scope: "private" }],
       sandboxPolicy: { isolation: "process", networkEgress: false, filesystemAccess: [] },
@@ -41,27 +41,27 @@ test("translateForeignCapability: pi-package extension -> Skill with connector, 
   assert.equal(result.import.translatedManifest.permissions[0]?.dataScope, "private");
 });
 
-test("translateForeignCapability: pi-package extension without sandboxPolicy is refused", () => {
+test("translateForeignCapability: pi-module extension without sandboxPolicy is refused", () => {
   const result = translateForeignCapability(
-    test_fixture_input({ source: "pi-package", descriptor: { primitive: "extension" } }),
+    test_fixture_input({ source: "pi-module", descriptor: { primitive: "extension" } }),
   );
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.ok(result.error instanceof ForeignImportSandboxRequiredError);
 });
 
-test("translateForeignCapability: pi-package skill/prompt does not require sandbox", () => {
+test("translateForeignCapability: pi-module skill/prompt does not require sandbox", () => {
   const result = translateForeignCapability(
-    test_fixture_input({ source: "pi-package", descriptor: { primitive: "skill" } }),
+    test_fixture_input({ source: "pi-module", descriptor: { primitive: "skill" } }),
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.import.translatedManifest.capabilityType, "skill");
 });
 
-test("translateForeignCapability: pi-package theme -> view", () => {
+test("translateForeignCapability: pi-module theme -> view", () => {
   const result = translateForeignCapability(
-    test_fixture_input({ source: "pi-package", descriptor: { primitive: "theme" } }),
+    test_fixture_input({ source: "pi-module", descriptor: { primitive: "theme" } }),
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;

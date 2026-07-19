@@ -1,10 +1,10 @@
 /**
  * DrizzleGraphStore — read coverage for the Bridge kernel vocabulary nouns
- * (Person/Community here; Initiative/Touchpoint/Signal already ship without
- * their own test file). Against a real (pglite) database: seed a workspace +
+ * (Person/Community here; Record/Touchpoint/Signal already ship without
+ * their own test file). Against a real (pglite) database: seed a organization +
  * user, seed a page-worth of people/communities beyond the default page size,
  * and confirm pagination (limit/offset/total/ordering) behaves the same way
- * `listInitiatives`/`listSignals` do.
+ * `listRecords`/`listSignals` do.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -14,43 +14,43 @@ import { createLocalDb, DrizzleGraphStore, schema } from "../src/index.js";
 
 const FIXTURE_COUNT = 5;
 
-async function seedWorkspaceAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
+async function seedOrganizationAndUser(db: Awaited<ReturnType<typeof createLocalDb>>["db"]) {
   const [user] = await db
     .insert(schema.users)
     .values({ email: "test_fixture_graph_store_user@example.com" })
     .returning({ id: schema.users.id });
   assert.ok(user, "fixture user seeded");
-  const [workspace] = await db
-    .insert(schema.workspaces)
-    .values({ name: "test_fixture_graph_store_workspace" })
-    .returning({ id: schema.workspaces.id });
-  assert.ok(workspace, "fixture workspace seeded");
-  return { userId: user!.id, workspaceId: workspace!.id };
+  const [organization] = await db
+    .insert(schema.organizations)
+    .values({ name: "test_fixture_graph_store_organization" })
+    .returning({ id: schema.organizations.id });
+  assert.ok(organization, "fixture organization seeded");
+  return { userId: user!.id, organizationId: organization!.id };
 }
 
-test("listPeople: paginates workspace-scoped people, newest first", async () => {
+test("listPeople: paginates organization-scoped people, newest first", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
 
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
       await db.insert(schema.people).values({
-        workspaceId,
+        organizationId,
         userId,
         fullNameOverride: `test_fixture_person_${i}`,
       });
     }
 
-    const firstPage = await store.listPeople(workspaceId, userId, { limit: 2, offset: 0 });
+    const firstPage = await store.listPeople(organizationId, userId, { limit: 2, offset: 0 });
     assert.equal(firstPage.items.length, 2);
     assert.equal(firstPage.total, FIXTURE_COUNT);
 
-    const lastPage = await store.listPeople(workspaceId, userId, { limit: 2, offset: 4 });
+    const lastPage = await store.listPeople(organizationId, userId, { limit: 2, offset: 4 });
     assert.equal(lastPage.items.length, 1);
     assert.equal(lastPage.total, FIXTURE_COUNT);
 
-    // A different, unseeded workspace sees none of these rows. Must be a
+    // A different, unseeded organization sees none of these rows. Must be a
     // well-formed UUID — pglite (0.2.17) crashes the wasm runtime instead of
     // cleanly erroring on a non-UUID string compared against a `uuid` column
     // (reproduced: `22P02 invalid input syntax for type uuid` followed by
@@ -64,25 +64,25 @@ test("listPeople: paginates workspace-scoped people, newest first", async () => 
   }
 });
 
-test("listCommunities: paginates workspace-scoped communities", async () => {
+test("listCommunities: paginates organization-scoped communities", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
 
     for (let i = 0; i < FIXTURE_COUNT; i += 1) {
       await db.insert(schema.communities).values({
-        workspaceId,
+        organizationId,
         userId,
         nameOverride: `test_fixture_community_${i}`,
       });
     }
 
-    const firstPage = await store.listCommunities(workspaceId, userId, { limit: 3, offset: 0 });
+    const firstPage = await store.listCommunities(organizationId, userId, { limit: 3, offset: 0 });
     assert.equal(firstPage.items.length, 3);
     assert.equal(firstPage.total, FIXTURE_COUNT);
 
-    const lastPage = await store.listCommunities(workspaceId, userId, { limit: 3, offset: 3 });
+    const lastPage = await store.listCommunities(organizationId, userId, { limit: 3, offset: 3 });
     assert.equal(lastPage.items.length, 2);
     assert.equal(lastPage.total, FIXTURE_COUNT);
 
@@ -98,7 +98,7 @@ test("listCommunities: paginates workspace-scoped communities", async () => {
 test("relationship reads mirror the RLS visibility allowlist", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relationship_viewer@example.com" })
@@ -109,7 +109,7 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
     const [privatePerson] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         fullNameOverride: "Private Person",
@@ -118,28 +118,28 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
     const [teamCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "team",
         nameOverride: "Owner-only Team Community",
       })
       .returning({ id: schema.communities.id });
-    const [workspaceCommunity] = await db
+    const [organizationCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
-        nameOverride: "Workspace Community",
+        visibility: "organization",
+        nameOverride: "Organization Community",
       })
       .returning({ id: schema.communities.id });
     assert.ok(privatePerson);
     assert.ok(teamCommunity);
-    assert.ok(workspaceCommunity);
+    assert.ok(organizationCommunity);
     const [privateSignal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "private_context",
         subjectType: "person",
         subjectId: privatePerson.id,
@@ -149,19 +149,19 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
       .returning({ id: schema.signals.id });
     assert.ok(privateSignal);
 
-    const peoplePage = await store.listPeople(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    const peoplePage = await store.listPeople(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(peoplePage.total, 0);
-    assert.equal(await store.getPerson(workspaceId, viewer.id, privatePerson.id), null);
-    const signalsPage = await store.listSignals(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    assert.equal(await store.getPerson(organizationId, viewer.id, privatePerson.id), null);
+    const signalsPage = await store.listSignals(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(signalsPage.total, 0);
-    assert.equal(await store.getSignalDetail(workspaceId, viewer.id, privateSignal.id), null);
+    assert.equal(await store.getSignalDetail(organizationId, viewer.id, privateSignal.id), null);
 
-    const communitiesPage = await store.listCommunities(workspaceId, viewer.id, { limit: 20, offset: 0 });
+    const communitiesPage = await store.listCommunities(organizationId, viewer.id, { limit: 20, offset: 0 });
     assert.equal(communitiesPage.total, 1);
-    assert.equal(communitiesPage.items[0]?.displayName, "Workspace Community");
-    assert.equal(await store.getCommunity(workspaceId, viewer.id, teamCommunity.id), null);
+    assert.equal(communitiesPage.items[0]?.displayName, "Organization Community");
+    assert.equal(await store.getCommunity(organizationId, viewer.id, teamCommunity.id), null);
     assert.equal(
-      (await store.getCommunity(workspaceId, ownerUserId, teamCommunity.id))?.displayName,
+      (await store.getCommunity(organizationId, ownerUserId, teamCommunity.id))?.displayName,
       "Owner-only Team Community",
     );
   } finally {
@@ -169,10 +169,10 @@ test("relationship reads mirror the RLS visibility allowlist", async () => {
   }
 });
 
-test("Relation operations bind workspace and owner context under forced RLS", async () => {
+test("Relation operations bind organization and owner context under forced RLS", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [otherUser] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_rls_other@example.com" })
@@ -181,9 +181,9 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "RLS-visible participant",
       })
       .returning({ id: schema.people.id });
@@ -191,7 +191,7 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -203,7 +203,7 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -233,14 +233,14 @@ test("Relation operations bind workspace and owner context under forced RLS", as
 
     const store = new DrizzleGraphStore(db);
     const anchor = await store.getSignalEvidenceAnchor(
-      workspaceId,
+      organizationId,
       userId,
       signal.id,
       event.id,
     );
     assert.equal(anchor?.sourceEvent.id, event.id);
     const materialized = await store.materializeSignalEvidence({
-      workspaceId,
+      organizationId,
       ownerUserId: userId,
       signalId: signal.id,
       sourceEventId: event.id,
@@ -260,21 +260,21 @@ test("Relation operations bind workspace and owner context under forced RLS", as
     });
     assert.equal(materialized.participants.length, 1);
     assert.equal(
-      (await store.getSignalDetail(workspaceId, userId, signal.id))?.participants[0]?.recordId,
+      (await store.getSignalDetail(organizationId, userId, signal.id))?.participants[0]?.recordId,
       person.id,
     );
-    const ownerSignals = await store.listSignals(workspaceId, userId, {
+    const ownerSignals = await store.listSignals(organizationId, userId, {
       limit: 1,
       offset: 0,
     });
     assert.equal(ownerSignals.total, 1);
     assert.deepEqual(ownerSignals.items.map((item) => item.id), [signal.id]);
     assert.equal(
-      await store.getSignalDetail(workspaceId, otherUser.id, signal.id),
+      await store.getSignalDetail(organizationId, otherUser.id, signal.id),
       null,
     );
     assert.deepEqual(
-      await store.listSignals(workspaceId, otherUser.id, { limit: 1, offset: 0 }),
+      await store.listSignals(organizationId, otherUser.id, { limit: 1, offset: 0 }),
       { items: [], total: 0 },
     );
   } finally {
@@ -286,17 +286,17 @@ test("Relation operations bind workspace and owner context under forced RLS", as
 test("getSignalDetail requires a linked source Event and real participant Relation", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
     const [person] = await db
       .insert(schema.people)
-      .values({ workspaceId, userId, fullNameOverride: "Unlinked Signal Subject" })
+      .values({ organizationId, userId, fullNameOverride: "Unlinked Signal Subject" })
       .returning({ id: schema.people.id });
     assert.ok(person);
     const [unrelatedEvent] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.unrelated",
         entityType: "person",
         entityId: person.id,
@@ -307,7 +307,7 @@ test("getSignalDetail requires a linked source Event and real participant Relati
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -317,7 +317,7 @@ test("getSignalDetail requires a linked source Event and real participant Relati
       .returning({ id: schema.signals.id });
     assert.ok(signal);
     await db.insert(schema.edges).values({
-      workspaceId,
+      organizationId,
       srcType: "event",
       srcId: unrelatedEvent.id,
       dstType: "person",
@@ -326,9 +326,9 @@ test("getSignalDetail requires a linked source Event and real participant Relati
       properties: {},
     });
 
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.equal(detail, null);
-    const list = await store.listSignals(workspaceId, userId, { limit: 20, offset: 0 });
+    const list = await store.listSignals(organizationId, userId, { limit: 20, offset: 0 });
     assert.equal(list.total, 0);
     assert.deepEqual(list.items, []);
   } finally {
@@ -339,17 +339,17 @@ test("getSignalDetail requires a linked source Event and real participant Relati
 test("getSignalDetail prefers the approved source Event and owner Relation over newer legacy rows", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
     const [person] = await db
       .insert(schema.people)
-      .values({ workspaceId, userId, fullNameOverride: "Signal Participant" })
+      .values({ organizationId, userId, fullNameOverride: "Signal Participant" })
       .returning({ id: schema.people.id });
     assert.ok(person);
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -361,7 +361,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -372,7 +372,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     const [approvedParticipant] = await db
       .insert(schema.edges)
       .values({
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -394,7 +394,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     assert.ok(approvedParticipant);
     await db.insert(schema.edges).values([
       {
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "signal",
         srcId: signal.id,
@@ -412,7 +412,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
         sourceModule: "relationship",
       },
       {
-        workspaceId,
+        organizationId,
         srcType: "event",
         srcId: event.id,
         dstType: "person",
@@ -421,13 +421,13 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
         properties: { role: "legacy-attendee" },
         confidence: "0.1",
         observedAt: new Date("2028-01-01T00:00:00.000Z"),
-        visibility: "workspace",
+        visibility: "organization",
         source: "legacy-import",
         sourceModule: "legacy",
       },
     ]);
     await db.insert(schema.events).values({
-      workspaceId,
+      organizationId,
       type: "calendar.newer_but_unapproved",
       entityType: "signal",
       entityId: signal.id,
@@ -435,7 +435,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
       createdAt: new Date("2027-01-01T00:00:00.000Z"),
     });
 
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.ok(detail);
     assert.equal(detail.sourceEvent?.id, event.id);
     assert.equal(detail.reasonSource, "event");
@@ -445,7 +445,7 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
     assert.equal(detail.participants[0]?.relationId, approvedParticipant.id);
     assert.equal(detail.participants[0]?.confidence, 0.9);
     assert.equal(
-      (await store.listSignals(workspaceId, userId, { limit: 20, offset: 0 })).total,
+      (await store.listSignals(organizationId, userId, { limit: 20, offset: 0 })).total,
       1,
     );
   } finally {
@@ -456,13 +456,13 @@ test("getSignalDetail prefers the approved source Event and owner Relation over 
 test("getSignalDetail filters inaccessible endpoints before applying its bound", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Accessible bounded participant",
       })
       .returning({ id: schema.people.id });
@@ -470,7 +470,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -482,7 +482,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -492,7 +492,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
     assert.ok(event);
     await db.insert(schema.edges).values([
       {
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -506,7 +506,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
         sourceModule: "relationship",
       },
       ...Array.from({ length: 201 }, () => ({
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -514,13 +514,13 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
         dstId: randomUUID(),
         edgeType: "participant",
         observedAt: new Date("2027-01-01T00:00:00.000Z"),
-        visibility: "workspace",
+        visibility: "organization",
         source: "calendar",
         sourceModule: "relationship",
       })),
     ]);
 
-    const detail = await new DrizzleGraphStore(db).getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await new DrizzleGraphStore(db).getSignalDetail(organizationId, userId, signal.id);
     assert.ok(detail);
     assert.deepEqual(detail.participants.map((participant) => participant.recordId), [person.id]);
   } finally {
@@ -531,7 +531,7 @@ test("getSignalDetail filters inaccessible endpoints before applying its bound",
 test("materializeSignalEvidence is atomic, retry-idempotent, and semantically unique per owner", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [secondOwner] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_second_owner@example.com" })
@@ -540,27 +540,27 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Relation Person",
       })
       .returning({ id: schema.people.id });
     const [community] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Relation Community",
       })
       .returning({ id: schema.communities.id });
     const [staleCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Stale Relation Community",
       })
       .returning({ id: schema.communities.id });
@@ -570,7 +570,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -582,7 +582,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -598,18 +598,18 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     assert.equal((await store.getNodeTypeOwner("event"))?.owningModule, "relationship");
     assert.equal(await store.getNodeTypeOwner("unsupported"), null);
     assert.equal(
-      await store.getSignalDetail(workspaceId, ownerUserId, signal.id),
+      await store.getSignalDetail(organizationId, ownerUserId, signal.id),
       null,
       "an Event anchor without a participant Relation is not evidence-backed Signal detail",
     );
     assert.equal(
-      (await store.getSignalEvidenceAnchor(workspaceId, ownerUserId, signal.id))?.sourceEvent.id,
+      (await store.getSignalEvidenceAnchor(organizationId, ownerUserId, signal.id))?.sourceEvent.id,
       event.id,
       "Relation staging can still resolve the accessible Signal and source Event",
     );
 
     const materialization = {
-      workspaceId: workspaceId.toUpperCase(),
+      organizationId: organizationId.toUpperCase(),
       ownerUserId: ownerUserId.toUpperCase(),
       signalId: signal.id.toUpperCase(),
       sourceEventId: event.id.toUpperCase(),
@@ -655,7 +655,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
 
     const first = await store.materializeSignalEvidence(materialization);
     const retry = await store.materializeSignalEvidence(materialization);
-    assert.ok(await store.getSignalDetail(workspaceId, ownerUserId, signal.id));
+    assert.ok(await store.getSignalDetail(organizationId, ownerUserId, signal.id));
     assert.equal(first.sourceEvent.id, retry.sourceEvent.id);
     assert.deepEqual(
       first.participants.map((relation) => relation.id).sort(),
@@ -733,7 +733,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [reverseSignal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -745,7 +745,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [reverseEvent] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: reverseSignal.id,
@@ -788,16 +788,16 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const [recoveryCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Post-commit recovery participant",
       })
       .returning({ id: schema.communities.id });
     const [recoverySignal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: person.id,
@@ -811,14 +811,14 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
       .insert(schema.events)
       .values([
         {
-          workspaceId,
+          organizationId,
           type: "calendar.meeting_upcoming",
           entityType: "signal",
           entityId: recoverySignal.id,
           payload: { source: "legacy-calendar" },
         },
         {
-          workspaceId,
+          organizationId,
           type: "calendar.meeting_updated",
           entityType: "signal",
           entityId: recoverySignal.id,
@@ -886,7 +886,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     const existingParticipant = first.participants.find((relation) => relation.dstId === person.id);
     assert.ok(existingParticipant);
     const enriched = await store.upsertRelation({
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "event",
       srcId: event.id,
@@ -912,13 +912,13 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
     assert.deepEqual(enriched.properties, { role: "reviewed-attendee" });
 
     const ownerPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       ownerUserId,
       { nodeType: "event", nodeId: event.id },
       { limit: 10 },
     );
     const secondOwnerPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       secondOwner.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 10 },
@@ -935,7 +935,7 @@ test("materializeSignalEvidence is atomic, retry-idempotent, and semantically un
 test("Relation reads prune inaccessible endpoints and evidence before bounded pagination", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_viewer@example.com" })
@@ -944,16 +944,16 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [subject] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
-        fullNameOverride: "Workspace Subject",
+        visibility: "organization",
+        fullNameOverride: "Organization Subject",
       })
       .returning({ id: schema.people.id });
     const [privateEvidence] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         fullNameOverride: "Private Evidence",
@@ -962,16 +962,16 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [visibleCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Visible Community",
       })
       .returning({ id: schema.communities.id });
     const [privateCommunity] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
         visibility: "private",
         nameOverride: "Private Community",
@@ -984,7 +984,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: subject.id,
@@ -996,7 +996,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -1006,7 +1006,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     assert.ok(event);
     const store = new DrizzleGraphStore(db);
     const common = {
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "event",
       srcId: event.id,
@@ -1026,7 +1026,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
         { entityType: "event", entityId: event.id, source: "calendar" },
         { entityType: "person", entityId: privateEvidence.id, source: "user" },
       ],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1034,7 +1034,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       dstId: subject.id,
       relationType: "subject",
       evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1042,7 +1042,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       dstId: privateCommunity.id,
       relationType: "hidden_endpoint",
       evidenceRefs: [{ entityType: "event", entityId: event.id, source: "calendar" }],
-      visibility: "workspace",
+      visibility: "organization",
     });
     await store.upsertRelation({
       ...common,
@@ -1055,11 +1055,11 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${ownerUserId}, true)
       `);
       await tx.insert(schema.edges).values({
-        workspaceId,
+        organizationId,
         ownerUserId,
         srcType: "event",
         srcId: event.id,
@@ -1070,20 +1070,20 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
         confidence: "1",
         observedAt: event.createdAt,
         userConfirmed: true,
-        visibility: "workspace",
+        visibility: "organization",
         source: "test_fixture",
         sourceModule: "relationship",
       });
     });
 
     const firstPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 1 },
     );
     const secondPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "event", nodeId: event.id },
       { limit: 1, cursor: firstPage.nextCursor },
@@ -1093,7 +1093,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     assert.equal(secondPage.total, 2);
     assert.equal(secondPage.items.length, 1);
     const visible = [...firstPage.items, ...secondPage.items];
-    assert.ok(visible.every((relation) => relation.visibility === "workspace"));
+    assert.ok(visible.every((relation) => relation.visibility === "organization"));
     const participant = visible.find((relation) => relation.edgeType === "participant");
     assert.ok(participant);
     assert.deepEqual(participant.evidenceRefs, [
@@ -1101,7 +1101,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
     ]);
 
     const inaccessibleAnchor = await store.listRelations(
-      workspaceId,
+      organizationId,
       viewer.id,
       { nodeType: "community", nodeId: privateCommunity.id },
       { limit: 10 },
@@ -1112,7 +1112,7 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
       nextCursor: null,
     });
 
-    const detail = await store.getSignalDetail(workspaceId, viewer.id, signal.id);
+    const detail = await store.getSignalDetail(organizationId, viewer.id, signal.id);
     assert.ok(detail);
     const communityParticipant = detail.participants.find(
       (entry) => entry.recordType === "community",
@@ -1134,11 +1134,11 @@ test("Relation reads prune inaccessible endpoints and evidence before bounded pa
 test("Relation keyset pagination is deterministic for tied timestamps and concurrent inserts", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [person] = await db
       .insert(schema.people)
       .values({
-        workspaceId,
+        organizationId,
         userId,
         visibility: "private",
         fullNameOverride: "test_fixture_keyset_person",
@@ -1148,7 +1148,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "test_fixture_keyset",
         subjectType: "person",
         subjectId: person.id,
@@ -1160,7 +1160,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "test_fixture_keyset",
         entityType: "signal",
         entityId: signal.id,
@@ -1177,13 +1177,13 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values(
         initialIds.map((id, index) => ({
           id,
-          workspaceId,
+          organizationId,
           ownerUserId: userId,
           srcType: "event",
           srcId: event.id,
@@ -1212,12 +1212,12 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
               THEN '2026-07-16T12:00:00.123900Z'::timestamptz
             ELSE '2026-07-16T12:00:00.123800Z'::timestamptz
           END
-        WHERE workspace_id = ${workspaceId}
+        WHERE organization_id = ${organizationId}
       `);
     });
     const store = new DrizzleGraphStore(db);
     const first = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50 },
@@ -1230,12 +1230,12 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values({
         id: concurrentId,
-        workspaceId,
+        organizationId,
         ownerUserId: userId,
         srcType: "event",
         srcId: event.id,
@@ -1253,7 +1253,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     });
 
     const second = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50, cursor: first.nextCursor },
@@ -1261,7 +1261,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     assert.equal(second.items.length, 50);
     assert.ok(second.nextCursor);
     const third = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 50, cursor: second.nextCursor },
@@ -1276,7 +1276,7 @@ test("Relation keyset pagination is deterministic for tied timestamps and concur
     assert.equal(pagedIds.includes(concurrentId), false);
 
     const fresh = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 1 },
@@ -1298,12 +1298,12 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     },
   });
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const participantRows = await db
       .insert(schema.people)
       .values(
         Array.from({ length: 100 }, (_, index) => ({
-          workspaceId,
+          organizationId,
           userId,
           visibility: "private",
           fullNameOverride: `test_fixture_batch_person_${index}`,
@@ -1315,7 +1315,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId,
+        organizationId,
         type: "test_fixture_batch_authorization",
         subjectType: "person",
         subjectId: subject.id,
@@ -1327,7 +1327,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "test_fixture_batch_authorization",
         entityType: "signal",
         entityId: signal.id,
@@ -1344,13 +1344,13 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     await db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${userId}, true)
       `);
       await tx.insert(schema.edges).values([
         {
           id: randomUUID(),
-          workspaceId,
+          organizationId,
           ownerUserId: userId,
           srcType: "signal",
           srcId: signal.id,
@@ -1370,7 +1370,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
         },
         ...participantRows.map((participant, index) => ({
           id: randomUUID(),
-          workspaceId,
+          organizationId,
           ownerUserId: userId,
           srcType: "event",
           srcId: event.id,
@@ -1395,7 +1395,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
 
     queries.length = 0;
     const relationPage = await store.listRelations(
-      workspaceId,
+      organizationId,
       userId,
       { nodeType: "event", nodeId: event.id },
       { limit: 100 },
@@ -1415,7 +1415,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
     );
 
     queries.length = 0;
-    const detail = await store.getSignalDetail(workspaceId, userId, signal.id);
+    const detail = await store.getSignalDetail(organizationId, userId, signal.id);
     assert.equal(detail?.participants.length, 100);
     assert.ok(
       detail?.participants.every(
@@ -1446,7 +1446,7 @@ test("Relation evidence and Signal participants use bounded batch authorization"
 test("Relationship search escapes wildcards and clamps page bounds", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId, organizationId } = await seedOrganizationAndUser(db);
     const [otherUser] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relationship_search_other@example.com" })
@@ -1454,29 +1454,29 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
     assert.ok(otherUser);
     await db.insert(schema.people).values([
       ...Array.from({ length: 103 }, (_, index) => ({
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: `Bounded Person ${String(index).padStart(3, "0")}`,
         ...(index < 3
           ? { emailsOverride: ["ambiguous-intake@example.com"] }
           : {}),
       })),
       {
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Literal 100% Match",
         emailsOverride: ["intake-match@example.com"],
       },
       {
-        workspaceId,
+        organizationId,
         userId,
-        visibility: "workspace",
+        visibility: "organization",
         fullNameOverride: "Literal 100X Match",
       },
       {
-        workspaceId,
+        organizationId,
         userId: otherUser.id,
         visibility: "private",
         fullNameOverride: "Hidden email match",
@@ -1485,14 +1485,14 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
     ]);
     const store = new DrizzleGraphStore(db);
 
-    const bounded = await store.listPeople(workspaceId, userId, {
+    const bounded = await store.listPeople(organizationId, userId, {
       limit: 1_000,
       offset: -50,
     });
     assert.equal(bounded.items.length, 100);
     assert.equal(bounded.total, 105);
 
-    const literalPercent = await store.listPeople(workspaceId, userId, {
+    const literalPercent = await store.listPeople(organizationId, userId, {
       limit: 50,
       offset: 0,
       query: "%",
@@ -1500,7 +1500,7 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
     assert.equal(literalPercent.total, 1);
     assert.equal(literalPercent.items[0]?.displayName, "Literal 100% Match");
     const exactEmail = await store.findPeopleByEmail(
-      workspaceId,
+      organizationId,
       userId,
       " INTAKE-MATCH@example.com ",
     );
@@ -1512,7 +1512,7 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
     assert.equal(
       (
         await store.findPeopleByEmail(
-          workspaceId,
+          organizationId,
           userId,
           "ambiguous-intake@example.com",
           50,
@@ -1529,7 +1529,7 @@ test("Relationship search escapes wildcards and clamps page bounds", async () =>
 test("Relationship lifecycle is owner-only, decision-provenanced, and archive-idempotent", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relationship_lifecycle_viewer@example.com" })
@@ -1549,13 +1549,13 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
 
     const created = await store.createPerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       displayName: "Lifecycle Person",
       currentTitle: "Builder",
       bio: "Inspectably governed.",
       emails: ["LIFECYCLE@example.com", "lifecycle@example.com"],
-      visibility: "workspace",
+      visibility: "organization",
       source: "user",
       decisionLedgerId: createDecisionId,
       decisionSequence: 1,
@@ -1583,11 +1583,11 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
       )[0]?.canonicalPersonId,
       null,
     );
-    assert.equal((await store.getPerson(workspaceId, viewer.id, personId))?.isOwner, false);
+    assert.equal((await store.getPerson(organizationId, viewer.id, personId))?.isOwner, false);
 
     const deniedUpdate = await store.updatePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId: viewer.id,
       displayName: "Unauthorized rename",
       decisionLedgerId: randomUUID(),
@@ -1597,7 +1597,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(deniedUpdate, null);
     const deniedArchive = await store.archivePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId: viewer.id,
       decisionLedgerId: randomUUID(),
       decisionSequence: 3,
@@ -1607,7 +1607,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
 
     const updated = await store.updatePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       displayName: "Lifecycle Person Updated",
       visibility: "private",
@@ -1616,10 +1616,10 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
       decisionAt: new Date("2026-07-18T10:03:00.000Z"),
     });
     assert.equal(updated?.displayName, "Lifecycle Person Updated");
-    assert.equal(await store.getPerson(workspaceId, viewer.id, personId), null);
+    assert.equal(await store.getPerson(organizationId, viewer.id, personId), null);
     const staleReplay = await store.updatePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       displayName: "Stale replay must not win",
       decisionLedgerId: staleUpdateDecisionId,
@@ -1633,7 +1633,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     );
     await store.createInteraction({
       id: ordinaryInteractionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       kind: "person_updated",
       occurredAt: new Date("2026-07-18T10:02:00.000Z"),
@@ -1647,7 +1647,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     });
     const laggingUpdate = await store.updatePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       currentTitle: "Recovered after meeting",
       decisionLedgerId: laggingUpdateDecisionId,
@@ -1662,7 +1662,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(
       await store.archivePerson({
         id: personId,
-        workspaceId,
+        organizationId,
         ownerUserId,
         decisionLedgerId: staleArchiveDecisionId,
         decisionSequence: 3,
@@ -1671,7 +1671,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
       true,
     );
     assert.equal(
-      (await store.getPerson(workspaceId, ownerUserId, personId))?.displayName,
+      (await store.getPerson(organizationId, ownerUserId, personId))?.displayName,
       "Lifecycle Person Updated",
       "an older archive cannot erase a newer Record decision",
     );
@@ -1679,7 +1679,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(
       await store.archivePerson({
         id: personId,
-        workspaceId,
+        organizationId,
         ownerUserId,
         decisionLedgerId: archiveDecisionId,
         decisionSequence: 7,
@@ -1690,7 +1690,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(
       await store.archivePerson({
         id: personId,
-        workspaceId,
+        organizationId,
         ownerUserId,
         decisionLedgerId: archiveDecisionId,
         decisionSequence: 7,
@@ -1701,7 +1701,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(
       await store.updatePerson({
         id: personId,
-        workspaceId,
+        organizationId,
         ownerUserId,
         displayName: "Archived Record must stay archived",
         decisionLedgerId: archivedUpdateDecisionId,
@@ -1713,7 +1713,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
     assert.equal(
       await store.archivePerson({
         id: personId,
-        workspaceId,
+        organizationId,
         ownerUserId,
         decisionLedgerId: archivedRetryDecisionId,
         decisionSequence: 9,
@@ -1721,7 +1721,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
       }),
       true,
     );
-    assert.equal(await store.getPerson(workspaceId, ownerUserId, personId), null);
+    assert.equal(await store.getPerson(organizationId, ownerUserId, personId), null);
 
     const lifecycleEvents = await db
       .select({ id: schema.events.id, payload: schema.events.payload })
@@ -1788,7 +1788,7 @@ test("Relationship lifecycle is owner-only, decision-provenanced, and archive-id
 test("Relationship Records keep private values out of canonical identity and preserve explicit clears", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const store = new DrizzleGraphStore(db);
     const canonicalPersonId = randomUUID();
     const personId = randomUUID();
@@ -1800,19 +1800,19 @@ test("Relationship Records keep private values out of canonical identity and pre
     });
     await db.insert(schema.people).values({
       id: personId,
-      workspaceId,
+      organizationId,
       userId: ownerUserId,
       canonicalPersonId,
       visibility: "private",
       fullNameOverride: "Owner Person",
     });
     assert.equal(
-      (await store.getPerson(workspaceId, ownerUserId, personId))?.currentTitle,
+      (await store.getPerson(organizationId, ownerUserId, personId))?.currentTitle,
       "Canonical title",
     );
     const clearedPerson = await store.updatePerson({
       id: personId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       currentTitle: null,
       bio: null,
@@ -1842,7 +1842,7 @@ test("Relationship Records keep private values out of canonical identity and pre
     });
     await db.insert(schema.communities).values({
       id: communityId,
-      workspaceId,
+      organizationId,
       userId: ownerUserId,
       canonicalCommunityId,
       visibility: "private",
@@ -1850,7 +1850,7 @@ test("Relationship Records keep private values out of canonical identity and pre
     });
     const clearedCommunity = await store.updateCommunity({
       id: communityId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       description: null,
       kind: null,
@@ -1864,7 +1864,7 @@ test("Relationship Records keep private values out of canonical identity and pre
     const ownerPersonId = randomUUID();
     await store.createPerson({
       id: ownerPersonId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       displayName: "Private owner value",
       emails: ["private-owner@example.com"],
@@ -1877,7 +1877,7 @@ test("Relationship Records keep private values out of canonical identity and pre
     const ownerCommunityId = randomUUID();
     await store.createCommunity({
       id: ownerCommunityId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       displayName: "Private owner community",
       description: "Private owner description",
@@ -1913,7 +1913,7 @@ test("Relationship Records keep private values out of canonical identity and pre
 test("Interaction participants drive one bounded Timeline with pruned provenance", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_relationship_timeline_viewer@example.com" })
@@ -1923,13 +1923,13 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
       .insert(schema.people)
       .values([
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Timeline Person",
         },
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
           visibility: "private",
           fullNameOverride: "Private Timeline Person",
@@ -1939,9 +1939,9 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     const [community] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Timeline Community",
       })
       .returning({ id: schema.communities.id });
@@ -1955,7 +1955,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     for (const [index, id] of visibleEventIds.entries()) {
       const item = await store.createInteraction({
         id,
-        workspaceId,
+        organizationId,
         ownerUserId,
         kind: index === 0 ? "meeting" : "email",
         occurredAt: new Date(
@@ -1966,7 +1966,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
         summary: index === 0 ? "Met at the community office." : "Sent a follow-up.",
         source: index === 0 ? "calendar" : "gmail",
         sourceRecordId: `source-${index}`,
-        visibility: "workspace",
+        visibility: "organization",
         participants: [
           { recordType: "person", recordId: person.id, role: "attendee" },
           { recordType: "community", recordId: community.id, role: "host" },
@@ -1982,7 +1982,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
       ]);
     }
     const personAfterInteractions = await store.getPerson(
-      workspaceId,
+      organizationId,
       ownerUserId,
       person.id,
     );
@@ -1994,13 +1994,13 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     const privateEventId = randomUUID();
     await store.createInteraction({
       id: privateEventId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       kind: "note",
       occurredAt: new Date("2026-07-18T12:00:00.000Z"),
       summary: "Private participant context.",
       source: "capture",
-      visibility: "workspace",
+      visibility: "organization",
       participants: [
         { recordType: "community", recordId: community.id },
         { recordType: "person", recordId: privatePerson.id },
@@ -2019,13 +2019,13 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
         "Private participant context.",
       ),
       false,
-      "private Event content is absent from the workspace-scoped Event row",
+      "private Event content is absent from the organization-scoped Event row",
     );
     const privateParticipantRelations = await db
       .select({ properties: schema.edges.properties })
       .from(schema.edges)
       .where(and(
-        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.organizationId, organizationId),
         eq(schema.edges.ownerUserId, ownerUserId),
         eq(schema.edges.srcType, "event"),
         eq(schema.edges.srcId, privateEventId),
@@ -2041,7 +2041,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     );
 
     const firstPage = await store.listTimeline(
-      workspaceId,
+      organizationId,
       viewer.id,
       "community",
       community.id,
@@ -2055,7 +2055,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     );
     assert.ok(firstPage.nextCursor);
     const secondPage = await store.listTimeline(
-      workspaceId,
+      organizationId,
       viewer.id,
       "community",
       community.id,
@@ -2074,7 +2074,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
     );
 
     const ownerTimeline = await store.listTimeline(
-      workspaceId,
+      organizationId,
       ownerUserId,
       "community",
       community.id,
@@ -2098,7 +2098,7 @@ test("Interaction participants drive one bounded Timeline with pruned provenance
 test("Commitments are private evidence-bearing Event snapshots with bounded current-state reads", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [viewer, person] = await Promise.all([
       db
         .insert(schema.users)
@@ -2108,9 +2108,9 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       db
         .insert(schema.people)
         .values({
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Commitment Person",
         })
         .returning({ id: schema.people.id })
@@ -2128,7 +2128,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       operation: "create",
       commitmentId,
       transitionEventId: commitmentId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       personId: person.id,
       text: "Send the diligence notes",
@@ -2144,7 +2144,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       operation: "update",
       commitmentId,
       transitionEventId: updateDecisionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       personId: person.id,
       text: "Sent the diligence notes",
@@ -2156,7 +2156,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
     });
 
     const current = await store.listCommitments(
-      workspaceId,
+      organizationId,
       ownerUserId,
       person.id,
       { limit: 25, offset: 0 },
@@ -2166,15 +2166,15 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
     assert.equal(current.items[0]?.text, "Sent the diligence notes");
     assert.equal(current.items[0]?.provenance.decisionLedgerId, updateDecisionId);
     assert.deepEqual(
-      await store.listCommitments(workspaceId, viewer.id, person.id, {
+      await store.listCommitments(organizationId, viewer.id, person.id, {
         limit: 25,
         offset: 0,
       }),
       { items: [], total: 0 },
-      "another workspace member cannot read the owner's private commitment",
+      "another organization member cannot read the owner's private commitment",
     );
     const timeline = await store.listTimeline(
-      workspaceId,
+      organizationId,
       ownerUserId,
       "person",
       person.id,
@@ -2190,7 +2190,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       operation: "archive",
       commitmentId,
       transitionEventId: archiveDecisionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       personId: person.id,
       text: "Sent the diligence notes",
@@ -2202,7 +2202,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
     });
     assert.equal(
       (
-        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+        await store.listCommitments(organizationId, ownerUserId, person.id, {
           limit: 25,
           offset: 0,
         })
@@ -2211,7 +2211,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
     );
     assert.equal(
       (
-        await store.listCommitments(workspaceId, ownerUserId, person.id, {
+        await store.listCommitments(organizationId, ownerUserId, person.id, {
           limit: 25,
           offset: 0,
           includeArchived: true,
@@ -2240,7 +2240,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
         operation: "create",
         commitmentId: id,
         transitionEventId: id,
-        workspaceId,
+        organizationId,
         ownerUserId,
         personId: person.id,
         text,
@@ -2257,7 +2257,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
     }
     const commitmentSnapshotAt = new Date("2026-07-22T10:02:00.000Z");
     const firstCommitmentPage = await store.listCommitments(
-      workspaceId,
+      organizationId,
       ownerUserId,
       person.id,
       { limit: 1, offset: 0, snapshotAt: commitmentSnapshotAt },
@@ -2270,7 +2270,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       operation: "create",
       commitmentId: laterCommitmentId,
       transitionEventId: laterCommitmentId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       personId: person.id,
       text: "Later snapshot commitment",
@@ -2285,7 +2285,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
       .set({ createdAt: new Date("2026-07-22T10:03:00.000Z") })
       .where(eq(schema.events.id, laterCommitmentId));
     const secondCommitmentPage = await store.listCommitments(
-      workspaceId,
+      organizationId,
       ownerUserId,
       person.id,
       { limit: 1, offset: 1, snapshotAt: commitmentSnapshotAt },
@@ -2304,7 +2304,7 @@ test("Commitments are private evidence-bearing Event snapshots with bounded curr
 test("Introductions require double consent and keep decline reasons private", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [[viewer], people] = await Promise.all([
       db
         .insert(schema.users)
@@ -2314,15 +2314,15 @@ test("Introductions require double consent and keep decline reasons private", as
         .insert(schema.people)
         .values([
           {
-            workspaceId,
+            organizationId,
             userId: ownerUserId,
-            visibility: "workspace",
+            visibility: "organization",
             fullNameOverride: "Introduction Source",
           },
           {
-            workspaceId,
+            organizationId,
             userId: ownerUserId,
-            visibility: "workspace",
+            visibility: "organization",
             fullNameOverride: "Introduction Target",
           },
         ])
@@ -2338,7 +2338,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "create",
       introductionId,
       transitionEventId: introductionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2354,7 +2354,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "consent",
       introductionId,
       transitionEventId: readyEventId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2368,14 +2368,14 @@ test("Introductions require double consent and keep decline reasons private", as
     assert.equal(ready.status, "ready");
     assert.equal(ready.provenance.relationIds.length, 2);
     assert.equal(
-      (await store.listIntroductions(workspaceId, ownerUserId, source.id, {
+      (await store.listIntroductions(organizationId, ownerUserId, source.id, {
         limit: 25,
         offset: 0,
       })).items[0]?.status,
       "ready",
     );
     assert.equal(
-      (await store.listIntroductions(workspaceId, ownerUserId, target.id, {
+      (await store.listIntroductions(organizationId, ownerUserId, target.id, {
         limit: 25,
         offset: 0,
       })).items[0]?.id,
@@ -2383,7 +2383,7 @@ test("Introductions require double consent and keep decline reasons private", as
       "both People see the same Introduction lifecycle",
     );
     assert.deepEqual(
-      await store.listIntroductions(workspaceId, viewer.id, source.id, {
+      await store.listIntroductions(organizationId, viewer.id, source.id, {
         limit: 25,
         offset: 0,
       }),
@@ -2396,7 +2396,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "create",
       introductionId: concurrentIntroductionId,
       transitionEventId: randomUUID(),
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2411,7 +2411,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "consent" as const,
       introductionId: concurrentIntroductionId,
       transitionEventId: randomUUID(),
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2438,11 +2438,11 @@ test("Introductions require double consent and keep decline reasons private", as
       const rows = await db.execute(sql`
         SELECT count(*)::int AS value
         FROM ${schema.events} AS transition
-        WHERE transition.workspace_id = ${workspaceId}::uuid
+        WHERE transition.organization_id = ${organizationId}::uuid
           AND EXISTS (
             SELECT 1
             FROM ${schema.edges} AS introduction
-            WHERE introduction.workspace_id = transition.workspace_id
+            WHERE introduction.organization_id = transition.organization_id
               AND introduction.src_type = 'event'
               AND introduction.src_id = transition.id
               AND introduction.edge_type = 'introduction'
@@ -2475,7 +2475,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "create",
       introductionId: declinedIntroductionId,
       transitionEventId: declinedIntroductionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2491,7 +2491,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "consent",
       introductionId: declinedIntroductionId,
       transitionEventId: declinedEventId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: source.id,
       targetPersonId: target.id,
@@ -2504,7 +2504,7 @@ test("Introductions require double consent and keep decline reasons private", as
       decisionAt: new Date("2026-07-21T12:00:00.000Z"),
     });
     const declined = await store.listIntroductions(
-      workspaceId,
+      organizationId,
       ownerUserId,
       source.id,
       { limit: 1, offset: 0, introductionId: declinedIntroductionId },
@@ -2524,7 +2524,7 @@ test("Introductions require double consent and keep decline reasons private", as
     assert.equal(
       JSON.stringify(declineEvent?.payload).includes("Not the right time"),
       false,
-      "private decline text is never copied into the workspace-scoped Event table",
+      "private decline text is never copied into the organization-scoped Event table",
     );
     assert.equal(
       JSON.stringify(declineEvent?.payload).includes(declinedIntroductionId),
@@ -2538,13 +2538,13 @@ test("Introductions require double consent and keep decline reasons private", as
     assert.equal(
       declineMemories.length,
       0,
-      "decline text never enters the workspace-readable Memory table",
+      "decline text never enters the organization-readable Memory table",
     );
     const [privateReasonRelation] = await db
       .select({ properties: schema.edges.properties })
       .from(schema.edges)
       .where(and(
-        eq(schema.edges.workspaceId, workspaceId),
+        eq(schema.edges.organizationId, organizationId),
         eq(schema.edges.ownerUserId, ownerUserId),
         eq(schema.edges.srcId, declinedEventId),
         eq(schema.edges.dstId, source.id),
@@ -2562,15 +2562,15 @@ test("Introductions require double consent and keep decline reasons private", as
       .insert(schema.people)
       .values([
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Introduction Pagination Source",
         },
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Introduction Pagination Target",
         },
       ])
@@ -2595,7 +2595,7 @@ test("Introductions require double consent and keep decline reasons private", as
         operation: "create",
         introductionId: id,
         transitionEventId: id,
-        workspaceId,
+        organizationId,
         ownerUserId,
         sourcePersonId: paginationSource.id,
         targetPersonId: paginationTarget.id,
@@ -2613,7 +2613,7 @@ test("Introductions require double consent and keep decline reasons private", as
     }
     const introductionSnapshotAt = new Date("2026-07-23T12:03:00.000Z");
     const firstIntroductionPage = await store.listIntroductions(
-      workspaceId,
+      organizationId,
       ownerUserId,
       paginationSource.id,
       { limit: 1, offset: 0, snapshotAt: introductionSnapshotAt },
@@ -2626,7 +2626,7 @@ test("Introductions require double consent and keep decline reasons private", as
       operation: "create",
       introductionId: laterIntroductionId,
       transitionEventId: laterIntroductionId,
-      workspaceId,
+      organizationId,
       ownerUserId,
       sourcePersonId: paginationSource.id,
       targetPersonId: paginationTarget.id,
@@ -2642,7 +2642,7 @@ test("Introductions require double consent and keep decline reasons private", as
       .set({ createdAt: new Date("2026-07-23T13:01:00.000Z") })
       .where(eq(schema.events.id, laterIntroductionId));
     const secondIntroductionPage = await store.listIntroductions(
-      workspaceId,
+      organizationId,
       ownerUserId,
       paginationSource.id,
       { limit: 1, offset: 1, snapshotAt: introductionSnapshotAt },
@@ -2661,7 +2661,7 @@ test("Introductions require double consent and keep decline reasons private", as
 test("Relationship paths are shortest, bounded, and visibility-pruned", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: ownerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: ownerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [otherUser] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_path_other@example.com" })
@@ -2671,19 +2671,19 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
       .insert(schema.people)
       .values([
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Path Start",
         },
         {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Path End",
         },
         {
-          workspaceId,
+          organizationId,
           userId: otherUser.id,
           visibility: "private",
           fullNameOverride: "Hidden Path End",
@@ -2693,9 +2693,9 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
     const [community] = await db
       .insert(schema.communities)
       .values({
-        workspaceId,
+        organizationId,
         userId: ownerUserId,
-        visibility: "workspace",
+        visibility: "organization",
         nameOverride: "Path Community",
       })
       .returning({ id: schema.communities.id });
@@ -2705,7 +2705,7 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
     assert.ok(community);
     const store = new DrizzleGraphStore(db);
     await store.upsertRelation({
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "person",
       srcId: start.id,
@@ -2717,12 +2717,12 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
       confidence: 0.8,
       observedAt: new Date("2026-07-18T12:00:00.000Z"),
       userConfirmed: true,
-      visibility: "workspace",
+      visibility: "organization",
       source: "user",
       sourceModule: "relationship",
     });
     await store.upsertRelation({
-      workspaceId,
+      organizationId,
       ownerUserId,
       srcType: "community",
       srcId: community.id,
@@ -2734,13 +2734,13 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
       confidence: 0.5,
       observedAt: new Date("2026-07-18T12:01:00.000Z"),
       userConfirmed: true,
-      visibility: "workspace",
+      visibility: "organization",
       source: "user",
       sourceModule: "relationship",
     });
 
     const result = await store.findRelationshipPaths(
-      workspaceId,
+      organizationId,
       ownerUserId,
       { nodeType: "person", nodeId: start.id },
       { nodeType: "person", nodeId: end.id },
@@ -2756,7 +2756,7 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
     assert.equal(
       (
         await store.findRelationshipPaths(
-          workspaceId,
+          organizationId,
           ownerUserId,
           { nodeType: "person", nodeId: start.id },
           { nodeType: "person", nodeId: end.id },
@@ -2767,7 +2767,7 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
     );
     assert.deepEqual(
       await store.findRelationshipPaths(
-        workspaceId,
+        organizationId,
         ownerUserId,
         { nodeType: "person", nodeId: start.id },
         { nodeType: "person", nodeId: hidden.id },
@@ -2784,7 +2784,7 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
 test("full graph projects cross-Module Record, Event, and File Relations without leaking private nodes", async () => {
   const { db, close } = await createLocalDb();
   try {
-    const { userId: viewerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const { userId: viewerUserId, organizationId } = await seedOrganizationAndUser(db);
     const [otherUser] = await db
       .insert(schema.users)
       .values({ email: "test_fixture_full_graph_private@example.com" })
@@ -2794,14 +2794,14 @@ test("full graph projects cross-Module Record, Event, and File Relations without
       .insert(schema.people)
       .values([
         {
-          workspaceId,
+          organizationId,
           userId: viewerUserId,
-          visibility: "workspace",
+          visibility: "organization",
           fullNameOverride: "Visible Full Graph Person",
           source: "relationship",
         },
         {
-          workspaceId,
+          organizationId,
           userId: otherUser.id,
           visibility: "private",
           fullNameOverride: "Hidden Full Graph Person",
@@ -2809,27 +2809,27 @@ test("full graph projects cross-Module Record, Event, and File Relations without
         },
       ])
       .returning({ id: schema.people.id });
-    const [initiative] = await db
-      .insert(schema.initiatives)
-      .values({ workspaceId, title: "Real Full Graph Initiative" })
-      .returning({ id: schema.initiatives.id });
+    const [record] = await db
+      .insert(schema.records)
+      .values({ organizationId, title: "Real Full Graph Record" })
+      .returning({ id: schema.records.id });
     assert.ok(visiblePerson);
     assert.ok(hiddenPerson);
-    assert.ok(initiative);
-    await db.insert(schema.initiativeParticipants).values([
-      { initiativeId: initiative.id, personId: visiblePerson.id, role: "owner" },
-      { initiativeId: initiative.id, personId: hiddenPerson.id, role: "reviewer" },
+    assert.ok(record);
+    await db.insert(schema.recordParticipants).values([
+      { recordId: record.id, personId: visiblePerson.id, role: "owner" },
+      { recordId: record.id, personId: hiddenPerson.id, role: "reviewer" },
     ]);
     const [visibleFile, hiddenFile] = await db
       .insert(schema.files)
       .values([
         {
-          workspaceId,
+          organizationId,
           source: "job-pilot",
           metadata: { name: "visible-source.pdf" },
         },
         {
-          workspaceId,
+          organizationId,
           source: "job-pilot",
           metadata: { name: "hidden-source.pdf" },
         },
@@ -2844,7 +2844,7 @@ test("full graph projects cross-Module Record, Event, and File Relations without
     const [job] = await db
       .insert(schema.jobpilotJobs)
       .values({
-        workspaceId,
+        organizationId,
         title: "Platform Engineer",
         company: "Real Company",
         source: "manual",
@@ -2853,13 +2853,13 @@ test("full graph projects cross-Module Record, Event, and File Relations without
     assert.ok(job);
     const [application] = await db
       .insert(schema.jobpilotApplications)
-      .values({ workspaceId, jobId: job.id, stage: "queued" })
+      .values({ organizationId, jobId: job.id, stage: "queued" })
       .returning({ id: schema.jobpilotApplications.id });
     assert.ok(application);
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
+        organizationId,
         type: "job.saved",
         entityType: "job",
         entityId: job.id,
@@ -2870,23 +2870,23 @@ test("full graph projects cross-Module Record, Event, and File Relations without
     const [crossModuleEvent] = await db
       .insert(schema.events)
       .values({
-        workspaceId,
-        type: "initiative.updated",
-        entityType: "initiative",
-        entityId: initiative.id,
+        organizationId,
+        type: "record.updated",
+        entityType: "record",
+        entityId: record.id,
         payload: {},
       })
       .returning({ id: schema.events.id });
     assert.ok(crossModuleEvent);
 
     const result = await new DrizzleGraphStore(db).listFullGraph(
-      workspaceId,
+      organizationId,
       viewerUserId,
       { limit: 100 },
     );
     const nodeIds = new Set(result.nodes.map((node) => node.id));
     assert.ok(nodeIds.has(`person:${visiblePerson.id}`));
-    assert.ok(nodeIds.has(`initiative:${initiative.id}`));
+    assert.ok(nodeIds.has(`record:${record.id}`));
     assert.ok(nodeIds.has(`file:${visibleFile.id}`));
     assert.ok(nodeIds.has(`job:${job.id}`));
     assert.ok(nodeIds.has(`application:${application.id}`));
@@ -2908,16 +2908,16 @@ test("full graph projects cross-Module Record, Event, and File Relations without
     assert.ok(result.edges.some(
       (edge) =>
         edge.relationType === "participant" &&
-        edge.sourceModule === "initiative" &&
-        edge.sourceId === `initiative:${initiative.id}` &&
+        edge.sourceModule === "record" &&
+        edge.sourceId === `record:${record.id}` &&
         edge.targetId === `person:${visiblePerson.id}`,
     ));
     assert.ok(result.edges.some(
       (edge) =>
         edge.relationType === "recorded_for" &&
-        edge.sourceModule === "initiative" &&
+        edge.sourceModule === "record" &&
         edge.sourceId === `event:${crossModuleEvent.id}` &&
-        edge.targetId === `initiative:${initiative.id}`,
+        edge.targetId === `record:${record.id}`,
     ));
     assert.ok(result.edges.some((edge) => edge.relationType === "tracks" && edge.sourceModule === "job-pilot"));
     assert.ok(result.edges.some((edge) => edge.relationType === "recorded_for" && edge.sourceModule === "job-pilot"));

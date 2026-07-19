@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_ORGANIZATION, type Wiring } from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -35,7 +35,7 @@ test("chiefOfStaff.converse: a message matching a registered capability's keywor
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "can you check my job applications for any interview updates",
       chainDepth: 0,
     });
@@ -54,7 +54,7 @@ test("chiefOfStaff.converse: an unmatched message clarifies instead of guessing 
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "tell me about the weather today",
       chainDepth: 0,
     });
@@ -70,7 +70,7 @@ test("chiefOfStaff.converse: chain depth at the hard cap falls back to a direct 
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "can you check my job applications for any interview updates",
       chainDepth: 3, // MAX_CHAIN_DEPTH
     });
@@ -86,7 +86,7 @@ test("chiefOfStaff.converse: an @mention addresses a foundational agent directly
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@learning what patterns have you noticed in my week?",
       chainDepth: 0,
     });
@@ -104,7 +104,7 @@ test("chiefOfStaff.converse: @builder (Capability Builder) always drafts through
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@builder create a weekly digest automation",
       chainDepth: 0,
     });
@@ -121,7 +121,7 @@ test("chiefOfStaff.converse: an unrecognized @word is treated as ordinary text, 
   try {
     const caller = await makeCaller(wiring);
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "@nobody can you check my job applications",
       chainDepth: 0,
     });
@@ -132,13 +132,13 @@ test("chiefOfStaff.converse: an unrecognized @word is treated as ordinary text, 
   }
 });
 
-test("chiefOfStaff.converse: a non-pilot workspaceId is rejected with FORBIDDEN (single-tenant guard applies here too)", async () => {
+test("chiefOfStaff.converse: a non-pilot organizationId is rejected with FORBIDDEN (single-tenant guard applies here too)", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     await assert.rejects(() =>
       caller.chiefOfStaff.converse({
-        workspaceId: "d0000000-0000-4000-a000-00000000dead",
+        organizationId: "d0000000-0000-4000-a000-00000000dead",
         message: "anything",
         chainDepth: 0,
       }),
@@ -153,7 +153,7 @@ test("chiefOfStaff.converse: the CoS persona is resolved server-side from the st
   try {
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       avatarStyle: "owl",
       answers: { role: "investor" },
       phoneVerified: false,
@@ -161,12 +161,12 @@ test("chiefOfStaff.converse: the CoS persona is resolved server-side from the st
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const first = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
+    const first = await caller.chiefOfStaff.converse({ organizationId: PILOT_ORGANIZATION, message: "tell me about the weather today", chainDepth: 0 });
     assert.equal(first.persona.id, "chief_of_staff");
     assert.equal(first.persona.tone, undefined);
 
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       avatarStyle: "fox",
       answers: { role: "recruiter" },
       phoneVerified: false,
@@ -174,7 +174,7 @@ test("chiefOfStaff.converse: the CoS persona is resolved server-side from the st
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const second = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
+    const second = await caller.chiefOfStaff.converse({ organizationId: PILOT_ORGANIZATION, message: "tell me about the weather today", chainDepth: 0 });
     assert.equal(second.persona.tone, undefined);
   } finally {
     await wiring.close();
@@ -186,7 +186,7 @@ test("chiefOfStaff.converse: stored Avatar style does not alter Agent tone", asy
   try {
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       avatarStyle: "owl",
       answers: {},
       phoneVerified: false,
@@ -195,7 +195,7 @@ test("chiefOfStaff.converse: stored Avatar style does not alter Agent tone", asy
       updatedAtISO: new Date().toISOString(),
     });
     const result = await caller.chiefOfStaff.converse({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       message: "tell me about the weather today",
       chainDepth: 0,
     });

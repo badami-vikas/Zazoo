@@ -24,11 +24,12 @@ import type {
   SecretStore,
   StoredBody,
 } from "../ports.js";
+import { migrateVocab3OrganizationColumns } from "./vocab3-organization-compat.js";
 
 const INIT_SQL = `
 CREATE TABLE IF NOT EXISTS oauth_tokens (
   integration_id text PRIMARY KEY,
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   provider text NOT NULL,
   access_token text NOT NULL,
   refresh_token text,
@@ -38,24 +39,24 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   updated_at text NOT NULL
 );
 CREATE TABLE IF NOT EXISTS message_bodies (
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   source text NOT NULL,
   source_record_id text NOT NULL,
   data_scope text NOT NULL DEFAULT 'private',
   content jsonb NOT NULL,
   captured_at text NOT NULL,
-  PRIMARY KEY (workspace_id, source, source_record_id)
+  PRIMARY KEY (organization_id, source, source_record_id)
 );
 CREATE TABLE IF NOT EXISTS local_people (
   id text PRIMARY KEY,
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   full_name text,
   emails jsonb NOT NULL DEFAULT '[]',
   canonical_person_id text
 );
 CREATE TABLE IF NOT EXISTS local_entities (
   id text PRIMARY KEY,
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   kind text NOT NULL,
   person_id text,
   payload jsonb NOT NULL,
@@ -64,13 +65,13 @@ CREATE TABLE IF NOT EXISTS local_entities (
   created_at text NOT NULL
 );
 CREATE TABLE IF NOT EXISTS local_external_records (
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   source text NOT NULL,
   source_record_id text NOT NULL,
   entity_type text NOT NULL,
   entity_id text NOT NULL,
   created_at text NOT NULL,
-  PRIMARY KEY (workspace_id, source, source_record_id)
+  PRIMARY KEY (organization_id, source, source_record_id)
 );
 CREATE TABLE IF NOT EXISTS sync_state (
   integration_id text NOT NULL,
@@ -80,17 +81,17 @@ CREATE TABLE IF NOT EXISTS sync_state (
   PRIMARY KEY (integration_id, source)
 );
 CREATE TABLE IF NOT EXISTS local_state (
-  workspace_id text NOT NULL,
+  organization_id text NOT NULL,
   namespace text NOT NULL,
   state jsonb NOT NULL,
   revision bigint NOT NULL DEFAULT 1,
   updated_at text NOT NULL,
-  PRIMARY KEY (workspace_id, namespace)
+  PRIMARY KEY (organization_id, namespace)
 );
 `;
 
 const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
-  ["workspace_id", "text"],
+  ["organization_id", "text"],
   ["source", "text"],
   ["source_record_id", "text"],
   ["entity_type", "text"],
@@ -127,7 +128,7 @@ async function inspectExternalRecordTable(
   if (
     tableName === "external_records" &&
     columns.get("id") === "uuid" &&
-    columns.get("workspace_id") === "uuid" &&
+    columns.get("organization_id") === "uuid" &&
     columns.get("source") === "text" &&
     columns.get("source_record_id") === "text" &&
     columns.get("entity_type") === "text" &&
@@ -153,10 +154,10 @@ async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
     }
     await db.exec(`
       INSERT INTO local_external_records
-        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
-      SELECT workspace_id, source, source_record_id, entity_type, entity_id, created_at
+        (organization_id, source, source_record_id, entity_type, entity_id, created_at)
+      SELECT organization_id, source, source_record_id, entity_type, entity_id, created_at
         FROM ${tableName}
-      ON CONFLICT (workspace_id, source, source_record_id) DO UPDATE SET
+      ON CONFLICT (organization_id, source, source_record_id) DO UPDATE SET
         entity_type = EXCLUDED.entity_type,
         entity_id = EXCLUDED.entity_id,
         created_at = EXCLUDED.created_at
@@ -165,10 +166,10 @@ async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
       SELECT count(*) AS missing
         FROM ${tableName} legacy
         LEFT JOIN local_external_records current
-          ON current.workspace_id = legacy.workspace_id
+          ON current.organization_id = legacy.organization_id
          AND current.source = legacy.source
          AND current.source_record_id = legacy.source_record_id
-       WHERE current.workspace_id IS NULL
+       WHERE current.organization_id IS NULL
           OR current.entity_type IS DISTINCT FROM legacy.entity_type
           OR current.entity_id IS DISTINCT FROM legacy.entity_id
           OR current.created_at IS DISTINCT FROM legacy.created_at
@@ -194,15 +195,15 @@ class PgliteSecretStore implements SecretStore {
   async #putToken(rec: OAuthTokenRecord): Promise<void> {
     await this.db.query(
       `INSERT INTO oauth_tokens
-         (integration_id, workspace_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
+         (integration_id, organization_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (integration_id) DO UPDATE SET
-         workspace_id=$2, provider=$3, access_token=$4,
+         organization_id=$2, provider=$3, access_token=$4,
          refresh_token=COALESCE($5, oauth_tokens.refresh_token),
          scope=$6, token_type=$7, expiry_date=$8, updated_at=$9`,
       [
         rec.integrationId,
-        rec.workspaceId,
+        rec.organizationId,
         rec.provider,
         rec.accessToken,
         rec.refreshToken ?? null,
@@ -223,7 +224,7 @@ class PgliteSecretStore implements SecretStore {
   async #getToken(integrationId: string): Promise<OAuthTokenRecord | null> {
     const res = await this.db.query<{
       integration_id: string;
-      workspace_id: string;
+      organization_id: string;
       provider: string;
       access_token: string;
       refresh_token: string | null;
@@ -236,7 +237,7 @@ class PgliteSecretStore implements SecretStore {
     if (!r) return null;
     return {
       integrationId: r.integration_id,
-      workspaceId: r.workspace_id,
+      organizationId: r.organization_id,
       provider: r.provider,
       accessToken: r.access_token,
       ...(r.refresh_token ? { refreshToken: r.refresh_token } : {}),
@@ -337,7 +338,7 @@ class PgliteSecretStore implements SecretStore {
       }
       const inserted = await this.db.query<{ integration_id: string }>(
         `INSERT INTO oauth_tokens
-           (integration_id, workspace_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
+           (integration_id, organization_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (integration_id) DO NOTHING
          RETURNING integration_id`,
@@ -350,7 +351,7 @@ class PgliteSecretStore implements SecretStore {
       const deleted = await this.db.query<{ integration_id: string }>(
         `DELETE FROM oauth_tokens
           WHERE integration_id = $1
-            AND workspace_id = $2
+            AND organization_id = $2
             AND provider = $3
             AND access_token = $4
             AND refresh_token IS NOT DISTINCT FROM $5
@@ -365,7 +366,7 @@ class PgliteSecretStore implements SecretStore {
     }
     const updated = await this.db.query<{ integration_id: string }>(
       `UPDATE oauth_tokens
-          SET workspace_id = $2,
+          SET organization_id = $2,
               provider = $3,
               access_token = $4,
               refresh_token = $5,
@@ -374,7 +375,7 @@ class PgliteSecretStore implements SecretStore {
               expiry_date = $8,
               updated_at = $9
         WHERE integration_id = $1
-          AND workspace_id = $10
+          AND organization_id = $10
           AND provider = $11
           AND access_token = $12
           AND refresh_token IS NOT DISTINCT FROM $13
@@ -427,7 +428,7 @@ function tokenValues(record: OAuthTokenRecord): [
 ] {
   return [
     record.integrationId,
-    record.workspaceId,
+    record.organizationId,
     record.provider,
     record.accessToken,
     record.refreshToken ?? null,
@@ -442,29 +443,29 @@ class PgliteBodyStore implements BodyStore {
   constructor(private readonly db: PGlite) {}
   async put(body: StoredBody): Promise<void> {
     await this.db.query(
-      `INSERT INTO message_bodies (workspace_id, source, source_record_id, data_scope, content, captured_at)
+      `INSERT INTO message_bodies (organization_id, source, source_record_id, data_scope, content, captured_at)
        VALUES ($1,$2,$3,$4,$5::jsonb,$6)
-       ON CONFLICT (workspace_id, source, source_record_id) DO UPDATE SET
+       ON CONFLICT (organization_id, source, source_record_id) DO UPDATE SET
          data_scope=$4, content=$5::jsonb, captured_at=$6`,
-      [body.workspaceId, body.source, body.sourceRecordId, body.dataScope, JSON.stringify(body.content), body.capturedAt],
+      [body.organizationId, body.source, body.sourceRecordId, body.dataScope, JSON.stringify(body.content), body.capturedAt],
     );
   }
-  async get(workspaceId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
+  async get(organizationId: string, source: string, sourceRecordId: string): Promise<StoredBody | null> {
     const res = await this.db.query<{
-      workspace_id: string;
+      organization_id: string;
       source: string;
       source_record_id: string;
       data_scope: string;
       content: unknown;
       captured_at: string;
     }>(
-      `SELECT * FROM message_bodies WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
-      [workspaceId, source, sourceRecordId],
+      `SELECT * FROM message_bodies WHERE organization_id=$1 AND source=$2 AND source_record_id=$3`,
+      [organizationId, source, sourceRecordId],
     );
     const r = res.rows[0];
     if (!r) return null;
     return {
-      workspaceId: r.workspace_id,
+      organizationId: r.organization_id,
       source: r.source,
       sourceRecordId: r.source_record_id,
       dataScope: "private",
@@ -472,16 +473,16 @@ class PgliteBodyStore implements BodyStore {
       capturedAt: r.captured_at,
     };
   }
-  async list(workspaceId: string, source: string): Promise<StoredBody[]> {
+  async list(organizationId: string, source: string): Promise<StoredBody[]> {
     const res = await this.db.query<{
-      workspace_id: string;
+      organization_id: string;
       source: string;
       source_record_id: string;
       content: unknown;
       captured_at: string;
-    }>(`SELECT * FROM message_bodies WHERE workspace_id=$1 AND source=$2`, [workspaceId, source]);
+    }>(`SELECT * FROM message_bodies WHERE organization_id=$1 AND source=$2`, [organizationId, source]);
     return res.rows.map((r) => ({
-      workspaceId: r.workspace_id,
+      organizationId: r.organization_id,
       source: r.source,
       sourceRecordId: r.source_record_id,
       dataScope: "private" as const,
@@ -493,7 +494,7 @@ class PgliteBodyStore implements BodyStore {
 
 interface PersonRow {
   id: string;
-  workspace_id: string;
+  organization_id: string;
   full_name: string | null;
   emails: string[];
   canonical_person_id: string | null;
@@ -502,7 +503,7 @@ interface PersonRow {
 function rowToPerson(r: PersonRow): LocalPerson {
   return {
     id: r.id,
-    workspaceId: r.workspace_id,
+    organizationId: r.organization_id,
     ...(r.full_name ? { fullName: r.full_name } : {}),
     emails: Array.isArray(r.emails) ? r.emails : [],
     ...(r.canonical_person_id ? { canonicalPersonId: r.canonical_person_id } : {}),
@@ -511,42 +512,42 @@ function rowToPerson(r: PersonRow): LocalPerson {
 
 class PgliteLocalGraphStore implements LocalGraphStore {
   constructor(private readonly db: PGlite) {}
-  async findPeopleByEmail(workspaceId: string, email: string): Promise<LocalPerson[]> {
-    // Small local tier (<100 high-interaction) — load the workspace's people and
+  async findPeopleByEmail(organizationId: string, email: string): Promise<LocalPerson[]> {
+    // Small local tier (<100 high-interaction) — load the organization's people and
     // match in JS so email comparison stays case-insensitive and adapter-agnostic.
-    const all = await this.listPeople(workspaceId);
+    const all = await this.listPeople(organizationId);
     const needle = email.trim().toLowerCase();
     return all.filter((p) => p.emails.some((e) => e.trim().toLowerCase() === needle));
   }
   async upsertPerson(person: LocalPerson): Promise<void> {
     await this.db.query(
-      `INSERT INTO local_people (id, workspace_id, full_name, emails, canonical_person_id)
+      `INSERT INTO local_people (id, organization_id, full_name, emails, canonical_person_id)
        VALUES ($1,$2,$3,$4::jsonb,$5)
        ON CONFLICT (id) DO UPDATE SET
-         workspace_id=$2, full_name=$3, emails=$4::jsonb, canonical_person_id=$5`,
+         organization_id=$2, full_name=$3, emails=$4::jsonb, canonical_person_id=$5`,
       [
         person.id,
-        person.workspaceId,
+        person.organizationId,
         person.fullName ?? null,
         JSON.stringify(person.emails),
         person.canonicalPersonId ?? null,
       ],
     );
   }
-  async listPeople(workspaceId: string): Promise<LocalPerson[]> {
-    const res = await this.db.query<PersonRow>(`SELECT * FROM local_people WHERE workspace_id=$1`, [workspaceId]);
+  async listPeople(organizationId: string): Promise<LocalPerson[]> {
+    const res = await this.db.query<PersonRow>(`SELECT * FROM local_people WHERE organization_id=$1`, [organizationId]);
     return res.rows.map(rowToPerson);
   }
   async commitEntity(entry: LocalEntityRecord): Promise<void> {
     // Idempotent: a retry after a partial dual-write failure re-commits the same
     // deterministic id — that must be a silent no-op, not a PK violation.
     await this.db.query(
-      `INSERT INTO local_entities (id, workspace_id, kind, person_id, payload, source, source_record_id, created_at)
+      `INSERT INTO local_entities (id, organization_id, kind, person_id, payload, source, source_record_id, created_at)
        VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)
        ON CONFLICT (id) DO NOTHING`,
       [
         entry.id,
-        entry.workspaceId,
+        entry.organizationId,
         entry.kind,
         entry.personId ?? null,
         JSON.stringify(entry.payload),
@@ -556,10 +557,10 @@ class PgliteLocalGraphStore implements LocalGraphStore {
       ],
     );
   }
-  async listEntities(workspaceId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]> {
+  async listEntities(organizationId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]> {
     const res = await this.db.query<{
       id: string;
-      workspace_id: string;
+      organization_id: string;
       kind: LocalEntityRecord["kind"];
       person_id: string | null;
       payload: unknown;
@@ -568,13 +569,13 @@ class PgliteLocalGraphStore implements LocalGraphStore {
       created_at: string;
     }>(
       kind
-        ? `SELECT * FROM local_entities WHERE workspace_id=$1 AND kind=$2 ORDER BY created_at`
-        : `SELECT * FROM local_entities WHERE workspace_id=$1 ORDER BY created_at`,
-      kind ? [workspaceId, kind] : [workspaceId],
+        ? `SELECT * FROM local_entities WHERE organization_id=$1 AND kind=$2 ORDER BY created_at`
+        : `SELECT * FROM local_entities WHERE organization_id=$1 ORDER BY created_at`,
+      kind ? [organizationId, kind] : [organizationId],
     );
     return res.rows.map((r) => ({
       id: r.id,
-      workspaceId: r.workspace_id,
+      organizationId: r.organization_id,
       kind: r.kind,
       ...(r.person_id ? { personId: r.person_id } : {}),
       payload: r.payload,
@@ -585,16 +586,16 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async recordExternal(row: ExternalRecordRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO local_external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      `INSERT INTO local_external_records (organization_id, source, source_record_id, entity_type, entity_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (workspace_id, source, source_record_id) DO NOTHING`,
-      [row.workspaceId, row.source, row.sourceRecordId, row.entityType, row.entityId, row.createdAt],
+       ON CONFLICT (organization_id, source, source_record_id) DO NOTHING`,
+      [row.organizationId, row.source, row.sourceRecordId, row.entityType, row.entityId, row.createdAt],
     );
   }
-  async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
+  async hasExternal(organizationId: string, source: string, sourceRecordId: string): Promise<boolean> {
     const res = await this.db.query(
-      `SELECT 1 FROM local_external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
-      [workspaceId, source, sourceRecordId],
+      `SELECT 1 FROM local_external_records WHERE organization_id=$1 AND source=$2 AND source_record_id=$3`,
+      [organizationId, source, sourceRecordId],
     );
     return res.rows.length > 0;
   }
@@ -620,38 +621,38 @@ class PgliteLocalStateStore implements LocalStateStore {
 
   constructor(private readonly db: PGlite) {}
 
-  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
+  async read(organizationId: string, namespace: string): Promise<unknown | null> {
     const result = await this.db.query<{ state: unknown }>(
-      `SELECT state FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
-      [workspaceId, namespace],
+      `SELECT state FROM local_state WHERE organization_id=$1 AND namespace=$2`,
+      [organizationId, namespace],
     );
     const state = result.rows[0]?.state;
     return state === undefined ? null : structuredClone(state);
   }
 
   async update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => LocalStateMutation<T>,
   ): Promise<T> {
-    const key = `${workspaceId}::${namespace}`;
+    const key = `${organizationId}::${namespace}`;
     return this.#exclusive(key, async () => {
       for (let attempt = 0; attempt < 50; attempt += 1) {
         const current = await this.db.query<{ state: unknown; revision: string | number }>(
-          `SELECT state, revision FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
-          [workspaceId, namespace],
+          `SELECT state, revision FROM local_state WHERE organization_id=$1 AND namespace=$2`,
+          [organizationId, namespace],
         );
         const row = current.rows[0];
         const mutation = reduce(structuredClone(row?.state ?? initialState));
         const updatedAt = new Date().toISOString();
         if (!row) {
           const inserted = await this.db.query<{ revision: string | number }>(
-            `INSERT INTO local_state (workspace_id, namespace, state, revision, updated_at)
+            `INSERT INTO local_state (organization_id, namespace, state, revision, updated_at)
              VALUES ($1,$2,$3::jsonb,1,$4)
-             ON CONFLICT (workspace_id, namespace) DO NOTHING
+             ON CONFLICT (organization_id, namespace) DO NOTHING
              RETURNING revision`,
-            [workspaceId, namespace, JSON.stringify(mutation.state), updatedAt],
+            [organizationId, namespace, JSON.stringify(mutation.state), updatedAt],
           );
           if (inserted.rows.length > 0) return mutation.result;
           continue;
@@ -659,10 +660,10 @@ class PgliteLocalStateStore implements LocalStateStore {
         const updated = await this.db.query<{ revision: string | number }>(
           `UPDATE local_state
            SET state=$3::jsonb, revision=revision + 1, updated_at=$4
-           WHERE workspace_id=$1 AND namespace=$2 AND revision=$5
+           WHERE organization_id=$1 AND namespace=$2 AND revision=$5
            RETURNING revision`,
           [
-            workspaceId,
+            organizationId,
             namespace,
             JSON.stringify(mutation.state),
             updatedAt,
@@ -672,7 +673,7 @@ class PgliteLocalStateStore implements LocalStateStore {
         if (updated.rows.length > 0) return mutation.result;
       }
       throw new Error(
-        `Local state update for workspace "${workspaceId}" namespace "${namespace}" exceeded its contention retry limit`,
+        `Local state update for organization "${organizationId}" namespace "${namespace}" exceeded its contention retry limit`,
       );
     });
   }
@@ -791,6 +792,7 @@ export async function createPgliteLocalPlane(
     config.client ??
     (ownership ? new PGlite(ownership.dataDir) : new PGlite());
   try {
+    await migrateVocab3OrganizationColumns(db);
     await db.exec(INIT_SQL);
     await migrateLegacyExternalRecords(db);
   } catch (error) {

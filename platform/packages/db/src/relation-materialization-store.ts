@@ -8,7 +8,7 @@ export type RelationMaterializationEffect =
   typeof relationMaterializationEffects.$inferSelect;
 
 export interface EnsureRelationMaterializationInput {
-  workspaceId: string;
+  organizationId: string;
   ownerUserId: string;
   proposalLedgerId: string;
   decisionLedgerId: string;
@@ -37,7 +37,7 @@ const RELATIONSHIP_MUTATION_KINDS = [
 ] as const;
 
 interface StoreContext {
-  workspaceId: string;
+  organizationId: string;
   userId: string | null;
 }
 
@@ -52,28 +52,28 @@ export class DrizzleRelationMaterializationStore {
     this.#context = context;
   }
 
-  #hasContext(workspaceId: string, ownerUserId: string): boolean {
+  #hasContext(organizationId: string, ownerUserId: string): boolean {
     return (
-      this.#context?.workspaceId === workspaceId &&
+      this.#context?.organizationId === organizationId &&
       this.#context.userId === ownerUserId
     );
   }
 
-  #hasWorkspaceContext(workspaceId: string): boolean {
-    return this.#context?.workspaceId === workspaceId;
+  #hasOrganizationContext(organizationId: string): boolean {
+    return this.#context?.organizationId === organizationId;
   }
 
-  async #withWorkspace<T>(
-    workspaceId: string,
+  async #withOrganization<T>(
+    organizationId: string,
     operation: (store: DrizzleRelationMaterializationStore) => Promise<T>,
   ): Promise<T> {
     return this.#db.transaction(async (tx) => {
       await tx.execute(
-        sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`,
+        sql`SELECT set_config('app.organization_id', ${organizationId}, true)`,
       );
       return operation(
         new DrizzleRelationMaterializationStore(tx, {
-          workspaceId,
+          organizationId,
           userId: null,
         }),
       );
@@ -81,19 +81,19 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async #withContext<T>(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     operation: (store: DrizzleRelationMaterializationStore) => Promise<T>,
   ): Promise<T> {
     return this.#db.transaction(async (tx) => {
       await tx.execute(sql`
         SELECT
-          set_config('app.workspace_id', ${workspaceId}, true),
+          set_config('app.organization_id', ${organizationId}, true),
           set_config('app.user_id', ${ownerUserId}, true)
       `);
       return operation(
         new DrizzleRelationMaterializationStore(tx, {
-          workspaceId,
+          organizationId,
           userId: ownerUserId,
         }),
       );
@@ -104,14 +104,14 @@ export class DrizzleRelationMaterializationStore {
     input: EnsureRelationMaterializationInput,
   ): Promise<RelationMaterializationEffect> {
     const normalized = {
-      workspaceId: input.workspaceId.toLowerCase(),
+      organizationId: input.organizationId.toLowerCase(),
       ownerUserId: input.ownerUserId.toLowerCase(),
       proposalLedgerId: input.proposalLedgerId.toLowerCase(),
       decisionLedgerId: input.decisionLedgerId.toLowerCase(),
     };
-    if (!this.#hasContext(normalized.workspaceId, normalized.ownerUserId)) {
+    if (!this.#hasContext(normalized.organizationId, normalized.ownerUserId)) {
       return this.#withContext(
-        normalized.workspaceId,
+        normalized.organizationId,
         normalized.ownerUserId,
         (store) => store.ensure(normalized),
       );
@@ -121,12 +121,12 @@ export class DrizzleRelationMaterializationStore {
       .values(normalized)
       .onConflictDoNothing({
         target: [
-          relationMaterializationEffects.workspaceId,
+          relationMaterializationEffects.organizationId,
           relationMaterializationEffects.proposalLedgerId,
         ],
       });
     const effect = await this.getByProposal(
-      normalized.workspaceId,
+      normalized.organizationId,
       normalized.ownerUserId,
       normalized.proposalLedgerId,
     );
@@ -139,20 +139,20 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async getByProposal(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     proposalLedgerId: string,
   ): Promise<RelationMaterializationEffect | null> {
-    const normalizedWorkspaceId = workspaceId.toLowerCase();
+    const normalizedOrganizationId = organizationId.toLowerCase();
     const normalizedOwnerUserId = ownerUserId.toLowerCase();
     const normalizedProposalId = proposalLedgerId.toLowerCase();
-    if (!this.#hasContext(normalizedWorkspaceId, normalizedOwnerUserId)) {
+    if (!this.#hasContext(normalizedOrganizationId, normalizedOwnerUserId)) {
       return this.#withContext(
-        normalizedWorkspaceId,
+        normalizedOrganizationId,
         normalizedOwnerUserId,
         (store) =>
           store.getByProposal(
-            normalizedWorkspaceId,
+            normalizedOrganizationId,
             normalizedOwnerUserId,
             normalizedProposalId,
           ),
@@ -163,7 +163,7 @@ export class DrizzleRelationMaterializationStore {
       .from(relationMaterializationEffects)
       .where(
         and(
-          eq(relationMaterializationEffects.workspaceId, normalizedWorkspaceId),
+          eq(relationMaterializationEffects.organizationId, normalizedOrganizationId),
           eq(relationMaterializationEffects.ownerUserId, normalizedOwnerUserId),
           eq(
             relationMaterializationEffects.proposalLedgerId,
@@ -180,11 +180,11 @@ export class DrizzleRelationMaterializationStore {
     attemptedAt: Date,
     opts: { allowExhausted?: boolean } = {},
   ): Promise<RelationMaterializationAttempt> {
-    const normalizedWorkspaceId = input.workspaceId.toLowerCase();
+    const normalizedOrganizationId = input.organizationId.toLowerCase();
     const normalizedOwnerUserId = input.ownerUserId.toLowerCase();
-    if (!this.#hasContext(normalizedWorkspaceId, normalizedOwnerUserId)) {
+    if (!this.#hasContext(normalizedOrganizationId, normalizedOwnerUserId)) {
       return this.#withContext(
-        normalizedWorkspaceId,
+        normalizedOrganizationId,
         normalizedOwnerUserId,
         (store) => store.beginAttempt(input, attemptedAt, opts),
       );
@@ -262,17 +262,17 @@ export class DrizzleRelationMaterializationStore {
 
   async markApplied(
     effectId: string,
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     leaseToken: string,
     relationCount: number,
     appliedAt: Date,
   ): Promise<RelationMaterializationEffect> {
-    if (!this.#hasContext(workspaceId, ownerUserId)) {
-      return this.#withContext(workspaceId, ownerUserId, (store) =>
+    if (!this.#hasContext(organizationId, ownerUserId)) {
+      return this.#withContext(organizationId, ownerUserId, (store) =>
         store.markApplied(
           effectId,
-          workspaceId,
+          organizationId,
           ownerUserId,
           leaseToken,
           relationCount,
@@ -295,7 +295,7 @@ export class DrizzleRelationMaterializationStore {
       .where(
         and(
           eq(relationMaterializationEffects.id, effectId),
-          eq(relationMaterializationEffects.workspaceId, workspaceId),
+          eq(relationMaterializationEffects.organizationId, organizationId),
           eq(relationMaterializationEffects.ownerUserId, ownerUserId),
           eq(relationMaterializationEffects.leaseToken, leaseToken),
         ),
@@ -310,18 +310,18 @@ export class DrizzleRelationMaterializationStore {
 
   async markFailed(
     effectId: string,
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     leaseToken: string,
     error: string,
     failedAt: Date,
     nextRetryAt: Date | null,
   ): Promise<RelationMaterializationEffect> {
-    if (!this.#hasContext(workspaceId, ownerUserId)) {
-      return this.#withContext(workspaceId, ownerUserId, (store) =>
+    if (!this.#hasContext(organizationId, ownerUserId)) {
+      return this.#withContext(organizationId, ownerUserId, (store) =>
         store.markFailed(
           effectId,
-          workspaceId,
+          organizationId,
           ownerUserId,
           leaseToken,
           error,
@@ -343,7 +343,7 @@ export class DrizzleRelationMaterializationStore {
       .where(
         and(
           eq(relationMaterializationEffects.id, effectId),
-          eq(relationMaterializationEffects.workspaceId, workspaceId),
+          eq(relationMaterializationEffects.organizationId, organizationId),
           eq(relationMaterializationEffects.ownerUserId, ownerUserId),
           eq(relationMaterializationEffects.leaseToken, leaseToken),
         ),
@@ -357,13 +357,13 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async listRetryable(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     opts: { limit: number; now?: Date },
   ): Promise<RelationMaterializationEffect[]> {
-    if (!this.#hasContext(workspaceId, ownerUserId)) {
-      return this.#withContext(workspaceId, ownerUserId, (store) =>
-        store.listRetryable(workspaceId, ownerUserId, opts),
+    if (!this.#hasContext(organizationId, ownerUserId)) {
+      return this.#withContext(organizationId, ownerUserId, (store) =>
+        store.listRetryable(organizationId, ownerUserId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), 100);
@@ -373,7 +373,7 @@ export class DrizzleRelationMaterializationStore {
       .from(relationMaterializationEffects)
       .where(
         and(
-          eq(relationMaterializationEffects.workspaceId, workspaceId),
+          eq(relationMaterializationEffects.organizationId, organizationId),
           eq(relationMaterializationEffects.ownerUserId, ownerUserId),
           sql<boolean>`(
             (
@@ -406,38 +406,38 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async discoverApproved(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     opts: { limit: number },
   ): Promise<number> {
-    const normalizedWorkspaceId = workspaceId.toLowerCase();
+    const normalizedOrganizationId = organizationId.toLowerCase();
     const normalizedOwnerUserId = ownerUserId.toLowerCase();
-    if (!this.#hasContext(normalizedWorkspaceId, normalizedOwnerUserId)) {
+    if (!this.#hasContext(normalizedOrganizationId, normalizedOwnerUserId)) {
       return this.#withContext(
-        normalizedWorkspaceId,
+        normalizedOrganizationId,
         normalizedOwnerUserId,
         (store) =>
-          store.discoverApproved(normalizedWorkspaceId, normalizedOwnerUserId, opts),
+          store.discoverApproved(normalizedOrganizationId, normalizedOwnerUserId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), 100);
     const result = await this.#db.execute(sql`
       INSERT INTO relation_materialization_effects (
-        workspace_id,
+        organization_id,
         owner_user_id,
         proposal_ledger_id,
         decision_ledger_id
       )
       SELECT
-        decision.workspace_id,
+        decision.organization_id,
         ${normalizedOwnerUserId}::uuid,
         proposal.id,
         decision.id
       FROM ledger AS decision
       JOIN ledger AS proposal
         ON proposal.id = decision.ref_ledger_id
-       AND proposal.workspace_id = decision.workspace_id
-      WHERE decision.workspace_id = ${normalizedWorkspaceId}::uuid
+       AND proposal.organization_id = decision.organization_id
+      WHERE decision.organization_id = ${normalizedOrganizationId}::uuid
         AND decision.user_decision IN ('approve', 'edit')
         AND (
           (
@@ -505,7 +505,7 @@ export class DrizzleRelationMaterializationStore {
         AND NOT EXISTS (
           SELECT 1
           FROM relation_materialization_effects AS existing
-          WHERE existing.workspace_id = decision.workspace_id
+          WHERE existing.organization_id = decision.organization_id
             AND existing.proposal_ledger_id = proposal.id
         )
       ORDER BY
@@ -521,14 +521,14 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async listApprovedOwners(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; afterOwnerUserId?: string },
   ): Promise<{ ownerUserIds: string[]; nextCursor: string | null }> {
-    const normalizedWorkspaceId = workspaceId.toLowerCase();
+    const normalizedOrganizationId = organizationId.toLowerCase();
     const afterOwnerUserId = opts.afterOwnerUserId?.toLowerCase();
-    if (!this.#hasWorkspaceContext(normalizedWorkspaceId)) {
-      return this.#withWorkspace(normalizedWorkspaceId, (store) =>
-        store.listApprovedOwners(normalizedWorkspaceId, opts),
+    if (!this.#hasOrganizationContext(normalizedOrganizationId)) {
+      return this.#withOrganization(normalizedOrganizationId, (store) =>
+        store.listApprovedOwners(normalizedOrganizationId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), 100);
@@ -543,8 +543,8 @@ export class DrizzleRelationMaterializationStore {
         FROM ledger AS decision
         JOIN ledger AS proposal
           ON proposal.id = decision.ref_ledger_id
-         AND proposal.workspace_id = decision.workspace_id
-        WHERE decision.workspace_id = ${normalizedWorkspaceId}::uuid
+         AND proposal.organization_id = decision.organization_id
+        WHERE decision.organization_id = ${normalizedOrganizationId}::uuid
           AND decision.user_decision IN ('approve', 'edit')
           AND (
             (
@@ -616,7 +616,7 @@ export class DrizzleRelationMaterializationStore {
             ELSE NULL
           END AS owner_user_id
         FROM ledger AS proposal
-        WHERE proposal.workspace_id = ${normalizedWorkspaceId}::uuid
+        WHERE proposal.organization_id = ${normalizedOrganizationId}::uuid
           AND proposal.user_decision = 'auto'
           AND proposal.inputs ->> 'kind' IN (
             'relationship_record_mutation',
@@ -672,19 +672,19 @@ export class DrizzleRelationMaterializationStore {
    * materialization receipt; this bounded query finds ledger rows missing it.
    */
   async listUnmaterializedAutoMutationIds(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     opts: { limit: number },
   ): Promise<string[]> {
-    const normalizedWorkspaceId = workspaceId.toLowerCase();
+    const normalizedOrganizationId = organizationId.toLowerCase();
     const normalizedOwnerUserId = ownerUserId.toLowerCase();
-    if (!this.#hasContext(normalizedWorkspaceId, normalizedOwnerUserId)) {
+    if (!this.#hasContext(normalizedOrganizationId, normalizedOwnerUserId)) {
       return this.#withContext(
-        normalizedWorkspaceId,
+        normalizedOrganizationId,
         normalizedOwnerUserId,
         (store) =>
           store.listUnmaterializedAutoMutationIds(
-            normalizedWorkspaceId,
+            normalizedOrganizationId,
             normalizedOwnerUserId,
             opts,
           ),
@@ -694,7 +694,7 @@ export class DrizzleRelationMaterializationStore {
     const result = await this.#db.execute(sql`
       SELECT proposal.id::text
       FROM ledger AS proposal
-      WHERE proposal.workspace_id = ${normalizedWorkspaceId}::uuid
+      WHERE proposal.organization_id = ${normalizedOrganizationId}::uuid
         AND proposal.user_decision = 'auto'
         AND proposal.inputs ->> 'kind' IN (${sql.join(
           RELATIONSHIP_MUTATION_KINDS.map((kind) => sql`${kind}`),
@@ -726,7 +726,7 @@ export class DrizzleRelationMaterializationStore {
         AND NOT EXISTS (
           SELECT 1
           FROM events AS materialized
-          WHERE materialized.workspace_id = proposal.workspace_id
+          WHERE materialized.organization_id = proposal.organization_id
             AND materialized.payload ->> 'decisionLedgerId' = proposal.id::text
         )
       ORDER BY
@@ -744,21 +744,21 @@ export class DrizzleRelationMaterializationStore {
   }
 
   async listOutstanding(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     opts: { limit: number },
   ): Promise<RelationMaterializationEffect[]> {
-    return (await this.listOutstandingPage(workspaceId, ownerUserId, opts)).items;
+    return (await this.listOutstandingPage(organizationId, ownerUserId, opts)).items;
   }
 
   async listOutstandingPage(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
     opts: { limit: number; cursor?: RelationMaterializationCursor },
   ): Promise<RelationMaterializationPage> {
-    if (!this.#hasContext(workspaceId, ownerUserId)) {
-      return this.#withContext(workspaceId, ownerUserId, (store) =>
-        store.listOutstandingPage(workspaceId, ownerUserId, opts),
+    if (!this.#hasContext(organizationId, ownerUserId)) {
+      return this.#withContext(organizationId, ownerUserId, (store) =>
+        store.listOutstandingPage(organizationId, ownerUserId, opts),
       );
     }
     const limit = Math.min(Math.max(opts.limit, 1), 100);
@@ -767,7 +767,7 @@ export class DrizzleRelationMaterializationStore {
       .from(relationMaterializationEffects)
       .where(
         and(
-          eq(relationMaterializationEffects.workspaceId, workspaceId),
+          eq(relationMaterializationEffects.organizationId, organizationId),
           eq(relationMaterializationEffects.ownerUserId, ownerUserId),
           inArray(relationMaterializationEffects.status, ["pending", "failed"]),
           opts.cursor

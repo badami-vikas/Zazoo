@@ -132,7 +132,7 @@ export class ChildRunBudgetExceededError extends Error {
 export interface ParentRunEnvelope {
   runId: string;
   agentId: string;
-  workspaceId: string;
+  organizationId: string;
   authorityScope: readonly string[];
   eligibleSkills: readonly string[];
   dataScope: DataScope;
@@ -177,7 +177,7 @@ export interface ChildAgentRun {
   id: string;
   parentRunId: string;
   parentAgentId: string;
-  workspaceId: string;
+  organizationId: string;
   goalId: string;
   taskId: string;
   depth: number;
@@ -294,7 +294,7 @@ export function deriveChildAgentRun(
     id: ids.next(),
     parentRunId: parent.runId,
     parentAgentId: parent.agentId,
-    workspaceId: parent.workspaceId,
+    organizationId: parent.organizationId,
     goalId: req.goalId,
     taskId: req.taskId,
     depth,
@@ -328,15 +328,15 @@ function intersectRunDataScope(a: DataScope, b: DataScope): DataScope | "none" {
 
 export interface ChildAgentRunStore {
   create(run: ChildAgentRun): Promise<ChildAgentRun>;
-  get(workspaceId: string, id: string): Promise<ChildAgentRun | null>;
-  listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]>;
+  get(organizationId: string, id: string): Promise<ChildAgentRun | null>;
+  listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]>;
   updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun>;
-  consumeBudget(workspaceId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun>;
+  consumeBudget(organizationId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun>;
 }
 
 export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
@@ -348,25 +348,25 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
     return run;
   }
 
-  async get(workspaceId: string, id: string): Promise<ChildAgentRun | null> {
+  async get(organizationId: string, id: string): Promise<ChildAgentRun | null> {
     const run = this.runs.get(id);
-    return run?.workspaceId === workspaceId ? run : null;
+    return run?.organizationId === organizationId ? run : null;
   }
 
-  async listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]> {
+  async listByParentRun(organizationId: string, parentRunId: string): Promise<ChildAgentRun[]> {
     return [...this.runs.values()].filter(
-      (r) => r.workspaceId === workspaceId && r.parentRunId === parentRunId,
+      (r) => r.organizationId === organizationId && r.parentRunId === parentRunId,
     );
   }
 
   async updateStatus(
-    workspaceId: string,
+    organizationId: string,
     id: string,
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun> {
     const existing = this.runs.get(id);
-    if (!existing || existing.workspaceId !== workspaceId) {
+    if (!existing || existing.organizationId !== organizationId) {
       throw new Error(`child-agent-run: unknown run ${id}`);
     }
     if (existing.status !== expectedStatus) {
@@ -387,7 +387,7 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
     return updated;
   }
 
-  async consumeBudget(workspaceId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun> {
+  async consumeBudget(organizationId: string, id: string, cost: number, nowISO: string): Promise<ChildAgentRun> {
     // TASK-011 remediation (2026-07-17 security review) — this MUST read
     // synchronously (`this.runs.get`, never `await this.get(...)`). `await`ing
     // a distinct async call — even one with no internal `await` of its own —
@@ -403,7 +403,7 @@ export class InMemoryChildAgentRunStore implements ChildAgentRunStore {
     // is what makes this synchronous read-check-write a genuine atomic
     // section in single-process JS.
     const existing = this.runs.get(id);
-    if (!existing || existing.workspaceId !== workspaceId) throw new Error(`child-agent-run: unknown run ${id}`);
+    if (!existing || existing.organizationId !== organizationId) throw new Error(`child-agent-run: unknown run ${id}`);
     if (
       existing.status !== "running" ||
       Date.parse(nowISO) >= Date.parse(existing.deadline) ||
@@ -499,7 +499,7 @@ async function ensureTerminalOutcomeAudit(
   if (await deps.ledger.get(id)) return false; // already recorded — nothing to repair
   await deps.ledger.append({
     id,
-    workspaceId: run.workspaceId,
+    organizationId: run.organizationId,
     actorType: actor.type,
     actorId: actor.id,
     action: "archive",
@@ -535,7 +535,7 @@ const TERMINAL_AUDIT_APPEND_RETRIES = 3;
  */
 async function recordChildAgentRunTransition(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   status: ChildAgentRunStatus,
   event: string,
@@ -545,7 +545,7 @@ async function recordChildAgentRunTransition(
   if (status === "running") {
     throw new Error("child-agent-run: a terminal transition cannot target running");
   }
-  const before = await deps.store.get(workspaceId, id);
+  const before = await deps.store.get(organizationId, id);
   if (!before) throw new Error(`child-agent-run: unknown run ${id}`);
   if (before.status !== "running") {
     // TASK-011 remediation (coordinator central-merge review, issue 1) —
@@ -586,7 +586,7 @@ async function recordChildAgentRunTransition(
   const attemptId = ctx.ids.next();
   await deps.ledger.append({
     id: attemptId,
-    workspaceId: before.workspaceId,
+    organizationId: before.organizationId,
     actorType: actor.type,
     actorId: actor.id,
     action: "archive",
@@ -606,12 +606,12 @@ async function recordChildAgentRunTransition(
   // terminal-shaped) is the correct, complete audit record.
   let updated: ChildAgentRun;
   try {
-    updated = await deps.store.updateStatus(workspaceId, id, "running", status);
+    updated = await deps.store.updateStatus(organizationId, id, "running", status);
   } catch (e) {
     if (e instanceof ChildRunAlreadyTerminalError) {
       await deps.ledger.append({
         id: ctx.ids.next(),
-        workspaceId: before.workspaceId,
+        organizationId: before.organizationId,
         actorType: actor.type,
         actorId: actor.id,
         action: "archive",
@@ -671,12 +671,12 @@ async function recordChildAgentRunTransition(
  */
 export function cancelChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "cancelled", "cancel", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "cancelled", "cancel", actor, ctx);
 }
 
 /** A child Run's parent Agent (or an executor acting on its behalf) records
@@ -684,12 +684,12 @@ export function cancelChildAgentRun(
  * transition guarantee as `cancelChildAgentRun`. */
 export function completeChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "completed", "complete", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "completed", "complete", actor, ctx);
 }
 
 /** A child Run's parent Agent (or an executor) records the run as failed
@@ -697,12 +697,12 @@ export function completeChildAgentRun(
  * transition guarantee as `cancelChildAgentRun`. */
 export function failChildAgentRun(
   deps: { store: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   id: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<ChildAgentRun> {
-  return recordChildAgentRunTransition(deps, workspaceId, id, "failed", "fail", actor, ctx);
+  return recordChildAgentRunTransition(deps, organizationId, id, "failed", "fail", actor, ctx);
 }
 
 /** One proposed action's shape, as far as this validator needs it — a subset
@@ -811,20 +811,20 @@ export function validateActionWithinChildRun(
  */
 export async function reserveChildRunAction(
   store: ChildAgentRunStore,
-  workspaceId: string,
+  organizationId: string,
   childRunId: string,
   check: ChildRunActionCheck,
   estimatedCost: number,
   nowISO: string,
 ): Promise<ChildRunViolation | null> {
-  const run = await store.get(workspaceId, childRunId);
+  const run = await store.get(organizationId, childRunId);
   if (!run) {
-    return { reason: "run-not-active", detail: `child run ${childRunId} does not exist in this workspace` };
+    return { reason: "run-not-active", detail: `child run ${childRunId} does not exist in this organization` };
   }
   const violation = validateActionWithinChildRun(check, run, nowISO, estimatedCost);
   if (violation) return violation;
   try {
-    await store.consumeBudget(workspaceId, childRunId, estimatedCost, nowISO);
+    await store.consumeBudget(organizationId, childRunId, estimatedCost, nowISO);
     return null;
   } catch (error) {
     if (error instanceof ChildRunBudgetExceededError) {
@@ -859,7 +859,7 @@ export async function createChildAgentRun(
 
   const auditEntry: LedgerEntry = {
     id: ctx.ids.next(),
-    workspaceId: parent.workspaceId,
+    organizationId: parent.organizationId,
     actorType: "agent",
     actorId: parent.agentId,
     ...(parent.onBehalfOf ? { onBehalfOfType: parent.onBehalfOf.type, onBehalfOfId: parent.onBehalfOf.id } : {}),

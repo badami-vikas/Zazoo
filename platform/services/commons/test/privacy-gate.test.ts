@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findWorkspaceDataPaths } from "../src/privacy-gate.js";
+import { findOrganizationDataPaths } from "../src/privacy-gate.js";
 
 test("clean generalized manifest passes the gate", () => {
   const manifest = {
@@ -14,13 +14,13 @@ test("clean generalized manifest passes the gate", () => {
     summary: "Generalized capability knowledge.",
     capabilities: [{ id: "example-skill.core", capability_type: "skill", permissions: [] }],
   };
-  assert.deepEqual(findWorkspaceDataPaths(manifest), []);
+  assert.deepEqual(findOrganizationDataPaths(manifest), []);
 });
 
-test("workspace/user identifiers are flagged with exact JSON paths, at any depth and casing", () => {
+test("organization/user identifiers are flagged with exact JSON paths, at any depth and casing", () => {
   const manifest = {
     name: "leaky-skill",
-    workspaceId: "ws_123",
+    organizationId: "ws_123",
     capabilities: [
       {
         id: "leaky-skill.core",
@@ -28,26 +28,26 @@ test("workspace/user identifiers are flagged with exact JSON paths, at any depth
         connectors: [{ id: "gmail", user_email: "someone@example.com" }],
       },
     ],
-    workspaceVocab: { domainTerms: {} },
+    organizationVocab: { domainTerms: {} },
   };
-  const paths = findWorkspaceDataPaths(manifest);
+  const paths = findOrganizationDataPaths(manifest);
   assert.deepEqual(paths.sort(), [
     "capabilities[0].connectors[0].user_email",
     "capabilities[0].created_by",
-    "workspaceId",
+    "organizationId",
   ]);
-  // workspaceVocab is a legitimate manifest field — the vocab DECLARATION is
+  // organizationVocab is a legitimate manifest field — the vocab DECLARATION is
   // generalized knowledge; only instance identifiers are denied.
-  assert.ok(!paths.some((p) => p.startsWith("workspaceVocab")));
+  assert.ok(!paths.some((p) => p.startsWith("organizationVocab")));
 });
 
 test("credentials and tokens are denied — secrets are never registry content", () => {
-  const paths = findWorkspaceDataPaths({ config: { api_key: "sk-...", nested: [{ refreshToken: "t" }] } });
+  const paths = findOrganizationDataPaths({ config: { api_key: "sk-...", nested: [{ refreshToken: "t" }] } });
   assert.deepEqual(paths.sort(), ["config.api_key", "config.nested[0].refreshToken"]);
 });
 
 test("cloud-provider credentials embedded in scalar values are denied", () => {
-  const paths = findWorkspaceDataPaths({
+  const paths = findOrganizationDataPaths({
     aws: "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
     secret: "aws_secret_access_key=******",
     google: "AIzaSyDUMMYDUMMYDUMMYDUMMYDUMMYDUMMYDUM",
@@ -59,8 +59,8 @@ test("cloud-provider credentials embedded in scalar values are denied", () => {
   assert.deepEqual(paths.sort(), ["aws", "google", "nested.clientSecret", "oauth", "secret", "slack", "slackApp"]);
 });
 
-test("personal and workspace identifiers embedded in scalar values are denied", () => {
-  const paths = findWorkspaceDataPaths({
+test("personal and organization identifiers embedded in scalar values are denied", () => {
+  const paths = findOrganizationDataPaths({
     summary: "Contact Alice at alice@example.com",
     tags: ["customer:Acme"],
     provenance: { sourceRef: "users/alice/private" },
@@ -68,8 +68,8 @@ test("personal and workspace identifiers embedded in scalar values are denied", 
   });
 
   test("personal-data field names inside retained manifest maps are denied", () => {
-    const paths = findWorkspaceDataPaths({
-      workspaceVocab: {
+    const paths = findOrganizationDataPaths({
+      organizationVocab: {
         domainTerms: {
           primaryContact: "Alice Smith",
           companyName: "Acme",
@@ -77,15 +77,15 @@ test("personal and workspace identifiers embedded in scalar values are denied", 
       },
     });
     assert.deepEqual(paths.sort(), [
-      "workspaceVocab.domainTerms.companyName",
-      "workspaceVocab.domainTerms.primaryContact",
+      "organizationVocab.domainTerms.companyName",
+      "organizationVocab.domainTerms.primaryContact",
     ]);
   });
   assert.deepEqual(paths.sort(), ["nested.target", "provenance.sourceRef", "summary", "tags[0]"]);
 });
 
 test("common phone, government identifier, payment, and address forms are denied", () => {
-  const paths = findWorkspaceDataPaths({
+  const paths = findOrganizationDataPaths({
     phone: "Call +1 (415) 555-2671",
     governmentId: "SSN 123-45-6789",
     payment: "4111 1111 1111 1111",

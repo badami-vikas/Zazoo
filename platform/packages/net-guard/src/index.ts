@@ -43,10 +43,10 @@
  * redirects itself). The full in-order hop-origin chain is returned as
  * `hopOrigins` so a caller can independently re-verify it.
  *
- * DELIBERATELY its own package, not part of `@bridge/core`: `@bridge/core` is
+ * DELIBERATELY its own module, not part of `@bridge/core`: `@bridge/core` is
  * isomorphic/browser-safe (imported by `@bridge/web`), while this module uses
  * `node:dns`/`node:net`/`node:http`/`node:https` and must NEVER be imported by
- * a browser bundle. Only server-side packages (apps/api) should depend on
+ * a browser bundle. Only server-side modules (apps/api) should depend on
  * `@bridge/net-guard`.
  *
  * Consolidating this with the still-separate `Tools/recon/lib/ssrf.ts` copy is

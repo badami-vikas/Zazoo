@@ -50,348 +50,349 @@ function errorMessage(error: unknown): string {
   return candidate.cause?.message ?? candidate.message ?? String(error);
 }
 
-test("migration 0021 fails closed, rolls back cleanly, then preserves canonical Agent attribution and RLS", async () => {
+test("migration 0021 rolls back conflicts, preserves data and RLS, and retries safely", async () => {
   const preDir = migrationsThrough(20);
   const through0021Dir = migrationsThrough(21);
   const { db, client, close } = await createLocalDb({ migrationsFolder: preDir });
-  const workspaceId = "10000000-0000-4000-8000-000000000021";
-  const automationId = "20000000-0000-4000-8000-000000000021";
-  const runId = "30000000-0000-4000-8000-000000000021";
-  const agentId = "40000000-0000-4000-8000-000000000021";
-  const otherAgentId = "40000000-0000-4000-8000-000000000022";
+  const workspaceId = "10000000-0000-4000-8000-000000000031";
+  const userId = "20000000-0000-4000-8000-000000000031";
+  const personId = "30000000-0000-4000-8000-000000000031";
+  const initiativeId = "40000000-0000-4000-8000-000000000031";
+  const agentId = "50000000-0000-4000-8000-000000000031";
+  const automationId = "60000000-0000-4000-8000-000000000031";
+  const installationId = "70000000-0000-4000-8000-000000000031";
+  const memoryId = "80000000-0000-4000-8000-000000000031";
 
   try {
     await client.exec(`
+      INSERT INTO "users" ("id", "email")
+      VALUES ('${userId}', 'vocab3@example.test');
       INSERT INTO "workspaces" ("id", "name")
-      VALUES ('${workspaceId}', 'test_fixture_vocab2');
+      VALUES ('${workspaceId}', 'VOCAB3 fixture');
+      INSERT INTO "workspace_settings" (
+        "workspace_id", "default_visibility", "settings"
+      ) VALUES (
+        '${workspaceId}',
+        'workspace',
+        '{"workspaceId":"${workspaceId}"}'
+      );
+      INSERT INTO "workspace_members" ("workspace_id", "user_id")
+      VALUES ('${workspaceId}', '${userId}');
+      INSERT INTO "people" (
+        "id", "workspace_id", "user_id", "visibility", "full_name_override"
+      ) VALUES (
+        '${personId}',
+        '${workspaceId}',
+        '${userId}',
+        'workspace',
+        'VOCAB3 Person'
+      );
+      INSERT INTO "initiatives" (
+        "id", "workspace_id", "title", "status"
+      ) VALUES (
+        '${initiativeId}',
+        '${workspaceId}',
+        'VOCAB3 Initiative',
+        'active'
+      );
+      INSERT INTO "initiative_participants" ("initiative_id", "person_id", "role")
+      VALUES ('${initiativeId}', '${personId}', 'owner');
       INSERT INTO "agents" ("id", "workspace_id", "name")
-      VALUES
-        ('${agentId}', '${workspaceId}', 'test_fixture_owner'),
-        ('${otherAgentId}', '${workspaceId}', 'test_fixture_non_owner');
-      INSERT INTO "rituals" (
-        "id", "workspace_id", "name", "trigger", "agent_ids",
-        "skill_pipeline", "agent_id", "agent_plane"
+      VALUES ('${agentId}', '${workspaceId}', 'VOCAB3 Agent');
+      INSERT INTO "automations" (
+        "id", "workspace_id", "name", "trigger", "agent_id", "agent_plane",
+        "supports_initiative"
       ) VALUES (
         '${automationId}',
         '${workspaceId}',
-        'test_fixture_automation',
+        'VOCAB3 Automation',
         '{}',
-        ARRAY['${agentId}']::uuid[],
-        '[{"skill":"test_fixture","action":"write","resourceType":"ritual"}]',
-        NULL,
-        NULL
-      );
-    `);
-
-    await assert.rejects(
-      () => migrate(db, { migrationsFolder: through0021Dir }),
-      (error: unknown) => errorMessage(error).includes("unresolved Ritual ownership"),
-    );
-    const rolledBack = await client.query<{ old_table: string | null; new_table: string | null }>(`
-      SELECT
-        to_regclass('public.rituals')::text AS old_table,
-        to_regclass('public.automations')::text AS new_table
-    `);
-    assert.equal(rolledBack.rows[0]?.old_table, "rituals");
-    assert.equal(rolledBack.rows[0]?.new_table, null);
-
-    await client.exec(`
-      UPDATE "rituals"
-      SET "agent_id" = '${agentId}', "agent_plane" = 'local'
-      WHERE "id" = '${automationId}';
-      INSERT INTO "ritual_runs" (
-        "id", "workspace_id", "ritual_id", "run_id", "status"
-      ) VALUES (
-        '${runId}', '${workspaceId}', '${automationId}', '${runId}', 'completed'
-      );
-    `);
-
-    await assert.rejects(
-      () => migrate(db, { migrationsFolder: through0021Dir }),
-      (error: unknown) => errorMessage(error).includes("unattributable or non-owner Ritual Run"),
-    );
-    const runColumnsAfterRollback = await client.query<{ column_name: string }>(`
-      SELECT "column_name"
-      FROM information_schema.columns
-      WHERE "table_schema" = 'public'
-        AND "table_name" = 'ritual_runs'
-        AND "column_name" = 'agent_id'
-    `);
-    assert.equal(runColumnsAfterRollback.rows.length, 0);
-
-    await client.exec(`
-      INSERT INTO "ledger" (
-        "id", "workspace_id", "actor_type", "actor_id", "action",
-        "resource_type", "context"
-      ) VALUES (
-        gen_random_uuid(),
-        '${workspaceId}',
-        'agent',
         '${agentId}',
-        'write',
-        'ritual',
-        '{"type":"ritual","id":"${automationId}","runId":"${runId}"}'
+        'local',
+        '${initiativeId}'
       );
-      INSERT INTO "tools" (
-        "id", "workspace_id", "name", "surface", "composition"
-      ) VALUES (
-        gen_random_uuid(),
-        '${workspaceId}',
-        'test_fixture_unclassified_tool',
-        'page',
-        '{}'
-      );
-      UPDATE "agents"
-      SET "allowed_tools" = ARRAY[gen_random_uuid()]
-      WHERE "id" = '${agentId}';
-    `);
-
-    await assert.rejects(
-      () => migrate(db, { migrationsFolder: through0021Dir }),
-      (error: unknown) => errorMessage(error).includes("cannot classify populated legacy Tools"),
-    );
-    await client.exec(`DELETE FROM "tools";`);
-    await assert.rejects(
-      () => migrate(db, { migrationsFolder: through0021Dir }),
-      (error: unknown) => errorMessage(error).includes("cannot classify Agent allowed_tools entries"),
-    );
-
-    await client.exec(`
-      UPDATE "agents"
-      SET "allowed_tools" = '{}'
-      WHERE "id" = '${agentId}';
-      INSERT INTO "capability_manifests" (
-        "id", "workspace_id", "capability_type", "kind", "name", "manifest"
-      ) VALUES
-        (
-          gen_random_uuid(),
-          '${workspaceId}',
-          'workflow',
-          'workflow',
-          'test_fixture_vocab2_capability',
-          '{"capabilityType":"workflow","ritualId":"${automationId}","permissions":[{"resourceType":"ritual"}]}'
-        ),
-        (
-          gen_random_uuid(),
-          '${workspaceId}',
-          'tool',
-          'tool',
-          'test_fixture_vocab2_skill',
-          '{"capabilityType":"tool","toolId":"legacy-skill","permissions":[{"resourceType":"tool"}]}'
-        );
       INSERT INTO "package_installations" (
-        "id", "workspace_id", "package_name", "package_version", "manifest"
-      ) VALUES
-        (
-          gen_random_uuid(),
-          '${workspaceId}',
-          'test_fixture_vocab2_package',
-          '1.0.0',
-          '{"kind":"workflow","module":{"automations":[{"ritual_id":"${automationId}"}]}}'
-        ),
-        (
-          gen_random_uuid(),
-          '${workspaceId}',
-          'test_fixture_vocab2_module_package',
-          '1.0.0',
-          '{"kind":"tool","capabilities":[{"capabilityType":"tool","toolId":"legacy-skill"}]}'
-        );
-      INSERT INTO "events" (
-        "id", "workspace_id", "type", "entity_type", "entity_id", "payload"
+        "id",
+        "workspace_id",
+        "package_name",
+        "package_version",
+        "manifest",
+        "module_attachment"
       ) VALUES (
-        gen_random_uuid(),
+        '${installationId}',
         '${workspaceId}',
-        'ritual.completed',
-        'ritual',
-        '${automationId}',
-        '{"ritualId":"${automationId}"}'
+        'relationship',
+        '1.0.0',
+        '{
+          "name":"relationship",
+          "version":"1.0.0",
+          "kind":"workspace_definition",
+          "workspaceVocab":{"alignsToBridgeTheme":true,"domainTerms":{}},
+          "organizationVocab":{"alignsToBridgeTheme":false,"domainTerms":{}},
+          "blueprint":{"workspaceId":"${workspaceId}"},
+          "capabilities":[]
+        }',
+        '{
+          "source":"commons",
+          "modulePackageName":"relationship",
+          "agentId":"relationship-agent",
+          "needId":"learning",
+          "contentHash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }'
+      );
+      INSERT INTO "memories" (
+        "id",
+        "workspace_id",
+        "type",
+        "subject_element_id",
+        "scope",
+        "content",
+        "confidence",
+        "trust_origin",
+        "plane",
+        "created_by",
+        "owner_user_id"
+      ) VALUES (
+        '${memoryId}',
+        '${workspaceId}',
+        'semantic',
+        '${initiativeId}',
+        'workspace',
+        'VOCAB3 Memory',
+        1,
+        'operator',
+        'local',
+        '${userId}',
+        '${userId}'
+      );
+      INSERT INTO "events" (
+        "workspace_id", "type", "entity_type", "entity_id", "payload"
+      ) VALUES (
+        '${workspaceId}',
+        'initiative.created',
+        'initiative',
+        '${initiativeId}',
+        '{
+          "workspaceId":"${workspaceId}",
+          "initiativeId":"${initiativeId}",
+          "message":"workspace",
+          "externalRef":"project:external"
+        }'
+      );
+      INSERT INTO "ledger" (
+        "workspace_id", "actor_type", "actor_id", "action", "resource_type", "context"
+      ) VALUES (
+        '${workspaceId}',
+        'user',
+        '${userId}',
+        'read',
+        'initiative',
+        '{"type":"initiative","workspaceId":"${workspaceId}","initiativeId":"${initiativeId}"}'
       );
     `);
 
-    await migrate(db, { migrationsFolder: through0021Dir });
+    await assert.rejects(
+      () => migrate(db, { migrationsFolder: through0021Dir }),
+      (error: unknown) =>
+        errorMessage(error).includes("conflicting JSON keys into canonical key"),
+    );
 
-    const automation = await client.query<{
-      agent_id: string;
-      agent_plane: string;
-      skill_pipeline: Array<{ resourceType: string }>;
-    }>(`
-      SELECT "agent_id", "agent_plane", "skill_pipeline"
-      FROM "automations"
-      WHERE "id" = '${automationId}'
-    `);
-    assert.deepEqual(automation.rows, [{
-      agent_id: agentId,
-      agent_plane: "local",
-      skill_pipeline: [{ skill: "test_fixture", action: "write", resourceType: "automation" }],
-    }]);
-
-    const run = await client.query<{ agent_id: string; automation_id: string }>(`
-      SELECT "agent_id", "automation_id"
-      FROM "automation_runs"
-      WHERE "id" = '${runId}'
-    `);
-    assert.deepEqual(run.rows, [{ agent_id: agentId, automation_id: automationId }]);
-
-    const transformed = await client.query<{
-      capability_type: string;
-      kind: string;
-      manifest: Record<string, unknown>;
-    }>(`
-      SELECT "capability_type", "kind", "manifest"
-      FROM "capability_manifests"
-      WHERE "name" = 'test_fixture_vocab2_capability'
-    `);
-    assert.equal(transformed.rows[0]?.capability_type, "automation");
-    assert.equal(transformed.rows[0]?.kind, "automation");
-    assert.deepEqual(transformed.rows[0]?.manifest, {
-      capabilityType: "automation",
-      automationId,
-      permissions: [{ resourceType: "automation" }],
-    });
-
-    const transformedSkill = await client.query<{
-      capability_type: string;
-      kind: string;
-      manifest: Record<string, unknown>;
-    }>(`
-      SELECT "capability_type", "kind", "manifest"
-      FROM "capability_manifests"
-      WHERE "name" = 'test_fixture_vocab2_skill'
-    `);
-    assert.deepEqual(transformedSkill.rows, [{
-      capability_type: "skill",
-      kind: "skill",
-      manifest: {
-        capabilityType: "skill",
-        skillId: "legacy-skill",
-        permissions: [{ resourceType: "module" }],
-      },
-    }]);
-
-    const packageManifest = await client.query<{ manifest: Record<string, unknown> }>(`
-      SELECT "manifest"
-      FROM "package_installations"
-      WHERE "package_name" = 'test_fixture_vocab2_package'
-    `);
-    assert.deepEqual(packageManifest.rows[0]?.manifest, {
-      kind: "automation",
-      module: { automations: [{ automation_id: automationId }] },
-    });
-
-    const modulePackageManifest = await client.query<{ manifest: Record<string, unknown> }>(`
-      SELECT "manifest"
-      FROM "package_installations"
-      WHERE "package_name" = 'test_fixture_vocab2_module_package'
-    `);
-    assert.deepEqual(modulePackageManifest.rows[0]?.manifest, {
-      kind: "module",
-      capabilities: [{
-        capabilityType: "skill",
-        skillId: "legacy-skill",
-      }],
-    });
-
-    const retiredStorage = await client.query<{
-      tools_table: string | null;
-      allowed_tools_column: string | null;
-      module_node_type: string | null;
+    const rolledBack = await client.query<{
+      old_table: string | null;
+      new_table: string | null;
+      old_column: string | null;
     }>(`
       SELECT
-        to_regclass('public.tools')::text AS "tools_table",
+        to_regclass('public.workspaces')::text AS old_table,
+        to_regclass('public.organizations')::text AS new_table,
         (
           SELECT "column_name"
           FROM information_schema.columns
           WHERE "table_schema" = 'public'
-            AND "table_name" = 'agents'
-            AND "column_name" = 'allowed_tools'
-        ) AS "allowed_tools_column",
-        (
-          SELECT "type"
-          FROM "node_types"
-          WHERE "type" = 'module'
-        ) AS "module_node_type"
+            AND "table_name" = 'package_installations'
+            AND "column_name" = 'workspace_id'
+        ) AS old_column
     `);
-    assert.deepEqual(retiredStorage.rows, [{
-      tools_table: null,
-      allowed_tools_column: null,
-      module_node_type: "module",
+    assert.deepEqual(rolledBack.rows, [{
+      old_table: "workspaces",
+      new_table: null,
+      old_column: "workspace_id",
     }]);
 
-    const event = await client.query<{
-      type: string;
+    await client.exec(`
+      UPDATE "package_installations"
+      SET "manifest" = "manifest" - 'organizationVocab'
+      WHERE "id" = '${installationId}'
+    `);
+    await migrate(db, { migrationsFolder: through0021Dir });
+
+    const canonicalTables = await client.query<{
+      organizations: string | null;
+      modules: string | null;
+      records: string | null;
+      legacy_workspace: string | null;
+    }>(`
+      SELECT
+        to_regclass('public.organizations')::text AS organizations,
+        to_regclass('public.module_installations')::text AS modules,
+        to_regclass('public.records')::text AS records,
+        to_regclass('public.workspaces')::text AS legacy_workspace
+    `);
+    assert.deepEqual(canonicalTables.rows, [{
+      organizations: "organizations",
+      modules: "module_installations",
+      records: "records",
+      legacy_workspace: null,
+    }]);
+
+    const record = await client.query<{
+      id: string;
+      organization_id: string;
+      title: string;
+    }>(`
+      SELECT "id", "organization_id", "title"
+      FROM "records"
+      WHERE "id" = '${initiativeId}'
+    `);
+    assert.deepEqual(record.rows, [{
+      id: initiativeId,
+      organization_id: workspaceId,
+      title: "VOCAB3 Initiative",
+    }]);
+
+    const installation = await client.query<{
+      organization_id: string;
+      module_name: string;
+      module_version: string;
+      manifest: Record<string, unknown>;
+      module_attachment: Record<string, unknown>;
+    }>(`
+      SELECT
+        "organization_id",
+        "module_name",
+        "module_version",
+        "manifest",
+        "module_attachment"
+      FROM "module_installations"
+      WHERE "id" = '${installationId}'
+    `);
+    assert.equal(installation.rows[0]?.organization_id, workspaceId);
+    assert.equal(installation.rows[0]?.module_name, "relationship");
+    assert.equal(installation.rows[0]?.module_version, "1.0.0");
+    assert.equal(installation.rows[0]?.manifest.kind, "organization_definition");
+    assert.deepEqual(installation.rows[0]?.manifest.organizationVocab, {
+      alignsToBridgeTheme: true,
+      domainTerms: {},
+    });
+    assert.equal(
+      (installation.rows[0]?.manifest.blueprint as { organizationId: string }).organizationId,
+      workspaceId,
+    );
+    assert.equal(
+      installation.rows[0]?.module_attachment.ownerModuleName,
+      "relationship",
+    );
+
+    const canonicalData = await client.query<{
+      memory_scope: string;
+      subject_record_id: string;
+      event_type: string;
       entity_type: string;
-      payload: Record<string, unknown>;
+      event_payload: Record<string, unknown>;
+      ledger_resource_type: string;
+      ledger_context: Record<string, unknown>;
     }>(`
-      SELECT "type", "entity_type", "payload"
-      FROM "events"
-      WHERE "entity_id" = '${automationId}'
+      SELECT
+        memory."scope" AS memory_scope,
+        memory."subject_record_id",
+        event."type" AS event_type,
+        event."entity_type",
+        event."payload" AS event_payload,
+        ledger_row."resource_type" AS ledger_resource_type,
+        ledger_row."context" AS ledger_context
+      FROM "memories" AS memory
+      CROSS JOIN "events" AS event
+      CROSS JOIN "ledger" AS ledger_row
+      WHERE memory."id" = '${memoryId}'
+        AND event."entity_id" = '${initiativeId}'
+        AND ledger_row."resource_id" IS NULL
+      LIMIT 1
     `);
-    assert.deepEqual(event.rows, [{
-      type: "automation.completed",
-      entity_type: "automation",
-      payload: { automationId },
+    assert.deepEqual(canonicalData.rows, [{
+      memory_scope: "organization",
+      subject_record_id: initiativeId,
+      event_type: "record.created",
+      entity_type: "record",
+      event_payload: {
+        externalRef: "project:external",
+        message: "workspace",
+        organizationId: workspaceId,
+        recordId: initiativeId,
+      },
+      ledger_resource_type: "record",
+      ledger_context: {
+        type: "record",
+        organizationId: workspaceId,
+        recordId: initiativeId,
+      },
     }]);
-
-    const audit = await client.query<{
-      resource_type: string;
-      context: { type: string; id: string; runId: string };
-    }>(`
-      SELECT "resource_type", "context"
-      FROM "ledger"
-      WHERE "context"->>'runId' = '${runId}'
-    `);
-    assert.equal(audit.rows[0]?.resource_type, "automation");
-    assert.equal(audit.rows[0]?.context.type, "automation");
 
     const rls = await client.query<{
-      relname: string;
-      relrowsecurity: boolean;
-      relforcerowsecurity: boolean;
+      legacy_functions: number;
+      canonical_functions: number;
+      legacy_policies: number;
     }>(`
-      SELECT "relname", "relrowsecurity", "relforcerowsecurity"
-      FROM pg_class
-      WHERE "oid" IN (
-        'public.automations'::regclass,
-        'public.automation_runs'::regclass
-      )
-      ORDER BY "relname"
+      SELECT
+        (
+          SELECT count(*)::int
+          FROM pg_proc AS function_row
+          JOIN pg_namespace AS namespace
+            ON namespace.oid = function_row.pronamespace
+          WHERE namespace.nspname = 'app_private'
+            AND function_row.proname LIKE '%workspace%'
+        ) AS legacy_functions,
+        (
+          SELECT count(*)::int
+          FROM pg_proc AS function_row
+          JOIN pg_namespace AS namespace
+            ON namespace.oid = function_row.pronamespace
+          WHERE namespace.nspname = 'app_private'
+            AND function_row.proname IN (
+              'current_organization_id',
+              'same_organization',
+              'visible_relationship_record',
+              'visible_memory_record'
+            )
+        ) AS canonical_functions,
+        (
+          SELECT count(*)::int
+          FROM pg_policies
+          WHERE schemaname = 'public'
+            AND (
+              policyname ~ '(workspace|package|initiative)'
+              OR tablename ~ '(workspace|package|initiative)'
+              OR coalesce(qual, '') ~ 'workspace'
+              OR coalesce(with_check, '') ~ 'workspace'
+            )
+        ) AS legacy_policies
     `);
-    assert.deepEqual(rls.rows, [
-      { relname: "automation_runs", relrowsecurity: true, relforcerowsecurity: true },
-      { relname: "automations", relrowsecurity: true, relforcerowsecurity: true },
-    ]);
-    const policies = await client.query<{ tablename: string; policyname: string }>(`
-      SELECT "tablename", "policyname"
-      FROM pg_policies
-      WHERE "tablename" IN ('automations', 'automation_runs')
-      ORDER BY "tablename", "policyname"
-    `);
-    assert.equal(policies.rows.length, 8);
-    assert.equal(
-      policies.rows.every(
-        ({ tablename, policyname }) =>
-          policyname.startsWith(`${tablename}_tenant_`) &&
-          !policyname.includes("ritual"),
-      ),
-      true,
-    );
+    assert.deepEqual(rls.rows, [{
+      legacy_functions: 0,
+      canonical_functions: 4,
+      legacy_policies: 0,
+    }]);
 
-    await assert.rejects(
-      () =>
-        client.exec(`
-          INSERT INTO "automation_runs" (
-            "id", "workspace_id", "automation_id", "agent_id", "status"
-          ) VALUES (
-            gen_random_uuid(),
-            '${workspaceId}',
-            '${automationId}',
-            '${otherAgentId}',
-            'running'
-          )
-        `),
-      (error: unknown) =>
-        errorMessage(error).includes("automation_runs_workspace_automation_owner_fk"),
-    );
+    await client.exec(readFileSync(
+      join(realMigrationsFolder(), "0021_vocab3_organization_module_record.sql"),
+      "utf8",
+    ));
+
+    const afterRetry = await client.query<{ count: number }>(`
+      SELECT count(*)::int AS count
+      FROM "records"
+      WHERE "id" = '${initiativeId}'
+    `);
+    assert.deepEqual(afterRetry.rows, [{ count: 1 }]);
   } finally {
     await close();
     rmSync(preDir, { recursive: true, force: true });

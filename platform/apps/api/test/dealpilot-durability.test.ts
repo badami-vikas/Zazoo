@@ -13,7 +13,7 @@ import {
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_ORGANIZATION } from "../src/wiring.js";
 
 function runContext(): RunCtx {
   const clock = new SystemClock();
@@ -40,7 +40,7 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
     });
     const source = await first.dealpilot.store.createSource({
       id: "source-restart",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Restart-safe source",
       link: "https://example.invalid/restart-source",
       connectionType: "email_alert",
@@ -48,13 +48,13 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
       rightsState: "attested",
       rightsAttestedBy: PILOT_USER,
     });
-    await first.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+    await first.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, source.id, {
       captureId: "capture-restart",
       sourceRecordId: "message-restart",
       moduleId: "dealpilot",
       sourceConnectorId: "bizbuysell-alerts",
       tier: "email",
-      query: { kind: "company", hints: { workspaceId: PILOT_WORKSPACE } },
+      query: { kind: "company", hints: { organizationId: PILOT_ORGANIZATION } },
       payload: { name: "Restart-safe company", domain: "restart-safe.example" },
       confidence: 0.9,
       costUnits: 0.5,
@@ -63,7 +63,7 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
     });
     await first.dealpilot.store.stage(
       {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
         batchId: "batch-restart",
         ownerId: "process-before-restart",
@@ -79,7 +79,7 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
       },
     );
     await first.localPlane.graph.recordExternal({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       source: "gmail",
       sourceRecordId: "provider-message-non-uuid",
       entityType: "touchpoint",
@@ -93,23 +93,23 @@ test("file-backed API wiring preserves DealPilot state across close and reopen",
       dealPilotCredentialVault: new InMemorySourceCredentialVault(),
     });
     assert.equal(
-      (await reopened.dealpilot.store.list("sources", PILOT_WORKSPACE, {
+      (await reopened.dealpilot.store.list("sources", PILOT_ORGANIZATION, {
         limit: 20,
         offset: 0,
       })).total,
       1,
     );
     assert.equal(
-      (await reopened.dealpilot.store.listPendingCaptures(PILOT_WORKSPACE)).items.length,
+      (await reopened.dealpilot.store.listPendingCaptures(PILOT_ORGANIZATION)).items.length,
       1,
     );
-    const gmail = await reopened.dealpilot.store.load(PILOT_WORKSPACE, source.id);
+    const gmail = await reopened.dealpilot.store.load(PILOT_ORGANIZATION, source.id);
     assert.equal(gmail.pending?.batchId, "batch-restart");
     assert.equal(gmail.continuation, undefined);
     assert.equal(gmail.pending?.continuation?.pageToken, "page-2");
     assert.equal(
       await reopened.localPlane.graph.hasExternal(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         "gmail",
         "provider-message-non-uuid",
       ),
@@ -127,7 +127,7 @@ test("file-backed startup finalizes a vault-written pending Source without persi
   const root = await mkdtemp(join(tmpdir(), "bridge-api-credential-create-"));
   const vault = new InMemorySourceCredentialVault();
   const scope = {
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     sourceId: "source-create-restart",
   };
   const secret = "test_fixture_restart_secret";
@@ -139,7 +139,7 @@ test("file-backed startup finalizes a vault-written pending Source without persi
     const reference = vault.reserve(scope);
     await first.dealpilot.store.prepareCredentialCreate({
       id: scope.sourceId,
-      workspaceId: scope.workspaceId,
+      organizationId: scope.organizationId,
       name: "Restart-finalized source",
       link: "https://example.invalid/restart-finalized",
       connectionType: "account",
@@ -158,7 +158,7 @@ test("file-backed startup finalizes a vault-written pending Source without persi
     });
     const source = await reopened.dealpilot.store.get(
       "source",
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       scope.sourceId,
     );
     assert.equal(
@@ -167,7 +167,7 @@ test("file-backed startup finalizes a vault-written pending Source without persi
     );
     assert.deepEqual(
       await reopened.dealpilot.store.pendingCredentialOperations(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
       ),
       [],
     );
@@ -222,7 +222,7 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
       reauthenticatedAt: Date.now(),
     });
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Credential-backed source",
       link: "https://example.invalid/credential-source",
       connectionType: "account",
@@ -232,14 +232,14 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
       password: secret,
     });
     const detail = await caller.dealpilot.detail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       kind: "source",
       id: source.id,
     });
     assert.equal(JSON.stringify(detail).includes(secret), false);
     assert.equal(JSON.stringify(detail).includes(userId), false);
     const session = await caller.dealpilot.reauthenticateCredential({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
     });
     const completeRevocation =
@@ -251,7 +251,7 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     };
     await assert.rejects(
       caller.dealpilot.clearCredential({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
         token: session.token,
       }),
@@ -260,14 +260,14 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     assert.equal(keyringValues.size, 0);
     await assert.rejects(
       caller.dealpilot.clearCredential({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
         token: session.token,
       }),
       /matching re-authentication session is required/,
     );
     const retryableDetail = await caller.dealpilot.detail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       kind: "source",
       id: source.id,
     });
@@ -286,7 +286,7 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     assert.equal(
       (
         await wiring.dealpilot.store.pendingCredentialOperations(
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
         )
       ).length,
       1,
@@ -303,7 +303,7 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     });
     const reopenedSource = await reopened.dealpilot.store.get(
       "source",
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       source.id,
     );
     assert.equal(
@@ -314,13 +314,13 @@ test("DealPilot credential plaintext never enters Local Plane files or API proje
     );
     assert.deepEqual(
       (
-        await reopened.dealpilot.store.credentialAuditEvents(PILOT_WORKSPACE)
+        await reopened.dealpilot.store.credentialAuditEvents(PILOT_ORGANIZATION)
       ).map((event) => event.action),
       ["revoke"],
     );
     assert.deepEqual(
       await reopened.dealpilot.store.pendingCredentialOperations(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
       ),
       [],
     );
@@ -370,7 +370,7 @@ test("Source creation journals before the OS credential write", async () => {
       verifying: false,
     });
     await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Existing source",
       link: "https://example.invalid/existing-source",
       connectionType: "account",
@@ -379,7 +379,7 @@ test("Source creation journals before the OS credential write", async () => {
     });
     await assert.rejects(
       caller.dealpilot.createSource({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         name: "Conflicting source",
         link: "https://example.invalid/conflicting-source",
         connectionType: "account",
@@ -541,11 +541,11 @@ test("separate Node processes reopen DealPilot state and server boot requires an
 
     const written = run(
       `
-        const { buildWiring, PILOT_WORKSPACE } = await import(${JSON.stringify(wiringUrl)});
+        const { buildWiring, PILOT_ORGANIZATION } = await import(${JSON.stringify(wiringUrl)});
         const wiring = await buildWiring({ localDir: process.argv[1] });
         await wiring.dealpilot.store.createSource({
           id: "process-source",
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           name: "Process restart source",
           link: "https://example.invalid/process-source",
           connectionType: "email_alert",
@@ -561,10 +561,10 @@ test("separate Node processes reopen DealPilot state and server boot requires an
 
     const reopened = run(
       `
-        const { buildWiring, PILOT_WORKSPACE } = await import(${JSON.stringify(wiringUrl)});
+        const { buildWiring, PILOT_ORGANIZATION } = await import(${JSON.stringify(wiringUrl)});
         const wiring = await buildWiring({ localDir: process.argv[1] });
-        const source = await wiring.dealpilot.store.get("source", PILOT_WORKSPACE, "process-source");
-        console.log("RESULT:" + JSON.stringify({ id: source?.id, workspaceId: source?.workspaceId }));
+        const source = await wiring.dealpilot.store.get("source", PILOT_ORGANIZATION, "process-source");
+        console.log("RESULT:" + JSON.stringify({ id: source?.id, organizationId: source?.organizationId }));
         await wiring.close();
       `,
       secureEnvironment,
@@ -575,7 +575,7 @@ test("separate Node processes reopen DealPilot state and server boot requires an
       .find((line) => line.startsWith("RESULT:"));
     assert.deepEqual(JSON.parse(resultLine?.slice("RESULT:".length) ?? "null"), {
       id: "process-source",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
     });
   } finally {
     await rm(root, { recursive: true, force: true });

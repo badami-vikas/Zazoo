@@ -25,7 +25,7 @@ export { isForbiddenAgentToken };
 
 export type EgressTier = "none" | "read-graph" | "draft-graph" | "source-internet";
 
-const READ_GRAPH = ["person:read", "community:read", "initiative:read", "touchpoint:read"];
+const READ_GRAPH = ["person:read", "community:read", "record:read", "touchpoint:read"];
 const DRAFT_GRAPH = [...READ_GRAPH, "touchpoint:write", "signal:write"];
 /** Only this tier reaches the internet — and only to SOURCE (external:fetch:read).
  * Sending (external:send) is never here: that is human-only, gated by approval. */

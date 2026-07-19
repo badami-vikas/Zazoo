@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Header } from "../components/shared/Header";
 import { collectAllPages } from "../lib/pagination";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 
 type TicketPage = Awaited<ReturnType<typeof trpc.helpdesk.list.query>>;
 type Ticket = TicketPage["items"][number];
@@ -22,7 +22,7 @@ export function RelationshipHelpdeskPage() {
 
   useEffect(() => {
     collectAllPages((offset, limit) =>
-      trpc.helpdesk.list.query({ workspaceId: PILOT_WORKSPACE, limit, offset }),
+      trpc.helpdesk.list.query({ organizationId: PILOT_ORGANIZATION, limit, offset }),
     )
       .then((items) => setPage({ items, total: items.length, hasMore: false }))
       .catch((cause) => setError(String(cause)));
@@ -108,7 +108,7 @@ export function RelationshipHelpdeskThreadPage() {
   async function refresh(expectedTicketId: string, generation: number): Promise<void> {
     try {
       const nextThread = await trpc.helpdesk.get.query({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         ticketId: expectedTicketId,
       });
       if (requestGeneration.current === generation) {
@@ -142,7 +142,7 @@ export function RelationshipHelpdeskThreadPage() {
     setError(null);
     try {
       await trpc.helpdesk.reply.mutate({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         ticketId: targetTicketId,
         body,
         status: "pending",

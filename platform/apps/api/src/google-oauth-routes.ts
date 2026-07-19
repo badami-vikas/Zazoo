@@ -65,8 +65,8 @@ export async function registerGoogleOAuthRoutes(
           error: "missing_oauth_state",
         });
       }
-      const workspaceId = wiring.google.integrationId.split(":")[0] ?? "";
-      const pending = await wiring.googleOAuthStates.consume(workspaceId, state);
+      const organizationId = wiring.google.integrationId.split(":")[0] ?? "";
+      const pending = await wiring.googleOAuthStates.consume(organizationId, state);
       if (!pending) {
         return finishOAuth(reply, {
           connected: false,
@@ -84,7 +84,7 @@ export async function registerGoogleOAuthRoutes(
         const integrationId = pending.integrationId;
         if (
           integrationId !== wiring.google.integrationId ||
-          !(await wiring.workspaceStore.isMember(workspaceId, pending.actorId))
+          !(await wiring.organizationStore.isMember(organizationId, pending.actorId))
         ) {
           return finishOAuth(reply, {
             connected: false,
@@ -99,13 +99,13 @@ export async function registerGoogleOAuthRoutes(
         const nowISO = new SystemClock().nowISO();
         const tokenRecord = tokenRecordFrom(
           integrationId,
-          workspaceId,
+          organizationId,
           tokens,
           nowISO,
         );
         if (
           !(await wiring.localPlane.secrets.finalizeToken(tokenRecord, () =>
-            wiring.workspaceStore.isMember(workspaceId, pending.actorId),
+            wiring.organizationStore.isMember(organizationId, pending.actorId),
           ))
         ) {
           return finishOAuth(reply, {

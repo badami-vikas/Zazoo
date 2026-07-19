@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
 import {
   CAPTURE_EVENT,
   STATUS_LABEL,
@@ -23,7 +23,7 @@ import {
 export interface AvatarOverlayProps {
   style: AvatarStyle;
   avatarName?: string;
-  workspaceName?: string;
+  organizationName?: string;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -254,7 +254,7 @@ export function AvatarIcon({ style, size = 24 }: { style: AvatarStyle; size?: nu
   );
 }
 
-export function AvatarOverlay({ style: avatarStyle, avatarName, workspaceName }: AvatarOverlayProps) {
+export function AvatarOverlay({ style: avatarStyle, avatarName, organizationName }: AvatarOverlayProps) {
   const status = useAvatarStatus();
   const reducedMotion = usePrefersReducedMotion();
   const navigate = useNavigate();
@@ -306,7 +306,7 @@ export function AvatarOverlay({ style: avatarStyle, avatarName, workspaceName }:
       if (!open) {
         setPendingError(false);
         trpc.action.listPending
-          .query({ workspaceId: PILOT_WORKSPACE, limit: 1, offset: 0 })
+          .query({ organizationId: PILOT_ORGANIZATION, limit: 1, offset: 0 })
           .then((res) => setPendingCount(res.total))
           .catch(() => {
             setPendingCount(null);
@@ -353,7 +353,7 @@ export function AvatarOverlay({ style: avatarStyle, avatarName, workspaceName }:
           <div className="space-y-1.5 text-[var(--color-navy-mid)]">
             <p>
               <span className="text-muted-foreground">Organization: </span>
-              {workspaceName || "Unnamed organization"}
+              {organizationName || "Unnamed organization"}
             </p>
             <p>
               <span className="text-muted-foreground">Route: </span>

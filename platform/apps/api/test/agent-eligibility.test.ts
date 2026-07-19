@@ -6,14 +6,14 @@ import { appRouter } from "../src/router.js";
 import { AGENT_ROLE_TEMPLATES } from "../src/agent-role-templates.js";
 import {
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
   RELATIONSHIP_LEARNING_GOAL_TYPE,
   SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
   buildWiring,
   type Wiring,
 } from "../src/wiring.js";
 
-const NON_PILOT_WORKSPACE = "d0000000-0000-4000-a000-00000000dead";
+const NON_PILOT_ORGANIZATION = "d0000000-0000-4000-a000-00000000dead";
 
 function makeRun(seed = 1): RunCtx {
   const clock = new SystemClock();
@@ -37,18 +37,18 @@ function templateById(id: string) {
   return template;
 }
 
-test("agent.create: a role-template Agent is role-bound, active, and can execute only its governed skills in its workspace", async () => {
+test("agent.create: a role-template Agent is role-bound, active, and can execute only its governed skills in its organization", async () => {
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
     const template = templateById("internal-strategist");
     const agent = await caller.agent.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "Eligibility test Agent",
       roleTemplateId: template.id,
     });
 
-    assert.equal(await wiring.agents.workspaceId(agent.agentId), PILOT_WORKSPACE);
+    assert.equal(await wiring.agents.organizationId(agent.agentId), PILOT_ORGANIZATION);
     assert.equal(await wiring.agents.isActive(agent.agentId), true);
     assert.equal(await wiring.agents.assumedRole(agent.agentId), template.roleId);
     assert.deepEqual(await wiring.agents.capabilityScope(agent.agentId), [...template.capabilityScope]);
@@ -62,12 +62,12 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
     assert.deepEqual(agent.dropped, []);
 
     const goal = await caller.agentOrchestration.goal.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       type: RELATIONSHIP_LEARNING_GOAL_TYPE,
       title: "Eligibility test goal",
     });
     const task = await caller.agentOrchestration.task.create({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       goalId: goal.id,
       type: SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
       assignedAgentId: agent.agentId,
@@ -76,7 +76,7 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
 
     const allowed = await wiring.pipeline.propose(
       {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         actor: { type: "agent", id: agent.agentId, plane: "local" },
         action: "write",
         resourceType: "signal",
@@ -90,7 +90,7 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
 
     const disallowed = await wiring.pipeline.propose(
       {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         actor: { type: "agent", id: agent.agentId, plane: "local" },
         action: "write",
         resourceType: "signal",
@@ -105,30 +105,30 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
 
     const foreignGoal = await wiring.goalTasks.createGoal(
       {
-        workspaceId: NON_PILOT_WORKSPACE,
+        organizationId: NON_PILOT_ORGANIZATION,
         type: RELATIONSHIP_LEARNING_GOAL_TYPE,
-        title: "Foreign workspace goal",
+        title: "Foreign organization goal",
       },
       { nextId: () => crypto.randomUUID(), nowISO: () => new Date().toISOString() },
     );
     const foreignTask = await wiring.goalTasks.createTask(
       {
-        workspaceId: NON_PILOT_WORKSPACE,
+        organizationId: NON_PILOT_ORGANIZATION,
         goalId: foreignGoal.id,
         type: SYNTHESIZE_RECOMMENDATION_TASK_TYPE,
         assignedAgentId: agent.agentId,
       },
       { nextId: () => crypto.randomUUID(), nowISO: () => new Date().toISOString() },
     );
-    const crossWorkspace = await resolveSkillForTask(
-      wiring.skillManifests.forSkill(PILOT_WORKSPACE, "stageStrategicRecommendation"),
+    const crossOrganization = await resolveSkillForTask(
+      wiring.skillManifests.forSkill(PILOT_ORGANIZATION, "stageStrategicRecommendation"),
       {
         goal: foreignGoal,
         task: foreignTask,
         skillId: "stageStrategicRecommendation",
         agent: {
           id: agent.agentId,
-          workspaceId: await wiring.agents.workspaceId(agent.agentId),
+          organizationId: await wiring.agents.organizationId(agent.agentId),
           active: await wiring.agents.isActive(agent.agentId),
           capabilityScope: await wiring.agents.capabilityScope(agent.agentId),
           plane: "local",
@@ -136,8 +136,8 @@ test("agent.create: a role-template Agent is role-bound, active, and can execute
         },
       },
     );
-    assert.equal(crossWorkspace.ok, false);
-    assert.equal(crossWorkspace.reason, "workspace-mismatch");
+    assert.equal(crossOrganization.ok, false);
+    assert.equal(crossOrganization.reason, "organization-mismatch");
   } finally {
     await wiring.close();
   }
@@ -150,7 +150,7 @@ test("agent.create: an unknown roleTemplateId is rejected with BAD_REQUEST", asy
     await assert.rejects(
       () =>
         caller.agent.create({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           name: "Unknown role Agent",
           roleTemplateId: "definitely-not-a-real-role-template",
         }),
@@ -161,15 +161,15 @@ test("agent.create: an unknown roleTemplateId is rejected with BAD_REQUEST", asy
   }
 });
 
-test("agent.create: a non-pilot workspaceId is rejected with FORBIDDEN", async () => {
+test("agent.create: a non-pilot organizationId is rejected with FORBIDDEN", async () => {
   const wiring = await buildWiring();
   try {
     const caller = makeCaller(wiring);
     await assert.rejects(
       () =>
         caller.agent.create({
-          workspaceId: NON_PILOT_WORKSPACE,
-          name: "Wrong workspace Agent",
+          organizationId: NON_PILOT_ORGANIZATION,
+          name: "Wrong organization Agent",
           roleTemplateId: "internal-strategist",
         }),
       (error: unknown) => error instanceof TRPCError && error.code === "FORBIDDEN",

@@ -58,7 +58,7 @@ export interface SensorHubDeps {
   /** Optional MEM-1 store for derived, authority-scoped Memory candidates. */
   memories?: MemoryStore;
   events: EventBus;
-  workspaceId: string;
+  organizationId: string;
   /** Capturing user; owns private Memories when a MemoryStore is configured. */
   userId?: string;
   /** Which client surface this hub runs on — registration is limited to the
@@ -133,7 +133,7 @@ export class SensorHub {
 
     const row = await this.#deps.capabilities.createManifest({
       id: manifest.id,
-      workspaceId: this.#deps.workspaceId,
+      organizationId: this.#deps.organizationId,
       capabilityType: "integration",
       name: manifest.name,
       version: manifest.version,
@@ -145,7 +145,7 @@ export class SensorHub {
     });
     await this.#deps.capabilities.upsertState({
       manifestId: manifest.id,
-      workspaceId: this.#deps.workspaceId,
+      organizationId: this.#deps.organizationId,
       state: "draft", // generation ≠ activation — even built-ins start Draft
       suspended: false,
       evidence: {},
@@ -198,7 +198,7 @@ export class SensorHub {
 
     const entry = await this.#deps.ledger.record({
       id: this.#deps.ids(),
-      workspaceId: this.#deps.workspaceId,
+      organizationId: this.#deps.organizationId,
       type: `capture.${observation.kind}`,
       content: observation.summary,
       occurredAt: observation.occurredAt,
@@ -212,7 +212,7 @@ export class SensorHub {
     if (this.#deps.memories) {
       await this.#deps.memories.write({
         id: this.#deps.ids(),
-        workspaceId: this.#deps.workspaceId,
+        organizationId: this.#deps.organizationId,
         type: "episodic",
         scope: "private",
         content: observation.summary,
@@ -230,7 +230,7 @@ export class SensorHub {
     // web/mobile) subscribes to this event type to blink on capture.
     await this.#deps.events.emit({
       id: this.#deps.ids(),
-      workspaceId: this.#deps.workspaceId,
+      organizationId: this.#deps.organizationId,
       type: "sensor.capture",
       entityType: "signal",
       entityId: entry.id,

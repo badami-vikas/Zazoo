@@ -3,8 +3,8 @@
  * Built directly against @bridge/tables' TableSpec/ViewConfig (the un-consumed
  * foundation this shell is the first real consumer of), NOT against
  * @bridge/core's structurally-mirrored Blueprint* types — a compiled
- * CompiledWorkspace's tableSpecs/viewConfigs are drop-in compatible with these
- * (see packages/core/src/blueprint.ts's header comment), so WorkspacePage can
+ * CompiledOrganization's tableSpecs/viewConfigs are drop-in compatible with these
+ * (see packages/core/src/blueprint.ts's header comment), so OrganizationPage can
  * pass them straight through without a cast.
  */
 import type { GraphScope, RowFilter, SortSpec, TableSpec, ViewConfig } from "@bridge/tables";

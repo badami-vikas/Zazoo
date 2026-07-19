@@ -1,5 +1,15 @@
 # Change Log
 
+- **2026-07-19** — **Recovered stalled Supabase deployment into local `main`
+  (AP-054, ADR-128)**: proved session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` and its
+  five displayed workers were stale, preserved completed work at `6590c71`, normally
+  reconciled `origin/main@5ab4568`, and re-ported only the deployment slice onto canonical
+  Organization/Module/Record surfaces. Added migration `0022_supabase_runtime_role`,
+  transaction-local RLS scopes, exact hosted pilot Auth, encrypted headless credentials,
+  Local/Cloud ledger routing, container/CI assets, and the deployment runbook. API/web
+  typechecks and 55 focused tests pass. Integration is local only; no push or cloud
+  provisioning occurred.
+
 - **2026-07-19** — **TASK-009/TASK-014 merged through `origin/main@3c9646c`**: preserved
   TASK-005 and TASK-011 in full, reconciled their Files/runtime work with the View/Graph API,
   retained TASK-005's data-only migration as `0017`, moved Location columns to `0018`, and
@@ -1289,7 +1299,7 @@ blueprint client-side and renders real graph.* data, honest empty states where u
 `pnpm --filter @bridge/web build` passes. ADR-017 in decisions-log.
 
 ## 2026-07-06 — Capability package format (docs-only, ADR-018)
-New `docs/raw/capability-package-format.md`: the shipping unit ABOVE one `capability_manifests`
+New `docs/raw/capability-module-format.md`: the shipping unit ABOVE one `capability_manifests`
 row (ADR-012 trust model = kernel this builds on, unchanged, no code touched this pass). Package
 manifest (`package.yaml`) bundles MULTIPLE capability manifests + a dir following agentskills.io
 progressive disclosure (L1 `package.yaml`/`README.md` · L2 `capabilities/` · L3 `scripts/`/
@@ -1877,10 +1887,23 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Merged `origin/main` (`5ca30ca`, TASK-010's red-flag correction feature + TASK-003's drag fix) forward into the TASK-011 branch. Reconciled real conflicts in 8 files (`memory-store.ts` core+db, `wiring.ts`, `router.ts`, `governance-stores.ts`, `local-store.test.ts`, `memory-store.test.ts`, `pending-work.generated.json`) where both branches independently modified the same regions — no logic dropped from either side (confirmed by a fresh independent review). Fixed a browser-build break the merge's item-1 fix introduced (`node:crypto` import bundled into the web app) with a dependency-free FNV-1a hash, and 3 genuine test-vs-implementation mismatches surfaced by TASK-010's `touchpoint`→`event` rename and its client-plane hardening.
 - Verified: full monorepo build (21/21) clean; `@bridge/core` 448/448; `@bridge/db` 165/165; `@bridge/jobpilot` 125/125; `@bridge/net-guard` 24/24; `@bridge/api` 300/300 (low-load full-suite run; heavy-load reruns reproduced the same pre-existing real-socket-timing flakes documented in every prior round of this task); no schema drift; no-dummy-runtime clean; lint's 2 findings confirmed pre-existing on a clean `origin/main` checkout. Branch head `b1bd89a`. Canonical `docs/TASKS.md` status remains unflipped. Full evidence: `outputs/2026-07-17-jobpilot-culture-research-task011.md`.
 
-# 2026-07-19 — Supabase cloud deployment readiness
-- Confirmed local `main` is current with `origin/main` at `512cf35` and documented the supported topology: Supabase for Postgres/Auth/Storage/Realtime, a separate persistent Fastify host, a static web host, and optional Commons.
-- Added `outputs/2026-07-19-supabase-cloud-deployment-readiness.md` with the migration, runtime, Auth, volume, Commons, environment, certification, owner-input, and secure secret-handoff procedure.
-- Recorded four deploy blockers: incomplete production least-privilege DB role/RLS context, a Dockerfile missing required workspace/build inputs, no hosted-browser initial Auth plus split pilot identity configuration, and no certified headless-cloud Source credential vault. Attached the evidence to TASK-016, TASK-017, and TASK-006 without changing queue order or status, then refreshed the generated Task Manager projection.
+# 2026-07-19 — TASK-024 Zazoo public website complete (AP-052)
+- Added standalone `@zazoo/website`, a React/Vite public cinematic homepage implementing the approved Hero → Family → Governance → Library → Values → Process → Difference → Impact → Night → Morning sequence.
+- Kept all approved public prose in `src/copy.json`; shipped original responsive SVG character rigs, continuous scroll-linked scenes, pointer/keyboard/touch controls, explicit Decision gating, Escape cancellation, visible focus, and reduced-motion states.
+- Certified the exact storyboard at desktop and 375×812 with no document overflow, then passed the website contract tests, targeted lint, typecheck, and production build. Integrated current `origin/main@512cf35` without conflicts.
+- Marked TASK-024 `done` under the user's explicit merge directive. Durable outcome: `outputs/2026-07-19-task024-zazoo-website-implementation.md`.
+
+# 2026-07-19 — TASK-024 Zazoo GitHub Pages deployment
+- Built the merged TASK-024 website from source represented by `relationship-os@932ed80` and published it to `badami-vikas/badami-vikas.github.io@2306808`.
+- Preserved the `zazoo.me` `CNAME`, Consulting page, Training page, and their existing assets.
+- GitHub Pages run `29683315854` completed successfully; the custom domain serves the new hashed JavaScript/CSS bundle over HTTPS.
+- Updated TASK-024, its durable output, and all four Progress-from-Manish handoff records with the live deployment evidence.
+
+# 2026-07-19 — TASK-024 GitHub Pages rollback (AP-053)
+- Applied the user's explicit rollback directive with Pages commit `6b76466`, which cleanly reverses publication commit `2306808` without rewriting history or removing the merged `relationship-os` source.
+- GitHub Pages run `29683837490` completed successfully. The live `https://zazoo.me` response is byte-for-byte identical to the restored pre-TASK-024 `index.html` at Pages commit `063997a`.
+- Preserved the `zazoo.me` `CNAME`; `/consulting.html` and `/training.html` return 200; the removed TASK-024 hashed JavaScript/CSS assets return 404 as expected.
+- Reconciled TASK-024, AP-053, the durable output, and all four Progress-from-Manish handoff records with the current production state.
 
 # 2026-07-19 — TASK-012 VOCAB0–VOCAB1
 - Added the classified retired-vocabulary inventory, per-file syntax-fingerprint baseline, local/CI ratchet, and ADR-127. TypeScript/JavaScript AST (including static compositions) plus Rust/non-migration-SQL lexical coverage makes new or one-for-one-replaced retired identifiers/string contracts fail; reviewed removals require a downward-only baseline refresh.
@@ -1889,18 +1912,7 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Made desktop readiness session-scoped: native Avatar windows start hidden/click-through and only present after the shell confirms an active Organization plus ready canonical preferences.
 - Removed the retired dummy-prefix ESLint wiring and corrected the runtime check guidance to the settled `docs/dummy.md` ledger policy.
 
-# 2026-07-19 — Supabase deployment blockers remediated (AP-052, ADR-128)
-- Added dedicated `bridge_app` grants, migration-only owner URL support, pooled-safe
-  transaction-local RLS identity, strict production role checks, and role/isolation/reset
-  regressions across every protected persistent store.
-- Added exact-pilot Supabase JWT admission, idempotent workspace activation, protected web
-  Auth lifecycle, exact CORS/configuration checks, and removed live-client fallbacks.
-- Added the headless AES-256-GCM Source credential vault and explicit public-only Cloud
-  ledger routing; private/all/legacy roots stay on durable Local Plane storage and hosted
-  production must acknowledge an encrypted persistent volume.
-- Replaced the API container with a Turbo-pruned production-only non-root image, added
-  context exclusions and CI fail-closed/liveness/readiness smoke coverage, and documented
-  direct/session-pooler runtime credentials plus the exact owner deployment procedure.
-- Verification: workspace typecheck/build 42/42; DB 173/173; DealPilot 93/93; API 323/323;
-  web 102/102; focused RLS/vault/residency 12/12; clean pruned runtime simulation healthy.
-  Literal image launch remains the CI gate because no local Docker daemon is installed.
+# 2026-07-19 — TASK-012 VOCAB0–VOCAB1 main integration
+- Integrated the first TASK-012 milestone through PR #26 at source checkpoints `dd51797` and `bd7de18`; TASK-012 remains `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
+- Reconciled TASK-024's later website source by replacing its newly introduced retired DOM aliases and paired illustration selectors rather than increasing the 7,515-occurrence ratchet baseline.
+- Synchronized `docs/TASKS.md`, the durable output, and all four `docs/Progress from Manish/` handoff files with the landed milestone and correct next cursor.

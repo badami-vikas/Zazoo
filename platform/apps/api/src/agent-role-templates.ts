@@ -1,5 +1,5 @@
 import type { Action, DataScope, EgressTier, GrantRule, ResourceType } from "@bridge/core";
-import { GOVERNED_SKILL_MANIFEST_CATALOG, PILOT_WORKSPACE } from "./wiring.js";
+import { GOVERNED_SKILL_MANIFEST_CATALOG, PILOT_ORGANIZATION } from "./wiring.js";
 
 /**
  * Server-owned Agent role-template catalog, mirroring CULTURE_SOURCE_REGISTRY's
@@ -16,7 +16,7 @@ import { GOVERNED_SKILL_MANIFEST_CATALOG, PILOT_WORKSPACE } from "./wiring.js";
 interface AgentRoleTemplateSeed {
   id: string;
   roleId: string;
-  workspaceId: string;
+  organizationId: string;
   allowedSkills: readonly string[];
   dataScope: DataScope;
   egressTier: EgressTier;
@@ -25,7 +25,7 @@ interface AgentRoleTemplateSeed {
 export interface AuthorizedAgentRoleTemplate {
   id: string;
   roleId: string;
-  workspaceId: string;
+  organizationId: string;
   capabilityScope: readonly string[];
   allowedSkills: readonly string[];
   roleGrants: readonly GrantRule[];
@@ -37,7 +37,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
   {
     id: "learning",
     roleId: "role-learning",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     allowedSkills: [
       "stageLearningRecommendation",
       "stageStrategicRecommendation",
@@ -51,7 +51,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
   {
     id: "internal-strategist",
     roleId: "role-internal-strategist",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     allowedSkills: ["stageStrategicRecommendation", "jobpilot.synthesizeCultureProfile"],
     dataScope: "all",
     egressTier: "none",
@@ -59,7 +59,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
   {
     id: "outreach",
     roleId: "role-outreach",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     allowedSkills: ["outreach.stageDraft"],
     dataScope: "public",
     egressTier: "none",
@@ -67,7 +67,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
   {
     id: "egress",
     roleId: "role-egress",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     allowedSkills: ["dealpilot.source", "google.sourceGmail", "google.sourceCalendar", "google.listCalendarEvents"],
     dataScope: "public",
     egressTier: "none",
@@ -75,7 +75,7 @@ const AGENT_ROLE_TEMPLATE_SEEDS: readonly AgentRoleTemplateSeed[] = [
   {
     id: "intake",
     roleId: "role-intake",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     allowedSkills: ["google.stage"],
     dataScope: "all",
     egressTier: "none",
@@ -104,9 +104,9 @@ function grantForCapabilityToken(token: string): GrantRule {
   };
 }
 
-function manifestPermissionsFor(workspaceId: string, skillId: string): readonly string[] {
+function manifestPermissionsFor(organizationId: string, skillId: string): readonly string[] {
   const manifest = GOVERNED_SKILL_MANIFEST_CATALOG.find(
-    (candidate) => candidate.workspaceId === workspaceId && candidate.skillId === skillId,
+    (candidate) => candidate.organizationId === organizationId && candidate.skillId === skillId,
   );
   if (!manifest) {
     throw new Error(`Agent role template skill "${skillId}" is not registered in GOVERNED_SKILL_MANIFEST_CATALOG`);
@@ -116,7 +116,7 @@ function manifestPermissionsFor(workspaceId: string, skillId: string): readonly 
 
 function buildTemplate(seed: AgentRoleTemplateSeed): AuthorizedAgentRoleTemplate {
   const allowedSkills = unique(seed.allowedSkills);
-  const capabilityScope = unique(allowedSkills.flatMap((skillId) => manifestPermissionsFor(seed.workspaceId, skillId)));
+  const capabilityScope = unique(allowedSkills.flatMap((skillId) => manifestPermissionsFor(seed.organizationId, skillId)));
   return {
     ...seed,
     allowedSkills,
@@ -128,11 +128,11 @@ function buildTemplate(seed: AgentRoleTemplateSeed): AuthorizedAgentRoleTemplate
 export const AGENT_ROLE_TEMPLATES: readonly AuthorizedAgentRoleTemplate[] = AGENT_ROLE_TEMPLATE_SEEDS.map(buildTemplate);
 
 export function resolveAuthorizedAgentRoleTemplate(
-  workspaceId: string,
+  organizationId: string,
   roleTemplateId: string,
 ): AuthorizedAgentRoleTemplate | null {
   const found = AGENT_ROLE_TEMPLATES.find((template) => template.id === roleTemplateId);
   if (!found) return null;
-  if (found.workspaceId !== workspaceId) return null;
+  if (found.organizationId !== organizationId) return null;
   return found;
 }

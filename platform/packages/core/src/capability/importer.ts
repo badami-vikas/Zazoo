@@ -1,15 +1,15 @@
 /**
  * Foreign-capability importer (docs/raw/execution-plan-2026-07.md Track F3,
- * ADR-027) — translates an upstream descriptor (a Pi package, an MCP server's
+ * ADR-027) — translates an upstream descriptor (a Pi module, an MCP server's
  * Action/resource list, an Activepieces piece, or a generic OSS Integration)
  * into a `ForeignCapabilityImport` (foreign-import.ts) whose
  * `translatedManifest` is a Bridge `CapabilityManifest` (types.ts). Pure
  * translation layer: it never calls out to a live MCP server, Activepieces
  * API, or Pi registry — callers hand in an already-fetched descriptor,
- * mirroring package/manifest.ts's "validated at the seam" discipline.
+ * mirroring module/manifest.ts's "validated at the seam" discipline.
  *
  * Per-source-type mapping:
- *  - pi-package:          extension/skill/prompt -> Skill,
+ *  - pi-module:          extension/skill/prompt -> Skill,
  *                         theme -> view.
  *  - mcp-server:          Actions -> connectors, resources -> read permissions;
  *                         capabilityType always "integration".
@@ -22,7 +22,7 @@
  *                         `permissionDeclarations`.
  *
  * Sandbox-required guard: any import whose translated capability can run
- * arbitrary upstream code (activepieces pieces always; pi-package extensions
+ * arbitrary upstream code (activepieces pieces always; pi-module extensions
  * when the descriptor marks them executable) MUST carry a sandboxPolicy with
  * `isolation !== "none"`, or `translateForeignCapability` returns a typed
  * `{ ok: false }` result instead of a manifest — never silently allows
@@ -58,7 +58,7 @@ export class ForeignImportValidationError extends Error {
  * module computes, plus the raw upstream descriptor the source-specific
  * translator reads. */
 export interface ForeignCapabilityDescriptorInput
-  extends Omit<ForeignCapabilityImport, "translatedManifest" | "translatedPackage"> {
+  extends Omit<ForeignCapabilityImport, "translatedManifest" | "translatedModule"> {
   /** The raw, source-native descriptor (already fetched by the caller —
    * see module header). Opaque here; each translator narrows it. */
   descriptor: unknown;
@@ -88,7 +88,7 @@ function translatePermission(decl: ForeignCapabilityImport["permissionDeclaratio
 
 function requiresSandbox(input: ForeignCapabilityDescriptorInput): boolean {
   if (SOURCES_ALWAYS_EXECUTABLE.has(input.source)) return true;
-  if (input.source === "pi-package") {
+  if (input.source === "pi-module") {
     const descriptor = isPlainObject(input.descriptor) ? input.descriptor : {};
     // Pi extensions execute code; skills/prompts/themes are declarative
     // assets and do not require sandboxing.
@@ -112,7 +112,7 @@ function requiresSandbox(input: ForeignCapabilityDescriptorInput): boolean {
 function capabilityTypeFor(input: ForeignCapabilityDescriptorInput): CapabilityType {
   const descriptor = isPlainObject(input.descriptor) ? input.descriptor : {};
   switch (input.source) {
-    case "pi-package": {
+    case "pi-module": {
       const primitive = descriptor.primitive;
       if (primitive === "extension") return "skill";
       if (primitive === "theme") return "view";
@@ -143,7 +143,7 @@ function connectorsFor(input: ForeignCapabilityDescriptorInput): CapabilityConne
       externalSend: true,
     }));
   }
-  if (input.source === "pi-package" && descriptor.primitive === "extension") {
+  if (input.source === "pi-module" && descriptor.primitive === "extension") {
     return [{ id: input.sourceRef }];
   }
   // oss-integration: zero connectors — permissions come only from the
@@ -157,7 +157,7 @@ function connectorsFor(input: ForeignCapabilityDescriptorInput): CapabilityConne
  * `{ ok: false }` result (never throws) when the import is executable and
  * lacks a real sandbox policy; throws `ForeignImportValidationError` for
  * other malformed input (missing sourceRef/versionPin), matching
- * package/manifest.ts's "loud validation error, never silent default"
+ * module/manifest.ts's "loud validation error, never silent default"
  * convention.
  */
 export function translateForeignCapability(input: ForeignCapabilityDescriptorInput): ForeignImportResult {

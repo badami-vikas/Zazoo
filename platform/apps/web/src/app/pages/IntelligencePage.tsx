@@ -3,7 +3,7 @@
  *
  * TASK-001 / VOCAB2 / VOCAB6 (2026-07-16): removed deprecated Tools and
  * and standalone Skills sections. Retained sections:
- *   - Modules (packages.list registry)
+ *   - Modules (modules.list registry)
  *   - Integrations (real providers + connected endpoints)
  *   - Agents (honest empty state — no agent.list API yet)
  *   - Registry (Universal Commons)
@@ -12,18 +12,18 @@
  * Skills → nested under Agents in Module Detail (§4b, not a standalone toggle).
  * Automations appear under Module Detail (§4b).
  *
- * Packages tab uses "Modules" as display label (vocabulary rule R-017–R-020).
+ * Modules tab uses "Modules" as display label (vocabulary rule R-017–R-020).
  */
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { Package, Cable, Bot, Globe } from "lucide-react";
+import { trpc, PILOT_ORGANIZATION } from "../lib/trpc";
+import { Boxes, Cable, Bot, Globe } from "lucide-react";
 import { Header } from "../components/shared/Header";
 
-type IntelligenceSection = "packages" | "integrations" | "agents" | "commons";
+type IntelligenceSection = "modules" | "integrations" | "agents" | "commons";
 
-const SECTIONS: { id: IntelligenceSection; label: string; icon: typeof Package }[] = [
-  { id: "packages", label: "Modules", icon: Package },
+const SECTIONS: { id: IntelligenceSection; label: string; icon: typeof Boxes }[] = [
+  { id: "modules", label: "Modules", icon: Boxes },
   { id: "integrations", label: "Integrations", icon: Cable },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "commons", label: "Registry", icon: Globe },
@@ -40,7 +40,7 @@ function IntegrationsSection() {
   useEffect(() => {
     trpc.integration.providers.query().then(setProviders).catch((e) => setError(String(e)));
     trpc.integration.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })
       .then(setConnected)
       .catch((e) => setError(String(e)));
   }, []);
@@ -93,15 +93,15 @@ function IntegrationsSection() {
   );
 }
 
-type PackagesResult = Awaited<ReturnType<typeof trpc.packages.list.query>>;
+type ModulesResult = Awaited<ReturnType<typeof trpc.modules.list.query>>;
 
-function PackagesSection() {
-  const [result, setResult] = useState<PackagesResult | null>(null);
+function ModulesSection() {
+  const [result, setResult] = useState<ModulesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    trpc.packages.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })
+    trpc.modules.list
+      .query({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })
       .then(setResult)
       .catch((e) => setError(String(e)));
   }, []);
@@ -112,7 +112,7 @@ function PackagesSection() {
     return (
       <div className="p-4 border rounded-md text-sm text-muted-foreground max-w-2xl">
         No modules installed yet. Modules arrive through the Learning Agent's proposals or a manual
-        <code> packages.register</code> call — nothing installs itself.
+        <code> modules.register</code> call — nothing installs itself.
       </div>
     );
   }
@@ -122,8 +122,8 @@ function PackagesSection() {
       {result.items.map((row) => (
         <li key={row.id} className="p-3 text-sm flex items-center justify-between gap-3">
           <div>
-            <span className="font-medium">{row.packageName}</span>
-            <span className="text-muted-foreground"> · v{row.packageVersion}</span>
+            <span className="font-medium">{row.moduleName}</span>
+            <span className="text-muted-foreground"> · v{row.moduleVersion}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="border rounded px-1.5 py-0.5">{row.state}</span>
@@ -139,10 +139,10 @@ function PackagesSection() {
 type CommonsListResult = Awaited<ReturnType<typeof trpc.commons.list.query>>;
 
 /**
- * Registry tab — browse packages published to the Universal Commons (CM0 wire).
+ * Registry tab — browse modules published to the Universal Commons (CM0 wire).
  * Shows name/version/kind/summary for each listed entry. "Install" opens a
  * governed flow: calls commons.installPropose to register the manifest, then
- * packages.install for risk-assessment + approval routing.
+ * modules.install for risk-assessment + approval routing.
  * If the Commons service is not running, an honest offline state is shown.
  */
 function CommonsSection() {
@@ -180,7 +180,7 @@ function CommonsSection() {
     <div className="space-y-4 max-w-2xl">
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Universal Commons — browse and install capability packages from the registry.
+          Universal Commons — browse and install capability modules from the registry.
         </div>
         <button
           onClick={handlePublishBuiltins}
@@ -212,8 +212,8 @@ function CommonsSection() {
 
       {!error && result !== null && result.items.length === 0 && (
         <div className="p-4 border rounded-md text-sm text-muted-foreground">
-          No packages in the registry yet. Click <strong>Publish built-ins</strong> to seed it with the
-          built-in workspace packages (DealPilot, JobPilot, Helpdesk, Calendar).
+          No modules in the registry yet. Click <strong>Publish built-ins</strong> to seed it with the
+          built-in organization modules (DealPilot, JobPilot, Helpdesk, Calendar).
         </div>
       )}
 
@@ -245,7 +245,7 @@ function CommonsSection() {
 }
 
 export function IntelligencePage() {
-  const [section, setSection] = useState<IntelligenceSection>("packages");
+  const [section, setSection] = useState<IntelligenceSection>("modules");
 
   const active = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   return (
@@ -259,7 +259,7 @@ export function IntelligencePage() {
         }}
       />
       <div className="flex-1 overflow-auto p-4 sm:p-6 space-y-4">
-        {section === "packages" && <PackagesSection />}
+        {section === "modules" && <ModulesSection />}
         {section === "integrations" && <IntegrationsSection />}
         {section === "agents" && (
           <div className="p-6 border rounded-md text-sm text-muted-foreground max-w-xl">

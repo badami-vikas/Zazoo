@@ -6,7 +6,7 @@ const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
 interface AtomicStatePort {
   update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => { state: unknown; result: T },
@@ -79,7 +79,7 @@ export class GoogleOAuthStateStore {
   ) {}
 
   async issue(
-    workspaceId: string,
+    organizationId: string,
     integrationId: string,
     actorId: string,
   ): Promise<IssuedOAuthState> {
@@ -90,7 +90,7 @@ export class GoogleOAuthStateStore {
       .digest("base64url");
     const hash = stateHash(raw);
     const now = this.now();
-    await this.state.update(workspaceId, NAMESPACE, emptyState(), (current) => {
+    await this.state.update(organizationId, NAMESPACE, emptyState(), (current) => {
       const aggregate = parseState(current);
       for (const [key, pending] of Object.entries(aggregate.pending)) {
         if (Date.parse(pending.expiresAt) <= now) delete aggregate.pending[key];
@@ -107,14 +107,14 @@ export class GoogleOAuthStateStore {
   }
 
   async consume(
-    workspaceId: string,
+    organizationId: string,
     raw: string,
   ): Promise<PendingOAuthState | null> {
     if (!/^oauth_[0-9a-f]{64}$/.test(raw)) return null;
     const hash = stateHash(raw);
     const now = this.now();
     return this.state.update(
-      workspaceId,
+      organizationId,
       NAMESPACE,
       emptyState(),
       (current) => {

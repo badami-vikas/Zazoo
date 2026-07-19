@@ -23,22 +23,22 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 superuser or `BYPASSRLS` role, which excludes the Supabase owner connection normally copied
 from Connect. However, tracked migrations create no login role or grants for a non-bypass
 application role. The RLS policies in `0008_rls_as_code.sql` also depend on transaction-local
-`app.workspace_id`/`app.user_id` GUCs, while `DrizzleWorkspaceStore.bootstrapPilotIdentities()`,
-`isMember()`, and `listMembers()` access the forced-RLS `workspace_members` table without
+`app.organization_id`/`app.user_id` GUCs, while `DrizzleOrganizationStore.bootstrapPilotIdentities()`,
+`isMember()`, and `listMembers()` access the forced-RLS `organization_members` table without
 setting that context. The owner role therefore fails the boot guard, while a compliant role
 cannot complete bootstrap or membership authorization. Fix under TASK-016: provision and
 grant a dedicated runtime role without embedding its password in migrations, apply request-
 scoped RLS context consistently across every persistent store/bootstrap path, and prove a
 real production-mode boot plus cross-tenant denial on Postgres/Supabase.
 
-FIX: migration `0020_supabase_runtime_role.sql` creates a login-capable, non-owner,
+FIX: migration `0022_supabase_runtime_role.sql` creates a login-capable, non-owner,
 non-superuser, non-BYPASSRLS `bridge_app` role with only required runtime grants and leaves
 password assignment to the operator. Migration and runtime URLs are separate. Shared
 transaction-local Organization/user context now wraps every protected persistent store;
 production boot rejects owner, superuser, BYPASSRLS, and unknown privilege posture.
-Runtime-role boot, cross-workspace denial, pooled-context reset, and nested-scope tests pass
-in the 173-test DB suite. Live migration/password execution remains an owner deployment
-step, not a repository defect. Attached to TASK-016; AP-052.
+Runtime-role boot, cross-Organization denial, pooled-context reset, and nested-scope tests pass.
+Live migration/password execution remains an owner deployment step, not a repository defect.
+Attached to TASK-016; AP-054.
 
 ## RESOLVED 2026-07-19 — The API Dockerfile cannot build the current workspace
 `platform/pnpm-workspace.yaml` includes `tools/*` and `services/*`, and `@bridge/api` has
@@ -56,7 +56,7 @@ builds the image, proves fail-closed production config, runs it non-root with du
 and probes liveness/readiness. A clean reproduction of every prune/install/build/deploy/
 runtime stage produced a 225 MB TypeScript-free bundle that started and passed both probes.
 This machine has no Docker daemon, so literal Dockerfile execution is enforced by CI.
-Attached to TASK-017; AP-052.
+Attached to TASK-017; AP-054.
 
 ## RESOLVED 2026-07-19 — Hosted browser auth cannot provision the pilot identity coherently
 The web client can forward an existing Supabase session, but it has no initial Supabase
@@ -74,7 +74,9 @@ subject before non-public dispatch. The web now has explicit sign-in, sign-up, r
 reset, refresh, activation, protected-shell, and logout states; live Supabase defaults were
 removed. Public Helpdesk token procedures remain the only explicit public API surface.
 Production fails closed without exact Auth, pilot, origin, durable-residency, and vault
-configuration. API 323/323 and web 102/102 pass. Attached to TASK-017; AP-052.
+configuration. The recovered snapshot passed API 323/323 and web 102/102; the reconciled
+Organization-era tree passed API/web typechecks and the 55 focused Auth/RLS/vault/residency
+tests. Attached to TASK-017; AP-054.
 
 ## RESOLVED 2026-07-19 — DealPilot has no approved headless-cloud credential vault
 Non-test API boot requires `BRIDGE_DEALPILOT_CREDENTIAL_VAULT=os-keyring`; the only runtime
@@ -91,7 +93,7 @@ explicit deletion, restart durability, wrong-key failure, and current/previous-k
 keys come only from host secrets. Production selects it explicitly while desktop retains the
 native OS keyring. Hosted production also requires durable Local Plane paths and explicit
 `encrypted-host-volume` residency acknowledgement. Focused vault/residency tests pass 12/12.
-Attached to TASK-006; AP-052.
+Attached to TASK-006; AP-054.
 
 ## RESOLVED 2026-07-19 — TASK-005 signed Skill performed undeclared external research
 Final branch review found that `cited-role-model-practice@1.0.0` declared one private Signal write and
@@ -1032,7 +1034,7 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   proposals enter Cloud Plane; private, all-scope, and legacy-unscoped roots remain Local,
   decision/audit rows follow their parent's plane, and pending/history reads merge both
   planes without changing the caller contract. Restart, public/private, legacy-private,
-  parent-plane, and raw-nondisclosure behavior pass under AP-052. Attached to TASK-006.
+  parent-plane, and raw-nondisclosure behavior pass under AP-054. Attached to TASK-006.
 
 - **RESOLVED 2026-07-05 — Persistent mode silently discarded canonical identity writes.**
   `wiring.ts` used to bind `canonical = new InMemoryCanonicalIdentityStore()` even when
@@ -1380,7 +1382,7 @@ Package installs now use a stable forced-review Signal intent because `package_i
 The workspace graph carries no per-person topic/skill tags, so `helpdesk.route` matches only against `topicsByPerson` passed in the request; with none supplied every request routes to an honest empty list. Real topic data on Person nodes is the fix.
 
 ## OPEN — ADR-018 spec says `package.yaml`; shipped files are `bridge.package.yaml` (2026-07-06, ADR-021)
-pnpm treats `package.yaml` as an alternative project-manifest format — a package.yaml in a workspace package dir shadows package.json and breaks install (observed: tools/helpdesk lockfile importer collapsed to `{}`). docs/raw/capability-package-format.md §1 should be amended to the new filename.
+pnpm treats `package.yaml` as an alternative project-manifest format — a package.yaml in a workspace package dir shadows package.json and breaks install (observed: tools/helpdesk lockfile importer collapsed to `{}`). docs/raw/capability-module-format.md §1 should be amended to the new filename.
 
 ## RESOLVED 2026-07-06 — onboarding "Propose this workspace" leaves an orphaned draft, never reaches Approvals
 FIX: OnboardingDialog.submit now chains workspace.blueprint.propose -> workspace.blueprint.activate (activation is itself the governed pipeline proposal, so governance is not skipped); final step reports the real outcome (activated vs pending in Approvals). Live-verified: ETA persona run now ends with the Workspace page rendering the active "Deal" blueprint. The preview-discrepancy + kanban groupBy items from this row are being handled separately (Agent H).

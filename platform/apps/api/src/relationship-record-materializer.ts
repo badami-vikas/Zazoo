@@ -11,7 +11,7 @@ import { z } from "zod";
 import { relationshipDateTimeSchema } from "./relationship-datetime.js";
 
 const canonicalUuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
-const visibilitySchema = z.enum(["private", "workspace"]);
+const visibilitySchema = z.enum(["private", "organization"]);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
 export const personCreateFieldsSchema = z.object({
@@ -133,7 +133,7 @@ const interactionCreatePayloadSchema = z.object({
 });
 
 const memoryTypeSchema = z.enum(["episodic", "semantic", "procedural", "preference"]);
-const memoryScopeSchema = z.enum(["private", "workspace"]);
+const memoryScopeSchema = z.enum(["private", "organization"]);
 const memoryContentSchema = z.string().trim().min(1).max(5_000);
 
 const memoryCreatePayloadSchema = z.object({
@@ -383,7 +383,7 @@ export async function materializeRelationshipMutation(
     (resolution.userDecision === "approve" || resolution.userDecision === "edit");
   if (
     (!isAutoResolution && !isHumanResolution) ||
-    original.workspaceId !== resolution.workspaceId ||
+    original.organizationId !== resolution.organizationId ||
     original.actorType !== resolution.actorType ||
     original.actorId !== resolution.actorId ||
     original.onBehalfOfType !== resolution.onBehalfOfType ||
@@ -445,7 +445,7 @@ export async function materializeRelationshipMutation(
     return graphStore.createInteraction({
       ...provenance,
       id: payload.recordId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       kind: payload.values.kind,
       occurredAt: new Date(payload.values.occurredAt),
@@ -470,21 +470,21 @@ export async function materializeRelationshipMutation(
       throw new Error("Relationship Memory materialization requires a MemoryStore");
     }
     const person = await graphStore.getPerson(
-      original.workspaceId,
+      original.organizationId,
       ownerUserId,
       payload.personId,
     );
     if (!person || !person.isOwner) {
       throw new Error("Relationship Memory mutation requires its owning Person");
     }
-    const authScope = { workspaceId: original.workspaceId, userId: ownerUserId };
+    const authScope = { organizationId: original.organizationId, userId: ownerUserId };
     let materialization: MemoryEntry | boolean;
     let resultingMemoryId: string | null = null;
     if (payload.operation === "create") {
       const existing = await memoryStore.get(payload.memoryId, authScope);
       if (existing) {
         if (
-          existing.subjectElementId !== payload.personId ||
+          existing.subjectRecordId !== payload.personId ||
           existing.ownerUserId !== ownerUserId ||
           existing.content !== payload.values.content
         ) {
@@ -494,9 +494,9 @@ export async function materializeRelationshipMutation(
       } else {
         materialization = await memoryStore.write({
           id: payload.memoryId,
-          workspaceId: original.workspaceId,
+          organizationId: original.organizationId,
           type: payload.values.type,
-          subjectElementId: payload.personId,
+          subjectRecordId: payload.personId,
           scope: payload.values.scope,
           content: payload.values.content,
           sourceRefType: "feedback",
@@ -518,7 +518,7 @@ export async function materializeRelationshipMutation(
       if (existingReplacement) {
         if (
           existingReplacement.supersedesId !== payload.memoryId ||
-          existingReplacement.subjectElementId !== payload.personId ||
+          existingReplacement.subjectRecordId !== payload.personId ||
           existingReplacement.ownerUserId !== ownerUserId ||
           existingReplacement.content !== payload.values.content
         ) {
@@ -529,16 +529,16 @@ export async function materializeRelationshipMutation(
         const current = await memoryStore.get(payload.memoryId, authScope);
         if (
           !current ||
-          current.subjectElementId !== payload.personId ||
+          current.subjectRecordId !== payload.personId ||
           current.ownerUserId !== ownerUserId
         ) {
           throw new Error("Relationship Memory is not owned by the Person owner");
         }
         const next: MemoryWrite = {
           id: payload.replacementMemoryId,
-          workspaceId: current.workspaceId,
+          organizationId: current.organizationId,
           type: current.type,
-          subjectElementId: current.subjectElementId,
+          subjectRecordId: current.subjectRecordId,
           scope: current.scope,
           content: payload.values.content,
           sourceRefType: "feedback",
@@ -557,7 +557,7 @@ export async function materializeRelationshipMutation(
       const current = await memoryStore.get(payload.memoryId, authScope);
       if (
         current &&
-        (current.subjectElementId !== payload.personId ||
+        (current.subjectRecordId !== payload.personId ||
           current.ownerUserId !== ownerUserId)
       ) {
         throw new Error("Relationship Memory is not owned by the Person owner");
@@ -569,7 +569,7 @@ export async function materializeRelationshipMutation(
     await graphStore.createInteraction({
       ...provenance,
       id: resolution.id,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       kind: `memory_${payload.operation === "create" ? "added" : payload.operation === "correct" ? "corrected" : "forgotten"}`,
       occurredAt: decisionAt,
@@ -595,7 +595,7 @@ export async function materializeRelationshipMutation(
   }
   if (payload.kind === "relationship_commitment_mutation") {
     const person = await graphStore.getPerson(
-      original.workspaceId,
+      original.organizationId,
       ownerUserId,
       payload.personId,
     );
@@ -604,7 +604,7 @@ export async function materializeRelationshipMutation(
     }
     if (payload.operation !== "create") {
       const current = await graphStore.listCommitments(
-        original.workspaceId,
+        original.organizationId,
         ownerUserId,
         payload.personId,
         {
@@ -623,7 +623,7 @@ export async function materializeRelationshipMutation(
       operation: payload.operation,
       commitmentId: payload.commitmentId,
       transitionEventId: payload.transitionEventId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       personId: payload.personId,
       text: payload.values.text,
@@ -635,12 +635,12 @@ export async function materializeRelationshipMutation(
   if (payload.kind === "relationship_introduction_mutation") {
     const [sourcePerson, targetPerson] = await Promise.all([
       graphStore.getPerson(
-        original.workspaceId,
+        original.organizationId,
         ownerUserId,
         payload.sourcePersonId,
       ),
       graphStore.getPerson(
-        original.workspaceId,
+        original.organizationId,
         ownerUserId,
         payload.targetPersonId,
       ),
@@ -654,7 +654,7 @@ export async function materializeRelationshipMutation(
       operation: payload.operation,
       introductionId: payload.introductionId,
       transitionEventId: payload.transitionEventId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       sourcePersonId: payload.sourcePersonId,
       targetPersonId: payload.targetPersonId,
@@ -669,7 +669,7 @@ export async function materializeRelationshipMutation(
       return graphStore.createPerson({
         ...provenance,
         id: payload.recordId,
-        workspaceId: original.workspaceId,
+        organizationId: original.organizationId,
         ownerUserId,
         displayName: payload.values.displayName,
         visibility: payload.values.visibility,
@@ -686,7 +686,7 @@ export async function materializeRelationshipMutation(
       return graphStore.updatePerson({
         ...provenance,
         id: payload.recordId,
-        workspaceId: original.workspaceId,
+        organizationId: original.organizationId,
         ownerUserId,
         ...(payload.values.displayName !== undefined
           ? { displayName: payload.values.displayName }
@@ -705,7 +705,7 @@ export async function materializeRelationshipMutation(
     return graphStore.archivePerson({
       ...provenance,
       id: payload.recordId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
     });
   }
@@ -713,7 +713,7 @@ export async function materializeRelationshipMutation(
     return graphStore.createCommunity({
       ...provenance,
       id: payload.recordId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       displayName: payload.values.displayName,
       visibility: payload.values.visibility,
@@ -729,7 +729,7 @@ export async function materializeRelationshipMutation(
     return graphStore.updateCommunity({
       ...provenance,
       id: payload.recordId,
-      workspaceId: original.workspaceId,
+      organizationId: original.organizationId,
       ownerUserId,
       ...(payload.values.displayName !== undefined
         ? { displayName: payload.values.displayName }
@@ -747,7 +747,7 @@ export async function materializeRelationshipMutation(
   return graphStore.archiveCommunity({
     ...provenance,
     id: payload.recordId,
-    workspaceId: original.workspaceId,
+    organizationId: original.organizationId,
     ownerUserId,
   });
 }

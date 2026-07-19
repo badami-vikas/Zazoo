@@ -1,8 +1,8 @@
 # Paused worktrees
 
-All listed paused workers were stopped on 2026-07-18. TASK-005's later landing session is complete.
-Re-check every status before resuming because remaining entries are uncommitted snapshots, not
-immutable releases.
+All listed paused workers were stopped on 2026-07-18. TASK-005, TASK-024, and the recovered
+Supabase deployment session are complete. Re-check every status before resuming because remaining entries are uncommitted
+snapshots, not immutable releases.
 
 ## Central baseline
 
@@ -11,8 +11,33 @@ immutable releases.
 - TASK-005 implementation/certification checkpoint `166a01b` landed on `main` through
   progress handoff commit `d4de355`. Both were verified in `origin/main@d153094` ancestry.
 - TASK-006 landed at `7f44186` under AP-045 after validating and normally merging base `bab32ea`.
-- Working tree: clean when recorded.
+- TASK-024 landed through PR #23 under AP-052 after implementation checkpoint `a4bf5fb` normally
+  merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
+- TASK-024 Pages publication `2306808` was reverted under AP-053 by `6b76466`; rollback run
+  `29683837490` passed and `https://zazoo.me` serves the older experience.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26; VOCAB2 landed through PR #27 at `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration `0021`.
+- Recovered Supabase deployment checkpoint `6590c71` is integrated by this merge with migration
+  `0022_supabase_runtime_role`; next new migration is `0023`.
+- Working tree: clean after this merge completes.
 - Background agents and worktree processes: none.
+
+## Supabase cloud deployment — RECOVERED AND MERGED LOCALLY 2026-07-19
+
+- Session: `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a`
+- Runtime session: `78a592e5-ac77-4496-8ed2-98d48fe6c316`
+- Checkout/branch: shared central checkout on `main`; no separate worktree or source branch
+- Preservation checkpoint: `6590c71`
+- Integration: this local merge under AP-054/ADR-128
+- Migration: `0022_supabase_runtime_role`
+
+The parent process is defunct and its five displayed workers were stale. Checkpoints/events
+recovered four mapper reports plus the interrupted vocabulary-reconciliation state. The
+completed deployment work was preserved, newer `origin/main@5ab4568` was normally merged, and
+only deployment-specific behavior was re-ported onto canonical Organization/Module/Record
+surfaces. API/web typechecks and 55 focused Auth, wiring, residency, migration/RLS, and vault
+tests pass. No live Supabase/hosting resource was changed and nothing was pushed. Do not
+resume this dead session or merge `6590c71` again.
 
 ## TASK-005 combined demo certification — MERGED 2026-07-19
 
@@ -35,6 +60,36 @@ lint, no-runtime-dummy, release-native launch, and final independent review pass
 
 This worktree is historical after merge. Do not resume it, re-run its migration under another
 number, or merge it again.
+
+## TASK-012 vocabulary migration — VOCAB2 MERGED; VOCAB3 PARTIAL 2026-07-19
+
+- Planning session: `3179df41-d08d-4669-b73b-7788eff1f652`
+- Planning-only branch: `manishsbhoopalam8498-fuzzy-adventure` / `5775e5b`
+- VOCAB0–VOCAB1: `task-012-vocab01`, checkpoints `dd51797`/`bd7de18`, PR #26
+- VOCAB2: `task-012-vocab2`, source `88be310`, merge `f6c4376`, PR #27
+- Partial VOCAB3 source: `task-012-vocab3`
+- Partial VOCAB3 checkpoint: `58573ba`
+- Migration: `0021_vocab3_organization_module_record`
+
+VOCAB2 is complete and merged. Checkpoint `58573ba` carries the incomplete VOCAB3 implementation:
+Organization/Module/Record code and schema contracts, migration `0021`, Local Plane compatibility,
+manifest root-collision protection, and historical migration-fixture build repair. Verified at the
+checkpoint: Module parser 14/14, migration 0016 3/3, migration 0021 1/1, Local PGlite 10/10, web
+typecheck, and monorepo build 22/22.
+
+Resume from current `main`. Remaining VOCAB3 work is explicit:
+
+1. Preserve verification of signed legacy Commons entries while adapting their manifests to
+   canonical vocabulary; retain existing content-hash pins and migrate/read the old registry
+   filesystem directory without hiding entries.
+2. Resolve vocabulary-ratchet fingerprint moves caused by VOCAB3 renames without increasing the
+   baseline. Current failures are later Artifact/Touchpoint/Helpdesk/Knowledge/Tool families plus
+   one technical Package occurrence; Workspace/Project/Initiative/Element families introduce none.
+3. Run the remaining targeted Module/Organization/Record API, store, RLS, and schema-hardening
+   tests, then required browser evidence.
+4. Only then mark VOCAB3 complete and continue VOCAB4–VOCAB6 plus compatibility deletion.
+
+Do not re-merge `58573ba` or resume the planning-only branch.
 
 ## TASK-006 durability — MERGED 2026-07-19
 
@@ -89,6 +144,29 @@ TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fas
 ## TASK-011 culture research — MERGED 2026-07-19
 
 TASK-011's central-merge review closure (durable child-Run terminal audit repair + full-lineage artifact purge/redaction) landed and merged into `main` via PR #22 (`manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). This worktree is no longer paused/dirty; see `merge-history.md`'s row and `subagent-progress.md`'s TASK-011 row for the full account. No new migration was required. This historical worktree must not be resumed or merged again.
+
+## TASK-024 Zazoo public website — MERGED 2026-07-19
+
+- Session: `3d96fe73-2f17-4e87-868f-e8ca692f9e4b`
+- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/task-024-zazoo-website`
+- Branch: `task-024-zazoo-website`
+- Implementation checkpoint: `a4bf5fb`
+- Integrated baseline: `origin/main@512cf35`
+- Integration checkpoint: `69ffbff`
+- Landing: PR #23 under AP-052
+- Publication history: `badami-vikas/badami-vikas.github.io@2306808`; user-directed rollback
+  `6b76466`; Pages run `29683837490`; pre-TASK-024 experience live at `https://zazoo.me`
+- Migration: none
+
+The standalone `@zazoo/website` app implements the approved ten-scene day-to-night-to-morning
+storyboard without changing the authenticated Bridge app. Approved visible prose comes from one
+governed source; Library navigation, the Process Human Decision gate, and the Impact notebook work
+through pointer, keyboard, and touch; reduced motion preserves the narrative; and the unapproved
+final destination remains honestly disabled. Six contract tests, typecheck, production build,
+ESLint, desktop, and exact 375×812 live walkthroughs passed. The user explicitly skipped the
+optional independent review before landing. The production artifact is now served through GitHub
+Pages with the custom-domain `CNAME` and existing Consulting/Training pages preserved. This
+worktree is historical after merge; do not resume or merge it again.
 
 ## TASK-022 inference optimization
 

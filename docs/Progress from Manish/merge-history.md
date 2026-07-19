@@ -12,6 +12,21 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-011 (JobPilot culture research) landed at final head `5e826ad` via PR #22 under AP-049 on
   2026-07-19, merged forward through `origin/main@d153094` plus its own subsequent `9030aa1` docs
   reconciliation commit.
+- TASK-024 (Zazoo public website) landed via PR #23 under AP-052 on 2026-07-19. Implementation
+  checkpoint `a4bf5fb` normally merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
+  External Pages publication `2306808` succeeded in run `29683315854`, then user-directed revert
+  `6b76466` restored the older `https://zazoo.me` experience through successful run `29683837490`.
+  The TASK-024 source remains merged. No migration was added.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26 on 2026-07-19. Checkpoint `dd51797` carries the
+  ratchet and Avatar/Onboarding migration; `bd7de18` reconciles TASK-024's later website source
+  without growing the baseline.
+- TASK-012 VOCAB2 landed through PR #27 from source `88be310`; merge commit `f6c4376`.
+- Partial VOCAB3 checkpoint `58573ba` was pushed to `main` with migration
+  `0021_vocab3_organization_module_record`. TASK-012 and VOCAB3 remain in progress.
+- Stalled Supabase deployment session `0f3e2f14-7fd2-4d07-8f3e-9c86c7c5480a` shared the
+  central checkout and had no independent branch. Its completed tree was preserved at
+  `6590c71`; this merge normally reconciles `origin/main@5ab4568`, retains canonical VOCAB3
+  conflicts, and ports the deployment-specific slice under AP-054/ADR-128.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -45,6 +60,17 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `5e826ad` | TASK-011 JobPilot culture-research final head, merged into `main` via PR #22 under AP-049: durable child-Run terminal-audit repair, full-lineage artifact purge/redaction, merged forward through TASK-010 and TASK-005; no new migration. |
 | `d4de355` | TASK-005 progress handoff and fast-forward landing on `main`; updated AP-047, all four Progress-from-Manish files, and the final change log. |
 | `d153094` | Verified later `main` baseline containing TASK-005 plus the unrelated Zazoo storyboard merge from PR #21. |
+| `a4bf5fb` | TASK-024 standalone Zazoo cinematic public website: ten scenes, governed copy, accessible interactions, responsive/reduced-motion behavior, and contract tests. |
+| `69ffbff` | TASK-024 normal integration of `origin/main@512cf35` before its AP-052 landing through PR #23. |
+| `2306808` (Pages repository) | Published TASK-024 at `https://zazoo.me` while preserving the custom-domain `CNAME` plus Consulting/Training pages; Pages run `29683315854` passed. |
+| `6b76466` (Pages repository) | Reverted publication `2306808` under AP-053, restoring the pre-TASK-024 homepage while preserving `CNAME`, `consulting.html`, and `training.html`; Pages run `29683837490` passed. |
+| `dd51797` | TASK-012 VOCAB0–VOCAB1 integrated onto current `main`: syntax-aware vocabulary ratchet, canonical visual-only Avatar/Onboarding contracts, compatibility readers, and fail-closed desktop readiness. |
+| `bd7de18` | Reconciled TASK-024's newer website identifiers and paired CSS selectors without increasing TASK-012's 7,515-occurrence baseline. |
+| `88be310` | Completed TASK-012 VOCAB2 Automation/Engine migration on the source branch. |
+| `f6c4376` | Merged TASK-012 VOCAB2 through PR #27. |
+| `58573ba` | Partial TASK-012 VOCAB3 checkpoint: Organization/Module/Record runtime contracts, migration `0021`, Local Plane compatibility, and targeted regression fixes. Not a VOCAB3 completion claim. |
+| `6590c71` | Preservation checkpoint for the recovered Supabase pilot deployment before reconciling newer `origin/main`; retained as a merge parent/audit source, not as the final vocabulary integration. |
+| (this merge) | Recovered Supabase session integration: migration `0022`, least-privilege/RLS context, exact hosted Auth, encrypted headless vault, Local/Cloud ledger routing, container assets, and durable recovery records. Local `main` only; no push or cloud provisioning. |
 
 ## Historical source branches
 
@@ -67,6 +93,13 @@ This file prevents a new session from re-merging historical branches or reusing 
   implementation/integration head `2f85dc7` includes `91a0462`, `7f93f03`, `b93d558`, and
   `7652a43`, plus a normal merge of `origin/main` `bab32ea`; final reviewed source `adf6c95`.
   Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
+- TASK-024 source: `task-024-zazoo-website`; implementation checkpoint `a4bf5fb`, integration
+  checkpoint `69ffbff`, landed through PR #23 under AP-052. Merged and done; do not merge again.
+- TASK-012 planning source: `manishsbhoopalam8498-fuzzy-adventure` at `5775e5b`; planning-only,
+  do not merge or resume as implementation. VOCAB0–VOCAB1 integration source:
+  `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. VOCAB2 source
+  `task-012-vocab2` at `88be310` landed through PR #27 (`f6c4376`). Partial VOCAB3 source
+  `task-012-vocab3` checkpoint `58573ba` is on `main`; continue the still-open task from `main`.
 
 ## Migration sequence
 
@@ -76,10 +109,20 @@ This file prevents a new session from re-merging historical branches or reusing 
 - `0016_new_ink`: TASK-010, LANDED (backfill/constraint for JobPilot flags, owner-aware `memories` RLS, `lineage_revision` column) — merged into `main` as `e532b15`.
 - `0017_task005_private_learning_recommendations`: TASK-005, LANDED (owner-scopes current/legacy
   Learning recommendation proposals and linked rows).
+- `0018_tense_warbound`: TASK-009/TASK-014 Relationship location overrides, LANDED through
+  integration baseline `512cf35`.
+- `0019_repeat_private_learning_backfill`: idempotent TASK-005 privacy replay above migration
+  `0018`'s timestamp, LANDED through `512cf35`.
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration required (LANDED, application-logic only).
+- TASK-024: no new migration required (LANDED, standalone public website only).
+- TASK-012 VOCAB0–VOCAB1: no new migration required (LANDED; TASK remains in progress).
+- `0020_vocab2_automation_engine`: TASK-012 VOCAB2, LANDED through PR #27.
+- `0021_vocab3_organization_module_record`: TASK-012 partial VOCAB3 checkpoint `58573ba`, LANDED
+  as an incomplete checkpoint.
+- `0022_supabase_runtime_role`: recovered Supabase deployment, integrated under AP-054/ADR-128.
 
-Next new migration allocates `0018`; do not reuse `0016` or `0017`.
+Next new migration allocates `0023`; do not reuse `0016` through `0022`.
 
 ## Approval and ADR coordination
 
@@ -99,8 +142,12 @@ Next new migration allocates `0018`; do not reuse `0016` or `0017`.
 - AP-045: TASK-006 validated main integration.
 - AP-046: TASK-010 live certification and closure.
 - AP-047: TASK-005 exact combined demo certification and closure.
+- AP-052: TASK-024 exact storyboard implementation, optional review skip, and `main` landing.
+- AP-054: recovered Supabase deployment reconciliation and local `main` integration.
 - ADR-121: exact private no-egress Commons Skill + owning-Module runtime binding.
 - ADR-122: serialized Organization DB identity/local Files rename with durable fail-closed recovery.
+- ADR-128: Supabase supplies Postgres/Auth while an external API/static host preserves
+  least privilege and explicit Local/Cloud residency.
 
 Known current branch-local collision:
 

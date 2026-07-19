@@ -32,7 +32,7 @@ export type ContextProviderName =
 /** How widely a captured item may be shared — mirrors the trust/audience
  * spirit of capability/types.ts's `Audience` but scoped to raw context data
  * rather than a capability's declared audience. */
-export type ContextDataScope = "public" | "workspace" | "team" | "private" | "restricted";
+export type ContextDataScope = "public" | "organization" | "team" | "private" | "restricted";
 
 /** How long a captured item may be retained before it must be discarded or
  * distilled into a governed Memory entry. */
@@ -48,8 +48,8 @@ export interface ContextItem<TPayload = unknown> {
   /** Which registered provider produced this item. */
   provider: ContextProviderName;
   /** Provider-defined sub-kind (e.g. "window_title", "selection", "screenshot",
-   * "utterance") — free-form, mirrors PackageContextProvider's `kind` string
-   * (package/types.ts) so a package's context-provider dependency declaration
+   * "utterance") — free-form, mirrors ModuleContextProvider's `kind` string
+   * (module/types.ts) so a module's context-provider dependency declaration
    * lines up with what a provider actually emits. */
   kind: string;
   /** The permission grant this collection was authorized under — an Authority
@@ -62,7 +62,7 @@ export interface ContextItem<TPayload = unknown> {
   provenance: {
     source: string;
     capturedAt: string;
-    /** Person/Community/Initiative id this item concerns, when known. */
+    /** Person/Community/Record id this item concerns, when known. */
     subject?: string;
   };
   /** Raw, LOCAL-PLANE-ONLY payload — never synced global-plane un-redacted
@@ -77,16 +77,16 @@ export interface ContextItem<TPayload = unknown> {
 
 /**
  * ContextProvider — the port a Sensor SPI source implements (mirrors the
- * create/list-style ports already in this package, e.g. CapabilityStore in
- * capability/ports.ts, PackageStore in package/ports.ts). One provider
+ * create/list-style ports already in this module, e.g. CapabilityStore in
+ * capability/ports.ts, ModuleStore in module/ports.ts). One provider
  * implementation exists per ContextProviderName; the desktop shell registers
  * whichever providers are installed/permitted on a given machine.
  */
 export interface ContextProvider {
   /** Which of the nine day-1 sources this implementation is. */
   readonly name: ContextProviderName;
-  /** The `kind` values this provider can emit — lets a package's
-   * `contextProviders[].kind` dependency declaration (package/types.ts) be
+  /** The `kind` values this provider can emit — lets a module's
+   * `contextProviders[].kind` dependency declaration (module/types.ts) be
    * checked against what's actually installed before activation. */
   readonly kinds: readonly string[];
   /** Collect zero or more ContextItems for the given permission grant. A

@@ -168,7 +168,7 @@ test("clientFromToken and tokenRecordFrom preserve optional fields without inven
   test_fixture_FakeOAuth2.instances = [];
   const stored: OAuthTokenRecord = {
     integrationId: "test_fixture_integration",
-    workspaceId: "test_fixture_workspace",
+    organizationId: "test_fixture_organization",
     provider: "google",
     accessToken: "test_fixture_access",
     refreshToken: "test_fixture_refresh",
@@ -189,13 +189,13 @@ test("clientFromToken and tokenRecordFrom preserve optional fields without inven
   assert.deepEqual(
     oauth.tokenRecordFrom(
       "test_fixture_integration",
-      "test_fixture_workspace",
+      "test_fixture_organization",
       { accessToken: "test_fixture_access", scope: "test_fixture_scope", tokenType: "Bearer" },
       "2026-07-14T00:00:00.000Z",
     ),
     {
       integrationId: "test_fixture_integration",
-      workspaceId: "test_fixture_workspace",
+      organizationId: "test_fixture_organization",
       provider: "google",
       accessToken: "test_fixture_access",
       scope: "test_fixture_scope",

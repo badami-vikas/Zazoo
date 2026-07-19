@@ -19,7 +19,7 @@ function newestFirst(left: LedgerEntry, right: LedgerEntry): number {
 
 /**
  * Keeps private proposal payloads and their decision/audit descendants in the
- * Local Plane while retaining cloud Postgres for workspace/public audit rows.
+ * Local Plane while retaining cloud Postgres for Organization/public audit rows.
  */
 export class ResidencyRoutingLedgerStore implements LedgerStore {
   constructor(
@@ -56,22 +56,22 @@ export class ResidencyRoutingLedgerStore implements LedgerStore {
   }
 
   listPending(
-    workspaceId: string,
+    organizationId: string,
     options: LedgerPageOptions,
   ): Promise<LedgerPage> {
-    return this.#merge("listPending", workspaceId, options);
+    return this.#merge("listPending", organizationId, options);
   }
 
   listHistory(
-    workspaceId: string,
+    organizationId: string,
     options: LedgerPageOptions,
   ): Promise<LedgerPage> {
-    return this.#merge("listHistory", workspaceId, options);
+    return this.#merge("listHistory", organizationId, options);
   }
 
   async #merge(
     method: "listPending" | "listHistory",
-    workspaceId: string,
+    organizationId: string,
     options: LedgerPageOptions,
   ): Promise<LedgerPage> {
     const fetchOptions = {
@@ -82,8 +82,8 @@ export class ResidencyRoutingLedgerStore implements LedgerStore {
         : {}),
     };
     const [local, cloud] = await Promise.all([
-      this.local[method](workspaceId, fetchOptions),
-      this.cloud[method](workspaceId, fetchOptions),
+      this.local[method](organizationId, fetchOptions),
+      this.cloud[method](organizationId, fetchOptions),
     ]);
     const seen = new Set<string>();
     const merged = [...local.items, ...cloud.items]

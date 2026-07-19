@@ -53,7 +53,7 @@ export class OrganizationFilesRecoveryError extends Error {
 }
 
 interface OrganizationRenameIntent {
-  workspaceId: string;
+  organizationId: string;
   generation: string;
   previousOrganizationName: string;
   nextOrganizationName: string;
@@ -200,7 +200,7 @@ async function pathMetadata(path: string) {
 
 async function readOrganizationRenameIntent(
   intentPath: string,
-  workspaceId: string,
+  organizationId: string,
 ): Promise<OrganizationRenameIntent | null> {
   const metadata = await pathMetadata(intentPath);
   if (!metadata) return null;
@@ -217,7 +217,7 @@ async function readOrganizationRenameIntent(
     typeof parsed !== "object" ||
     parsed === null ||
     Array.isArray(parsed) ||
-    (parsed as Record<string, unknown>).workspaceId !== workspaceId ||
+    (parsed as Record<string, unknown>).organizationId !== organizationId ||
     typeof (parsed as Record<string, unknown>).generation !== "string" ||
     typeof (parsed as Record<string, unknown>).previousOrganizationName !== "string" ||
     typeof (parsed as Record<string, unknown>).nextOrganizationName !== "string" ||
@@ -269,10 +269,10 @@ async function syncDirectory(path: string): Promise<void> {
 
 async function clearOrganizationRenameIntent(
   intentPath: string,
-  workspaceId: string,
+  organizationId: string,
   generation: string,
 ): Promise<void> {
-  const intent = await readOrganizationRenameIntent(intentPath, workspaceId);
+  const intent = await readOrganizationRenameIntent(intentPath, organizationId);
   if (intent?.generation === generation) {
     await rm(intentPath, { force: true });
   }
@@ -308,11 +308,11 @@ async function sameFilesystemEntry(
 
 async function recoverOrganizationRenameIntent(
   intentPath: string,
-  workspaceId: string,
+  organizationId: string,
   currentOrganizationName: string,
   bridgeRoot: string,
 ): Promise<void> {
-  const intent = await readOrganizationRenameIntent(intentPath, workspaceId);
+  const intent = await readOrganizationRenameIntent(intentPath, organizationId);
   if (!intent) return;
   const previousRoot = organizationFilesRoot(intent.previousOrganizationName, bridgeRoot);
   const nextRoot = organizationFilesRoot(intent.nextOrganizationName, bridgeRoot);
@@ -369,7 +369,7 @@ async function recoverOrganizationRenameIntent(
 }
 
 export async function createOrganizationRenameLease(
-  workspaceId: string,
+  organizationId: string,
   bridgeRoot: string,
 ): Promise<OrganizationRenameLease> {
   const resolvedBridgeRoot = resolve(bridgeRoot);
@@ -388,7 +388,7 @@ export async function createOrganizationRenameLease(
   if (!existingLocksRoot) await syncDirectory(resolvedBridgeRoot);
   const intentPath = join(
     locksRoot,
-    `organization-${safePathSegment(workspaceId, "Organization id")}.intent.json`,
+    `organization-${safePathSegment(organizationId, "Organization id")}.intent.json`,
   );
   const generation = randomUUID();
   const temporaryPath = `${intentPath}.${generation}.tmp`;
@@ -396,7 +396,7 @@ export async function createOrganizationRenameLease(
     recover: (currentOrganizationName) =>
       recoverOrganizationRenameIntent(
         intentPath,
-        workspaceId,
+        organizationId,
         currentOrganizationName,
         resolvedBridgeRoot,
       ),
@@ -414,7 +414,7 @@ export async function createOrganizationRenameLease(
         intentPath,
         temporaryPath,
         {
-          workspaceId,
+          organizationId,
           generation,
           previousOrganizationName,
           nextOrganizationName,
@@ -438,12 +438,12 @@ export async function createOrganizationRenameLease(
         await syncDirectory(resolvedBridgeRoot);
       } catch (error) {
         if (!moved) {
-          await clearOrganizationRenameIntent(intentPath, workspaceId, generation);
+          await clearOrganizationRenameIntent(intentPath, organizationId, generation);
         }
         throw error;
       }
     },
-    complete: () => clearOrganizationRenameIntent(intentPath, workspaceId, generation),
+    complete: () => clearOrganizationRenameIntent(intentPath, organizationId, generation),
   };
 }
 

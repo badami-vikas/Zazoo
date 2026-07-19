@@ -4,7 +4,7 @@
  * Postgres default adapter; a Mem0 adapter can bind the same port behind a flag.
  *
  * Authority scoping is pushed into the SQL WHERE (NOT post-filtered): retrieve/
- * get build the visibility predicate — public/workspace visible to any member,
+ * get build the visibility predicate — public/organization visible to any member,
  * team/private/restricted visible only to the owner — so a caller never receives
  * a row it may not read. This mirrors @bridge/core's `memoryVisible` predicate
  * and the DB's own `app_private.visible_relationship_row` (migrations/0008),
@@ -30,10 +30,10 @@ import {
 import type { Database } from "./client.js";
 import { memories } from "./schema.js";
 
-/** TASK-010 review round-6 — sets the SAME `app.workspace_id`/`app.user_id`
+/** TASK-010 review round-6 — sets the SAME `app.organization_id`/`app.user_id`
  * session GUCs `graph-store.ts`/`relation-materialization-store.ts` already
  * set for `edges`/`relation_materialization_effects` (and
- * `ledger-store.ts`'s `#withWorkspace` already sets for `app.workspace_id`
+ * `ledger-store.ts`'s `#withOrganization` already sets for `app.organization_id`
  * alone) — required for `app_private.visible_memory_row`'s
  * `current_user_id()` check to resolve correctly under a REAL, request-
  * scoped (non-superuser-bypass) Postgres role, which `client.ts`'s own doc
@@ -43,13 +43,13 @@ import { memories } from "./schema.js";
  * `SET LOCAL`-equivalent (`is_local = true`) config only takes effect for
  * the remainder of the CURRENT transaction, so every caller below wraps its
  * query in `#db.transaction(...)` (mirroring `DrizzleLedgerStore`'s
- * `#withWorkspace`) rather than calling `set_config` as a bare, separate
+ * `#withOrganization`) rather than calling `set_config` as a bare, separate
  * auto-commit statement, which would reset before the following query ever
- * saw it. `userId` is optional — some callers (e.g. a public/workspace-scope
+ * saw it. `userId` is optional — some callers (e.g. a public/organization-scope
  * read with no specific owner in play) have none to set. */
-async function withMemoryRlsContext<T>(db: DbLike, workspaceId: string, userId: string | null | undefined, operation: (tx: DbLike) => Promise<T>): Promise<T> {
+async function withMemoryRlsContext<T>(db: DbLike, organizationId: string, userId: string | null | undefined, operation: (tx: DbLike) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`);
+    await tx.execute(sql`SELECT set_config('app.organization_id', ${organizationId}, true)`);
     if (userId) {
       await tx.execute(sql`SELECT set_config('app.user_id', ${userId}, true)`);
     }
@@ -57,15 +57,15 @@ async function withMemoryRlsContext<T>(db: DbLike, workspaceId: string, userId: 
   });
 }
 
-const OPEN_SCOPES = ["public", "workspace"] as const;
+const OPEN_SCOPES = ["public", "organization"] as const;
 const OWNER_SCOPES = ["team", "private", "restricted"] as const;
 
 function unpack(row: typeof memories.$inferSelect): MemoryEntry {
   return {
     id: row.id,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     type: row.type as MemoryType,
-    ...(row.subjectElementId ? { subjectElementId: row.subjectElementId } : {}),
+    ...(row.subjectRecordId ? { subjectRecordId: row.subjectRecordId } : {}),
     scope: row.scope as MemoryClassification,
     content: row.content,
     ...(row.sourceRefType ? { sourceRefType: row.sourceRefType as MemorySourceRefType } : {}),
@@ -84,7 +84,7 @@ function unpack(row: typeof memories.$inferSelect): MemoryEntry {
 /** The read-visibility predicate, pushed into SQL. Tenant match always; then the
  * classification gate (mirrors core's memoryVisible / the DB visibility fn). */
 function visibilityWhere(authScope: MemoryAuthScope): SQL {
-  const tenant = eq(memories.workspaceId, authScope.workspaceId);
+  const tenant = eq(memories.organizationId, authScope.organizationId);
   const open = inArray(memories.scope, [...OPEN_SCOPES]);
   if (authScope.userId == null) return and(tenant, open) as SQL;
   const owned = and(inArray(memories.scope, [...OWNER_SCOPES]), eq(memories.ownerUserId, authScope.userId));
@@ -113,17 +113,17 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async write(entry: MemoryWrite): Promise<MemoryEntry> {
-    return withMemoryRlsContext(this.#db, entry.workspaceId, entry.ownerUserId, (tx) => this.#insert(entry, null, tx));
+    return withMemoryRlsContext(this.#db, entry.organizationId, entry.ownerUserId, (tx) => this.#insert(entry, null, tx));
   }
 
   async supersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    return withMemoryRlsContext(this.#db, next.workspaceId, next.ownerUserId, async (tx) => {
+    return withMemoryRlsContext(this.#db, next.organizationId, next.ownerUserId, async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 0::bigint))`,
       );
       const current = await tx
         .select({
-          workspaceId: memories.workspaceId,
+          organizationId: memories.organizationId,
           ownerUserId: memories.ownerUserId,
         })
         .from(memories)
@@ -134,11 +134,11 @@ export class DrizzleMemoryStore implements MemoryStore {
         throw new Error(`memory store: cannot supersede unknown id ${id}`);
       }
       if (
-        current[0]!.workspaceId !== next.workspaceId ||
+        current[0]!.organizationId !== next.organizationId ||
         current[0]!.ownerUserId !== (next.ownerUserId ?? null)
       ) {
         throw new Error(
-          "memory store: a correction cannot change workspace or owner",
+          "memory store: a correction cannot change organization or owner",
         );
       }
       const existingSuccessors = await tx
@@ -152,9 +152,9 @@ export class DrizzleMemoryStore implements MemoryStore {
         const sameReplay =
           existingSuccessors.length === 1 &&
           existing.id === next.id &&
-          existing.workspaceId === next.workspaceId &&
+          existing.organizationId === next.organizationId &&
           existing.type === next.type &&
-          existing.subjectElementId === (next.subjectElementId ?? null) &&
+          existing.subjectRecordId === (next.subjectRecordId ?? null) &&
           existing.scope === next.scope &&
           existing.content === next.content &&
           existing.sourceRefType === (next.sourceRefType ?? null) &&
@@ -195,11 +195,11 @@ export class DrizzleMemoryStore implements MemoryStore {
    * since landed its own `casSupersede`/`currentForLineage` durable CAS
    * contract below, which this method's callers should prefer for any NEW
    * lineage-tracked write path — this method remains for existing callers
-   * keyed by row id rather than a `(workspaceId, ownerUserId, lineageKey)`
+   * keyed by row id rather than a `(organizationId, ownerUserId, lineageKey)`
    * triple).
    */
   async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
-    return withMemoryRlsContext(this.#db, next.workspaceId, next.ownerUserId, async (tx) => {
+    return withMemoryRlsContext(this.#db, next.organizationId, next.ownerUserId, async (tx) => {
       // TASK-011 remediation (2026-07-19 coordinator distributed-defects
       // RE-review, issue 9) — canonicalize the UUID INSIDE SQL (`::uuid::text`)
       // BEFORE deriving the lock key. Postgres UUID text input is
@@ -214,13 +214,13 @@ export class DrizzleMemoryStore implements MemoryStore {
       // derives the identical lock key.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext((${id}::uuid)::text))`);
       const current = await tx
-        .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+        .select({ organizationId: memories.organizationId, ownerUserId: memories.ownerUserId })
         .from(memories)
         .where(eq(memories.id, id))
         .limit(1);
       if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
-      if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
-        throw new Error("memory store: a correction cannot change workspace or owner");
+      if (current[0]!.organizationId !== next.organizationId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
+        throw new Error("memory store: a correction cannot change organization or owner");
       }
       const alreadySuperseded = await tx
         .select({ id: memories.id })
@@ -236,13 +236,13 @@ export class DrizzleMemoryStore implements MemoryStore {
 
   /**
    * Cross-instance-safe first-insert-wins write, keyed by
-   * `(workspaceId, subjectElementId)` — TASK-011 remediation (2026-07-19
+   * `(organizationId, subjectRecordId)` — TASK-011 remediation (2026-07-19
    * coordinator distributed-defects RE-review). `compareAndSupersede` above
    * only guards races against an EXISTING known row id; it cannot close the
    * "two callers both creating the FIRST row for a not-yet-existing key"
    * race (an independent reviewer found this exact gap in
    * `DurableCultureFetchStore.create`/`DurableCultureSynthesisPointerStore.recordProposal`).
-   * Locks on `hashtext(workspaceId || ':' || subjectElementId)` (each UUID
+   * Locks on `hashtext(organizationId || ':' || subjectRecordId)` (each UUID
    * component individually canonicalized via `::uuid::text` first — issue 9,
    * same alias-collision rationale as `compareAndSupersede` above) — a
    * DIFFERENT lock namespace/key shape than `compareAndSupersede`'s
@@ -250,22 +250,22 @@ export class DrizzleMemoryStore implements MemoryStore {
    * locks never collide with each other for the same logical entity.
    */
   async writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry> {
-    const subjectElementId = entry.subjectElementId;
-    if (!subjectElementId) {
-      throw new Error("memory store: writeIfAbsent requires entry.subjectElementId as its dedup key");
+    const subjectRecordId = entry.subjectRecordId;
+    if (!subjectRecordId) {
+      throw new Error("memory store: writeIfAbsent requires entry.subjectRecordId as its dedup key");
     }
-    const workspaceId = entry.workspaceId;
-    return withMemoryRlsContext(this.#db, workspaceId, entry.ownerUserId, async (tx) => {
+    const organizationId = entry.organizationId;
+    return withMemoryRlsContext(this.#db, organizationId, entry.ownerUserId, async (tx) => {
       await tx.execute(
-        sql`SELECT pg_advisory_xact_lock(hashtext((${workspaceId}::uuid)::text || ':' || (${subjectElementId}::uuid)::text))`,
+        sql`SELECT pg_advisory_xact_lock(hashtext((${organizationId}::uuid)::text || ':' || (${subjectRecordId}::uuid)::text))`,
       );
       const existingRows = await tx
         .select()
         .from(memories)
         .where(
           and(
-            eq(memories.workspaceId, entry.workspaceId),
-            eq(memories.subjectElementId, subjectElementId),
+            eq(memories.organizationId, entry.organizationId),
+            eq(memories.subjectRecordId, subjectRecordId),
             sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`,
           ),
         )
@@ -279,7 +279,7 @@ export class DrizzleMemoryStore implements MemoryStore {
 
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
-    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+    return withMemoryRlsContext(this.#db, authScope.organizationId, authScope.userId, async (tx) => {
       const rows = await tx
         .select()
         .from(memories)
@@ -291,7 +291,7 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async retrieve(query: MemoryQuery, authScope: MemoryAuthScope): Promise<MemoryEntry[]> {
-    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+    return withMemoryRlsContext(this.#db, authScope.organizationId, authScope.userId, async (tx) => {
     const conds: SQL[] = [visibilityWhere(authScope)];
     if (!query.includeSuperseded) {
       conds.push(sql`NOT EXISTS (
@@ -304,7 +304,7 @@ export class DrizzleMemoryStore implements MemoryStore {
       )`);
     }
     if (query.type) conds.push(eq(memories.type, query.type));
-    if (query.subjectElementId) conds.push(eq(memories.subjectElementId, query.subjectElementId));
+    if (query.subjectRecordId) conds.push(eq(memories.subjectRecordId, query.subjectRecordId));
     if (query.snapshotAt) {
       conds.push(lte(memories.createdAt, new Date(query.snapshotAt)));
     }
@@ -402,7 +402,7 @@ export class DrizzleMemoryStore implements MemoryStore {
   }
 
   async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
-    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+    return withMemoryRlsContext(this.#db, authScope.organizationId, authScope.userId, async (tx) => {
       const rows = await tx
         .select()
         .from(memories)
@@ -417,7 +417,7 @@ export class DrizzleMemoryStore implements MemoryStore {
           SELECT m.id, m.supersedes_id, m.owner_user_id
           FROM memories m
           JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
-          WHERE m.workspace_id = ${authScope.workspaceId}
+          WHERE m.organization_id = ${authScope.organizationId}
             AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
         )
         DELETE FROM memories WHERE id IN (SELECT id FROM lineage)
@@ -426,8 +426,8 @@ export class DrizzleMemoryStore implements MemoryStore {
     });
   }
 
-  async currentForLineage(workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
-    return withMemoryRlsContext(this.#db, workspaceId, ownerUserId, (tx) => this.#currentForLineageTx(tx, workspaceId, ownerUserId, lineageKey));
+  async currentForLineage(organizationId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+    return withMemoryRlsContext(this.#db, organizationId, ownerUserId, (tx) => this.#currentForLineageTx(tx, organizationId, ownerUserId, lineageKey));
   }
 
   /**
@@ -444,30 +444,30 @@ export class DrizzleMemoryStore implements MemoryStore {
    * exercised for real in tests, not simulated.
    */
   async casSupersede(params: {
-    workspaceId: string;
+    organizationId: string;
     ownerUserId: string;
     lineageKey: string;
     expectedCurrentId: string | null;
     next: MemoryWrite;
   }): Promise<MemoryEntry | null> {
-    if (params.next.workspaceId !== params.workspaceId || (params.next.ownerUserId ?? null) !== params.ownerUserId) {
-      throw new Error("memory store: casSupersede next.workspaceId/ownerUserId must match the lineage's own");
+    if (params.next.organizationId !== params.organizationId || (params.next.ownerUserId ?? null) !== params.ownerUserId) {
+      throw new Error("memory store: casSupersede next.organizationId/ownerUserId must match the lineage's own");
     }
-    if (params.next.subjectElementId !== params.lineageKey) {
-      throw new Error("memory store: casSupersede next.subjectElementId must equal lineageKey (adapter contract)");
+    if (params.next.subjectRecordId !== params.lineageKey) {
+      throw new Error("memory store: casSupersede next.subjectRecordId must equal lineageKey (adapter contract)");
     }
     try {
       return await this.#db.transaction(
         async (tx) => {
-          // TASK-010 review round-6: sets the SAME app.workspace_id/app.user_id
+          // TASK-010 review round-6: sets the SAME app.organization_id/app.user_id
           // GUCs withMemoryRlsContext sets elsewhere — inlined here (rather than
           // nesting a SEPARATE withMemoryRlsContext transaction inside this one)
           // because the SERIALIZABLE isolation level below must apply to the
           // one transaction that does the compare-and-insert, not an outer
           // (necessarily lower-isolation) wrapper transaction.
-          await tx.execute(sql`SELECT set_config('app.workspace_id', ${params.workspaceId}, true)`);
+          await tx.execute(sql`SELECT set_config('app.organization_id', ${params.organizationId}, true)`);
           await tx.execute(sql`SELECT set_config('app.user_id', ${params.ownerUserId}, true)`);
-          const current = await this.#currentForLineageTx(tx, params.workspaceId, params.ownerUserId, params.lineageKey);
+          const current = await this.#currentForLineageTx(tx, params.organizationId, params.ownerUserId, params.lineageKey);
           if ((current?.id ?? null) !== params.expectedCurrentId) return null;
           // review round-7: allocated from the SAME `current` row this
           // transaction already read under SERIALIZABLE isolation — a
@@ -486,15 +486,15 @@ export class DrizzleMemoryStore implements MemoryStore {
     }
   }
 
-  async #currentForLineageTx(db: DbLike, workspaceId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
+  async #currentForLineageTx(db: DbLike, organizationId: string, ownerUserId: string, lineageKey: string): Promise<MemoryEntry | null> {
     const rows = await db
       .select()
       .from(memories)
       .where(
         and(
-          eq(memories.workspaceId, workspaceId),
+          eq(memories.organizationId, organizationId),
           eq(memories.ownerUserId, ownerUserId),
-          eq(memories.subjectElementId, lineageKey),
+          eq(memories.subjectRecordId, lineageKey),
           sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`,
         ),
       )
@@ -509,7 +509,7 @@ export class DrizzleMemoryStore implements MemoryStore {
    * the `MemoryStore.redactLineageContent` port doc comment for the full
    * rationale. Reuses the SAME bidirectional lineage-discovery shape
    * `forget()` above already uses (ancestors AND descendants of `id`,
-   * scoped to the same workspace + owner — never a broad, unrelated-Memory
+   * scoped to the same organization + owner — never a broad, unrelated-Memory
    * purge), but SELECTs the lineage's row ids rather than deleting them,
    * then rewrites ONLY the `content` column of whichever rows `redact()`
    * says to change — every other column (id, `supersedesId`, timestamps,
@@ -531,7 +531,7 @@ export class DrizzleMemoryStore implements MemoryStore {
   ): Promise<number> {
     const target = await this.get(id, authScope);
     if (!target) return 0;
-    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+    return withMemoryRlsContext(this.#db, authScope.organizationId, authScope.userId, async (tx) => {
       const lineageResult = await tx.execute(sql`
         WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
           SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
@@ -539,7 +539,7 @@ export class DrizzleMemoryStore implements MemoryStore {
           SELECT m.id, m.supersedes_id, m.owner_user_id
           FROM memories m
           JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
-          WHERE m.workspace_id = ${authScope.workspaceId}
+          WHERE m.organization_id = ${authScope.organizationId}
             AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
         )
         SELECT id FROM lineage
@@ -567,9 +567,9 @@ export class DrizzleMemoryStore implements MemoryStore {
       .insert(memories)
       .values({
         id: entry.id,
-        workspaceId: entry.workspaceId,
+        organizationId: entry.organizationId,
         type: entry.type,
-        subjectElementId: entry.subjectElementId ?? null,
+        subjectRecordId: entry.subjectRecordId ?? null,
         scope: entry.scope,
         content: entry.content,
         sourceRefType: entry.sourceRefType ?? null,
@@ -615,7 +615,7 @@ type DbLike = Pick<Database, "select" | "insert" | "update" | "execute" | "trans
  * happen to produce a real 40001 in that specific test).
  */
 const SERIALIZATION_FAILURE = "40001";
-/** Exported (only from this module, not the package barrel) so a unit test
+/** Exported (only from this module, not the module barrel) so a unit test
  * can verify the `.cause`-chain unwrap directly against a REAL
  * `DrizzleQueryError` — pglite's single-connection execution model does not
  * reliably produce a genuine overlapping-transaction `40001` under

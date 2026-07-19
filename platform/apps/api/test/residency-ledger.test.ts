@@ -3,7 +3,7 @@ import test from "node:test";
 import { InMemoryLedger, type LedgerEntry } from "@bridge/core";
 import { ResidencyRoutingLedgerStore } from "../src/residency-ledger.js";
 
-const workspaceId = "10000000-0000-4000-8000-000000000101";
+const organizationId = "10000000-0000-4000-8000-000000000101";
 
 function entry(
   id: string,
@@ -11,7 +11,7 @@ function entry(
 ): LedgerEntry {
   return {
     id,
-    workspaceId,
+    organizationId,
     actorType: "user",
     actorId: "20000000-0000-4000-8000-000000000101",
     action: "write",
@@ -92,7 +92,7 @@ test("residency ledger merges Local and Cloud Plane history without exposing spl
     }),
   );
 
-  const history = await routed.listHistory(workspaceId, {
+  const history = await routed.listHistory(organizationId, {
     limit: 10,
     offset: 0,
     privateOwnerUserId: "20000000-0000-4000-8000-000000000101",

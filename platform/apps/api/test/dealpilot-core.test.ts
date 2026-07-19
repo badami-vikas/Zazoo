@@ -3,7 +3,7 @@ import test from "node:test";
 import { SeededRng, SystemClock, UuidGen, type RunCtx } from "@bridge/core";
 import { InMemorySourceCredentialVault } from "@bridge/dealpilot";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE } from "../src/wiring.js";
+import { buildWiring, PILOT_USER, PILOT_ORGANIZATION } from "../src/wiring.js";
 
 function runContext(): RunCtx {
   const clock = new SystemClock();
@@ -26,11 +26,11 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       verifying: false,
       reauthenticatedAt: Date.now(),
     });
-    const module = await caller.dealpilot.module({ workspaceId: PILOT_WORKSPACE });
+    const module = await caller.dealpilot.module({ organizationId: PILOT_ORGANIZATION });
     assert.deepEqual(module.pages.map((page) => page.name), ["Deals", "Sources", "Theses"]);
 
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_source",
       link: "https://example.invalid/source",
       connectionType: "account",
@@ -40,7 +40,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       password: "test_fixture_secret",
     });
     const created = await caller.dealpilot.createThesis({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_thesis",
       focus: "test_fixture_focus",
       criteria: [],
@@ -52,10 +52,10 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       run: runContext(),
       identity: { type: "user", id: "f0000000-0000-4000-a000-000000000098" },
       authenticated: true,
-      verifying: false,
+      verifying: true,
     });
     await assert.rejects(
-      nonMember.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 }),
+      nonMember.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 }),
       /is not a member/,
     );
     await assert.rejects(
@@ -63,7 +63,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       /is not a member/,
     );
     assert.equal((await caller.dealpilot.records({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       page: "theses",
       limit: 50,
       offset: 0,
@@ -76,7 +76,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     assert.equal(decided.dealPilotEffects.length, 1);
 
     const sourceDetail = await caller.dealpilot.detail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       kind: "source",
       id: source.id,
     });
@@ -86,13 +86,13 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     assert.equal(JSON.stringify(sourceDetail).includes("test_fixture_secret"), false);
     await assert.rejects(
       caller.dealpilot.discoverDeals({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
       }),
       /supports Deal discovery only for an authorized BizBuySell email-alert Source/,
     );
 
-    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+    await wiring.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, source.id, {
       captureId: "test_fixture_capture",
       moduleId: "dealpilot",
       sourceConnectorId: "test_fixture_connector",
@@ -111,11 +111,11 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     });
     const concurrentCommits = await Promise.allSettled([
       caller.dealpilot.commit({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         captureId: "test_fixture_capture",
       }),
       caller.dealpilot.commit({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         captureId: "test_fixture_capture",
       }),
     ]);
@@ -128,13 +128,13 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     const applied = commitResults.find((result) => result.committed);
     assert.equal(applied && "proposal" in applied ? applied.proposal.status : null, "applied");
     const deals = await caller.dealpilot.records({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       page: "deals",
       limit: 50,
       offset: 0,
     });
     assert.equal(deals.total, 1);
-    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+    await wiring.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, source.id, {
       captureId: "test_fixture_capture_update",
       moduleId: "dealpilot",
       sourceConnectorId: "test_fixture_connector",
@@ -152,12 +152,12 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       trustOrigin: "untrusted_external",
     });
     const updatedCommit = await caller.dealpilot.commit({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       captureId: "test_fixture_capture_update",
     });
     assert.equal(updatedCommit.committed, true);
     const updatedDeals = await caller.dealpilot.records({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       page: "deals",
       limit: 50,
       offset: 0,
@@ -167,13 +167,13 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     assert.equal(deal.kind === "deal" ? deal.revenue : null, 2_000_000);
     assert.equal(deal.kind === "deal" ? deal.askingPrice : null, 1_100_000);
     const dealDetail = await caller.dealpilot.detail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       kind: "deal",
       id: deal.id,
     });
     assert.deepEqual(new Set(dealDetail.relatedRecords.map((record) => record.kind)), new Set(["source", "thesis"]));
 
-    await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+    await wiring.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, source.id, {
       captureId: "test_fixture_capture_restart",
       moduleId: "dealpilot",
       sourceConnectorId: "test_fixture_connector",
@@ -194,7 +194,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     try {
       await assert.rejects(
         caller.dealpilot.commit({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           captureId: "test_fixture_capture_restart",
         }),
         /process_stopped_after_governed_proposal/,
@@ -203,7 +203,7 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
       wiring.dealpilot.store.commitCapture = commitCapture;
     }
     const recoveredCommit = await caller.dealpilot.commit({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       captureId: "test_fixture_capture_restart",
     });
     assert.equal(recoveredCommit.committed, true);
@@ -217,12 +217,12 @@ test("DealPilot creates its three real Record types and applies reviewed Thesis-
     );
 
     assert.equal(
-      (await caller.dealpilot.captures({ workspaceId: PILOT_WORKSPACE })).items.length,
+      (await caller.dealpilot.captures({ organizationId: PILOT_ORGANIZATION })).items.length,
       0,
     );
     assert.deepEqual(
       await caller.dealpilot.commit({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         captureId: "test_fixture_capture",
       }),
       { committed: false, alreadyCommitted: true },
@@ -244,7 +244,7 @@ test("DealPilot credential access requires re-authentication and records value-f
       reauthenticatedAt: Date.now(),
     });
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_source",
       link: "https://example.invalid/source",
       connectionType: "account",
@@ -255,7 +255,7 @@ test("DealPilot credential access requires re-authentication and records value-f
 
     await assert.rejects(
       caller.dealpilot.accessCredential({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
         token: "test_fixture_missing_reauth",
         field: "password",
@@ -264,11 +264,11 @@ test("DealPilot credential access requires re-authentication and records value-f
       /re-authentication session is required/,
     );
     const session = await caller.dealpilot.reauthenticateCredential({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
     });
     const revealed = await caller.dealpilot.accessCredential({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
       token: session.token,
       field: "password",
@@ -276,7 +276,7 @@ test("DealPilot credential access requires re-authentication and records value-f
     });
     assert.equal(revealed.value, "test_fixture_secret");
     const revoked = await caller.dealpilot.clearCredential({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourceId: source.id,
       token: session.token,
     });
@@ -284,7 +284,7 @@ test("DealPilot credential access requires re-authentication and records value-f
     assert.equal(revoked.credentialProjection.password.state, "unavailable");
     await assert.rejects(
       caller.dealpilot.accessCredential({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
         token: session.token,
         field: "password",
@@ -293,7 +293,7 @@ test("DealPilot credential access requires re-authentication and records value-f
       /not authorized/,
     );
     const afterRevoke = await caller.dealpilot.detail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       kind: "source",
       id: source.id,
     });
@@ -304,7 +304,7 @@ test("DealPilot credential access requires re-authentication and records value-f
       "unavailable",
     );
     const auditEvents = await wiring.dealpilot.store.credentialAuditEvents(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
     );
     assert.deepEqual(
       auditEvents.map((event) => event.action),
@@ -327,7 +327,7 @@ test("Deal discovery fails closed before connector access when Source rights are
       verifying: false,
     });
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_source",
       link: "https://example.invalid/source",
       connectionType: "url",
@@ -336,7 +336,7 @@ test("Deal discovery fails closed before connector access when Source rights are
     });
     await assert.rejects(
       caller.dealpilot.discoverDeals({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
       }),
       /attest data rights/,
@@ -344,11 +344,11 @@ test("Deal discovery fails closed before connector access when Source rights are
     await assert.rejects(
       () =>
         Reflect.apply(caller.action.propose, caller.action, [{
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER, plane: "cloud" },
           action: "read",
           resourceType: "external:fetch",
-          inputs: { workspaceId: PILOT_WORKSPACE, sourceId: source.id },
+          inputs: { organizationId: PILOT_ORGANIZATION, sourceId: source.id },
           skill: "dealpilot.source",
         }]),
       /stageMutation|invalid literal/i,
@@ -369,7 +369,7 @@ test("Deal discovery derives spend server-side and blocks before connector acces
       verifying: false,
     });
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_bizbuysell_alerts",
       link: "https://www.bizbuysell.com/",
       connectionType: "email_alert",
@@ -378,7 +378,7 @@ test("Deal discovery derives spend server-side and blocks before connector acces
     });
     await assert.rejects(
       caller.dealpilot.discoverDeals({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourceId: source.id,
       }),
       /exceeds the remaining Source cap/,
@@ -396,16 +396,16 @@ test("DealPilot rejects authenticated non-members before Records or credentials 
       run: runContext(),
       identity: { type: "user", id: "f0000000-0000-4000-a000-000000000099" },
       authenticated: true,
-      verifying: false,
+      verifying: true,
       reauthenticatedAt: Date.now(),
     });
     await assert.rejects(
-      attacker.dealpilot.module({ workspaceId: PILOT_WORKSPACE }),
+      attacker.dealpilot.module({ organizationId: PILOT_ORGANIZATION }),
       /is not a member/,
     );
     await assert.rejects(
       attacker.dealpilot.records({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         page: "sources",
         limit: 50,
         offset: 0,
@@ -430,7 +430,7 @@ test("DealPilot rejects unauthenticated reads whenever persistence is enabled", 
     });
     await assert.rejects(
       anonymous.dealpilot.records({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         page: "deals",
         limit: 50,
         offset: 0,
@@ -453,7 +453,7 @@ test("edited discovery approval cannot attach an unattested Source", async () =>
       verifying: false,
     });
     const blockedSource = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_unattested_source",
       link: "https://www.bizbuysell.com/",
       connectionType: "email_alert",
@@ -461,7 +461,7 @@ test("edited discovery approval cannot attach an unattested Source", async () =>
       rightsAttested: false,
     });
     const created = await caller.dealpilot.createThesis({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_thesis",
       focus: "test_fixture_focus",
       criteria: [],
@@ -473,7 +473,7 @@ test("edited discovery approval cannot attach an unattested Source", async () =>
         decision: "edit",
         editedOutput: {
           kind: "thesis_source_discovery",
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           thesisId: created.thesis.id,
           relations: [{
             sourceId: blockedSource.id,
@@ -488,7 +488,7 @@ test("edited discovery approval cannot attach an unattested Source", async () =>
     );
     assert.equal(await wiring.ledger.decisionFor(created.discovery.id), null);
     assert.equal(
-      (await wiring.dealpilot.store.relations(PILOT_WORKSPACE, blockedSource.id)).length,
+      (await wiring.dealpilot.store.relations(PILOT_ORGANIZATION, blockedSource.id)).length,
       0,
     );
   } finally {
@@ -507,7 +507,7 @@ test("concurrent distinct captures for one company materialize one Deal", async 
       verifying: false,
     });
     const source = await caller.dealpilot.createSource({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       name: "test_fixture_concurrent_source",
       link: "https://example.invalid/concurrent-source",
       connectionType: "email_alert",
@@ -518,7 +518,7 @@ test("concurrent distinct captures for one company materialize one Deal", async 
       ["test_fixture_concurrent_a", "test_fixture_concurrent_company", 1_000_000],
       ["test_fixture_concurrent_b", "test_fixture_concurrent_company_holdings", 1_100_000],
     ] as const) {
-      await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, source.id, {
+      await wiring.dealpilot.store.quarantineCapture(PILOT_ORGANIZATION, source.id, {
         captureId,
         moduleId: "dealpilot",
         sourceConnectorId: "test_fixture_connector",
@@ -538,18 +538,18 @@ test("concurrent distinct captures for one company materialize one Deal", async 
 
     const commits = await Promise.all([
       caller.dealpilot.commit({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         captureId: "test_fixture_concurrent_a",
       }),
       caller.dealpilot.commit({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         captureId: "test_fixture_concurrent_b",
       }),
     ]);
     assert.ok(commits.every((commit) => commit.committed));
     assert.equal(
       (await caller.dealpilot.records({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         page: "deals",
         limit: 50,
         offset: 0,

@@ -1,0 +1,305 @@
+.zazoo {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 12px 14px rgb(26 43 60 / 12%));
+  transform-origin: 50% 90%;
+  animation: zazoo-breathe 4.8s ease-in-out infinite;
+  animation-play-state: paused;
+}
+
+[data-active="true"] .zazoo,
+[data-active="true"] .zazoo * {
+  animation-play-state: running;
+}
+
+.zazoo__body {
+  transform-origin: 90px 190px;
+}
+
+.zazoo__shadow {
+  transform-origin: center;
+  animation: zazoo-shadow 4.8s ease-in-out infinite;
+}
+
+.zazoo__face {
+  transform-origin: 90px 94px;
+}
+
+.zazoo__face > ellipse:nth-of-type(1),
+.zazoo__face > ellipse:nth-of-type(2) {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: zazoo-blink 6.7s ease-in-out infinite;
+}
+
+.zazoo__face > ellipse:nth-of-type(2) {
+  animation-delay: 90ms;
+}
+
+.zazoo__ear {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: zazoo-ear 5.3s ease-in-out infinite;
+}
+
+.zazoo__ear--right {
+  animation-delay: -1.7s;
+}
+
+.zazoo__hand {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zazoo__hand--right {
+  animation-delay: -0.65s;
+}
+
+.zazoo__legs {
+  opacity: 0;
+}
+
+.zazoo__tail,
+.zazoo__fin,
+.zazoo__wing {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: zazoo-secondary 3.8s ease-in-out infinite;
+}
+
+.zazoo__trunk {
+  transform-box: fill-box;
+  transform-origin: top center;
+  animation: zazoo-trunk 4.2s ease-in-out infinite;
+}
+
+.zazoo--working .zazoo__hand--right {
+  animation: zazoo-write 1.4s ease-in-out infinite;
+}
+
+.zazoo--working .zazoo__face {
+  animation: zazoo-focus 4.4s ease-in-out infinite;
+}
+
+.zazoo--reading .zazoo__hand--left {
+  animation: zazoo-page 3.3s ease-in-out infinite;
+}
+
+.zazoo--reading .zazoo__face {
+  animation: zazoo-read 5s ease-in-out infinite;
+}
+
+.zazoo--carrying .zazoo__hands {
+  transform: translateY(-20px);
+}
+
+.zazoo--carrying .zazoo__hand--left {
+  transform: translate(12px, -5px);
+}
+
+.zazoo--carrying .zazoo__hand--right {
+  transform: translate(-12px, -5px);
+}
+
+.zazoo--building .zazoo__hand--right {
+  animation: zazoo-build 1.2s ease-in-out infinite;
+}
+
+.zazoo--presenting .zazoo__hand--right {
+  animation: zazoo-present 3.6s ease-in-out infinite;
+}
+
+.zazoo--walking {
+  animation: zazoo-walk-body 0.72s ease-in-out infinite;
+}
+
+.zazoo--walking .zazoo__legs {
+  opacity: 1;
+}
+
+.zazoo--walking .zazoo__legs path:first-child {
+  transform-box: fill-box;
+  transform-origin: top;
+  animation: zazoo-step-left 0.72s ease-in-out infinite;
+}
+
+.zazoo--walking .zazoo__legs path:last-child {
+  transform-box: fill-box;
+  transform-origin: top;
+  animation: zazoo-step-right 0.72s ease-in-out infinite;
+}
+
+.zazoo--resting {
+  animation: zazoo-rest 5.8s ease-in-out infinite;
+}
+
+.zazoo--sleeping {
+  animation: zazoo-sleep 5.8s ease-in-out infinite;
+}
+
+.zazoo--sleeping .zazoo__face > ellipse:nth-of-type(1),
+.zazoo--sleeping .zazoo__face > ellipse:nth-of-type(2) {
+  transform: scaleY(0.08);
+  animation: none;
+}
+
+.zazoo--sleeping .zazoo__mouth {
+  d: path("M82 116q8-4 16 0");
+}
+
+.zazoo--celebrating {
+  animation: zazoo-celebrate 1.7s ease-in-out infinite;
+}
+
+.zazoo--celebrating .zazoo__hand--left {
+  transform: translate(-10px, -42px) rotate(-28deg);
+}
+
+.zazoo--celebrating .zazoo__hand--right {
+  transform: translate(10px, -42px) rotate(28deg);
+}
+
+.zazoo.is-greeting .zazoo__face,
+.zazoo.is-glancing .zazoo__face {
+  transform: translateY(-2px) rotate(-4deg);
+}
+
+.zazoo.is-greeting .zazoo__mouth,
+.zazoo.is-glancing .zazoo__mouth {
+  d: path("M80 112q10 12 20 0");
+}
+
+.quiet-robot {
+  display: block;
+  filter: drop-shadow(0 8px 10px rgb(26 43 60 / 10%));
+}
+
+@keyframes zazoo-breathe {
+  0%,
+  100% { transform: translateY(0) scale(1); }
+  48% { transform: translateY(-2px) scale(1.006, 1.012); }
+}
+
+@keyframes zazoo-shadow {
+  0%,
+  100% { transform: scaleX(1); opacity: 0.12; }
+  48% { transform: scaleX(0.96); opacity: 0.09; }
+}
+
+@keyframes zazoo-blink {
+  0%,
+  45%,
+  48%,
+  78%,
+  81%,
+  100% { transform: scaleY(1); }
+  46.5%,
+  79.5% { transform: scaleY(0.08); }
+}
+
+@keyframes zazoo-ear {
+  0%,
+  73%,
+  100% { transform: rotate(0); }
+  78% { transform: rotate(-5deg); }
+  82% { transform: rotate(3deg); }
+}
+
+@keyframes zazoo-secondary {
+  0%,
+  100% { transform: rotate(-2deg); }
+  50% { transform: rotate(4deg); }
+}
+
+@keyframes zazoo-trunk {
+  0%,
+  100% { transform: rotate(-2deg); }
+  50% { transform: rotate(7deg); }
+}
+
+@keyframes zazoo-write {
+  0%,
+  100% { transform: translate(0, 0) rotate(0); }
+  30% { transform: translate(10px, -13px) rotate(-16deg); }
+  65% { transform: translate(2px, -8px) rotate(8deg); }
+}
+
+@keyframes zazoo-focus {
+  0%,
+  100% { transform: rotate(0); }
+  40% { transform: translateY(2px) rotate(3deg); }
+  65% { transform: translateY(1px) rotate(-2deg); }
+}
+
+@keyframes zazoo-page {
+  0%,
+  60%,
+  100% { transform: translate(0, 0); }
+  72% { transform: translate(8px, -12px) rotate(12deg); }
+}
+
+@keyframes zazoo-read {
+  0%,
+  100% { transform: translateX(-2px) rotate(-2deg); }
+  50% { transform: translateX(3px) rotate(2deg); }
+}
+
+@keyframes zazoo-build {
+  0%,
+  100% { transform: translate(0, 0) rotate(0); }
+  45% { transform: translate(12px, -24px) rotate(18deg); }
+  60% { transform: translate(7px, -3px) rotate(-10deg); }
+}
+
+@keyframes zazoo-present {
+  0%,
+  70%,
+  100% { transform: translate(0, 0); }
+  80% { transform: translate(18px, -25px) rotate(12deg); }
+}
+
+@keyframes zazoo-walk-body {
+  0%,
+  100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-5px) rotate(1deg); }
+}
+
+@keyframes zazoo-step-left {
+  0%,
+  100% { transform: rotate(18deg); }
+  50% { transform: rotate(-18deg); }
+}
+
+@keyframes zazoo-step-right {
+  0%,
+  100% { transform: rotate(-18deg); }
+  50% { transform: rotate(18deg); }
+}
+
+@keyframes zazoo-rest {
+  0%,
+  100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(2px) rotate(1deg); }
+}
+
+@keyframes zazoo-sleep {
+  0%,
+  100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(2px) scale(1.012, 0.99); }
+}
+
+@keyframes zazoo-celebrate {
+  0%,
+  100% { transform: translateY(0) rotate(-1deg); }
+  45% { transform: translateY(-12px) rotate(2deg); }
+  64% { transform: translateY(0) scale(1.04, 0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zazoo,
+  .zazoo * {
+    animation: none !important;
+  }
+}

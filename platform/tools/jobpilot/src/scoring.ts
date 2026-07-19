@@ -4,7 +4,7 @@ import type { CandidateProfile, FitResult, JobProfile } from "./types.js";
 // requirement.md S3 `scoring.ScoringService`: "cheap-tier LLM, JSON schema output {score,
 // green_flags[], red_flags[]}"). This function is the deterministic rule half — same reasoning
 // as DealPilot's scoreThesisFit: don't spend LLM cost scoring cards a rule pass can already
-// triage; a cheap-tier LLM narration pass is a later llm-package concern, not built here.
+// triage; a cheap-tier LLM narration pass is a later llm-module concern, not built here.
 //
 // AP-023 (2026-07-15) — the architecture doc's "green_flags/red_flags" naming predates the
 // platform Red Flag primitive (docs/glossary.md); renamed to `strengths`/`concerns` here to

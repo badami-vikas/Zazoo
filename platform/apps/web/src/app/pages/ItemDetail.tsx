@@ -11,7 +11,7 @@ import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { AssociationsMap } from '../components/AssociationsMap';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip';
-import { useInitiatives } from '../data/initiatives';
+import { useRecords } from '../data/records';
 import { people, companies, threads, type NetworkPerson } from '../data/network';
 
 type Tier = 'public' | 'private';
@@ -98,7 +98,7 @@ function StatusTag({ label, tone }: { label: string; tone: string }) {
   return <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${tone} 14%, transparent)`, color: tone }}>{label}</span>;
 }
 
-// Generic small table — so an entity's Automations / initiatives / connections render as columns, not cards.
+// Generic small table — so an entity's Automations / records / connections render as columns, not cards.
 function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }) {
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
@@ -247,8 +247,8 @@ export function ItemDetail() {
     return next;
   });
   const fv = (field: string, base: string) => (edits[field] !== undefined ? edits[field] : base);
-  const initiatives = useInitiatives();
-  const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Initiative brief.pdf', type: 'PDF', size: '0.4 MB' }]);
+  const records = useRecords();
+  const [files, setFiles] = useState<{ name: string; type: string; size: string }[]>([{ name: 'Record brief.pdf', type: 'PDF', size: '0.4 MB' }]);
   const addFiles = (list: FileList | null) => {
     if (!list || !list.length) return;
     const next = Array.from(list).map(f => ({ name: f.name, type: (f.name.split('.').pop() || 'file').toUpperCase(), size: `${Math.max(1, Math.round(f.size / 1024))} KB` }));
@@ -264,7 +264,7 @@ export function ItemDetail() {
     { id: 'relationship', label: 'Relationship', tier: 'private', person: true },
     { id: 'opinions', label: 'Opinions', tier: 'public' },
     { id: 'associations', label: 'Associations', tier: 'public' },
-    { id: 'initiatives', label: 'Initiatives', tier: 'private' },
+    { id: 'records', label: 'Records', tier: 'private' },
     { id: 'automations', label: 'Automations', tier: 'private' },
     { id: 'timeline', label: 'Timeline', tier: 'private' },
     { id: 'files', label: 'Files & Media', tier: 'private' },
@@ -453,7 +453,7 @@ export function ItemDetail() {
                     <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warm-gray)' }}>Private note</div>
                     <EditableText multiline text={fv('privateNote', 'Add a private note — only you can see this.')} onSave={(val: string) => setField('privateNote', val)} className="text-sm text-[var(--color-navy-mid)]" />
                   </div>
-                  {/* F4b — per-relationship visibility (schema: people.visibility; default from workspace_settings.default_visibility). Moved here from the orphaned PersonTiers.tsx when ItemDetail's inline two-tier view superseded it. */}
+                  {/* F4b — per-relationship visibility (schema: people.visibility; default from organization_settings.default_visibility). Moved here from the orphaned PersonTiers.tsx when ItemDetail's inline two-tier view superseded it. */}
                   <div className="sm:col-span-3 rounded-xl border px-4 py-3 bg-white" style={{ borderColor: 'var(--color-border)' }}>
                     <div className="flex items-center gap-1.5 mb-2">
                       <Eye className="w-3.5 h-3.5" style={{ color: 'var(--color-navy-mid)' }} />
@@ -463,7 +463,7 @@ export function ItemDetail() {
                       {([
                         ['private', Lock, 'Only you', 'No one else can see this relationship or its notes.'],
                         ['team', Users, 'Your team', 'Everyone on your team can see this relationship.'],
-                        ['workspace', Globe, 'Whole organization', 'Everyone in the organization can see this relationship.'],
+                        ['organization', Globe, 'Whole organization', 'Everyone in the organization can see this relationship.'],
                       ] as [string, LucideIcon, string, string][]).map(([v, VIcon, vLabel]) => {
                         const active = fv('visibility', 'team') === v;
                         return (
@@ -480,7 +480,7 @@ export function ItemDetail() {
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-[11px]" style={{ color: 'var(--color-navy-mid)' }}>
-                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', workspace: 'Everyone in the organization can see this relationship.' }[fv('visibility', 'team')]}
+                        {{ private: 'No one else can see this relationship or its notes.', team: 'Everyone on your team can see this relationship.', organization: 'Everyone in the organization can see this relationship.' }[fv('visibility', 'team')]}
                       </span>
                       {fv('visibility', 'team') === 'team' && (
                         <span className="text-[11px] font-medium shrink-0 ml-2" style={{ color: 'var(--color-warm-gray)' }}>organization default</span>
@@ -491,13 +491,13 @@ export function ItemDetail() {
               )}
               {s.id === 'opinions' && <Opinions />}
               {s.id === 'associations' && <AssociationsMap center={name} isCommunity={isCommunity} />}
-              {s.id === 'initiatives' && (
-                initiatives.length === 0 ? (
-                  <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>No initiatives yet — create one from Work.</p>
+              {s.id === 'records' && (
+                records.length === 0 ? (
+                  <p className="text-sm" style={{ color: 'var(--color-warm-gray)' }}>No records yet — create one from Work.</p>
                 ) : (
                   <MiniTable
-                    columns={['Initiative', 'Goal', 'Status']}
-                    rows={initiatives.map(it => [it.name, it.goal || '—', <StatusTag label={it.status} tone={it.status === 'Active' ? 'var(--success)' : it.status === 'Completed' ? 'var(--color-steel)' : 'var(--warning)'} />])}
+                    columns={['Record', 'Goal', 'Status']}
+                    rows={records.map(it => [it.name, it.goal || '—', <StatusTag label={it.status} tone={it.status === 'Active' ? 'var(--success)' : it.status === 'Completed' ? 'var(--color-steel)' : 'var(--warning)'} />])}
                   />
                 )
               )}

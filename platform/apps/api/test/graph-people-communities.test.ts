@@ -1,10 +1,10 @@
 /**
  * graph.listPeople / graph.listCommunities — read surface for KnowledgeBasePage's
  * People/Communities tabs (currently `NotWiredYet` placeholders in apps/web).
- * Mirrors graph.listInitiatives/listSignals: workspace-scoped, paginated, rejects
- * any workspaceId that isn't the pilot workspace (assertPilotWorkspace).
+ * Mirrors graph.listRecords/listSignals: organization-scoped, paginated, rejects
+ * any organizationId that isn't the pilot organization (assertPilotOrganization).
  *
- * `Wiring` doesn't expose a raw db handle (graphStore/workspaceStore keep it
+ * `Wiring` doesn't expose a raw db handle (graphStore/organizationStore keep it
  * private), so fixtures are seeded through a short-lived `createLocalDb`
  * connection bound to the SAME `BRIDGE_LOCAL_DIR` `buildWiring()` will use —
  * same one-connection-at-a-time approach pagination.test.ts uses for
@@ -27,10 +27,10 @@ import {
   type RunCtx,
 } from "@bridge/core";
 import { makeContextFactory } from "../src/context.js";
-import { reconcileWorkspaceRelationshipMaterializations } from "../src/relationship-materializer.js";
+import { reconcileOrganizationRelationshipMaterializations } from "../src/relationship-materializer.js";
 import { materializeRelationshipMutation } from "../src/relationship-record-materializer.js";
 import { appRouter } from "../src/router.js";
-import { buildWiring, PILOT_WORKSPACE, PILOT_USER, type Wiring } from "../src/wiring.js";
+import { buildWiring, PILOT_ORGANIZATION, PILOT_USER, type Wiring } from "../src/wiring.js";
 
 const FIXTURE_COUNT = 5;
 
@@ -63,7 +63,7 @@ async function makeAnonymousVerifiedCaller(wiring: Wiring) {
   });
 }
 
-/** Seed FIXTURE_COUNT people + FIXTURE_COUNT communities under PILOT_WORKSPACE/
+/** Seed FIXTURE_COUNT people + FIXTURE_COUNT communities under PILOT_ORGANIZATION/
  * PILOT_USER via a connection to `dir`, then close it BEFORE `buildWiring()` opens
  * its own connection against the same directory. */
 async function seedFixtures(
@@ -83,22 +83,22 @@ async function seedFixtures(
 }> {
   const { db, close } = await createLocalDb({ dataDir: dir });
   try {
-    // Idempotent: workspace/user rows may already exist from a prior buildWiring()
+    // Idempotent: organization/user rows may already exist from a prior buildWiring()
     // bootstrap against this directory; onConflictDoNothing keeps this safe to
     // call before that bootstrap ever runs too.
-    await db.insert(schema.workspaces).values({ id: PILOT_WORKSPACE, name: "Pilot workspace (graph test)" }).onConflictDoNothing({
-      target: schema.workspaces.id,
+    await db.insert(schema.organizations).values({ id: PILOT_ORGANIZATION, name: "Pilot organization (graph test)" }).onConflictDoNothing({
+      target: schema.organizations.id,
     });
     await db.insert(schema.users).values({ id: PILOT_USER, email: "test_fixture_pilot@example.com" }).onConflictDoNothing({
       target: schema.users.id,
     });
     const [otherMember] = await db
       .insert(schema.users)
-      .values({ email: "test_fixture_relation_workspace_member@example.com" })
+      .values({ email: "test_fixture_relation_organization_member@example.com" })
       .returning({ id: schema.users.id });
     assert.ok(otherMember);
-    await db.insert(schema.workspaceMembers).values({
-      workspaceId: PILOT_WORKSPACE,
+    await db.insert(schema.organizationMembers).values({
+      organizationId: PILOT_ORGANIZATION,
       userId: otherMember.id,
     });
     let firstPersonId: string | null = null;
@@ -108,7 +108,7 @@ async function seedFixtures(
       const [person] = await db
         .insert(schema.people)
         .values({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           userId: PILOT_USER,
           fullNameOverride: `test_fixture_person_${i}`,
         })
@@ -118,7 +118,7 @@ async function seedFixtures(
       const [community] = await db
         .insert(schema.communities)
         .values({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           userId: PILOT_USER,
           nameOverride: `test_fixture_community_${i}`,
         })
@@ -137,7 +137,7 @@ async function seedFixtures(
     const [signal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: firstPersonId,
@@ -149,7 +149,7 @@ async function seedFixtures(
     const [event] = await db
       .insert(schema.events)
       .values({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: signal.id,
@@ -158,7 +158,7 @@ async function seedFixtures(
       .returning({ id: schema.events.id });
     assert.ok(event);
     await db.insert(schema.edges).values({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       ownerUserId: PILOT_USER,
       srcType: "event",
       srcId: event.id,
@@ -175,7 +175,7 @@ async function seedFixtures(
     const [otherPerson] = await db
       .insert(schema.people)
       .values({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: otherMember.id,
         visibility: "private",
         fullNameOverride: "test_fixture_other_owner_person",
@@ -191,7 +191,7 @@ async function seedFixtures(
     const [otherSignal] = await db
       .insert(schema.signals)
       .values({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         type: "meeting_prep",
         subjectType: "person",
         subjectId: otherPerson.id,
@@ -203,7 +203,7 @@ async function seedFixtures(
     const [otherEvent] = await db
       .insert(schema.events)
       .values({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         type: "calendar.meeting_upcoming",
         entityType: "signal",
         entityId: otherSignal.id,
@@ -212,7 +212,7 @@ async function seedFixtures(
       .returning({ id: schema.events.id });
     assert.ok(otherEvent);
     await db.insert(schema.edges).values({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       ownerUserId: otherMember.id,
       srcType: "event",
       srcId: otherEvent.id,
@@ -236,7 +236,7 @@ async function seedFixtures(
       const [newerEvent] = await db
         .insert(schema.events)
         .values({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           type: "calendar.meeting_followup",
           entityType: "signal",
           entityId: signal.id,
@@ -263,7 +263,7 @@ async function seedFixtures(
   }
 }
 
-test("graph.listPeople: paginates people under the pilot workspace", async () => {
+test("graph.listPeople: paginates people under the pilot organization", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-graph-people-test-"));
   await seedFixtures(dir);
 
@@ -274,17 +274,17 @@ test("graph.listPeople: paginates people under the pilot workspace", async () =>
     wiring = await buildWiring();
     const caller = await makeCaller(wiring);
 
-    const page = await caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 0 });
+    const page = await caller.relationship.listPeople({ organizationId: PILOT_ORGANIZATION, limit: 2, offset: 0 });
     assert.equal(page.items.length, 2);
     assert.equal(page.total, FIXTURE_COUNT);
     assert.equal(page.hasMore, true);
 
-    const lastPage = await caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 2, offset: 4 });
+    const lastPage = await caller.relationship.listPeople({ organizationId: PILOT_ORGANIZATION, limit: 2, offset: 4 });
     assert.equal(lastPage.items.length, 1);
     assert.equal(lastPage.hasMore, false);
 
     await assert.rejects(() =>
-      caller.relationship.listPeople({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
+      caller.relationship.listPeople({ organizationId: "test_fixture_other_organization", limit: 10, offset: 0 }),
     );
   } finally {
     if (wiring) await wiring.close();
@@ -298,7 +298,7 @@ test("Relationship private reads reject an unverified pilot fallback", async () 
   try {
     const caller = await makeAnonymousVerifiedCaller(wiring);
     await assert.rejects(
-      () => caller.relationship.listPeople({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
+      () => caller.relationship.listPeople({ organizationId: PILOT_ORGANIZATION, limit: 10, offset: 0 }),
       /UNAUTHORIZED|authentication required/,
     );
   } finally {
@@ -332,7 +332,7 @@ test("Relationship private reads accept a verified bearer through the real API c
 
     const caller = appRouter.createCaller(context);
     const page = await caller.relationship.listPeople({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 10,
       offset: 0,
     });
@@ -351,7 +351,7 @@ test("nested Helpdesk keeps token access public while its inbox requires authent
   try {
     const caller = await makeAnonymousVerifiedCaller(wiring);
     const createInput = {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       subject: "Public Help Request",
       submitterEmail: "public-help-request@example.com",
       body: "Please route this request.",
@@ -384,7 +384,7 @@ test("nested Helpdesk keeps token access public while its inbox requires authent
     );
 
     await assert.rejects(
-      () => caller.helpdesk.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
+      () => caller.helpdesk.list({ organizationId: PILOT_ORGANIZATION, limit: 10, offset: 0 }),
       /UNAUTHORIZED|authentication required/,
     );
   } finally {
@@ -399,7 +399,7 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
     await assert.rejects(
       () =>
         caller.helpdesk.route({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
           topicsByPerson: { "not-a-uuid": ["fundraising"] },
@@ -410,7 +410,7 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
     await assert.rejects(
       () =>
         caller.helpdesk.stageAnswer({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           subject: "Need help",
           body: "",
           routedToPersonId: "not-a-uuid",
@@ -424,7 +424,7 @@ test("Helpdesk rejects malformed Person identifiers before querying UUID columns
   }
 });
 
-test("graph.listCommunities: paginates communities under the pilot workspace", async () => {
+test("graph.listCommunities: paginates communities under the pilot organization", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-graph-communities-test-"));
   await seedFixtures(dir);
 
@@ -435,17 +435,17 @@ test("graph.listCommunities: paginates communities under the pilot workspace", a
     wiring = await buildWiring();
     const caller = await makeCaller(wiring);
 
-    const page = await caller.relationship.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 0 });
+    const page = await caller.relationship.listCommunities({ organizationId: PILOT_ORGANIZATION, limit: 3, offset: 0 });
     assert.equal(page.items.length, 3);
     assert.equal(page.total, FIXTURE_COUNT);
     assert.equal(page.hasMore, true);
 
-    const lastPage = await caller.relationship.listCommunities({ workspaceId: PILOT_WORKSPACE, limit: 3, offset: 3 });
+    const lastPage = await caller.relationship.listCommunities({ organizationId: PILOT_ORGANIZATION, limit: 3, offset: 3 });
     assert.equal(lastPage.items.length, 2);
     assert.equal(lastPage.hasMore, false);
 
     await assert.rejects(() =>
-      caller.relationship.listCommunities({ workspaceId: "test_fixture_other_workspace", limit: 10, offset: 0 }),
+      caller.relationship.listCommunities({ organizationId: "test_fixture_other_organization", limit: 10, offset: 0 }),
     );
   } finally {
     if (wiring) await wiring.close();
@@ -470,7 +470,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     const caller = await makeCaller(wiring);
 
     const fullGraph = await caller.graph.full({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 100,
     });
     assert.ok(fullGraph.nodes.some((node) => node.id === `signal:${fixture.signalId}` && node.actionKind === "signal"));
@@ -480,7 +480,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.ok(fullGraph.edges.some((edge) => edge.sourceModule === "relationship" && edge.evidence.includes("source relationship")));
 
     const detail = await caller.graph.getSignalDetail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
     assert.ok(detail);
@@ -489,7 +489,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(detail.participants[0]?.relationType, "participant");
 
     const proposal = await caller.graph.proposeSignalAction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
     assert.equal(proposal.status, "applied");
@@ -499,7 +499,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(proposal.request.actor.plane, "local");
 
     const routed = await caller.helpdesk.route({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
       topicsByPerson: { [fixture.personId]: ["fundraising"] },
@@ -508,7 +508,7 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     assert.equal(routed.routes[0]?.personId, fixture.personId);
 
     const staged = await caller.helpdesk.stageAnswer({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       subject: "Fundraising support",
       body: "We need fundraising guidance.",
       routedToPersonId: routed.routes[0]!.personId,
@@ -560,7 +560,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
 
     assert.deepEqual(
       await caller.relationship.nodeTypeOwner({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         nodeType: "event",
       }),
       { nodeType: "event", plane: "operational", owningModule: "relationship" },
@@ -568,7 +568,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         Reflect.apply(caller.action.propose, caller.action, [{
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: PILOT_USER },
           action: "write",
           resourceType: "relation",
@@ -582,7 +582,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         anonymous.relationship.listRelations({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
@@ -596,7 +596,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         nonmember.relationship.nodeTypeOwner({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           nodeType: "person",
         }),
       /FORBIDDEN|not a member/,
@@ -604,18 +604,18 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         caller.relationship.listRelations({
-          workspaceId: "00000000-0000-4000-8000-000000000099",
+          organizationId: "00000000-0000-4000-8000-000000000099",
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
         }),
-      /pilot workspace|BAD_REQUEST/i,
+      /pilot organization|BAD_REQUEST/i,
     );
 
     await assert.rejects(
       () =>
         caller.relationship.proposeSignalEvidence({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           signalId: fixture.signalId,
           sourceEventId: fixture.eventId,
           visibility: "private",
@@ -634,7 +634,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         caller.relationship.proposeSignalEvidence({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           signalId: fixture.signalId,
           sourceEventId: fixture.eventId,
           visibility: "private",
@@ -656,7 +656,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
 
     const proposed = await caller.relationship.proposeSignalEvidence({
-      workspaceId: PILOT_WORKSPACE.toUpperCase(),
+      organizationId: PILOT_ORGANIZATION.toUpperCase(),
       signalId: fixture.signalId.toUpperCase(),
       sourceEventId: fixture.eventId.toUpperCase(),
       visibility: "private",
@@ -709,12 +709,12 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () => otherMemberCaller.google.list(),
       /NOT_FOUND|integration not found/,
-      "a workspace member cannot operate another user's Google integration",
+      "a organization member cannot operate another user's Google integration",
     );
     assert.equal(
       (
         await otherMemberCaller.action.listPending({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           limit: 50,
           offset: 0,
         })
@@ -736,7 +736,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(
       (
         await caller.relationship.listRelations({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
@@ -849,7 +849,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(decided.relationshipMaterialization.status, "failed");
     assert.equal(decided.relationshipMaterialization.attempts, 1);
     const failedEffect = await caller.relationship.materializationStatus({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
     });
     assert.equal(failedEffect?.status, "failed");
@@ -857,7 +857,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.match(failedEffect?.lastError ?? "", /materialization_interrupted/);
     const outstandingPage =
       await caller.relationship.outstandingMaterializations({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         limit: 10,
       });
     assert.equal(
@@ -871,7 +871,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         otherMemberCaller.relationship.retryMaterialization({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           proposalId: proposed.proposal.id,
         }),
       /NOT_FOUND|proposal not found/,
@@ -903,7 +903,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(
       (
         await caller.relationship.listRelations({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           nodeType: "signal",
           nodeId: fixture.signalId,
           limit: 10,
@@ -912,7 +912,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       0,
     );
     assert.equal(
-      (await caller.action.listPending({ workspaceId: PILOT_WORKSPACE, limit: 50, offset: 0 })).total,
+      (await caller.action.listPending({ organizationId: PILOT_ORGANIZATION, limit: 50, offset: 0 })).total,
       0,
       "resolved proposals must not remain in Approvals after a post-decision effect failure",
     );
@@ -922,7 +922,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     const inFlight = await wiring.relationMaterializations.beginAttempt(
       {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         ownerUserId: PILOT_USER,
         proposalLedgerId: proposed.proposal.id,
         decisionLedgerId: persistedEditedDecision.id,
@@ -951,7 +951,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     await wiring.relationMaterializations.markFailed(
       inFlight.effect.id,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       PILOT_USER,
       inFlight.effect.leaseToken,
       "test_fixture_interrupted_in_flight_worker",
@@ -973,7 +973,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(
       (
         await caller.relationship.outstandingMaterializations({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           limit: 10,
         })
       ).items.some((effect) => effect.proposalId === proposed.proposal.id),
@@ -981,7 +981,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       "applied effects must leave the outstanding retry surface",
     );
     const appliedEffect = await caller.relationship.materializationStatus({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
     });
     assert.equal(appliedEffect?.status, "applied");
@@ -1000,17 +1000,17 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     });
 
     const reconciled = await caller.relationship.reconcileApproved({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
     });
     const retried = await caller.relationship.reconcileApproved({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
     });
     assert.equal(reconciled.status, "confirmed");
     assert.equal(retried.status, "confirmed");
     const materializedDetail = await caller.graph.getSignalDetail({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
     });
     assert.equal(
@@ -1020,7 +1020,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     assert.equal(retried.effect.relationCount, 3);
     const ownerHistory = await caller.action.listHistory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 100,
       offset: 0,
     });
@@ -1037,17 +1037,17 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       id: fixture.otherMemberId,
     });
     const otherMemberHistory = await historyViewerCaller.action.listHistory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 100,
       offset: 0,
     });
     assert.equal(
       otherMemberHistory.items.some((entry) => entry.resourceType === "relation"),
       false,
-      "workspace membership must not reveal another owner's Relation ledger rows",
+      "organization membership must not reveal another owner's Relation ledger rows",
     );
     const signalRelations = await caller.relationship.listRelations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       nodeType: "signal",
       nodeId: fixture.signalId,
       limit: 10,
@@ -1055,21 +1055,21 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(signalRelations.total, 1);
     assert.equal(signalRelations.items[0]?.edgeType, "source_event");
     const eventRelations = await caller.relationship.listRelations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 10,
     });
     assert.equal(eventRelations.total, 3);
     const firstEventPage = await caller.relationship.listRelations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 2,
     });
     assert.ok(firstEventPage.nextCursor);
     const secondEventPage = await caller.relationship.listRelations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 2,
@@ -1099,7 +1099,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     ]);
 
     const approved = await caller.relationship.proposeSignalEvidence({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
       sourceEventId: fixture.eventId,
       visibility: "private",
@@ -1162,12 +1162,12 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       { status: "resolved", decision: "approve" },
     );
     const staleReconcile = await caller.relationship.reconcileApproved({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       proposalId: proposed.proposal.id,
     });
     assert.equal(staleReconcile.status, "confirmed");
     const relationsAfterStaleReconcile = await caller.relationship.listRelations({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       nodeType: "event",
       nodeId: fixture.eventId,
       limit: 10,
@@ -1183,7 +1183,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.deepEqual(latestPerson?.properties, { role: "approved-attendee" });
 
     const leaseRaceProposal = await caller.relationship.proposeSignalEvidence({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
       sourceEventId: fixture.eventId,
       visibility: "private",
@@ -1216,7 +1216,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     try {
       const leaseRaceResult =
         await caller.relationship.retryMaterialization({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           proposalId: leaseRaceProposal.proposal.id,
         });
       assert.equal(leaseRaceResult.status, "confirmed");
@@ -1226,7 +1226,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     }
 
     const vetoed = await caller.relationship.proposeSignalEvidence({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
       sourceEventId: fixture.eventId,
       visibility: "private",
@@ -1239,14 +1239,14 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     await assert.rejects(
       () =>
         caller.relationship.reconcileApproved({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           proposalId: vetoed.proposal.id,
         }),
       /no approved resolution|PRECONDITION_FAILED/i,
     );
 
     const restartGap = await caller.relationship.proposeSignalEvidence({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       signalId: fixture.signalId,
       sourceEventId: fixture.eventId,
       visibility: "private",
@@ -1268,7 +1268,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     const otherRestartGap =
       await otherMemberCaller.relationship.proposeSignalEvidence({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         signalId: fixture.otherSignalId,
         sourceEventId: fixture.otherEventId,
         visibility: "private",
@@ -1290,7 +1290,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     assert.equal(
       await caller.relationship.materializationStatus({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         proposalId: restartGap.proposal.id,
       }),
       null,
@@ -1298,7 +1298,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     );
     assert.equal(
       await otherMemberCaller.relationship.materializationStatus({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         proposalId: otherRestartGap.proposal.id,
       }),
       null,
@@ -1312,11 +1312,11 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
       id: fixture.otherMemberId,
     });
     const automaticRetry =
-      await reconcileWorkspaceRelationshipMaterializations(
+      await reconcileOrganizationRelationshipMaterializations(
         wiring.graphStore,
         wiring.relationMaterializations,
         wiring.ledger,
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         new Date(Date.now() + 60_000),
       );
     assert.equal(automaticRetry.ownersExamined, 2);
@@ -1325,7 +1325,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(
       (
         await restartedCaller.relationship.materializationStatus({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           proposalId: restartGap.proposal.id,
         })
       )?.status,
@@ -1334,7 +1334,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(
       (
         await restartedOtherCaller.relationship.materializationStatus({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           proposalId: otherRestartGap.proposal.id,
         })
       )?.status,
@@ -1360,7 +1360,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     ]);
     const obsoleteProposal =
       await restartedCaller.relationship.proposeSignalEvidence({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         signalId: fixture.signalId,
         sourceEventId: fixture.eventId,
         visibility: "private",
@@ -1387,7 +1387,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     wiring.graphStore.materializeSignalEvidence = materializeAfterRestart;
     const newerWinner =
       await restartedCaller.relationship.proposeSignalEvidence({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         signalId: fixture.signalId,
         sourceEventId: fixture.newerEventId,
         visibility: "private",
@@ -1417,7 +1417,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     };
     const obsoleteRetry =
       await restartedCaller.relationship.retryMaterialization({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         proposalId: obsoleteProposal.proposal.id,
       });
     wiring.graphStore.getSignalEvidenceAnchor = getSignalEvidenceAnchor;
@@ -1425,7 +1425,7 @@ test("Relationship API stages, edits, materializes, and idempotently reconciles 
     assert.equal(obsoleteRetry.effect.status, "applied");
     const recoveredSource =
       await restartedCaller.relationship.listRelations({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         nodeType: "signal",
         nodeId: fixture.signalId,
         limit: 10,
@@ -1453,7 +1453,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     });
 
     const impersonatedPersonId = "71000000-0000-4000-8000-000000000099";
-    const victimHistoryBefore = await wiring.ledger.listHistory(PILOT_WORKSPACE, {
+    const victimHistoryBefore = await wiring.ledger.listHistory(PILOT_ORGANIZATION, {
       limit: 200,
       offset: 0,
       privateOwnerUserId: PILOT_USER,
@@ -1461,7 +1461,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     await assert.rejects(
       () =>
         otherMemberCaller.action.propose({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           actor: { type: "user", id: fixture.otherMemberId },
           onBehalfOf: { type: "user", id: PILOT_USER },
           action: "write",
@@ -1482,7 +1482,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
         }),
       /cannot assert delegation|FORBIDDEN/i,
     );
-    const victimHistoryAfter = await wiring.ledger.listHistory(PILOT_WORKSPACE, {
+    const victimHistoryAfter = await wiring.ledger.listHistory(PILOT_ORGANIZATION, {
       limit: 200,
       offset: 0,
       privateOwnerUserId: PILOT_USER,
@@ -1490,20 +1490,20 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     assert.equal(victimHistoryAfter.total, victimHistoryBefore.total);
     assert.equal(
       await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: impersonatedPersonId,
       }),
       null,
     );
 
     const personCreated = await caller.relationship.createPerson({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       values: {
         displayName: "Governed Person",
         currentTitle: "Operator",
         bio: "Created through the Action Pipeline.",
         emails: ["governed-person@example.com"],
-        visibility: "workspace",
+        visibility: "organization",
       },
     });
     assert.equal(personCreated.proposal.status, "applied");
@@ -1511,7 +1511,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     const personId = personCreated.proposal.request.resourceId;
     assert.ok(personId);
     const person = await caller.relationship.getPerson({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       id: personId,
     });
     assert.ok(person);
@@ -1519,19 +1519,19 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     assert.equal(person.isOwner, true);
 
     const communityCreated = await caller.relationship.createCommunity({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       values: {
         displayName: "Governed Community",
         description: "A real governed Community.",
         kind: "network",
-        visibility: "workspace",
+        visibility: "organization",
       },
     });
     assert.equal(communityCreated.materialization.status, "applied");
     const communityId = communityCreated.proposal.request.resourceId;
     assert.ok(communityId);
     const community = await caller.relationship.getCommunity({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       id: communityId,
     });
     assert.ok(community);
@@ -1539,7 +1539,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     await assert.rejects(
       () =>
         otherMemberCaller.relationship.updatePerson({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           id: person.id,
           values: { displayName: "Unauthorized rename" },
         }),
@@ -1548,7 +1548,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     await assert.rejects(
       () =>
         otherMemberCaller.relationship.archiveCommunity({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           id: community.id,
         }),
       /NOT_FOUND|Community not found/,
@@ -1557,7 +1557,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     const updateProposalId = "72000000-0000-4000-8000-000000000001";
     await wiring.ledger.append({
       id: updateProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "write",
@@ -1605,7 +1605,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     );
     assert.equal(
       (await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: person.id,
       }))?.currentTitle,
       "Operator",
@@ -1616,19 +1616,19 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     });
     assert.equal(
       (await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: person.id,
       }))?.currentTitle,
       "Updated through review",
     );
 
     const interactionCreated = await caller.relationship.createInteraction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       values: {
         kind: "meeting",
         occurredAt: "2026-07-18T15:00:00.000Z",
         summary: "Created an RM1-RM2 Interaction.",
-        visibility: "workspace",
+        visibility: "organization",
         participants: [
           { recordType: "person", recordId: person.id, role: "attendee" },
           { recordType: "community", recordId: community.id, role: "host" },
@@ -1642,7 +1642,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     const interactionProposalId = "72000000-0000-4000-8000-000000000003";
     await wiring.ledger.append({
       id: interactionProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "write",
@@ -1657,7 +1657,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
           summary: "Reviewed an RM1-RM2 Interaction.",
           source: "user",
           sourceRecordId: "local-user-entry",
-          visibility: "workspace",
+          visibility: "organization",
           participants: [
             { recordType: "person", recordId: person.id, role: "attendee" },
             { recordType: "community", recordId: community.id, role: "host" },
@@ -1673,7 +1673,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
           summary: "Reviewed an RM1-RM2 Interaction.",
           source: "user",
           sourceRecordId: "local-user-entry",
-          visibility: "workspace",
+          visibility: "organization",
           participants: [
             { recordType: "person", recordId: person.id, role: "attendee" },
             { recordType: "community", recordId: community.id, role: "host" },
@@ -1705,7 +1705,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
               summary: "Reviewed an RM1-RM2 Interaction.",
               source: "gmail",
               sourceRecordId: "local-user-entry",
-              visibility: "workspace",
+              visibility: "organization",
               participants: [
                 { recordType: "person", recordId: person.id, role: "attendee" },
                 { recordType: "community", recordId: community.id, role: "host" },
@@ -1720,7 +1720,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       decision: "approve",
     });
     const personTimeline = await caller.relationship.timeline({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       recordType: "person",
       recordId: person.id,
       limit: 50,
@@ -1757,7 +1757,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: googleProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -1814,7 +1814,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       "confirmed",
     );
     const timelineWithGoogle = await caller.relationship.timeline({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       recordType: "person",
       recordId: person.id,
       limit: 50,
@@ -1861,7 +1861,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: googleNewProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -1887,7 +1887,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       decision: "approve",
     });
     const googlePerson = await caller.relationship.getPerson({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       id: googleNewPersonId,
     });
     assert.equal(googlePerson?.displayName, "Private Google Person");
@@ -1918,7 +1918,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: googleLinkedProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -1944,7 +1944,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       decision: "approve",
     });
     const linkedTimeline = await caller.relationship.timeline({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       recordType: "person",
       recordId: googleNewPersonId,
       limit: 50,
@@ -1978,7 +1978,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: calendarProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -1994,7 +1994,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     });
     await wiring.ledger.append({
       id: calendarDecisionId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -2010,18 +2010,18 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       createdAt: "2026-07-18T15:48:00.000Z",
     });
     const recoveredCalendar =
-      await reconcileWorkspaceRelationshipMaterializations(
+      await reconcileOrganizationRelationshipMaterializations(
         wiring.graphStore,
         wiring.relationMaterializations,
         wiring.ledger,
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         new Date("2026-07-18T15:49:00.000Z"),
       );
     assert.equal(recoveredCalendar.applied, 1);
     assert.ok(
       (
         await caller.relationship.timeline({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           recordType: "person",
           recordId: person.id,
           limit: 50,
@@ -2045,7 +2045,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: recoveredProposalId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "write",
@@ -2059,27 +2059,27 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       dataScope: "private",
       createdAt: "2026-07-18T15:50:00.000Z",
     });
-    const recovered = await reconcileWorkspaceRelationshipMaterializations(
+    const recovered = await reconcileOrganizationRelationshipMaterializations(
       wiring.graphStore,
       wiring.relationMaterializations,
       wiring.ledger,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       new Date("2026-07-18T15:51:00.000Z"),
     );
     assert.equal(recovered.applied, 1);
     assert.equal(
       (await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: recoveredPersonId,
       }))?.displayName,
       "Recovered Person",
       "startup reconciliation recovers an auto-applied ledger row after response loss",
     );
-    const repeatedRecovery = await reconcileWorkspaceRelationshipMaterializations(
+    const repeatedRecovery = await reconcileOrganizationRelationshipMaterializations(
       wiring.graphStore,
       wiring.relationMaterializations,
       wiring.ledger,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       new Date("2026-07-18T15:52:00.000Z"),
     );
     assert.equal(repeatedRecovery.attempted, 0);
@@ -2103,7 +2103,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     ] as const) {
       await wiring.ledger.append({
         id,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         actorType: "user",
         actorId: PILOT_USER,
         action: "write",
@@ -2125,29 +2125,29 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
       newestUpdate,
       newestUpdate,
     );
-    const staleRecovery = await reconcileWorkspaceRelationshipMaterializations(
+    const staleRecovery = await reconcileOrganizationRelationshipMaterializations(
       wiring.graphStore,
       wiring.relationMaterializations,
       wiring.ledger,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       new Date("2026-07-18T15:55:00.000Z"),
     );
     assert.equal(staleRecovery.attempted, 1);
     assert.equal(staleRecovery.applied, 1);
     assert.equal(
       (await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: recoveredPersonId,
       }))?.displayName,
       "Newest recovered update",
     );
     assert.equal(
       (
-        await reconcileWorkspaceRelationshipMaterializations(
+        await reconcileOrganizationRelationshipMaterializations(
           wiring.graphStore,
           wiring.relationMaterializations,
           wiring.ledger,
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           new Date("2026-07-18T15:56:00.000Z"),
         )
       ).attempted,
@@ -2156,14 +2156,14 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     );
 
     const archived = await caller.relationship.archivePerson({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       id: person.id,
     });
     assert.equal(archived.proposal.status, "applied");
     assert.equal(archived.materialization.status, "applied");
     assert.equal(
       await caller.relationship.getPerson({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         id: person.id,
       }),
       null,
@@ -2177,7 +2177,7 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     };
     await wiring.ledger.append({
       id: archivedRetryId,
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "archive",
@@ -2193,11 +2193,11 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     });
     assert.equal(
       (
-        await reconcileWorkspaceRelationshipMaterializations(
+        await reconcileOrganizationRelationshipMaterializations(
           wiring.graphStore,
           wiring.relationMaterializations,
           wiring.ledger,
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           new Date("2026-07-18T15:58:00.000Z"),
         )
       ).applied,
@@ -2205,11 +2205,11 @@ test("Relationship Record and Interaction writes stay governed and owner-bound",
     );
     assert.equal(
       (
-        await reconcileWorkspaceRelationshipMaterializations(
+        await reconcileOrganizationRelationshipMaterializations(
           wiring.graphStore,
           wiring.relationMaterializations,
           wiring.ledger,
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           new Date("2026-07-18T15:59:00.000Z"),
         )
       ).attempted,
@@ -2232,7 +2232,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     await wiring.localMedia.put(
       {
         id: mediaId,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         kind: "photo",
         mimeType: "image/jpeg",
         byteSize: 3,
@@ -2244,7 +2244,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
       new Uint8Array([1, 2, 3]),
     );
     const staged = await caller.capture.stage({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       localMediaId: mediaId,
       kind: "photo",
       caption: "Whiteboard notes",
@@ -2252,7 +2252,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     });
     assert.equal(staged.status, "pending_review");
     const duplicateStage = await caller.capture.stage({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       localMediaId: mediaId,
       kind: "photo",
       caption: "Whiteboard notes",
@@ -2265,7 +2265,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     );
     assert.deepEqual(
       await caller.capture.status({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         localMediaIds: [mediaId],
       }),
       {
@@ -2298,7 +2298,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     });
     assert.equal(replayed.effectsStatus, "confirmed");
     const events = await wiring.localPlane.graph.listEntities(
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
       "event",
     );
     assert.equal(events.length, 1);
@@ -2313,7 +2313,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     });
     assert.equal(
       await wiring.localPlane.graph.hasExternal(
-        PILOT_WORKSPACE,
+        PILOT_ORGANIZATION,
         "capture",
         mediaId,
       ),
@@ -2327,7 +2327,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     assert.equal(
       (
         await wiring.localPlane.graph.listEntities(
-          PILOT_WORKSPACE,
+          PILOT_ORGANIZATION,
           "event",
         )
       ).length,
@@ -2335,7 +2335,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
       "replaying the recorded decision cannot duplicate the capture Event",
     );
     const appliedStatus = await caller.capture.status({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       localMediaIds: [mediaId],
     });
     assert.equal(appliedStatus.items[0]?.status, "applied");
@@ -2343,7 +2343,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
     await assert.rejects(
       () =>
         caller.capture.stage({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           localMediaId: "test_fixture_capture_oversized",
           kind: "photo",
           caption: "x".repeat(4_001),
@@ -2368,7 +2368,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     const now = "2026-07-18T16:00:00.000Z";
     await wiring.ledger.append({
       id: "71000000-0000-4000-8000-000000000001",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -2405,7 +2405,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     });
     await wiring.ledger.append({
       id: "71000000-0000-4000-8000-000000000002",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -2426,7 +2426,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     });
     await wiring.ledger.append({
       id: "71000000-0000-4000-8000-000000000003",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "agent",
       actorId: "b0000000-0000-4000-a000-0000000000e2",
       onBehalfOfType: "user",
@@ -2446,7 +2446,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
 
     const caller = await makeCaller(wiring);
     const firstPage = await caller.relationship.intakeReview({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 1,
       offset: 0,
     });
@@ -2455,7 +2455,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     assert.equal(firstPage.hasMore, true);
     assert.equal(firstPage.nextOffset, 1);
     const secondPage = await caller.relationship.intakeReview({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       limit: 1,
       offset: firstPage.nextOffset!,
     });
@@ -2481,7 +2481,7 @@ test("Relationship intake review is bounded, owner-scoped, and content-sanitized
     await assert.rejects(
       () =>
         anonymous.relationship.intakeReview({
-          workspaceId: PILOT_WORKSPACE,
+          organizationId: PILOT_ORGANIZATION,
           limit: 10,
           offset: 0,
         }),
@@ -2509,7 +2509,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
 
     const added = await caller.relationship.addMemory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       type: "semantic",
       content: "Prefers a written agenda before meetings.",
@@ -2528,7 +2528,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.ok(memoryId);
 
     const memoryPage = await caller.relationship.memories({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 1,
       offset: 0,
@@ -2539,7 +2539,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     let otherMemberMemoryBlocked = false;
     try {
       await otherMemberCaller.relationship.memories({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: fixture.personId,
         limit: 25,
         offset: 0,
@@ -2554,14 +2554,14 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(otherMemberMemoryBlocked, true);
 
     const corrected = await caller.relationship.correctMemory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       memoryId,
       content: "Prefers a concise written agenda before meetings.",
     });
     assert.equal(corrected.materialization.status, "applied");
     const correctedPage = await caller.relationship.memories({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2571,7 +2571,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(correctedPage.items[0]?.supersedesId, memoryId);
 
     const createdCommitment = await caller.relationship.createCommitment({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       text: "Send the agenda",
       dueAt: "2026-07-25",
@@ -2580,7 +2580,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     const commitmentId = createdCommitment.proposal.request.resourceId;
     assert.ok(commitmentId);
     const commitments = await caller.relationship.commitments({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2590,7 +2590,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.ok(commitments.items[0]?.provenance.evidenceRefs.length);
 
     const prep = await caller.relationship.meetingPrep({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 10,
     });
@@ -2602,7 +2602,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "commitment evidence remains visible in the unified Timeline",
     );
     const sharedInteraction = await caller.relationship.createInteraction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       values: {
         kind: "gathering",
         occurredAt: "2026-07-20T10:00:00.000Z",
@@ -2616,7 +2616,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
     assert.equal(sharedInteraction.materialization.status, "applied");
     const paths = await caller.relationship.findPaths({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       start: { nodeType: "person", nodeId: fixture.personId },
       end: { nodeType: "community", nodeId: fixture.communityId },
       maxDepth: 4,
@@ -2625,16 +2625,16 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.ok(paths.paths.length > 0);
     assert.ok(paths.paths.every((path) => path.steps.length <= 4));
     assert.ok(paths.visited <= 100);
-    const communityWorkspace = await caller.relationship.communityWorkspace({
-      workspaceId: PILOT_WORKSPACE,
+    const communityOrganization = await caller.relationship.communityOrganization({
+      organizationId: PILOT_ORGANIZATION,
       communityId: fixture.communityId,
       limit: 25,
     });
     assert.ok(
-      communityWorkspace.people.some((person) => person.id === fixture.personId),
+      communityOrganization.people.some((person) => person.id === fixture.personId),
     );
     assert.ok(
-      communityWorkspace.people.some(
+      communityOrganization.people.some(
         (person) =>
           person.id === fixture.memberPersonId &&
           person.source === "membership",
@@ -2642,19 +2642,19 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "community_members contributes bounded visible People",
     );
     assert.equal(
-      communityWorkspace.people.some(
+      communityOrganization.people.some(
         (person) => person.id === fixture.otherPersonId,
       ),
       false,
       "another owner's private community member is pruned",
     );
     assert.ok(
-      communityWorkspace.events.some((event) => event.kind === "gathering"),
+      communityOrganization.events.some((event) => event.kind === "gathering"),
     );
-    assert.deepEqual(communityWorkspace.files, []);
+    assert.deepEqual(communityOrganization.files, []);
     assert.deepEqual(
       await otherMemberCaller.relationship.findPaths({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         start: { nodeType: "person", nodeId: fixture.personId },
         end: { nodeType: "community", nodeId: fixture.communityId },
         maxDepth: 4,
@@ -2665,7 +2665,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     );
 
     const completed = await caller.relationship.updateCommitment({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       commitmentId,
       text: "Sent the agenda",
@@ -2674,7 +2674,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
     assert.equal(completed.materialization.status, "applied");
     const completedPage = await caller.relationship.commitments({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2682,7 +2682,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(completedPage.items[0]?.text, "Sent the agenda");
     assert.equal(completedPage.items[0]?.status, "completed");
     const laterPending = await caller.relationship.createCommitment({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       text: "Confirm the next meeting",
       dueAt: "2026-07-30T12:00:00+05:30",
@@ -2692,7 +2692,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       laterPending.proposal.request.resourceId;
     assert.ok(laterPendingCommitmentId);
     const mixedPrep = await caller.relationship.meetingPrep({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 1,
     });
@@ -2703,7 +2703,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "pending recommendations are queried before applying the bound",
     );
     const otherCommitments = await otherMemberCaller.relationship.commitments({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2713,7 +2713,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(otherCommitments.hasMore, false);
 
     const targetPersonResult = await caller.relationship.createPerson({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       values: {
         displayName: "Introduction Target",
         visibility: "private",
@@ -2723,7 +2723,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     const targetPersonId = targetPersonResult.proposal.request.resourceId;
     assert.ok(targetPersonId);
     const introduction = await caller.relationship.createIntroduction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourcePersonId: fixture.personId,
       targetPersonId,
     });
@@ -2732,7 +2732,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.ok(introductionId);
     await assert.rejects(
       () => caller.relationship.transitionIntroduction({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: fixture.personId,
         introductionId,
         transition: "complete",
@@ -2741,7 +2741,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "an Introduction cannot complete before both consents",
     );
     const consented = await caller.relationship.recordIntroductionConsent({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       introductionId,
       party: "recipient",
@@ -2749,7 +2749,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     });
     assert.equal(consented.materialization.status, "applied");
     const readyIntroductions = await caller.relationship.introductions({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2757,7 +2757,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(readyIntroductions.items[0]?.status, "ready");
     assert.equal(readyIntroductions.items[0]?.counterpart?.id, targetPersonId);
     const otherIntroductions = await otherMemberCaller.relationship.introductions({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2770,7 +2770,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(otherIntroductions.total, 0);
     assert.equal(otherIntroductions.hasMore, false);
     const completedIntroduction = await caller.relationship.transitionIntroduction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       introductionId,
       transition: "complete",
@@ -2778,7 +2778,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     assert.equal(completedIntroduction.materialization.status, "applied");
 
     const declinedIntroduction = await caller.relationship.createIntroduction({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       sourcePersonId: fixture.personId,
       targetPersonId,
     });
@@ -2786,7 +2786,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     const declinedIntroductionId = declinedIntroduction.proposal.request.resourceId;
     assert.ok(declinedIntroductionId);
     await caller.relationship.recordIntroductionConsent({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       introductionId: declinedIntroductionId,
       party: "recipient",
@@ -2794,7 +2794,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       declineReason: "Not the right time",
     });
     const declinedIntroductions = await caller.relationship.introductions({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2810,7 +2810,7 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "private decline reason contents stay outside the API projection",
     );
     const privateDeclineMemories = await caller.relationship.memories({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2820,21 +2820,21 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
         (memory) => memory.content === "Not the right time",
       ),
       false,
-      "decline reason never enters the workspace-readable Memory table",
+      "decline reason never enters the organization-readable Memory table",
     );
     await assert.rejects(
       () => otherMemberCaller.relationship.memories({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         personId: fixture.personId,
         limit: 25,
         offset: 0,
       }),
       /Person not found/,
-      "another workspace member cannot read the private Person or decline Memory",
+      "another organization member cannot read the private Person or decline Memory",
     );
     await assert.rejects(
       () => otherMemberCaller.relationship.createIntroduction({
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         sourcePersonId: fixture.personId,
         targetPersonId,
       }),
@@ -2843,13 +2843,13 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
     );
 
     const forgotten = await caller.relationship.forgetMemory({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       memoryId: correctedPage.items[0]!.id,
     });
     assert.equal(forgotten.materialization.status, "applied");
     const memoriesAfterForget = await caller.relationship.memories({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,
@@ -2864,13 +2864,13 @@ test("Relationship Memory, commitments, and meeting preparation stay governed an
       "forget removes the complete correction lineage without deleting unrelated private Memory",
     );
     const archived = await caller.relationship.archiveCommitment({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       commitmentId,
     });
     assert.equal(archived.materialization.status, "applied");
     const commitmentsAfterArchive = await caller.relationship.commitments({
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       personId: fixture.personId,
       limit: 25,
       offset: 0,

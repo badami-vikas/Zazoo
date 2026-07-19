@@ -34,13 +34,13 @@ export interface GoogleSkillDeps {
 
 interface SourceGmailInputs {
   integrationId: string;
-  workspaceId: string;
+  organizationId: string;
   maxResults?: number;
   query?: string;
 }
 interface SourceCalendarInputs {
   integrationId: string;
-  workspaceId: string;
+  organizationId: string;
   maxResults?: number;
   timeMin?: string;
   timeMax?: string;
@@ -85,7 +85,7 @@ function sourceGmailSkill(deps: GoogleSkillDeps): Skill {
       // Capture raw private bodies to the LOCAL plane (inert until adopted).
       for (const t of threads) {
         await deps.bodies.put({
-          workspaceId: i.workspaceId,
+          organizationId: i.organizationId,
           source: GMAIL_SOURCE,
           sourceRecordId: t.threadId,
           dataScope: "private",
@@ -121,7 +121,7 @@ function sourceCalendarSkill(deps: GoogleSkillDeps): Skill {
       });
       for (const e of events) {
         await deps.bodies.put({
-          workspaceId: i.workspaceId,
+          organizationId: i.organizationId,
           source: CALENDAR_SOURCE,
           sourceRecordId: e.eventId,
           dataScope: "private",

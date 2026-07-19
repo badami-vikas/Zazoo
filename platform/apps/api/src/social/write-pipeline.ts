@@ -27,15 +27,15 @@ export async function draftOutbound(args: {
   gate: GovernedGate;
   provider: SocialProvider;
   action: OutboundAction;
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   run: RunCtx;
 }): Promise<DraftOutboundResult> {
-  const { gate, provider, action, workspaceId, actor, run } = args;
+  const { gate, provider, action, organizationId, actor, run } = args;
   const drafted = await provider.draftAction(action); // compose only — no network send
   const proposal = await gate.propose(
     {
-      workspaceId,
+      organizationId,
       actor,
       action: PUBLISH_ACTION,
       resourceType: PUBLISH_RESOURCE,

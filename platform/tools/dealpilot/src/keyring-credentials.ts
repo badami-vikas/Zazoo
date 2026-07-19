@@ -76,8 +76,8 @@ function parseAccount(account: string): CredentialAccount {
     parsed === null ||
     !("version" in parsed) ||
     parsed.version !== 1 ||
-    !("workspaceId" in parsed) ||
-    typeof parsed.workspaceId !== "string" ||
+    !("organizationId" in parsed) ||
+    typeof parsed.organizationId !== "string" ||
     !("sourceId" in parsed) ||
     typeof parsed.sourceId !== "string" ||
     !("entryId" in parsed) ||
@@ -226,7 +226,7 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     }
     const accountScope = parseAccount(account);
     if (
-      accountScope.workspaceId !== scope.workspaceId ||
+      accountScope.organizationId !== scope.organizationId ||
       accountScope.sourceId !== scope.sourceId
     ) {
       throw new KeyringCredentialError(

@@ -31,7 +31,7 @@ export interface AutomationRunResult {
 
 /** Run an Automation by id, loading its Agent and steps from the registry. */
 export interface AutomationRunByIdRequest {
-  workspaceId: string;
+  organizationId: string;
   automationId: string;
   onBehalfOf?: OnBehalfOf;
   /** Run-time params shallow-merged into each step's static inputs. */
@@ -65,7 +65,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
   }
 
   async runById(req: AutomationRunByIdRequest, ctx: RunCtx): Promise<AutomationRunResult> {
-    const def = await this.#registry.load(req.workspaceId, req.automationId);
+    const def = await this.#registry.load(req.organizationId, req.automationId);
     if (!def) throw new Error(`runById: Automation ${req.automationId} not found`);
     return this.#runDefinition(def, req, ctx);
   }
@@ -88,7 +88,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
     const runId = ctx.ids.next();
     return this.#execute(
       runId,
-      req.workspaceId,
+      req.organizationId,
       def.id,
       { id: def.agentId, plane: def.agentPlane },
       req.onBehalfOf,
@@ -100,7 +100,7 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
 
   async #execute(
     runId: string,
-    workspaceId: string,
+    organizationId: string,
     automationId: string,
     agent: { id: string; plane: import("./types.js").Plane },
     onBehalfOf: OnBehalfOf | undefined,
@@ -108,14 +108,14 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
     seed: string | undefined,
     ctx: RunCtx,
   ): Promise<AutomationRunResult> {
-    await this.#recorder?.start({ runId, automationId, workspaceId, agentId: agent.id }, ctx);
+    await this.#recorder?.start({ runId, automationId, organizationId, agentId: agent.id }, ctx);
     const proposals: Proposal[] = [];
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       const proposal = await this.#pipeline.propose(
         {
-          workspaceId,
+          organizationId,
           actor: { type: "agent", id: agent.id, plane: agent.plane },
           ...(onBehalfOf ? { onBehalfOf } : {}),
           action: step.action,
@@ -140,13 +140,13 @@ export class InProcessAutomationExecutor implements AutomationExecutor {
           proposals,
           haltedAtStep: i,
         };
-        await this.#recorder?.finish({ runId, workspaceId, status: "halted", output: { haltedAtStep: i } }, ctx);
+        await this.#recorder?.finish({ runId, organizationId, status: "halted", output: { haltedAtStep: i } }, ctx);
         return result;
       }
     }
 
     await this.#recorder?.finish(
-      { runId, workspaceId, status: "completed", output: { steps: proposals.length } },
+      { runId, organizationId, status: "completed", output: { steps: proposals.length } },
       ctx,
     );
     return { runId, automationId, status: "completed", proposals };

@@ -7,16 +7,15 @@
  * and `buildInMemoryPorts()`. Each returns one fully-typed `ModePorts` object; there
  * is no conditional reassignment of individual ports.
  *
- * Ledger residency: persistent mode composes Local and Cloud Plane Drizzle ledgers.
- * Only explicitly public root entries reach Supabase; private, all-scope, and legacy
- * unscoped roots remain local, and decisions/audits follow their parent.
+ * Ledger residency: private/all/unscoped roots and their decision descendants stay
+ * in the Local Plane. Only explicitly public roots are written to cloud Postgres.
  *
  * Canonical identity store: this one IS genuinely fixed here.
  * `DrizzleCanonicalIdentityStore` already exists (@bridge/db) and is now wired in
  * persistent mode instead of the in-memory fake — no more silent lie there.
  *
- * LOCAL plane: pglite (@bridge/local) — OAuth tokens, raw bodies, and private
- * derived data persist here, never Supabase.
+ * LOCAL plane: pglite (@bridge/local) — OAuth tokens + raw bodies + derived
+ * Touchpoints/Memories/Signals persist here, never Supabase. The residency fix.
  *
  * Google egress adapter: the real googleapis gateway when GOOGLE_CLIENT_ID/SECRET
  * are configured; otherwise a fail-closed factory (no fake/dummy data — the platform
@@ -42,8 +41,8 @@ import {
   InMemoryAutoActivationBudgetStore,
   InMemoryKillSwitch,
   InMemoryCredentialBroker,
-  InMemoryWorkspaceDefinitionStore,
-  InMemoryPackageStore,
+  InMemoryOrganizationDefinitionStore,
+  InMemoryModuleStore,
   InMemoryOnboardingProfileStore,
   type MemoryStore,
   type MemoryAuthScope,
@@ -71,8 +70,8 @@ import {
   type Action,
   type KillSwitchPort,
   type CredentialBroker,
-  type WorkspaceDefinitionStore,
-  type PackageStore,
+  type OrganizationDefinitionStore,
+  type ModuleStore,
   type OnboardingProfileStore,
   type EvalStore,
   type PolicyParamStore,
@@ -125,15 +124,15 @@ import {
   LocalDbInitializationCleanupError,
   createLocalMediaStore,
   DrizzleCanonicalIdentityStore,
-  DrizzleWorkspaceStore,
-  type WorkspaceRenameCoordinator,
+  DrizzleOrganizationStore,
+  type OrganizationRenameCoordinator,
   DrizzleGraphStore,
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
   DrizzleResourcesStore,
   DrizzleCapabilityStore,
-  DrizzleWorkspaceDefinitionStore,
-  DrizzlePackageStore,
+  DrizzleOrganizationDefinitionStore,
+  DrizzleModuleStore,
   DrizzleMemoryStore,
   DrizzleLedgerStore,
   DrizzleRelationMaterializationStore,
@@ -196,25 +195,25 @@ import {
 } from "@bridge/dealpilot";
 import type { QuarantinedCapture } from "@bridge/capability-kit";
 import {
-  BUILT_IN_PACKAGES,
+  BUILT_IN_MODULES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleAutomationRuntimeId,
-} from "./built-in-packages.js";
+} from "./built-in-modules.js";
 import {
   createOrganizationRenameLease,
   defaultBridgeFilesRoot,
 } from "./module-files.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
-// workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
-// Exported: router.ts's `assertPilotWorkspace` uses it to explicitly REJECT any
-// other workspaceId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
+// organization + its service agents + the signed-in pilot user). Not demo/dummy data.
+// Exported: router.ts's `assertPilotOrganization` uses it to explicitly REJECT any
+// other organizationId (interim single-tenant safety fix, All fixes.md Phase 3 item 11a
 // — full multi-tenancy is out of scope for this pass).
-export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
+export const PILOT_ORGANIZATION = "b0000000-0000-4000-a000-000000000001";
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
@@ -255,33 +254,33 @@ const GOVERNANCE_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c5";
 export const CAPABILITY_BUILDER_ROLE = "b0000000-0000-4000-a000-0000000000f5";
 const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c6";
 // Exported: apps/api/test/blueprint.test.ts (ADR-023/ADR-024) needs a real
-// seeded user id — workspace_definitions.created_by is a real FK to `users`,
+// seeded user id — organization_definitions.created_by is a real FK to `users`,
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 export const PILOT_USER_EMAIL = "pilot@bridge.local";
 
 export async function migrateLegacyPilotOrganization(
-  workspaceStore: DrizzleWorkspaceStore,
+  organizationStore: DrizzleOrganizationStore,
 ): Promise<void> {
-  await workspaceStore.renameWorkspace(
-    PILOT_WORKSPACE,
+  await organizationStore.renameOrganization(
+    PILOT_ORGANIZATION,
     "Pilot Organization",
-    { ifCurrentName: "Pilot workspace" },
+    { ifCurrentName: "Pilot organization" },
   );
 }
 
 export async function retireSupersededBuiltIns(
-  packageStore: PackageStore,
-  workspaceId: string,
+  moduleStore: ModuleStore,
+  organizationId: string,
 ): Promise<void> {
-  for (const row of await packageStore.listVersions(workspaceId, "helpdesk")) {
+  for (const row of await moduleStore.listVersions(organizationId, "helpdesk")) {
     if (row.state === "available") {
-      await packageStore.setState(row.id, "legacy");
+      await moduleStore.setState(row.id, "legacy");
     }
   }
-  for (const row of await packageStore.listVersions(workspaceId, "calendar")) {
+  for (const row of await moduleStore.listVersions(organizationId, "calendar")) {
     if (row.state !== "legacy") {
-      await packageStore.setState(row.id, "legacy");
+      await moduleStore.setState(row.id, "legacy");
     }
   }
 }
@@ -320,9 +319,9 @@ export interface Wiring {
   pilotUserEmail: string;
   /** Canonical Automation definitions used by Automation creation and execution. */
   automationRegistry: AutomationRegistry;
-  /** Workspace + team-member CRUD — direct DB writes, not a governed pipeline skill. */
-  workspaceStore: DrizzleWorkspaceStore;
-  /** Read surface for Initiative/Touchpoint/Signal (see graph-store.ts). */
+  /** Organization + team-member CRUD — direct DB writes, not a governed pipeline skill. */
+  organizationStore: DrizzleOrganizationStore;
+  /** Read surface for Record/Touchpoint/Signal (see graph-store.ts). */
   graphStore: DrizzleGraphStore;
   /** JobPilot's persistence (Phase 4 — @bridge/jobpilot is pure logic, no store). */
   jobpilotStore: DrizzleJobPilotStore;
@@ -332,20 +331,20 @@ export interface Wiring {
   resourcesStore: DrizzleResourcesStore;
   /** Capability Trust Model — capability_manifests + capability_states (docs/wiki/vision.md). */
   capabilityStore: CapabilityStore;
-  /** P1 Workspace Generator — workspace_definitions (blueprint/version/status), the
-   * governed-proposal artifact workspace.blueprint.* compiles via @bridge/core's
+  /** P1 Organization Generator — organization_definitions (blueprint/version/status), the
+   * governed-proposal artifact organization.blueprint.* compiles via @bridge/core's
    * compileBlueprint (docs/wiki/vision.md "View grammar"). */
-  workspaceDefinitionStore: WorkspaceDefinitionStore;
-  /** P2 capability packages (docs/raw/capability-package-format.md, ADR-018) —
-   * package_installations-shaped rows. Real DrizzlePackageStore in persistent
-   * mode (ADR-023); InMemoryPackageStore in in-memory mode — same split every
+  organizationDefinitionStore: OrganizationDefinitionStore;
+  /** P2 capability modules (docs/raw/capability-module-format.md, ADR-018) —
+   * module_installations-shaped rows. Real DrizzleModuleStore in persistent
+   * mode (ADR-023); InMemoryModuleStore in in-memory mode — same split every
    * other Drizzle-backed store in this file already follows. */
-  packageStore: PackageStore;
+  moduleStore: ModuleStore;
   /** Daily auto-activation budget counters (informational/advisory bands). In-memory in both
    * modes for now — no persistent implementation exists yet (mirrors the ledger-residency-gap
    * pattern: a real budget counter is future work, not silently faked as durable). */
   capabilityBudgets: AutoActivationBudgetStore;
-  /** Workspace-level kill switch forcing every capability activation to explicit approval. */
+  /** Organization-level kill switch forcing every capability activation to explicit approval. */
   capabilityKillSwitch: KillSwitchPort;
   /** Capabilities never receive raw secrets — they request scoped, time-boxed grant references. */
   credentialBroker: CredentialBroker;
@@ -393,9 +392,9 @@ export interface Wiring {
    * synthesis state without a client-supplied pointer. */
   cultureSynthesisPointerStore: DurableCultureSynthesisPointerStore;
   /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
-   * RE-review, issue 13) — durable, O(1) (workspaceId, company) -> latest
+   * RE-review, issue 13) — durable, O(1) (organizationId, company) -> latest
    * parentRunId pointer (see `DurableCultureLatestRunPointerStore`),
-   * replacing the workspace-wide scan `DurableCultureFetchStore.listByCompany`
+   * replacing the organization-wide scan `DurableCultureFetchStore.listByCompany`
    * previously used for this — a scan-then-limit approach that could
    * silently hide the real latest run behind enough unrelated Memories at
    * scale. */
@@ -417,7 +416,7 @@ export interface Wiring {
   /** Explicitly configured Local Plane geocoder. `null` means place labels stay
    * local and Map plots only Records that already carry coordinates. */
   geocodingProvider: GeocodingProvider | null;
-  /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
+  /** DealPilot's quarantine/commit surface (first Module on the generic intake seam). */
   dealpilot: {
     integrationId: string;
     store: DealPilotRuntimeStore;
@@ -480,7 +479,7 @@ export const RELATIONSHIP_LEARNING_GOAL_TYPE = "relationship.learning";
 export const SYNTHESIZE_RECOMMENDATION_TASK_TYPE = "synthesize_recommendation";
 
 export const AGENT_ORCHESTRATION_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "stageStrategicRecommendation",
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_LEARNING_GOAL_TYPE],
@@ -511,7 +510,7 @@ export const LEARNING_ROLE_MODEL_GOAL_TYPE = "learning.role_model_recommendation
 export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: LEARNING_RECOMMENDATION_SKILL_ID,
   version: CITED_ROLE_MODEL_PRACTICE_VERSION,
   goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
@@ -552,7 +551,7 @@ export const PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE = "platform.red_flag_learning"
 export const PROPOSE_PREFERENCE_ADJUSTMENT_TASK_TYPE = "propose_preference_adjustment";
 
 export const RED_FLAG_LEARNING_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "learning.proposePreferenceAdjustment",
   version: "1.0.0",
   goalTypes: [PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE],
@@ -637,7 +636,7 @@ export const SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE = "synthesize_culture_profile"
  * company, URL, source type, and rights classification entirely from this
  * table — a client can never supply or relabel a URL/sourceType directly, so
  * a Glassdoor URL mislabeled "official page" has no code path to reach a
- * fetch. Scoped by (workspaceId, company); an id from a different workspace
+ * fetch. Scoped by (organizationId, company); an id from a different organization
  * or company is rejected as unknown for THAT request (see
  * `resolveAuthorizedCultureSource`). In-memory/hardcoded for this pilot slice
  * — same known-gap shape as `goalTasks`/`skillManifests`/`childAgentRuns`
@@ -646,7 +645,7 @@ export const SYNTHESIZE_CULTURE_PROFILE_TASK_TYPE = "synthesize_culture_profile"
  */
 export interface AuthorizedCultureSource {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   company: string;
   sourceType: CultureSourceType;
   sourceLabel: string;
@@ -665,7 +664,7 @@ export interface AuthorizedCultureSource {
 export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
   {
     id: "bcg-careers-interview-process",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     company: "Boston Consulting Group",
     sourceType: "company_official_page",
     sourceLabel: "BCG Careers — Interview Process",
@@ -674,7 +673,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
   },
   {
     id: "bcg-glassdoor-reviews",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     company: "Boston Consulting Group",
     sourceType: "glassdoor",
     sourceLabel: "Glassdoor — BCG reviews",
@@ -683,7 +682,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
   },
   {
     id: "bcg-reddit-consulting",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     company: "Boston Consulting Group",
     sourceType: "reddit",
     sourceLabel: "r/consulting — BCG threads",
@@ -692,7 +691,7 @@ export const CULTURE_SOURCE_REGISTRY: AuthorizedCultureSource[] = [
   },
   {
     id: "bcg-google-reviews",
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     company: "Boston Consulting Group",
     sourceType: "google_reviews",
     sourceLabel: "Google reviews — BCG",
@@ -713,17 +712,17 @@ export function unsafeRegisterTestOnlyCultureSource(source: AuthorizedCultureSou
 }
 
 /** Resolves a client-supplied `sourceId` against the registry, scoped to the
- * REQUESTING workspace and company — an id that exists but belongs to a
- * different workspace or company is treated as unknown for this request
+ * REQUESTING organization and company — an id that exists but belongs to a
+ * different organization or company is treated as unknown for this request
  * (never leaked as "found, but not yours"). Returns `null` for any mismatch. */
 export function resolveAuthorizedCultureSource(
-  workspaceId: string,
+  organizationId: string,
   company: string,
   sourceId: string,
 ): AuthorizedCultureSource | null {
   const found = CULTURE_SOURCE_REGISTRY.find((s) => s.id === sourceId);
   if (!found) return null;
-  if (found.workspaceId !== workspaceId || found.company !== company) return null;
+  if (found.organizationId !== organizationId || found.company !== company) return null;
   return found;
 }
 
@@ -776,7 +775,7 @@ const CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS = 30_000;
 /** TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
  * issue 13) — the max number of historical culture-fetch intent rows
  * `DurableCultureFetchStore.listByCompany` will scan to find the latest
- * parent Run for one (workspaceId, company). Fixed, not derived from any
+ * parent Run for one (organizationId, company). Fixed, not derived from any
  * caller input — the server-authoritative "resume" query must stay bounded
  * regardless of how many research runs a company has accumulated over time. */
 const CULTURE_RESEARCH_HISTORY_SCAN_LIMIT = 2_000;
@@ -859,7 +858,7 @@ export function computeSourcePolicyHash(source: AuthorizedCultureSource): string
 
 export interface ResearchCultureSourceInput {
   sourceId: string;
-  workspaceId: string;
+  organizationId: string;
   company: string;
 }
 
@@ -886,9 +885,9 @@ export function createResearchCultureSourceSkill(): Skill {
     name: "jobpilot.researchCultureSource",
     async run(inputs) {
       const input = inputs as ResearchCultureSourceInput;
-      const source = resolveAuthorizedCultureSource(input.workspaceId, input.company, input.sourceId);
+      const source = resolveAuthorizedCultureSource(input.organizationId, input.company, input.sourceId);
       if (!source) {
-        throw new Error(`jobpilot.researchCultureSource: "${input.sourceId}" is not an authorized source for this workspace/company`);
+        throw new Error(`jobpilot.researchCultureSource: "${input.sourceId}" is not an authorized source for this organization/company`);
       }
       const classification = classifyCultureSource(source.sourceType);
       if (classification.eligibility !== "permitted") {
@@ -912,7 +911,7 @@ export type CultureFetchStatus = "pending" | "fetching" | "fetched" | "failed" |
 
 /**
  * The durable, restart-surviving record binding ONE culture-research
- * source-fetch intent to its exact workspace/company/parent+child Run/
+ * source-fetch intent to its exact organization/company/parent+child Run/
  * source/canonical URL/goal+task/skill/actor/proposal, hardened across
  * multiple TASK-011 remediation rounds:
  *  - 2026-07-18 final review, issue 1: durable (MemoryStore-backed, not
@@ -937,7 +936,7 @@ export interface CultureFetchIntentRecord {
   /** TASK-011 remediation (2026-07-19, issue 13) — a cheap, explicit
    * discriminator so `DurableCultureFetchStore`/`DurableCultureSynthesisPointerStore`
    * (which share the SAME underlying `MemoryStore` and both key rows by a
-   * caller-chosen UUID `subjectElementId`) can never misinterpret the
+   * caller-chosen UUID `subjectRecordId`) can never misinterpret the
    * other's row even in the astronomically unlikely event a `parentRunId`
    * and an unrelated `childRunId` collide. Every reader checks this before
    * trusting the parsed content. */
@@ -945,7 +944,7 @@ export interface CultureFetchIntentRecord {
   childRunId: string;
   proposalId: string | null;
   parentRunId: string;
-  workspaceId: string;
+  organizationId: string;
   company: string;
   sourceId: string;
   sourceType: CultureSourceType;
@@ -1069,9 +1068,9 @@ export class CultureFetchCancelledRaceError extends Error {
 
 /**
  * Durable adapter over `MemoryStore` for culture-fetch intent records.
- * `subjectElementId` is repurposed as this store's lookup key (`childRunId`)
+ * `subjectRecordId` is repurposed as this store's lookup key (`childRunId`)
  * — `MemoryStore` has no arbitrary-field query, but `retrieve({
- * subjectElementId, includeSuperseded: false })` gives an O(1)-ish current-
+ * subjectRecordId, includeSuperseded: false })` gives an O(1)-ish current-
  * row lookup, and `supersede`/`compareAndSupersede` give an append-only,
  * auditable revision history for free (every prior status transition
  * remains readable via `includeSuperseded: true`). TASK-011 remediation
@@ -1092,19 +1091,19 @@ export class DurableCultureFetchStore {
     this.#memory = memory;
   }
 
-  #authScope(workspaceId: string): MemoryAuthScope {
-    return { workspaceId };
+  #authScope(organizationId: string): MemoryAuthScope {
+    return { organizationId };
   }
 
-  async #loadRow(workspaceId: string, childRunId: string): Promise<{ memoryId: string; record: CultureFetchIntentRecord } | null> {
+  async #loadRow(organizationId: string, childRunId: string): Promise<{ memoryId: string; record: CultureFetchIntentRecord } | null> {
     const rows = await this.#memory.retrieve(
-      { subjectElementId: childRunId, includeSuperseded: false, limit: 1 },
-      this.#authScope(workspaceId),
+      { subjectRecordId: childRunId, includeSuperseded: false, limit: 1 },
+      this.#authScope(organizationId),
     );
     const row = rows[0];
     if (!row) return null;
     const parsed = JSON.parse(row.content) as CultureFetchIntentRecord;
-    if (parsed.kind !== "culture_fetch_intent") return null; // a different record type happens to share this subjectElementId
+    if (parsed.kind !== "culture_fetch_intent") return null; // a different record type happens to share this subjectRecordId
     return { memoryId: row.id, record: parsed };
   }
 
@@ -1113,14 +1112,14 @@ export class DurableCultureFetchStore {
       // MUST be a real UUID — `memories.id` is UUID-typed (migrations/000x);
       // a composite string id (an earlier bug this comment replaces) fails
       // every write with a Postgres 22P02 "invalid input syntax for type
-      // uuid" error. `childRunId` is kept as `subjectElementId` (also
+      // uuid" error. `childRunId` is kept as `subjectRecordId` (also
       // UUID-typed, but every child-Run id in this codebase already IS a
       // real UUID via `ctx.run.ids.next()`/`uuidv7()`) for the lookup key.
       id: randomUUID(),
-      workspaceId: next.workspaceId,
+      organizationId: next.organizationId,
       type: "episodic",
-      subjectElementId: next.childRunId,
-      scope: "workspace",
+      subjectRecordId: next.childRunId,
+      scope: "organization",
       content: JSON.stringify(next),
       sourceRefType: "ledger",
       sourceRefId: next.proposalId ?? next.childRunId,
@@ -1147,8 +1146,8 @@ export class DurableCultureFetchStore {
   /** Fail-closed lookup by childRunId alone — returns null (never throws) so
    * callers render a uniform "unknown" rather than distinguishing missing
    * from unauthorized. */
-  async get(workspaceId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
-    const row = await this.#loadRow(workspaceId, childRunId);
+  async get(organizationId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
+    const row = await this.#loadRow(organizationId, childRunId);
     return row?.record ?? null;
   }
 
@@ -1157,8 +1156,8 @@ export class DurableCultureFetchStore {
    * caller-supplied `proposalId` is treated as unknown — never "found, but
    * mismatched", closing the door on pairing an arbitrary proposalId with an
    * unrelated real childRunId. */
-  async getByProposal(workspaceId: string, proposalId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
-    const record = await this.get(workspaceId, childRunId);
+  async getByProposal(organizationId: string, proposalId: string, childRunId: string): Promise<CultureFetchIntentRecord | null> {
+    const record = await this.get(organizationId, childRunId);
     if (!record || record.proposalId !== proposalId) return null;
     return record;
   }
@@ -1168,7 +1167,7 @@ export class DurableCultureFetchStore {
    * the EXISTING record unchanged (never duplicates or silently overwrites).
    * TASK-011 remediation (2026-07-19 coordinator distributed-defects
    * RE-review) — uses `MemoryStore.writeIfAbsent` (a real cross-instance
-   * lock keyed by `(workspaceId, childRunId)`), NOT a plain `write()`: an
+   * lock keyed by `(organizationId, childRunId)`), NOT a plain `write()`: an
    * independent reviewer proved a plain `write()` here cannot detect a
    * concurrent creator racing the SAME childRunId (it has no uniqueness
    * constraint to conflict against), so two racers could both insert a
@@ -1201,8 +1200,8 @@ export class DurableCultureFetchStore {
    * the only field this call may change. Idempotent for the SAME id; rejects
    * (fail closed) an attempt to rebind an already-bound record to a
    * DIFFERENT proposal. Cross-instance-safe via `compareAndSupersede`. */
-  async attachProposal(workspaceId: string, childRunId: string, proposalId: string): Promise<CultureFetchIntentRecord> {
-    const existing = await this.#loadRow(workspaceId, childRunId);
+  async attachProposal(organizationId: string, childRunId: string, proposalId: string): Promise<CultureFetchIntentRecord> {
+    const existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
     if (existing.record.proposalId === proposalId) return existing.record;
     if (existing.record.proposalId !== null) {
@@ -1213,7 +1212,7 @@ export class DurableCultureFetchStore {
       await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
     } catch (e) {
       if (e instanceof MemoryConflictError) {
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        const reloaded = await this.#loadRow(organizationId, childRunId);
         if (reloaded?.record.proposalId === proposalId) return reloaded.record;
       }
       throw e;
@@ -1242,13 +1241,13 @@ export class DurableCultureFetchStore {
    * own `{ leaseOwner, attempt }` here; a fence mismatch throws
    * `CultureFetchStaleLeaseError`, distinct from a plain status mismatch. */
   async transition(
-    workspaceId: string,
+    organizationId: string,
     childRunId: string,
     fromStatuses: readonly CultureFetchStatus[],
     mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
     fence?: { leaseOwner: string; attempt: number; requireCancelNotRequested?: boolean },
   ): Promise<CultureFetchIntentRecord> {
-    const existing = await this.#loadRow(workspaceId, childRunId);
+    const existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
     if (!fromStatuses.includes(existing.record.status)) {
       throw new CultureFetchAlreadyTerminalError(childRunId, existing.record.status);
@@ -1272,7 +1271,7 @@ export class DurableCultureFetchStore {
       await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
     } catch (e) {
       if (e instanceof MemoryConflictError) {
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        const reloaded = await this.#loadRow(organizationId, childRunId);
         // A lost race here means SOMEONE ELSE'S write won — re-derive the
         // MOST SPECIFIC error against the fresh state: a fence mismatch or
         // a cancellation race is more informative than a generic terminal
@@ -1303,12 +1302,12 @@ export class DurableCultureFetchStore {
    * reclaim the SAME expired lease can only ever have one winner.
    */
   async acquireLease(
-    workspaceId: string,
+    organizationId: string,
     childRunId: string,
     leaseOwner: string,
     nowISO: string,
   ): Promise<CultureFetchIntentRecord> {
-    const existing = await this.#loadRow(workspaceId, childRunId);
+    const existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
     const record = existing.record;
     if (record.status === "fetching") {
@@ -1338,7 +1337,7 @@ export class DurableCultureFetchStore {
       await this.#memory.compareAndSupersede(existing.memoryId, this.#buildWrite(next));
     } catch (e) {
       if (e instanceof MemoryConflictError) {
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        const reloaded = await this.#loadRow(organizationId, childRunId);
         if (reloaded) {
           if (reloaded.record.status === "fetching" && reloaded.record.leaseExpiresAt && Date.parse(reloaded.record.leaseExpiresAt) > Date.now()) {
             throw new CultureFetchLeaseHeldError(childRunId, reloaded.record.leaseOwner ?? "unknown", reloaded.record.leaseExpiresAt);
@@ -1376,8 +1375,8 @@ export class DurableCultureFetchStore {
    * against the new current record and retry, up to
    * `CULTURE_CANCEL_CAS_MAX_RETRIES` times — exactly the retry-on-conflict
    * pattern the rest of this store's design already relies on elsewhere. */
-  async requestCancel(workspaceId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord> {
-    let existing = await this.#loadRow(workspaceId, childRunId);
+  async requestCancel(organizationId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord> {
+    let existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
     for (let attempt = 0; attempt < CULTURE_CANCEL_CAS_MAX_RETRIES; attempt++) {
       const record = existing.record;
@@ -1397,7 +1396,7 @@ export class DurableCultureFetchStore {
         // record (it may now be terminal, or have a freshly-reclaimed
         // live lease, or already carry cancelRequested from a racing
         // cancel) rather than trusting whatever the winner produced.
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
+        const reloaded = await this.#loadRow(organizationId, childRunId);
         if (!reloaded) throw new Error(`DurableCultureFetchStore: unknown intent record for child Run ${childRunId}`);
         existing = reloaded;
       }
@@ -1436,8 +1435,8 @@ export class DurableCultureFetchStore {
    * history can ever again leak the purged bytes, regardless of whether a
    * caller reads the current view or the superseded history.
    */
-  async purgeExpiredArtifactContentIfNeeded(workspaceId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
-    const existing = await this.#loadRow(workspaceId, childRunId);
+  async purgeExpiredArtifactContentIfNeeded(organizationId: string, childRunId: string, nowISO: string): Promise<CultureFetchIntentRecord | null> {
+    const existing = await this.#loadRow(organizationId, childRunId);
     if (!existing) return null;
     const { artifact } = existing.record;
     if (!artifact || artifact.content === "" || !isArtifactExpired(artifact, nowISO)) return existing.record;
@@ -1456,13 +1455,13 @@ export class DurableCultureFetchStore {
         // cleanup. Still attempt the full-lineage redaction below
         // (best-effort, never fatal here) — a concurrent winner may not
         // itself have redacted every ancestor row.
-        const reloaded = await this.#loadRow(workspaceId, childRunId);
-        await this.#redactExpiredArtifactLineage(workspaceId, existing.memoryId, nowISO).catch(() => {});
+        const reloaded = await this.#loadRow(organizationId, childRunId);
+        await this.#redactExpiredArtifactLineage(organizationId, existing.memoryId, nowISO).catch(() => {});
         return reloaded?.record ?? null;
       }
       throw e;
     }
-    await this.#redactExpiredArtifactLineage(workspaceId, existing.memoryId, nowISO);
+    await this.#redactExpiredArtifactLineage(organizationId, existing.memoryId, nowISO);
     return next;
   }
 
@@ -1472,8 +1471,8 @@ export class DurableCultureFetchStore {
    * produces the same redacted content or the same `null`), which is what
    * makes this safe to call from a losing/conflicting caller too — every
    * caller converges on the identical, correct final state. */
-  async #redactExpiredArtifactLineage(workspaceId: string, memoryId: string, nowISO: string): Promise<number> {
-    return this.#memory.redactLineageContent(memoryId, this.#authScope(workspaceId), (entry) =>
+  async #redactExpiredArtifactLineage(organizationId: string, memoryId: string, nowISO: string): Promise<number> {
+    return this.#memory.redactLineageContent(memoryId, this.#authScope(organizationId), (entry) =>
       redactExpiredCultureFetchArtifact(entry, nowISO),
     );
   }
@@ -1481,21 +1480,21 @@ export class DurableCultureFetchStore {
   /**
    * TASK-011 remediation (2026-07-19 coordinator distributed-defects review,
    * issue 13) — DEPRECATED as of the 2026-07-19 RE-review: this scanned
-   * every current `type: "episodic"` Memory in the workspace, filtered by
+   * every current `type: "episodic"` Memory in the organization, filtered by
    * `kind`/`company`, and applied a fixed `limit` BEFORE that filter — at
    * scale, enough unrelated episodic Memories (Learning captures, Outreach
    * drafts, anything else sharing this type) could crowd the real latest
    * run entirely out of the scan window, silently hiding it even though it
    * durably exists. Replaced by `DurableCultureLatestRunPointerStore`, an
-   * O(1) direct (workspaceId, company) -> parentRunId pointer maintained by
+   * O(1) direct (organizationId, company) -> parentRunId pointer maintained by
    * `propose()` — no scan, no limit-before-filter, no way for unrelated
    * Memories to hide anything. Kept only as a documented historical marker
    * of the superseded approach; no production call site uses this anymore.
    */
-  async listByCompany(workspaceId: string, company: string): Promise<CultureFetchIntentRecord[]> {
+  async listByCompany(organizationId: string, company: string): Promise<CultureFetchIntentRecord[]> {
     const rows = await this.#memory.retrieve(
       { type: "episodic", includeSuperseded: false, limit: CULTURE_RESEARCH_HISTORY_SCAN_LIMIT },
-      this.#authScope(workspaceId),
+      this.#authScope(organizationId),
     );
     const records: CultureFetchIntentRecord[] = [];
     for (const row of rows) {
@@ -1503,7 +1502,7 @@ export class DurableCultureFetchStore {
       try {
         parsed = JSON.parse(row.content) as CultureFetchIntentRecord;
       } catch {
-        continue; // foreign/corrupt content sharing this workspace+type — skip, never throw
+        continue; // foreign/corrupt content sharing this organization+type — skip, never throw
       }
       if (parsed.kind === "culture_fetch_intent" && parsed.company === company) records.push(parsed);
     }
@@ -1519,15 +1518,15 @@ export class DurableCultureFetchStore {
  * client-supplied pointer. Shares the SAME `MemoryStore` as
  * `DurableCultureFetchStore` (no new migration), keyed by `parentRunId`
  * (already a real UUID — `uuidv7()` in `propose()`) rather than a composite
- * string, since `subjectElementId` is UUID-typed in the persistent adapter.
+ * string, since `subjectRecordId` is UUID-typed in the persistent adapter.
  * The `kind` discriminator prevents ever misreading a `CultureFetchIntentRecord`
- * that happens to share the same `subjectElementId` value (see that type's
+ * that happens to share the same `subjectRecordId` value (see that type's
  * doc comment) — vanishingly unlikely, but checked rather than assumed.
  */
 export interface CultureSynthesisPointerRecord {
   kind: "culture_synthesis_pointer";
   parentRunId: string;
-  workspaceId: string;
+  organizationId: string;
   company: string;
   proposalId: string;
   createdAt: string;
@@ -1540,8 +1539,8 @@ export class DurableCultureSynthesisPointerStore {
     this.#memory = memory;
   }
 
-  #authScope(workspaceId: string): MemoryAuthScope {
-    return { workspaceId };
+  #authScope(organizationId: string): MemoryAuthScope {
+    return { organizationId };
   }
 
   /** Records (idempotently — first write wins) the synthesis proposal id for
@@ -1552,7 +1551,7 @@ export class DurableCultureSynthesisPointerStore {
    * would let a stale client resume the WRONG proposal.
    * TASK-011 remediation (2026-07-19 coordinator distributed-defects
    * RE-review) — uses `MemoryStore.writeIfAbsent` (cross-instance-safe,
-   * keyed by `(workspaceId, parentRunId)`), NOT a plain read-then-write: an
+   * keyed by `(organizationId, parentRunId)`), NOT a plain read-then-write: an
    * independent reviewer proved the original read-then-write here was a
    * genuine TOCTOU — two ordinary concurrent `synthesize` calls for the SAME
    * parentRunId (e.g. a user double-submitting, or two open tabs) could both
@@ -1562,21 +1561,21 @@ export class DurableCultureSynthesisPointerStore {
    * insert wins; the loser's proposal is still a REAL, valid ledger entry
    * (nothing here corrupts it) — it is simply not the one `latestRun`
    * resolves, matching the documented "at most one live pointer" invariant. */
-  async recordProposal(workspaceId: string, parentRunId: string, company: string, proposalId: string): Promise<void> {
+  async recordProposal(organizationId: string, parentRunId: string, company: string, proposalId: string): Promise<void> {
     const record: CultureSynthesisPointerRecord = {
       kind: "culture_synthesis_pointer",
       parentRunId,
-      workspaceId,
+      organizationId,
       company,
       proposalId,
       createdAt: new Date().toISOString(),
     };
     const stored = await this.#memory.writeIfAbsent({
       id: randomUUID(),
-      workspaceId,
+      organizationId,
       type: "episodic",
-      subjectElementId: parentRunId,
-      scope: "workspace",
+      subjectRecordId: parentRunId,
+      scope: "organization",
       content: JSON.stringify(record),
       sourceRefType: "ledger",
       sourceRefId: proposalId,
@@ -1595,10 +1594,10 @@ export class DurableCultureSynthesisPointerStore {
     }
   }
 
-  async getForParentRun(workspaceId: string, parentRunId: string): Promise<CultureSynthesisPointerRecord | null> {
+  async getForParentRun(organizationId: string, parentRunId: string): Promise<CultureSynthesisPointerRecord | null> {
     const rows = await this.#memory.retrieve(
-      { subjectElementId: parentRunId, includeSuperseded: false, limit: 1 },
-      this.#authScope(workspaceId),
+      { subjectRecordId: parentRunId, includeSuperseded: false, limit: 1 },
+      this.#authScope(organizationId),
     );
     const row = rows[0];
     if (!row) return null;
@@ -1637,10 +1636,10 @@ export class DurableCultureSynthesisPointerStore {
    * smallest achievable without a cross-store distributed lock, which is
    * disproportionate for a race this narrow.
    */
-  async releaseIfMatching(workspaceId: string, parentRunId: string, proposalId: string, ledger: LedgerStore): Promise<void> {
+  async releaseIfMatching(organizationId: string, parentRunId: string, proposalId: string, ledger: LedgerStore): Promise<void> {
     const rows = await this.#memory.retrieve(
-      { subjectElementId: parentRunId, includeSuperseded: false, limit: 1 },
-      this.#authScope(workspaceId),
+      { subjectRecordId: parentRunId, includeSuperseded: false, limit: 1 },
+      this.#authScope(organizationId),
     );
     const row = rows[0];
     if (!row) return;
@@ -1655,7 +1654,7 @@ export class DurableCultureSynthesisPointerStore {
     // created by its owner's `pipeline.propose` call in the time since the
     // caller's own earlier check.
     if (await ledger.get(proposalId)) return;
-    await this.#memory.forget(row.id, this.#authScope(workspaceId));
+    await this.#memory.forget(row.id, this.#authScope(organizationId));
   }
 }
 
@@ -1677,18 +1676,18 @@ export class DurableCultureSynthesisPointerStore {
  */
 export async function selfHealDeadSynthesisPointer(
   deps: { cultureSynthesisPointerStore: DurableCultureSynthesisPointerStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   parentRunId: string,
   nowISO: string,
 ): Promise<void> {
-  const existingPointer = await deps.cultureSynthesisPointerStore.getForParentRun(workspaceId, parentRunId);
+  const existingPointer = await deps.cultureSynthesisPointerStore.getForParentRun(organizationId, parentRunId);
   if (!existingPointer) return;
   const ageMs = Date.parse(nowISO) - Date.parse(existingPointer.createdAt);
   if (ageMs < CULTURE_SYNTHESIS_POINTER_DEAD_GRACE_MS) return; // too young to safely presume dead — a live propose() may still be in flight
   if (await deps.ledger.get(existingPointer.proposalId)) return; // resolves in the ledger — genuinely live (or was already properly decided), not dead
   // `releaseIfMatching` performs its OWN final ledger re-check immediately
   // before the actual release write — see its doc comment.
-  await deps.cultureSynthesisPointerStore.releaseIfMatching(workspaceId, parentRunId, existingPointer.proposalId, deps.ledger).catch(() => {});
+  await deps.cultureSynthesisPointerStore.releaseIfMatching(organizationId, parentRunId, existingPointer.proposalId, deps.ledger).catch(() => {});
 }
 
 /**
@@ -1696,12 +1695,12 @@ export async function selfHealDeadSynthesisPointer(
  * string via SHA-256, with RFC 4122 version/variant bits set so it is
  * always syntactically a valid UUID — TASK-011 remediation (2026-07-19
  * coordinator distributed-defects RE-review, issue 13). Used ONLY to derive
- * a stable `subjectElementId` key from a non-UUID business key (a company
+ * a stable `subjectRecordId` key from a non-UUID business key (a company
  * name) for `DurableCultureLatestRunPointerStore`, whose backing
- * `memories.subject_element_id` column is UUID-typed. NEVER use this where
+ * `memories.subject_record_id` column is UUID-typed. NEVER use this where
  * unpredictability matters (e.g. a real record id) — it is a pure,
  * repeatable hash, by design (the whole point is that the SAME
- * (workspaceId, company) always derives the SAME lookup key).
+ * (organizationId, company) always derives the SAME lookup key).
  */
 function deterministicUuidFromString(input: string): string {
   const hex = createHash("sha256").update(input).digest("hex");
@@ -1713,8 +1712,8 @@ function deterministicUuidFromString(input: string): string {
 /**
  * TASK-011 remediation (2026-07-19 coordinator distributed-defects
  * RE-review, issue 13) — a durable, O(1)-lookup pointer from
- * (workspaceId, company) directly to the LATEST culture-research parent
- * Run id, replacing `DurableCultureFetchStore.listByCompany`'s workspace-
+ * (organizationId, company) directly to the LATEST culture-research parent
+ * Run id, replacing `DurableCultureFetchStore.listByCompany`'s organization-
  * wide scan-then-filter-then-limit approach. That approach filtered
  * `kind`/`company` AFTER applying a fixed `limit` to a broad `type:
  * "episodic"` query — at scale, with enough UNRELATED episodic Memories
@@ -1726,11 +1725,11 @@ function deterministicUuidFromString(input: string): string {
  * pointer, unlike the synthesis pointer's first-write-wins semantics)
  * every time a new parent Run is created for a company, so `latestRun` is
  * a direct, indexed lookup keyed by a deterministic UUID derived from
- * `(workspaceId, company)` — never a broad table scan.
+ * `(organizationId, company)` — never a broad table scan.
  */
 export interface CultureLatestRunPointerRecord {
   kind: "culture_latest_run_pointer";
-  workspaceId: string;
+  organizationId: string;
   company: string;
   parentRunId: string;
   updatedAt: string;
@@ -1743,21 +1742,21 @@ export class DurableCultureLatestRunPointerStore {
     this.#memory = memory;
   }
 
-  #authScope(workspaceId: string): MemoryAuthScope {
-    return { workspaceId };
+  #authScope(organizationId: string): MemoryAuthScope {
+    return { organizationId };
   }
 
-  #key(workspaceId: string, company: string): string {
-    return deterministicUuidFromString(`culture_latest_run_pointer:${workspaceId}:${company}`);
+  #key(organizationId: string, company: string): string {
+    return deterministicUuidFromString(`culture_latest_run_pointer:${organizationId}:${company}`);
   }
 
-  #buildWrite(record: CultureLatestRunPointerRecord, subjectElementId: string): Parameters<MemoryStore["write"]>[0] {
+  #buildWrite(record: CultureLatestRunPointerRecord, subjectRecordId: string): Parameters<MemoryStore["write"]>[0] {
     return {
       id: randomUUID(),
-      workspaceId: record.workspaceId,
+      organizationId: record.organizationId,
       type: "episodic",
-      subjectElementId,
-      scope: "workspace",
+      subjectRecordId,
+      scope: "organization",
       content: JSON.stringify(record),
       sourceRefType: "ledger",
       sourceRefId: record.parentRunId,
@@ -1768,7 +1767,7 @@ export class DurableCultureLatestRunPointerStore {
     };
   }
 
-  /** Records `parentRunId` as the latest run for this (workspaceId,
+  /** Records `parentRunId` as the latest run for this (organizationId,
    * company), superseding whatever pointer existed before (a NEWER run
    * legitimately replaces an older pointer — unlike the synthesis
    * pointer's first-write-wins invariant). Cross-instance-safe: uses
@@ -1778,32 +1777,32 @@ export class DurableCultureLatestRunPointerStore {
    * "wrong" of two near-simultaneous proposals wins the pointer, both
    * runs remain fully durable and independently resumable by their own
    * `parentRunId`; only the resume-shortcut pointer is affected. */
-  async recordLatestRun(workspaceId: string, company: string, parentRunId: string): Promise<void> {
-    const subjectElementId = this.#key(workspaceId, company);
+  async recordLatestRun(organizationId: string, company: string, parentRunId: string): Promise<void> {
+    const subjectRecordId = this.#key(organizationId, company);
     const record: CultureLatestRunPointerRecord = {
       kind: "culture_latest_run_pointer",
-      workspaceId,
+      organizationId,
       company,
       parentRunId,
       updatedAt: new Date().toISOString(),
     };
-    const rows = await this.#memory.retrieve({ subjectElementId, includeSuperseded: false, limit: 1 }, this.#authScope(workspaceId));
+    const rows = await this.#memory.retrieve({ subjectRecordId, includeSuperseded: false, limit: 1 }, this.#authScope(organizationId));
     const existing = rows[0];
     if (!existing) {
-      await this.#memory.writeIfAbsent(this.#buildWrite(record, subjectElementId));
+      await this.#memory.writeIfAbsent(this.#buildWrite(record, subjectRecordId));
       return;
     }
     try {
-      await this.#memory.compareAndSupersede(existing.id, this.#buildWrite(record, subjectElementId));
+      await this.#memory.compareAndSupersede(existing.id, this.#buildWrite(record, subjectRecordId));
     } catch (e) {
       if (e instanceof MemoryConflictError) return; // a concurrent, equally-valid advance already won — benign
       throw e;
     }
   }
 
-  async getLatestRun(workspaceId: string, company: string): Promise<CultureLatestRunPointerRecord | null> {
-    const subjectElementId = this.#key(workspaceId, company);
-    const rows = await this.#memory.retrieve({ subjectElementId, includeSuperseded: false, limit: 1 }, this.#authScope(workspaceId));
+  async getLatestRun(organizationId: string, company: string): Promise<CultureLatestRunPointerRecord | null> {
+    const subjectRecordId = this.#key(organizationId, company);
+    const rows = await this.#memory.retrieve({ subjectRecordId, includeSuperseded: false, limit: 1 }, this.#authScope(organizationId));
     const row = rows[0];
     if (!row) return null;
     let parsed: CultureLatestRunPointerRecord;
@@ -1841,17 +1840,17 @@ export class DurableCultureLatestRunPointerStore {
  */
 async function attemptFencedTerminalTransition(
   fetchStore: DurableCultureFetchStore,
-  workspaceId: string,
+  organizationId: string,
   childRunId: string,
   mutate: (record: CultureFetchIntentRecord) => CultureFetchIntentRecord,
   fence: { leaseOwner: string; attempt: number; requireCancelNotRequested?: boolean },
 ): Promise<{ committed: boolean; record: CultureFetchIntentRecord | null }> {
   try {
-    const record = await fetchStore.transition(workspaceId, childRunId, ["fetching"], mutate, fence);
+    const record = await fetchStore.transition(organizationId, childRunId, ["fetching"], mutate, fence);
     return { committed: true, record };
   } catch (e) {
     if (e instanceof CultureFetchAlreadyTerminalError || e instanceof CultureFetchStaleLeaseError || e instanceof CultureFetchCancelledRaceError) {
-      return { committed: false, record: await fetchStore.get(workspaceId, childRunId) };
+      return { committed: false, record: await fetchStore.get(organizationId, childRunId) };
     }
     throw e;
   }
@@ -1877,24 +1876,24 @@ async function attemptFencedTerminalTransition(
  */
 export async function reconcileIntentChildConsistency(
   deps: { childAgentRuns: ChildAgentRunStore; ledger: LedgerStore },
-  workspaceId: string,
+  organizationId: string,
   intent: CultureFetchIntentRecord,
   ctx: RunCtx,
 ): Promise<void> {
   if (intent.status !== "fetched" && intent.status !== "failed" && intent.status !== "cancelled") {
     return; // not yet terminal — nothing to reconcile
   }
-  const childRun = await deps.childAgentRuns.get(workspaceId, intent.childRunId);
+  const childRun = await deps.childAgentRuns.get(organizationId, intent.childRunId);
   if (!childRun) return; // nothing to reconcile against
   const desiredChildStatus = intent.status === "fetched" ? "completed" : intent.status === "failed" ? "failed" : "cancelled";
   if (childRun.status === desiredChildStatus) return; // already consistent
   const actor: Actor = { type: "agent", id: LEARNING_AGENT };
   const repair =
     desiredChildStatus === "completed"
-      ? completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx)
+      ? completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, intent.childRunId, actor, ctx)
       : desiredChildStatus === "failed"
-        ? failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx)
-        : cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, intent.childRunId, actor, ctx);
+        ? failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, intent.childRunId, actor, ctx)
+        : cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, intent.childRunId, actor, ctx);
   await repair.catch((e) => {
     // The child Run may have reached SOME OTHER terminal status via a
     // legitimate concurrent transition (e.g. a genuine cancel racing this
@@ -1951,7 +1950,7 @@ export async function materializeCultureSourceFetch(
     fetchStore: DurableCultureFetchStore;
     abortControllers: Map<string, AbortController>;
   },
-  workspaceId: string,
+  organizationId: string,
   proposalId: string,
   childRunId: string,
   ctx: RunCtx,
@@ -1965,14 +1964,14 @@ export async function materializeCultureSourceFetch(
   // Fail-closed load — the ONLY source of truth. No fallback reconstructs a
   // record from `proposedOutput`; an unknown or mismatched (proposalId,
   // childRunId) pair is rejected outright (TASK-011 remediation, issue 1).
-  const record = await deps.fetchStore.getByProposal(workspaceId, proposalId, childRunId);
+  const record = await deps.fetchStore.getByProposal(organizationId, proposalId, childRunId);
   if (!record) {
     throw new Error(`materializeCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
   if (record.status !== "pending" && record.status !== "fetching") {
     // TASK-011 remediation (2026-07-19 RE-review, issue 3) — self-repair any
     // intent/child inconsistency BEFORE trusting this terminal record.
-    await reconcileIntentChildConsistency(deps, workspaceId, record, ctx);
+    await reconcileIntentChildConsistency(deps, organizationId, record, ctx);
     return record; // idempotent — already terminally resolved
   }
 
@@ -1995,7 +1994,7 @@ export async function materializeCultureSourceFetch(
   const proposedIntent = proposalRow.proposedOutput as ResearchCultureSourceIntentOutput;
   const proposalInputs = proposalRow.inputs as Partial<ResearchCultureSourceInput> | null;
   if (
-    proposalRow.workspaceId !== workspaceId ||
+    proposalRow.organizationId !== organizationId ||
     proposalRow.action !== record.action ||
     proposalRow.resourceType !== "external:fetch" ||
     !proposalInputs ||
@@ -2014,7 +2013,7 @@ export async function materializeCultureSourceFetch(
   // change at the SAME URL (e.g. a source reclassified permitted ->
   // do_not_use after propose() but before materialize()) — fail closed and
   // require a fresh proposal/approval rather than trusting the stale pin.
-  const currentSource = resolveAuthorizedCultureSource(workspaceId, record.company, record.sourceId);
+  const currentSource = resolveAuthorizedCultureSource(organizationId, record.company, record.sourceId);
   if (!currentSource || currentSource.url !== record.canonicalUrl) {
     throw new Error(`materializeCultureSourceFetch: source "${record.sourceId}" is no longer authorized with its pinned canonical URL`);
   }
@@ -2032,10 +2031,10 @@ export async function materializeCultureSourceFetch(
   const leaseOwner = randomUUID();
   let fetching: CultureFetchIntentRecord;
   try {
-    fetching = await deps.fetchStore.acquireLease(workspaceId, childRunId, leaseOwner, ctx.clock.nowISO());
+    fetching = await deps.fetchStore.acquireLease(organizationId, childRunId, leaseOwner, ctx.clock.nowISO());
   } catch (error) {
     if (error instanceof CultureFetchAlreadyTerminalError) {
-      const current = await deps.fetchStore.get(workspaceId, childRunId);
+      const current = await deps.fetchStore.get(organizationId, childRunId);
       if (current) return current;
     }
     if (error instanceof CultureFetchLeaseHeldError) {
@@ -2043,7 +2042,7 @@ export async function materializeCultureSourceFetch(
       // holds a live lease right now — this is not an error condition for
       // the caller; report the current (in-flight) record rather than
       // throwing, since nothing is actually wrong.
-      const current = await deps.fetchStore.get(workspaceId, childRunId);
+      const current = await deps.fetchStore.get(organizationId, childRunId);
       if (current) return current;
     }
     throw error;
@@ -2067,7 +2066,7 @@ export async function materializeCultureSourceFetch(
   const cancelPoll = setInterval(() => {
     if (abortController.signal.aborted) return;
     deps.fetchStore
-      .get(workspaceId, childRunId)
+      .get(organizationId, childRunId)
       .then((current) => {
         if (current?.cancelRequested && !abortController.signal.aborted) {
           abortController.abort();
@@ -2094,7 +2093,7 @@ export async function materializeCultureSourceFetch(
     // itself atomically guarded) or, far worse, FAIL with
     // budget-exhausted and permanently strand every future retry even
     // though the real network fetch has never yet succeeded.
-    const childRunBeforeReserve = await deps.childAgentRuns.get(workspaceId, childRunId);
+    const childRunBeforeReserve = await deps.childAgentRuns.get(organizationId, childRunId);
     if (!childRunBeforeReserve) {
       throw new Error(`materializeCultureSourceFetch: unknown child Run ${childRunId}`);
     }
@@ -2102,12 +2101,12 @@ export async function materializeCultureSourceFetch(
     const violation =
       childRunBeforeReserve.callsUsed > 0
         ? validateActionWithinChildRun(actionCheck, childRunBeforeReserve, ctx.clock.nowISO(), 0, { reusingExistingReservation: true })
-        : await reserveChildRunAction(deps.childAgentRuns, workspaceId, childRunId, actionCheck, 1, ctx.clock.nowISO());
+        : await reserveChildRunAction(deps.childAgentRuns, organizationId, childRunId, actionCheck, 1, ctx.clock.nowISO());
     if (violation) {
       deps.abortControllers.delete(childRunId);
       const afterViolation = await attemptFencedTerminalTransition(
         deps.fetchStore,
-        workspaceId,
+        organizationId,
         childRunId,
         (r) => ({ ...r, status: "failed", error: `${violation.reason}: ${violation.detail}` }),
         { leaseOwner, attempt: fetching.attempt },
@@ -2126,7 +2125,7 @@ export async function materializeCultureSourceFetch(
     // and independent of AbortController-map timing: if it no longer reads
     // "fetching" (this call no longer "owns" the fetch), bail out without
     // ever starting the real network request.
-    const preFlight = await deps.fetchStore.get(workspaceId, childRunId);
+    const preFlight = await deps.fetchStore.get(organizationId, childRunId);
     if (!preFlight) {
       throw new Error(`materializeCultureSourceFetch: culture-fetch intent for child Run ${childRunId} vanished unexpectedly`);
     }
@@ -2180,11 +2179,11 @@ export async function materializeCultureSourceFetch(
       // on the fenced "fetched" transition below, which re-checks
       // `cancelRequested` atomically at commit time, closing the gap this
       // plain read cannot.
-      const finalCheck = await deps.fetchStore.get(workspaceId, childRunId);
+      const finalCheck = await deps.fetchStore.get(organizationId, childRunId);
       if (finalCheck?.cancelRequested) {
         const { committed, record: current } = await attemptFencedTerminalTransition(
           deps.fetchStore,
-          workspaceId,
+          organizationId,
           childRunId,
           (r) => ({ ...r, status: "cancelled" }),
           { leaseOwner, attempt: fetching.attempt },
@@ -2195,7 +2194,7 @@ export async function materializeCultureSourceFetch(
         // `cancelChildAgentRun` — the true winner (whoever that is) owns
         // that responsibility instead.
         if (committed) {
-          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
             if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
@@ -2203,7 +2202,7 @@ export async function materializeCultureSourceFetch(
       }
       const fetchedResult = await attemptFencedTerminalTransition(
         deps.fetchStore,
-        workspaceId,
+        organizationId,
         childRunId,
         (r) => ({ ...r, status: "fetched", artifact }),
         // TASK-011 remediation (2026-07-19 coordinator distributed-defects
@@ -2213,7 +2212,7 @@ export async function materializeCultureSourceFetch(
         { leaseOwner, attempt: fetching.attempt, requireCancelNotRequested: true },
       );
       if (fetchedResult.committed) {
-        await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+        await completeChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
           if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
         });
         if (fetchedResult.record) return fetchedResult.record;
@@ -2234,13 +2233,13 @@ export async function materializeCultureSourceFetch(
       if (fetchedResult.record?.status === "fetching" && fetchedResult.record.leaseOwner === leaseOwner && fetchedResult.record.attempt === fetching.attempt) {
         const { committed: cancelCommitted, record: cancelledRecord } = await attemptFencedTerminalTransition(
           deps.fetchStore,
-          workspaceId,
+          organizationId,
           childRunId,
           (r) => ({ ...r, status: "cancelled" }),
           { leaseOwner, attempt: fetching.attempt },
         );
         if (cancelCommitted) {
-          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
             if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
@@ -2262,7 +2261,7 @@ export async function materializeCultureSourceFetch(
       // remediation, issue 4: "abort caused by cancellation must remain
       // cancelled").
       if (abortController.signal.aborted) {
-        const current = await deps.fetchStore.get(workspaceId, childRunId);
+        const current = await deps.fetchStore.get(organizationId, childRunId);
         if (current?.status === "cancelled") return current;
         // The signal was aborted (by our own poll observing cancelRequested)
         // but the durable record hasn't been flipped to "cancelled" yet —
@@ -2271,13 +2270,13 @@ export async function materializeCultureSourceFetch(
         if (current?.cancelRequested) {
           const { committed, record: cancelled } = await attemptFencedTerminalTransition(
             deps.fetchStore,
-            workspaceId,
+            organizationId,
             childRunId,
             (r) => ({ ...r, status: "cancelled" }),
             { leaseOwner, attempt: fetching.attempt },
           );
           if (committed) {
-            await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+            await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
               if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
             });
           }
@@ -2286,7 +2285,7 @@ export async function materializeCultureSourceFetch(
       }
       const failedResult = await attemptFencedTerminalTransition(
         deps.fetchStore,
-        workspaceId,
+        organizationId,
         childRunId,
         (r) => ({
           ...r,
@@ -2304,7 +2303,7 @@ export async function materializeCultureSourceFetch(
       // to see when this write DID win. Only the winner may touch the
       // child Run's own lifecycle.
       if (failedResult.committed) {
-        await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+        await failChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
           // The child Run may already be terminal (e.g. concurrently cancelled) —
           // that is itself a legitimate terminal state, not a reason to mask the
           // original fetch failure below. Surface any OTHER failure.
@@ -2321,13 +2320,13 @@ export async function materializeCultureSourceFetch(
         // transition the record to "cancelled" now.
         const { committed: cancelCommitted } = await attemptFencedTerminalTransition(
           deps.fetchStore,
-          workspaceId,
+          organizationId,
           childRunId,
           (r) => ({ ...r, status: "cancelled" }),
           { leaseOwner, attempt: fetching.attempt },
         );
         if (cancelCommitted) {
-          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
+          await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, { type: "agent", id: LEARNING_AGENT }, ctx).catch((e) => {
             if (!(e instanceof ChildRunAlreadyTerminalError) && !(e instanceof ChildRunTerminalAuditPendingError)) throw e;
           });
         }
@@ -2360,13 +2359,13 @@ export async function cancelCultureSourceFetch(
     fetchStore: DurableCultureFetchStore;
     abortControllers: Map<string, AbortController>;
   },
-  workspaceId: string,
+  organizationId: string,
   proposalId: string,
   childRunId: string,
   actor: Actor,
   ctx: RunCtx,
 ): Promise<CultureFetchIntentRecord> {
-  const record = await deps.fetchStore.getByProposal(workspaceId, proposalId, childRunId);
+  const record = await deps.fetchStore.getByProposal(organizationId, proposalId, childRunId);
   if (!record) {
     throw new Error(`cancelCultureSourceFetch: unknown or mismatched culture-fetch intent for proposal "${proposalId}" / child Run "${childRunId}"`);
   }
@@ -2383,7 +2382,7 @@ export async function cancelCultureSourceFetch(
   // no live lease is held (pending, or an expired/orphaned "fetching"
   // lease); otherwise durably flags `cancelRequested` for the (possibly
   // remote) lease holder's poll loop to discover.
-  const result = await deps.fetchStore.requestCancel(workspaceId, childRunId, ctx.clock.nowISO());
+  const result = await deps.fetchStore.requestCancel(organizationId, childRunId, ctx.clock.nowISO());
 
   // Best-effort second check: if a controller appeared AFTER our early
   // check above (materialize's own registration racing this call), abort it
@@ -2395,7 +2394,7 @@ export async function cancelCultureSourceFetch(
   }
 
   if (result.status === "cancelled") {
-    await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, workspaceId, childRunId, actor, ctx).catch((error) => {
+    await cancelChildAgentRun({ store: deps.childAgentRuns, ledger: deps.ledger }, organizationId, childRunId, actor, ctx).catch((error) => {
       // Already terminal (completed/failed/cancelled) — fine, cancellation is
       // idempotent. Surface any OTHER failure (e.g. a ledger append error).
       if (!(error instanceof ChildRunAlreadyTerminalError) && !(error instanceof ChildRunTerminalAuditPendingError)) throw error;
@@ -2408,7 +2407,7 @@ export interface SynthesizeCultureProfileInput {
   /** Needed to independently re-resolve this run's own fetched artifacts
    * from the durable stores below — TASK-011 remediation (2026-07-19
    * coordinator distributed-defects RE-review round 2, issue 8). */
-  workspaceId: string;
+  organizationId: string;
   /** The EXACT parent Agent Run this synthesis is scoped to — TASK-011
    * remediation (2026-07-18 final review, issue 6). The Skill resolves
    * `artifacts`/`skippedSources` from this run's own fetched intent records
@@ -2463,7 +2462,7 @@ export class ClaimGroundingError extends Error {
  * this slice's own artifact-expiry/purge mechanism entirely (an expired
  * artifact's raw body was purged from `cultureFetchStore` but remained
  * fully readable, unexpired, inside the ledger row). `inputs` now carries
- * only `workspaceId`/`parentRunId`/`claims`/`skippedSources` — no artifact
+ * only `organizationId`/`parentRunId`/`claims`/`skippedSources` — no artifact
  * bodies at all; the Skill independently re-derives (and re-validates,
  * including expiry) the artifacts it grounds against, exactly mirroring the
  * checks the router performs for its own earlier fail-fast validation.
@@ -2474,9 +2473,9 @@ export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: Chil
     async run(inputs, ctx) {
       const input = inputs as SynthesizeCultureProfileInput;
       const nowISO = ctx.clock.nowISO();
-      const childRuns = await deps.childAgentRuns.listByParentRun(input.workspaceId, input.parentRunId);
+      const childRuns = await deps.childAgentRuns.listByParentRun(input.organizationId, input.parentRunId);
       const intentRecords = (
-        await Promise.all(childRuns.map((childRun) => deps.fetchStore.get(input.workspaceId, childRun.id)))
+        await Promise.all(childRuns.map((childRun) => deps.fetchStore.get(input.organizationId, childRun.id)))
       ).filter((r): r is NonNullable<typeof r> => r != null);
       // Last-write-wins per sourceId would silently mask a duplicate — this
       // Skill fails closed instead, exactly like the router's own
@@ -2515,7 +2514,7 @@ export function createSynthesizeCultureProfileSkill(deps: { childAgentRuns: Chil
 }
 
 export const JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "jobpilot.researchCultureSource",
   version: "1.0.0",
   goalTypes: [JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE],
@@ -2535,7 +2534,7 @@ export const JOBPILOT_RESEARCH_CULTURE_SOURCE_SKILL_MANIFEST = {
 } as const;
 
 export const JOBPILOT_SYNTHESIZE_CULTURE_PROFILE_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "jobpilot.synthesizeCultureProfile",
   version: "1.0.0",
   goalTypes: [JOBPILOT_CULTURE_RESEARCH_GOAL_TYPE],
@@ -2576,7 +2575,7 @@ const stageOutreachDraft: Skill = {
 export const RELATIONSHIP_OUTREACH_GOAL_TYPE = "relationship.outreach";
 export const DRAFT_OUTREACH_TASK_TYPE = "draft_outreach";
 export const OUTREACH_DRAFT_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "outreach.stageDraft",
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_OUTREACH_GOAL_TYPE],
@@ -2592,7 +2591,7 @@ export const OUTREACH_DRAFT_SKILL_MANIFEST = {
 export const HELPDESK_ROUTING_GOAL_TYPE = "helpdesk.routing";
 export const DRAFT_HELP_OFFER_TASK_TYPE = "draft_help_offer";
 export const HELPDESK_ANSWER_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "helpdesk.stageAnswer",
   version: "1.0.0",
   goalTypes: [HELPDESK_ROUTING_GOAL_TYPE],
@@ -2623,7 +2622,7 @@ export const HELPDESK_ANSWER_SKILL_MANIFEST = {
 export const DEALPILOT_SOURCING_GOAL_TYPE = "dealpilot.sourcing";
 export const SOURCE_CANDIDATES_TASK_TYPE = "source_candidates";
 export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "dealpilot.source",
   version: "1.0.0",
   goalTypes: [DEALPILOT_SOURCING_GOAL_TYPE],
@@ -2651,7 +2650,7 @@ export const DEALPILOT_SOURCE_SKILL_MANIFEST = {
 export const RELATIONSHIP_CAPTURE_GOAL_TYPE = "relationship.capture";
 export const STAGE_CAPTURE_TASK_TYPE = "stage_capture";
 export const STAGE_CAPTURE_SKILL_MANIFEST = {
-  workspaceId: PILOT_WORKSPACE,
+  organizationId: PILOT_ORGANIZATION,
   skillId: "stageCapture",
   version: "1.0.0",
   goalTypes: [RELATIONSHIP_CAPTURE_GOAL_TYPE],
@@ -2673,7 +2672,7 @@ export const STAGE_CAPTURE_SKILL_MANIFEST = {
  * `IntakeService`/`GoogleService`/`EgressExecutor` (`@bridge/integrations-
  * google`) gained an optional `goalTasks?: GoalTaskStore` dependency; each
  * method that proposes one of these skills provisions (find-or-create) ONE
- * durable Goal for the workspace + one bounded Task per call, assigned to
+ * durable Goal for the organization + one bounded Task per call, assigned to
  * whichever physical identity already invokes it. Same manifest shape
  * (`permissions`/`plane`/`dataScopes`) mirrors what each call site's own
  * `pipeline.propose` request already declares.
@@ -2683,7 +2682,7 @@ export const GOOGLE_SOURCE_TASK_TYPE = "source_google_data";
 export const GOOGLE_STAGE_TASK_TYPE = "stage_google_data";
 
 function googleSkillManifest(skillId: string, taskType: string, plane: "local" | "cloud", permissions: readonly string[]): {
-  workspaceId: string;
+  organizationId: string;
   skillId: string;
   version: string;
   goalTypes: readonly string[];
@@ -2696,7 +2695,7 @@ function googleSkillManifest(skillId: string, taskType: string, plane: "local" |
   defaultAgents: readonly string[];
 } {
   return {
-    workspaceId: PILOT_WORKSPACE,
+    organizationId: PILOT_ORGANIZATION,
     skillId,
     version: "1.0.0",
     goalTypes: [GOOGLE_SYNC_GOAL_TYPE],
@@ -2817,12 +2816,12 @@ function seedGovernance(
     EGRESS_AGENT,
     INTAKE_AGENT,
   ]) {
-    agents.workspaces.set(agentId, PILOT_WORKSPACE);
+    agents.organizations.set(agentId, PILOT_ORGANIZATION);
     agents.statuses.set(agentId, "active");
   }
   // Outreach Agent (existing pilot) — event:write + reads.
   agents.assumed.set(OUTREACH_AGENT, "role-outreach");
-  agents.scope.set(OUTREACH_AGENT, ["event:write", "person:read", "initiative:read", "file:read"]);
+  agents.scope.set(OUTREACH_AGENT, ["event:write", "person:read", "record:read", "file:read"]);
   agents.tiers.set(OUTREACH_AGENT, "public");
   agents.skills.set(OUTREACH_AGENT, ["outreach.stageDraft"]);
   roles.roleGrants.set("role-outreach", [
@@ -2948,8 +2947,8 @@ export interface ModePorts {
   automationRegistry: AutomationRegistry;
   automationRunRecorder: AutomationRunRecorder;
   canonical: CanonicalIdentityStore;
-  workspaceStore: DrizzleWorkspaceStore;
-  /** Read surface for Initiative/Touchpoint/Signal — see graph-store.ts's header
+  organizationStore: DrizzleOrganizationStore;
+  /** Read surface for Record/Touchpoint/Signal — see graph-store.ts's header
    * comment (frontend-migration-scoping.md Phase 3: these had zero tRPC coverage).
    * Same `DrizzleGraphStore` class binds to either the real Postgres `db` or the
    * local pglite `localDb` — both are the same schema.ts tables. */
@@ -2958,11 +2957,11 @@ export interface ModePorts {
   helpdeskStore: DrizzleHelpdeskStore;
   resourcesStore: DrizzleResourcesStore;
   capabilityStore: CapabilityStore;
-  workspaceDefinitionStore: WorkspaceDefinitionStore;
-  /** P2 capability packages (docs/raw/capability-package-format.md, ADR-018/ADR-023) —
-   * package_installations-shaped rows. Real Drizzle-backed table in persistent mode
+  organizationDefinitionStore: OrganizationDefinitionStore;
+  /** P2 capability modules (docs/raw/capability-module-format.md, ADR-018/ADR-023) —
+   * module_installations-shaped rows. Real Drizzle-backed table in persistent mode
    * (ADR-023); in-memory in in-memory mode, mirroring capabilityStore's split. */
-  packageStore: PackageStore;
+  moduleStore: ModuleStore;
   memoryStore: MemoryStore;
   /** AGS1 (TASK-007) — Goal/Task catalog Skills resolve against. In-memory
    * default (dev/test); `buildPersistentPorts` binds the real, restart-durable
@@ -3025,14 +3024,15 @@ export interface ModePorts {
 export function buildPersistentPorts(env: {
   url: string;
   pilotUserId?: string;
-  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+  organizationRenameCoordinator?: OrganizationRenameCoordinator;
 }): ModePorts {
   const pilotUserId = env.pilotUserId ?? PILOT_USER;
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db, {
-    defaultWorkspaceId: PILOT_WORKSPACE,
-    ...(env.workspaceRenameCoordinator
-      ? { workspaceRenameCoordinator: env.workspaceRenameCoordinator }
+    defaultOrganizationId: PILOT_ORGANIZATION,
+    defaultUserId: pilotUserId,
+    ...(env.organizationRenameCoordinator
+      ? { organizationRenameCoordinator: env.organizationRenameCoordinator }
       : {}),
   });
   // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
@@ -3042,7 +3042,7 @@ export function buildPersistentPorts(env: {
   const goalTaskStore = new DrizzleGoalTaskStore(db);
   const skillManifestRegistry = new DrizzleSkillManifestRegistry(
     db,
-    PILOT_WORKSPACE,
+    PILOT_ORGANIZATION,
   );
   const childAgentRunStore = new DrizzleChildAgentRunStore(db);
 
@@ -3058,19 +3058,19 @@ export function buildPersistentPorts(env: {
     // The one genuinely-fixed lie: canonical identity now really persists to Postgres
     // instead of an in-memory fake, once DATABASE_URL is set.
     canonical: new DrizzleCanonicalIdentityStore(db),
-    workspaceStore: ports.workspaceStore,
+    organizationStore: ports.organizationStore,
     graphStore: new DrizzleGraphStore(db),
-    jobpilotStore: new DrizzleJobPilotStore(db, PILOT_WORKSPACE),
-    helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_WORKSPACE),
+    jobpilotStore: new DrizzleJobPilotStore(db, PILOT_ORGANIZATION),
+    helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(db),
-    capabilityStore: new DrizzleCapabilityStore(db, PILOT_WORKSPACE),
-    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(
+    capabilityStore: new DrizzleCapabilityStore(db, PILOT_ORGANIZATION),
+    organizationDefinitionStore: new DrizzleOrganizationDefinitionStore(
       db,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
     ),
-    // P2 packages: real Drizzle-backed store in persistent mode (ADR-023) — no
+    // P2 modules: real Drizzle-backed store in persistent mode (ADR-023) — no
     // longer in-memory-only once DATABASE_URL is set.
-    packageStore: new DrizzlePackageStore(db, PILOT_WORKSPACE),
+    moduleStore: new DrizzleModuleStore(db, PILOT_ORGANIZATION),
     memoryStore: new DrizzleMemoryStore(db),
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
@@ -3089,7 +3089,7 @@ export function buildPersistentPorts(env: {
     verifyRlsPosture: () => assertRlsPosture(db, { env: process.env }),
     ensureEgressGovernance: () =>
       ensureEgressAgentGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: EGRESS_AGENT,
         roleId: EGRESS_ROLE,
@@ -3097,7 +3097,7 @@ export function buildPersistentPorts(env: {
       }),
     ensureIntakeGovernance: () =>
       ensureIntakeAgentGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: INTAKE_AGENT,
         roleId: INTAKE_ROLE,
@@ -3105,12 +3105,12 @@ export function buildPersistentPorts(env: {
       }),
     ensureDealPilotPrincipalGovernance: () =>
       ensureDealPilotPrincipalGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
       }),
     ensureInternalStrategistGovernance: () =>
       ensureInternalStrategistGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: INTERNAL_STRATEGIST_AGENT,
         roleId: INTERNAL_STRATEGIST_ROLE,
@@ -3118,7 +3118,7 @@ export function buildPersistentPorts(env: {
       }),
     ensureGovernanceAgentGovernance: () =>
       ensureGovernanceAgentGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: GOVERNANCE_AGENT,
         roleId: GOVERNANCE_ROLE,
@@ -3126,7 +3126,7 @@ export function buildPersistentPorts(env: {
       }),
     ensureCapabilityBuilderGovernance: () =>
       ensureCapabilityBuilderGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: CAPABILITY_BUILDER_AGENT,
         roleId: CAPABILITY_BUILDER_ROLE,
@@ -3134,7 +3134,7 @@ export function buildPersistentPorts(env: {
       }),
     ensureRelationshipUserGovernance: () =>
       ensureRelationshipUserGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
       }),
     ensureSkillManifestCatalog: async () => {
@@ -3143,7 +3143,7 @@ export function buildPersistentPorts(env: {
     },
     ensureLearningGovernance: () =>
       ensureLearningAgentGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: LEARNING_AGENT,
         roleId: LEARNING_ROLE,
@@ -3151,7 +3151,7 @@ export function buildPersistentPorts(env: {
       }),
     ensureOutreachGovernance: () =>
       ensureOutreachAgentGovernance(db, {
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         userId: pilotUserId,
         agentId: OUTREACH_AGENT,
         roleId: OUTREACH_ROLE,
@@ -3162,14 +3162,14 @@ export function buildPersistentPorts(env: {
 
 /**
  * In-memory mode (`DATABASE_URL` unset) — zero-infra dev/test default. Seeds
- * governance so the Google egress/intake agents are authorized, and binds workspace
+ * governance so the Google egress/intake agents are authorized, and binds organization
  * CRUD to the same LOCAL pglite client used by the generic Local Plane since
- * workspace/team rows are real relational data, not in-memory governance config.
+ * organization/team rows are real relational data, not in-memory governance config.
  */
 export async function buildInMemoryPorts(env: {
   localDir: string | undefined;
   pilotUserId?: string;
-  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+  organizationRenameCoordinator?: OrganizationRenameCoordinator;
   localDatabase?: Awaited<ReturnType<typeof createLocalDb>>;
 }): Promise<ModePorts> {
   const pilotUserId = env.pilotUserId ?? PILOT_USER;
@@ -3187,7 +3187,8 @@ export async function buildInMemoryPorts(env: {
     await graphStore.getMaxRelationDecisionSequence();
   const ledger: LedgerStore = env.localDir
     ? new DrizzleLedgerStore(localDb, {
-        defaultWorkspaceId: PILOT_WORKSPACE,
+        defaultOrganizationId: PILOT_ORGANIZATION,
+        defaultUserId: pilotUserId,
       })
     : new InMemoryLedger(relationDecisionSequenceFloor);
   if (ledger instanceof DrizzleLedgerStore) {
@@ -3198,7 +3199,7 @@ export async function buildInMemoryPorts(env: {
   // RE-review, issue 6; landed originally without `ledger`) —
   // `ledger`/`goalTasks`/`childAgentRuns` were pure in-memory JS objects
   // EVEN WHEN `BRIDGE_LOCAL_DIR` is set, unlike every other store here
-  // (`workspaceStore`/`graphStore`/`jobpilotStore`/etc, already always
+  // (`organizationStore`/`graphStore`/`jobpilotStore`/etc, already always
   // Drizzle-backed against `localDb`) and unlike `memoryStore` (the
   // culture-fetch/synthesis-pointer durability this whole feature's restart
   // guarantees were built on). This meant a REAL process restart with
@@ -3258,19 +3259,19 @@ export async function buildInMemoryPorts(env: {
     automationRegistry: new InMemoryAutomationRegistry(),
     automationRunRecorder: new InMemoryAutomationRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
-    workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
+    organizationStore: new DrizzleOrganizationStore(localDb, env.organizationRenameCoordinator),
     graphStore,
-    jobpilotStore: new DrizzleJobPilotStore(localDb, PILOT_WORKSPACE),
-    helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_WORKSPACE),
+    jobpilotStore: new DrizzleJobPilotStore(localDb, PILOT_ORGANIZATION),
+    helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_ORGANIZATION),
     resourcesStore: new DrizzleResourcesStore(localDb),
-    capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_WORKSPACE),
-    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(
+    capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_ORGANIZATION),
+    organizationDefinitionStore: new DrizzleOrganizationDefinitionStore(
       localDb,
-      PILOT_WORKSPACE,
+      PILOT_ORGANIZATION,
     ),
-    // In-memory mode keeps packages in-memory (no persistent backing store needed
-    // for zero-infra dev/test) — persistent mode uses the real DrizzlePackageStore.
-    packageStore: new InMemoryPackageStore(),
+    // In-memory mode keeps modules in-memory (no persistent backing store needed
+    // for zero-infra dev/test) — persistent mode uses the real DrizzleModuleStore.
+    moduleStore: new InMemoryModuleStore(),
     memoryStore: new DrizzleMemoryStore(localDb),
     // TASK-007 — dependency-free in-memory default (dev/test). The SAME
     // GOVERNED_SKILL_MANIFEST_CATALOG code-declared list `buildPersistentPorts`
@@ -3297,10 +3298,10 @@ export async function buildInMemoryPorts(env: {
     // TASK-011 remediation (2026-07-19 coordinator distributed-defects
     // RE-review, issue 6) — when `BRIDGE_LOCAL_DIR` is set,
     // `DrizzleGoalTaskStore`/`DrizzleChildAgentRunStore` enforce REAL
-    // foreign-key integrity against the `agents`/`workspaces` tables (e.g.
-    // `tasks.assigned_agent_id -> agents.id`). `workspaceStore` here is
+    // foreign-key integrity against the `agents`/`organizations` tables (e.g.
+    // `tasks.assigned_agent_id -> agents.id`). `organizationStore` here is
     // ALREADY always Drizzle-backed (`bootstrapPilotIdentities` below
-    // already creates the real workspace/user rows regardless of mode),
+    // already creates the real organization/user rows regardless of mode),
     // but the governed AGENT rows themselves were never seeded into the
     // real `agents` table in this mode — every FK insert referencing them
     // would fail closed with a constraint violation the moment
@@ -3317,7 +3318,7 @@ export async function buildInMemoryPorts(env: {
       ? {
           ensureLearningGovernance: () =>
             ensureLearningAgentGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: LEARNING_AGENT,
               roleId: LEARNING_ROLE,
@@ -3325,7 +3326,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureOutreachGovernance: () =>
             ensureOutreachAgentGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: OUTREACH_AGENT,
               roleId: OUTREACH_ROLE,
@@ -3333,7 +3334,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureInternalStrategistGovernance: () =>
             ensureInternalStrategistGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: INTERNAL_STRATEGIST_AGENT,
               roleId: INTERNAL_STRATEGIST_ROLE,
@@ -3341,7 +3342,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureGovernanceAgentGovernance: () =>
             ensureGovernanceAgentGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: GOVERNANCE_AGENT,
               roleId: GOVERNANCE_ROLE,
@@ -3349,7 +3350,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureCapabilityBuilderGovernance: () =>
             ensureCapabilityBuilderGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: CAPABILITY_BUILDER_AGENT,
               roleId: CAPABILITY_BUILDER_ROLE,
@@ -3357,7 +3358,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureEgressGovernance: () =>
             ensureEgressAgentGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: EGRESS_AGENT,
               roleId: EGRESS_ROLE,
@@ -3365,7 +3366,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureIntakeGovernance: () =>
             ensureIntakeAgentGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
               agentId: INTAKE_AGENT,
               roleId: INTAKE_ROLE,
@@ -3373,7 +3374,7 @@ export async function buildInMemoryPorts(env: {
             }),
           ensureDealPilotPrincipalGovernance: () =>
             ensureDealPilotPrincipalGovernance(localDb, {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               userId: pilotUserId,
             }),
         }
@@ -3416,9 +3417,7 @@ export function encryptedCredentialVaultFromEnv(
     directory,
     current: credentialVaultKeyFromBase64(currentId, currentKey),
     ...(previousId && previousKey
-      ? {
-          previous: credentialVaultKeyFromBase64(previousId, previousKey),
-        }
+      ? { previous: credentialVaultKeyFromBase64(previousId, previousKey) }
       : {}),
   });
 }
@@ -3558,20 +3557,20 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
 
   // Mode ports: one fully-typed object per mode, no let-sprawl reassignment.
-  const workspaceRenameCoordinator: WorkspaceRenameCoordinator = {
-    createLease: (workspaceId) =>
+  const organizationRenameCoordinator: OrganizationRenameCoordinator = {
+    createLease: (organizationId) =>
       createOrganizationRenameLease(
-        workspaceId,
+        organizationId,
         moduleFilesBridgeRoot,
       ),
   };
   const modePorts: ModePorts = url
-    ? buildPersistentPorts({ url, pilotUserId, workspaceRenameCoordinator })
+    ? buildPersistentPorts({ url, pilotUserId, organizationRenameCoordinator })
     : await buildInMemoryPorts({
         localDir,
         pilotUserId,
         localDatabase,
-        workspaceRenameCoordinator,
+        organizationRenameCoordinator,
       });
   modePortsForCleanup = modePorts;
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
@@ -3605,14 +3604,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     automationRegistry,
     automationRunRecorder,
     canonical,
-    workspaceStore,
+    organizationStore,
     graphStore,
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
     capabilityStore,
-    workspaceDefinitionStore,
-    packageStore,
+    organizationDefinitionStore,
+    moduleStore,
     memoryStore,
     goalTasks,
     skillManifests,
@@ -3623,13 +3622,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const ledger: LedgerStore = url
     ? new ResidencyRoutingLedgerStore(
         new DrizzleLedgerStore(localDatabase.db, {
-          defaultWorkspaceId: PILOT_WORKSPACE,
+          defaultOrganizationId: PILOT_ORGANIZATION,
+          defaultUserId: pilotUserId,
         }),
         modeLedger,
       )
     : modeLedger;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
-  // evaluates workspace policies from Postgres; it must not replace these rules.
+  // evaluates organization policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);
   const effectivePolicyStore: PolicyStore = url
     ? {
@@ -3659,18 +3659,18 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // persistent implementation exists yet, this is the onboarding-scoped slice
   // of the still-absent general Memory/Knowledge kernel primitive.
   const onboardingProfileStore = new InMemoryOnboardingProfileStore();
-  // P2 capability packages — now backed by DrizzlePackageStore in persistent mode
-  // (ADR-023); `packageStore` comes from modePorts (see above), same split every
+  // P2 capability modules — now backed by DrizzleModuleStore in persistent mode
+  // (ADR-023); `moduleStore` comes from modePorts (see above), same split every
   // other per-mode port already follows.
 
-  // DealPilot: the first tool wired through the generic manifest intake seam
+  // DealPilot: the first Module wired through the generic manifest intake seam
   // (shared capability intake contract) — sourcing quarantines
   // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
   // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
   const dealPilotStore = new LocalDealPilotStore(localPlane.state);
-  const localWorkspaceStore = new DrizzleWorkspaceStore(localDatabase.db);
+  const localOrganizationStore = new DrizzleOrganizationStore(localDatabase.db);
   const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
   const credentialVaultRoot = effectiveLocalDir ?? localDir;
   if (credentialProvider === "encrypted-file" && !credentialVaultRoot) {
@@ -3688,7 +3688,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   await reconcileCredentialOperations(
     dealPilotStore,
     dealPilotCredentialVault,
-    PILOT_WORKSPACE,
+    PILOT_ORGANIZATION,
   );
   const dealPilotCredentialAudit = dealPilotStore;
   const dealPilotCredentials = new SourceCredentialService(
@@ -3700,7 +3700,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     relationshipAuthorized: false,
     tasksAuthorized: true,
   };
-  const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
+  const dealPilotIntegrationId = `${PILOT_ORGANIZATION}:google`;
   const dealPilotSourceConnector = createBizBuySellAlertConnector(
     createGmailFetchMessages(gateways, dealPilotIntegrationId, undefined, {
       stateStore: dealPilotStore,
@@ -3710,21 +3710,21 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   skillRegistry.register({
     name: "dealpilot.source",
     async run(inputs, ctx) {
-      const request = inputs as { workspaceId?: unknown; sourceId?: unknown };
-      if (typeof request.workspaceId !== "string" || typeof request.sourceId !== "string") {
-        throw new Error("DealPilot Source discovery requires workspaceId and sourceId");
+      const request = inputs as { organizationId?: unknown; sourceId?: unknown };
+      if (typeof request.organizationId !== "string" || typeof request.sourceId !== "string") {
+        throw new Error("DealPilot Source discovery requires organizationId and sourceId");
       }
-      const lockKey = `${request.workspaceId}:${request.sourceId}`;
+      const lockKey = `${request.organizationId}:${request.sourceId}`;
       const active = dealPilotDiscoveryLocks.get(lockKey);
       if (active) return active;
       const operation = (async (): Promise<SkillOutput> => {
-        const source = await dealPilotStore.get("source", request.workspaceId as string, request.sourceId as string);
+        const source = await dealPilotStore.get("source", request.organizationId as string, request.sourceId as string);
         if (!source || source.kind !== "source") throw new Error("DealPilot Source Record not found");
         const discoveryStartedAt = ctx.clock.nowISO();
         const baseQuery = {
           kind: "company" as const,
           hints: {
-            workspaceId: source.workspaceId,
+            organizationId: source.organizationId,
             sourceId: source.id,
             ...(source.lastCheckedAt ? { after: source.lastCheckedAt } : {}),
           },
@@ -3743,7 +3743,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         const query = {
           kind: "company" as const,
           hints: {
-            workspaceId: source.workspaceId,
+            organizationId: source.organizationId,
             sourceId: source.id,
             maxResults: String(maxResults),
             scanStartedAt: discoveryStartedAt,
@@ -3754,7 +3754,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         try {
           batch = await dealPilotSourceConnector.fetchWithSummary(query);
         } catch (error) {
-          await dealPilotStore.updateSource(source.id, source.workspaceId, { health: "degraded" });
+          await dealPilotStore.updateSource(source.id, source.organizationId, { health: "degraded" });
           throw error;
         }
 
@@ -3781,7 +3781,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
             throw new Error("Gmail connector did not return a durable acknowledgement receipt");
           }
           const settlement = await dealPilotStore.settleDiscoveryBatch({
-            workspaceId: source.workspaceId,
+            organizationId: source.organizationId,
             sourceId: source.id,
             receipt: batch.summary.receipt,
             captures,
@@ -3826,26 +3826,26 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       }
     },
   });
-  // Idempotent bootstrap: the pilot workspace/user are structural constants (not
-  // migration seed data), but real DB writes FK-reference `workspaces.id`/`users.id`
-  // (e.g. `integration.connect` → `integrations.workspace_id`, `workspace.create` →
-  // `workspace_members.user_id`). Without this, any such write against a real/
+  // Idempotent bootstrap: the pilot organization/user are structural constants (not
+  // migration seed data), but real DB writes FK-reference `organizations.id`/`users.id`
+  // (e.g. `integration.connect` → `integrations.organization_id`, `organization.create` →
+  // `organization_members.user_id`). Without this, any such write against a real/
   // persistent DB throws a raw Postgres FK violation (23503) the first time it runs,
   // because nothing ever inserts these rows. Safe to call every boot (no-op if present).
-  await workspaceStore.bootstrapPilotIdentities({
-    workspaceId: PILOT_WORKSPACE,
+  await organizationStore.bootstrapPilotIdentities({
+    organizationId: PILOT_ORGANIZATION,
     userId: pilotUserId,
     userEmail: pilotUserEmail,
   });
-  await migrateLegacyPilotOrganization(workspaceStore);
+  await migrateLegacyPilotOrganization(organizationStore);
   if (url) {
-    await localWorkspaceStore.bootstrapPilotIdentities({
-      workspaceId: PILOT_WORKSPACE,
+    await localOrganizationStore.bootstrapPilotIdentities({
+      organizationId: PILOT_ORGANIZATION,
       userId: pilotUserId,
       userEmail: pilotUserEmail,
     });
   }
-  // Persistent governance rows reference the pilot workspace and owner, so
+  // Persistent governance rows reference the pilot organization and owner, so
   // provision them only after those identities exist.
   await modePorts.ensureLearningGovernance?.();
   await modePorts.ensureOutreachGovernance?.();
@@ -3863,22 +3863,22 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // Helpdesk is now a nested Relationship sub-module, and Calendar is a View
   // kind rather than a Module. Preserve historical rows/data while removing
   // both retired standalone identities from installed navigation.
-  await retireSupersededBuiltIns(packageStore, PILOT_WORKSPACE);
+  await retireSupersededBuiltIns(moduleStore, PILOT_ORGANIZATION);
 
-  // Seed built-in workspace-definition packages as available+installed.
+  // Seed built-in organization-definition modules as available+installed.
   // Idempotent: checks existing rows before inserting so a restart doesn't duplicate.
-  const existing = await packageStore.list(PILOT_WORKSPACE, { limit: 100, offset: 0 });
-  for (const pkg of BUILT_IN_PACKAGES) {
-    const versions = existing.items.filter((row) => row.packageName === pkg.manifest.name);
-    const current = versions.find((row) => row.packageVersion === pkg.manifest.version);
+  const existing = await moduleStore.list(PILOT_ORGANIZATION, { limit: 100, offset: 0 });
+  for (const pkg of BUILT_IN_MODULES) {
+    const versions = existing.items.filter((row) => row.moduleName === pkg.manifest.name);
+    const current = versions.find((row) => row.moduleVersion === pkg.manifest.version);
     if (!current) {
       for (const previous of versions.filter((row) => row.state === "available")) {
-        await packageStore.setState(previous.id, "legacy");
+        await moduleStore.setState(previous.id, "legacy");
       }
-      await packageStore.create({
-        workspaceId: PILOT_WORKSPACE,
-        packageName: pkg.manifest.name,
-        packageVersion: pkg.manifest.version,
+      await moduleStore.create({
+        organizationId: PILOT_ORGANIZATION,
+        moduleName: pkg.manifest.name,
+        moduleVersion: pkg.manifest.version,
         manifest: pkg.manifest,
         computedRisk: pkg.computedRisk,
         state: "available",
@@ -3890,7 +3890,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
 
   // Signed Module manifests opt individual Automations into the executable
   // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
-  for (const pkg of BUILT_IN_PACKAGES) {
+  for (const pkg of BUILT_IN_MODULES) {
     const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
     for (const automation of pkg.manifest.module?.automations ?? []) {
       if (!automation.automationId) continue;
@@ -3901,7 +3901,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       const agentId = resolveModuleAgentRuntimeId(pkg.manifest.name, automation.agentId);
       if (!permission || !agent || !automationId || !agentId) continue;
       if (!agent.plane) throw new Error(`Module Automation ${automation.id} has no owning Agent Plane`);
-      const manifest = skillManifests.forSkill(PILOT_WORKSPACE, automation.procedure)[0];
+      const manifest = skillManifests.forSkill(PILOT_ORGANIZATION, automation.procedure)[0];
       let goalTaskRef: { goalId: string; taskId: string } | undefined;
       if (manifest) {
         const goalType = manifest.goalTypes[0];
@@ -3911,17 +3911,17 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
         }
         const seam = { nextId: () => uuidv7(), nowISO: () => new Date().toISOString() };
         const goal =
-          (await goalTasks.listGoals(PILOT_WORKSPACE)).find((row) => row.type === goalType) ??
+          (await goalTasks.listGoals(PILOT_ORGANIZATION)).find((row) => row.type === goalType) ??
           (await goalTasks.createGoal(
             {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               type: goalType,
               title: `${automation.name} outcome`,
             },
             seam,
           ));
         const task =
-          (await goalTasks.listTasksByGoal(PILOT_WORKSPACE, goal.id)).find(
+          (await goalTasks.listTasksByGoal(PILOT_ORGANIZATION, goal.id)).find(
             (row) =>
               row.type === taskType &&
               row.assignedAgentId === agentId &&
@@ -3929,7 +3929,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           ) ??
           (await goalTasks.createTask(
             {
-              workspaceId: PILOT_WORKSPACE,
+              organizationId: PILOT_ORGANIZATION,
               goalId: goal.id,
               type: taskType,
               assignedAgentId: agentId,
@@ -3941,7 +3941,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       await automationRegistry.save({
         id: automationId,
         name: automation.name,
-        workspaceId: PILOT_WORKSPACE,
+        organizationId: PILOT_ORGANIZATION,
         agentId,
         agentPlane: agent.plane,
         steps: [{
@@ -3978,10 +3978,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     pipeline,
     bodies: localPlane.bodies,
     graph: {
-      hasExternal: (workspaceId, source, sourceRecordId) =>
-        localPlane.graph.hasExternal(workspaceId, source, sourceRecordId),
-      findPeopleByEmail: (workspaceId, email) =>
-        localPlane.graph.findPeopleByEmail(workspaceId, email),
+      hasExternal: (organizationId, source, sourceRecordId) =>
+        localPlane.graph.hasExternal(organizationId, source, sourceRecordId),
+      findPeopleByEmail: (organizationId, email) =>
+        localPlane.graph.findPeopleByEmail(organizationId, email),
     },
     pendingLedger: ledger,
     goalTasks,
@@ -3998,12 +3998,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     materializer,
     egress,
     secrets: localPlane.secrets,
-    identities: {
-      workspaceId: PILOT_WORKSPACE,
-      egressAgentId: EGRESS_AGENT,
-      intakeAgentId: INTAKE_AGENT,
-      userId: pilotUserId,
-    },
+    identities: { organizationId: PILOT_ORGANIZATION, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: pilotUserId },
     selfEmails,
     goalTasks,
   });
@@ -4058,14 +4053,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     },
     integrationStore,
     automationRegistry,
-    workspaceStore,
+    organizationStore,
     graphStore,
     jobpilotStore,
     helpdeskStore,
     resourcesStore,
     capabilityStore,
-    workspaceDefinitionStore,
-    packageStore,
+    organizationDefinitionStore,
+    moduleStore,
     capabilityBudgets,
     capabilityKillSwitch,
     credentialBroker,

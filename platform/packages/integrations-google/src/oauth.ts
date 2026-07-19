@@ -90,13 +90,13 @@ export function clientFromToken(cfg: GoogleOAuthConfig, token: OAuthTokenRecord)
 
 export function tokenRecordFrom(
   integrationId: string,
-  workspaceId: string,
+  organizationId: string,
   tokens: ExchangedTokens,
   nowISO: string,
 ): OAuthTokenRecord {
   return {
     integrationId,
-    workspaceId,
+    organizationId,
     provider: "google",
     accessToken: tokens.accessToken,
     ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),

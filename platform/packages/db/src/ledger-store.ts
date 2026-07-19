@@ -28,6 +28,7 @@ import {
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { ledger } from "./schema.js";
+import { withOrganizationContext } from "./organization-context.js";
 
 /** Postgres unique_violation SQLSTATE. Both postgres-js and pglite surface this
  * as a `.code` string on the thrown error object (the Postgres wire protocol
@@ -63,7 +64,7 @@ function unpack(row: typeof ledger.$inferSelect): LedgerEntry {
   return {
     id: row.id,
     appendSequence,
-    workspaceId: row.workspaceId,
+    organizationId: row.organizationId,
     actorType: row.actorType as LedgerEntry["actorType"],
     actorId: row.actorId,
     ...(row.onBehalfOfType ? { onBehalfOfType: row.onBehalfOfType as "user" | "team" } : {}),
@@ -163,44 +164,52 @@ function privateProposalOwnerScope(
 
 export class DrizzleLedgerStore implements LedgerStore {
   readonly #db: Database;
-  readonly #defaultWorkspaceId: string | null;
-  readonly #activeWorkspaceId: string | null;
+  readonly #defaultOrganizationId: string | null;
+  readonly #defaultUserId: string | null;
+  readonly #activeOrganizationId: string | null;
 
   constructor(
     db: Database,
     options: {
-      defaultWorkspaceId?: string;
-      activeWorkspaceId?: string;
+      defaultOrganizationId?: string;
+      defaultUserId?: string;
+      activeOrganizationId?: string;
     } = {},
   ) {
     this.#db = db;
-    this.#defaultWorkspaceId = options.defaultWorkspaceId ?? null;
-    this.#activeWorkspaceId = options.activeWorkspaceId ?? null;
+    this.#defaultOrganizationId = options.defaultOrganizationId ?? null;
+    this.#defaultUserId = options.defaultUserId ?? null;
+    this.#activeOrganizationId = options.activeOrganizationId ?? null;
   }
 
-  async #withWorkspace<T>(
-    workspaceId: string,
+  async #withOrganization<T>(
+    organizationId: string,
     operation: (store: DrizzleLedgerStore) => Promise<T>,
   ): Promise<T> {
-    return this.#db.transaction(async (tx) => {
-      await tx.execute(
-        sql`SELECT set_config('app.workspace_id', ${workspaceId}, true)`,
-      );
+    return withOrganizationContext(
+      this.#db,
+      {
+        organizationId,
+        ...(this.#defaultUserId ? { userId: this.#defaultUserId } : {}),
+      },
+      async (tx) => {
       return operation(
         new DrizzleLedgerStore(tx, {
-          defaultWorkspaceId: workspaceId,
-          activeWorkspaceId: workspaceId,
+          defaultOrganizationId: organizationId,
+          ...(this.#defaultUserId ? { defaultUserId: this.#defaultUserId } : {}),
+          activeOrganizationId: organizationId,
         }),
       );
-    });
+      },
+    );
   }
 
-  #assertActiveWorkspace(workspaceId: string): void {
+  #assertActiveOrganization(organizationId: string): void {
     if (
-      this.#activeWorkspaceId &&
-      this.#activeWorkspaceId !== workspaceId
+      this.#activeOrganizationId &&
+      this.#activeOrganizationId !== organizationId
     ) {
-      throw new Error("Ledger operation crossed its workspace context");
+      throw new Error("Ledger operation crossed its organization context");
     }
   }
 
@@ -222,12 +231,12 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async append(entry: LedgerEntry): Promise<LedgerEntry> {
-    if (!this.#activeWorkspaceId) {
-      return this.#withWorkspace(entry.workspaceId, (store) =>
+    if (!this.#activeOrganizationId) {
+      return this.#withOrganization(entry.organizationId, (store) =>
         store.append(entry),
       );
     }
-    this.#assertActiveWorkspace(entry.workspaceId);
+    this.#assertActiveOrganization(entry.organizationId);
     if (
       entry.userDecision !== null &&
       entry.userDecision !== "auto" &&
@@ -247,7 +256,7 @@ export class DrizzleLedgerStore implements LedgerStore {
         .insert(ledger)
         .values({
           id: entry.id,
-          workspaceId: entry.workspaceId,
+          organizationId: entry.organizationId,
           actorType: entry.actorType,
           actorId: entry.actorId,
           ...(entry.onBehalfOfType ? { onBehalfOfType: entry.onBehalfOfType } : {}),
@@ -281,8 +290,8 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async get(id: string): Promise<LedgerEntry | null> {
-    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
-      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+    if (!this.#activeOrganizationId && this.#defaultOrganizationId) {
+      return this.#withOrganization(this.#defaultOrganizationId, (store) =>
         store.get(id),
       );
     }
@@ -292,8 +301,8 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async decisionFor(proposalId: string): Promise<LedgerEntry | null> {
-    if (!this.#activeWorkspaceId && this.#defaultWorkspaceId) {
-      return this.#withWorkspace(this.#defaultWorkspaceId, (store) =>
+    if (!this.#activeOrganizationId && this.#defaultOrganizationId) {
+      return this.#withOrganization(this.#defaultOrganizationId, (store) =>
         store.decisionFor(proposalId),
       );
     }
@@ -325,18 +334,18 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
-    if (!this.#activeWorkspaceId) {
-      return this.#withWorkspace(workspaceId, (store) =>
-        store.listPending(workspaceId, opts),
+    if (!this.#activeOrganizationId) {
+      return this.#withOrganization(organizationId, (store) =>
+        store.listPending(organizationId, opts),
       );
     }
-    this.#assertActiveWorkspace(workspaceId);
+    this.#assertActiveOrganization(organizationId);
     const resolvingRows = alias(ledger, "resolving_rows");
     const where = and(
-      eq(ledger.workspaceId, workspaceId),
+      eq(ledger.organizationId, organizationId),
       isNull(ledger.userDecision),
       isNull(ledger.refLedgerId),
       sql`${ledger.diff}->>'rejected' is null`,
@@ -361,17 +370,17 @@ export class DrizzleLedgerStore implements LedgerStore {
   }
 
   async listHistory(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }> {
-    if (!this.#activeWorkspaceId) {
-      return this.#withWorkspace(workspaceId, (store) =>
-        store.listHistory(workspaceId, opts),
+    if (!this.#activeOrganizationId) {
+      return this.#withOrganization(organizationId, (store) =>
+        store.listHistory(organizationId, opts),
       );
     }
-    this.#assertActiveWorkspace(workspaceId);
+    this.#assertActiveOrganization(organizationId);
     const where = and(
-      eq(ledger.workspaceId, workspaceId),
+      eq(ledger.organizationId, organizationId),
       privateProposalOwnerScope(this.#db, opts.privateOwnerUserId),
     );
     const [rows, totalRows] = await Promise.all([

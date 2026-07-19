@@ -17,7 +17,7 @@ interface HeaderProps {
 /**
  * The centered segmented toggle every non-Home/non-Settings page mounts directly under
  * PageHeader (ported from the prototype's Header.tsx — same shape, no `motion` dependency:
- * apps/web doesn't have the `motion` package, so the active-tab underline is a plain CSS
+ * apps/web doesn't have the `motion` module, so the active-tab underline is a plain CSS
  * transition instead of a shared layoutId animation).
  *
  * Responsive icons-only mode (user ask 2026-07-10): NEVER wrap to a second

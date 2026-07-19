@@ -64,7 +64,7 @@ export interface IntakeDirective {
 // ── Service ────────────────────────────────────────────────────────────────────
 
 export interface IntakeIdentities {
-  workspaceId: string;
+  organizationId: string;
   /** Cloud-plane agent that SOURCES (external:fetch). */
   egressAgentId: string;
   /** Local-plane agent that DRAFTS graph proposals. */
@@ -126,26 +126,26 @@ export interface IntakeServiceDeps {
 
 /**
  * AGS1 (TASK-007 closure) — find-or-create the ONE durable `"google.sync"`
- * Goal for a workspace (a Goal is a durable intended outcome, not reminted
+ * Goal for a organization (a Goal is a durable intended outcome, not reminted
  * per call) and mint one bounded Task per call, assigned to the Agent actually
  * invoking the skill. Shared by every governed Google skill call site in this
- * package (`syncGmail`/`syncCalendar`/`stage` here, `listCalendarEvents` in
+ * module (`syncGmail`/`syncCalendar`/`stage` here, `listCalendarEvents` in
  * service.ts) so they all resolve against the SAME Goal.
  */
 export async function provisionGoogleSyncTask(
   goalTasks: GoalTaskStore | undefined,
-  workspaceId: string,
+  organizationId: string,
   taskType: string,
   assignedAgentId: string,
   ctx: RunCtx,
 ): Promise<{ goalId: string; taskId: string } | undefined> {
   if (!goalTasks) return undefined;
   const seam = { nextId: () => ctx.ids.next(), nowISO: () => ctx.clock.nowISO() };
-  const existingGoals = await goalTasks.listGoals(workspaceId);
+  const existingGoals = await goalTasks.listGoals(organizationId);
   const goal =
     existingGoals.find((g) => g.type === "google.sync") ??
-    (await goalTasks.createGoal({ workspaceId, type: "google.sync", title: "Google Workspace sync" }, seam));
-  const task = await goalTasks.createTask({ workspaceId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
+    (await goalTasks.createGoal({ organizationId, type: "google.sync", title: "Google Organization sync" }, seam));
+  const task = await goalTasks.createTask({ organizationId, goalId: goal.id, type: taskType, assignedAgentId }, seam);
   return { goalId: goal.id, taskId: task.id };
 }
 
@@ -174,13 +174,13 @@ export class IntakeService {
 
   /** Source Gmail threads through the gate, then propose graph entries per thread. */
   async syncGmail(opts: SyncOpts, ctx: RunCtx): Promise<IntakeResult> {
-    const { workspaceId, egressAgentId, intakeAgentId, userId } = opts.identities;
+    const { organizationId, egressAgentId, intakeAgentId, userId } = opts.identities;
 
     // 1) Source through the gate (cloud egress agent). The user's Sync click approves.
-    const gmailGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
+    const gmailGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, organizationId, "source_google_data", egressAgentId, ctx);
     const fetchProposal = await this.deps.pipeline.propose(
       {
-        workspaceId,
+        organizationId,
         actor: { type: "agent", id: egressAgentId, plane: "cloud" },
         onBehalfOf: { type: "user", id: userId },
         action: "read",
@@ -189,7 +189,7 @@ export class IntakeService {
         dataScope: "public",
         inputs: {
           integrationId: opts.integrationId,
-          workspaceId,
+          organizationId,
           ...(opts.maxResults ? { maxResults: opts.maxResults } : {}),
           ...(opts.query ? { query: opts.query } : {}),
         },
@@ -209,8 +209,8 @@ export class IntakeService {
     const proposals: IntakeProposalSummary[] = [];
 
     for (const m of manifest) {
-      if (await this.deps.graph.hasExternal(workspaceId, GMAIL_SOURCE, m.threadId)) continue;
-      const body = await this.deps.bodies.get(workspaceId, GMAIL_SOURCE, m.threadId);
+      if (await this.deps.graph.hasExternal(organizationId, GMAIL_SOURCE, m.threadId)) continue;
+      const body = await this.deps.bodies.get(organizationId, GMAIL_SOURCE, m.threadId);
       if (!body) continue;
       const thread = body.content as GmailThread;
       const summary = await this.proposeThread(thread, opts, ctx);
@@ -222,11 +222,11 @@ export class IntakeService {
 
   /** Source Calendar events through the gate, then propose an Interaction Event per item. */
   async syncCalendar(opts: SyncOpts, ctx: RunCtx): Promise<IntakeResult> {
-    const { workspaceId, egressAgentId, intakeAgentId, userId } = opts.identities;
-    const calendarGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
+    const { organizationId, egressAgentId, intakeAgentId, userId } = opts.identities;
+    const calendarGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, organizationId, "source_google_data", egressAgentId, ctx);
     const fetchProposal = await this.deps.pipeline.propose(
       {
-        workspaceId,
+        organizationId,
         actor: { type: "agent", id: egressAgentId, plane: "cloud" },
         onBehalfOf: { type: "user", id: userId },
         action: "read",
@@ -235,7 +235,7 @@ export class IntakeService {
         dataScope: "public",
         inputs: {
           integrationId: opts.integrationId,
-          workspaceId,
+          organizationId,
           ...(opts.maxResults ? { maxResults: opts.maxResults } : {}),
           ...(opts.timeMin ? { timeMin: opts.timeMin } : {}),
           ...(opts.timeMax ? { timeMax: opts.timeMax } : {}),
@@ -256,8 +256,8 @@ export class IntakeService {
     const proposals: IntakeProposalSummary[] = [];
 
     for (const m of manifest) {
-      if (await this.deps.graph.hasExternal(workspaceId, CALENDAR_SOURCE, m.eventId)) continue;
-      const body = await this.deps.bodies.get(workspaceId, CALENDAR_SOURCE, m.eventId);
+      if (await this.deps.graph.hasExternal(organizationId, CALENDAR_SOURCE, m.eventId)) continue;
+      const body = await this.deps.bodies.get(organizationId, CALENDAR_SOURCE, m.eventId);
       if (!body) continue;
       const event = body.content as CalendarEvent;
       const summary = await this.proposeEvent(event, opts, ctx);
@@ -268,15 +268,15 @@ export class IntakeService {
   }
 
   private async proposeThread(thread: GmailThread, opts: SyncOpts, ctx: RunCtx): Promise<IntakeProposalSummary> {
-    const { workspaceId, intakeAgentId, userId } = opts.identities;
+    const { organizationId, intakeAgentId, userId } = opts.identities;
     const cp = counterpartyOf(thread.participants, opts.selfEmails);
-    const matches = cp ? await this.deps.graph.findPeopleByEmail(workspaceId, cp.email) : [];
+    const matches = cp ? await this.deps.graph.findPeopleByEmail(organizationId, cp.email) : [];
 
     if (cp && matches.length > 1) {
       // AMBIGUOUS — never auto-link. File a possible_duplicate Signal for manual cleanup.
       return this.stage(
         {
-          workspaceId,
+          organizationId,
           intakeAgentId,
           userId,
           resourceType: "signal",
@@ -358,7 +358,7 @@ export class IntakeService {
 
     return this.stage(
       {
-        workspaceId,
+        organizationId,
         intakeAgentId,
         userId,
         resourceType: "event",
@@ -378,14 +378,14 @@ export class IntakeService {
   }
 
   private async proposeEvent(event: CalendarEvent, opts: SyncOpts, ctx: RunCtx): Promise<IntakeProposalSummary> {
-    const { workspaceId, intakeAgentId, userId } = opts.identities;
+    const { organizationId, intakeAgentId, userId } = opts.identities;
     const cp = counterpartyOf(event.attendees, opts.selfEmails);
-    const matches = cp ? await this.deps.graph.findPeopleByEmail(workspaceId, cp.email) : [];
+    const matches = cp ? await this.deps.graph.findPeopleByEmail(organizationId, cp.email) : [];
 
     if (cp && matches.length > 1) {
       return this.stage(
         {
-          workspaceId,
+          organizationId,
           intakeAgentId,
           userId,
           resourceType: "signal",
@@ -448,7 +448,7 @@ export class IntakeService {
 
     return this.stage(
       {
-        workspaceId,
+        organizationId,
         intakeAgentId,
         userId,
         resourceType: "event",
@@ -478,7 +478,7 @@ export class IntakeService {
 
   private async stage(
     args: {
-      workspaceId: string;
+      organizationId: string;
       intakeAgentId: string;
       userId: string;
       resourceType: ResourceType;
@@ -493,13 +493,13 @@ export class IntakeService {
   ): Promise<IntakeProposalSummary> {
     const seed = `${args.directive.external[0]?.source}:${args.sourceRecordId}`;
     const lockKey =
-      `${args.workspaceId}:${args.userId}:${args.directive.person?.dedupKey ?? seed}`;
+      `${args.organizationId}:${args.userId}:${args.directive.person?.dedupKey ?? seed}`;
     return this.withStageLock(lockKey, () => this.stageLocked(args, seed, ctx));
   }
 
   private async stageLocked(
     args: {
-      workspaceId: string;
+      organizationId: string;
       intakeAgentId: string;
       userId: string;
       resourceType: ResourceType;
@@ -515,7 +515,7 @@ export class IntakeService {
   ): Promise<IntakeProposalSummary> {
     let directive = args.directive;
     const trustOrigin = directive.entities.find((e) => e.trustOrigin)?.trustOrigin;
-    const pending = await this.pendingIntakeEntries(args.workspaceId, args.userId);
+    const pending = await this.pendingIntakeEntries(args.organizationId, args.userId);
     const existingPendingId =
       pending.find((entry) => entry.seed === seed)?.id ??
       this.pendingSeeds.get(seed);
@@ -549,10 +549,10 @@ export class IntakeService {
       }
     }
 
-    const stageGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, args.workspaceId, "stage_google_data", args.intakeAgentId, ctx);
+    const stageGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, args.organizationId, "stage_google_data", args.intakeAgentId, ctx);
     const proposal = await this.deps.pipeline.propose(
       {
-        workspaceId: args.workspaceId,
+        organizationId: args.organizationId,
         actor: { type: "agent", id: args.intakeAgentId, plane: "local" },
         onBehalfOf: { type: "user", id: args.userId },
         action: "write",
@@ -592,7 +592,7 @@ export class IntakeService {
   }
 
   private async pendingIntakeEntries(
-    workspaceId: string,
+    organizationId: string,
     ownerUserId: string,
   ): Promise<LedgerEntry[]> {
     if (!this.deps.pendingLedger) return [];
@@ -600,7 +600,7 @@ export class IntakeService {
     const pageSize = 100;
     const maxRows = 1_000;
     for (let offset = 0; offset < maxRows; offset += pageSize) {
-      const page = await this.deps.pendingLedger.listPending(workspaceId, {
+      const page = await this.deps.pendingLedger.listPending(organizationId, {
         limit: pageSize,
         offset,
         privateOwnerUserId: ownerUserId,
@@ -693,14 +693,14 @@ export class IntakeMaterializer {
   }
 
   private async applyDirective(directive: IntakeDirective, resolved: Proposal, ctx: RunCtx): Promise<boolean> {
-    const workspaceId = resolved.request.workspaceId;
+    const organizationId = resolved.request.organizationId;
     const createdAt = ctx.clock.nowISO();
 
     if (directive.person) {
       const p = directive.person;
       await this.deps.graph.upsertPerson({
         id: p.localPersonId,
-        workspaceId,
+        organizationId,
         ...(p.fullName ? { fullName: p.fullName } : {}),
         emails: p.emails,
       });
@@ -709,7 +709,7 @@ export class IntakeMaterializer {
     for (const e of directive.entities) {
       await this.deps.graph.commitEntity({
         id: e.localId,
-        workspaceId,
+        organizationId,
         kind: e.kind,
         ...(e.personId ? { personId: e.personId } : {}),
         payload: e.payload,
@@ -720,7 +720,7 @@ export class IntakeMaterializer {
     }
     for (const x of directive.external) {
       await this.deps.graph.recordExternal({
-        workspaceId,
+        organizationId,
         source: x.source,
         sourceRecordId: x.sourceRecordId,
         entityType: x.entityType,

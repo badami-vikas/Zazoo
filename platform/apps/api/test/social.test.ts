@@ -61,7 +61,7 @@ test("read: an unconfigured (no live provider) seam sources nothing — an hones
     gate,
     provider,
     quarantine,
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });
@@ -104,7 +104,7 @@ test("sourceToProposals: with a real sourced item, proposal inputs.mode reflects
     gate,
     provider,
     quarantine,
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });
@@ -157,7 +157,7 @@ test("write: draft never publishes; egress fires only after gate approval", asyn
     gate,
     provider,
     action: { kind: "post", text: "test_fixture_outbound post" },
-    workspaceId: "test_fixture_ws",
+    organizationId: "test_fixture_ws",
     actor,
     run,
   });

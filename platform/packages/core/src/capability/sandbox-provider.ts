@@ -58,7 +58,7 @@ export type SandboxRunRequest =
       args?: string[];
       /** Working directory scoped by the caller's resource-token constraints
        * (builder-primitives.ts) — the provider trusts this is already sandboxed, it does
-       * not itself re-derive workspace scoping. */
+       * not itself re-derive organization scoping. */
       cwd?: string;
       timeoutMs: number;
     };

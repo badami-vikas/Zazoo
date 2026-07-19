@@ -17,7 +17,7 @@
 export interface OAuthTokenRecord {
   /** integrations.id this token belongs to. */
   integrationId: string;
-  workspaceId: string;
+  organizationId: string;
   /** 'google' (covers both gmail + calendar under one consent). */
   provider: string;
   accessToken: string;
@@ -54,7 +54,7 @@ export interface SecretStore {
 // ── Body store: raw private Gmail thread / Calendar event content ──────────────
 
 export interface StoredBody {
-  workspaceId: string;
+  organizationId: string;
   /** 'gmail' | 'google-calendar'. */
   source: string;
   /** Gmail threadId / messageId, Calendar eventId. */
@@ -68,8 +68,8 @@ export interface StoredBody {
 
 export interface BodyStore {
   put(body: StoredBody): Promise<void>;
-  get(workspaceId: string, source: string, sourceRecordId: string): Promise<StoredBody | null>;
-  list(workspaceId: string, source: string): Promise<StoredBody[]>;
+  get(organizationId: string, source: string, sourceRecordId: string): Promise<StoredBody | null>;
+  list(organizationId: string, source: string): Promise<StoredBody[]>;
 }
 
 // ── Local graph store: derived entities + person-match lookup ──────────────────
@@ -77,7 +77,7 @@ export interface BodyStore {
 /** A person on the local tier. `emails` drives deterministic thread/event matching. */
 export interface LocalPerson {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   fullName?: string;
   emails: string[];
   /** Link to the cloud canonical identity (set when dual-written). */
@@ -88,7 +88,7 @@ export interface LocalPerson {
  * compatibility for records written before VOCAB4; runtime writers use `event`. */
 export interface LocalEntityRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   kind: "event" | "memory" | "signal" | "touchpoint";
   /** The Person this entry is about, when matched. */
   personId?: string;
@@ -101,7 +101,7 @@ export interface LocalEntityRecord {
 
 /** Idempotency row: an external record already mapped to a local entity. */
 export interface ExternalRecordRow {
-  workspaceId: string;
+  organizationId: string;
   source: string;
   sourceRecordId: string;
   entityType: string;
@@ -111,17 +111,17 @@ export interface ExternalRecordRow {
 
 export interface LocalGraphStore {
   /** People whose email set contains `email` (case-insensitive). Drives matching. */
-  findPeopleByEmail(workspaceId: string, email: string): Promise<LocalPerson[]>;
+  findPeopleByEmail(organizationId: string, email: string): Promise<LocalPerson[]>;
   upsertPerson(person: LocalPerson): Promise<void>;
-  listPeople(workspaceId: string): Promise<LocalPerson[]>;
+  listPeople(organizationId: string): Promise<LocalPerson[]>;
 
   /** Commit a derived entity (post-approval). Local only. */
   commitEntity(entry: LocalEntityRecord): Promise<void>;
-  listEntities(workspaceId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]>;
+  listEntities(organizationId: string, kind?: LocalEntityRecord["kind"]): Promise<LocalEntityRecord[]>;
 
   /** Idempotent dedup against re-sync (mirrors external_records). */
   recordExternal(row: ExternalRecordRow): Promise<void>;
-  hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean>;
+  hasExternal(organizationId: string, source: string, sourceRecordId: string): Promise<boolean>;
 
   /** Incremental-sync cursor per (integration, source). */
   getSyncCursor(integrationId: string, source: string): Promise<string | null>;
@@ -136,7 +136,7 @@ export interface LocalStateMutation<T> {
 }
 
 /**
- * Workspace-scoped atomic JSON state for Local Plane modules whose canonical
+ * Organization-scoped atomic JSON state for Local Plane modules whose canonical
  * relational schema has not yet entered the numbered migration stream.
  *
  * Reducers are synchronous and may be retried after cross-process contention;
@@ -144,9 +144,9 @@ export interface LocalStateMutation<T> {
  * value untouched.
  */
 export interface LocalStateStore {
-  read(workspaceId: string, namespace: string): Promise<unknown | null>;
+  read(organizationId: string, namespace: string): Promise<unknown | null>;
   update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => LocalStateMutation<T>,

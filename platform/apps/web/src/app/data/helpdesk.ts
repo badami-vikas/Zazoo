@@ -5,7 +5,7 @@
 // inferred need-tags, plus a capability-kind affinity. Invisible-by-default: below threshold
 // → no route. Deterministic (no model) — the real Helpdesk AI slots into the same seam later.
 //
-// Operational data is LOCAL (residency, like Initiatives). Governance rides Supabase: when you
+// Operational data is LOCAL (residency, like Records). Governance rides Supabase: when you
 // Offer Help, that drafts a governed proposal into Approvals (see HelpdeskPage → proposeToLedger).
 import { useSyncExternalStore } from 'react';
 import { people as networkPeople, type NetworkPerson } from './network';
@@ -31,13 +31,13 @@ export interface Audience { network: boolean; helpdesks: AudienceTarget[] }
 
 export interface HelpReply { id: string; author: string; body: string; createdAt: string }
 
-export interface HelpWorkspace {
+export interface HelpOrganization {
   id: string; name: string; slug: string; description: string;
   visibility: 'public' | 'unlisted' | 'private'; broadcastDefault: boolean; createdAt: string;
   brandColor?: string;
 }
 export interface HelpRequest {
-  id: string; workspaceId: string | null; requesterId: string; requesterName: string;
+  id: string; organizationId: string | null; requesterId: string; requesterName: string;
   title: string; body: string; needTags: string[];
   status: RequestStatus; routingMode: RoutingMode; autoFilter: boolean; createdAt: string;
   // public identity + contact preferences (P2) + moderation (P3)
@@ -61,14 +61,14 @@ export interface HelpOffer {
 
 // ── reactive localStorage store ────────────────────────────────────────────────
 const K = {
-  ws: 'bridge.helpdesk.workspaces.v1',
+  ws: 'bridge.helpdesk.organizations.v1',
   req: 'bridge.helpdesk.requests.v1',
   rt: 'bridge.helpdesk.routes.v1',
   of: 'bridge.helpdesk.offers.v1',
 };
 function read<T>(k: string): T[] { try { const v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
 
-let workspaces: HelpWorkspace[] = typeof window !== 'undefined' ? read(K.ws) : [];
+let organizations: HelpOrganization[] = typeof window !== 'undefined' ? read(K.ws) : [];
 let requests: HelpRequest[] = typeof window !== 'undefined' ? read(K.req) : [];
 let routes: HelpRoute[] = typeof window !== 'undefined' ? read(K.rt) : [];
 let offers: HelpOffer[] = typeof window !== 'undefined' ? read(K.of) : [];
@@ -77,7 +77,7 @@ const subs = new Set<() => void>();
 function emit() { subs.forEach(fn => fn()); }
 function persist() {
   try {
-    localStorage.setItem(K.ws, JSON.stringify(workspaces));
+    localStorage.setItem(K.ws, JSON.stringify(organizations));
     localStorage.setItem(K.req, JSON.stringify(requests));
     localStorage.setItem(K.rt, JSON.stringify(routes));
     localStorage.setItem(K.of, JSON.stringify(offers));
@@ -273,19 +273,19 @@ function scorePersona(intents: Intent[], domainToks: string[], personaKinds: Cap
 let n = Date.now() % 100000;
 const nid = (p: string) => `${p}-${++n}`;
 
-export function createWorkspace(p: Partial<HelpWorkspace>): HelpWorkspace {
+export function createOrganization(p: Partial<HelpOrganization>): HelpOrganization {
   const name = (p.name || '').trim() || 'Untitled Helpdesk';
   const slug = (p.slug || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const ws: HelpWorkspace = {
+  const ws: HelpOrganization = {
     id: nid('hw'), name, slug, description: p.description || '',
     visibility: p.visibility || 'unlisted', broadcastDefault: p.broadcastDefault ?? false,
     createdAt: new Date().toISOString(),
   };
-  workspaces = [ws, ...workspaces]; persist(); return ws;
+  organizations = [ws, ...organizations]; persist(); return ws;
 }
 
 export function submitRequest(p: {
-  workspaceId: string | null; title: string; body: string; routingMode: RoutingMode; autoFilter: boolean; crossWorkspace?: boolean;
+  organizationId: string | null; title: string; body: string; routingMode: RoutingMode; autoFilter: boolean; crossOrganization?: boolean;
   waysToHelp?: string[]; attachments?: HelpAttachment[]; audience?: Audience;
   requesterEmail?: string; requesterPhone?: string; isPublic?: boolean;
 }): { request: HelpRequest; routed: RouteResult[]; crossPosted: number } {
@@ -293,7 +293,7 @@ export function submitRequest(p: {
   const needTags = needTagsFrom(p.title, p.body);
   const mode = getAiMode();
   const request: HelpRequest = {
-    id: nid('hr'), workspaceId: p.workspaceId, requesterId: YOU_ID, requesterName: YOU_NAME,
+    id: nid('hr'), organizationId: p.organizationId, requesterId: YOU_ID, requesterName: YOU_NAME,
     title: p.title.trim(), body: p.body.trim(), needTags,
     status: 'open', routingMode: p.routingMode, autoFilter: p.autoFilter, createdAt: new Date().toISOString(),
     waysToHelp: p.waysToHelp ?? suggestWaysToHelp(p.title, p.body),
@@ -310,7 +310,7 @@ export function submitRequest(p: {
   routes = [...newRoutes, ...routes];
   persist();
   let crossPosted = 0;
-  if (p.crossWorkspace) { const before = requests.length; crossPublish({ ...request }); crossPosted = requests.length - before; }
+  if (p.crossOrganization) { const before = requests.length; crossPublish({ ...request }); crossPosted = requests.length - before; }
   return { request, routed, crossPosted };
 }
 
@@ -367,15 +367,15 @@ export function rateOk(bucket: string, maxPerHour = 5): boolean {
   return true;
 }
 
-// ── P1: workspace visibility + public lookups ───────────────────────────────────
-export function setWorkspaceVisibility(id: string, visibility: HelpWorkspace['visibility']) {
-  workspaces = workspaces.map(w => w.id === id ? { ...w, visibility } : w); persist();
+// ── P1: organization visibility + public lookups ───────────────────────────────────
+export function setOrganizationVisibility(id: string, visibility: HelpOrganization['visibility']) {
+  organizations = organizations.map(w => w.id === id ? { ...w, visibility } : w); persist();
 }
-export function workspaceBySlug(slug: string): HelpWorkspace | undefined { return workspaces.find(w => w.slug === slug); }
+export function organizationBySlug(slug: string): HelpOrganization | undefined { return organizations.find(w => w.slug === slug); }
 export interface PublicRequest { id: string; title: string; body: string; status: RequestStatus; helperCount: number; createdAt: string; allowDirectContact: boolean }
-export function publicRequests(workspaceId: string): PublicRequest[] {
+export function publicRequests(organizationId: string): PublicRequest[] {
   return requests
-    .filter(r => r.workspaceId === workspaceId && r.isPublic && (r.moderationStatus ?? 'approved') === 'approved')
+    .filter(r => r.organizationId === organizationId && r.isPublic && (r.moderationStatus ?? 'approved') === 'approved')
     .map(r => ({ id: r.id, title: r.title, body: r.body, status: r.status, helperCount: offers.filter(o => o.requestId === r.id).length, createdAt: r.createdAt, allowDirectContact: !!r.allowDirectContact }));
 }
 // Contact is revealed ONLY to a helper who chooses "Offer Direct Help", and ONLY per the
@@ -392,12 +392,12 @@ export function revealContact(requestId: string): { email?: string; phone?: stri
 
 // ── P2: anonymous public posting (identity + contact prefs + moderation) ────────
 export function submitPublicRequest(p: {
-  workspaceId: string; name: string; email: string; phone?: string;
+  organizationId: string; name: string; email: string; phone?: string;
   title: string; body: string; allowDirectContact: boolean; contactVisibility: ContactVisibility;
 }): { ok: boolean; status: ModerationStatus; reason?: string } {
   const mod = moderate(`${p.title} ${p.body}`);
   const req: HelpRequest = {
-    id: nid('hr'), workspaceId: p.workspaceId, requesterId: `anon:${p.email.toLowerCase()}`, requesterName: p.name.trim(),
+    id: nid('hr'), organizationId: p.organizationId, requesterId: `anon:${p.email.toLowerCase()}`, requesterName: p.name.trim(),
     title: p.title.trim(), body: p.body.trim(), needTags: needTagsFrom(p.title, p.body),
     status: 'open', routingMode: 'broadcast', autoFilter: true, createdAt: new Date().toISOString(),
     requesterEmail: p.email.trim().toLowerCase(), requesterPhone: p.phone?.trim() || undefined,
@@ -433,12 +433,12 @@ export function findMySubmissions(name: string, email: string): MySession | null
 }
 
 // ── P3: admin — submissions + moderation overrides + identity verification ──────
-export function workspaceSubmissions(workspaceId: string): HelpRequest[] { return requests.filter(r => r.workspaceId === workspaceId); }
+export function organizationSubmissions(organizationId: string): HelpRequest[] { return requests.filter(r => r.organizationId === organizationId); }
 export function setModeration(requestId: string, status: ModerationStatus, reason?: string) {
   requests = requests.map(r => r.id === requestId ? { ...r, moderationStatus: status, moderationReason: reason ?? r.moderationReason } : r); persist();
 }
 
-// ── P4: learning — auto-filter tuning + capability learning + cross-workspace ───
+// ── P4: learning — auto-filter tuning + capability learning + cross-organization ───
 const LEARN_KEY = 'bridge.helpdesk.learn.v1';
 interface Learn { intentBias: Partial<Record<Intent, number>>; helperHits: Record<string, Partial<Record<Intent, number>>> }
 let learn: Learn = ((): Learn => {
@@ -464,12 +464,12 @@ function noteHelpRecorded(helperId: string, intents: Intent[]) {
   for (const it of intents) h[it] = (h[it] ?? 0) + 1;
   persistLearn();
 }
-/** Cross-workspace discovery: also publish a personal request to the user's public Helpdesks. */
+/** Cross-organization discovery: also publish a personal request to the user's public Helpdesks. */
 export function crossPublish(req: HelpRequest) {
-  const targets = workspaces.filter(w => w.visibility === 'public');
+  const targets = organizations.filter(w => w.visibility === 'public');
   if (!targets.length) return;
   const copies: HelpRequest[] = targets.map(w => ({
-    ...req, id: nid('hr'), workspaceId: w.id, isPublic: true, moderationStatus: 'approved',
+    ...req, id: nid('hr'), organizationId: w.id, isPublic: true, moderationStatus: 'approved',
     requesterEmail: req.requesterEmail, routingMode: 'broadcast',
   }));
   requests = [...copies, ...requests]; persist();
@@ -537,18 +537,18 @@ export function suggestWaysToHelp(title: string, body: string): string[] {
 export const youProfile = { name: YOU_NAME, email: '', phone: '' };
 
 // ── my / public helpdesks + communities ───────────────────────────────
-// Locally-created workspaces are MINE (private/invite-link by default — NOT public).
+// Locally-created organizations are MINE (private/invite-link by default — NOT public).
 // "Public Helpdesks" = ones that are public OR shared with me via a link I opened
 // (click link → addLinkedHelpdesk → appears in the Public Helpdesks list). None seeded — this
 // list is empty until a real public helpdesk exists or the user opens a share link.
 // Helpdesks I joined by opening a shared link (persisted).
 const LINKED_KEY = 'bridge.helpdesk.linked.v1';
-let linkedHelpdesks: HelpWorkspace[] = (() => { if (typeof window === 'undefined') return []; try { const v = JSON.parse(localStorage.getItem(LINKED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
+let linkedHelpdesks: HelpOrganization[] = (() => { if (typeof window === 'undefined') return []; try { const v = JSON.parse(localStorage.getItem(LINKED_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
 function persistLinked() { try { localStorage.setItem(LINKED_KEY, JSON.stringify(linkedHelpdesks)); } catch {} emit(); }
-export function addLinkedHelpdesk(ws: HelpWorkspace) { if (!linkedHelpdesks.some(w => w.id === ws.id)) { linkedHelpdesks = [ws, ...linkedHelpdesks]; persistLinked(); } }
-export function myHelpdesks(): HelpWorkspace[] { return workspaces; }
-export function publicHelpdesks(): HelpWorkspace[] { return linkedHelpdesks; }
-export function allHelpdesks(): HelpWorkspace[] { return [...workspaces, ...publicHelpdesks()]; }
+export function addLinkedHelpdesk(ws: HelpOrganization) { if (!linkedHelpdesks.some(w => w.id === ws.id)) { linkedHelpdesks = [ws, ...linkedHelpdesks]; persistLinked(); } }
+export function myHelpdesks(): HelpOrganization[] { return organizations; }
+export function publicHelpdesks(): HelpOrganization[] { return linkedHelpdesks; }
+export function allHelpdesks(): HelpOrganization[] { return [...organizations, ...publicHelpdesks()]; }
 const helpdeskNameById = (id: string | null) => id ? (allHelpdesks().find(w => w.id === id)?.name) : undefined;
 export { helpdeskNameById };
 // My communities (for the My-Network broadcast scope). Empty until the user has real communities
@@ -602,14 +602,14 @@ export function addReply(offerId: string, body: string, author: string = YOU_NAM
 }
 
 // ── selectors / hooks ──────────────────────────────────────────────────────────
-export function getWorkspaces() { return workspaces; }
+export function getOrganizations() { return organizations; }
 export function getRequests() { return requests; }
 export function getRoutes() { return routes; }
 export function getOffers() { return offers; }
 function useStore<T>(get: () => T): T {
   return useSyncExternalStore(fn => { subs.add(fn); return () => { subs.delete(fn); }; }, get, get);
 }
-export function useWorkspaces() { return useStore(getWorkspaces); }
+export function useOrganizations() { return useStore(getOrganizations); }
 export function useRequests() { return useStore(getRequests); }
 export function useRoutes() { return useStore(getRoutes); }
 export function useOffers() { return useStore(getOffers); }

@@ -20,7 +20,7 @@ function fakeStorage() {
   };
 }
 
-test('cultureResearchStorageKey is scoped by BOTH workspaceId and company', () => {
+test('cultureResearchStorageKey is scoped by BOTH organizationId and company', () => {
   const a = cultureResearchStorageKey('ws-1', 'Acme');
   const b = cultureResearchStorageKey('ws-2', 'Acme');
   const c = cultureResearchStorageKey('ws-1', 'Other Co');
@@ -85,7 +85,7 @@ test('loadStoredCultureResearchState performs FULL deep validation — a shallow
   });
 });
 
-test('clearStoredCultureResearchState removes only the matching (workspaceId, company) pointer', () => {
+test('clearStoredCultureResearchState removes only the matching (organizationId, company) pointer', () => {
   const storage = fakeStorage();
   const state = { parentRunId: 'run-1', pending: [] };
   saveStoredCultureResearchState(storage, 'ws-1', 'Acme', state);

@@ -2,14 +2,14 @@
  * DrizzleResourcesStore — platform-side home for the prototype's Resources page,
  * which previously read `resources_canonical` directly from Supabase, bypassing
  * the governed API entirely (frontend-migration-scoping.md gap #4). Plain
- * workspace-authenticated CRUD, same tier as workspace membership — pinning a
+ * organization-authenticated CRUD, same tier as organization membership — pinning a
  * book/podcast/vlog has no external effect requiring approval.
  */
 import { randomUUID } from "node:crypto";
 import { desc, eq, count } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { resources } from "./schema.js";
-import { withWorkspaceOnly } from "./workspace-context.js";
+import { withOrganizationOnly } from "./organization-context.js";
 
 export interface PageOpts {
   limit: number;
@@ -23,7 +23,7 @@ export interface Page<T> {
 export type ResourceRow = typeof resources.$inferSelect;
 
 export interface CreateResourceInput {
-  workspaceId: string;
+  organizationId: string;
   title: string;
   kind: string;
   url?: string;
@@ -38,12 +38,12 @@ export class DrizzleResourcesStore {
   }
 
   async create(input: CreateResourceInput): Promise<ResourceRow> {
-    return withWorkspaceOnly(this.#db, input.workspaceId, async (tx) => {
+    return withOrganizationOnly(this.#db, input.organizationId, async (tx) => {
       const [row] = await tx
         .insert(resources)
         .values({
           id: randomUUID(),
-          workspaceId: input.workspaceId,
+          organizationId: input.organizationId,
           title: input.title,
           kind: input.kind,
           ...(input.url ? { url: input.url } : {}),
@@ -55,17 +55,11 @@ export class DrizzleResourcesStore {
     });
   }
 
-  async list(workspaceId: string, opts: PageOpts): Promise<Page<ResourceRow>> {
-    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
-      const where = eq(resources.workspaceId, workspaceId);
+  async list(organizationId: string, opts: PageOpts): Promise<Page<ResourceRow>> {
+    return withOrganizationOnly(this.#db, organizationId, async (tx) => {
+      const where = eq(resources.organizationId, organizationId);
       const [rows, totalRows] = await Promise.all([
-        tx
-          .select()
-          .from(resources)
-          .where(where)
-          .orderBy(desc(resources.createdAt))
-          .limit(opts.limit)
-          .offset(opts.offset),
+        tx.select().from(resources).where(where).orderBy(desc(resources.createdAt)).limit(opts.limit).offset(opts.offset),
         tx.select({ value: count() }).from(resources).where(where),
       ]);
       return { items: rows, total: Number(totalRows[0]?.value ?? 0) };

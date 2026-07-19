@@ -14,18 +14,18 @@ class SharedStatePort implements DealPilotStatePort {
   readonly rows = new Map<string, unknown>();
   readonly #tails = new Map<string, Promise<void>>();
 
-  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
-    const value = this.rows.get(JSON.stringify([workspaceId, namespace]));
+  async read(organizationId: string, namespace: string): Promise<unknown | null> {
+    const value = this.rows.get(JSON.stringify([organizationId, namespace]));
     return value === undefined ? null : structuredClone(value);
   }
 
   async update<T>(
-    workspaceId: string,
+    organizationId: string,
     namespace: string,
     initialState: unknown,
     reduce: (current: unknown) => { state: unknown; result: T },
   ): Promise<T> {
-    const key = JSON.stringify([workspaceId, namespace]);
+    const key = JSON.stringify([organizationId, namespace]);
     const prior = this.#tails.get(key) ?? Promise.resolve();
     let release = (): void => {};
     const current = new Promise<void>((resolve) => {
@@ -59,12 +59,12 @@ function runtime(state = new SharedStatePort()) {
 
 async function createSource(
   store: LocalDealPilotStore,
-  workspaceId = "workspace-a",
+  organizationId = "organization-a",
   id = "source-a",
 ) {
   return store.createSource({
     id,
-    workspaceId,
+    organizationId,
     name: "Approved alert source",
     link: "https://example.invalid/alerts",
     connectionType: "email_alert",
@@ -101,11 +101,11 @@ function capture(
 test("credential create and revoke journals reconcile across process restart without plaintext", async () => {
   const { state, store } = runtime();
   const vault = new InMemorySourceCredentialVault();
-  const scope = { workspaceId: "workspace-a", sourceId: "source-journaled" };
+  const scope = { organizationId: "organization-a", sourceId: "source-journaled" };
   const reference = vault.reserve(scope);
   await store.prepareCredentialCreate({
     id: scope.sourceId,
-    workspaceId: scope.workspaceId,
+    organizationId: scope.organizationId,
     name: "Journaled source",
     link: "https://example.invalid/journaled",
     connectionType: "account",
@@ -115,7 +115,7 @@ test("credential create and revoke journals reconcile across process restart wit
     rightsState: "attested",
     rightsAttestedBy: "human-a",
   });
-  assert.equal(await store.get("source", scope.workspaceId, scope.sourceId), null);
+  assert.equal(await store.get("source", scope.organizationId, scope.sourceId), null);
   assert.equal(
     JSON.stringify([...state.rows.values()]).includes("test_fixture_secret"),
     false,
@@ -126,11 +126,11 @@ test("credential create and revoke journals reconcile across process restart wit
   await reconcileCredentialOperations(
     afterCreateCrash,
     vault,
-    scope.workspaceId,
+    scope.organizationId,
   );
   const created = await afterCreateCrash.get(
     "source",
-    scope.workspaceId,
+    scope.organizationId,
     scope.sourceId,
   );
   assert.equal(
@@ -138,12 +138,12 @@ test("credential create and revoke journals reconcile across process restart wit
     reference,
   );
   assert.deepEqual(
-    await afterCreateCrash.pendingCredentialOperations(scope.workspaceId),
+    await afterCreateCrash.pendingCredentialOperations(scope.organizationId),
     [],
   );
 
   const audit = {
-    workspaceId: scope.workspaceId,
+    organizationId: scope.organizationId,
     sourceId: scope.sourceId,
     actorId: "human-a",
     action: "revoke" as const,
@@ -151,7 +151,7 @@ test("credential create and revoke journals reconcile across process restart wit
     occurredAt: "2026-07-18T00:00:00.000Z",
   };
   await afterCreateCrash.prepareCredentialRevocation(
-    scope.workspaceId,
+    scope.organizationId,
     scope.sourceId,
     "human-a",
     reference,
@@ -163,11 +163,11 @@ test("credential create and revoke journals reconcile across process restart wit
   await reconcileCredentialOperations(
     afterRevokeCrash,
     vault,
-    scope.workspaceId,
+    scope.organizationId,
   );
   const revoked = await afterRevokeCrash.get(
     "source",
-    scope.workspaceId,
+    scope.organizationId,
     scope.sourceId,
   );
   assert.equal(
@@ -175,7 +175,7 @@ test("credential create and revoke journals reconcile across process restart wit
     undefined,
   );
   assert.deepEqual(
-    (await afterRevokeCrash.credentialAuditEvents(scope.workspaceId)).map(
+    (await afterRevokeCrash.credentialAuditEvents(scope.organizationId)).map(
       (event) => event.action,
     ),
     ["revoke"],
@@ -185,11 +185,11 @@ test("credential create and revoke journals reconcile across process restart wit
 test("credential create journal discards a reservation that never reached the vault", async () => {
   const { state, store } = runtime();
   const vault = new InMemorySourceCredentialVault();
-  const scope = { workspaceId: "workspace-a", sourceId: "source-abandoned" };
+  const scope = { organizationId: "organization-a", sourceId: "source-abandoned" };
   const reference = vault.reserve(scope);
   await store.prepareCredentialCreate({
     id: scope.sourceId,
-    workspaceId: scope.workspaceId,
+    organizationId: scope.organizationId,
     name: "Abandoned source",
     link: "https://example.invalid/abandoned",
     connectionType: "account",
@@ -200,20 +200,20 @@ test("credential create journal discards a reservation that never reached the va
   });
 
   const afterCrash = new LocalDealPilotStore(state);
-  await reconcileCredentialOperations(afterCrash, vault, scope.workspaceId);
+  await reconcileCredentialOperations(afterCrash, vault, scope.organizationId);
   assert.equal(
-    await afterCrash.get("source", scope.workspaceId, scope.sourceId),
+    await afterCrash.get("source", scope.organizationId, scope.sourceId),
     null,
   );
   assert.deepEqual(
-    await afterCrash.pendingCredentialOperations(scope.workspaceId),
+    await afterCrash.pendingCredentialOperations(scope.organizationId),
     [],
   );
 });
 
 function receipt(batchId: string, complete = true): GmailFetchReceipt {
   return {
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     sourceId: "source-a",
     batchId,
     ownerId: "process-a",
@@ -222,23 +222,23 @@ function receipt(batchId: string, complete = true): GmailFetchReceipt {
   };
 }
 
-test("runtime state survives adapter recreation, isolates workspaces, and backfills Relations", async () => {
+test("runtime state survives adapter recreation, isolates organizations, and backfills Relations", async () => {
   const first = runtime();
   const source = await createSource(first.store);
   const thesis = await first.store.createThesis({
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     name: "Services thesis",
     focus: "Durable services businesses",
   });
   await first.store.quarantineCapture(
-    "workspace-a",
+    "organization-a",
     source.id,
     capture("capture-a", "message-a"),
   );
-  const committed = await first.store.commitCapture("workspace-a", "capture-a");
+  const committed = await first.store.commitCapture("organization-a", "capture-a");
   assert.equal(committed.committed, true);
   await first.store.linkSourceThesisWithBackfill({
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     kind: "source_thesis",
     fromId: source.id,
     toId: thesis.id,
@@ -247,32 +247,32 @@ test("runtime state survives adapter recreation, isolates workspaces, and backfi
     evidenceRefs: ["proposal-a"],
   });
   await first.store.append({
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     sourceId: source.id,
     actorId: "human-a",
     action: "reveal",
     field: "password",
     occurredAt: "2026-07-18T00:00:00.000Z",
   });
-  await createSource(first.store, "workspace-b", "source-a");
+  await createSource(first.store, "organization-b", "source-a");
 
   const reopened = new LocalDealPilotStore(first.state, {
     now: () => "2026-07-18T01:00:00.000Z",
     id: () => "reopened-id",
   });
-  const deals = await reopened.list("deals", "workspace-a", { limit: 20, offset: 0 });
+  const deals = await reopened.list("deals", "organization-a", { limit: 20, offset: 0 });
   assert.equal(deals.total, 1);
-  assert.equal((await reopened.list("deals", "workspace-b", { limit: 20, offset: 0 })).total, 0);
-  const relations = await reopened.relations("workspace-a", deals.items[0]!.id);
+  assert.equal((await reopened.list("deals", "organization-b", { limit: 20, offset: 0 })).total, 0);
+  const relations = await reopened.relations("organization-a", deals.items[0]!.id);
   assert.deepEqual(
     new Set(relations.map((row) => row.kind)),
     new Set(["deal_source", "deal_thesis"]),
   );
-  assert.equal((await reopened.credentialAuditEvents("workspace-a")).length, 1);
-  assert.equal((await reopened.credentialAuditEvents("workspace-b")).length, 0);
+  assert.equal((await reopened.credentialAuditEvents("organization-a")).length, 1);
+  assert.equal((await reopened.credentialAuditEvents("organization-b")).length, 0);
   assert.equal(
-    (await reopened.get("source", "workspace-b", "source-a"))?.workspaceId,
-    "workspace-b",
+    (await reopened.get("source", "organization-b", "source-a"))?.organizationId,
+    "organization-b",
   );
 });
 
@@ -281,18 +281,18 @@ test("capture quarantine and commit are atomic, idempotent, and concurrency-safe
   const source = await createSource(store);
   const original = capture("capture-a", "provider-message-a");
   assert.equal(
-    await store.quarantineCapture("workspace-a", source.id, original),
+    await store.quarantineCapture("organization-a", source.id, original),
     "capture-a",
   );
   assert.equal(
-    await store.quarantineCapture("workspace-a", source.id, {
+    await store.quarantineCapture("organization-a", source.id, {
       ...original,
       captureId: "retry-generated-id",
     }),
     "capture-a",
   );
   await assert.rejects(
-    store.quarantineCapture("workspace-a", source.id, {
+    store.quarantineCapture("organization-a", source.id, {
       ...original,
       captureId: "conflicting-id",
       payload: { ...original.payload, revenue: 2_000_000 },
@@ -301,7 +301,7 @@ test("capture quarantine and commit are atomic, idempotent, and concurrency-safe
   );
 
   await store.quarantineCapture(
-    "workspace-a",
+    "organization-a",
     source.id,
     capture("capture-b", "provider-message-b", {
       name: "Northstar Services Holdings",
@@ -310,15 +310,15 @@ test("capture quarantine and commit are atomic, idempotent, and concurrency-safe
     }),
   );
   const commits = await Promise.all([
-    store.commitCapture("workspace-a", "capture-a"),
-    store.commitCapture("workspace-a", "capture-b"),
+    store.commitCapture("organization-a", "capture-a"),
+    store.commitCapture("organization-a", "capture-b"),
   ]);
   assert.ok(commits.every((result) => result.committed));
   assert.equal(
-    (await store.list("deals", "workspace-a", { limit: 20, offset: 0 })).total,
+    (await store.list("deals", "organization-a", { limit: 20, offset: 0 })).total,
     1,
   );
-  assert.deepEqual(await store.commitCapture("workspace-a", "capture-a"), {
+  assert.deepEqual(await store.commitCapture("organization-a", "capture-a"), {
     committed: false,
     alreadyCommitted: true,
     recordId: "capture-a",
@@ -332,7 +332,7 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   await store.stage(firstReceipt, ["message-a"], null);
   const firstCapture = capture("capture-a", "message-a");
   const input = {
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     sourceId: "source-a",
     receipt: firstReceipt,
     captures: [firstCapture],
@@ -343,7 +343,7 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   await assert.rejects(
     store.settleDiscoveryBatch({
       ...input,
-      receipt: { ...firstReceipt, workspaceId: "workspace-b" },
+      receipt: { ...firstReceipt, organizationId: "organization-b" },
     }),
     /outside the requested Organization or Source/,
   );
@@ -358,10 +358,10 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   assert.equal(settled.status, "settled");
   assert.deepEqual(await store.settleDiscoveryBatch(input), settled);
   await store.acknowledge(firstReceipt);
-  const source = await store.get("source", "workspace-a", "source-a");
+  const source = await store.get("source", "organization-a", "source-a");
   assert.equal(source?.kind === "source" ? source.spendToDate : null, 0.5);
-  assert.equal((await store.listPendingCaptures("workspace-a")).items.length, 1);
-  assert.deepEqual(await store.load("workspace-a", "source-a"), {
+  assert.equal((await store.listPendingCaptures("organization-a")).items.length, 1);
+  assert.deepEqual(await store.load("organization-a", "source-a"), {
     seenMessageIds: ["message-a"],
     lastFetchComplete: true,
     lastCheckpointAt: "2026-07-18T00:00:00.000Z",
@@ -386,12 +386,12 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
     /collides with different persisted input/,
   );
   assert.equal(
-    (await store.get("source", "workspace-a", "source-a"))?.kind === "source"
-      ? ((await store.get("source", "workspace-a", "source-a")) as { spendToDate: number }).spendToDate
+    (await store.get("source", "organization-a", "source-a"))?.kind === "source"
+      ? ((await store.get("source", "organization-a", "source-a")) as { spendToDate: number }).spendToDate
       : null,
     0.5,
   );
-  assert.equal((await store.load("workspace-a", "source-a")).pending?.batchId, "batch-b");
+  assert.equal((await store.load("organization-a", "source-a")).pending?.batchId, "batch-b");
   await store.discard(secondReceipt);
 
   const overBudget = receipt("batch-c");
@@ -406,7 +406,7 @@ test("discovery settlement atomically persists spend, captures, Gmail state, and
   assert.deepEqual(rejected.captureIds, []);
   assert.equal(rejected.source.health, "paused");
   assert.equal(rejected.source.spendToDate, 0.5);
-  assert.equal((await store.load("workspace-a", "source-a")).pending, undefined);
+  assert.equal((await store.load("organization-a", "source-a")).pending, undefined);
 });
 
 test("discovery settlement retries remain idempotent after more than 256 later batches", async () => {
@@ -414,7 +414,7 @@ test("discovery settlement retries remain idempotent after more than 256 later b
   await createSource(store);
   const firstReceipt = receipt("retained-batch-0");
   const firstInput = {
-    workspaceId: "workspace-a",
+    organizationId: "organization-a",
     sourceId: "source-a",
     receipt: firstReceipt,
     captures: [],
@@ -442,14 +442,14 @@ test("Gmail recovery discards a crashed process batch and preserves same-process
   const ownershipReceipt = receipt("shared-batch");
   await store.stage(ownershipReceipt, [], null);
   await store.fail({
-    workspaceId: ownershipReceipt.workspaceId,
+    organizationId: ownershipReceipt.organizationId,
     sourceId: ownershipReceipt.sourceId,
     batchId: ownershipReceipt.batchId,
     ownerId: "different-process",
     cursorKey: "",
   });
   assert.equal(
-    (await store.load(ownershipReceipt.workspaceId, ownershipReceipt.sourceId)).pending
+    (await store.load(ownershipReceipt.organizationId, ownershipReceipt.sourceId)).pending
       ?.ownerId,
     ownershipReceipt.ownerId,
   );
@@ -484,27 +484,27 @@ test("Gmail recovery discards a crashed process batch and preserves same-process
   };
   const query = {
     kind: "company" as const,
-    hints: { workspaceId: "workspace-a", sourceId: "source-a" },
+    hints: { organizationId: "organization-a", sourceId: "source-a" },
   };
   const crashed = createGmailFetchMessages(gateways, "integration-a", undefined, {
     stateStore: store,
   });
   assert.deepEqual((await crashed(query)).map((message) => message.id), ["message-a"]);
-  const otherWorkspaceQuery = {
+  const otherOrganizationQuery = {
     ...query,
-    hints: { workspaceId: "workspace-b", sourceId: "source-a" },
+    hints: { organizationId: "organization-b", sourceId: "source-a" },
   };
   assert.deepEqual(
-    (await crashed(otherWorkspaceQuery)).map((message) => message.id),
+    (await crashed(otherOrganizationQuery)).map((message) => message.id),
     ["message-a"],
   );
-  await crashed.acknowledge?.("source-a", "workspace-b");
+  await crashed.acknowledge?.("source-a", "organization-b");
   assert.deepEqual(
-    (await store.load("workspace-b", "source-a")).seenMessageIds,
+    (await store.load("organization-b", "source-a")).seenMessageIds,
     ["message-a"],
   );
   assert.equal(
-    (await store.load("workspace-a", "source-a")).pending?.ownerId !== undefined,
+    (await store.load("organization-a", "source-a")).pending?.ownerId !== undefined,
     true,
   );
 
@@ -513,7 +513,7 @@ test("Gmail recovery discards a crashed process batch and preserves same-process
     instanceId: "process-b",
   });
   assert.deepEqual((await restarted(query)).map((message) => message.id), ["message-a"]);
-  await restarted.acknowledge?.("source-a", "workspace-a");
+  await restarted.acknowledge?.("source-a", "organization-a");
   const afterRestart = createGmailFetchMessages(gateways, "integration-a", undefined, {
     stateStore: store,
     instanceId: "process-c",
@@ -540,13 +540,13 @@ test("Gmail recovery discards a crashed process batch and preserves same-process
     { stateStore: store, instanceId: "process-d" },
   );
   const results = await Promise.allSettled([
-    concurrent({ kind: "company", hints: { workspaceId: "workspace-a", sourceId: "source-b" } }),
-    concurrent({ kind: "company", hints: { workspaceId: "workspace-a", sourceId: "source-b" } }),
+    concurrent({ kind: "company", hints: { organizationId: "organization-a", sourceId: "source-b" } }),
+    concurrent({ kind: "company", hints: { organizationId: "organization-a", sourceId: "source-b" } }),
   ]);
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected").length, 1);
-  await concurrent.acknowledge?.("source-b", "workspace-a");
-  assert.equal((await store.load("workspace-a", "source-b")).pending, undefined);
+  await concurrent.acknowledge?.("source-b", "organization-a");
+  assert.equal((await store.load("organization-a", "source-b")).pending, undefined);
 });
 
 test("Gmail continuation, visited tokens, and checkpoint recover in a new connector instance", async () => {
@@ -599,7 +599,7 @@ test("Gmail continuation, visited tokens, and checkpoint recover in a new connec
   const query = {
     kind: "company" as const,
     hints: {
-      workspaceId: "workspace-a",
+      organizationId: "organization-a",
       sourceId: "source-continuation",
       after: "2026-07-17T00:00:00.000Z",
       scanStartedAt: "2026-07-18T00:00:00.000Z",
@@ -611,8 +611,8 @@ test("Gmail continuation, visited tokens, and checkpoint recover in a new connec
     instanceId: "process-before-restart",
   });
   assert.deepEqual(await beforeRestart(query), []);
-  await beforeRestart.acknowledge?.("source-continuation", "workspace-a");
-  const saved = await store.load("workspace-a", "source-continuation");
+  await beforeRestart.acknowledge?.("source-continuation", "organization-a");
+  const saved = await store.load("organization-a", "source-continuation");
   assert.equal(saved.continuation?.pageToken, "page-6");
   assert.ok(saved.continuation?.visitedPageTokens?.includes("__first_page__"));
 
@@ -629,13 +629,13 @@ test("Gmail continuation, visited tokens, and checkpoint recover in a new connec
   });
   assert.deepEqual(resumed.map((message) => message.id), ["message-six"]);
   assert.equal(
-    afterRestart.lastCheckpointAt?.("source-continuation", "workspace-a"),
+    afterRestart.lastCheckpointAt?.("source-continuation", "organization-a"),
     "2026-07-18T00:00:00.000Z",
   );
-  await afterRestart.acknowledge?.("source-continuation", "workspace-a");
+  await afterRestart.acknowledge?.("source-continuation", "organization-a");
   assert.deepEqual(pageTokens, [undefined, "page-2", "page-3", "page-4", "page-5", "page-6"]);
   assert.equal(
-    (await store.load("workspace-a", "source-continuation")).lastCheckpointAt,
+    (await store.load("organization-a", "source-continuation")).lastCheckpointAt,
     "2026-07-18T00:00:00.000Z",
   );
 });

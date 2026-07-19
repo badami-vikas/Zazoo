@@ -30,17 +30,17 @@ export interface RunCtx {
 }
 
 export interface RoleQuery {
-  /** Role ids the principal (user/team) holds in the workspace. */
-  rolesForPrincipal(workspaceId: string, actor: Actor): Promise<string[]>;
+  /** Role ids the principal (user/team) holds in the organization. */
+  rolesForPrincipal(organizationId: string, actor: Actor): Promise<string[]>;
   /** Grants attached to a role. */
   grantsForRole(roleId: string): Promise<GrantRule[]>;
   /** Direct (non-role) grants for an actor. */
-  directGrants(workspaceId: string, actor: Actor): Promise<GrantRule[]>;
+  directGrants(organizationId: string, actor: Actor): Promise<GrantRule[]>;
 }
 
 export interface AgentQuery {
-  /** Owning workspace for this physical Agent identity, or null when unknown. */
-  workspaceId(agentId: string): Promise<string | null>;
+  /** Owning organization for this physical Agent identity, or null when unknown. */
+  organizationId(agentId: string): Promise<string | null>;
   /** Only active Agents may resolve or invoke governed Skills. */
   isActive(agentId: string): Promise<boolean>;
   /** The role an agent inherits (assumes_role_id), if any. */
@@ -66,7 +66,7 @@ export interface AgentQuery {
 export interface EphemeralQuery {
   /** Active (unexpired, unconsumed) ephemeral grants for an actor in a run context. */
   activeGrants(
-    workspaceId: string,
+    organizationId: string,
     actor: Actor,
     context: RunContext | undefined,
     nowISO: string,
@@ -74,7 +74,7 @@ export interface EphemeralQuery {
 }
 
 export interface PolicyEvalInput {
-  workspaceId: string;
+  organizationId: string;
   actor: Actor;
   action: Action;
   resourceType: ResourceType;
@@ -110,13 +110,13 @@ export interface LedgerStore {
    * Ordered newest-first; paginated by the caller (offset/limit).
    */
   listPending(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }>;
   /** Bounded append-only history. Every private row remains visible only to its
-   * effective owning user; non-private rows retain workspace scope. */
+   * effective owning user; non-private rows retain organization scope. */
   listHistory(
-    workspaceId: string,
+    organizationId: string,
     opts: { limit: number; offset: number; privateOwnerUserId?: string },
   ): Promise<{ items: LedgerEntry[]; total: number }>;
 }
@@ -133,7 +133,7 @@ export type MediaStatus = "pending" | "committed" | "archived";
  */
 export interface MediaCaptureRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   kind: MediaKind;
   mimeType: string;
   byteSize: number;
@@ -164,7 +164,7 @@ export interface LocalMediaStore {
   put(rec: MediaCaptureRecord, blob: Uint8Array): Promise<MediaCaptureRecord>;
   get(id: string): Promise<MediaCaptureRecord | null>;
   getBlob(id: string): Promise<Uint8Array | null>;
-  list(filter?: { status?: MediaStatus; kind?: MediaKind; workspaceId?: string }): Promise<MediaCaptureRecord[]>;
+  list(filter?: { status?: MediaStatus; kind?: MediaKind; organizationId?: string }): Promise<MediaCaptureRecord[]>;
   update(id: string, patch: Partial<MediaCaptureRecord>): Promise<MediaCaptureRecord>;
   archive(id: string): Promise<void>;
 }
@@ -241,7 +241,7 @@ export interface AutomationStepDef {
 export interface AutomationDefinition {
   id: string;
   name: string;
-  workspaceId: string;
+  organizationId: string;
   /** The sole actor for every Run started from this Automation. */
   agentId: string;
   /** Execution residency for the owning Agent. */
@@ -251,18 +251,18 @@ export interface AutomationDefinition {
 
 /** Loads Automation definitions from the canonical store. */
 export interface AutomationRegistry {
-  load(workspaceId: string, automationId: string): Promise<AutomationDefinition | null>;
+  load(organizationId: string, automationId: string): Promise<AutomationDefinition | null>;
   save(definition: AutomationDefinition): Promise<void>;
 }
 
 /** Records attributable Automation Runs. */
 export interface AutomationRunRecorder {
   start(
-    run: { runId: string; automationId: string; workspaceId: string; agentId: string },
+    run: { runId: string; automationId: string; organizationId: string; agentId: string },
     ctx: RunCtx,
   ): Promise<void>;
   finish(
-    run: { runId: string; workspaceId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; organizationId: string; status: "completed" | "halted"; output: unknown },
     ctx: RunCtx,
   ): Promise<void>;
 }

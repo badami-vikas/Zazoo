@@ -39,7 +39,7 @@ function ctx(): RunCtx {
 }
 function captureReq(partial: Partial<ActionRequest> = {}): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "user", id: USER, plane: "local" },
     action: "write",
     resourceType: "event",

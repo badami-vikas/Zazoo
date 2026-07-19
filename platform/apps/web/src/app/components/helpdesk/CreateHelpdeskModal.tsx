@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { X, Check, Copy, LifeBuoy, Link2, Globe, CloudOff } from 'lucide-react';
-import { createWorkspace, setWorkspaceVisibility, type HelpWorkspace } from '../../data/helpdesk';
-import { remoteCreateWorkspace, remoteSetWorkspaceVisibility, type RemoteWorkspace } from '../../data/helpdeskRemote';
+import { createOrganization, setOrganizationVisibility, type HelpOrganization } from '../../data/helpdesk';
+import { remoteCreateOrganization, remoteSetOrganizationVisibility, type RemoteOrganization } from '../../data/helpdeskRemote';
 
 export function CreateHelpdeskModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [makePublic, setMakePublic] = useState(false);       // NOT public by default
-  const [created, setCreated] = useState<HelpWorkspace | null>(null);
-  const [remoteWs, setRemoteWs] = useState<RemoteWorkspace | null>(null); // Supabase row (cross-device)
+  const [created, setCreated] = useState<HelpOrganization | null>(null);
+  const [remoteWs, setRemoteWs] = useState<RemoteOrganization | null>(null); // Supabase row (cross-device)
   const [isPublic, setIsPublic] = useState(false);            // post-create toggle state
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -20,8 +20,8 @@ export function CreateHelpdeskModal({ onClose }: { onClose: () => void }) {
     // Local store powers the owner's in-app list. Supabase persists it so the shareable
     // link resolves for testers on OTHER devices. Remote is best-effort: if it fails
     // (offline / signed-out) the link still works on this device via the local store.
-    const ws = createWorkspace({ name, description, visibility, broadcastDefault: makePublic });
-    const remote = await remoteCreateWorkspace({ name, description, visibility, broadcastDefault: makePublic });
+    const ws = createOrganization({ name, description, visibility, broadcastDefault: makePublic });
+    const remote = await remoteCreateOrganization({ name, description, visibility, broadcastDefault: makePublic });
     setCreated(ws); setRemoteWs(remote); setIsPublic(makePublic); setBusy(false);
   };
   // Shareable link uses the deployed public base URL when set, else the current origin.
@@ -31,8 +31,8 @@ export function CreateHelpdeskModal({ onClose }: { onClose: () => void }) {
   const togglePublic = (on: boolean) => {
     if (!created) return;
     setIsPublic(on);
-    setWorkspaceVisibility(created.id, on ? 'public' : 'unlisted');
-    if (remoteWs) remoteSetWorkspaceVisibility(remoteWs.id, on ? 'public' : 'unlisted');
+    setOrganizationVisibility(created.id, on ? 'public' : 'unlisted');
+    if (remoteWs) remoteSetOrganizationVisibility(remoteWs.id, on ? 'public' : 'unlisted');
   };
 
   return (

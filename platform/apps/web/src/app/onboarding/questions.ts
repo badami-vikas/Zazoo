@@ -10,7 +10,7 @@
  * that as a small explicit decision graph (`next(answers)`), not a fixed list,
  * so "domain of work" can steer which questions appear later without a big
  * if/else scattered through the component. Every question has a real effect
- * on the compiled WorkspaceBlueprint (entities/views/vocabulary) — no filler
+ * on the compiled OrganizationBlueprint (entities/views/vocabulary) — no filler
  * questions asked just to hit a minimum count.
  *
  * E1 (2026-07-09): LinkedIn login and phone OTP verification REJECTED — removed
@@ -18,13 +18,13 @@
  * user's role so that downstream questions (domain, vocab) can be contextualised.
  *
  * E2 (2026-07-10, user correction): the "solo or team?" question REJECTED —
- * every workspace is a team workspace (solo = a team of one), so asking never
+ * every organization is a team organization (solo = a team of one), so asking never
  * added information; `mode`/`team_size` never fed the compiled blueprint
  * anyway (confirmed: pure UI gating, no downstream consumer). Removed both
  * questions rather than defaulting them silently, since a removed question
  * leaves no dead branch to maintain.
  */
-import type { WorkspaceBlueprint } from "@bridge/core";
+import type { OrganizationBlueprint } from "@bridge/core";
 import { AVATAR_STYLES } from "../avatar/avatar-store";
 
 export type QuestionKind = "single_select" | "multi_select" | "text";
@@ -115,7 +115,7 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
 };
 
 const Q_NAME: OnboardingQuestion = {
-  id: "workspace_name",
+  id: "organization_name",
   kind: "text",
   prompt: "Last thing — what should we call your Organization?",
   placeholder: "e.g. My Deals",
@@ -170,7 +170,7 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  *   6. watch_first (multi-select)
  *   7. vocab_name (only if domain ≠ relationships)
  *   8. view_style
- *   9. workspace_name (auto-populated from email in dialog, still shown for confirmation)
+ *   9. organization_name (auto-populated from email in dialog, still shown for confirmation)
  *
  * Bounded to 5-12 questions per docs/wiki/roadmap.md: the shortest real path
  * (role model skipped + relationships domain) asks 7; the longest (role model
@@ -185,7 +185,7 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   if (answers.watch_first === undefined) return Q_WATCH_FIRST;
   if (answers.domain !== "relationships" && answers.vocab_name === undefined) return Q_VOCAB;
   if (answers.view_style === undefined) return Q_VIEW_STYLE;
-  if (answers.workspace_name === undefined) return Q_NAME;
+  if (answers.organization_name === undefined) return Q_NAME;
   return null;
 }
 
@@ -199,7 +199,7 @@ export function answeredCount(answers: OnboardingAnswers): number {
 }
 
 /**
- * Derives a default workspace name from an email address per spec-workspace-naming.md:
+ * Derives a default organization name from an email address per spec-organization-naming.md:
  * - Extract domain after @
  * - Strip common TLDs and generic free-mail providers (gmail, yahoo, hotmail,
  *   outlook, icloud, me, mac, proton, protonmail)
@@ -211,7 +211,7 @@ export function answeredCount(answers: OnboardingAnswers): number {
  *   bob@stripe.com      → "Stripe"
  *   carol@gmail.com     → "Carol's Organization"
  */
-export function workspaceNameFromEmail(email: string): string {
+export function organizationNameFromEmail(email: string): string {
   const [local, domain] = email.split('@');
   if (!domain) return `${toTitleCase(local ?? 'My')}'s Organization`;
   const genericDomains = ['gmail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'me', 'mac', 'proton', 'protonmail'];
@@ -226,27 +226,27 @@ function toTitleCase(s: string): string {
   return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Node type + starter fields per domain — the entities a fresh workspace
+/** Node type + starter fields per domain — the entities a fresh organization
  * starts with. Kept to kernel-registered node types only (compileBlueprint
  * rejects anything else) — vocabulary overrides (not new node types) are how
  * a domain's own naming shows through. */
 // Display labels use the domain's canonical Record name while legacy nodeType
 // identifiers remain time-boxed under VOCAB2.
 const DOMAIN_ENTITY: Record<string, { nodeType: string; label: string }> = {
-  sales_deals: { nodeType: "initiative", label: "Deal" },
-  job_search: { nodeType: "initiative", label: "Application" },
+  sales_deals: { nodeType: "record", label: "Deal" },
+  job_search: { nodeType: "record", label: "Application" },
   support: { nodeType: "touchpoint", label: "Ticket" },
   relationships: { nodeType: "person", label: "Person" },
 };
 
 /**
- * Compile the collected answers into a `WorkspaceBlueprint` — the exact shape
- * `workspace.blueprint.propose` accepts (packages/core/src/blueprint.ts). Pure
+ * Compile the collected answers into a `OrganizationBlueprint` — the exact shape
+ * `organization.blueprint.propose` accepts (packages/core/src/blueprint.ts). Pure
  * function, no I/O; the caller (OnboardingDialog) is responsible for calling
- * compileBlueprint() to preview it and workspace.blueprint.propose to submit
+ * compileBlueprint() to preview it and organization.blueprint.propose to submit
  * it as a governed draft.
  */
-export function buildBlueprintFromAnswers(answers: OnboardingAnswers): WorkspaceBlueprint {
+export function buildBlueprintFromAnswers(answers: OnboardingAnswers): OrganizationBlueprint {
   const domain = (answers.domain as string | undefined) ?? "relationships";
   const entityDef = DOMAIN_ENTITY[domain] ?? DOMAIN_ENTITY.relationships!;
   const watchFirst = (answers.watch_first as string[] | undefined) ?? [];

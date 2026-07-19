@@ -32,7 +32,7 @@ import {
   LEARNING_AGENT,
   LEARNING_ROLE,
   PILOT_USER,
-  PILOT_WORKSPACE,
+  PILOT_ORGANIZATION,
 } from "../src/wiring.js";
 
 /** A syntactically-valid Postgres URL that is never actually connected to: postgres-js's
@@ -66,9 +66,9 @@ test("buildInMemoryPorts: returns a fully in-memory, seeded port set with no DB 
     assert.ok(ports.memory!.roles instanceof InMemoryRoleStore);
     // Seeded governance: the Google egress/intake agents are pre-authorized (seedGovernance).
     assert.ok(ports.memory!.agents.scope.size > 0, "seedGovernance should have populated agent scopes");
-    // Workspace CRUD is a real DrizzleWorkspaceStore even in in-memory mode (bound to
+    // Organization CRUD is a real DrizzleOrganizationStore even in in-memory mode (bound to
     // the LOCAL pglite plane, not a governance in-memory port).
-    assert.equal(typeof ports.workspaceStore.createWorkspace, "function");
+    assert.equal(typeof ports.organizationStore.createOrganization, "function");
   } finally {
     await ports.closeDb();
   }
@@ -80,7 +80,7 @@ test("buildInMemoryPorts: file-backed relational and private Local Plane stores 
   let ports: Awaited<ReturnType<typeof buildInMemoryPorts>> | undefined;
   try {
     await plane.graph.recordExternal({
-      workspaceId: "test_fixture_workspace",
+      organizationId: "test_fixture_organization",
       source: "test_fixture_source",
       sourceRecordId: "test_fixture_record",
       entityType: "test_fixture_event",
@@ -91,13 +91,13 @@ test("buildInMemoryPorts: file-backed relational and private Local Plane stores 
     ports = await buildInMemoryPorts({ localDir: dir });
     assert.equal(
       await plane.graph.hasExternal(
-        "test_fixture_workspace",
+        "test_fixture_organization",
         "test_fixture_source",
         "test_fixture_record",
       ),
       true,
     );
-    assert.equal(typeof ports.workspaceStore.createWorkspace, "function");
+    assert.equal(typeof ports.organizationStore.createOrganization, "function");
   } finally {
     await ports?.closeDb();
     await plane.close();
@@ -108,23 +108,23 @@ test("buildInMemoryPorts: file-backed relational and private Local Plane stores 
 test("buildInMemoryPorts: resumes Relation decision ordering above persisted local materialization", async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-relation-sequence-floor-"));
   const seeded = await createLocalDb({ dataDir: dir });
-  let workspaceId = "";
+  let organizationId = "";
   let userId = "";
   try {
-    const [workspace] = await seeded.db
-      .insert(schema.workspaces)
-      .values({ name: "test_fixture_relation_sequence_workspace" })
-      .returning({ id: schema.workspaces.id });
+    const [organization] = await seeded.db
+      .insert(schema.organizations)
+      .values({ name: "test_fixture_relation_sequence_organization" })
+      .returning({ id: schema.organizations.id });
     const [user] = await seeded.db
       .insert(schema.users)
       .values({ email: "test_fixture_relation_sequence@example.com" })
       .returning({ id: schema.users.id });
-    assert.ok(workspace);
+    assert.ok(organization);
     assert.ok(user);
-    workspaceId = workspace.id;
+    organizationId = organization.id;
     userId = user.id;
     await seeded.db.insert(schema.edges).values({
-      workspaceId,
+      organizationId,
       ownerUserId: userId,
       srcType: "signal",
       srcId: "52000000-0000-4000-8000-000000000001",
@@ -144,7 +144,7 @@ test("buildInMemoryPorts: resumes Relation decision ordering above persisted loc
   try {
     const entry = await ports.ledger.append({
       id: "52000000-0000-4000-8000-000000000004",
-      workspaceId,
+      organizationId,
       actorType: "user",
       actorId: userId,
       action: "read",
@@ -164,9 +164,9 @@ test("buildInMemoryPorts: file-backed mode persists approved ledger decisions ac
   const dir = mkdtempSync(join(tmpdir(), "bridge-relation-ledger-restart-"));
   const seeded = await createLocalDb({ dataDir: dir });
   try {
-    await seeded.db.insert(schema.workspaces).values({
-      id: PILOT_WORKSPACE,
-      name: "test_fixture_relation_ledger_restart_workspace",
+    await seeded.db.insert(schema.organizations).values({
+      id: PILOT_ORGANIZATION,
+      name: "test_fixture_relation_ledger_restart_organization",
     });
     await seeded.db.insert(schema.users).values({
       id: PILOT_USER,
@@ -181,7 +181,7 @@ test("buildInMemoryPorts: file-backed mode persists approved ledger decisions ac
     assert.ok(first.ledger instanceof DrizzleLedgerStore);
     const proposal = await first.ledger.append({
       id: "53000000-0000-4000-8000-000000000001",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "write",
@@ -193,7 +193,7 @@ test("buildInMemoryPorts: file-backed mode persists approved ledger decisions ac
     });
     await first.ledger.append({
       id: "53000000-0000-4000-8000-000000000002",
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       actorType: "user",
       actorId: PILOT_USER,
       action: "write",
@@ -293,7 +293,7 @@ test("buildInMemoryPorts: goalTasks/skillManifests/childAgentRuns are in-memory,
     // in-memory mode registers the SAME list buildPersistentPorts seeds to the DB.
     for (const manifest of GOVERNED_SKILL_MANIFEST_CATALOG) {
       assert.ok(
-        ports.skillManifests.forSkill(manifest.workspaceId, manifest.skillId).length > 0,
+        ports.skillManifests.forSkill(manifest.organizationId, manifest.skillId).length > 0,
         `expected "${manifest.skillId}" to be pre-registered in in-memory mode`,
       );
     }
@@ -308,17 +308,17 @@ test("persistent governance provisioning grants culture-research authority to Le
   const { db, close } = await createLocalDb();
   try {
     await db.insert(schema.users).values({ id: PILOT_USER, email: "persistent-governance@test.invalid" });
-    await db.insert(schema.workspaces).values({ id: PILOT_WORKSPACE, name: "Persistent governance test" });
+    await db.insert(schema.organizations).values({ id: PILOT_ORGANIZATION, name: "Persistent governance test" });
 
     await ensureLearningAgentGovernance(db, {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       userId: PILOT_USER,
       agentId: LEARNING_AGENT,
       roleId: LEARNING_ROLE,
       permissionId: "b0000000-0000-4000-a000-0000000009c2",
     });
     await ensureInternalStrategistGovernance(db, {
-      workspaceId: PILOT_WORKSPACE,
+      organizationId: PILOT_ORGANIZATION,
       userId: PILOT_USER,
       agentId: INTERNAL_STRATEGIST_AGENT,
       roleId: INTERNAL_STRATEGIST_ROLE,

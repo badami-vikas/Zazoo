@@ -52,15 +52,15 @@ export class GoogleService {
   constructor(private readonly deps: GoogleServiceDeps) {}
 
   get integrationId(): string {
-    return `${this.deps.identities.workspaceId}:google`;
+    return `${this.deps.identities.organizationId}:google`;
   }
 
   get ownerUserId(): string {
     return this.deps.identities.userId;
   }
 
-  get workspaceId(): string {
-    return this.deps.identities.workspaceId;
+  get organizationId(): string {
+    return this.deps.identities.organizationId;
   }
 
   async isConnected(): Promise<boolean> {
@@ -111,11 +111,11 @@ export class GoogleService {
    * propose Events — that's syncCalendar. Returns the events for rendering.
    */
   async listCalendarEvents(ctx: RunCtx, opts?: { maxResults?: number; timeMin?: string; timeMax?: string }): Promise<CalendarEvent[]> {
-    const { workspaceId, egressAgentId, userId } = this.deps.identities;
-    const listGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, workspaceId, "source_google_data", egressAgentId, ctx);
+    const { organizationId, egressAgentId, userId } = this.deps.identities;
+    const listGoalTaskRef = await provisionGoogleSyncTask(this.deps.goalTasks, organizationId, "source_google_data", egressAgentId, ctx);
     const proposal = await this.deps.pipeline.propose(
       {
-        workspaceId,
+        organizationId,
         actor: { type: "agent", id: egressAgentId, plane: "cloud" },
         onBehalfOf: { type: "user", id: userId },
         action: "read",
@@ -181,7 +181,7 @@ export class GoogleService {
     const verb = input.kind === "calendar" ? `${action} event` : "send";
     return this.deps.pipeline.propose(
       {
-        workspaceId: this.deps.identities.workspaceId,
+        organizationId: this.deps.identities.organizationId,
         actor: { type: "user", id: this.deps.identities.userId, plane: "cloud" },
         action: "share",
         resourceType: "external:send",
@@ -234,7 +234,7 @@ export class GoogleService {
     if (
       googleOwned &&
       (
-        resolved.request.workspaceId !== this.workspaceId ||
+        resolved.request.organizationId !== this.organizationId ||
         effectiveOwnerId !== this.ownerUserId
       )
     ) {

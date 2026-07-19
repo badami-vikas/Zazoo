@@ -1,29 +1,29 @@
 import {
-  computePackageRisk,
+  computeModuleRisk,
   evaluateSandboxRequirement,
   type CommonsDependencyPin,
   type CommonsProvenance,
   type CommonsSecurityCheck,
   type CommonsSecurityScan,
-  type PackageManifest,
+  type ModuleManifest,
 } from "@bridge/core";
 
 function check(id: string, status: CommonsSecurityCheck["status"], detail: string): CommonsSecurityCheck {
   return { id, status, detail };
 }
 
-type ResolvedPackageDependency = { manifest: PackageManifest; contentHash: string };
-type ResolvePackageDependency = (manifestId: string, version: string) => ResolvedPackageDependency | undefined;
+type ResolvedModuleDependency = { manifest: ModuleManifest; contentHash: string };
+type ResolveModuleDependency = (manifestId: string, version: string) => ResolvedModuleDependency | undefined;
 
 function resolveClosure(
-  manifest: PackageManifest,
-  resolveDependency: ResolvePackageDependency,
-): { manifests: PackageManifest[]; pins: CommonsDependencyPin[]; unresolved: string[] } {
+  manifest: ModuleManifest,
+  resolveDependency: ResolveModuleDependency,
+): { manifests: ModuleManifest[]; pins: CommonsDependencyPin[]; unresolved: string[] } {
   const manifests = [manifest];
   const pins: CommonsDependencyPin[] = [];
   const unresolved: string[] = [];
   const visited = new Set([`${manifest.name}@${manifest.version}`]);
-  function visit(current: PackageManifest): void {
+  function visit(current: ModuleManifest): void {
     for (const dependency of current.dependencies) {
       const key = `${dependency.manifestId}@${dependency.version}`;
       const resolved = resolveDependency(dependency.manifestId, dependency.version);
@@ -53,14 +53,14 @@ function resolveClosure(
 }
 
 /** Deterministic CM1 publish gate over the normalized declarative artifact. */
-export function scanCommonsPackage(
-  manifest: PackageManifest,
+export function scanCommonsModule(
+  manifest: ModuleManifest,
   provenance: CommonsProvenance,
   privacyPaths: readonly string[],
-  resolveDependency: ResolvePackageDependency = () => undefined,
+  resolveDependency: ResolveModuleDependency = () => undefined,
 ): CommonsSecurityScan {
   const closure = resolveClosure(manifest, resolveDependency);
-  const risk = computePackageRisk(manifest, () => undefined, (name, version) => resolveDependency(name, version)?.manifest);
+  const risk = computeModuleRisk(manifest, () => undefined, (name, version) => resolveDependency(name, version)?.manifest);
   const unpinnedBlueprintCapabilities = manifest.blueprint?.capabilities ?? [];
   const sandboxFailures = closure.manifests.flatMap((item) => item.capabilities)
     .map((capability) => ({ capability, gate: evaluateSandboxRequirement(capability) }))

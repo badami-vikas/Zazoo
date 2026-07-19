@@ -1,15 +1,15 @@
 /**
  * Blueprint -> view grammar compiler (docs/wiki/vision.md "View grammar" +
- * docs/wiki/roadmap.md P1 "Workspace Generator"). Pure, zero-deps — mirrors
+ * docs/wiki/roadmap.md P1 "Organization Generator"). Pure, zero-deps — mirrors
  * capability/risk.ts's shape (a plain function over plain data, no store, no
  * I/O) so it can run identically in apps/api (server-side compile-on-activate)
  * and apps/web (client-side compile-on-fetch, per the P1 spec).
  *
- * A WorkspaceBlueprint is the compiled workspace_definitions.blueprint jsonb
+ * A OrganizationBlueprint is the compiled organization_definitions.blueprint jsonb
  * payload (packages/db/src/schema.ts) — a PROPOSED, governed artifact (Capability
- * Lifecycle Platform: blueprint changes go through workspace.blueprint.propose /
+ * Lifecycle Platform: blueprint changes go through organization.blueprint.propose /
  * .activate, never applied directly). compileBlueprint() is the grammar
- * ENFORCEMENT layer: it is the only path from "a blueprint" to "a CompiledWorkspace
+ * ENFORCEMENT layer: it is the only path from "a blueprint" to "a CompiledOrganization
  * a <DataViews> shell can render," and it rejects anything outside the registered
  * grammar rather than silently passing it through.
  *
@@ -23,23 +23,23 @@
  *     node type (not present in the caller-provided registry list) or an
  *     unknown view kind is a compile ERROR, never a silently-dropped view.
  *
- * NOTE on types: @bridge/core stays a zero-runtime-dependency package (per its
- * package.json description), so this file does NOT import @bridge/tables —
+ * NOTE on types: @bridge/core stays a zero-runtime-dependency module (per its
+ * npm manifest description), so this file does NOT import @bridge/tables —
  * `BlueprintColumnSpec`/`BlueprintTableSpec`/`CompiledViewConfig` below are a
  * deliberate STRUCTURAL MIRROR of @bridge/tables' ColumnSpec/TableSpec/ViewConfig
  * (see packages/tables/src/types.ts). Consumers that already have @bridge/tables
- * (apps/web, apps/api) can pass a CompiledWorkspace's tableSpecs/viewConfigs
+ * (apps/web, apps/api) can pass a CompiledOrganization's tableSpecs/viewConfigs
  * straight into @bridge/tables' engine/<DataViews> without a cast — the shapes
  * are identical by construction, only the type names differ to avoid the
- * cross-package dependency.
+ * cross-module dependency.
  */
-import type { PackageManifest } from "./package/types.js";
+import type { ModuleManifest } from "./module/types.js";
 
-/** Current WorkspaceBlueprint schema version. Version 2 replaces the persisted
+/** Current OrganizationBlueprint schema version. Version 2 replaces the persisted
  * view aliases `kanban`/`network` with the canonical `board`/`graph` kinds and
  * adds Form/Tree plus source-column metadata. Version-1 payloads remain readable
- * through parseWorkspaceBlueprint's explicit migration. Bumped on a
- * breaking change to the blueprint grammar; `parseWorkspaceBlueprint` stamps it
+ * through parseOrganizationBlueprint's explicit migration. Bumped on a
+ * breaking change to the blueprint grammar; `parseOrganizationBlueprint` stamps it
  * when absent and rejects a version it does not understand, so a Commons-
  * published blueprint carries the grammar version it was authored against. */
 export const BLUEPRINT_SCHEMA_VERSION = 2 as const;
@@ -158,22 +158,22 @@ export interface BlueprintViewSpec {
   };
 }
 
-/** The governed, versioned artifact stored in workspace_definitions.blueprint. */
-export interface WorkspaceBlueprint {
+/** The governed, versioned artifact stored in organization_definitions.blueprint. */
+export interface OrganizationBlueprint {
   /** BLUEPRINT-1 grammar version this payload was authored against. Optional on
    * the in-memory type (existing stored blueprints and code-constructed literals
-   * predate it) — `parseWorkspaceBlueprint` stamps BLUEPRINT_SCHEMA_VERSION when
-   * absent, and `workspaceBlueprintToPackageManifest` always sets it, so every
+   * predate it) — `parseOrganizationBlueprint` stamps BLUEPRINT_SCHEMA_VERSION when
+   * absent, and `organizationBlueprintToModuleManifest` always sets it, so every
    * Commons-published blueprint carries an explicit version. */
   schemaVersion?: number;
-  /** Kernel-vocab label overrides (e.g. { initiative: "Deal" } for DealPilot) —
-   * "vocabulary override applied to labels" (workspace scope, CLAUDE.md's
+  /** Kernel-vocab label overrides (e.g. { record: "Deal" } for DealPilot) —
+   * "vocabulary override applied to labels" (organization scope, CLAUDE.md's
    * two-scope vocab rule: this is exactly the sanctioned override point). */
   vocabulary: Record<string, string>;
   entities: BlueprintEntitySpec[];
   views: BlueprintViewSpec[];
-  /** capability_manifests.id refs this workspace composes (Compose verb, vision.md
-   * "Workspaces = projections") — carried through untouched; this compiler does
+  /** capability_manifests.id refs this organization composes (Compose verb, vision.md
+   * "Organizations = projections") — carried through untouched; this compiler does
    * not validate capability ids (that's the CapabilityStore's job, a store lookup
    * this pure function deliberately does not perform). */
   capabilities: string[];
@@ -186,7 +186,7 @@ export interface NavigationEntry {
   viewIds: string[];
 }
 
-export interface CompiledWorkspace {
+export interface CompiledOrganization {
   /** One TableSpec per entity — the @bridge/tables-compatible contract <DataViews> consumes. */
   tableSpecs: BlueprintTableSpec[];
   /** One compiled view config per BlueprintViewSpec (chatbot/dashboard/canvas
@@ -305,10 +305,10 @@ function validateDriverColumn(
 }
 
 /**
- * Compile a WorkspaceBlueprint into the grammar-enforced CompiledWorkspace a
+ * Compile a OrganizationBlueprint into the grammar-enforced CompiledOrganization a
  * <DataViews> shell (or any other registered-component consumer) renders from.
  *
- * @param blueprint the proposed/active workspace_definitions.blueprint payload
+ * @param blueprint the proposed/active organization_definitions.blueprint payload
  * @param registeredNodeTypes the kernel's known node-type registry (universal-
  *   entity was REJECTED per vision.md — node types are an explicit registry, not
  *   an open string). An entity naming a nodeType outside this list is a compile
@@ -318,10 +318,10 @@ function validateDriverColumn(
  *   Defaults to the single literal "relationship" if omitted.
  */
 export function compileBlueprint(
-  blueprint: WorkspaceBlueprint,
+  blueprint: OrganizationBlueprint,
   registeredNodeTypes: readonly string[],
   _relationshipNodeTypes: readonly string[] = ["relationship"],
-): CompiledWorkspace {
+): CompiledOrganization {
   const registered = new Set(registeredNodeTypes);
   const entityByNodeType = new Map<string, BlueprintEntitySpec>();
 
@@ -472,7 +472,7 @@ export function compileBlueprint(
 }
 
 /** Vocabulary override: an exact-match lookup on the label string (e.g.
- * vocabulary["Initiative"] = "Deal"), falling back to the original label
+ * vocabulary["Record"] = "Deal"), falling back to the original label
  * unchanged. Kept deliberately simple (no templating) — "user's own naming
  * always wins" per CLAUDE.md, so the override is a direct replacement, not a
  * partial substring rewrite that could clobber unrelated text. */
@@ -481,7 +481,7 @@ function applyVocabulary(label: string, vocabulary: Record<string, string>): str
 }
 
 /**
- * Thrown by parseWorkspaceBlueprint when a payload is not a well-formed,
+ * Thrown by parseOrganizationBlueprint when a payload is not a well-formed,
  * DECLARATIVE blueprint — distinct from BlueprintCompileError (which is about
  * the grammar/registry, at compile time). "The LLM emits only the declarative
  * manifest, never runtime code" (BLUEPRINT-1): this parser is the enforcement
@@ -490,7 +490,7 @@ function applyVocabulary(label: string, vocabulary: Record<string, string>): str
  */
 export class BlueprintValidationError extends Error {
   constructor(message: string) {
-    super(`workspace blueprint invalid: ${message}`);
+    super(`organization blueprint invalid: ${message}`);
     this.name = "BlueprintValidationError";
   }
 }
@@ -668,14 +668,14 @@ function parseViewConfig(raw: unknown, where: string): NonNullable<BlueprintView
 
 /**
  * Parse+validate an untrusted payload (a Commons-published blueprint, a tRPC
- * input, or a stored jsonb row) into a WorkspaceBlueprint, rejecting anything
+ * input, or a stored jsonb row) into a OrganizationBlueprint, rejecting anything
  * that is not a well-formed DECLARATIVE blueprint. Uses a closed key allowlist
  * at every level so runtime code cannot be smuggled in. Stamps
  * BLUEPRINT_SCHEMA_VERSION when absent; rejects an unknown (future) version.
  * Pure — no I/O. Does NOT check the node-type registry (that is
  * compileBlueprint's job); this is the SHAPE/declarative gate.
  */
-export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
+export function parseOrganizationBlueprint(raw: unknown): OrganizationBlueprint {
   if (!isPlainObj(raw)) bfail("root must be an object");
   rejectUnknownKeys(raw, ["schemaVersion", "vocabulary", "entities", "views", "capabilities"], "blueprint");
 
@@ -745,8 +745,8 @@ export function parseWorkspaceBlueprint(raw: unknown): WorkspaceBlueprint {
   };
 }
 
-export interface WorkspaceBlueprintPublishOptions {
-  /** kebab-case package name for the Commons entry. */
+export interface OrganizationBlueprintPublishOptions {
+  /** kebab-case module name for the Commons entry. */
   name: string;
   /** exact semver for the Commons entry. */
   version: string;
@@ -755,48 +755,48 @@ export interface WorkspaceBlueprintPublishOptions {
 }
 
 /**
- * Bridge a WorkspaceBlueprint into a Commons-publishable PackageManifest
- * (kind "workspace_definition"). The blueprint travels intact in
+ * Bridge a OrganizationBlueprint into a Commons-publishable ModuleManifest
+ * (kind "organization_definition"). The blueprint travels intact in
  * `manifest.blueprint` (so PKG-2 signing covers it byte-for-byte), with
- * schemaVersion stamped. A workspace_definition COMPOSES capabilities by
+ * schemaVersion stamped. A organization_definition COMPOSES capabilities by
  * reference (blueprint.capabilities) rather than bundling them, so the
- * manifest's own capabilities[] is empty — parsePackageManifest permits this
- * for a blueprint-carrying workspace_definition. Pure.
+ * manifest's own capabilities[] is empty — parseModuleManifest permits this
+ * for a blueprint-carrying organization_definition. Pure.
  */
-export function workspaceBlueprintToPackageManifest(
-  blueprint: WorkspaceBlueprint,
-  options: WorkspaceBlueprintPublishOptions,
-): PackageManifest {
-  const summary = options.summary ?? `${options.name} workspace blueprint`;
+export function organizationBlueprintToModuleManifest(
+  blueprint: OrganizationBlueprint,
+  options: OrganizationBlueprintPublishOptions,
+): ModuleManifest {
+  const summary = options.summary ?? `${options.name} organization blueprint`;
   return {
     name: options.name,
     version: options.version,
-    kind: "workspace_definition",
+    kind: "organization_definition",
     summary,
     description: options.description ?? summary,
     lineageManifestId: null,
     dependencies: [],
     capabilities: [],
     contextProviders: [],
-    workspaceVocab: { alignsToBridgeTheme: true, domainTerms: blueprint.vocabulary },
+    organizationVocab: { alignsToBridgeTheme: true, domainTerms: blueprint.vocabulary },
     blueprint: { ...blueprint, schemaVersion: BLUEPRINT_SCHEMA_VERSION },
   };
 }
 
 /**
- * Inverse of workspaceBlueprintToPackageManifest — extract and re-validate the
- * blueprint from an installed PackageManifest, running the full declarative
- * gate (parseWorkspaceBlueprint) so a tampered/non-declarative payload that
+ * Inverse of organizationBlueprintToModuleManifest — extract and re-validate the
+ * blueprint from an installed ModuleManifest, running the full declarative
+ * gate (parseOrganizationBlueprint) so a tampered/non-declarative payload that
  * somehow reached install is rejected at the boundary. Throws
  * BlueprintValidationError if the manifest is not a blueprint-carrying
- * workspace_definition. Pure.
+ * organization_definition. Pure.
  */
-export function workspaceBlueprintFromPackageManifest(manifest: PackageManifest): WorkspaceBlueprint {
-  if (manifest.kind !== "workspace_definition") {
-    bfail(`package "${manifest.name}" is kind "${manifest.kind}", not a workspace_definition — no blueprint to extract`);
+export function organizationBlueprintFromModuleManifest(manifest: ModuleManifest): OrganizationBlueprint {
+  if (manifest.kind !== "organization_definition") {
+    bfail(`module "${manifest.name}" is kind "${manifest.kind}", not a organization_definition — no blueprint to extract`);
   }
   if (manifest.blueprint === undefined) {
-    bfail(`workspace_definition package "${manifest.name}" carries no blueprint payload`);
+    bfail(`organization_definition module "${manifest.name}" carries no blueprint payload`);
   }
-  return parseWorkspaceBlueprint(manifest.blueprint);
+  return parseOrganizationBlueprint(manifest.blueprint);
 }

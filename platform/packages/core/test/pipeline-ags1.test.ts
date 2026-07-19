@@ -36,7 +36,7 @@ const stageStrategicRecommendation: Skill = {
 };
 
 const GOVERNED_MANIFEST: SkillManifest = {
-  workspaceId: WS,
+  organizationId: WS,
   skillId: "stageStrategicRecommendation",
   version: "1.0.0",
   goalTypes: ["relationship.learning"],
@@ -84,9 +84,9 @@ function freshCtx(startISO = "2026-06-01T00:00:00.000Z", seed = 42): RunCtx {
 
 async function seedGoalTask(h: ReturnType<typeof harness>, assignedAgentId: string): Promise<{ goal: Goal; task: Task }> {
   const seam = { nextId: () => "id-" + Math.random().toString(36).slice(2), nowISO: () => "2026-07-16T00:00:00.000Z" };
-  const goal = await h.goalTasks.createGoal({ workspaceId: WS, type: "relationship.learning", title: "goal" }, seam);
+  const goal = await h.goalTasks.createGoal({ organizationId: WS, type: "relationship.learning", title: "goal" }, seam);
   const task = await h.goalTasks.createTask(
-    { workspaceId: WS, goalId: goal.id, type: "synthesize_recommendation", assignedAgentId },
+    { organizationId: WS, goalId: goal.id, type: "synthesize_recommendation", assignedAgentId },
     seam,
   );
   return { goal, task };
@@ -96,7 +96,7 @@ async function seedGoalTask(h: ReturnType<typeof harness>, assignedAgentId: stri
  * AND an assumed-role allow grant — both are required by authority.ts's Layer 1
  * before an agent actor's request even reaches the pipeline's AGS1 gate). */
 function authorizeAgent(h: ReturnType<typeof harness>, agentId: string): void {
-  h.agents.workspaces.set(agentId, WS);
+  h.agents.organizations.set(agentId, WS);
   h.agents.statuses.set(agentId, "active");
   h.agents.scope.set(agentId, ["signal:write"]);
   h.agents.assumed.set(agentId, `role-${agentId}`);
@@ -116,7 +116,7 @@ function authorizePrincipal(h: ReturnType<typeof harness>, actorType: "user" | "
 
 function req(partial: Partial<ActionRequest>): ActionRequest {
   return {
-    workspaceId: WS,
+    organizationId: WS,
     actor: { type: "agent", id: "internal_strategist" },
     action: "write",
     resourceType: "signal",
@@ -235,7 +235,7 @@ test("AGS1: the kernel passthrough is Human-only on unprotected resources", asyn
 test("AGS1: an unregistered skill on an agent-floor-PROTECTED resourceType/action is structurally exempt — no manifest needed, no allowlist maintained", async () => {
   const h = harness();
   h.skills.register({ name: "stageMutation", async run(inputs) { return { proposedOutput: inputs }; } });
-  // capability.approve/blueprint.activate/packages.install's real shape: a Human
+  // capability.approve/blueprint.activate/modules.install's real shape: a Human
   // approving something on the interim "skill" governance token — agent-floor
   // already makes (approve, skill) impossible for ANY agent, unconditionally.
   h.roles.direct.set("user:human-1", [{ resourceType: "skill", resourceId: null, action: "approve", effect: "allow" }]);
@@ -275,7 +275,7 @@ test("Automation integration: a step whose declared Agent is eligible for its Ta
   automationRegistry.register({
     id: "automation-1",
     name: "test_fixture automation",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "internal_strategist",
     agentPlane: "local",
     steps: [
@@ -290,7 +290,7 @@ test("Automation integration: a step whose declared Agent is eligible for its Ta
   });
   const executor = new InProcessAutomationExecutor(h.pipeline, { registry: automationRegistry });
   const result = await executor.runById(
-    { workspaceId: WS, automationId: "automation-1" },
+    { organizationId: WS, automationId: "automation-1" },
     freshCtx(),
   );
   assert.equal(result.status, "completed");
@@ -304,7 +304,7 @@ test("Automation integration: a step targeting a governed Skill with no Goal/Tas
   automationRegistry.register({
     id: "automation-2",
     name: "test_fixture automation missing goalTaskRef",
-    workspaceId: WS,
+    organizationId: WS,
     agentId: "internal_strategist",
     agentPlane: "local",
     steps: [
@@ -313,7 +313,7 @@ test("Automation integration: a step targeting a governed Skill with no Goal/Tas
   });
   const executor = new InProcessAutomationExecutor(h.pipeline, { registry: automationRegistry });
   const result = await executor.runById(
-    { workspaceId: WS, automationId: "automation-2" },
+    { organizationId: WS, automationId: "automation-2" },
     freshCtx(),
   );
   assert.equal(result.status, "halted");

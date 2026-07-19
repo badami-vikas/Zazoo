@@ -115,13 +115,13 @@ export async function assertRlsPosture(db: RlsQueryable, options: RlsPostureOpti
   if (options.roleAttributes) return;
 
   try {
-    await db.execute(sql`SELECT app_private.current_workspace_id()`);
+    await db.execute(sql`SELECT app_private.current_organization_id()`);
     const privileges = firstRow(
       await db.execute(sql`
         SELECT
           has_table_privilege(
             current_user,
-            'public.workspace_members',
+            'public.organization_members',
             'SELECT,INSERT,UPDATE,DELETE'
           ) AS table_access,
           has_sequence_privilege(
@@ -143,7 +143,7 @@ export async function assertRlsPosture(db: RlsQueryable, options: RlsPostureOpti
     throw new Error(
       "RLS posture check failed: runtime role cannot evaluate app_private RLS " +
         "helpers or access required tables/sequences; apply migration " +
-        "0020_supabase_runtime_role.sql and connect as bridge_app",
+        "0022_supabase_runtime_role.sql and connect as bridge_app",
       { cause: error },
     );
   }

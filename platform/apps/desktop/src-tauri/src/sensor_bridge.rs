@@ -1,6 +1,6 @@
 //! sensor_bridge — the Rust side of the Sensor SPI (@bridge/sensors).
 //!
-//! P0 slice: "apps" (NSWorkspace frontmost-app polling) and "clipboard"
+//! P0 slice: "apps" (NSOrganization frontmost-app polling) and "clipboard"
 //! (NSPasteboard changeCount polling) are REAL macOS providers now. "screen"
 //! stays an honest on-demand-only stub (ScreenCaptureKit / CGWindowList
 //! headless capture needs the Screen Recording permission granted
@@ -171,7 +171,7 @@ pub fn sensor_list() -> Result<Vec<SensorDescriptor>, SensorBridgeError> {
             SensorDescriptor {
                 id: "apps".to_string(),
                 kind: "apps".to_string(),
-                // NSWorkspace.frontmostApplication needs no special macOS
+                // NSOrganization.frontmostApplication needs no special macOS
                 // permission entitlement.
                 availability: "available",
                 permission_note: None,

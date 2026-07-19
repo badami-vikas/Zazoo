@@ -7,7 +7,7 @@ import type { ThesisProfile, DealProfile, ThesisFitResult } from "./types.js";
 import { scoreThesisFit } from "./scoring.js";
 
 // S1-S2 (sourcing) -> S3 (dedupe) -> S8 (living profile) -> S4 (ThesisFit triage), composed from
-// shared packages per docs/raw/tool-standardization-plan.md section 7 — DealPilot supplies its
+// shared modules per docs/raw/tool-standardization-plan.md section 7 — DealPilot supplies its
 // OWN connectors (the P0 BizBuySell/BusinessBroker.net-shaped ones) but delegates matching to
 // company-sourcing's `matchCompany` (compose, don't copy) rather than re-implementing dedupe.
 export interface DealPipelineResult {

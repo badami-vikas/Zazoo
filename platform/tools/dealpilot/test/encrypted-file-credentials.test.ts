@@ -9,7 +9,7 @@ import {
 } from "../src/encrypted-file-credentials.js";
 
 const scope = {
-  workspaceId: "10000000-0000-4000-8000-000000000101",
+  organizationId: "10000000-0000-4000-8000-000000000101",
   sourceId: "20000000-0000-4000-8000-000000000101",
 };
 const current = { id: "key-2026-07", key: Buffer.alloc(32, 0x11) };

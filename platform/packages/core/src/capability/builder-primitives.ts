@@ -8,7 +8,7 @@
  *
  * Naming convention: resource tokens follow the "namespace:action" shape
  * already established by ResourceType/permission-declaration strings
- * elsewhere in this package (e.g. foreign-import.ts's
+ * elsewhere in this module (e.g. foreign-import.ts's
  * permissionDeclarations[].resourceType/.action, types.ts's
  * "external:send"/"external:fetch" special read targets) - this module
  * adds file:read / file:write / file:edit / shell:execute to that same
@@ -75,7 +75,7 @@ export function classifyBuilderPrimitiveRisk(token: BuilderPrimitiveToken): Buil
 
 /**
  * A scoped grant authorizing one actor to invoke one builder primitive within
- * workspace/path/pattern constraints - the primitive-specific narrowing this
+ * organization/path/pattern constraints - the primitive-specific narrowing this
  * module adds on top of the pipeline's general ActionRequest/authority
  * check (authority.ts's resolveAuthority still runs; this is an ADDITIONAL,
  * narrower scope check specific to filesystem/shell primitives, the same way
@@ -86,7 +86,7 @@ export function classifyBuilderPrimitiveRisk(token: BuilderPrimitiveToken): Buil
  * discipline), never "everything".
  */
 export interface BuilderPrimitiveGrant {
-  workspaceId: string;
+  organizationId: string;
   token: BuilderPrimitiveToken;
   /** Glob-shaped path patterns this grant permits. Empty = matches nothing. */
   pathPatterns: string[];
@@ -104,7 +104,7 @@ export interface BuilderPrimitiveGrant {
 export type BuilderPrimitiveDenialReason =
   | "grant_expired"
   | "token_mismatch"
-  | "workspace_mismatch"
+  | "organization_mismatch"
   | "path_not_permitted"
   | "command_not_permitted"
   | "sandbox_required_but_missing"
@@ -118,7 +118,7 @@ export interface BuilderPrimitiveScopeCheckResult {
 /** Minimal glob match - supports a single-star wildcard (any run of
  * non-separator chars) and a double-star wildcard (any run of chars
  * including separators). Deliberately small: this is a scope-narrowing
- * check, not a general-purpose glob library, and this package carries zero
+ * check, not a general-purpose glob library, and this module carries zero
  * runtime dependencies by design (see index.ts's header). */
 function globToRegExp(pattern: string): RegExp {
   const DOUBLE_STAR = "**";
@@ -139,7 +139,7 @@ function pathMatchesAnyPattern(path: string, patterns: string[]): boolean {
 }
 
 /**
- * Checks whether a grant permits a specific (workspace, path) pair for a
+ * Checks whether a grant permits a specific (organization, path) pair for a
  * specific token, at a given instant - pure, sync, no I/O (mirrors risk.ts's
  * "deliberately pure/sync" discipline). This is the narrowing check a
  * pipeline-registered skill runs BEFORE calling out to the filesystem/sandbox;
@@ -147,13 +147,13 @@ function pathMatchesAnyPattern(path: string, patterns: string[]): boolean {
  */
 export function checkGrantScope(
   grant: BuilderPrimitiveGrant,
-  args: { workspaceId: string; path: string; nowISO: string },
+  args: { organizationId: string; path: string; nowISO: string },
 ): BuilderPrimitiveScopeCheckResult {
   if (Date.parse(grant.expiresAtISO) <= Date.parse(args.nowISO)) {
     return { allowed: false, reason: "grant_expired" };
   }
-  if (grant.workspaceId !== args.workspaceId) {
-    return { allowed: false, reason: "workspace_mismatch" };
+  if (grant.organizationId !== args.organizationId) {
+    return { allowed: false, reason: "organization_mismatch" };
   }
   if (!pathMatchesAnyPattern(args.path, grant.pathPatterns)) {
     return { allowed: false, reason: "path_not_permitted" };
@@ -174,12 +174,12 @@ export function checkCommandAllowed(grant: BuilderPrimitiveGrant, command: strin
 /** A builder primitive request - the inputs a pipeline-registered
  * file.read/file.write/file.edit/shell.execute Skill receives. */
 export type BuilderPrimitiveRequest =
-  | { token: "file:read"; workspaceId: string; path: string }
-  | { token: "file:write"; workspaceId: string; path: string; content: string }
-  | { token: "file:edit"; workspaceId: string; path: string; oldString: string; newString: string }
+  | { token: "file:read"; organizationId: string; path: string }
+  | { token: "file:write"; organizationId: string; path: string; content: string }
+  | { token: "file:edit"; organizationId: string; path: string; oldString: string; newString: string }
   | {
       token: "shell:execute";
-      workspaceId: string;
+      organizationId: string;
       command: string;
       args?: string[];
       cwd?: string;

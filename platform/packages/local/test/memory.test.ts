@@ -11,11 +11,11 @@ import { createMemoryLocalPlane } from "../src/index.js";
 test("memory local plane: commitEntity is idempotent on retry with the same id", async () => {
   const plane = createMemoryLocalPlane();
 
-  await plane.graph.upsertPerson({ id: "p1", workspaceId: "ws-1", fullName: "Priya", emails: ["priya@x.example"] });
+  await plane.graph.upsertPerson({ id: "p1", organizationId: "ws-1", fullName: "Priya", emails: ["priya@x.example"] });
 
   const entry = {
     id: "tp1",
-    workspaceId: "ws-1",
+    organizationId: "ws-1",
     kind: "touchpoint" as const,
     personId: "p1",
     payload: { touchpointKind: "email" },
@@ -34,17 +34,17 @@ test("memory local plane: commitEntity is idempotent on retry with the same id",
   await plane.close();
 });
 
-test("memory local state serializes concurrent workspace-scoped updates", async () => {
+test("memory local state serializes concurrent organization-scoped updates", async () => {
   const plane = createMemoryLocalPlane();
   await Promise.all(
     Array.from({ length: 50 }, () =>
-      plane.state.update("workspace-a", "counter", { count: 0 }, (current) => {
+      plane.state.update("organization-a", "counter", { count: 0 }, (current) => {
         const state = current as { count: number };
         return { state: { count: state.count + 1 }, result: undefined };
       }),
     ),
   );
 
-  assert.deepEqual(await plane.state.read("workspace-a", "counter"), { count: 50 });
-  assert.equal(await plane.state.read("workspace-b", "counter"), null);
+  assert.deepEqual(await plane.state.read("organization-a", "counter"), { count: 50 });
+  assert.equal(await plane.state.read("organization-b", "counter"), null);
 });

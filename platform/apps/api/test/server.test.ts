@@ -368,7 +368,7 @@ test("verify failure (bad bearer token) yields a clean 401, not a 500/unhandled 
 test("SEC-1: an unauthenticated mutation is rejected with 401 under a configured verifier", async () => {
   // A verifier IS configured (SUPABASE_JWT_SECRET) but the request carries NO bearer
   // token. Pre-SEC-1 this silently resolved to the pilot identity and the mutation ran;
-  // now `requireAuthOnMutation` must reject it before the resolver executes. The gate
+  // now the authenticated procedure middleware rejects it before the resolver executes. The gate
   // fires ahead of input parsing, so an empty body still exercises exactly this path.
   await withEnvAsync(
     { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
@@ -426,7 +426,7 @@ test("hosted Auth: only the configured pilot subject is admitted and activated",
           .sign(new TextEncoder().encode(secret));
         const activation = await app.inject({
           method: "POST",
-          url: "/trpc/workspace.activateSession",
+          url: "/trpc/organization.activateSession",
           headers: {
             authorization: `Bearer ${approved}`,
             "content-type": "application/json",

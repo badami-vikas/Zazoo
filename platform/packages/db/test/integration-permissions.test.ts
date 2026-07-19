@@ -18,11 +18,11 @@ import {
 test("integration permissions: connect, grant, list, narrow, floor-scope guard, disconnect", async () => {
   const { db, close } = await createLocalDb();
   try {
-    // Seed the workspace the integration + grants reference (FK target).
-    const [ws] = await db.insert(schema.workspaces).values({ name: "test_fixture_ws" }).returning({
-      id: schema.workspaces.id,
+    // Seed the organization the integration + grants reference (FK target).
+    const [ws] = await db.insert(schema.organizations).values({ name: "test_fixture_ws" }).returning({
+      id: schema.organizations.id,
     });
-    assert.ok(ws, "workspace seeded");
+    assert.ok(ws, "organization seeded");
     const store = new DrizzleIntegrationStore(db);
 
     // Connect an X integration with its declared OAuth scopes.
@@ -33,13 +33,13 @@ test("integration permissions: connect, grant, list, narrow, floor-scope guard, 
 
     // Grant two standing Bridge capabilities.
     const fetchGrant = await store.grantScope({
-      workspaceId: ws.id,
+      organizationId: ws.id,
       integrationId: integ.id,
       resourceType: "external:fetch",
       action: "read",
     });
     await store.grantScope({
-      workspaceId: ws.id,
+      organizationId: ws.id,
       integrationId: integ.id,
       resourceType: "touchpoint",
       action: "write",
@@ -52,7 +52,7 @@ test("integration permissions: connect, grant, list, narrow, floor-scope guard, 
     await assert.rejects(
       () =>
         store.grantScope({
-          workspaceId: ws.id,
+          organizationId: ws.id,
           integrationId: integ.id,
           resourceType: "external:send",
           action: "share",

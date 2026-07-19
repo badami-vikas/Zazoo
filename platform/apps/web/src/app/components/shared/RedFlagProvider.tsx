@@ -14,12 +14,12 @@
  * id instead of a stale closure value.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { trpc, PILOT_WORKSPACE } from '../../lib/trpc';
+import { trpc, PILOT_ORGANIZATION } from '../../lib/trpc';
 
 type CreateInput = Parameters<typeof trpc.redFlag.create.mutate>[0];
 export type RedFlagAnchor = CreateInput['anchor'];
 type ScopeInput = Parameters<typeof trpc.redFlag.listForScope.query>[0];
-export type RedFlagScope = Omit<ScopeInput, 'workspaceId'>;
+export type RedFlagScope = Omit<ScopeInput, 'organizationId'>;
 type ListResult = Awaited<ReturnType<typeof trpc.redFlag.listForScope.query>>;
 export type RedFlagRow = ListResult['flags'][number];
 type RedFlagValue = RedFlagRow['value'];
@@ -105,7 +105,7 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
   const refresh = useCallback(() => {
     const generation = ++generationRef.current;
     trpc.redFlag.listForScope
-      .query({ workspaceId: PILOT_WORKSPACE, ...scope })
+      .query({ organizationId: PILOT_ORGANIZATION, ...scope })
       .then((result) => {
         if (generationRef.current !== generation) return; // a newer refresh already landed or is in flight
         setRows(result.flags);
@@ -170,32 +170,32 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
         if (rows === null) {
           throw new Error('Red flag data is still loading — please wait a moment and try again.');
         }
-        const { memory } = await trpc.redFlag.create.mutate({ workspaceId: PILOT_WORKSPACE, operationId: crypto.randomUUID(), ...input });
+        const { memory } = await trpc.redFlag.create.mutate({ organizationId: PILOT_ORGANIZATION, operationId: crypto.randomUUID(), ...input });
         return applyLocally(memory);
       },
       clear: async (flagId) => {
-        const { memory } = await trpc.redFlag.clear.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+        const { memory } = await trpc.redFlag.clear.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
         return applyLocally(memory);
       },
       reopen: async (flagId) => {
-        const { memory } = await trpc.redFlag.reopen.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+        const { memory } = await trpc.redFlag.reopen.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
         return applyLocally(memory);
       },
       updateReason: async (flagId, reason) => {
-        const { memory } = await trpc.redFlag.updateReason.mutate({ workspaceId: PILOT_WORKSPACE, flagId, reason });
+        const { memory } = await trpc.redFlag.updateReason.mutate({ organizationId: PILOT_ORGANIZATION, flagId, reason });
         return applyLocally(memory);
       },
       forget: async (flagId) => {
-        await trpc.redFlag.forget.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+        await trpc.redFlag.forget.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
         setRows((prev) => (prev ? prev.filter((r) => r.row.id !== flagId) : prev));
         refresh();
       },
       enactCorrection: async (flagId) => {
-        const { memory } = await trpc.redFlag.enactCorrection.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+        const { memory } = await trpc.redFlag.enactCorrection.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
         return applyLocally(memory);
       },
       revokeCorrection: async (flagId) => {
-        const { memory } = await trpc.redFlag.revokeCorrection.mutate({ workspaceId: PILOT_WORKSPACE, flagId });
+        const { memory } = await trpc.redFlag.revokeCorrection.mutate({ organizationId: PILOT_ORGANIZATION, flagId });
         return applyLocally(memory);
       },
       retryLearning: async (flagId) => {
@@ -203,7 +203,7 @@ export function RedFlagProvider({ scope, children }: { scope: RedFlagScope; chil
         // idempotency contract as create() — a client's own retry-of-a-
         // retry (e.g. a double-click before the first response lands)
         // converges instead of attempting the governed step twice.
-        const { memory } = await trpc.redFlag.retryLearning.mutate({ workspaceId: PILOT_WORKSPACE, flagId, operationId: crypto.randomUUID() });
+        const { memory } = await trpc.redFlag.retryLearning.mutate({ organizationId: PILOT_ORGANIZATION, flagId, operationId: crypto.randomUUID() });
         return applyLocally(memory);
       },
       retryLoad: refresh,

@@ -2065,7 +2065,7 @@ and a dedicated `capability`/`workspace_definition` `ResourceType` remain open f
 
 ## ADR-018 — Capability package format: agentskills.io disclosure + Zapier lifecycle + computed-risk install (2026-07-06, docs-only)
 
-**Decision:** Documented (design-only, no code changed) `docs/raw/capability-package-format.md`
+**Decision:** Documented (design-only, no code changed) `docs/raw/capability-module-format.md`
 — the shipping-unit format ABOVE a single `capability_manifests` row (ADR-012's trust-model
 kernel, read-only here). A package = `package.yaml` (name/version/kind/summary+description/
 lineage_manifest_id/dependencies[exact-pinned]/capabilities[]/context_providers[]/
@@ -2147,7 +2147,7 @@ launch" in `decisions.md`).
   was chosen for capability versioning generally (roadmap.md P5), and per-package exceptions
   would fragment that story.
 
-**Consequences:** No code changed — `docs/raw/capability-package-format.md` (new),
+**Consequences:** No code changed — `docs/raw/capability-module-format.md` (new),
 `docs/wiki/packages.md` (new), `docs/wiki/index.md` (one new line) are the only artifacts. Six
 open questions are recorded rather than resolved: package-owned migrations vs. shared kernel
 schema; the vocab-alignment enforcement mechanism (lint vs. Learning-Agent rewrite vs. doc-only);
@@ -3003,10 +3003,8 @@ Ollama/Anthropic call.
 - **Alternatives rejected**: wait for VOCAB6 before adding enforcement; regex-grep the whole repository; permit retired aliases indefinitely; dual-write old and new payloads; suppress whole files without per-family counts.
 - **Consequences**: every migration slice refreshes the baseline downward in the same change; deleted allowance cannot be reused and one-for-one replacement cannot hide behind a stable count. The baseline is not an acceptance target: TASK-012 closes only when canonical source-of-truth contracts are live, compatibility windows are deleted, and the remaining runtime counts are zero or explicit glossary-approved exceptions.
 
-## ADR-128 — Hosted Supabase is a least-privilege pilot boundary with explicit residency (2026-07-19)
-- **Decision**: migrations use a separately injected owner connection, while the API runs only as a dedicated non-owner/non-BYPASSRLS `bridge_app` role. Every RLS-backed operation sets Organization and user context transaction-locally. Production verifies Supabase JWTs and admits only the exact configured pilot subject before any non-public procedure; the web shell follows the corresponding Supabase Auth lifecycle. Source credentials use an AES-256-GCM file vault whose current/previous keys come from the host secret manager. Private, all-scope, and legacy-unscoped ledger roots stay in durable Local Plane storage; only explicitly public roots reach Supabase, and decisions/audits follow their parent's plane. Hosted-browser production requires explicit encrypted-persistent-volume acknowledgement. The pruned production-only API image runs non-root and remains one replica while Local Plane ownership and coordination are process-local.
-- **Why**: this preserves RLS under pooled connection reuse, binds hosted work to one auditable Human, prevents credentials and private raw content from silently entering Postgres, and makes residency and packaging assumptions enforceable startup contracts.
-- **Alternatives rejected**: owner, `service_role`, superuser, or BYPASSRLS runtime identity; session-level RLS variables; admitting every valid Supabase user; storing every ledger row in Supabase; treating a cloud disk as implicitly local; a process-memory vault; requiring the desktop keyring in a headless container; immediate horizontal API scaling.
-- **Consequences**: operators must supply separate migration/runtime connections, exact pilot UUID/email, encrypted persistent storage, vault keys, web/Auth origins, and a Supabase plus API/static-host topology. Live provisioning remains an owner action. Public multi-user hosting and horizontal scaling require a later approved design.
-- **Verification**: DB 173/173, DealPilot 93/93, API 323/323, web 102/102, focused RLS/vault/residency 12/12, workspace typecheck/build 42/42, and clean pruned runtime startup/liveness/readiness simulation. Literal image launch remains a CI gate because the local machine has no Docker daemon.
-- **Related**: `platform/packages/db/migrations/0020_supabase_runtime_role.sql`, `platform/apps/api/src/wiring.ts`, `platform/apps/api/src/router.ts`, `platform/apps/api/src/residency-ledger.ts`, `platform/tools/dealpilot/src/encrypted-file-credentials.ts`, `platform/Dockerfile`, `outputs/2026-07-19-supabase-cloud-deployment-readiness.md`, AP-052.
+## ADR-128 — The hosted pilot separates Supabase data/Auth from API, web, and private Local Plane residency (2026-07-19)
+- **Decision**: use Supabase for Postgres and Auth only; run Fastify on a persistent container host and publish the Vite client on a static host in the same region. Migrations use an owner-only connection, while the API connects as migration-provisioned `bridge_app` with transaction-local Organization/user RLS context. Admit exactly one configured Supabase subject for the pilot. Route only explicitly public ledger roots to cloud Postgres; keep private, all-scope, and unscoped roots plus their decisions in the encrypted Local Plane volume. Hosted DealPilot credentials use AES-256-GCM files whose keys come from host secrets; desktop retains the native keyring.
+- **Why**: Supabase does not host this repository's long-running Node process, owner connections bypass the intended RLS boundary, generic containers do not provide a durable OS keyring, and cloud-persisting private proposal payloads would violate the existing Local Plane promise.
+- **Alternatives rejected**: run the API on Supabase; use the owner/service role at runtime; admit every valid project user before multi-tenant provisioning exists; silently put all ledger rows in cloud Postgres; require a desktop keyring inside a headless container; commit role passwords or vault keys.
+- **Consequences**: migration `0022_supabase_runtime_role` is allocated and `0023` is next. Hosted mode requires one replica, exact CORS/Auth/pilot configuration, an encrypted durable volume, and explicit residency acknowledgement. Live deployment remains blocked on owner-supplied project, host, region, DNS, identity, and secrets; repository readiness does not claim provisioning.
