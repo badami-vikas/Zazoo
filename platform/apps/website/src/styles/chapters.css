@@ -115,7 +115,7 @@
   transform: scale(1.3) rotate(4deg);
 }
 
-.workflow-bridge {
+.process-bridge {
   position: absolute;
   z-index: 4;
   right: 7%;
@@ -125,7 +125,7 @@
   border-bottom: 12px solid #75604b;
 }
 
-.workflow-bridge i {
+.process-bridge i {
   position: absolute;
   bottom: -2px;
   width: 27%;
@@ -135,11 +135,11 @@
   transform: rotate(-1deg);
 }
 
-.workflow-bridge i:nth-child(1) { left: 5%; }
-.workflow-bridge i:nth-child(2) { left: 36%; transform: rotate(4deg) translateY(8px); animation: bridge-tighten 4s ease-in-out both; }
-.workflow-bridge i:nth-child(3) { right: 5%; }
+.process-bridge i:nth-child(1) { left: 5%; }
+.process-bridge i:nth-child(2) { left: 36%; transform: rotate(4deg) translateY(8px); animation: bridge-tighten 4s ease-in-out both; }
+.process-bridge i:nth-child(3) { right: 5%; }
 
-.bridge-tool {
+.bridge-wrench {
   position: absolute;
   z-index: 12;
   right: 38%;
@@ -1113,7 +1113,7 @@
   line-height: 1.45;
 }
 
-.impact-workspace {
+.impact-office {
   position: absolute;
   z-index: 5;
   right: 3vw;
@@ -1423,7 +1423,7 @@
     max-width: 52vw;
   }
 
-  .impact-workspace {
+  .impact-office {
     right: -6vw;
     width: 82vw;
   }
@@ -1634,7 +1634,7 @@
     font-size: 1rem;
   }
 
-  .impact-workspace {
+  .impact-office {
     right: -22%;
     bottom: 7vh;
     width: 140vw;
@@ -1660,7 +1660,7 @@
   }
 
   .meeting-door,
-  .workflow-bridge i,
+  .process-bridge i,
   .permission-door,
   .owner-hand,
   .knocking-lines,

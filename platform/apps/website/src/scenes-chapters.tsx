@@ -32,12 +32,12 @@ function ValueIllustration({ index }: { index: number }) {
       )}
       {index === 1 && (
         <>
-          <span className="workflow-bridge">
+          <span className="process-bridge">
             <i />
             <i />
             <i />
           </span>
-          <span className="bridge-tool" />
+          <span className="bridge-wrench" />
           <span className="working-crowd" />
         </>
       )}
@@ -76,7 +76,7 @@ function ValueIllustration({ index }: { index: number }) {
 }
 
 export function ValuesScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const reducedMotion = useReducedMotion();
   const index = stepIndex(progress, copy.values.lines.length);
 
@@ -170,16 +170,16 @@ function ProcessIllustration({ stage }: { stage: number }) {
 }
 
 export function ProcessScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const [continued, setContinued] = useState(false);
   const rawStage = stepIndex(progress, copy.process.stages.length);
   const stage = !continued && rawStage >= 1 ? 1 : rawStage;
 
   const continueJourney = () => {
     setContinued(true);
-    const element = ref.current;
-    if (!element) return;
-    const target = element.offsetTop + element.offsetHeight * 0.43;
+    const sceneNode = ref.current;
+    if (!sceneNode) return;
+    const target = sceneNode.offsetTop + sceneNode.offsetHeight * 0.43;
     if (window.scrollY < target) window.scrollTo({ top: target, behavior: "smooth" });
   };
 
@@ -294,7 +294,7 @@ function DifferenceTableau({ index }: { index: number }) {
 }
 
 export function DifferenceScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const index = stepIndex(progress, copy.difference.vignettes.length);
   const vignette = copy.difference.vignettes[index];
 
@@ -323,7 +323,7 @@ export function DifferenceScene() {
 }
 
 export function ImpactScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const [notebookOpen, setNotebookOpen] = useState(false);
   useEscape(() => setNotebookOpen(false), notebookOpen);
   const style: ProgressStyle = { "--scene-progress": progress };
@@ -345,7 +345,7 @@ export function ImpactScene() {
           <h2>{copy.impact.heading}</h2>
           <p>{copy.impact.body}</p>
         </div>
-        <div className="impact-workspace" aria-hidden="true">
+        <div className="impact-office" aria-hidden="true">
           <span className="impact-desk" />
           <span className="impact-path" />
           <span className="impact-stone impact-stone--one" />
