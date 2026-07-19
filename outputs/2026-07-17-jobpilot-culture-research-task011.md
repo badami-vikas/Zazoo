@@ -2,7 +2,7 @@
 title: TASK-011 — JobPilot Culture-Research Slice (JP3B)
 date: 2026-07-17
 task: TASK-011
-status: implemented (remediated after 12+ rounds of independent/coordinator security review); migration/durability blockers closed via TASK-008's migration 0015; pending final coordinator review before any status flip
+status: implemented (remediated after 13+ rounds of independent/coordinator security review, including a final central-merge review that found and closed 2 more blockers, and merged forward through TASK-010's red-flag correction + TASK-003's drag fix); migration/durability blockers closed via TASK-008's migration 0015; pending final coordinator review before any status flip
 ---
 
 # TASK-011 — JobPilot culture-research slice (JP3B)
@@ -1196,4 +1196,142 @@ changes to them.
 **No remaining migration/durability blockers.** Both previously-disclosed items (1: ledger
 constraint; 2: BRIDGE_LOCAL_DIR ledger durability) are now closed via TASK-008's migration `0015`
 plus this round's wiring/test updates and new restart-durability proof.
+
+## Central-merge review round (2026-07-19) — two final blockers closed, merged forward through TASK-010
+
+Coordinator's central-merge review (the gate immediately before integration) found two more
+defects on top of the previously-reported-clean `16af4dc`:
+
+1. **HIGH** — `child-agent-run.ts`'s terminal-status CAS committed BEFORE its confirming
+   outcome-audit append; a crash between them left the run durably terminal with only a "attempt"
+   audit row, and a retry threw `ChildRunAlreadyTerminalError` with no repair path.
+2. **MEDIUM (privacy)** — `memory-store.ts`'s `compareAndSupersede`-based artifact purge only
+   redacted the current (successor) row; the superseded ancestor row — the one that actually held
+   the raw fetched artifact bytes — remained fully readable forever via
+   `retrieve({ includeSuperseded: true })`.
+
+### Fixes
+
+**Item 1 — durable idempotent outcome-audit repair.** Added `ChildRunTerminalAuditPendingError`
+(distinct from `ChildRunAlreadyTerminalError`: "MY OWN CAS won, but MY confirming audit append
+failed after retries" vs "someone else won"), a deterministic `terminalOutcomeAuditId(childRunId,
+status)` + idempotent `ensureTerminalOutcomeAudit()`, and a self-heal path in
+`recordChildAgentRunTransition`: a later caller observing `before.status === status` (its own
+crash-orphaned prior attempt) repairs the missing audit row before reporting the expected
+"already terminal" race. Bounded retry (3 attempts) on the confirming append. All 8
+`apps/api/src/wiring.ts` catch sites updated to also swallow the new error. 3 new tests (crash-
+after-CAS-before-audit repair; self-heal-on-next-touch; self-heal scoped to the EXACT status a
+retry targets, never fabricating a wrong-status outcome).
+
+**Item 2 — secure full-lineage artifact purge.** Added `redactLineageContent(id, authScope,
+redact)` to the `MemoryStore` port, implemented identically in `InMemoryMemoryStore` (reusing a new
+shared `#lineageIds()` helper, factored out of `forget()`'s own inline lineage walk) and
+`DrizzleMemoryStore` (the same `WITH RECURSIVE lineage(...)` CTE `forget()` uses, SELECTing ids
+instead of deleting, then per-row `UPDATE ... SET content` inside a transaction). `redact` is
+required to be pure/idempotent, so no advisory lock is needed (unlike `compareAndSupersede`/
+`writeIfAbsent`, which decide a winner among racing writers — here there is no winner to decide).
+Wired into `DurableCultureFetchStore.purgeExpiredArtifactContentIfNeeded` on both the success path
+and the `MemoryConflictError` retry path. 6 new in-memory tests + 5 new Drizzle-parity tests
+(including a genuine process-restart proof: redact, close the connection, reopen against the same
+on-disk pglite directory, confirm the redaction persisted — not an in-process cache artifact).
+
+### Merging `origin/main` forward (5ca30ca — TASK-010 red-flag correction + TASK-003 drag fix)
+
+`origin/main` had advanced substantially past this branch's last merge point (through TASK-010's
+own full red-flag-correction feature plus its own independent hardening rounds). Reconciled real,
+non-trivial conflicts in 8 files where both branches modified the same regions:
+
+- **`packages/core/src/memory/memory-store.ts`**: TASK-010 independently added
+  `currentForLineage`/`casSupersede` (a lineage-keyed optimistic-concurrency CAS for its own
+  red-flag correction flow) plus an extended `#insert(entry, supersedesId, lineageRevision)`
+  signature, in the same region this round's `redactLineageContent` touched. Combined both —
+  independent additions, no functional overlap.
+- **`packages/db/src/memory-store.ts`**: TASK-010 added `withMemoryRlsContext` (sets the same
+  `app.workspace_id`/`app.user_id` session GUCs `ledger-store.ts` already sets, required for RLS to
+  resolve correctly under a real request-scoped Postgres role) wrapping `write`/`supersede`/`get`/
+  `retrieve`/`forget`, plus its own `casSupersede`/`currentForLineage` under `SERIALIZABLE`
+  isolation. Rebuilt this round's `compareAndSupersede`/`writeIfAbsent`/`redactLineageContent` on
+  top of the same `withMemoryRlsContext` wrapper and the extended `#insert` signature; widened
+  `DbLike` to include `"update"` (needed for `redactLineageContent`'s per-row content rewrite).
+- **`apps/api/src/wiring.ts`** (the largest reconciliation, ~2000 lines): TASK-010 independently
+  added a `platform.red_flag_learning` Skill/manifest (`stagePreferenceAdjustmentProposal`,
+  `PLATFORM_RED_FLAG_LEARNING_GOAL_TYPE`, `RED_FLAG_LEARNING_SKILL_MANIFEST`) at the EXACT same
+  insertion point this branch's entire JobPilot culture-research Goal/Task/SkillManifest block
+  occupies (both inserted immediately after `LEARNING_RECOMMENDATION_SKILL_MANIFEST`). Spliced both
+  blocks in sequence (verified byte-identical to each side's own pre-merge content). Combined the
+  Learning Agent's scope grant (`event:write` from TASK-010's touchpoint→event rename +
+  `external:fetch:read` from this branch) and both Skill registrations. Combined
+  `buildInMemoryPorts`'s `localDirDurable` (this branch: Drizzle-backed `goalTasks`/
+  `childAgentRuns` + `ensure*Governance` FK-integrity seeding hooks) with TASK-010's new optional
+  `env.localDatabase` injection (avoids re-running migrations twice against the same on-disk
+  directory within one process — the exact limitation this branch's own restart tests had
+  previously documented as a workaround) — `closeDb` now correctly defers to the caller when
+  `env.localDatabase` was supplied.
+- **`apps/api/src/router.ts`**: combined import blocks; combined `decide()`'s culture-proposal-
+  binding fail-closed backstop (this branch) with TASK-010's private-proposal-owner guard and its
+  new 3-arg `assertRelationshipProposalOwner(original, ctx.identity, ctx.wiring.google)` signature;
+  removed a now-dead import (`./social/integration-service.js` — TASK-010 deleted this file in
+  favor of `ctx.wiring.integrationStore`; all of this branch's own call sites had already been
+  cleanly auto-merged onto the new API, leaving only the import itself unused).
+- **`packages/db/src/governance-stores.ts`, `packages/db/test/local-store.test.ts`**: combined
+  additive capability-grant/skill-allowlist/test-assertion entries from both branches
+  (`touchpoint:write`/`external:fetch:read` + `event:write` side by side).
+- **`apps/web/src/app/data/pending-work.generated.json`**: regenerated from `docs/TASKS.md` via
+  `scripts/generate-pending-work.mjs` (a build artifact) rather than hand-resolved.
+
+### Cross-cutting issues the merge surfaced (fixed)
+
+1. **Browser build break**: this round's item-1 fix used `node:crypto`'s `createHash` for a
+   deterministic audit-row id inside `@bridge/core`, which is bundled into the web app (Vite) —
+   Rollup cannot externalize `createHash` for the browser. Replaced with a dependency-free, pure-JS
+   FNV-1a-based 128-bit hash (`deterministicHex128`) producing the same UUID-shaped output — not
+   used for anything security-sensitive (`childRunId` is always a real UUID, `status` a fixed enum;
+   no adversarial input to engineer a collision against).
+2. **Test-vs-implementation mismatches from TASK-010's `touchpoint`→`event` rename and its
+   client-supplied-`plane` hardening**, all fixed as test updates (not implementation weakenings):
+   - `apps/api/test/jobpilot-culture-research.test.ts`: TASK-010's `action.propose` handler now
+     hard-codes `plane:"local"` for every Human proposal (never trusts a client-claimed plane — a
+     genuine security hardening). One test previously used a client-claimed `plane:"cloud"` to route
+     past the local-first egress gate specifically to reach the "eligible Agent Run" check; that
+     bypass is no longer reachable (a Human can never claim any plane now), so the local-first gate
+     fires first for an equally valid, arguably stronger, fail-closed reason. Updated the assertion;
+     the sibling `synthesizeCultureProfile` test (a non-egress resourceType) still exercises and
+     asserts the "eligible Agent Run" reason specifically, so that invariant remains covered.
+   - `apps/api/test/ritual-ownership.test.ts`: two tests exercising this branch's own
+     role-template-based agent creation (a feature that doesn't exist on `origin/main`) still
+     declared a ritual step's `resourceType` as `"touchpoint"` for `outreach.stageDraft`; TASK-010
+     renamed that Skill's manifest permission (and the role template/Agent's granted scope) to
+     `event:write`. Updated both steps to `resourceType: "event"` to match.
+   - `apps/api/test/wiring.test.ts`: updated the persistent-governance `capabilityScope` assertion
+     for the Learning Agent to include TASK-010's new `event:write` grant alongside this branch's
+     existing grants.
+
+### Verification (this round)
+
+- Full monorepo build (`pnpm run build` via turbo, all 21 packages, clean checkout): clean.
+- `@bridge/core` (all `dist/test/*.test.js`, run directly): 448/448 pass, 93.05% line coverage.
+- `@bridge/db` (all `dist/test/*.test.js`): 165/165 pass, 62.79% line coverage.
+- `@bridge/jobpilot`: 125/125 pass. `@bridge/net-guard`: 24/24 pass.
+- `@bridge/api` (all `dist/test/*.test.js`, full suite, low-load run): 300/300 pass, 75.32% line
+  coverage. A repeat run under heavy shared-box load reproduced 1-2 real-socket-abort-timing test
+  flakes (confirmed non-regressions: pass reliably in isolation and at low load, matching the same
+  documented flake pattern from every prior round of this task).
+- `pnpm --filter @bridge/db generate`: "No schema changes, nothing to migrate" — confirms this
+  round's fixes are pure application logic, no new migration needed.
+- `pnpm run check:no-dummy-runtime`: OK.
+- `pnpm run lint`: 1 pre-existing error + 1 pre-existing warning (react-hooks plugin version
+  mismatch in `ZazooAvatar.tsx`; unused eslint-disable in `determinism.ts`) — confirmed present and
+  identical on a clean `origin/main` checkout, not introduced by this branch.
+- **Fresh independent adversarial review** of the full merge reconciliation (all 8 conflicted
+  files plus the browser-safe-hash and test fixes) found **no defects**: every conflict
+  reconciliation preserves both branches' logic without corruption, omission, or signature
+  mismatch, corroborated by clean builds and passing tests across every touched package.
+
+Canonical `docs/TASKS.md`/`docs/BUGS.md`/`docs/APPROVALS.md`/`docs/raw/decisions-log.md`/
+`docs/log.md` are NOT edited by this branch this round (status remains unflipped) — the merge
+brought forward `origin/main`'s own edits to those files (TASK-010's docs updates); this branch
+authored no changes to them.
+
+**Head of branch this round: `b1bd89a`** (merge commit; parents `dcba82d` [this branch's prior
+work] and `5ca30ca` [origin/main, TASK-010 + TASK-003]).
 
