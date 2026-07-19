@@ -1,5 +1,4 @@
 import { noCrmVocab } from "./no-crm-vocab.js";
-import { dummyPrefix } from "./dummy-prefix.js";
 
 /** @type {import('eslint').ESLint.Plugin} */
 const plugin = {
@@ -8,7 +7,6 @@ const plugin = {
   },
   rules: {
     "no-crm-vocab": noCrmVocab,
-    "dummy-prefix": dummyPrefix,
   },
 };
 

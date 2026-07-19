@@ -12,7 +12,7 @@ import {
 } from "./scene-shared";
 
 export function NightScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const reducedMotion = useReducedMotion();
   const reducedFrame = stepIndex(progress, 6);
   const act = progress < 0.3 ? "office" : progress < 0.56 ? "cottage" : "dream";
@@ -92,7 +92,7 @@ export function NightScene() {
 }
 
 export function MorningScene() {
-  const { ref, active } = useSceneProgress<HTMLElement>();
+  const { ref, active } = useSceneProgress();
   const [ctaFocused, setCtaFocused] = useState(false);
 
   return (

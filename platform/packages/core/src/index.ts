@@ -328,7 +328,6 @@ export {
 // (COMMUNICATIONS_SKILL + parseSkillMention + buildCommunicationsSystemPrompt).
 export {
   FOUNDATIONAL_AGENTS,
-  ANIMAL_TONE,
   parseMention,
   findFoundationalAgent,
   buildAgentPersona,
@@ -372,7 +371,6 @@ export {
 export {
   InMemoryOnboardingProfileStore,
   profileFromRow,
-  resolveAnimalTone,
   buildChiefOfStaffPersona,
   type OnboardingProfileRow,
   type OnboardingProfileStore,

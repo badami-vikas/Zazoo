@@ -17,6 +17,9 @@ This file prevents a new session from re-merging historical branches or reusing 
   External Pages publication `2306808` succeeded in run `29683315854`, then user-directed revert
   `6b76466` restored the older `https://zazoo.me` experience through successful run `29683837490`.
   The TASK-024 source remains merged. No migration was added.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26 on 2026-07-19. Checkpoint `dd51797` carries the
+  ratchet and Avatar/Onboarding migration; `bd7de18` reconciles TASK-024's later website source
+  without growing the baseline. TASK-012 remains in progress and added no migration.
 - Working tree was clean when this package was created.
 
 ## Landed roadmap history
@@ -54,6 +57,8 @@ This file prevents a new session from re-merging historical branches or reusing 
 | `69ffbff` | TASK-024 normal integration of `origin/main@512cf35` before its AP-052 landing through PR #23. |
 | `2306808` (Pages repository) | Published TASK-024 at `https://zazoo.me` while preserving the custom-domain `CNAME` plus Consulting/Training pages; Pages run `29683315854` passed. |
 | `6b76466` (Pages repository) | Reverted publication `2306808` under AP-053, restoring the pre-TASK-024 homepage while preserving `CNAME`, `consulting.html`, and `training.html`; Pages run `29683837490` passed. |
+| `dd51797` | TASK-012 VOCAB0–VOCAB1 integrated onto current `main`: syntax-aware vocabulary ratchet, canonical visual-only Avatar/Onboarding contracts, compatibility readers, and fail-closed desktop readiness. |
+| `bd7de18` | Reconciled TASK-024's newer website identifiers and paired CSS selectors without increasing TASK-012's 7,515-occurrence baseline. |
 
 ## Historical source branches
 
@@ -78,6 +83,10 @@ This file prevents a new session from re-merging historical branches or reusing 
   Merged into `main` at `7f44186` on 2026-07-19 under AP-045; do not merge again.
 - TASK-024 source: `task-024-zazoo-website`; implementation checkpoint `a4bf5fb`, integration
   checkpoint `69ffbff`, landed through PR #23 under AP-052. Merged and done; do not merge again.
+- TASK-012 planning source: `manishsbhoopalam8498-fuzzy-adventure` at `5775e5b`; planning-only,
+  do not merge or resume as implementation. VOCAB0–VOCAB1 integration source:
+  `task-012-vocab01` at checkpoints `dd51797` and `bd7de18`, landed through PR #26. Continue the
+  still-open TASK-012 from current `main`.
 
 ## Migration sequence
 
@@ -90,6 +99,7 @@ This file prevents a new session from re-merging historical branches or reusing 
 - TASK-006 durability: no numbered migration.
 - TASK-011: no new migration required (LANDED, application-logic only).
 - TASK-024: no new migration required (LANDED, standalone public website only).
+- TASK-012 VOCAB0–VOCAB1: no new migration required (LANDED; TASK remains in progress).
 
 Next new migration allocates `0018`; do not reuse `0016` or `0017`.
 

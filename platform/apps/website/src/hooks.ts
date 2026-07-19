@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentRef,
+  type RefObject,
+} from "react";
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
+type SceneNode = ComponentRef<"section">;
 
 export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -16,21 +24,21 @@ export function useReducedMotion(): boolean {
   return reduced;
 }
 
-export interface SceneProgress<T extends HTMLElement> {
+export interface SceneProgress<T extends SceneNode = SceneNode> {
   ref: RefObject<T>;
   progress: number;
   active: boolean;
 }
 
-export function useSceneProgress<T extends HTMLElement>(): SceneProgress<T> {
+export function useSceneProgress<T extends SceneNode = SceneNode>(): SceneProgress<T> {
   const ref = useRef<T>(null);
   const [progress, setProgress] = useState(0);
   const [active, setActive] = useState(false);
 
   const measure = useCallback(() => {
-    const element = ref.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
+    const sceneNode = ref.current;
+    if (!sceneNode) return;
+    const rect = sceneNode.getBoundingClientRect();
     const travel = Math.max(1, rect.height - window.innerHeight);
     const next = clamp(-rect.top / travel);
     setProgress((current) => (Math.abs(current - next) > 0.002 ? next : current));
@@ -45,8 +53,8 @@ export function useSceneProgress<T extends HTMLElement>(): SceneProgress<T> {
       { rootMargin: "25% 0px", threshold: [0, 0.01, 0.5, 1] },
     );
 
-    const element = ref.current;
-    if (element) observer.observe(element);
+    const sceneNode = ref.current;
+    if (sceneNode) observer.observe(sceneNode);
     window.addEventListener("scroll", measure, { passive: true });
     window.addEventListener("resize", measure);
     measure();
@@ -73,5 +81,5 @@ export function useEscape(handler: () => void, enabled = true): void {
 }
 
 export function scrollToScene(id: string, behavior: ScrollBehavior = "smooth"): void {
-  document.getElementById(id)?.scrollIntoView({ behavior, block: "start" });
+  document.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior, block: "start" });
 }

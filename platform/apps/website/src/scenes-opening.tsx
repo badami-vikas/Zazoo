@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentRef,
+  type CSSProperties,
+  type PointerEvent,
+} from "react";
 import { QuietRobot, ZazooCharacter } from "./characters";
 import copy from "./copy.json";
 import { scrollToScene, useEscape, useReducedMotion, useSceneProgress } from "./hooks";
@@ -12,12 +20,12 @@ import {
 } from "./scene-shared";
 
 export function HeroScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const reducedMotion = useReducedMotion();
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const [greeting, setGreeting] = useState(false);
 
-  const moveCamera = (event: PointerEvent<HTMLElement>) => {
+  const moveCamera = (event: PointerEvent<ComponentRef<"section">>) => {
     if (reducedMotion) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width - 0.5) * 24;
@@ -120,9 +128,9 @@ export function HeroScene() {
 }
 
 export function FamilyScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const [selected, setSelected] = useState<number | null>(null);
-  const officeRef = useRef<HTMLDivElement>(null);
+  const officeRef = useRef<ComponentRef<"div">>(null);
   const pointerActivationRef = useRef<number | null>(null);
   const clickedSelectionRef = useRef<number | null>(null);
   const close = useCallback(() => {
@@ -219,7 +227,7 @@ export function FamilyScene() {
                   pointerActivationRef.current = null;
                 }}
               >
-                <span className="family-workspace" aria-hidden="true">
+                <span className="family-office" aria-hidden="true">
                   <PaperStack count={index === 1 ? 4 : 2} />
                   <i />
                   <i />
@@ -251,7 +259,7 @@ export function FamilyScene() {
 }
 
 export function GovernanceScene() {
-  const { ref, progress, active } = useSceneProgress<HTMLElement>();
+  const { ref, progress, active } = useSceneProgress();
   const [emphasis, setEmphasis] = useState<number | null>(null);
   const ledgerProgress = Math.min(1, Math.max(0, (progress - 0.78) / 0.22));
   const stageStyle: ProgressStyle = {
@@ -327,7 +335,7 @@ export function GovernanceScene() {
 }
 
 export function LibraryScene() {
-  const { ref, active } = useSceneProgress<HTMLElement>();
+  const { ref, active } = useSceneProgress();
   const reducedMotion = useReducedMotion();
   const [selected, setSelected] = useState<ChapterId | null>(null);
   const timerRef = useRef<number | null>(null);

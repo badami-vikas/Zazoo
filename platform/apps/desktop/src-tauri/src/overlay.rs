@@ -6,7 +6,7 @@
 //! transparent, undecorated, always-on-top, skip-taskbar, anchored
 //! bottom-right of ITS OWN screen. All instances share one frontend —
 //! apps/web's `overlay.html` entry (OverlayApp.tsx) — which reuses the same
-//! Creature + avatar-store as the in-page AvatarOverlay and drives the
+//! AvatarFigure + avatar-store as the in-page AvatarOverlay and drives the
 //! Invoko-spec state machine (v1: collapsed → hover → expanded_idle →
 //! working). Expanding/collapsing calls `overlay_resize` here so the WINDOW
 //! grows, keeping its bottom-right corner pinned; the command takes the
@@ -43,8 +43,8 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, State,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 #[cfg(target_os = "macos")]
@@ -71,6 +71,12 @@ const MARGIN_RIGHT: f64 = 24.0;
 const MARGIN_BOTTOM: f64 = 96.0;
 const TOPOLOGY_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const POSITION_SAVE_DEBOUNCE: Duration = Duration::from_millis(300);
+const AVATAR_SESSION_READY_EVENT: &str = "bridge:avatar-session-ready";
+
+#[derive(Default)]
+pub struct OverlaySessionState {
+    ready: AtomicBool,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 struct DisplayGeometry {
@@ -514,8 +520,18 @@ fn create_one_overlay_window(
     .skip_taskbar(true)
     .accept_first_mouse(true)
     .focused(false)
+    .visible(false)
     .initialization_script(init_script)
     .build()?;
+
+    if let Err(error) = win.set_ignore_cursor_events(true) {
+        if let Err(close_error) = close_overlay_window(app, &label) {
+            eprintln!(
+                "[bridge-desktop] failed to close overlay {label} after input-gate setup error: {close_error}"
+            );
+        }
+        return Err(error);
+    }
 
     let moved_app = app.clone();
     let moved_window = win.clone();
@@ -992,7 +1008,89 @@ pub fn overlay_resize(window: WebviewWindow, width: f64, height: f64) -> Result<
 /// Settings is the natural follow-up, not built in this pass.
 #[tauri::command]
 pub fn overlay_hide(window: WebviewWindow) -> Result<(), String> {
-    window.hide().map_err(|e| e.to_string())
+    conceal_overlay(&window)
+}
+
+fn conceal_overlay(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_ignore_cursor_events(true)
+        .map_err(|error| error.to_string())?;
+    window.hide().map_err(|error| error.to_string())
+}
+
+fn present_overlay(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_ignore_cursor_events(false)
+        .map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())
+}
+
+fn assert_readiness_controller(label: &str) -> Result<(), String> {
+    if label == MAIN_LABEL {
+        Ok(())
+    } else {
+        Err("only the main shell may set Avatar session readiness".to_string())
+    }
+}
+
+/// Session-scoped readiness is separate from persisted visual preferences.
+/// The main shell calls this only after it has confirmed an active
+/// Organization. False hides every overlay immediately; true notifies each
+/// webview, which presents itself only after it has loaded ready preferences.
+#[tauri::command]
+pub fn overlay_set_session_ready(
+    app: AppHandle,
+    caller: WebviewWindow,
+    state: State<'_, OverlaySessionState>,
+    ready: bool,
+) -> Result<(), String> {
+    assert_readiness_controller(caller.label())?;
+    state.ready.store(ready, Ordering::SeqCst);
+    let mut failures = Vec::new();
+    for (label, window) in app.webview_windows() {
+        if !is_overlay_label(&label) {
+            continue;
+        }
+        if !ready {
+            if let Err(error) = conceal_overlay(&window) {
+                failures.push(format!("{label}: conceal failed: {error}"));
+            }
+        }
+        if let Err(error) = window.emit(AVATAR_SESSION_READY_EVENT, ready) {
+            failures.push(format!("{label}: readiness event failed: {error}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+#[tauri::command]
+pub fn overlay_get_session_ready(state: State<'_, OverlaySessionState>) -> bool {
+    state.ready.load(Ordering::SeqCst)
+}
+
+/// Called by an overlay webview after both native session readiness and
+/// canonical Avatar preferences are ready. A stale caller can never override
+/// the server-owned session gate.
+#[tauri::command]
+pub fn overlay_present(
+    window: WebviewWindow,
+    state: State<'_, OverlaySessionState>,
+) -> Result<bool, String> {
+    if !state.ready.load(Ordering::SeqCst) {
+        conceal_overlay(&window)?;
+        return Ok(false);
+    }
+    present_overlay(&window)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn overlay_conceal(window: WebviewWindow) -> Result<(), String> {
+    conceal_overlay(&window)
 }
 
 /// Persist the calling overlay's reconciled collapsed position immediately.
@@ -1052,6 +1150,21 @@ pub fn focus_main_window(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlay_session_readiness_defaults_closed_and_changes_explicitly() {
+        let state = OverlaySessionState::default();
+        assert!(!state.ready.load(Ordering::SeqCst));
+        state.ready.store(true, Ordering::SeqCst);
+        assert!(state.ready.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn only_main_shell_can_control_overlay_session_readiness() {
+        assert!(assert_readiness_controller(MAIN_LABEL).is_ok());
+        assert!(assert_readiness_controller(OVERLAY_LABEL).is_err());
+        assert!(assert_readiness_controller("overlay-1").is_err());
+    }
 
     // The geometric check is extracted here so it can be tested without
     // a real Monitor handle (tauri::Monitor fields are private).

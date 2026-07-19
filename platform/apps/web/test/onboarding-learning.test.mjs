@@ -5,7 +5,9 @@ import ts from "typescript";
 
 const questionsUrl = new URL("../src/app/onboarding/questions.ts", import.meta.url);
 const dialogUrl = new URL("../src/app/onboarding/OnboardingDialog.tsx", import.meta.url);
-const avatarProgressUrl = new URL("../src/app/avatar/EggHatcher.tsx", import.meta.url);
+const avatarProgressUrl = new URL("../src/app/avatar/AvatarSetupProgress.tsx", import.meta.url);
+const avatarStoreUrl = new URL("../src/app/avatar/avatar-store.ts", import.meta.url);
+const avatarCompatUrl = new URL("../src/app/avatar/avatar-v1-compat.ts", import.meta.url);
 const settingsUrl = new URL("../src/app/pages/SettingsPage.tsx", import.meta.url);
 const layoutUrl = new URL("../src/app/Layout.tsx", import.meta.url);
 const homeUrl = new URL("../src/app/pages/HomePage.tsx", import.meta.url);
@@ -20,10 +22,31 @@ async function loadQuestionsModule() {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText.replace(
-    /import \{ SPIRIT_ANIMALS \} from "\.\.\/avatar\/avatar-store";/,
-    `const SPIRIT_ANIMALS = [{ value: "owl", label: "Owl" }];`,
+    /import \{ AVATAR_STYLES \} from "\.\.\/avatar\/avatar-store";/,
+    `const AVATAR_STYLES = [{ value: "owl", label: "Owl" }];`,
   );
   return import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
+}
+
+async function loadAvatarStoreModule() {
+  const [compatSource, storeSource] = await Promise.all([
+    readFile(avatarCompatUrl, "utf8"),
+    readFile(avatarStoreUrl, "utf8"),
+  ]);
+  const compilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  };
+  const compatJavaScript = ts.transpileModule(compatSource, { compilerOptions }).outputText;
+  const compatDataUrl = `data:text/javascript;base64,${Buffer.from(compatJavaScript).toString("base64")}`;
+  const isolatedStoreSource = storeSource
+    .replace(
+      /import \{ useEffect, useState \} from "react";/,
+      "const useEffect = () => undefined; const useState = (initial) => [typeof initial === 'function' ? initial() : initial, () => undefined];",
+    )
+    .replace('"./avatar-v1-compat"', `"${compatDataUrl}"`);
+  const storeJavaScript = ts.transpileModule(isolatedStoreSource, { compilerOptions }).outputText;
+  return import(`data:text/javascript;base64,${Buffer.from(storeJavaScript).toString("base64")}`);
 }
 
 test("every onboarding question declares separate why and consequence copy", async () => {
@@ -72,7 +95,7 @@ test("signal onboarding choice declares every entity referenced by its views", a
   const { buildBlueprintFromAnswers } = await loadQuestionsModule();
   const blueprint = buildBlueprintFromAnswers({
     profession: "Product lead",
-    spirit_animal: "owl",
+    avatar_style: "owl",
     role_model: "",
     domain: "relationships",
     watch_first: ["surface_signals"],
@@ -87,15 +110,157 @@ test("signal onboarding choice declares every entity referenced by its views", a
   }
 });
 
-test("onboarding does not offer the deprecated touchpoint vocabulary", async () => {
+test("onboarding does not offer deprecated setup-lifecycle vocabulary", async () => {
   const [questions, dialog, avatarProgress] = await Promise.all([
     readFile(questionsUrl, "utf8"),
     readFile(dialogUrl, "utf8"),
     readFile(avatarProgressUrl, "utf8"),
   ]);
   assert.doesNotMatch(questions, /log_touchpoints|as touchpoints|'s Workspace/);
-  assert.doesNotMatch(dialog, /"Your Organization is hatching|avatar has hatched/);
-  assert.doesNotMatch(avatarProgress, /`Egg (?:hatched|incubating)/);
+  assert.doesNotMatch(questions, /spirit[_ -]animal/i);
+  assert.doesNotMatch(dialog, /hatch|egg/i);
+  assert.doesNotMatch(avatarProgress, /hatch|egg|creature|matur/i);
+  assert.match(avatarProgress, /AvatarSetupProgress/);
+});
+
+test("legacy browser Avatar preferences migrate to v2 without a legacy write path", async () => {
+  const [compatSource, storeSource] = await Promise.all([
+    readFile(avatarCompatUrl, "utf8"),
+    readFile(avatarStoreUrl, "utf8"),
+  ]);
+  const javascript = ts.transpileModule(compatSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const compat = await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
+  const storage = new Map([
+    [compat.LEGACY_AVATAR_STORAGE_KEY, JSON.stringify({ animal: "owl", eggHatched: true, avatarName: "Zazoo" })],
+  ]);
+  const migrated = compat.readLegacyAvatarPreferences({
+    getItem(key) {
+      return storage.get(key) ?? null;
+    },
+  });
+
+  assert.deepEqual(migrated, { style: "owl", avatarReady: true, avatarName: "Zazoo" });
+  assert.equal(
+    compat.readLegacyAvatarPreferences({
+      getItem() {
+        return JSON.stringify({ animal: "owl", eggHatched: "false" });
+      },
+    }),
+    null,
+  );
+  assert.match(storeSource, /const STORAGE_KEY = "bridge\.avatar\.v2"/);
+  assert.match(storeSource, /writePrefs\(migrated\)/);
+  assert.match(storeSource, /removeItem\(LEGACY_AVATAR_STORAGE_KEY\)/);
+  assert.doesNotMatch(storeSource, /setItem\(LEGACY_AVATAR_STORAGE_KEY/);
+});
+
+test("every supported legacy Avatar style is persisted canonically before v1 is removed", async () => {
+  const avatarStore = await loadAvatarStoreModule();
+  const priorWindow = globalThis.window;
+  const styles = [
+    "owl",
+    "fox",
+    "turtle",
+    "crane",
+    "wolf",
+    "cat",
+    "lion",
+    "dog",
+    "panda",
+    "butterfly",
+    "dolphin",
+    "peacock",
+    "elephant",
+    "eagle",
+    "horse",
+    "beaver",
+  ];
+
+  try {
+    for (const style of styles) {
+      const rows = new Map([
+        ["bridge.avatar.v1", JSON.stringify({ animal: style, eggHatched: true })],
+      ]);
+      globalThis.window = {
+        localStorage: {
+          getItem(key) {
+            return rows.get(key) ?? null;
+          },
+          setItem(key, value) {
+            rows.set(key, value);
+          },
+          removeItem(key) {
+            rows.delete(key);
+          },
+        },
+      };
+
+      assert.deepEqual(avatarStore.loadAvatarPrefs(false), { style, avatarReady: true });
+      assert.deepEqual(JSON.parse(rows.get("bridge.avatar.v2")), { style, avatarReady: true });
+      assert.equal(rows.has("bridge.avatar.v1"), false);
+    }
+  } finally {
+    if (priorWindow === undefined) delete globalThis.window;
+    else globalThis.window = priorWindow;
+  }
+});
+
+test("Avatar preference reads reject malformed readiness and never delete v1 after a failed v2 write", async () => {
+  const avatarStore = await loadAvatarStoreModule();
+  const priorWindow = globalThis.window;
+
+  try {
+    const malformedRows = new Map([
+      ["bridge.avatar.v2", JSON.stringify({ style: "owl", avatarReady: "false" })],
+    ]);
+    globalThis.window = {
+      localStorage: {
+        getItem(key) {
+          return malformedRows.get(key) ?? null;
+        },
+        setItem(key, value) {
+          malformedRows.set(key, value);
+        },
+        removeItem(key) {
+          malformedRows.delete(key);
+        },
+      },
+    };
+    assert.equal(avatarStore.hasStoredPrefs(), false);
+    assert.equal(avatarStore.loadAvatarPrefs(false).avatarReady, false);
+    assert.equal(avatarStore.loadAvatarPrefs(true).avatarReady, true);
+
+    const legacyRows = new Map([
+      ["bridge.avatar.v1", JSON.stringify({ animal: "turtle", eggHatched: true })],
+    ]);
+    let legacyRemoved = false;
+    globalThis.window = {
+      localStorage: {
+        getItem(key) {
+          return legacyRows.get(key) ?? null;
+        },
+        setItem() {
+          throw new Error("quota exceeded");
+        },
+        removeItem(key) {
+          legacyRemoved = true;
+          legacyRows.delete(key);
+        },
+      },
+    };
+    const migrated = avatarStore.loadAvatarPrefs(false);
+    assert.deepEqual(migrated, { style: "turtle", avatarReady: true });
+    assert.equal(legacyRemoved, false);
+    assert.equal(legacyRows.has("bridge.avatar.v1"), true);
+  } finally {
+    if (priorWindow === undefined) delete globalThis.window;
+    else globalThis.window = priorWindow;
+  }
 });
 
 test("multi-select onboarding choices stay editable until Continue commits them", async () => {

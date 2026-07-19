@@ -6,12 +6,12 @@ import { Input } from "../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Badge } from "../components/ui/badge";
 import { nextQuestion, buildBlueprintFromAnswers, isComplete, answeredCount, MAX_QUESTIONS, workspaceNameFromEmail, type OnboardingAnswers } from "./questions";
-import { EggHatcher, type EggStage } from "../avatar/EggHatcher";
+import { AvatarSetupProgress, type AvatarSetupState } from "../avatar/AvatarSetupProgress";
 import {
   dispatchCaptureEvent,
   updateAvatarPrefs,
   type AvatarPrefs,
-  type SpiritAnimal,
+  type AvatarStyle,
 } from "../avatar/avatar-store";
 
 /** Mirrors apps/api/src/router.ts's BLUEPRINT_NODE_TYPE_REGISTRY /
@@ -54,11 +54,8 @@ export interface OnboardingDialogProps {
    * message never gets a render. The dialog now only closes via the explicit
    * "Done" button (`resetAndClose`) or the user dismissing it. */
   onProposed?: (organization: { id: string; name: string }) => void;
-  /** Called once the egg's hatch animation resolves with real, saved avatar
-   * prefs — lets the caller (Layout) mount <AvatarOverlay> immediately
-   * without waiting for a remount/localStorage re-read (spec section 4 Stage
-   * 6: "hatch animation, set eggHatched: true, overlay appears"). */
-  onHatched?: (prefs: AvatarPrefs) => void;
+  /** Called after activation with persisted visual preferences. */
+  onAvatarReady?: (prefs: AvatarPrefs) => void;
   /** User's email address — used to pre-populate the workspace_name question
    * via workspaceNameFromEmail() per spec-workspace-naming.md. Optional: if
    * absent, the workspace_name field starts empty for the user to fill in. */
@@ -112,7 +109,7 @@ async function desktopInvoke<T>(command: string, args?: Record<string, unknown>)
  * "has onboarding ever run" itself — App.tsx's mount-time
  * workspace.blueprint.get check owns that decision.
  */
-export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, userEmail }: OnboardingDialogProps) {
+export function OnboardingDialog({ open, onOpenChange, onProposed, onAvatarReady, userEmail }: OnboardingDialogProps) {
   const [answers, setAnswers] = useState<OnboardingAnswers>({});
   const [step, setStep] = useState<Step>("trust");
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +117,6 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
   const [textDraft, setTextDraft] = useState("");
   const [multiDrafts, setMultiDrafts] = useState<Record<string, string[]>>({});
   const [outcome, setOutcome] = useState<SubmitOutcome>(null);
-  const [eggStage, setEggStage] = useState<EggStage>("incubating");
   const [recommendationResult, setRecommendationResult] = useState<RecommendationResult | null>(null);
   const [recommendationDecision, setRecommendationDecision] = useState<RecommendationDecision>("pending");
   const [learningError, setLearningError] = useState<string | null>(null);
@@ -135,12 +131,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
 
   const question = useMemo(() => nextQuestion(answers), [answers]);
   const blueprint = useMemo(() => buildBlueprintFromAnswers(answers), [answers]);
-  const spiritAnimal = (answers.spirit_animal as SpiritAnimal | undefined) ?? "owl";
+  const avatarStyle = (answers.avatar_style as AvatarStyle | undefined) ?? "owl";
 
-  // Egg progress maps to REAL setup state, never a fake timer (spec section 4):
+  // Setup progress maps to real state, never a fake timer:
   //   questions answered -> 0..~0.7 of the way there
   //   preview reached (blueprint compiled, about to be proposed) -> ~0.9
-  //   activated/hatching -> 1.0
+  //   activated -> 1.0
   const answered = answeredCount(answers);
   const progress =
     step === "trust"
@@ -151,7 +147,7 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
         ? 0.9
         : 1;
 
-  const eggStatusText =
+  const setupStatusText =
     step === "trust"
       ? "Nothing observes your work until you choose a visible check"
       : step === "questions"
@@ -164,28 +160,16 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           ? "✓ Ready to proceed"
           : "✓ Proposed — awaiting approval";
 
-  // Egg stage derives from step + outcome, not a separate tracked value, so
-  // it can never drift out of sync with what actually happened. Deliberately
-  // keyed on [step, outcome] only — spiritAnimal/answered/onHatched are read
-  // at fire time (via closure), not re-triggers: re-running this effect on
-  // every keystroke of unrelated answers would restart the hatch timer.
-  useEffect(() => {
-    if (step === "submitted" && outcome === "activated") {
-      setEggStage("hatching");
-      // Hatch animation capped well under 3s (spec: "<3s") and NEVER blocks
-      // the Done button — this only flips the visual to "hatched" and saves
-      // prefs; the user can already click Done at any point.
-      const t = setTimeout(() => {
-        setEggStage("hatched");
-        const saved = updateAvatarPrefs({ animal: spiritAnimal, eggHatched: true });
-        onHatched?.(saved);
-      }, 1400);
-      return () => clearTimeout(t);
-    }
-    if (step === "preview") setEggStage("ready");
-    else if (step === "questions") setEggStage(answered > 0 ? "growing" : "incubating");
-    return undefined;
-  }, [step, outcome]);
+  const setupState: AvatarSetupState =
+    step === "trust"
+      ? "starting"
+      : step === "questions"
+        ? "answering"
+        : step === "preview"
+          ? "reviewing"
+          : outcome === "activated"
+            ? "ready"
+            : "saving";
 
   // Pre-populate the workspace_name text field with the email-derived name
   // (spec-workspace-naming.md) when that question becomes active. Only seeds
@@ -234,7 +218,6 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
     setTextDraft("");
     setMultiDrafts({});
     setOutcome(null);
-    setEggStage("incubating");
     setRecommendationResult(null);
     setRecommendationDecision("pending");
     setLearningError(null);
@@ -344,10 +327,14 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
       setOutcome(result.activated ? "activated" : "pending_review");
       setStep("submitted");
       onProposed?.(organization);
+      if (result.activated) {
+        const saved = updateAvatarPrefs({ style: avatarStyle, avatarReady: true });
+        onAvatarReady?.(saved);
+      }
       try {
         await trpc.onboarding.saveProfile.mutate({
           workspaceId: PILOT_WORKSPACE,
-          animal: spiritAnimal,
+          avatarStyle,
           answers: Object.fromEntries(
             Object.entries(answers).filter((e): e is [string, string | string[]] => e[1] !== undefined)
           ),
@@ -390,7 +377,12 @@ export function OnboardingDialog({ open, onOpenChange, onProposed, onHatched, us
           </DialogDescription>
         </DialogHeader>
 
-        <EggHatcher progress={progress} stage={eggStage} animal={spiritAnimal} statusText={eggStatusText} />
+        <AvatarSetupProgress
+          progress={progress}
+          state={setupState}
+          avatarStyle={avatarStyle}
+          statusText={setupStatusText}
+        />
 
         {step === "trust" && (
           <div className="space-y-4">

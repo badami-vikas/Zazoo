@@ -15,6 +15,8 @@ snapshots, not immutable releases.
   merged `origin/main@512cf35` at integration checkpoint `69ffbff`.
 - TASK-024 Pages publication `2306808` was reverted under AP-053 by `6b76466`; rollback run
   `29683837490` passed and `https://zazoo.me` serves the older experience.
+- TASK-012 VOCAB0–VOCAB1 landed through PR #26 from integration checkpoints `dd51797` and
+  `bd7de18`; no numbered migration was added.
 - Working tree: clean when recorded.
 - Background agents and worktree processes: none.
 
@@ -39,6 +41,22 @@ lint, no-runtime-dummy, release-native launch, and final independent review pass
 
 This worktree is historical after merge. Do not resume it, re-run its migration under another
 number, or merge it again.
+
+## TASK-012 vocabulary migration — VOCAB0–VOCAB1 MERGED 2026-07-19
+
+- Planning session: `3179df41-d08d-4669-b73b-7788eff1f652`
+- Planning-only branch: `manishsbhoopalam8498-fuzzy-adventure` / `5775e5b`
+- Integration branch: `task-012-vocab01`
+- Vocabulary and Avatar checkpoint: `dd51797`
+- TASK-024 website reconciliation: `bd7de18`
+- Landing: PR #26
+- Migration: none
+
+The first milestone ships the exact syntax-fingerprint CI ratchet, canonical visual-only
+Avatar/Onboarding contracts, one-version compatibility reads, and session-scoped desktop readiness.
+TASK-024's newer website identifiers were migrated with matching selectors instead of enlarging the
+7,515-occurrence baseline. TASK-012 remains `in_progress`; continue VOCAB2–VOCAB6 and compatibility
+deletion from current `main`. Do not resume or merge the planning-only branch as implementation.
 
 ## TASK-006 durability — MERGED 2026-07-19
 

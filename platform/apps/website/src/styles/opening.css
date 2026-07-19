@@ -598,7 +598,7 @@
   color: var(--body-ink);
 }
 
-.family-workspace {
+.family-office {
   position: absolute;
   z-index: 1;
   right: -25%;
@@ -610,13 +610,13 @@
   box-shadow: 0 10px 25px rgb(26 43 60 / 10%);
 }
 
-.family-workspace .paper-stack {
+.family-office .paper-stack {
   top: -10%;
   left: 10%;
   transform: scale(0.45);
 }
 
-.family-workspace > i {
+.family-office > i {
   position: absolute;
   right: 12%;
   bottom: 30%;
@@ -626,7 +626,7 @@
   background: var(--steel-soft);
 }
 
-.family-workspace > i:last-child {
+.family-office > i:last-child {
   right: 18%;
   bottom: 16%;
   width: 18%;

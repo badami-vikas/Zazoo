@@ -154,41 +154,40 @@ test("chiefOfStaff.converse: the CoS persona is resolved server-side from the st
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
       workspaceId: PILOT_WORKSPACE,
-      animal: "owl",
+      avatarStyle: "owl",
       answers: { role: "investor" },
       phoneVerified: false,
       verificationMethod: null,
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const owl = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
-    assert.equal(owl.persona.id, "chief_of_staff");
-    assert.ok(owl.persona.tone && /wise and calm/.test(owl.persona.tone), "owl profile should yield the owl tone");
+    const first = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
+    assert.equal(first.persona.id, "chief_of_staff");
+    assert.equal(first.persona.tone, undefined);
 
     await wiring.onboardingProfileStore.save({
       workspaceId: PILOT_WORKSPACE,
-      animal: "fox",
+      avatarStyle: "fox",
       answers: { role: "recruiter" },
       phoneVerified: false,
       verificationMethod: null,
       connectedSourceIds: [],
       updatedAtISO: new Date().toISOString(),
     });
-    const fox = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
-    assert.ok(fox.persona.tone && /clever and playful/.test(fox.persona.tone), "fox profile should yield the fox tone");
-    assert.notEqual(owl.persona.tone, fox.persona.tone, "two profiles must produce two distinct persona cards");
+    const second = await caller.chiefOfStaff.converse({ workspaceId: PILOT_WORKSPACE, message: "tell me about the weather today", chainDepth: 0 });
+    assert.equal(second.persona.tone, undefined);
   } finally {
     await wiring.close();
   }
 });
 
-test("chiefOfStaff.converse: a stored profile's animal overrides the client-supplied input.animal (server-side wins)", async () => {
+test("chiefOfStaff.converse: stored Avatar style does not alter Agent tone", async () => {
   const wiring = await buildWiring();
   try {
     const caller = await makeCaller(wiring);
     await wiring.onboardingProfileStore.save({
       workspaceId: PILOT_WORKSPACE,
-      animal: "owl",
+      avatarStyle: "owl",
       answers: {},
       phoneVerified: false,
       verificationMethod: null,
@@ -199,9 +198,8 @@ test("chiefOfStaff.converse: a stored profile's animal overrides the client-supp
       workspaceId: PILOT_WORKSPACE,
       message: "tell me about the weather today",
       chainDepth: 0,
-      animal: "fox",
     });
-    assert.ok(result.persona.tone && /wise and calm/.test(result.persona.tone), "stored owl must win over client-supplied fox");
+    assert.equal(result.persona.tone, undefined);
   } finally {
     await wiring.close();
   }

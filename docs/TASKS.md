@@ -122,16 +122,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## Complete vocabulary migration
 - ID: TASK-012
-- Status: ready
+- Status: in_progress
 - Priority: P2
 - Horizon: Convergence
 - Outcome: Product copy, code, schema, API, Events, persisted payloads, routes, errors, and tests use the canonical glossary with time-boxed compatibility removed.
 - Prototype test: CI inventory finds no forbidden identifiers outside explicit migration fixtures; backfills and compatibility deletion pass RLS/API/browser tests; visible UI contains no retired labels.
 - Scope: docs/raw/vocabulary-code-migration-plan-2026-07-14.md VOCAB0–VOCAB6; docs/glossary.md
-- Evidence: BUGS deprecated dummy-prefix rule; BUGS API error strings; BUGS package.yaml filename mismatch; BUGS Initiative-scoped API legacy; deprecated Tools/Knowledge/Workflows evidence attached to TASK-001; OPEN BUGS Module File writes are not yet indexed into canonical `files`/`file_refs` for Graph/File provenance (VOCAB4)
+- Evidence: BUGS deprecated dummy-prefix rule; BUGS API error strings; BUGS package.yaml filename mismatch; BUGS Initiative-scoped API legacy; deprecated Tools/Knowledge/Workflows evidence attached to TASK-001; OPEN BUGS Module File writes are not yet indexed into canonical `files`/`file_refs` for Graph/File provenance (VOCAB4); [VOCAB0 inventory](raw/vocabulary-code-inventory-2026-07-19.md); [VOCAB0–VOCAB1 implementation](../outputs/2026-07-19-task012-vocab0-vocab1.md), integrated through PR #26 at source checkpoints `dd51797` and `bd7de18`
 - Requests: R-020; vocabulary/glossary directives 2026-07-14
-- Approval: AP-020 and AP-029 applied
+- Approval: AP-020, AP-029, and AP-050 applied
 - Dependencies: TASK-005
+- Verification: VOCAB0 AST/lexical ratchet is wired into CI with 7,515 classified retired-token occurrences and zero Avatar-lifecycle occurrences; it covers TypeScript/JavaScript public/private identifiers, ordinary/interpolated/static-composed strings and JSX text, plus Rust and non-migration SQL identifiers/strings, with only two explicitly reviewed compatibility adapters excluded. Per-syntax fingerprints reject one-for-one replacement, and baseline refresh is downward-only. `Second Brain` is allowlisted only on the web UI surface, never in Engine identifiers. VOCAB1 uses canonical runtime/payload/UI identifiers, writes only `bridge.avatar.v2`, preserves one-version browser/API reads without deleting the legacy value on failed migration, strictly rejects malformed readiness values, renders every supported legacy style, and proves Avatar style cannot affect Agent tone or authority. Desktop windows remain native-hidden/click-through until the current shell confirms an active Organization and ready preferences. PR #26 also migrated TASK-024's newly landed website identifiers and matching selectors instead of expanding the ratchet baseline; the vocabulary gate plus website typecheck, six tests, build, and targeted lint pass on the integrated tree. TASK remains in progress for VOCAB2–VOCAB6 and compatibility deletion.
 
 ## Platform red-flag correction feedback
 - ID: TASK-010
@@ -211,7 +212,7 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 - Evidence: root gap recorded ADR-088. Planning session (`docs/Progress from Manish/subagent-progress.md` TASK-015 row) confirmed this is not greenfield: PI-1/PI-2/PI-3 already ship a partial version — `TrustOrigin` 3-value tag (`packages/core/src/types.ts`), an equality-based tainted-egress gate (`packages/core/src/policy/taint-egress.ts`), and a quarantine `ContentGuard` (`packages/core/src/guard/content-guard.ts`). Concrete gaps a future RT0–RT4 implementation must close: `DomainEvent`/`events`/`signals`/`files` carry no taint field at all today; `SkillOutput`/`RitualStep` carry none, so an Automation/Ritual step seeded from a tainted Signal can silently lose its label; there is no lattice/join (today's check is a single equality test, not a monotonic combine); no sink registry or CI coverage gate; no declassification audit trail; `packages/sourcing/src/types.ts` hand-duplicates the `TrustOrigin` union instead of importing it (drift risk); cache/retry paths in `integrations-google` are untested for taint preservation. Post-TASK-007 landing, `ChildAgentRun.taint` (`packages/db/src/child-agent-run-store.ts`) already exists but is still typed as the legacy 3-value `TrustOrigin` — RT0's lattice must upgrade this field additively, not replace it out from under TASK-007's landed contract.
 - Requests: runtime taint directive 2026-07-14
 - Approval: AP-020 and AP-029 applied
-- Dependencies: TASK-007 (done); TASK-012 (still `ready` — remains the blocking gate; `ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types against vocabulary TASK-012 is about to rename)
+- Dependencies: TASK-007 (done); TASK-012 (now `in_progress` and remains the blocking gate; `ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types before TASK-012 renames it)
 
 ## Database and migration correctness backlog
 - ID: TASK-016

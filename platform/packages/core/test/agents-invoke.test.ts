@@ -91,7 +91,7 @@ test("AGENTS-1: buildAgentPersona carries responsibilities + identity guardrails
 
   const builder = buildAgentPersona("capability_builder");
   assert.ok(builder.guardrails?.some((g) => /governed approval pipeline/i.test(g)));
-  assert.ok(builder.guardrails?.some((g) => /Minimal-egg boundary/i.test(g)), "Builder persona should carry the standing design constraints");
+  assert.ok(builder.guardrails?.some((g) => /Kernel boundary/i.test(g)), "Builder persona should carry the standing design constraints");
 });
 
 test("AGENTS-1: tone threads into the agent identity layer only when supplied", () => {

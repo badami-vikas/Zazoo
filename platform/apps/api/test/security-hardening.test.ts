@@ -97,12 +97,32 @@ test("onboarding.saveProfile: a client-asserted verificationMethod:'linkedin' is
       () =>
         caller.onboarding.saveProfile({
           workspaceId: PILOT_WORKSPACE,
-          animal: "otter",
+          avatarStyle: "otter",
           // Deliberately spoof a trust signal the server can't actually prove.
           verificationMethod: "linkedin" as unknown as "phone",
         }),
       (err: unknown) => err instanceof TRPCError && err.code === "BAD_REQUEST",
     );
+  } finally {
+    await wiring.close();
+  }
+});
+
+test("onboarding.saveProfile: the one-version Avatar payload reader returns only the canonical field", async () => {
+  const wiring = await buildWiring();
+  try {
+    const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
+    const result = await caller.onboarding.saveProfile({
+      workspaceId: PILOT_WORKSPACE,
+      animal: "owl",
+      answers: { spirit_animal: "owl", role: "operator" },
+      verificationMethod: null,
+    });
+    assert.equal(result.profile.avatarStyle, "owl");
+    assert.equal("animal" in result.profile, false);
+    assert.equal(result.profile.answers.avatar_style, "owl");
+    assert.equal("spirit_animal" in result.profile.answers, false);
+    assert.equal(result.profile.answers.role, "operator");
   } finally {
     await wiring.close();
   }
@@ -114,7 +134,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
     const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
     const viaNull = await caller.onboarding.saveProfile({
       workspaceId: PILOT_WORKSPACE,
-      animal: "otter",
+      avatarStyle: "otter",
       verificationMethod: null,
     });
 
@@ -122,7 +142,7 @@ test("onboarding.saveProfile: the honest paths (null / phone) are still accepted
 
     const viaPhone = await caller.onboarding.saveProfile({
       workspaceId: PILOT_WORKSPACE,
-      animal: "otter",
+      avatarStyle: "otter",
       verificationMethod: "phone",
     });
     assert.equal(viaPhone.profile.verificationMethod, "phone");
@@ -158,7 +178,7 @@ test("onboarding role-model learning is cited, approval-gated, controllable, and
         const caller = makeCaller(wiring, { type: "user", id: PILOT_USER });
         await caller.onboarding.saveProfile({
           workspaceId: PILOT_WORKSPACE,
-          animal: "owl",
+          avatarStyle: "owl",
           answers: { role_model: "Test Fixture Leader", role_model_why: "clear preparation" },
           verificationMethod: null,
           connectedSourceIds: [],

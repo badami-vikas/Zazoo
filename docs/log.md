@@ -1894,3 +1894,15 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - GitHub Pages run `29683837490` completed successfully. The live `https://zazoo.me` response is byte-for-byte identical to the restored pre-TASK-024 `index.html` at Pages commit `063997a`.
 - Preserved the `zazoo.me` `CNAME`; `/consulting.html` and `/training.html` return 200; the removed TASK-024 hashed JavaScript/CSS assets return 404 as expected.
 - Reconciled TASK-024, AP-053, the durable output, and all four Progress-from-Manish handoff records with the current production state.
+
+# 2026-07-19 — TASK-012 VOCAB0–VOCAB1
+- Added the classified retired-vocabulary inventory, per-file syntax-fingerprint baseline, local/CI ratchet, and ADR-127. TypeScript/JavaScript AST (including static compositions) plus Rust/non-migration-SQL lexical coverage makes new or one-for-one-replaced retired identifiers/string contracts fail; reviewed removals require a downward-only baseline refresh.
+- Migrated Avatar/Onboarding runtime identifiers, copy, browser preferences, and API payloads to visual-only Avatar Style and readiness vocabulary. One-version legacy reads are isolated; all writes are canonical.
+- Removed Avatar-derived Agent/Communications tone and the lifecycle/maturity model. Blink remains tied to the capture Event contract.
+- Made desktop readiness session-scoped: native Avatar windows start hidden/click-through and only present after the shell confirms an active Organization plus ready canonical preferences.
+- Removed the retired dummy-prefix ESLint wiring and corrected the runtime check guidance to the settled `docs/dummy.md` ledger policy.
+
+# 2026-07-19 — TASK-012 VOCAB0–VOCAB1 main integration
+- Integrated the first TASK-012 milestone through PR #26 at source checkpoints `dd51797` and `bd7de18`; TASK-012 remains `in_progress` for VOCAB2–VOCAB6 and compatibility deletion.
+- Reconciled TASK-024's later website source by replacing its newly introduced retired DOM aliases and paired illustration selectors rather than increasing the 7,515-occurrence ratchet baseline.
+- Synchronized `docs/TASKS.md`, the durable output, and all four `docs/Progress from Manish/` handoff files with the landed milestone and correct next cursor.

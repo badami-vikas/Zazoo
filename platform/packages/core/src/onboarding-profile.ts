@@ -5,20 +5,14 @@
  * Memory/Knowledge kernel primitive (vector store, embeddings, retrieval)
  * that's still genuinely absent; that's a separate, larger build.
  *
- * Today spirit animal + answers live ONLY in browser localStorage
- * (avatar-store.ts) — invisible to the server, so nothing server-side (e.g.
- * an agent system prompt) can read "this user picked Owl" or "verified via
- * phone". This store gives that a durable, workspace-scoped home so a second
- * surface (desktop/mobile) sees the same profile, and so
- * buildAgentSystemPrompt's animalTone can eventually be resolved server-side
- * instead of trusting whatever the client happens to pass.
+ * Avatar style is retained for cross-surface visual consistency only. It never
+ * contributes to an Agent persona, tone, authority, or behavior.
  */
 import type { RunPersona } from "./run-context.js";
-import { ANIMAL_TONE } from "./agents.js";
 
 export interface OnboardingProfileRow {
   workspaceId: string;
-  animal: string;
+  avatarStyle: string;
   answers: Record<string, string | string[] | undefined>;
   phoneVerified: boolean;
   /** "linkedin" | "phone" | null — which identity-verification path was used. */
@@ -50,7 +44,7 @@ export class InMemoryOnboardingProfileStore implements OnboardingProfileStore {
  * the Chief of Staff's persona. Distinct from the storage-shaped
  * `OnboardingProfileRow` above (the durable row the client writes): this is the
  * kernel-facing VIEW the prompt assembler consumes, with the fields the spec
- * names (role/goals/domains/connected_sources/chosen_animal_id/
+ * names (role/goals/domains/connected_sources/
  * working_style_notes/source). Progressive-onboarding-friendly: every
  * personalization field is optional (`T | undefined`, exactOptionalPropertyTypes)
  * so a half-finished profile still builds a valid — just less personalized —
@@ -63,7 +57,6 @@ export interface OnboardingProfile {
   goals?: readonly string[];
   domains?: readonly string[];
   connectedSources?: readonly string[];
-  chosenAnimalId?: string;
   workingStyleNotes?: string;
   /** Provenance tag (Memory-family `source`) — always "onboarding" for a
    * profile built from the onboarding flow. */
@@ -86,8 +79,8 @@ function asStringArray(v: string | readonly string[] | undefined): readonly stri
 /**
  * Bridge the durable, storage-shaped `OnboardingProfileRow` (what the client
  * writes today) into the kernel-facing `OnboardingProfile` view. Best-effort and
- * HONEST — it maps only what the row actually carries (animal → chosenAnimalId,
- * connectedSourceIds → connectedSources) and reads role/goals/domains/working-
+ * HONEST — it maps only what the row actually carries and reads
+ * role/goals/domains/working-
  * style from the free-form `answers` map by conventional keys, degrading each
  * missing field to `undefined` rather than inventing a placeholder (no-dummy-
  * data rule). This is the server-side seam that lets the persona be resolved
@@ -101,7 +94,6 @@ export function profileFromRow(row: OnboardingProfileRow): OnboardingProfile {
   return {
     workspaceId: row.workspaceId,
     source: "onboarding",
-    ...(row.animal ? { chosenAnimalId: row.animal } : {}),
     ...(row.connectedSourceIds.length > 0 ? { connectedSources: row.connectedSourceIds } : {}),
     ...(role ? { role } : {}),
     ...(goals ? { goals } : {}),
@@ -111,32 +103,14 @@ export function profileFromRow(row: OnboardingProfileRow): OnboardingProfile {
 }
 
 /**
- * Resolve a spirit-animal id to its tone descriptor (the SpiritAnimal tone card,
- * undefined-elements #11 layer-2 input). Reuses the already-reconciled
- * `ANIMAL_TONE` map (agents.ts) rather than a second copy — case-insensitive,
- * and returns `undefined` for an unknown/unset animal so the persona simply
- * carries no tone line (graceful degrade, never a thrown error or a made-up
- * tone). The richer four-axis tone card (warmth/directness/playfulness/
- * formality + voice examples) named in the spec is future Commons-authored
- * Knowledge; the string descriptor is the shipped v1.
- */
-export function resolveAnimalTone(animalId: string | undefined): string | undefined {
-  if (!animalId) return undefined;
-  return ANIMAL_TONE[animalId.toLowerCase()];
-}
-
-/**
  * Build the Chief of Staff's `RunPersona` (run-context.ts, ADR-027 assembler
- * seam) from an onboarding profile — AGENTS-2's "onboarding-profile → CoS
- * persona". The animal supplies the tone (layer-2 register); role/goals/domains/
- * working-style seed the identity framing; the fixed CoS duties (route to ONE
+ * seam) from an onboarding profile. Role/goals/domains/working-style seed the
+ * identity framing; the fixed CoS duties (route to ONE
  * capability, hold the through-line, keep everything governed) are the
- * responsibilities. Personality only ever touches tone/framing, never authority
- * (primitive spec: "personality never touches authority"). A near-empty profile
- * still yields a valid generic Chief-of-Staff persona.
+ * responsibilities. A near-empty profile still yields a valid generic
+ * Chief-of-Staff persona.
  */
 export function buildChiefOfStaffPersona(profile: OnboardingProfile): RunPersona {
-  const tone = resolveAnimalTone(profile.chosenAnimalId);
   const who = profile.role ? `a ${profile.role}` : "the person in this workspace";
   const framing: string[] = [
     `the primary interlocutor for ${who} and the sole router of every request — you answer directly when you can and delegate to one specialist when it fits, but you are the only node that decides where a turn goes.`,
@@ -157,6 +131,5 @@ export function buildChiefOfStaffPersona(profile: OnboardingProfile): RunPersona
     actorType: "agent",
     actorId: "chief_of_staff",
     responsibilities,
-    ...(tone ? { tone } : {}),
   };
 }
