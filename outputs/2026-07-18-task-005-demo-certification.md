@@ -11,6 +11,9 @@ TASK-005 is certified. Fresh isolated authenticated desktop and exact 375×812 r
 
 TASK-003 separately supplies the completed physical macOS pointer, display-topology, Spaces/fullscreen, VoiceOver, and relaunch-persistence matrix for the movable Avatar. After normally merging `origin/main@5ca30ca` and closing the final trust/recovery review findings, fresh final-code runs repeated the entire sequence at desktop `1440×913` and exact mobile `375×812`. The final combined branch rebuilt the release Tauri bundle and launched Bridge main, Companion, and Annotate windows with a healthy authenticated managed API sidecar on the currently connected display.
 
+Implementation/certification checkpoint `166a01b` and progress handoff/landing commit `d4de355`
+are on `main`. The later verified `origin/main@d153094` retains both commits in ancestry.
+
 ## Exact combined sequence
 
 Both responsive runs used a new browser profile and clean API state. The Commons registry was also new and contained only freshly published signed built-ins.
