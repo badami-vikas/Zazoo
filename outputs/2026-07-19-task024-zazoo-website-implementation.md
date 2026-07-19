@@ -26,8 +26,19 @@ The implementation keeps approved visible prose in one governed source, uses ori
 - Live desktop and exact 375×812 runs covered all ten scenes, scene navigation, Escape cancellation, Process gating, notebook behavior, the disabled final CTA, reduced motion, and overflow.
 - Current `origin/main@512cf35` was merged before landing.
 
+## Deployment
+
+- Built the merged website source represented by `relationship-os@932ed80934f4af014582ee24034f45d100a1d124`.
+- Published the production artifact to `badami-vikas/badami-vikas.github.io@2306808bb056ffaed7fadcccf64b8cd9f132d2b4`.
+- Preserved the `zazoo.me` `CNAME`, Consulting page, Training page, and their existing static assets.
+- GitHub Pages run `29683315854` completed successfully.
+- `https://zazoo.me` serves the deployed `index-DnxFY1-8.js` and `index-CgX-Gel4.css` assets over HTTPS, and both retained pages remain reachable.
+
 ## Durable links
 
+- [Live website](https://zazoo.me)
+- [GitHub Pages deployment commit](https://github.com/badami-vikas/badami-vikas.github.io/commit/2306808bb056ffaed7fadcccf64b8cd9f132d2b4)
+- [GitHub Pages deployment run](https://github.com/badami-vikas/badami-vikas.github.io/actions/runs/29683315854)
 - [Website application](../platform/apps/website/)
 - [Governed public copy](../platform/apps/website/src/copy.json)
 - [Storyboard build contract](2026-07-19-zazoo-website-storyboard/00-global-build-contract.md)
