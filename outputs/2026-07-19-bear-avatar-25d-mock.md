@@ -13,3 +13,6 @@
 - An earlier in-repo build (new bear rig + `takingNotes`/`reviewing`/`searching` actions in the Zazoo director/lab) was reverted at the user's direction — they wanted a mock, not a functional prototype. Worktree is clean of those edits.
 - Rendering gotcha worth keeping: SVG attribute `rotate(a x y)` misbehaves under `transform-box: fill-box` when ancestors carry CSS transforms — use CSS `rotate()` about the element's own fill-box center instead.
 - Verified headlessly (playwright-core, channel: chrome) — all four states screenshot-checked, zero page errors.
+
+## Rev 2 — wrapped suit + themed hands (same day)
+User supplied a felt-crew reference sheet (cat/rabbit/bear/panda… egg toys in suits) and asked that the body sit inside a tightly wrapped suit with clearly visible, theme-aligned hands. Corrections applied: suit now rides up the sides jacket-style and dips into a chest V; added white shirt triangles, soft collar folds, and a muted brick tie under the chin; paws became sleeve-cuffed nubs (suit-colored cuff + body-colored hand) that stay attached in every pose; mug widened to stay gripped between the new symmetric mid-body hand positions; muzzle slightly reduced so the chin no longer merges with the shirt. Artifact republished at the same URL (label `wrapped-suit-v2`).
