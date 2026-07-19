@@ -49,9 +49,9 @@ test("buildCommunicationsSystemPrompt carries no agent-identity execution guardr
   assert.doesNotMatch(prompt, /never execute actions directly/);
 });
 
-test("buildCommunicationsSystemPrompt applies animal tone additively", () => {
-  const prompt = buildCommunicationsSystemPrompt("wise and calm");
-  assert.match(prompt, /wise and calm/);
+test("buildCommunicationsSystemPrompt applies an explicit writing tone additively", () => {
+  const prompt = buildCommunicationsSystemPrompt("concise and direct");
+  assert.match(prompt, /concise and direct/);
 });
 
 test("checkDesignConstraintViolations flags dummy-data language", () => {

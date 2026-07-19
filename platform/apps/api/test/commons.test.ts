@@ -368,7 +368,7 @@ test("commons.runInstalledSkill invokes the pinned Skill through its owning Agen
     const caller = await makeCaller(wiring);
     await caller.onboarding.saveProfile({
       workspaceId: PILOT_WORKSPACE,
-      animal: "owl",
+      avatarStyle: "owl",
       answers: {
         role_model: "Test Fixture Leader",
         role_model_why: "clear preparation",

@@ -119,7 +119,6 @@ import {
   findFoundationalAgent,
   buildChiefOfStaffPersona,
   profileFromRow,
-  resolveAnimalTone,
   parsePackageManifest,
   PackageManifestValidationError,
   computePackageRisk,
@@ -156,6 +155,11 @@ import {
   type LedgerEntry,
   uuidv7,
 } from "@bridge/core";
+import {
+  normalizeOnboardingAnswers,
+  onboardingAvatarStyleInput,
+  resolveOnboardingAvatarStyle,
+} from "./avatar-profile-v1-compat.js";
 import { authUrl } from "@bridge/integrations-google";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
@@ -2507,11 +2511,6 @@ const chiefOfStaffConverseInput = z.object({
    * server-side, not just trusted client-side. Defaults to 0 (a fresh
    * conversation's first turn). */
   chainDepth: z.number().int().min(0).default(0),
-  /** The user's chosen spirit animal (avatar-store.ts SPIRIT_ANIMALS id),
-   * client-supplied — client-local preference today, not yet kernel data
-   * (ADR-033's open item). Optional and additive: omitting it just means no
-   * tone flavoring, never an error. */
-  animal: z.string().optional(),
 });
 
 /** Build the core `CapabilityManifest` shape (risk-computation input) from a
@@ -6565,9 +6564,8 @@ export const appRouter = t.router({
 
     saveProfile: procedure
       .input(
-        z.object({
+        z.intersection(z.object({
           workspaceId: z.string().min(1),
-          animal: z.string().min(1),
           answers: z.record(z.union([z.string(), z.array(z.string())])).default({}),
           // SEC-7: `linkedin` was removed from this trust-bearing enum. There is no
           // real LinkedIn OAuth proof wired, so accepting a client-asserted
@@ -6576,15 +6574,16 @@ export const appRouter = t.router({
           // below) is accepted until a real OAuth proof exists.
           verificationMethod: z.enum(["phone"]).nullable().default(null),
           connectedSourceIds: z.array(z.string()).default([]),
-        }),
+        }), onboardingAvatarStyleInput),
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
         const existing = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
+        const avatarStyle = resolveOnboardingAvatarStyle(input);
         const row = {
           workspaceId: input.workspaceId,
-          animal: input.animal,
-          answers: input.answers,
+          avatarStyle,
+          answers: normalizeOnboardingAnswers(input.answers, avatarStyle),
           phoneVerified: input.verificationMethod === "phone" ? true : (existing?.phoneVerified ?? false),
           verificationMethod: input.verificationMethod ?? existing?.verificationMethod ?? null,
           connectedSourceIds: input.connectedSourceIds,
@@ -10207,17 +10206,11 @@ export const appRouter = t.router({
     converse: procedure.input(chiefOfStaffConverseInput).mutation(async ({ input, ctx }) => {
       assertPilotWorkspace(input.workspaceId);
 
-      // AGENTS-2: resolve the spirit-animal tone + Chief-of-Staff persona
-      // SERVER-SIDE from the stored onboarding profile rather than trusting the
-      // client-supplied `input.animal`. The persisted profile's animal wins; the
-      // client field is only a fallback for a workspace that hasn't saved a
-      // profile yet (progressive onboarding). `profileFromRow` maps only what the
-      // row actually carries — a missing profile just yields a generic persona,
-      // same ZERO-input graceful default the kernel uses everywhere.
+      // Resolve the Chief-of-Staff persona server-side from stored onboarding
+      // context. Avatar style is intentionally absent: visual choice never
+      // changes an Agent's tone, authority, or behavior.
       const profileRow = await ctx.wiring.onboardingProfileStore.get(input.workspaceId);
       const profile = profileRow ? profileFromRow(profileRow) : undefined;
-      const resolvedAnimalId = profile?.chosenAnimalId ?? input.animal;
-      const tone = resolveAnimalTone(resolvedAnimalId);
       const cosPersona = buildChiefOfStaffPersona(profile ?? { workspaceId: input.workspaceId, source: "onboarding" });
       // Additive, display-only projection of the resolved CoS identity so the
       // client/avatar can reflect it — two different profiles yield two different
@@ -10234,7 +10227,7 @@ export const appRouter = t.router({
       if (skillMention.skill === "communications") {
         const registeredModels = [...ctx.wiring.models.providers().values()].filter((p) => p.id !== "echo");
         const model = registeredModels[0];
-        const system = buildCommunicationsSystemPrompt(tone);
+        const system = buildCommunicationsSystemPrompt();
         const text = model
           ? (await model.complete({ system, prompt: skillMention.rest || input.message, maxTokens: 512 })).text
           : `${COMMUNICATIONS_SKILL.mission} (offline mode — no model configured, so I can't draft this yet, but I've recorded the request.)`;
@@ -10271,7 +10264,7 @@ export const appRouter = t.router({
         // strongest thing a chat reply can carry is a draft this procedure must
         // still propose — the "no independent write" guarantee is structural,
         // not a convention re-checked here.
-        const result = await invokeAgent({ agentId, message: rest || input.message, ...(model ? { model } : {}), ...(tone ? { tone } : {}) });
+        const result = await invokeAgent({ agentId, message: rest || input.message, ...(model ? { model } : {}) });
 
         if (result.kind === "information") {
           return {

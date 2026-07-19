@@ -81,8 +81,8 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const avatarPrefs = loadAvatarPrefs(true);
-  const animal = avatarPrefs.animal;
-  const agentName = avatarPrefs.avatarName || animal.charAt(0).toUpperCase() + animal.slice(1);
+  const avatarStyle = avatarPrefs.style;
+  const agentName = avatarPrefs.avatarName || "Chief of Staff";
 
   async function send() {
     const message = draft.trim();
@@ -92,7 +92,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
     setError(null);
     setTurns((prev) => [...prev, { role: "user", text: message }]);
     try {
-      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth, animal });
+      const result = await trpc.chiefOfStaff.converse.mutate({ workspaceId: PILOT_WORKSPACE, message, chainDepth });
       setTurns((prev) => [
         ...prev,
         { role: "assistant", text: result.reply, decision: result.decision, proposalId: result.proposal?.id, agent: result.agent },
@@ -118,7 +118,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
         style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}
       >
         {/* Collapsed strip: avatar + expand-chevron (§5b — same as left rail). */}
-        <AvatarIcon animal={animal} size={28} />
+        <AvatarIcon style={avatarStyle} size={28} />
         <ChevronsLeft className="w-4 h-4" style={{ color: "var(--color-warm-gray)" }} />
       </button>
     );
@@ -153,7 +153,7 @@ export function AgentPanel({ mobile = false, onClose }: { mobile?: boolean; onCl
           onClick={collapse}
         />
         <div className="font-bold text-lg tracking-tight flex items-center gap-2">
-          <AvatarIcon animal={animal} size={24} />
+          <AvatarIcon style={avatarStyle} size={24} />
           <span style={{ color: "var(--color-navy)" }}>{agentName}</span>
         </div>
         <div className="w-9" />

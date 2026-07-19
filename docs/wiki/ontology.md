@@ -28,6 +28,13 @@ Keep kernel vocabulary small. Product terms and code identifiers converge; no di
 - Signal = surfaced Relationship Event with Person/Community participants, reason, safe Action. Event storage; no parallel occurrence table.
 - Second Brain = cross-Module graph surface only. Engine never called brain.
 
+## Migration state
+
+- Runtime guard live: syntax fingerprints. New/replacement debt blocked. Removals ratchet down. Baseline:
+  [vocabulary inventory](../raw/vocabulary-code-inventory-2026-07-19.md).
+- Avatar migration done in runtime. Style visual only. Old browser/API shape read once; never written.
+- Remaining debt: Automation, Organization/Module/Record, Event/File/Result, Relationship Module, shell cleanup.
+
 ## Failure ownership
 
 - Engine detects immediate runtime faults and performs bounded retry, timeout, idempotency, rollback/compensation, circuit-break, or safe-stop behavior.

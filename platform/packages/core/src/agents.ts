@@ -142,16 +142,7 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
   return agent;
 }
 
-/** Builds the ModelProvider system prompt for a directly-addressed agent turn
- * — mission + responsibilities + the same governance guardrail every agent
- * carries (draft-then-approve, no direct execution from a chat reply).
- *
- * `animalTone` is optional and additive — the caller (apps/api) reads the
- * user's chosen spirit animal from client-supplied state (avatar-store.ts is
- * a browser-local preference today, not yet kernel data — see ANIMAL_TONE's
- * doc comment) and passes its tone description through. Omit it and the
- * prompt is unchanged; every agent still answers correctly with no animal
- * selected, same "kernel runs with ZERO providers"-style graceful default. */
+/** Builds the ModelProvider system prompt for a directly-addressed agent turn. */
 /**
  * Standing design constraints Capability Builder must reason about in every
  * draft — the parts of CLAUDE.md / docs/wiki that a generated capability can
@@ -165,7 +156,7 @@ export function findFoundationalAgent(id: FoundationalAgentId): FoundationalAgen
  * mechanism — Bridge's own doctrine is "governance in code, not prompts".
  */
 export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
-  "Minimal-egg boundary: default every new capability to Commons content (installed on demand), never kernel. Kernel is limited to actors, the capability execution engine, the work pipeline (Request/Action/Incident/Artifact + governance), the surface compiler (Workspace/Element/ElementType/View), Memory/Knowledge storage, the Chief of Staff archetype, and the ModelProvider/PackageStore/CommonsRegistry ports. If your draft doesn't fit one of those, say explicitly that it's Commons content, not kernel.",
+  "Kernel boundary: default every new capability to Commons content (installed on demand), never Engine core. If a draft does not need shared actor, governance, execution, surface, Memory, registry, or provider infrastructure, identify it explicitly as Commons content.",
   "Kernel vocabulary: if this capability touches kernel-scope code (packages/*, apps/api/*), use Bridge vocabulary only — Person / Relationship / Memory / Community / Initiative / Ritual / Touchpoint / Signal, never CRM vocabulary like 'Deal' in that scope. Workspace-scope compiled products (tools/*, generated workspace UI) may use their own domain vocabulary.",
   "No dummy data: never invent placeholder/sample/dummy data for a runtime surface — show real, connected data or an honest empty state. If a dummy is genuinely unavoidable, name it explicitly, state what real element it stands in for, and its removal condition.",
   "Manifest completeness: state declared permissions (resourceType/action/dataScope/egress), connectors, and dependencies explicitly. Anything above 'informational' risk needs a stated rollback plan and evaluation approach — don't leave risk/rollback/eval implicit in a draft.",
@@ -184,9 +175,8 @@ export const CAPABILITY_BUILDER_DESIGN_CONSTRAINTS: readonly string[] = [
  * `guardrails`; the never-omitted `KERNEL_INVARIANTS` (layer 1) are prepended by
  * the renderer regardless.
  *
- * `tone` is optional/additive — apps/api resolves the user's spirit-animal tone
- * (server-side from the onboarding profile, or client-supplied) and threads it
- * through; omit it and the persona carries no tone line, unchanged.
+ * `tone` is optional/additive and must come from explicit run context, never
+ * from the Avatar's visual style.
  */
 export function buildAgentPersona(id: FoundationalAgentId, tone?: string): RunPersona {
   const agent = findFoundationalAgent(id);
@@ -217,11 +207,9 @@ export function buildAgentPersona(id: FoundationalAgentId, tone?: string): RunPe
  * via the ADR-027 layering seam: `renderPersonaSystemPreamble` (kernel
  * invariants + agent identity/responsibilities/guardrails/tone) plus a closing
  * "answer plainly" line. Reimplemented on the shared renderer (2026-07-14,
- * AGENTS-1) so there is ONE identity-assembly path — this replaces the earlier
- * hand-written string. `animalTone` stays optional/additive (same graceful
- * default as before). */
-export function buildAgentSystemPrompt(id: FoundationalAgentId, animalTone?: string): string {
-  const lines = renderPersonaSystemPreamble(buildAgentPersona(id, animalTone));
+ * AGENTS-1) so there is ONE identity-assembly path. */
+export function buildAgentSystemPrompt(id: FoundationalAgentId, writingTone?: string): string {
+  const lines = renderPersonaSystemPreamble(buildAgentPersona(id, writingTone));
   lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
   return lines.join("\n");
 }
@@ -252,7 +240,7 @@ export interface InvokeAgentArgs {
    * reason yet offline" note), same ZERO-providers graceful default as the rest
    * of the kernel. */
   model?: ModelProvider;
-  /** Optional spirit-animal tone, threaded into the agent_identity layer. */
+  /** Optional explicitly requested writing tone. */
   tone?: string;
   maxTokens?: number;
 }
@@ -370,45 +358,19 @@ export function parseSkillMention(message: string): { skill: "communications" | 
  * agent-identity framing (no "you never execute actions" guardrail line,
  * because the skill was never capable of executing anything in the first
  * place — there is no authority to disclaim). */
-export function buildCommunicationsSystemPrompt(animalTone?: string): string {
+export function buildCommunicationsSystemPrompt(writingTone?: string): string {
   const lines = [
     `You are Bridge's Communications skill. Mission: ${COMMUNICATIONS_SKILL.mission}`,
     "Responsibilities:",
     ...COMMUNICATIONS_SKILL.responsibilities.map((r) => `- ${r}`),
     "You have no independent authority — you are a stateless drafting/tone transform invoked by another agent or directly by the user; whatever you produce is a draft only.",
   ];
-  if (animalTone) {
-    lines.push(`Match this tone in how you write, without ever saying so explicitly: ${animalTone}`);
+  if (writingTone) {
+    lines.push(`Match this explicitly requested writing tone without saying so: ${writingTone}`);
   }
   lines.push("Answer the user's message plainly, in character with this mission — no filler, no restating the question.");
   return lines.join("\n");
 }
-
-/** Tone descriptions for every spirit animal in `avatar-store.ts`'s
- * SPIRIT_ANIMALS — covers all 14 of the user's onboarding spec (R-030: the
- * 10 gap animals got real illustrations in AvatarOverlay.tsx, so their tone
- * entries land in the same slice) plus the 2 bonus extras (crane/wolf).
- * Read by apps/api to flavor Communications Agent's voice (spec: "emotional
- * connect people usually have" with their chosen animal) — additive only,
- * never changes WHAT an agent says, only its register. */
-export const ANIMAL_TONE: Record<string, string> = {
-  owl: "wise and calm — measured, a little formal, sees the bigger picture before speaking",
-  fox: "clever and playful — quick, a bit wry, enjoys a good shortcut",
-  turtle: "steady and patient — unhurried, reassuring, never rushes the user",
-  crane: "graceful and precise — economical with words, elegant phrasing",
-  wolf: "loyal and direct — plain-spoken, protective, gets straight to the point",
-  cat: "independent and witty — dry humor, understated, confident",
-  lion: "confident and bold — commanding, warm underneath the confidence, natural authority",
-  dog: "loyal and enthusiastic — eager to help, warm, plainly happy to be useful",
-  panda: "gentle and easygoing — calm, a little playful, low-drama",
-  butterfly: "light and encouraging — optimistic, airy, gently transformative in framing",
-  dolphin: "playful and sharp — quick-witted, sociable, finds the clever angle",
-  peacock: "expressive and proud — vivid, a little theatrical, takes visible pride in good work",
-  elephant: "wise and unhurried — remembers everything, deliberate, deeply reliable",
-  eagle: "sharp and far-seeing — decisive, focused, cuts straight to what matters",
-  horse: "strong and steady — dependable, forward-moving, quietly powerful",
-  beaver: "industrious and practical — methodical, hands-on, takes visible satisfaction in building",
-};
 
 /**
  * AGS0's "evaluation set" deliverable for Internal Strategist — a seed

@@ -25,7 +25,7 @@
  * leaves no dead branch to maintain.
  */
 import type { WorkspaceBlueprint } from "@bridge/core";
-import { SPIRIT_ANIMALS } from "../avatar/avatar-store";
+import { AVATAR_STYLES } from "../avatar/avatar-store";
 
 export type QuestionKind = "single_select" | "multi_select" | "text";
 
@@ -123,21 +123,15 @@ const Q_NAME: OnboardingQuestion = {
   consequence: "What changes: this name appears in your sidebar. You can change it by re-entering Onboarding later.",
 };
 
-/** Spirit animal picker (docs/raw/spec-consolidation-2026-07.md section 3 +
- * build brief item 2): a curated set of six, matching avatar-store.ts's
- * `SPIRIT_ANIMALS`. This answer has NO effect on the compiled blueprint
- * (unlike every other question here) — it only selects which creature the
- * avatar overlay renders as after hatching. Asked early (right after
- * profession) so the egg has something to visually anticipate for the rest
- * of the flow. */
-const Q_SPIRIT_ANIMAL: OnboardingQuestion = {
-  id: "spirit_animal",
+/** Visual-only Avatar choice. It never changes authority, tone, or behavior. */
+const Q_AVATAR_STYLE: OnboardingQuestion = {
+  id: "avatar_style",
   kind: "single_select",
-  prompt: "Pick your avatar's spirit animal.",
+  prompt: "Choose your Avatar style.",
   helpText: "Purely cosmetic — you can change this later in Settings.",
   why: "A familiar visual makes the companion easier to spot.",
   consequence: "What changes: only the avatar's appearance. Permissions, authority, and communication style do not change.",
-  options: SPIRIT_ANIMALS.map((a) => ({ value: a.value, label: a.label })),
+  options: AVATAR_STYLES.map((option) => ({ value: option.value, label: option.label })),
 };
 
 const Q_ROLE_MODEL: OnboardingQuestion = {
@@ -169,7 +163,7 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  *
  * Question order (E2 2026-07-10 — dropped "solo or team?"):
  *   1. profession (text, always first — context for everything downstream)
- *   2. spirit_animal (cosmetic, stays per spec-avatar.md Day-1 requirement)
+ *   2. avatar_style (visual only)
  *   3. role_model (optional public figure)
  *   4. role_model_why (only when a figure was supplied)
  *   5. domain (select; profession answer can inform default pre-selection in UI)
@@ -184,7 +178,7 @@ const Q_ROLE_MODEL_WHY: OnboardingQuestion = {
  */
 export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | null {
   if (answers.profession === undefined) return Q_PROFESSION;
-  if (answers.spirit_animal === undefined) return Q_SPIRIT_ANIMAL;
+  if (answers.avatar_style === undefined) return Q_AVATAR_STYLE;
   if (answers.role_model === undefined) return Q_ROLE_MODEL;
   if (answers.role_model && answers.role_model_why === undefined) return Q_ROLE_MODEL_WHY;
   if (answers.domain === undefined) return Q_DOMAIN;
@@ -195,14 +189,10 @@ export function nextQuestion(answers: OnboardingAnswers): OnboardingQuestion | n
   return null;
 }
 
-/** Total number of questions in the LONGEST real path. Used only as the denominator for
- * egg-growth progress, never for branching logic itself (that stays in
- * `nextQuestion`). */
+/** Longest real path, used only as the setup-progress denominator. */
 export const MAX_QUESTIONS = 9;
 
-/** How many questions have been answered so far — the egg's "questions
- * answered" progress input (spec section 4, Stage 1-2: egg grows with real
- * step completion, not a fake timer). */
+/** Number of completed answers used by the real setup-progress indicator. */
 export function answeredCount(answers: OnboardingAnswers): number {
   return Object.values(answers).filter((v) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0))
     .length;
