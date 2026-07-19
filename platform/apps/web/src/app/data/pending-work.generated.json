@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T06:18:17.034Z",
+  "generatedAt": "2026-07-19T06:28:26.906Z",
   "items": [
     {
       "id": "TASK-001",
@@ -535,7 +535,7 @@
     {
       "id": "TASK-011",
       "title": "TASK-011 — JobPilot culture-research slice",
-      "status": "pending",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.",
@@ -545,16 +545,17 @@
         "docs/raw/jobpilot-module-plan-2026-07.md JP3B"
       ],
       "evidence": [
-        "BCG application workspace live-evidence gap"
+        "BCG application workspace live-evidence gap",
+        "`outputs/2026-07-17-jobpilot-culture-research-task011.md` (full round-by-round evidence: two-phase intent-then-approve-then-fetch lifecycle, pinned-DNS/manual-redirect SSRF guard, server-owned source registry, cross-instance CAS/distributed cancellation/lease-recovery, grounding DAG with quote/hash verification, artifact taint/expiry/retention, and the final central-merge-review closure — durable child-Run terminal-audit repair plus full-lineage artifact purge/redaction, in-memory and Drizzle parity, restart-durability proof)"
       ],
       "requests": [
         "JobPilot culture-research directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-049 applied",
       "dependencies": [
         "TASK-007"
       ],
-      "canonicalStatus": "ready",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 256,
@@ -589,7 +590,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 269,
+      "sourceLine": 270,
       "rank": 17
     },
     {
@@ -622,7 +623,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
+      "sourceLine": 283,
       "rank": 18
     },
     {
@@ -653,7 +654,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 295,
+      "sourceLine": 296,
       "rank": 19
     },
     {
@@ -681,7 +682,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 308,
+      "sourceLine": 309,
       "rank": 20
     },
     {
@@ -708,7 +709,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 321,
+      "sourceLine": 322,
       "rank": 21
     },
     {
@@ -739,7 +740,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 335,
       "rank": 22
     },
     {
@@ -766,7 +767,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 347,
+      "sourceLine": 348,
       "rank": 23
     },
     {
@@ -794,7 +795,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 360,
+      "sourceLine": 361,
       "rank": 24
     }
   ]

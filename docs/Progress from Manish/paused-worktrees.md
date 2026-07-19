@@ -86,22 +86,9 @@ Remaining:
 
 TASK-010's round-7 post-RM4 work landed and merged into `main` as `e532b15` (fast-forward from `manishsbhoopalam8498-platform-red-flag-feedback`). This worktree is no longer paused/dirty. See `merge-history.md`'s `e532b15` row and `subagent-progress.md`'s TASK-010 row for the full account. Authenticated desktop and 375px live certification closed the exact Prototype test on 2026-07-19 after fixing the missing JobPilot default-table cell controls; this historical worktree must not be resumed or merged again.
 
-## TASK-011 culture research
+## TASK-011 culture research — MERGED 2026-07-19
 
-- Session: `9ec89b18-83f1-4ce2-a825-ba5380537ad5`
-- Worktree: `/Users/manishsbhoopalam/.copilot/repos/copilot-worktrees/relationship-os/manishsbhoopalam8498-shiny-adventure`
-- Branch/head: `manishsbhoopalam8498-shiny-adventure` / local WIP `75bd595`
-- Prior pushed head: `16af4dc`
-- Dirty snapshot: `wiring.ts`, core Memory store, and DB Memory store, approximately +195/-3.
-
-Completed branch scope includes governed public-evidence research, pinned DNS/manual redirects, bounded artifacts, rights registry, two-phase approval/fetch, cancellation, durable intent, grounding DAG, taint, expiry, live UI state, and restart durability.
-
-Central review blockers:
-
-1. Terminal child-Run status and outcome audit must reconcile durably after append failure and restart.
-2. Artifact purge must remove raw bytes across the full superseded Memory lineage in in-memory and Drizzle modes.
-
-Resume from the WIP commit and three dirty files; do not redo the prior twelve review rounds. No new migration is currently required.
+TASK-011's central-merge review closure (durable child-Run terminal audit repair + full-lineage artifact purge/redaction) landed and merged into `main` via PR #22 (`manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). This worktree is no longer paused/dirty; see `merge-history.md`'s row and `subagent-progress.md`'s TASK-011 row for the full account. No new migration was required. This historical worktree must not be resumed or merged again.
 
 ## TASK-022 inference optimization
 

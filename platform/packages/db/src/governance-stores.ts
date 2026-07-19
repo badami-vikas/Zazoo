@@ -444,6 +444,8 @@ export async function ensureLearningAgentGovernance(
     action: "write",
     capabilityToken: "signal:write",
     additionalGrants: [
+      { resourceType: "touchpoint", action: "write", capabilityToken: "touchpoint:write" },
+      { resourceType: "external:fetch", action: "read", capabilityToken: "external:fetch:read" },
       { resourceType: "event", action: "write", capabilityToken: "event:write" },
     ],
     allowedSkills: [
@@ -451,6 +453,7 @@ export async function ensureLearningAgentGovernance(
       "stageStrategicRecommendation",
       "helpdesk.stageAnswer",
       "stageCapture",
+      "jobpilot.researchCultureSource",
       "learning.proposePreferenceAdjustment",
     ],
     dataScope: "all",
@@ -535,10 +538,19 @@ export async function ensureInternalStrategistGovernance(
   db: Database,
   config: InternalStrategistGovernanceConfig,
 ): Promise<void> {
-  return ensureSignalDraftAgentGovernance(db, config, {
+  return ensurePersistentAgentGovernance(db, {
+    ...config,
     name: "Internal Strategist",
     description: "May draft inspectable analytical-synthesis Signal recommendations; never approves or executes them.",
     goal: "Produce evidenced analytical synthesis and recommendations from cited Human/Learning data, without executing Actions.",
+    resourceType: "signal",
+    action: "write",
+    capabilityToken: "signal:write",
+    allowedSkills: [
+      "stageStrategicRecommendation",
+      "jobpilot.synthesizeCultureProfile",
+    ],
+    dataScope: "all",
   });
 }
 

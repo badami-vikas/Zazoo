@@ -59,7 +59,25 @@ export class InMemoryRoleStore implements RoleQuery {
 export class InMemoryAgentStore implements AgentQuery {
   readonly assumed = new Map<string, string | null>();
   readonly scope = new Map<string, string[]>();
+  /** Owning workspace per agent (AgentQuery.workspaceId — added alongside
+   * relationship-module trust boundaries; unset = unknown, never guessed). */
   readonly workspaces = new Map<string, string>();
+  /** TASK-011 remediation (2026-07-19 coordinator distributed-defects
+   * RE-review) — a fail-closed Agent status vocabulary (`active` | `paused`
+   * | `retired`), not a narrower ad hoc `active`/`inactive` pair. Unset
+   * defaults to effectively-inactive (fail closed — an agent must be
+   * explicitly seeded `active`, mirrors `DrizzleAgentStore.isActive`'s
+   * real-row-or-false shape, never assumes). This branch and `origin/main`
+   * independently added the same `workspaces`/`statuses`/`workspaceId`/
+   * `isActive` members off the same shared ancestor (this branch's own
+   * `"active" | "inactive"` version vs. `origin/main`'s `212e65f`
+   * `"active" | "paused" | "retired"` version) — a merge that auto-resolved
+   * without conflict markers but left BOTH duplicated in the file. Kept
+   * `origin/main`'s richer three-value vocabulary here as authoritative
+   * (this repo has no other file currently keying off this exact union, so
+   * "canonical" only means "the one kept," not an existing multi-file
+   * contract): `assumedRole` existing must never, by itself, make an
+   * unknown/unseeded/paused/retired agent look active. */
   readonly statuses = new Map<string, "active" | "paused" | "retired">();
   /** Per-agent data-tier ceiling. Default 'all' when unset. */
   readonly tiers = new Map<string, DataScope>();

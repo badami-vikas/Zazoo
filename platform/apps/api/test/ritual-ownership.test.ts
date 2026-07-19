@@ -7,7 +7,14 @@ import {
   DEALPILOT_SOURCE_RITUAL_KEY,
   DEALPILOT_SOURCING_AGENT_ID,
 } from "../src/built-in-packages.js";
-import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
+import {
+  DRAFT_OUTREACH_TASK_TYPE,
+  RELATIONSHIP_OUTREACH_GOAL_TYPE,
+  buildWiring,
+  PILOT_USER,
+  PILOT_WORKSPACE,
+  type Wiring,
+} from "../src/wiring.js";
 
 function makeRun(): RunCtx {
   const clock = new SystemClock();
@@ -25,6 +32,21 @@ function makeCaller(wiring: Wiring) {
   });
 }
 
+async function seedOutreachGoalTask(caller: ReturnType<typeof makeCaller>, agentId: string) {
+  const goal = await caller.agentOrchestration.goal.create({
+    workspaceId: PILOT_WORKSPACE,
+    type: RELATIONSHIP_OUTREACH_GOAL_TYPE,
+    title: "Ownership test goal",
+  });
+  const task = await caller.agentOrchestration.task.create({
+    workspaceId: PILOT_WORKSPACE,
+    goalId: goal.id,
+    type: DRAFT_OUTREACH_TASK_TYPE,
+    assignedAgentId: agentId,
+  });
+  return { goal, task };
+}
+
 test("ritual.runById derives the actor from the stored owning Agent", async () => {
   const wiring = await buildWiring();
   try {
@@ -32,20 +54,25 @@ test("ritual.runById derives the actor from the stored owning Agent", async () =
     const agent = await caller.agent.create({
       workspaceId: PILOT_WORKSPACE,
       name: "Ownership test Agent",
-      capabilityScope: ["touchpoint:write"],
-      allowedSkills: ["stageMutation"],
-      dataScope: "all",
-      egressTier: "none",
+      roleTemplateId: "outreach",
     });
+    const { goal, task } = await seedOutreachGoalTask(caller, agent.agentId);
     const created = await caller.ritual.create({
       workspaceId: PILOT_WORKSPACE,
       name: "Ownership test Automation",
       agentIds: [agent.agentId],
       steps: [{
-        skill: "stageMutation",
+        skill: "outreach.stageDraft",
         action: "write",
-        resourceType: "touchpoint",
+        // TASK-011 merge reconciliation (2026-07-19) — origin/main renamed
+        // OUTREACH_DRAFT_SKILL_MANIFEST's permission (and the outreach role
+        // template/Agent's granted scope) from touchpoint:write to
+        // event:write (VOCAB2 migration); a ritual step for this Skill must
+        // match the Skill's actual current permission to be within the
+        // owning Agent's authority (ritual ⊆ agent).
+        resourceType: "event",
         inputs: { title: "Prepare governed draft" },
+        goalTaskRef: { goalId: goal.id, taskId: task.id },
       }],
     });
     assert.equal(created.ok, true);
@@ -70,20 +97,21 @@ test("ritual.runById rejects an arbitrary caller-supplied actor", async () => {
     const agent = await caller.agent.create({
       workspaceId: PILOT_WORKSPACE,
       name: "Bound test Agent",
-      capabilityScope: ["touchpoint:write"],
-      allowedSkills: ["stageMutation"],
-      dataScope: "all",
-      egressTier: "none",
+      roleTemplateId: "outreach",
     });
+    const { goal, task } = await seedOutreachGoalTask(caller, agent.agentId);
     const created = await caller.ritual.create({
       workspaceId: PILOT_WORKSPACE,
       name: "Bound test Automation",
       agentIds: [agent.agentId],
       steps: [{
-        skill: "stageMutation",
+        skill: "outreach.stageDraft",
         action: "write",
-        resourceType: "touchpoint",
+        // See the sibling test's comment above — outreach.stageDraft's
+        // current permission is event:write, not touchpoint:write.
+        resourceType: "event",
         inputs: {},
+        goalTaskRef: { goalId: goal.id, taskId: task.id },
       }],
     });
     assert.equal(created.ok, true);

@@ -218,12 +218,58 @@ export interface MemoryAuthScope {
   userId?: string | null;
 }
 
+/**
+ * Thrown by `compareAndSupersede` when a CONCURRENT writer — in this process
+ * OR, for the Drizzle-backed adapter, a genuinely different process/instance
+ * sharing the same Postgres/pglite database — already superseded `id` first.
+ * Distinct from the plain `Error` `supersede()` throws for "unknown id" or
+ * "workspace/owner mismatch", so callers can distinguish "lost a real race"
+ * (retry/reconcile) from "this call was simply malformed" (bug).
+ */
+export class MemoryConflictError extends Error {
+  constructor(public readonly id: string) {
+    super(`memory store: id ${id} was already superseded by a concurrent writer`);
+    this.name = "MemoryConflictError";
+  }
+}
+
 export interface MemoryStore {
   /** Write a new Memory (candidate or confirmed). */
   write(entry: MemoryWrite): Promise<MemoryEntry>;
   /** Append a correcting Memory that supersedes `id` (append-only: the prior
-   * row is retained, tagged as superseded by the returned row). */
+   * row is retained, tagged as superseded by the returned row). NOT
+   * cross-instance-safe on its own — two concurrent callers can both
+   * supersede the same `id` (see `compareAndSupersede` for the guarded
+   * variant). Kept for single-writer call sites that don't need the
+   * cross-instance guarantee. */
   supersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
+  /**
+   * Cross-instance-safe compare-and-supersede (TASK-011 remediation,
+   * 2026-07-19 distributed-defects review) — atomically verifies `id` is
+   * still the CURRENT (non-superseded) row before writing `next` as its
+   * successor, and throws `MemoryConflictError` (never silently produces two
+   * "current" rows for one lineage) if a concurrent writer — in this
+   * process or, for the Drizzle adapter, a genuinely different API instance
+   * sharing the same database — already won. Any durable state machine that
+   * must stay correct across multiple API instances (not just multiple
+   * concurrent calls within one process) MUST use this, not `supersede`.
+   */
+  compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry>;
+  /**
+   * Cross-instance-safe FIRST-INSERT-WINS write, keyed by `entry.subjectElementId`
+   * (TASK-011 remediation, 2026-07-19 coordinator distributed-defects
+   * re-review — a genuine TOCTOU `compareAndSupersede` cannot close, since it
+   * only guards updates to an EXISTING known row, not "is this the first
+   * writer for a not-yet-existing key"). Atomically checks whether a current
+   * (non-superseded) row already exists for `(entry.workspaceId,
+   * entry.subjectElementId)`; if so, returns that EXISTING row unchanged
+   * (idempotent create — never a second "current" row for the same key). If
+   * not, inserts `entry` and returns it. Two callers racing to create the
+   * FIRST row for the same key can never both win — exactly one insert
+   * happens, mirroring `compareAndSupersede`'s guarantee but for the
+   * creation case rather than the transition case.
+   */
+  writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry>;
   /** Fetch one Memory, authority-scoped — returns null if the caller may not
    * read it (indistinguishable from "not found", by design). */
   get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null>;
@@ -232,6 +278,43 @@ export interface MemoryStore {
   /** Permanently forget a Memory the caller may read. Personal-data deletion is
    * the deliberate exception to append-only correction history. */
   forget(id: string, authScope: MemoryAuthScope): Promise<boolean>;
+  /**
+   * Redacts, IN PLACE (never via a new `supersede`/`compareAndSupersede`
+   * row), the `content` of every row in `id`'s FULL correction lineage —
+   * TASK-011 remediation (coordinator central-merge review, issue 2).
+   * `compareAndSupersede`'s normal "purge the current view" pattern only
+   * ever rewrites the CURRENT row by inserting a new successor; every
+   * ANCESTOR row in the lineage (in particular whichever row first held
+   * sensitive/expired raw bytes, e.g. a fetched external artifact) remains
+   * completely unredacted and durably readable via
+   * `retrieve({ includeSuperseded: true })` — a genuine retention/privacy
+   * gap for anything whose raw content must not outlive its retention
+   * window. This method walks the SAME bidirectional lineage `forget()`
+   * uses (ancestors AND descendants of `id`, scoped to the SAME workspace
+   * + owner as `id`'s own row — never a broad, unrelated-Memory purge) and,
+   * for each row, calls `redact(entry)`: a `null` return leaves that row's
+   * content completely untouched (the caller's chosen retention rule did
+   * not apply to it — e.g. content already redacted, or a different record
+   * kind entirely happens to share this lineage's key space); a non-null,
+   * different string REPLACES that row's `content` in place, preserving
+   * every other field (id, timestamps, `supersedesId` chain, scope,
+   * `sourceRefType`/`sourceRefId`, confidence, `trustOrigin`, `plane`,
+   * `createdBy`, `ownerUserId`) so citations/audit/history remain fully
+   * intact — only the sensitive bytes are gone, permanently, from every
+   * physical row that ever held them. `redact` MUST be a pure, idempotent
+   * function of its input (the same entry always produces the same
+   * redacted content, or the same `null`) — this is what makes concurrent/
+   * repeated calls from multiple instances safe without an additional
+   * cross-instance lock: every caller converges on the identical final
+   * state regardless of interleaving. Returns the number of rows actually
+   * modified (0 if `id` is unknown/unauthorized, or every lineage row's
+   * `redact` result was `null`/unchanged).
+   */
+  redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number>;
   /** The current (non-superseded) row for one (workspaceId, ownerUserId,
    * lineageKey) lineage, or null if none exists yet. Internal/server-side
    * lookup backing `casSupersede`'s own compare step — deliberately takes no
@@ -331,6 +414,42 @@ export class InMemoryMemoryStore implements MemoryStore {
     return this.#insert(next, id);
   }
 
+  async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
+    // Synchronous read-check-write (no `await` between them) is what makes
+    // this atomic within a single process — matches the same pattern used
+    // elsewhere in this codebase (e.g. InMemoryChildAgentRunStore.consumeBudget)
+    // to close a check-then-act race. This adapter is dev/test-only and never
+    // shared across real separate processes, so this is the correct (and
+    // sufficient) guarantee for it; the Drizzle adapter provides the actual
+    // cross-instance guarantee via a Postgres advisory lock.
+    const current = this.entries.find((e) => e.id === id);
+    if (!current) {
+      throw new Error(`memory store: cannot supersede unknown id ${id}`);
+    }
+    if (current.workspaceId !== next.workspaceId || current.ownerUserId !== next.ownerUserId) {
+      throw new Error("memory store: a correction cannot change workspace or owner");
+    }
+    const alreadySuperseded = this.entries.some((e) => e.supersedesId === id);
+    if (alreadySuperseded) {
+      throw new MemoryConflictError(id);
+    }
+    return this.#insert(next, id);
+  }
+
+  async writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry> {
+    // Same synchronous check-then-write guarantee as `compareAndSupersede`
+    // above (no `await` between the "does a current row already exist"
+    // check and the insert) — sufficient for this process-only adapter.
+    const superseded = new Set(
+      this.entries.map((e) => e.supersedesId).filter((v): v is string => v != null),
+    );
+    const existing = this.entries.find(
+      (e) => e.workspaceId === entry.workspaceId && e.subjectElementId === entry.subjectElementId && !superseded.has(e.id),
+    );
+    if (existing) return { ...existing };
+    return this.#insert(entry, null);
+  }
+
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
     const row = this.entries.find((e) => e.id === id);
     if (!row || !memoryVisible(row, authScope)) return null;
@@ -369,9 +488,15 @@ export class InMemoryMemoryStore implements MemoryStore {
     return rows.slice(offset, offset + limit).map((e) => ({ ...e }));
   }
 
-  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+  /** Shared bidirectional lineage walk (ancestors AND descendants of `id`,
+   * scoped to the same workspace + owner) — factored out so `forget()`
+   * (full deletion) and `redactLineageContent()` (in-place content
+   * redaction) can never silently diverge on WHICH rows count as "this
+   * lineage." Returns `null` if `id` is unknown or not visible to
+   * `authScope` (mirrors `forget()`'s prior inline behavior exactly). */
+  #lineageIds(id: string, authScope: MemoryAuthScope): Set<string> | null {
     const target = this.entries.find((e) => e.id === id && memoryVisible(e, authScope));
-    if (!target) return false;
+    if (!target) return null;
     const lineage = new Set([id]);
     let changed = true;
     while (changed) {
@@ -385,10 +510,40 @@ export class InMemoryMemoryStore implements MemoryStore {
         }
       }
     }
+    return lineage;
+  }
+
+  async forget(id: string, authScope: MemoryAuthScope): Promise<boolean> {
+    const lineage = this.#lineageIds(id, authScope);
+    if (!lineage) return false;
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
       if (lineage.has(this.entries[index]!.id)) this.entries.splice(index, 1);
     }
     return true;
+  }
+
+  async redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number> {
+    const lineage = this.#lineageIds(id, authScope);
+    if (!lineage) return 0;
+    let redactedCount = 0;
+    for (const entry of this.entries) {
+      if (!lineage.has(entry.id)) continue;
+      const redacted = redact({ ...entry });
+      if (redacted == null || redacted === entry.content) continue;
+      // In-place mutation of the SAME row object — never a new `entries`
+      // element, never touching `supersedesId`/timestamps/scope/etc. `entries`
+      // itself is a `readonly` ARRAY reference (cannot be reassigned), not a
+      // deep-frozen structure — its elements remain genuinely mutable, which
+      // is exactly what this method needs (an in-place rewrite, not a new
+      // lineage member).
+      entry.content = redacted;
+      redactedCount += 1;
+    }
+    return redactedCount;
   }
 
   /** Computed the same way `retrieve()`'s superseded-set/emptiness logic

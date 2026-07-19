@@ -14,17 +14,18 @@
  * Number()-izes on read, `#insert` stringifies on write.
  */
 import { and, asc, desc, eq, inArray, lte, or, sql, type SQL } from "drizzle-orm";
-import type {
-  MemoryAuthScope,
-  MemoryClassification,
-  MemoryEntry,
-  MemoryQuery,
-  MemorySourceRefType,
-  MemoryStore,
-  MemoryType,
-  MemoryWrite,
-  Plane,
-  TrustOrigin,
+import {
+  MemoryConflictError,
+  type MemoryAuthScope,
+  type MemoryClassification,
+  type MemoryEntry,
+  type MemoryQuery,
+  type MemorySourceRefType,
+  type MemoryStore,
+  type MemoryType,
+  type MemoryWrite,
+  type Plane,
+  type TrustOrigin,
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { memories } from "./schema.js";
@@ -176,6 +177,106 @@ export class DrizzleMemoryStore implements MemoryStore {
       return this.#insert(next, id, tx);
     });
   }
+
+  /**
+   * Cross-instance-safe compare-and-supersede — TASK-011 remediation
+   * (2026-07-19 coordinator distributed-defects review, issue 1). `supersede()`
+   * above has NO protection against two concurrent writers (in this process
+   * OR, critically, in a DIFFERENT API instance sharing the same Postgres/
+   * pglite database) both superseding the SAME `id` — both would succeed,
+   * producing two "current" rows for one lineage. This method closes that
+   * gap with a REAL cross-instance mutex: `pg_advisory_xact_lock` is a
+   * server-side Postgres primitive (pglite is real embedded Postgres, so it
+   * works identically there) that serializes EVERY transaction — from any
+   * process, not just this one — that requests the same lock key, and is
+   * automatically released on commit/rollback. No schema migration is
+   * required (this is the deliberate reason to use an advisory lock instead
+   * of e.g. a new UNIQUE index — RM4 owns migration 0015; TASK-010 has
+   * since landed its own `casSupersede`/`currentForLineage` durable CAS
+   * contract below, which this method's callers should prefer for any NEW
+   * lineage-tracked write path — this method remains for existing callers
+   * keyed by row id rather than a `(workspaceId, ownerUserId, lineageKey)`
+   * triple).
+   */
+  async compareAndSupersede(id: string, next: MemoryWrite): Promise<MemoryEntry> {
+    return withMemoryRlsContext(this.#db, next.workspaceId, next.ownerUserId, async (tx) => {
+      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+      // RE-review, issue 9) — canonicalize the UUID INSIDE SQL (`::uuid::text`)
+      // BEFORE deriving the lock key. Postgres UUID text input is
+      // case-insensitive (and tolerant of some formatting variants), but
+      // `hashtext()` operates on the RAW TEXT — two callers referencing the
+      // identical row via a differently-cased alias of the SAME UUID (e.g.
+      // uppercase vs lowercase hex) would otherwise hash to DIFFERENT lock
+      // keys and acquire DIFFERENT advisory locks, silently defeating the
+      // mutual exclusion this method exists to provide. Casting through
+      // `::uuid` first normalizes to Postgres's own canonical (lowercase,
+      // hyphenated) text form, so every alias of the same UUID always
+      // derives the identical lock key.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext((${id}::uuid)::text))`);
+      const current = await tx
+        .select({ workspaceId: memories.workspaceId, ownerUserId: memories.ownerUserId })
+        .from(memories)
+        .where(eq(memories.id, id))
+        .limit(1);
+      if (current.length === 0) throw new Error(`memory store: cannot supersede unknown id ${id}`);
+      if (current[0]!.workspaceId !== next.workspaceId || current[0]!.ownerUserId !== (next.ownerUserId ?? null)) {
+        throw new Error("memory store: a correction cannot change workspace or owner");
+      }
+      const alreadySuperseded = await tx
+        .select({ id: memories.id })
+        .from(memories)
+        .where(eq(memories.supersedesId, id))
+        .limit(1);
+      if (alreadySuperseded.length > 0) {
+        throw new MemoryConflictError(id);
+      }
+      return this.#insert(next, id, tx);
+    });
+  }
+
+  /**
+   * Cross-instance-safe first-insert-wins write, keyed by
+   * `(workspaceId, subjectElementId)` — TASK-011 remediation (2026-07-19
+   * coordinator distributed-defects RE-review). `compareAndSupersede` above
+   * only guards races against an EXISTING known row id; it cannot close the
+   * "two callers both creating the FIRST row for a not-yet-existing key"
+   * race (an independent reviewer found this exact gap in
+   * `DurableCultureFetchStore.create`/`DurableCultureSynthesisPointerStore.recordProposal`).
+   * Locks on `hashtext(workspaceId || ':' || subjectElementId)` (each UUID
+   * component individually canonicalized via `::uuid::text` first — issue 9,
+   * same alias-collision rationale as `compareAndSupersede` above) — a
+   * DIFFERENT lock namespace/key shape than `compareAndSupersede`'s
+   * `hashtext(id)` (keyed by row id, not subject key), so the two methods'
+   * locks never collide with each other for the same logical entity.
+   */
+  async writeIfAbsent(entry: MemoryWrite): Promise<MemoryEntry> {
+    const subjectElementId = entry.subjectElementId;
+    if (!subjectElementId) {
+      throw new Error("memory store: writeIfAbsent requires entry.subjectElementId as its dedup key");
+    }
+    const workspaceId = entry.workspaceId;
+    return withMemoryRlsContext(this.#db, workspaceId, entry.ownerUserId, async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext((${workspaceId}::uuid)::text || ':' || (${subjectElementId}::uuid)::text))`,
+      );
+      const existingRows = await tx
+        .select()
+        .from(memories)
+        .where(
+          and(
+            eq(memories.workspaceId, entry.workspaceId),
+            eq(memories.subjectElementId, subjectElementId),
+            sql`NOT EXISTS (SELECT 1 FROM ${memories} AS m2 WHERE m2.supersedes_id = ${memories.id})`,
+          ),
+        )
+        .orderBy(desc(memories.createdAt))
+        .limit(1);
+      const existing = existingRows[0];
+      if (existing) return unpack(existing);
+      return this.#insert(entry, null, tx);
+    });
+  }
+
 
   async get(id: string, authScope: MemoryAuthScope): Promise<MemoryEntry | null> {
     return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
@@ -403,6 +504,64 @@ export class DrizzleMemoryStore implements MemoryStore {
     return row ? unpack(row) : null;
   }
 
+  /**
+   * TASK-011 remediation (coordinator central-merge review, issue 2) — see
+   * the `MemoryStore.redactLineageContent` port doc comment for the full
+   * rationale. Reuses the SAME bidirectional lineage-discovery shape
+   * `forget()` above already uses (ancestors AND descendants of `id`,
+   * scoped to the same workspace + owner — never a broad, unrelated-Memory
+   * purge), but SELECTs the lineage's row ids rather than deleting them,
+   * then rewrites ONLY the `content` column of whichever rows `redact()`
+   * says to change — every other column (id, `supersedesId`, timestamps,
+   * scope, `sourceRefType`/`sourceRefId`, confidence, `trustOrigin`,
+   * `plane`, `createdBy`, `ownerUserId`) is left completely untouched. Runs
+   * inside the SAME `withMemoryRlsContext` transaction so the lineage read
+   * and the content rewrites are consistent with each other; deliberately
+   * does NOT take an advisory lock (unlike `compareAndSupersede`/
+   * `writeIfAbsent`, which decide WHICH of several racing writers wins) —
+   * `redact` is required to be a pure, idempotent function of its input, so
+   * two concurrent callers performing the identical redaction converge on
+   * the same correct final state regardless of interleaving; there is no
+   * "winner" to arbitrate.
+   */
+  async redactLineageContent(
+    id: string,
+    authScope: MemoryAuthScope,
+    redact: (entry: MemoryEntry) => string | null,
+  ): Promise<number> {
+    const target = await this.get(id, authScope);
+    if (!target) return 0;
+    return withMemoryRlsContext(this.#db, authScope.workspaceId, authScope.userId, async (tx) => {
+      const lineageResult = await tx.execute(sql`
+        WITH RECURSIVE lineage(id, supersedes_id, owner_user_id) AS (
+          SELECT id, supersedes_id, owner_user_id FROM memories WHERE id = ${id}
+          UNION
+          SELECT m.id, m.supersedes_id, m.owner_user_id
+          FROM memories m
+          JOIN lineage l ON m.id = l.supersedes_id OR m.supersedes_id = l.id
+          WHERE m.workspace_id = ${authScope.workspaceId}
+            AND m.owner_user_id IS NOT DISTINCT FROM ${target.ownerUserId ?? null}
+        )
+        SELECT id FROM lineage
+      `);
+      const lineageRows = (
+        Array.isArray(lineageResult) ? lineageResult : (lineageResult as { rows?: unknown[] }).rows ?? []
+      ) as Array<{ id: string }>;
+      const lineageIds = lineageRows.map((r) => r.id);
+      if (lineageIds.length === 0) return 0;
+      const currentRows = await tx.select().from(memories).where(inArray(memories.id, lineageIds));
+      let redactedCount = 0;
+      for (const row of currentRows) {
+        const entry = unpack(row);
+        const redactedContent = redact(entry);
+        if (redactedContent == null || redactedContent === entry.content) continue;
+        await tx.update(memories).set({ content: redactedContent }).where(eq(memories.id, entry.id));
+        redactedCount += 1;
+      }
+      return redactedCount;
+    });
+  }
+
   async #insert(entry: MemoryWrite, supersedesId: string | null, db: DbLike = this.#db, lineageRevision: number | null = null): Promise<MemoryEntry> {
     const [inserted] = await db
       .insert(memories)
@@ -437,7 +596,7 @@ export class DrizzleMemoryStore implements MemoryStore {
  * can set the RLS session GUCs and nest `casSupersede`'s own transaction
  * inside it uniformly, whether called against the top-level `Database` or
  * an already-open `tx`. */
-type DbLike = Pick<Database, "select" | "insert" | "execute" | "transaction">;
+type DbLike = Pick<Database, "select" | "insert" | "update" | "execute" | "transaction">;
 
 /** Postgres SQLSTATE `40001` ("serialization_failure") — thrown by a
  * SERIALIZABLE transaction that lost a concurrency race.

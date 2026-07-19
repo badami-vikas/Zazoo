@@ -171,6 +171,12 @@ test("persistent governance provisions and verifies the attributable Learning Ag
     assert.equal(await ports.agents.assumedRole(agentId), roleId);
     assert.deepEqual(await ports.agents.capabilityScope(agentId), [
       "signal:write",
+      "touchpoint:write",
+      // TASK-011 remediation (2026-07-19 coordinator distributed-defects
+      // review, issue 5) — persistent Learning Agent governance now also
+      // grants `external:fetch:read`, matching the in-memory wiring and
+      // required for `jobpilot.researchCultureSource`'s guarded fetch.
+      "external:fetch:read",
       "event:write",
     ]);
     assert.ok(

@@ -254,16 +254,17 @@ AP-029 exception (user-directed 2026-07-16): start TASK-006 through TASK-015 now
 
 ## JobPilot culture-research slice
 - ID: TASK-011
-- Status: ready
+- Status: done
 - Priority: P1
 - Horizon: Core Modules
 - Outcome: JobPilot uses permitted public evidence to improve cover letters and interview preparation without inventing insider claims or bypassing access terms.
 - Prototype test: For one target company, Learning gathers permitted evidence; Internal Strategist separates fact, opinion, theme, contradiction, and inference; the user sees citations and a rights/access warning before using recommendations.
 - Scope: docs/raw/brd-jobpilot-2026-07.md; docs/raw/jobpilot-module-plan-2026-07.md JP3B
-- Evidence: BCG application workspace live-evidence gap
+- Evidence: BCG application workspace live-evidence gap; `outputs/2026-07-17-jobpilot-culture-research-task011.md` (full round-by-round evidence: two-phase intent-then-approve-then-fetch lifecycle, pinned-DNS/manual-redirect SSRF guard, server-owned source registry, cross-instance CAS/distributed cancellation/lease-recovery, grounding DAG with quote/hash verification, artifact taint/expiry/retention, and the final central-merge-review closure — durable child-Run terminal-audit repair plus full-lineage artifact purge/redaction, in-memory and Drizzle parity, restart-durability proof)
 - Requests: JobPilot culture-research directive 2026-07-15
-- Approval: AP-023 and AP-029 applied
+- Approval: AP-023, AP-029, and AP-049 applied
 - Dependencies: TASK-007
+- Verification: 2026-07-19 exact Prototype test passed for Boston Consulting Group: `cultureResearch.propose` resolved only server-owned registry sources, `action.decide` approval gated the real fetch (veto/no-decision guarantees zero network calls), the guarded fetch ran through the pinned-DNS/bounded-redirect/byte-capped SSRF guard, and `cultureResearch.synthesize` produced a well-grounded claim (rejecting an absent-quote claim and a mutated-hash claim) exposed via `synthesisResult` with citations, contradictions, and a rights/access disclosure gating recommendations. 13+ rounds of independent/coordinator security review closed every raised defect; the final round closed a HIGH child-Run terminal-audit-durability gap and a MEDIUM artifact-retention privacy gap, then merged `origin/main` forward twice (through TASK-010's red-flag correction and TASK-005's demo certification) with a fresh independent review of the reconciliation finding no defects. Full gates: monorepo build 21/21, typecheck 39/39, `@bridge/core` 449/449, `@bridge/db` 169/169, `@bridge/jobpilot` 125/125, `@bridge/net-guard` 24/24, `@bridge/api` 312/312, `@bridge/local` 10/10, `@bridge/commons` 22/22, `@bridge/web` 93/93, no schema drift, no-runtime-dummy clean, lint's 2 findings confirmed pre-existing/unrelated.
 
 ## Actionable Second Brain graph (converged into TASK-014 Graph renderer)
 - ID: TASK-009

@@ -22,6 +22,13 @@ export interface EvidenceClaim {
   note?: string;
 }
 
+/** JP3B (TASK-011) — culture research is now LIVE (queried from the API by
+ * `CultureResearchSection`, see `../pages/JobPilotApplicationDetail.tsx` and
+ * `./culture-research-client.ts`), not hand-authored static data — TASK-011
+ * remediation (2026-07-18 coordinator final review, issue 7). This file no
+ * longer carries a `cultureResearch` block or its types.
+ */
+
 export const BCG_APPLICATION = {
   id: 'bcg-consultant-mba-2026',
   company: 'Boston Consulting Group',

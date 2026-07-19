@@ -46,7 +46,7 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
 - TASK-010's post-RM4 migration `0016_new_ink` landed and merged into `main` as `e532b15` on 2026-07-18 (owner-aware `memories` RLS, DB-backed `lineage_revision`, JobPilot flag backfill+constraint).
 - TASK-005 migration `0017_task005_private_learning_recommendations` is the next landed migration.
   The next NEW migration allocates `0018`; never reuse `0016` or `0017`.
-- TASK-011 requires no new migration unless its final implementation changes schema.
+- TASK-011 landed on `main` under AP-049 via PR #22 (branch `manishsbhoopalam8498-shiny-adventure`, final head `5e826ad`). No new migration was required.
 - TASK-006 durability added no numbered Drizzle migration.
 - TASK-006 durability is merged into `main` on 2026-07-19 from
   `manishsbhoopalam8498-persist-dealpilot-locally`; validated implementation/integration head
@@ -66,6 +66,12 @@ This folder is **not** an execution queue and does not override [`docs/TASKS.md`
   fixed the missing JobPilot default-table cell controls. `ledger`'s own RLS remains deliberately
   unwidened as the previously reviewed port-signature limitation; private proposal reads stay
   protected by the authenticated paginated API/store filters.
+- TASK-011 (JobPilot culture research) closed on 2026-07-19 under AP-049 after 13+ rounds of
+  independent/coordinator security review and a final central-merge review closing the last 2
+  blockers (durable child-Run terminal-audit repair; full-lineage artifact purge/redaction). Merged
+  into `main` via PR #22; do not resume or re-merge its historical worktree
+  (`manishsbhoopalam8498-shiny-adventure`). Full evidence:
+  `outputs/2026-07-17-jobpilot-culture-research-task011.md`.
 
 ## Files
 

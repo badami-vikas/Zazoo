@@ -56,6 +56,9 @@ importers:
       '@bridge/models':
         specifier: workspace:*
         version: link:../../packages/models
+      '@bridge/net-guard':
+        specifier: workspace:*
+        version: link:../../packages/net-guard
       '@bridge/tool-kit':
         specifier: workspace:*
         version: link:../../packages/tool-kit
@@ -379,6 +382,15 @@ importers:
       '@bridge/tool-kit':
         specifier: workspace:*
         version: link:../tool-kit
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/net-guard:
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

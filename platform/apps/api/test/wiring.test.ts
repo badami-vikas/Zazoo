@@ -10,10 +10,32 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { InMemoryCanonicalIdentityStore, DrizzleCanonicalIdentityStore, DrizzleGoalTaskStore, DrizzleSkillManifestRegistry, DrizzleChildAgentRunStore, DrizzleLedgerStore, createLocalDb, schema } from "@bridge/db";
+import {
+  createLocalDb,
+  DrizzleAgentStore,
+  InMemoryCanonicalIdentityStore,
+  DrizzleCanonicalIdentityStore,
+  DrizzleGoalTaskStore,
+  DrizzleSkillManifestRegistry,
+  DrizzleChildAgentRunStore,
+  DrizzleLedgerStore,
+  ensureInternalStrategistGovernance,
+  ensureLearningAgentGovernance,
+  schema,
+} from "@bridge/db";
 import { InMemoryLedger, InMemoryRoleStore, InMemoryGoalTaskStore, InMemorySkillManifestRegistry, InMemoryChildAgentRunStore } from "@bridge/core";
 import { createPgliteLocalPlane } from "@bridge/local";
-import { buildInMemoryPorts, buildPersistentPorts, GOVERNED_SKILL_MANIFEST_CATALOG, PILOT_USER, PILOT_WORKSPACE } from "../src/wiring.js";
+import {
+  buildInMemoryPorts,
+  buildPersistentPorts,
+  GOVERNED_SKILL_MANIFEST_CATALOG,
+  INTERNAL_STRATEGIST_AGENT,
+  INTERNAL_STRATEGIST_ROLE,
+  LEARNING_AGENT,
+  LEARNING_ROLE,
+  PILOT_USER,
+  PILOT_WORKSPACE,
+} from "../src/wiring.js";
 
 /** A syntactically-valid Postgres URL that is never actually connected to: postgres-js's
  * client is lazy (no TCP connection until a query runs), so constructing/closing it is
@@ -282,6 +304,53 @@ test("buildInMemoryPorts: goalTasks/skillManifests/childAgentRuns are in-memory,
     assert.equal(ports.ensureSkillManifestCatalog, undefined);
   } finally {
     await ports.closeDb();
+  }
+});
+
+test("persistent governance provisioning grants culture-research authority to Learning and Internal Strategist", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    await db.insert(schema.users).values({ id: PILOT_USER, email: "persistent-governance@test.invalid" });
+    await db.insert(schema.workspaces).values({ id: PILOT_WORKSPACE, name: "Persistent governance test" });
+
+    await ensureLearningAgentGovernance(db, {
+      workspaceId: PILOT_WORKSPACE,
+      userId: PILOT_USER,
+      agentId: LEARNING_AGENT,
+      roleId: LEARNING_ROLE,
+      permissionId: "b0000000-0000-4000-a000-0000000009c2",
+    });
+    await ensureInternalStrategistGovernance(db, {
+      workspaceId: PILOT_WORKSPACE,
+      userId: PILOT_USER,
+      agentId: INTERNAL_STRATEGIST_AGENT,
+      roleId: INTERNAL_STRATEGIST_ROLE,
+      permissionId: "b0000000-0000-4000-a000-0000000009c3",
+    });
+
+    const agents = new DrizzleAgentStore(db);
+    assert.deepEqual(await agents.capabilityScope(LEARNING_AGENT), [
+      "signal:write",
+      "touchpoint:write",
+      "external:fetch:read",
+      // TASK-011 merge reconciliation (2026-07-19) — origin/main's TASK-010
+      // added its own additional Learning Agent grant (event:write, for the
+      // red-flag-correction preference-adjustment Skill) alongside this
+      // branch's touchpoint:write/external:fetch:read grants; the persistent
+      // governance provisioning combines both.
+      "event:write",
+    ]);
+    assert.equal(await agents.dataScope(LEARNING_AGENT), "all");
+    assert.ok((await agents.allowedSkills(LEARNING_AGENT)).includes("jobpilot.researchCultureSource"));
+
+    assert.deepEqual(await agents.capabilityScope(INTERNAL_STRATEGIST_AGENT), ["signal:write"]);
+    assert.equal(await agents.dataScope(INTERNAL_STRATEGIST_AGENT), "all");
+    assert.deepEqual(await agents.allowedSkills(INTERNAL_STRATEGIST_AGENT), [
+      "stageStrategicRecommendation",
+      "jobpilot.synthesizeCultureProfile",
+    ]);
+  } finally {
+    await close();
   }
 });
 
