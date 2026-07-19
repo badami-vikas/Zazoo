@@ -15,6 +15,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, count, notLike } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { helpdeskTickets, helpdeskMessages } from "./schema.js";
+import {
+  withDefaultWorkspace,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 
 export interface PageOpts {
   limit: number;
@@ -54,42 +58,46 @@ const internalTicketColumns = {
 
 export class DrizzleHelpdeskStore {
   #db: Database;
-  constructor(db: Database) {
+  #defaultWorkspaceId: string | undefined;
+  constructor(db: Database, defaultWorkspaceId?: string) {
     this.#db = db;
+    this.#defaultWorkspaceId = defaultWorkspaceId;
   }
 
   async #findTicketByAccessToken(accessToken: string): Promise<InternalTicketRow | null> {
-    const hashedToken = hashAccessToken(accessToken);
-    const hashedRows = await this.#db
-      .select(internalTicketColumns)
-      .from(helpdeskTickets)
-      .where(eq(helpdeskTickets.accessToken, hashedToken))
-      .limit(1);
-    if (hashedRows[0]) return hashedRows[0];
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const hashedToken = hashAccessToken(accessToken);
+      const hashedRows = await tx
+        .select(internalTicketColumns)
+        .from(helpdeskTickets)
+        .where(eq(helpdeskTickets.accessToken, hashedToken))
+        .limit(1);
+      if (hashedRows[0]) return hashedRows[0];
 
-    const legacyRows = await this.#db
-      .select(internalTicketColumns)
-      .from(helpdeskTickets)
-      .where(
-        and(
-          eq(helpdeskTickets.accessToken, accessToken),
-          notLike(helpdeskTickets.accessToken, "sha256:%"),
-        ),
-      )
-      .limit(1);
-    const legacyTicket = legacyRows[0];
-    if (!legacyTicket) return null;
+      const legacyRows = await tx
+        .select(internalTicketColumns)
+        .from(helpdeskTickets)
+        .where(
+          and(
+            eq(helpdeskTickets.accessToken, accessToken),
+            notLike(helpdeskTickets.accessToken, "sha256:%"),
+          ),
+        )
+        .limit(1);
+      const legacyTicket = legacyRows[0];
+      if (!legacyTicket) return null;
 
-    await this.#db
-      .update(helpdeskTickets)
-      .set({ accessToken: hashedToken })
-      .where(
-        and(
-          eq(helpdeskTickets.id, legacyTicket.id),
-          eq(helpdeskTickets.accessToken, accessToken),
-        ),
-      );
-    return legacyTicket;
+      await tx
+        .update(helpdeskTickets)
+        .set({ accessToken: hashedToken })
+        .where(
+          and(
+            eq(helpdeskTickets.id, legacyTicket.id),
+            eq(helpdeskTickets.accessToken, accessToken),
+          ),
+        );
+      return legacyTicket;
+    });
   }
 
   /** Public: anyone with the workspace's helpdesk link may open a ticket. Returns
@@ -107,7 +115,10 @@ export class DrizzleHelpdeskStore {
     const ticketId = stableUuid(`helpdesk:ticket:${input.workspaceId}:${input.operationId}`);
     const messageId = stableUuid(`helpdesk:message:initial:${ticketId}`);
     const accessTokenHash = hashAccessToken(input.accessToken);
-    const { storedTicket, message } = await this.#db.transaction(async (tx) => {
+    const { storedTicket, message } = await withWorkspaceOnly(
+      this.#db,
+      input.workspaceId,
+      async (tx) => {
       const [insertedTicket] = await tx
         .insert(helpdeskTickets)
         .values({
@@ -155,7 +166,8 @@ export class DrizzleHelpdeskStore {
         throw new Error("helpdesk: operation id reused with different ticket input");
       }
       return { storedTicket, message };
-    });
+      },
+    );
     const { accessToken: _storedHash, ...ticket } = storedTicket!;
     return { ticket: { ...ticket, accessToken: input.accessToken }, message: message! };
   }
@@ -166,12 +178,14 @@ export class DrizzleHelpdeskStore {
   async getTicketByToken(accessToken: string): Promise<{ ticket: InternalTicketRow; messages: MessageRow[] } | null> {
     const ticket = await this.#findTicketByAccessToken(accessToken);
     if (!ticket) return null;
-    const messages = await this.#db
-      .select()
-      .from(helpdeskMessages)
-      .where(eq(helpdeskMessages.ticketId, ticket.id))
-      .orderBy(asc(helpdeskMessages.createdAt));
-    return { ticket, messages };
+    return withWorkspaceOnly(this.#db, ticket.workspaceId, async (tx) => {
+      const messages = await tx
+        .select()
+        .from(helpdeskMessages)
+        .where(eq(helpdeskMessages.ticketId, ticket.id))
+        .orderBy(asc(helpdeskMessages.createdAt));
+      return { ticket, messages };
+    });
   }
 
   /** Public: the submitter replies to their own ticket, proven by token possession. */
@@ -179,7 +193,7 @@ export class DrizzleHelpdeskStore {
     const ticket = await this.#findTicketByAccessToken(accessToken);
     if (!ticket) return null;
     const messageId = stableUuid(`helpdesk:message:reply:${ticket.id}:${operationId}`);
-    return this.#db.transaction(async (tx) => {
+    return withWorkspaceOnly(this.#db, ticket.workspaceId, async (tx) => {
       const [inserted] = await tx
         .insert(helpdeskMessages)
         .values({ id: messageId, workspaceId: ticket.workspaceId, ticketId: ticket.id, authorType: "submitter", body })
@@ -206,47 +220,65 @@ export class DrizzleHelpdeskStore {
 
   /** Authenticated (workspace member) — the support-agent inbox view. */
   async listTickets(workspaceId: string, opts: PageOpts): Promise<HelpdeskPage<InternalTicketRow>> {
-    const where = eq(helpdeskTickets.workspaceId, workspaceId);
-    const [rows, totalRows] = await Promise.all([
-      this.#db
-        .select(internalTicketColumns)
-        .from(helpdeskTickets)
-        .where(where)
-        .orderBy(desc(helpdeskTickets.updatedAt))
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(helpdeskTickets).where(where),
-    ]);
-    return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const where = eq(helpdeskTickets.workspaceId, workspaceId);
+      const [rows, totalRows] = await Promise.all([
+        tx
+          .select(internalTicketColumns)
+          .from(helpdeskTickets)
+          .where(where)
+          .orderBy(desc(helpdeskTickets.updatedAt))
+          .limit(opts.limit)
+          .offset(opts.offset),
+        tx.select({ value: count() }).from(helpdeskTickets).where(where),
+      ]);
+      return { items: rows, total: Number(totalRows[0]?.value ?? 0) };
+    });
   }
 
   async getTicket(workspaceId: string, ticketId: string): Promise<{ ticket: InternalTicketRow; messages: MessageRow[] } | null> {
-    const rows = await this.#db
-      .select(internalTicketColumns)
-      .from(helpdeskTickets)
-      .where(and(eq(helpdeskTickets.id, ticketId), eq(helpdeskTickets.workspaceId, workspaceId)))
-      .limit(1);
-    const ticket = rows[0];
-    if (!ticket) return null;
-    const messages = await this.#db
-      .select()
-      .from(helpdeskMessages)
-      .where(eq(helpdeskMessages.ticketId, ticket.id))
-      .orderBy(asc(helpdeskMessages.createdAt));
-    return { ticket, messages };
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select(internalTicketColumns)
+        .from(helpdeskTickets)
+        .where(
+          and(
+            eq(helpdeskTickets.id, ticketId),
+            eq(helpdeskTickets.workspaceId, workspaceId),
+          ),
+        )
+        .limit(1);
+      const ticket = rows[0];
+      if (!ticket) return null;
+      const messages = await tx
+        .select()
+        .from(helpdeskMessages)
+        .where(eq(helpdeskMessages.ticketId, ticket.id))
+        .orderBy(asc(helpdeskMessages.createdAt));
+      return { ticket, messages };
+    });
   }
 
   async replyAsAgent(workspaceId: string, ticketId: string, authorUserId: string, body: string, status?: string): Promise<MessageRow | null> {
     const ticket = await this.getTicket(workspaceId, ticketId);
     if (!ticket) return null;
-    const [message] = await this.#db
-      .insert(helpdeskMessages)
-      .values({ id: randomUUID(), workspaceId, ticketId, authorType: "agent", authorUserId, body })
-      .returning();
-    await this.#db
-      .update(helpdeskTickets)
-      .set({ updatedAt: new Date(), ...(status ? { status } : {}) })
-      .where(eq(helpdeskTickets.id, ticketId));
-    return message ?? null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const [message] = await tx
+        .insert(helpdeskMessages)
+        .values({
+          id: randomUUID(),
+          workspaceId,
+          ticketId,
+          authorType: "agent",
+          authorUserId,
+          body,
+        })
+        .returning();
+      await tx
+        .update(helpdeskTickets)
+        .set({ updatedAt: new Date(), ...(status ? { status } : {}) })
+        .where(eq(helpdeskTickets.id, ticketId));
+      return message ?? null;
+    });
   }
 }

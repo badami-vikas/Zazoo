@@ -23,6 +23,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../../tools/company-sourcing
@@ -59,9 +62,6 @@ importers:
       '@bridge/net-guard':
         specifier: workspace:*
         version: link:../../packages/net-guard
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
       '@fastify/cors':
         specifier: ^10.0.1
         version: 10.1.0
@@ -287,6 +287,25 @@ importers:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)
 
+  packages/capability-kit:
+    dependencies:
+      '@bridge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bridge/sourcing':
+        specifier: workspace:*
+        version: link:../sourcing
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/core:
     devDependencies:
       '@types/node':
@@ -391,12 +410,12 @@ importers:
 
   packages/models:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../capability-kit
       '@bridge/core':
         specifier: workspace:*
         version: link:../core
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -445,25 +464,6 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  packages/tool-kit:
-    dependencies:
-      '@bridge/core':
-        specifier: workspace:*
-        version: link:../core
-      '@bridge/sourcing':
-        specifier: workspace:*
-        version: link:../sourcing
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.19.19
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
   services/commons:
     dependencies:
       '@bridge/core':
@@ -482,6 +482,9 @@ importers:
 
   tools/company-sourcing:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -494,9 +497,6 @@ importers:
       '@bridge/sourcing':
         specifier: workspace:*
         version: link:../../packages/sourcing
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -507,6 +507,9 @@ importers:
 
   tools/dealpilot:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../company-sourcing
@@ -531,9 +534,6 @@ importers:
       '@bridge/tables':
         specifier: workspace:*
         version: link:../../packages/tables
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
       '@napi-rs/keyring':
         specifier: 1.3.0
         version: 1.3.0
@@ -558,6 +558,9 @@ importers:
 
   tools/jobpilot:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/company-sourcing':
         specifier: workspace:*
         version: link:../company-sourcing
@@ -576,9 +579,6 @@ importers:
       '@bridge/tables':
         specifier: workspace:*
         version: link:../../packages/tables
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -592,6 +592,9 @@ importers:
 
   tools/people-sourcing:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/dedupe':
         specifier: workspace:*
         version: link:../../packages/dedupe
@@ -601,9 +604,6 @@ importers:
       '@bridge/sourcing':
         specifier: workspace:*
         version: link:../../packages/sourcing
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -614,12 +614,12 @@ importers:
 
   tools/recorder:
     dependencies:
+      '@bridge/capability-kit':
+        specifier: workspace:*
+        version: link:../../packages/capability-kit
       '@bridge/facts':
         specifier: workspace:*
         version: link:../../packages/facts
-      '@bridge/tool-kit':
-        specifier: workspace:*
-        version: link:../../packages/tool-kit
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

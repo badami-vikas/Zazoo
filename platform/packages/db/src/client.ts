@@ -1,10 +1,9 @@
 /**
  * Postgres/Supabase client factory. Pooled connection via postgres-js + Drizzle.
  *
- * RLS is enforced in the database; this client connects with whatever role the
- * connection string carries. App requests should run under the member JWT path
- * (PostgREST/Supabase) or a request-scoped role — service-role bypass is reserved
- * for the derivation pipeline, never the app surface.
+ * RLS is enforced in the database; hosted API requests connect as the dedicated
+ * `bridge_app` role and establish transaction-local Organization/user context.
+ * Owner, service-role, and BYPASSRLS identities are never runtime identities.
  */
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { PgliteDatabase } from "drizzle-orm/pglite";

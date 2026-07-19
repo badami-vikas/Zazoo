@@ -1,4 +1,3 @@
-import { AsyncEntry } from "@napi-rs/keyring";
 import {
   metadataForCredential,
   type CredentialField,
@@ -18,6 +17,21 @@ interface KeyringEntry {
 }
 
 export type KeyringEntryFactory = (service: string, account: string) => KeyringEntry;
+
+let keyringModule: Promise<typeof import("@napi-rs/keyring")> | undefined;
+
+function lazyNativeEntry(service: string, account: string): KeyringEntry {
+  const entry = async () => {
+    keyringModule ??= import("@napi-rs/keyring");
+    const { AsyncEntry } = await keyringModule;
+    return new AsyncEntry(service, account);
+  };
+  return {
+    setPassword: async (password) => (await entry()).setPassword(password),
+    getPassword: async () => (await entry()).getPassword(),
+    deleteCredential: async () => (await entry()).deleteCredential(),
+  };
+}
 
 interface StoredCredential {
   version: 1;
@@ -124,7 +138,7 @@ export class KeyringSourceCredentialVault implements SourceCredentialVault {
     entryFactory?: KeyringEntryFactory;
   } = {}) {
     this.#service = options.service ?? DEFAULT_SERVICE;
-    this.#entry = options.entryFactory ?? ((service, account) => new AsyncEntry(service, account));
+    this.#entry = options.entryFactory ?? lazyNativeEntry;
   }
 
   reserve(scope: SourceCredentialScope): string {

@@ -1877,9 +1877,30 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Merged `origin/main` (`5ca30ca`, TASK-010's red-flag correction feature + TASK-003's drag fix) forward into the TASK-011 branch. Reconciled real conflicts in 8 files (`memory-store.ts` core+db, `wiring.ts`, `router.ts`, `governance-stores.ts`, `local-store.test.ts`, `memory-store.test.ts`, `pending-work.generated.json`) where both branches independently modified the same regions — no logic dropped from either side (confirmed by a fresh independent review). Fixed a browser-build break the merge's item-1 fix introduced (`node:crypto` import bundled into the web app) with a dependency-free FNV-1a hash, and 3 genuine test-vs-implementation mismatches surfaced by TASK-010's `touchpoint`→`event` rename and its client-plane hardening.
 - Verified: full monorepo build (21/21) clean; `@bridge/core` 448/448; `@bridge/db` 165/165; `@bridge/jobpilot` 125/125; `@bridge/net-guard` 24/24; `@bridge/api` 300/300 (low-load full-suite run; heavy-load reruns reproduced the same pre-existing real-socket-timing flakes documented in every prior round of this task); no schema drift; no-dummy-runtime clean; lint's 2 findings confirmed pre-existing on a clean `origin/main` checkout. Branch head `b1bd89a`. Canonical `docs/TASKS.md` status remains unflipped. Full evidence: `outputs/2026-07-17-jobpilot-culture-research-task011.md`.
 
+# 2026-07-19 — Supabase cloud deployment readiness
+- Confirmed local `main` is current with `origin/main` at `512cf35` and documented the supported topology: Supabase for Postgres/Auth/Storage/Realtime, a separate persistent Fastify host, a static web host, and optional Commons.
+- Added `outputs/2026-07-19-supabase-cloud-deployment-readiness.md` with the migration, runtime, Auth, volume, Commons, environment, certification, owner-input, and secure secret-handoff procedure.
+- Recorded four deploy blockers: incomplete production least-privilege DB role/RLS context, a Dockerfile missing required workspace/build inputs, no hosted-browser initial Auth plus split pilot identity configuration, and no certified headless-cloud Source credential vault. Attached the evidence to TASK-016, TASK-017, and TASK-006 without changing queue order or status, then refreshed the generated Task Manager projection.
+
 # 2026-07-19 — TASK-012 VOCAB0–VOCAB1
 - Added the classified retired-vocabulary inventory, per-file syntax-fingerprint baseline, local/CI ratchet, and ADR-127. TypeScript/JavaScript AST (including static compositions) plus Rust/non-migration-SQL lexical coverage makes new or one-for-one-replaced retired identifiers/string contracts fail; reviewed removals require a downward-only baseline refresh.
 - Migrated Avatar/Onboarding runtime identifiers, copy, browser preferences, and API payloads to visual-only Avatar Style and readiness vocabulary. One-version legacy reads are isolated; all writes are canonical.
 - Removed Avatar-derived Agent/Communications tone and the lifecycle/maturity model. Blink remains tied to the capture Event contract.
 - Made desktop readiness session-scoped: native Avatar windows start hidden/click-through and only present after the shell confirms an active Organization plus ready canonical preferences.
 - Removed the retired dummy-prefix ESLint wiring and corrected the runtime check guidance to the settled `docs/dummy.md` ledger policy.
+
+# 2026-07-19 — Supabase deployment blockers remediated (AP-052, ADR-128)
+- Added dedicated `bridge_app` grants, migration-only owner URL support, pooled-safe
+  transaction-local RLS identity, strict production role checks, and role/isolation/reset
+  regressions across every protected persistent store.
+- Added exact-pilot Supabase JWT admission, idempotent workspace activation, protected web
+  Auth lifecycle, exact CORS/configuration checks, and removed live-client fallbacks.
+- Added the headless AES-256-GCM Source credential vault and explicit public-only Cloud
+  ledger routing; private/all/legacy roots stay on durable Local Plane storage and hosted
+  production must acknowledge an encrypted persistent volume.
+- Replaced the API container with a Turbo-pruned production-only non-root image, added
+  context exclusions and CI fail-closed/liveness/readiness smoke coverage, and documented
+  direct/session-pooler runtime credentials plus the exact owner deployment procedure.
+- Verification: workspace typecheck/build 42/42; DB 173/173; DealPilot 93/93; API 323/323;
+  web 102/102; focused RLS/vault/residency 12/12; clean pruned runtime simulation healthy.
+  Literal image launch remains the CI gate because no local Docker daemon is installed.

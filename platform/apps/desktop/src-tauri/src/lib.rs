@@ -19,7 +19,7 @@
 //!    the avatar didn't blink, Bridge didn't capture.
 //!  - Sensors are OPTIONAL capabilities. Deny the OS permissions and Bridge
 //!    remains fully useful (graceful degradation) — the shell must never
-//!    gate core workflows on capture permissions.
+//!    gate core execution paths on capture permissions.
 //!
 //! Window creation is PROGRAMMATIC (not tauri.conf.json) because the main
 //! window needs an initialization script carrying the sidecar API's resolved

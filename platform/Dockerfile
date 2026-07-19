@@ -1,28 +1,45 @@
-# Bridge platform API (Fastify + tRPC + Universal Action Pipeline + Google integration).
-# A long-running Node server — host it on a Node service (Render / Railway / Fly / a VPS),
-# NOT on Cloudflare Pages/Workers (those are for the static prototype, not a Fastify server).
-#
-# Build context = this `platform/` directory:  docker build -t bridge-api ./platform
-#
-# Persistence: the LOCAL plane (OAuth tokens + private relationship data) lives in
-# BRIDGE_LOCAL_DIR — point it at a MOUNTED PERSISTENT VOLUME (e.g. /data/local) so the
-# Google connection survives restarts/redeploys. Without a persistent volume you must
-# re-connect Google after every deploy.
-FROM node:22-slim
+# syntax=docker/dockerfile:1.7
 
-RUN corepack enable
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@10.33.3 --activate
+
+FROM base AS pruner
+WORKDIR /workspace
+COPY . .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm dlx turbo@2.9.16 prune @bridge/api --docker
+
+FROM base AS builder
+WORKDIR /workspace
+COPY --from=pruner /workspace/out/json/ ./
+COPY --from=pruner /workspace/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm install --frozen-lockfile
+COPY --from=pruner /workspace/out/full/ ./
+COPY --from=pruner /workspace/tsconfig.base.json ./tsconfig.base.json
+RUN pnpm turbo run build --filter=@bridge/api
+RUN pnpm --filter @bridge/api deploy --legacy --prod /opt/bridge-api
+
+FROM node:22-bookworm-slim AS runtime
+ENV NODE_ENV=production
+ENV API_HOST=0.0.0.0
+ENV PORT=4000
+ENV BRIDGE_LOCAL_DIR=/var/lib/bridge/local
+ENV BRIDGE_FILES_ROOT=/var/lib/bridge/files
 WORKDIR /app
 
-# Install deps first (better layer caching), then the source.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
-COPY packages ./packages
-COPY apps ./apps
-RUN pnpm install --frozen-lockfile && pnpm build
+RUN groupadd --gid 10001 bridge && \
+    useradd --uid 10001 --gid bridge --create-home --shell /usr/sbin/nologin bridge && \
+    mkdir -p /var/lib/bridge/local /var/lib/bridge/files && \
+    chown -R bridge:bridge /var/lib/bridge
+COPY --from=builder --chown=bridge:bridge /opt/bridge-api/ ./
 
-# Defaults — override GOOGLE_* / BRIDGE_* / DATABASE_URL / BRIDGE_APP_URL in the host's env.
-ENV PORT=4000
-ENV BRIDGE_LOCAL_DIR=/data/local
+USER 10001:10001
 EXPOSE 4000
-
-# cwd = /app (the platform root); the server reads config from process env (the host injects it).
-CMD ["node", "apps/api/dist/src/server.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||4000)+'/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+CMD ["node", "dist/src/server.js"]

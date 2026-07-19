@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EchoModelProvider } from "@bridge/core";
 import { createModelRouter } from "../src/router.js";
-import type { ModelBinding } from "@bridge/tool-kit";
+import type { ModelBinding } from "@bridge/capability-kit";
 
 const localA = new EchoModelProvider("local-a", "local");
 const localB = new EchoModelProvider("local-b", "local");

@@ -27,7 +27,7 @@ function dummyManifest(overrides: Partial<PackageManifest> = {}): PackageManifes
   return {
     name: "dummy-package",
     version: "1.0.0",
-    kind: "workflow",
+    kind: "automation",
     summary: "test_fixture_summary",
     description: "test_fixture_description",
     lineageManifestId: null,
@@ -37,7 +37,7 @@ function dummyManifest(overrides: Partial<PackageManifest> = {}): PackageManifes
         id: "cap-1",
         name: "test_fixture_capability",
         version: "1.0.0",
-        capabilityType: "workflow",
+        capabilityType: "automation",
         origin: "user_code",
         audience: "private",
         permissions: [],

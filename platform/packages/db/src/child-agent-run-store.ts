@@ -18,6 +18,7 @@ import { ChildRunBudgetExceededError, ChildRunAlreadyTerminalError } from "@brid
 import type { ChildAgentRun, ChildAgentRunStatus, ChildAgentRunStore, DataScope, Plane, ReviewMode, TrustOrigin } from "@bridge/core";
 import type { Database } from "./client.js";
 import { childAgentRuns } from "./schema.js";
+import { withWorkspaceOnly } from "./workspace-context.js";
 
 const stringArraySchema = z.array(z.string());
 
@@ -72,56 +73,67 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
   }
 
   async create(run: ChildAgentRun): Promise<ChildAgentRun> {
-    const [inserted] = await this.#db
-      .insert(childAgentRuns)
-      .values({
-        id: run.id,
-        parentRunId: run.parentRunId,
-        parentAgentId: run.parentAgentId,
-        workspaceId: run.workspaceId,
-        goalId: run.goalId,
-        taskId: run.taskId,
-        depth: run.depth,
-        authorityScope: [...run.authorityScope],
-        droppedScope: [...run.droppedScope],
-        eligibleSkills: [...run.eligibleSkills],
-        dataScope: run.dataScope,
-        plane: run.plane,
-        budget: run.budget,
-        callsUsed: run.callsUsed,
-        costUsed: run.costUsed,
-        deadline: new Date(run.deadline),
-        stopCondition: run.stopCondition,
-        reviewMode: run.reviewMode,
-        taint: run.taint ?? null,
-        status: run.status,
-      })
-      .returning();
-    if (!inserted) throw new Error("child_agent_runs: insert returned no row");
-    return unpack(inserted);
+    return withWorkspaceOnly(this.#db, run.workspaceId, async (tx) => {
+      const [inserted] = await tx
+        .insert(childAgentRuns)
+        .values({
+          id: run.id,
+          parentRunId: run.parentRunId,
+          parentAgentId: run.parentAgentId,
+          workspaceId: run.workspaceId,
+          goalId: run.goalId,
+          taskId: run.taskId,
+          depth: run.depth,
+          authorityScope: [...run.authorityScope],
+          droppedScope: [...run.droppedScope],
+          eligibleSkills: [...run.eligibleSkills],
+          dataScope: run.dataScope,
+          plane: run.plane,
+          budget: run.budget,
+          callsUsed: run.callsUsed,
+          costUsed: run.costUsed,
+          deadline: new Date(run.deadline),
+          stopCondition: run.stopCondition,
+          reviewMode: run.reviewMode,
+          taint: run.taint ?? null,
+          status: run.status,
+        })
+        .returning();
+      if (!inserted) throw new Error("child_agent_runs: insert returned no row");
+      return unpack(inserted);
+    });
   }
 
   async get(workspaceId: string, id: string): Promise<ChildAgentRun | null> {
-    const rows = await this.#db
-      .select()
-      .from(childAgentRuns)
-      .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(childAgentRuns)
+        .where(
+          and(
+            eq(childAgentRuns.workspaceId, workspaceId),
+            eq(childAgentRuns.id, id),
+          ),
+        )
+        .limit(1);
+      const row = rows[0];
+      return row ? unpack(row) : null;
+    });
   }
 
   async listByParentRun(workspaceId: string, parentRunId: string): Promise<ChildAgentRun[]> {
-    const rows = await this.#db
-      .select()
-      .from(childAgentRuns)
-      .where(
-        and(
-          eq(childAgentRuns.workspaceId, workspaceId),
-          eq(childAgentRuns.parentRunId, parentRunId),
-        ),
-      );
-    return rows.map(unpack);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(childAgentRuns)
+        .where(
+          and(
+            eq(childAgentRuns.workspaceId, workspaceId),
+            eq(childAgentRuns.parentRunId, parentRunId),
+          ),
+        );
+      return rows.map(unpack);
+    });
   }
 
   async updateStatus(
@@ -130,18 +142,19 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
     expectedStatus: ChildAgentRunStatus,
     status: ChildAgentRunStatus,
   ): Promise<ChildAgentRun> {
-    const [updated] = await this.#db
-      .update(childAgentRuns)
-      .set({ status })
-      .where(
-        and(
-          eq(childAgentRuns.workspaceId, workspaceId),
-          eq(childAgentRuns.id, id),
-          eq(childAgentRuns.status, expectedStatus),
-        ),
-      )
-      .returning();
-    if (!updated) {
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(childAgentRuns)
+        .set({ status })
+        .where(
+          and(
+            eq(childAgentRuns.workspaceId, workspaceId),
+            eq(childAgentRuns.id, id),
+            eq(childAgentRuns.status, expectedStatus),
+          ),
+        )
+        .returning();
+      if (!updated) {
       // TASK-011 remediation (2026-07-18 fresh review) — the UPDATE's WHERE
       // clause can miss for two different reasons (unknown run vs. a real
       // CAS mismatch); distinguish them with one follow-up read so a genuine
@@ -151,14 +164,23 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
       // to swallow ONLY an expected already-terminal race — before this fix,
       // the real CAS-mismatch path here threw a plain Error that such
       // callers would incorrectly rethrow as an unexpected failure.
-      const [current] = await this.#db
-        .select()
-        .from(childAgentRuns)
-        .where(and(eq(childAgentRuns.workspaceId, workspaceId), eq(childAgentRuns.id, id)));
-      if (!current) throw new Error(`child_agent_runs: unknown run ${id}`);
-      throw new ChildRunAlreadyTerminalError(id, current.status as ChildAgentRunStatus);
-    }
-    return unpack(updated);
+        const [current] = await tx
+          .select()
+          .from(childAgentRuns)
+          .where(
+            and(
+              eq(childAgentRuns.workspaceId, workspaceId),
+              eq(childAgentRuns.id, id),
+            ),
+          );
+        if (!current) throw new Error(`child_agent_runs: unknown run ${id}`);
+        throw new ChildRunAlreadyTerminalError(
+          id,
+          current.status as ChildAgentRunStatus,
+        );
+      }
+      return unpack(updated);
+    });
   }
 
   async consumeBudget(
@@ -170,26 +192,30 @@ export class DrizzleChildAgentRunStore implements ChildAgentRunStore {
     if (!Number.isFinite(cost) || cost < 0) {
       throw new Error("child_agent_runs: cost must be a non-negative finite number");
     }
-    const [updated] = await this.#db
-      .update(childAgentRuns)
-      .set({
-        callsUsed: sql`${childAgentRuns.callsUsed} + 1`,
-        costUsed: sql`${childAgentRuns.costUsed} + ${cost}`,
-      })
-      .where(
-        and(
-          eq(childAgentRuns.workspaceId, workspaceId),
-          eq(childAgentRuns.id, id),
-          eq(childAgentRuns.status, "running"),
-          gt(childAgentRuns.deadline, new Date(nowISO)),
-          sql`${childAgentRuns.callsUsed} < (${childAgentRuns.budget}->>'maxCalls')::integer`,
-          sql`${childAgentRuns.costUsed} + ${cost} <= (${childAgentRuns.budget}->>'maxCost')::double precision`,
-        ),
-      )
-      .returning();
-    if (!updated) {
-      throw new ChildRunBudgetExceededError(`run ${id} has no budget or time remaining`);
-    }
-    return unpack(updated);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(childAgentRuns)
+        .set({
+          callsUsed: sql`${childAgentRuns.callsUsed} + 1`,
+          costUsed: sql`${childAgentRuns.costUsed} + ${cost}`,
+        })
+        .where(
+          and(
+            eq(childAgentRuns.workspaceId, workspaceId),
+            eq(childAgentRuns.id, id),
+            eq(childAgentRuns.status, "running"),
+            gt(childAgentRuns.deadline, new Date(nowISO)),
+            sql`${childAgentRuns.callsUsed} < (${childAgentRuns.budget}->>'maxCalls')::integer`,
+            sql`${childAgentRuns.costUsed} + ${cost} <= (${childAgentRuns.budget}->>'maxCost')::double precision`,
+          ),
+        )
+        .returning();
+      if (!updated) {
+        throw new ChildRunBudgetExceededError(
+          `run ${id} has no budget or time remaining`,
+        );
+      }
+      return unpack(updated);
+    });
   }
 }

@@ -18,6 +18,81 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — Production Supabase has no runnable least-privilege database-role path
+`assertRlsPosture()` correctly refuses a production API boot when `DATABASE_URL` uses a
+superuser or `BYPASSRLS` role, which excludes the Supabase owner connection normally copied
+from Connect. However, tracked migrations create no login role or grants for a non-bypass
+application role. The RLS policies in `0008_rls_as_code.sql` also depend on transaction-local
+`app.workspace_id`/`app.user_id` GUCs, while `DrizzleWorkspaceStore.bootstrapPilotIdentities()`,
+`isMember()`, and `listMembers()` access the forced-RLS `workspace_members` table without
+setting that context. The owner role therefore fails the boot guard, while a compliant role
+cannot complete bootstrap or membership authorization. Fix under TASK-016: provision and
+grant a dedicated runtime role without embedding its password in migrations, apply request-
+scoped RLS context consistently across every persistent store/bootstrap path, and prove a
+real production-mode boot plus cross-tenant denial on Postgres/Supabase.
+
+FIX: migration `0020_supabase_runtime_role.sql` creates a login-capable, non-owner,
+non-superuser, non-BYPASSRLS `bridge_app` role with only required runtime grants and leaves
+password assignment to the operator. Migration and runtime URLs are separate. Shared
+transaction-local Organization/user context now wraps every protected persistent store;
+production boot rejects owner, superuser, BYPASSRLS, and unknown privilege posture.
+Runtime-role boot, cross-workspace denial, pooled-context reset, and nested-scope tests pass
+in the 173-test DB suite. Live migration/password execution remains an owner deployment
+step, not a repository defect. Attached to TASK-016; AP-052.
+
+## RESOLVED 2026-07-19 — The API Dockerfile cannot build the current workspace
+`platform/pnpm-workspace.yaml` includes `tools/*` and `services/*`, and `@bridge/api` has
+`workspace:*` dependencies from `platform/tools/`. `platform/Dockerfile` copies only
+`packages/` and `apps/` before `pnpm install`, so those dependencies are absent from the build
+context. It then runs the whole workspace build, whose web prebuild reads `platform/scripts/`
+and repository `docs/TASKS.md`; neither is copied. Fix under TASK-017: use a filtered,
+multi-stage API image with the complete transitive workspace/build inputs, run it as a
+non-root user, and add an image-build plus `/health/ready` deployment regression.
+
+FIX: `platform/Dockerfile` now uses Node 22, pnpm 10.33.3, Turbo prune, frozen workspace
+install, a production deploy stage, retained DB migrations, and a non-root runtime user;
+`platform/.dockerignore` excludes dependencies, build/VCS/env and Local Plane artifacts. CI
+builds the image, proves fail-closed production config, runs it non-root with durable paths,
+and probes liveness/readiness. A clean reproduction of every prune/install/build/deploy/
+runtime stage produced a 225 MB TypeScript-free bundle that started and passed both probes.
+This machine has no Docker daemon, so literal Dockerfile execution is enforced by CI.
+Attached to TASK-017; AP-052.
+
+## RESOLVED 2026-07-19 — Hosted browser auth cannot provision the pilot identity coherently
+The web client can forward an existing Supabase session, but it has no initial Supabase
+sign-in/sign-up route; its only `signInWithPassword()` call is a re-authentication step that
+already requires a signed-in user. Separately, persistent bootstrap and all governance seeds
+use hard-coded `PILOT_USER`, while `BRIDGE_PILOT_USER_ID` changes only the tokenless fallback
+in `context.ts`. A user created in a new Supabase project therefore receives a different JWT
+`sub` and fails workspace membership. Fix under TASK-017: ship an explicit hosted sign-in
+flow and either make one validated pilot identity configure bootstrap/governance everywhere
+or implement normal user/workspace provisioning.
+
+FIX: production verifies Supabase JWTs through project JWKS, admits only the exact configured
+pilot UUID, provisions/activates that identity idempotently, and rejects every other verified
+subject before non-public dispatch. The web now has explicit sign-in, sign-up, recovery,
+reset, refresh, activation, protected-shell, and logout states; live Supabase defaults were
+removed. Public Helpdesk token procedures remain the only explicit public API surface.
+Production fails closed without exact Auth, pilot, origin, durable-residency, and vault
+configuration. API 323/323 and web 102/102 pass. Attached to TASK-017; AP-052.
+
+## RESOLVED 2026-07-19 — DealPilot has no approved headless-cloud credential vault
+Non-test API boot requires `BRIDGE_DEALPILOT_CREDENTIAL_VAULT=os-keyring`; the only runtime
+implementation is `@napi-rs/keyring`, which expects an operating-system credential service.
+Generic Linux containers do not provide a durable Secret Service/keychain by default, so
+Source credential write/read cannot be claimed for a cloud deployment merely by mounting a
+filesystem volume. Fix under TASK-006: certify a host keyring that survives redeploys or add
+an approved envelope-encrypted KMS/secret-manager adapter behind `SourceCredentialVault`,
+with restart, rotation, deletion, and tenant-scope tests.
+
+FIX: the headless provider is an AES-256-GCM encrypted file vault with Organization/Source-
+bound AAD, opaque references, atomic fsynced writes, owner-only permissions, no-follow reads,
+explicit deletion, restart durability, wrong-key failure, and current/previous-key rotation;
+keys come only from host secrets. Production selects it explicitly while desktop retains the
+native OS keyring. Hosted production also requires durable Local Plane paths and explicit
+`encrypted-host-volume` residency acknowledgement. Focused vault/residency tests pass 12/12.
+Attached to TASK-006; AP-052.
+
 ## RESOLVED 2026-07-19 — TASK-005 signed Skill performed undeclared external research
 Final branch review found that `cited-role-model-practice@1.0.0` declared one private Signal write and
 no egress, but its runtime reread private onboarding answers and sent the role-model name to Wikipedia.
@@ -949,16 +1024,15 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
   writeup (post-commit effect now type-narrowed in `pipeline.ts`/`types.ts`; BizBuySell gained a
   parse-rate summary + 50%-threshold `console.warn` in `dealpilot/connectors.ts`).
 
-- **STILL OPEN, now LOUD not silent (2026-07-05) — Persistent mode contradicts the
+- **RESOLVED 2026-07-19 — Persistent mode contradicted the
   local-ledger residency guarantee.** `wiring.ts` header says "The ledger MUST stay local for
   private proposals" but `buildPersistentPorts()` binds `ledger = ports.ledger` (Drizzle → cloud
-  Postgres when `DATABASE_URL` points there). Private-proposal bodies can still land in a cloud
-  ledger the moment persistence is turned on — this fix did NOT resolve that, because it's a
-  product decision (split ledger by data_scope vs. drop the guarantee), not a coding gap. What
-  changed: `buildPersistentPorts()` now logs a loud `console.warn` at boot naming the exact
-  contradiction, instead of the code silently upholding a guarantee it doesn't enforce. See
-  `All fixes.md` Phase 1 item 7 ("needs your decision") — unchanged, still needs your call.
-  Spotted 2026-07-04 audit review.
+  Postgres when `DATABASE_URL` points there). FIX: API wiring now composes durable Local and
+  Supabase Cloud stores through `ResidencyRoutingLedgerStore`. Only explicitly public root
+  proposals enter Cloud Plane; private, all-scope, and legacy-unscoped roots remain Local,
+  decision/audit rows follow their parent's plane, and pending/history reads merge both
+  planes without changing the caller contract. Restart, public/private, legacy-private,
+  parent-plane, and raw-nondisclosure behavior pass under AP-052. Attached to TASK-006.
 
 - **RESOLVED 2026-07-05 — Persistent mode silently discarded canonical identity writes.**
   `wiring.ts` used to bind `canonical = new InMemoryCanonicalIdentityStore()` even when
@@ -1362,6 +1436,9 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 ## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
 TASK-005 preflight reproduced the same known gate on 2026-07-18 after the floor had been recalibrated to 38%: all 7 Sensor tests passed, but imported Core growth reduced the aggregate to 36.97%. The full platform typecheck, build, no-dummy gate, and all 36 non-Sensor test tasks passed; only this already-attached TASK-017 coverage debt keeps unfiltered `pnpm test` red.
+Supabase deployment validation on 2026-07-19 measured the current baseline at 35.76%:
+all 7 tests pass, but the package remains below its 38% line floor. The deployment changes
+did not touch Sensor behavior; this remains TASK-017 observability debt.
 
 ## RESOLVED 2026-07-17 — DealPilot discovery could omit Sources, Relations, alerts, and spend
 TASK-006 merge review found four coupled integrity gaps: Thesis discovery stopped at 200 Sources;

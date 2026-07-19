@@ -7,7 +7,7 @@ import { transition, InvalidTransitionError } from "./state-machine.js";
 // injected (the `classify` parameter) exactly like connectors.ts injects a fetcher — no `llm`
 // package exists yet to bind a real cheap-tier model to, so this module owns only the ROUTING
 // policy (confidence bucketing + the transition-validity guard), never the classification.
-// Consumes @bridge/tool-kit-style composition: reuses `transition` from state-machine.ts rather
+// Consumes Module/Skill composition: reuses `transition` from state-machine.ts rather
 // than re-validating the stage graph here.
 
 export interface EmailMessage {

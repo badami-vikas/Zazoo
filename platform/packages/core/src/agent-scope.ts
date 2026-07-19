@@ -1,6 +1,6 @@
 /**
  * Layered, least-privilege agent capability — the model behind "gated permissions
- * in agent + workflow creation" (cf. Google's incremental OAuth scopes).
+ * in Agent + Automation creation" (cf. Google's incremental OAuth scopes).
  *
  * An agent's authority is built from layers that can only NARROW, never escalate:
  *   1. capability scope tokens  (`resourceType:action`)
@@ -15,8 +15,7 @@
  *     the full-graph read and the `*` wildcard are stripped — an agent cannot be
  *     created with self-modification or god-mode capability.
  *
- * A Workflow/Ritual runs UNDER its agents' authority and may never EXCEED it:
- * `validateRitualWithinAgents` is the ritual ⊆ agent check.
+ * An Automation runs under its owning Agent's authority and may never exceed it.
  */
 import type { Action, ResourceType } from "./types.js";
 import { intersectDataScope, type DataScope } from "./data-scope.js";
@@ -93,14 +92,14 @@ export interface AgentScopeView {
   dataScope?: DataScope;
 }
 
-export interface RitualStepView {
+export interface AutomationStepView {
   skill?: string;
   action: Action;
   resourceType: ResourceType;
   dataScope?: DataScope;
 }
 
-export interface RitualScopeViolation {
+export interface AutomationScopeViolation {
   stepIndex: number;
   action: Action;
   resourceType: ResourceType;
@@ -108,15 +107,15 @@ export interface RitualScopeViolation {
 }
 
 /**
- * Ritual ⊆ agent: every step must be permitted by at least ONE assigned agent — both
+ * Automation ⊆ Agent: every step must be permitted by the owning Agent — both
  * the (action,resourceType) capability AND the data tier (step tier ∩ agent tier ≠
- * none). Returns the violations (empty = the ritual is within its agents' authority).
+ * none). Returns the violations (empty = the Automation is within Agent authority).
  */
-export function validateRitualWithinAgents(
-  steps: RitualStepView[],
+export function validateAutomationWithinAgents(
+  steps: AutomationStepView[],
   agents: AgentScopeView[],
-): RitualScopeViolation[] {
-  const violations: RitualScopeViolation[] = [];
+): AutomationScopeViolation[] {
+  const violations: AutomationScopeViolation[] = [];
   steps.forEach((step, stepIndex) => {
     const capableAgents = agents.filter((a) => scopePermits(a.scope, step.action, step.resourceType));
     if (capableAgents.length === 0) {

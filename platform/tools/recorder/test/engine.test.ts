@@ -6,7 +6,7 @@ import { createHttpRecorderPort, type SidecarFetch } from "../src/sidecar-port.j
 import { captureAndProcess } from "../src/engine.js";
 
 test("manifest: kind internal, no surfaces, private scope (single-party capture)", () => {
-  assert.equal(recorderManifest.kind, "internal");
+  assert.equal(recorderManifest.kind, "skill");
   assert.equal(recorderManifest.intakePolicy.scope, "private");
   assert.ok(recorderManifest.provides.some((p) => p.id === "capture.transcribe"));
 });

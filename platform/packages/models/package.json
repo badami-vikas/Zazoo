@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Real ModelProvider implementations (Ollama local, Anthropic cloud) + createModelRouter binding resolution for @bridge/tool-kit's modelBinding manifest slot. The @bridge/core ModelProvider port stays types-only/zero-deps; this package is where the actual fetch calls live.",
+  "description": "Real ModelProvider implementations plus executable-manifest model binding resolution.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@bridge/core": "workspace:*",
-    "@bridge/tool-kit": "workspace:*"
+    "@bridge/capability-kit": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

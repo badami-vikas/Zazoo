@@ -2,6 +2,7 @@
  * Fastify 5 + tRPC 11 server. Boots the pipeline surface with zero infra.
  */
 import { pathToFileURL } from "node:url";
+import { isAbsolute } from "node:path";
 import type { ListenOptions } from "node:net";
 import type { Readable } from "node:stream";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -133,7 +134,7 @@ const RATE_LIMIT_SENSITIVE_PATHS = [
   "onboarding.verifyPhoneOtp",
   "google.syncGmail",
   "dealpilot.discoverDeals",
-  "ritual.runById",
+  "automation.runById",
   "commons.runInstalledSkill",
   "helpdesk.public.",
 ] as const;
@@ -168,20 +169,111 @@ export function rateLimitBucket(url: string): "sensitive" | "global" {
   return RATE_LIMIT_SENSITIVE_PATHS.some((p) => path.includes(p)) ? "sensitive" : "global";
 }
 
-/**
- * Fail fast in production rather than silently booting onto unsafe defaults. Today
- * that means: a real ledger (DATABASE_URL) — without it every proposal/decision
- * lives in `InMemoryLedger`, wiped on restart, while `/health` still reports
- * `ok:true`. See known-issues.md "In-memory everything without DATABASE_URL".
- */
+function validUuid(value: string | undefined): boolean {
+  return Boolean(
+    value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      ),
+  );
+}
+
+function validBase64Key(value: string | undefined): boolean {
+  if (!value) return false;
+  const decoded = Buffer.from(value, "base64");
+  return (
+    decoded.byteLength === 32 &&
+    decoded.toString("base64").replace(/=+$/, "") ===
+      value.trim().replace(/=+$/, "")
+  );
+}
+
+/** Fail closed before any production listener is opened. */
 export function assertProductionEnv(): void {
   if (process.env.NODE_ENV !== "production") return;
-  const missing: string[] = [];
-  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
-  if (missing.length > 0) {
+  const invalid: string[] = [];
+  if (!process.env.DATABASE_URL) invalid.push("DATABASE_URL");
+  if (!process.env.SUPABASE_URL) {
+    invalid.push("SUPABASE_URL");
+  } else {
+    try {
+      if (new URL(process.env.SUPABASE_URL).protocol !== "https:") {
+        invalid.push("SUPABASE_URL (must use HTTPS)");
+      }
+    } catch {
+      invalid.push("SUPABASE_URL (invalid URL)");
+    }
+  }
+  const origins = process.env.API_ALLOWED_ORIGINS
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (!origins?.length) {
+    invalid.push("API_ALLOWED_ORIGINS");
+  } else {
+    for (const origin of origins) {
+      try {
+        if (new URL(origin).protocol !== "https:") {
+          invalid.push("API_ALLOWED_ORIGINS (HTTPS origins only)");
+          break;
+        }
+      } catch {
+        invalid.push("API_ALLOWED_ORIGINS (invalid URL)");
+        break;
+      }
+    }
+  }
+  if (!validUuid(process.env.BRIDGE_PILOT_USER_ID)) {
+    invalid.push("BRIDGE_PILOT_USER_ID (Supabase Auth UUID)");
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(process.env.BRIDGE_PILOT_USER_EMAIL ?? "")) {
+    invalid.push("BRIDGE_PILOT_USER_EMAIL");
+  }
+  if (
+    !process.env.BRIDGE_LOCAL_DIR ||
+    !isAbsolute(process.env.BRIDGE_LOCAL_DIR)
+  ) {
+    invalid.push("BRIDGE_LOCAL_DIR (absolute durable volume path)");
+  }
+  if (
+    !process.env.BRIDGE_FILES_ROOT ||
+    !isAbsolute(process.env.BRIDGE_FILES_ROOT)
+  ) {
+    invalid.push("BRIDGE_FILES_ROOT (absolute durable volume path)");
+  }
+  if (process.env.BRIDGE_LOCAL_RESIDENCY !== "encrypted-host-volume") {
+    invalid.push(
+      "BRIDGE_LOCAL_RESIDENCY=encrypted-host-volume",
+    );
+  }
+  if (
+    process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT !== "encrypted-file"
+  ) {
+    invalid.push(
+      "BRIDGE_DEALPILOT_CREDENTIAL_VAULT=encrypted-file",
+    );
+  }
+  if (!process.env.BRIDGE_CREDENTIAL_VAULT_KEY_ID?.trim()) {
+    invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY_ID");
+  }
+  if (!validBase64Key(process.env.BRIDGE_CREDENTIAL_VAULT_KEY?.trim())) {
+    invalid.push("BRIDGE_CREDENTIAL_VAULT_KEY (base64 32-byte key)");
+  }
+  const previousKey = process.env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY?.trim();
+  const previousKeyId =
+    process.env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID?.trim();
+  if (Boolean(previousKey) !== Boolean(previousKeyId)) {
+    invalid.push(
+      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID/BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (configure together)",
+    );
+  } else if (previousKey && !validBase64Key(previousKey)) {
+    invalid.push(
+      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY (base64 32-byte key)",
+    );
+  }
+  if (invalid.length > 0) {
     throw new Error(
-      `Refusing to start in production without: ${missing.join(", ")}. ` +
-        "In-memory stores are unsafe for production (data loss on restart, no real audit trail).",
+      `Refusing to start with incomplete or unsafe production configuration: ${invalid.join(", ")}`,
     );
   }
 }

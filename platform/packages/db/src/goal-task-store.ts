@@ -15,6 +15,7 @@ import { and, eq } from "drizzle-orm";
 import type { CreateGoalInput, CreateTaskInput, Goal, GoalTaskIdClock, GoalTaskStore, Task, TaskStatus } from "@bridge/core";
 import type { Database } from "./client.js";
 import { goals, tasks } from "./schema.js";
+import { withWorkspaceOnly } from "./workspace-context.js";
 
 function unpackGoal(row: typeof goals.$inferSelect): Goal {
   return {
@@ -45,85 +46,104 @@ export class DrizzleGoalTaskStore implements GoalTaskStore {
   }
 
   async createGoal(input: CreateGoalInput, seam: GoalTaskIdClock): Promise<Goal> {
-    const [inserted] = await this.#db
-      .insert(goals)
-      .values({
-        id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
-        type: input.type,
-        title: input.title,
-      })
-      .returning();
-    if (!inserted) throw new Error("goals: insert returned no row");
-    return unpackGoal(inserted);
+    return withWorkspaceOnly(this.#db, input.workspaceId, async (tx) => {
+      const [inserted] = await tx
+        .insert(goals)
+        .values({
+          id: input.id ?? seam.nextId(),
+          workspaceId: input.workspaceId,
+          type: input.type,
+          title: input.title,
+        })
+        .returning();
+      if (!inserted) throw new Error("goals: insert returned no row");
+      return unpackGoal(inserted);
+    });
   }
 
   async getGoal(workspaceId: string, id: string): Promise<Goal | null> {
-    const rows = await this.#db
-      .select()
-      .from(goals)
-      .where(and(eq(goals.workspaceId, workspaceId), eq(goals.id, id)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpackGoal(row) : null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(goals)
+        .where(and(eq(goals.workspaceId, workspaceId), eq(goals.id, id)))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpackGoal(row) : null;
+    });
   }
 
   async listGoals(workspaceId: string): Promise<Goal[]> {
-    const rows = await this.#db.select().from(goals).where(eq(goals.workspaceId, workspaceId));
-    return rows.map(unpackGoal);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(goals)
+        .where(eq(goals.workspaceId, workspaceId));
+      return rows.map(unpackGoal);
+    });
   }
 
   async createTask(input: CreateTaskInput, seam: GoalTaskIdClock): Promise<Task> {
-    const [inserted] = await this.#db
-      .insert(tasks)
-      .values({
-        id: input.id ?? seam.nextId(),
-        workspaceId: input.workspaceId,
-        goalId: input.goalId,
-        type: input.type,
-        assignedAgentId: input.assignedAgentId,
-        status: input.status ?? "open",
-      })
-      .returning();
-    if (!inserted) throw new Error("tasks: insert returned no row");
-    return unpackTask(inserted);
+    return withWorkspaceOnly(this.#db, input.workspaceId, async (tx) => {
+      const [inserted] = await tx
+        .insert(tasks)
+        .values({
+          id: input.id ?? seam.nextId(),
+          workspaceId: input.workspaceId,
+          goalId: input.goalId,
+          type: input.type,
+          assignedAgentId: input.assignedAgentId,
+          status: input.status ?? "open",
+        })
+        .returning();
+      if (!inserted) throw new Error("tasks: insert returned no row");
+      return unpackTask(inserted);
+    });
   }
 
   async getTask(workspaceId: string, id: string): Promise<Task | null> {
-    const rows = await this.#db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpackTask(row) : null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpackTask(row) : null;
+    });
   }
 
   async listTasksByGoal(workspaceId: string, goalId: string): Promise<Task[]> {
-    const rows = await this.#db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.goalId, goalId)));
-    return rows.map(unpackTask);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.goalId, goalId)));
+      return rows.map(unpackTask);
+    });
   }
 
   async reassignTask(workspaceId: string, id: string, assignedAgentId: string): Promise<Task> {
-    const [updated] = await this.#db
-      .update(tasks)
-      .set({ assignedAgentId })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
-      .returning();
-    if (!updated) throw new Error(`tasks: unknown task ${id}`);
-    return unpackTask(updated);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(tasks)
+        .set({ assignedAgentId })
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+        .returning();
+      if (!updated) throw new Error(`tasks: unknown task ${id}`);
+      return unpackTask(updated);
+    });
   }
 
   async updateTaskStatus(workspaceId: string, id: string, status: TaskStatus): Promise<Task> {
-    const [updated] = await this.#db
-      .update(tasks)
-      .set({ status })
-      .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
-      .returning();
-    if (!updated) throw new Error(`tasks: unknown task ${id}`);
-    return unpackTask(updated);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(tasks)
+        .set({ status })
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.id, id)))
+        .returning();
+      if (!updated) throw new Error(`tasks: unknown task ${id}`);
+      return unpackTask(updated);
+    });
   }
 }

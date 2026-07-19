@@ -54,6 +54,45 @@ jobs:
       # vulnerable dependency is an unambiguous, standalone red check.
       - run: pnpm audit --prod --audit-level=high
 
+  api-container:
+    name: API container (build + non-root smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build --file platform/Dockerfile --tag bridge-api:ci platform
+      - name: Production configuration fails closed
+        run: |
+          if docker run --rm bridge-api:ci > /tmp/bridge-production-boot.log 2>&1; then
+            echo "Container unexpectedly started without production configuration"
+            exit 1
+          fi
+          grep -q "incomplete or unsafe production configuration" /tmp/bridge-production-boot.log
+      - name: Probe liveness and readiness as non-root
+        run: |
+          vault_key="$(printf '0123456789abcdef0123456789abcdef' | base64 -w0)"
+          docker run --detach --name bridge-api-ci \
+            --publish 127.0.0.1:4000:4000 \
+            --env NODE_ENV=development \
+            --env BRIDGE_DEALPILOT_CREDENTIAL_VAULT=encrypted-file \
+            --env BRIDGE_CREDENTIAL_VAULT_KEY_ID=ci-key \
+            --env BRIDGE_CREDENTIAL_VAULT_KEY="$vault_key" \
+            bridge-api:ci
+          trap 'docker logs bridge-api-ci || true; docker rm --force bridge-api-ci || true' EXIT
+          test "$(docker inspect --format '{{.Config.User}}' bridge-api-ci)" = "10001:10001"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "API container did not become live"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4000/health/ready \
+            | grep -q '"ready":true'
+
   desktop:
     name: desktop shell (cargo check ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

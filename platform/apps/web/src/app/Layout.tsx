@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
-import { BrainCircuit, Home, Package, Plus, Settings, Check, ListChecks, MessageSquare, X } from "lucide-react";
+import { Network, Home, Package, Plus, Settings, Check, ListChecks, LogOut, MessageSquare, X } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "./lib/trpc";
 import { OnboardingDialog } from "./onboarding/OnboardingDialog";
 import { AvatarOverlay } from "./avatar/AvatarOverlay";
@@ -9,12 +9,13 @@ import { AgentPanel } from "./components/shared/AgentPanel";
 import { NewModuleDialog } from "./components/NewModuleDialog";
 import { usePanelControl, ResizeHandle, CollapseToggleButton } from "./components/shared/PanelControl";
 import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
+import { useAuthSession } from "./auth/AuthSession";
 
 /**
  * Shell IA v3 — TASK-001 / VOCAB6 (2026-07-16): installed Modules are
  * first-class left-nav items, sourced from packages.list (not hardcoded).
  * Each Module links to /module/:packageName (manifest-driven Module Detail).
- * Deprecated surfaces (Knowledge, Intelligence, standalone Tools, Workflows,
+ * Deprecated surfaces (Knowledge, Intelligence, standalone Tools,
  * Projects) are removed from primary nav. Settings moves to its own section.
  *
  * Panel behaviour: usePanelControl (§5b) — left sidebar and right AgentPanel
@@ -22,6 +23,7 @@ import { DesktopWindowChrome } from "./components/shared/DesktopWindowChrome";
  * PanelControl component.
  */
 export default function Layout() {
+  const auth = useAuthSession();
   const location = useLocation();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
@@ -33,6 +35,18 @@ export default function Layout() {
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
   const [mobileModulesOpen, setMobileModulesOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  async function signOut() {
+    setSignOutError(null);
+    try {
+      await auth.signOut();
+    } catch (failure) {
+      setSignOutError(
+        failure instanceof Error ? failure.message : "Could not sign out",
+      );
+    }
+  }
 
   // TASK-001 §5b: left rail uses the shared usePanelControl hook. A drag below
   // the midpoint collapses it; larger widths are preserved as the extended
@@ -354,7 +368,7 @@ export default function Layout() {
 
           <Link to="/second-brain" className={navItemClass(secondBrainActive)} title="Second Brain">
             {secondBrainActive && <ActiveBar />}
-            <BrainCircuit className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
+            <Network className="w-5 h-5 shrink-0" style={{ color: secondBrainActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass(railExpanded ? "" : "max-w-[60px]")}>Second Brain</span>
           </Link>
 
@@ -373,7 +387,7 @@ export default function Layout() {
 
         {/* Bottom section — Settings + Pending work.
             TASK-001 VOCAB6: Knowledge and Intelligence removed from primary nav
-            (deprecated surfaces: Tools, Knowledge, Workflows, Projects). */}
+            (deprecated surfaces: Tools, Knowledge, Projects). */}
         <div
           className="border-t flex flex-col gap-0.5 px-1.5 pb-3 pt-2 shrink-0"
           style={{ borderColor: "var(--color-border)" }}
@@ -388,6 +402,17 @@ export default function Layout() {
             <ListChecks className="w-5 h-5 shrink-0" style={{ color: pendingWorkActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
             <span className={navLabelClass()}>Task Manager</span>
           </Link>
+          {auth.configured && (
+            <button
+              type="button"
+              className={navItemClass(false)}
+              onClick={() => void signOut()}
+              title="Sign out"
+            >
+              <LogOut className="h-5 w-5 shrink-0 text-[var(--color-warm-gray)]" />
+              <span className={navLabelClass()}>Sign out</span>
+            </button>
+          )}
 
         </div>
       </nav>
@@ -441,7 +466,7 @@ export default function Layout() {
                 className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium"
                 style={{ color: "var(--color-navy)" }}
               >
-                <BrainCircuit className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
+                <Network className="h-4 w-4" style={{ color: "var(--color-steel)" }} />
                 Second Brain
               </Link>
               {moduleLoadError && <p className="px-3 py-2 text-xs text-red-600">Modules unavailable: {moduleLoadError}</p>}
@@ -527,7 +552,26 @@ export default function Layout() {
           <Settings className="w-4 h-4" style={{ color: settingsActive ? "var(--color-steel)" : "var(--color-warm-gray)" }} />
           Settings
         </Link>
+        {auth.configured && (
+          <button
+            type="button"
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 text-xs text-muted-foreground"
+            onClick={() => void signOut()}
+          >
+            <LogOut className="h-4 w-4 text-[var(--color-warm-gray)]" />
+            Sign out
+          </button>
+        )}
       </nav>
+
+      {signOutError && (
+        <div
+          role="alert"
+          className="fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-red-700 px-4 py-2 text-sm text-white shadow-lg"
+        >
+          {signOutError}
+        </div>
+      )}
 
       <NewModuleDialog open={newOpen} onOpenChange={setNewOpen} />
 

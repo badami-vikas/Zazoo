@@ -46,7 +46,7 @@ ui_libraries:
     bridge_surface: Network — 30K people directory, virtualized, inline edit
     license: permissive
   - library: "@xyflow/react (reactflow)"
-    bridge_surface: Rituals — n8n-style governed visual builder
+    bridge_surface: Automations — governed visual builder
     license: MIT
   - library: "@antv/g6 (WebGL mode)"
     bridge_surface: Relationship map — large read-only graph
@@ -64,7 +64,7 @@ ui_libraries:
     bridge_surface: Person / Initiative timeline
     license: MIT + Apache-2.0
   - library: react-big-calendar
-    bridge_surface: Calendar Tool — month/week/day/agenda render behind a CalendarView port (internalized fork)
+    bridge_surface: Calendar View — month/week/day/agenda render behind a CalendarView port (internalized fork)
     license: MIT
     note: ONLY proven all-free + forkable calendar; built-in resource columns = basic team lanes free. See ../wiki/calendar.md.
   - library: ical.js (mozilla-comm)
@@ -89,20 +89,20 @@ ai_runtime:
   - concern: Agent runtime
     pick: BUILD thin custom runtime (the moat); model on Agno scope schema + LangGraph interrupt()/checkpoint (the approve/veto/edit gate) on a Postgres saver
     note: Confirmed by OSS research — don't adopt a framework as infra.
-  - concern: Ritual engine
-    pick: Hatchet (MIT, Postgres-native) candidate, behind the RitualExecutor interface
+  - concern: Automation execution Engine
+    pick: Hatchet (MIT, Postgres-native) candidate, behind the AutomationExecutor interface
     note: Validate vs RLS. Temporal deferred.
   - concern: Job queue
     pick: BullMQ (Redis)
     note: Agent tasks, nightly signal/embedding recompute.
   - concern: Model provider
     pick: "ModelProvider seam: dev → Ollama (local, free); prod → user-configurable multi-provider (Claude default · OpenAI · Gemini · Bedrock · local)"
-    note: Same swap discipline as RitualExecutor; code never imports a provider directly. Local/in-tenant models = a trust feature (inference stays under the fund's control).
+    note: Same swap discipline as AutomationExecutor; code never imports a provider directly. Local/in-tenant models = a trust feature (inference stays under the Organization's control).
   - concern: Model tiers
     pick: Logical tiers reasoning / default / cheap bound to concrete models per workspace
     note: Dev binds all to Ollama; prod defaults Opus 4.8 / Sonnet 4.6 / Haiku 4.5, overridable.
   - concern: LLM gateway
-    pick: Vercel AI SDK (in-process, provider-agnostic, structured output + tool-calling) + optional LiteLLM proxy (prod routing/keys/budgets)
+    pick: Vercel AI SDK (in-process, provider-agnostic, structured output + function calling) + optional LiteLLM proxy (prod routing/keys/budgets)
     note: Both permissive; Ollama provider for dev.
 ```
 
@@ -112,7 +112,7 @@ ai_runtime:
 - **Avoid AGPL** for embedded code: Plane, AppFlowy, NocoDB (fine to *learn from*, not to embed in a SaaS).
 - **Avoid GPL:** Typesense — and unneeded: `pgvector` + `pg_trgm` cover semantic + fuzzy search.
 - **Avoid commercial-locked:** AG Grid Enterprise, FullCalendar Scheduler (`glide-data-grid` replaces AG Grid).
-- **Verify:** Mastra (was Elastic License — may have relicensed; OSS workflow checking).
+- **Verify:** Mastra (was Elastic License — may have relicensed; OSS Automation checking).
 
 ## Changed from / dropped vs the old plan
 - **Dropped:** single-user v1 / `DEFAULT_USER_ID` → multi-tenant workspace/team from day 0.

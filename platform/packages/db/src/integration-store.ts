@@ -21,6 +21,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { ALWAYS_APPROVAL_SCOPES } from "@bridge/core";
 import type { Database } from "./client.js";
 import { integrations, permissions } from "./schema.js";
+import { withWorkspaceOnly } from "./workspace-context.js";
 
 /** Actor type used for an integration's CBAC grants. */
 export const INTEGRATION_ACTOR_TYPE = "integration";
@@ -68,16 +69,23 @@ export class DrizzleIntegrationStore {
 
   /** Connected integrations for a workspace. */
   async list(workspaceId: string): Promise<IntegrationRow[]> {
-    const rows = await this.#db
-      .select({
-        id: integrations.id,
-        provider: integrations.provider,
-        scopes: integrations.scopes,
-        status: integrations.status,
-      })
-      .from(integrations)
-      .where(eq(integrations.workspaceId, workspaceId));
-    return rows.map((r) => ({ id: r.id, provider: r.provider, scopes: r.scopes ?? [], status: r.status }));
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select({
+          id: integrations.id,
+          provider: integrations.provider,
+          scopes: integrations.scopes,
+          status: integrations.status,
+        })
+        .from(integrations)
+        .where(eq(integrations.workspaceId, workspaceId));
+      return rows.map((r) => ({
+        id: r.id,
+        provider: r.provider,
+        scopes: r.scopes ?? [],
+        status: r.status,
+      }));
+    });
   }
 
   /** Record a connected integration (OAuth scopes are the platform-declared list). */
@@ -85,55 +93,72 @@ export class DrizzleIntegrationStore {
     // Ids are generated here rather than via .returning(): the Database union
     // (postgres-js | pglite) has divergent .returning() typings, so we avoid it.
     const id = randomUUID();
-    await this.#db.insert(integrations).values({ id, workspaceId, provider, scopes: oauthScopes, status: "active" });
+    await withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      await tx.insert(integrations).values({
+        id,
+        workspaceId,
+        provider,
+        scopes: oauthScopes,
+        status: "active",
+      });
+    });
     return { id, provider, scopes: oauthScopes, status: "active" };
   }
 
   /** Mark an integration revoked and revoke every standing grant it held. */
   async disconnect(workspaceId: string, integrationId: string, at: Date = new Date()): Promise<void> {
-    await this.#db
-      .update(integrations)
-      .set({ status: "revoked" })
-      .where(and(eq(integrations.workspaceId, workspaceId), eq(integrations.id, integrationId)));
-    await this.#db
-      .update(permissions)
-      .set({ revokedAt: at })
-      .where(
-        and(
-          eq(permissions.workspaceId, workspaceId),
-          eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
-          eq(permissions.actorId, integrationId),
-          isNull(permissions.revokedAt),
-        ),
-      );
+    await withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      await tx
+        .update(integrations)
+        .set({ status: "revoked" })
+        .where(
+          and(
+            eq(integrations.workspaceId, workspaceId),
+            eq(integrations.id, integrationId),
+          ),
+        );
+      await tx
+        .update(permissions)
+        .set({ revokedAt: at })
+        .where(
+          and(
+            eq(permissions.workspaceId, workspaceId),
+            eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
+            eq(permissions.actorId, integrationId),
+            isNull(permissions.revokedAt),
+          ),
+        );
+    });
   }
 
   /** Active (non-revoked) Bridge capability grants held by an integration. */
   async listScopes(workspaceId: string, integrationId: string): Promise<ScopeGrant[]> {
-    const rows = await this.#db
-      .select({
-        id: permissions.id,
-        resourceType: permissions.resourceType,
-        action: permissions.action,
-        effect: permissions.effect,
-        expiresAt: permissions.expiresAt,
-      })
-      .from(permissions)
-      .where(
-        and(
-          eq(permissions.workspaceId, workspaceId),
-          eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
-          eq(permissions.actorId, integrationId),
-          isNull(permissions.revokedAt),
-        ),
-      );
-    return rows.map((r) => ({
-      id: r.id,
-      resourceType: r.resourceType,
-      action: r.action,
-      effect: r.effect,
-      expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
-    }));
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select({
+          id: permissions.id,
+          resourceType: permissions.resourceType,
+          action: permissions.action,
+          effect: permissions.effect,
+          expiresAt: permissions.expiresAt,
+        })
+        .from(permissions)
+        .where(
+          and(
+            eq(permissions.workspaceId, workspaceId),
+            eq(permissions.actorType, INTEGRATION_ACTOR_TYPE),
+            eq(permissions.actorId, integrationId),
+            isNull(permissions.revokedAt),
+          ),
+        );
+      return rows.map((r) => ({
+        id: r.id,
+        resourceType: r.resourceType,
+        action: r.action,
+        effect: r.effect,
+        expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+      }));
+    });
   }
 
   /**
@@ -153,16 +178,18 @@ export class DrizzleIntegrationStore {
       throw new IntegrationFloorScopeError(args.resourceType);
     }
     const id = randomUUID();
-    await this.#db.insert(permissions).values({
-      id,
-      workspaceId: args.workspaceId,
-      actorType: INTEGRATION_ACTOR_TYPE,
-      actorId: args.integrationId,
-      resourceType: args.resourceType,
-      action: args.action,
-      effect: "allow",
-      ...(args.grantedBy ? { grantedBy: args.grantedBy } : {}),
-      ...(args.expiresAt ? { expiresAt: args.expiresAt } : {}),
+    await withWorkspaceOnly(this.#db, args.workspaceId, async (tx) => {
+      await tx.insert(permissions).values({
+        id,
+        workspaceId: args.workspaceId,
+        actorType: INTEGRATION_ACTOR_TYPE,
+        actorId: args.integrationId,
+        resourceType: args.resourceType,
+        action: args.action,
+        effect: "allow",
+        ...(args.grantedBy ? { grantedBy: args.grantedBy } : {}),
+        ...(args.expiresAt ? { expiresAt: args.expiresAt } : {}),
+      });
     });
     return {
       id,
@@ -175,9 +202,16 @@ export class DrizzleIntegrationStore {
 
   /** Revoke a single standing grant (narrowing). Append-only: sets revoked_at. */
   async revokeScope(workspaceId: string, permissionId: string, at: Date = new Date()): Promise<void> {
-    await this.#db
-      .update(permissions)
-      .set({ revokedAt: at })
-      .where(and(eq(permissions.workspaceId, workspaceId), eq(permissions.id, permissionId)));
+    await withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      await tx
+        .update(permissions)
+        .set({ revokedAt: at })
+        .where(
+          and(
+            eq(permissions.workspaceId, workspaceId),
+            eq(permissions.id, permissionId),
+          ),
+        );
+    });
   }
 }

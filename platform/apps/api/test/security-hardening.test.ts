@@ -78,7 +78,7 @@ test("sidecar capability authenticates the server-owned pilot without granting r
       appRouter
         .createCaller(verifierContext)
         .dealpilot.module({ workspaceId: PILOT_WORKSPACE }),
-      /authentication required for DealPilot/,
+      /authentication required: verified authentication is required/,
     );
   } finally {
     await wiring.close();

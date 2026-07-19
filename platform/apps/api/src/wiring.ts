@@ -7,22 +7,16 @@
  * and `buildInMemoryPorts()`. Each returns one fully-typed `ModePorts` object; there
  * is no conditional reassignment of individual ports.
  *
- * Ledger residency (KNOWN OPEN GAP, All fixes.md Phase 1 item 7 — needs a product
- * decision, not resolved here): even in persistent mode the ledger binds to whatever
- * `DATABASE_URL` points at, which may be cloud Supabase. That means private-proposal
- * ledger rows (bodies/diffs for Gmail/Calendar-derived actions) CAN land in a cloud
- * ledger despite this file historically claiming "the ledger MUST stay local." We do
- * NOT silently keep that claim — `buildPersistentPorts()` logs a loud warning at boot
- * instead, so the gap is visible rather than papered over. Fixing it for real means
- * either splitting the ledger by `data_scope` (local vs cloud) or formally dropping
- * the guarantee; that decision is explicitly deferred to the user (see decisions-log).
+ * Ledger residency: persistent mode composes Local and Cloud Plane Drizzle ledgers.
+ * Only explicitly public root entries reach Supabase; private, all-scope, and legacy
+ * unscoped roots remain local, and decisions/audits follow their parent.
  *
  * Canonical identity store: this one IS genuinely fixed here.
  * `DrizzleCanonicalIdentityStore` already exists (@bridge/db) and is now wired in
  * persistent mode instead of the in-memory fake — no more silent lie there.
  *
- * LOCAL plane: pglite (@bridge/local) — OAuth tokens + raw bodies + derived
- * Touchpoints/Memories/Signals persist here, never Supabase. The residency fix.
+ * LOCAL plane: pglite (@bridge/local) — OAuth tokens, raw bodies, and private
+ * derived data persist here, never Supabase.
  *
  * Google egress adapter: the real googleapis gateway when GOOGLE_CLIENT_ID/SECRET
  * are configured; otherwise a fail-closed factory (no fake/dummy data — the platform
@@ -35,12 +29,11 @@ import {
   InMemoryLedger,
   InMemoryPolicyStore,
   InMemoryRoleStore,
-  InMemoryRitualRegistry,
-  InMemoryRitualRunRecorder,
-  InMemoryToolRegistry,
+  InMemoryAutomationRegistry,
+  InMemoryAutomationRunRecorder,
   InMemoryMediaStore,
   InMemorySkillRegistry,
-  InProcessRitualExecutor,
+  InProcessAutomationExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
   KERNEL_PASSTHROUGH_SKILL,
@@ -68,12 +61,11 @@ import {
   type LocalMediaStore,
   type PolicyFn,
   type PolicyStore,
-  type RitualRegistry,
-  type RitualRunRecorder,
+  type AutomationRegistry,
+  type AutomationRunRecorder,
   type RoleQuery,
   type Skill,
   type SkillOutput,
-  type ToolRegistry,
   type CapabilityStore,
   type AutoActivationBudgetStore,
   type Action,
@@ -119,9 +111,11 @@ import {
   type ClaimGroundingFailure,
 } from "@bridge/jobpilot";
 import { createHash, randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
 import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
 import { GoogleOAuthStateStore } from "./google-oauth-state.js";
+import { ResidencyRoutingLedgerStore } from "./residency-ledger.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
   assertRlsPosture,
@@ -182,9 +176,11 @@ import {
   SKILL_STAGE,
   type GoogleGatewayFactory,
   type GoogleOAuthConfig,
-  type ToolManifest,
+  type IntegrationManifest,
 } from "@bridge/integrations-google";
 import {
+  credentialVaultKeyFromBase64,
+  EncryptedFileSourceCredentialVault,
   HumanReauthentication,
   KeyringSourceCredentialVault,
   LocalDealPilotStore,
@@ -198,7 +194,7 @@ import {
   type DealPilotRuntimeStore,
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
-import type { QuarantinedCapture } from "@bridge/tool-kit";
+import type { QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_PACKAGES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
@@ -206,7 +202,7 @@ import {
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
-  resolveModuleRitualRuntimeId,
+  resolveModuleAutomationRuntimeId,
 } from "./built-in-packages.js";
 import {
   createOrganizationRenameLease,
@@ -262,6 +258,7 @@ const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000
 // seeded user id — workspace_definitions.created_by is a real FK to `users`,
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
+export const PILOT_USER_EMAIL = "pilot@bridge.local";
 
 export async function migrateLegacyPilotOrganization(
   workspaceStore: DrizzleWorkspaceStore,
@@ -291,7 +288,7 @@ export async function retireSupersededBuiltIns(
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;
-  ritualExecutor: InProcessRitualExecutor;
+  automationExecutor: InProcessAutomationExecutor;
   roles: RoleQuery;
   agents: AgentQuery;
   ephemeral: EphemeralQuery;
@@ -315,12 +312,14 @@ export interface Wiring {
   googleOAuthStates: GoogleOAuthStateStore;
   /** Whether the real googleapis gateway is in use, or Google is unconfigured. */
   googleGatewayKind: "google" | "unconfigured";
-  googleManifest: ToolManifest;
+  googleManifest: IntegrationManifest;
   /** The server-chosen pilot user id — the default authenticated identity (Phase C
    * replaces this pin with a verified Supabase session). */
   pilotUserId: string;
-  /** Ritual registry (config rows) — used by ritual.create to register new workflows. */
-  ritualRegistry: RitualRegistry;
+  /** Email paired with the approved Supabase Auth pilot subject. */
+  pilotUserEmail: string;
+  /** Canonical Automation definitions used by Automation creation and execution. */
+  automationRegistry: AutomationRegistry;
   /** Workspace + team-member CRUD — direct DB writes, not a governed pipeline skill. */
   workspaceStore: DrizzleWorkspaceStore;
   /** Read surface for Initiative/Touchpoint/Signal (see graph-store.ts). */
@@ -409,7 +408,7 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
-  /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
+  /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
@@ -2804,7 +2803,11 @@ const policies: PolicyFn[] = [
 ];
 
 /** Seed the in-memory governance so the Google egress/intake agents are authorized. */
-function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): void {
+function seedGovernance(
+  roles: InMemoryRoleStore,
+  agents: InMemoryAgentStore,
+  pilotUserId: string = PILOT_USER,
+): void {
   for (const agentId of [
     OUTREACH_AGENT,
     LEARNING_AGENT,
@@ -2915,7 +2918,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   ]);
 
   // The signed-in user the agents act on behalf of (delegation ∩ principal authority).
-  roles.direct.set(`user:${PILOT_USER}`, [
+  roles.direct.set(`user:${pilotUserId}`, [
     { resourceType: "event", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "event", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "person", resourceId: null, action: "write", effect: "allow" },
@@ -2925,8 +2928,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "community", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "community", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
-    { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
-    { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "module", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "module", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
@@ -2942,9 +2945,8 @@ export interface ModePorts {
   policyStore: PolicyStore;
   ledger: LedgerStore;
   relationMaterializations: DrizzleRelationMaterializationStore;
-  ritualRegistry: RitualRegistry;
-  toolRegistry: ToolRegistry;
-  ritualRunRecorder: RitualRunRecorder;
+  automationRegistry: AutomationRegistry;
+  automationRunRecorder: AutomationRunRecorder;
   canonical: CanonicalIdentityStore;
   workspaceStore: DrizzleWorkspaceStore;
   /** Read surface for Initiative/Touchpoint/Signal — see graph-store.ts's header
@@ -3017,17 +3019,15 @@ export interface ModePorts {
  * real `DrizzleCanonicalIdentityStore` (no more in-memory fake once persistence is
  * requested).
  *
- * One residency decision remains explicitly unresolved:
- *  - the ledger residency question is still open (Phase 1 item 7 — needs a product
- *    decision on local-vs-cloud split); the ledger itself IS the real Drizzle ledger
- *    here, but which physical database it points at is whatever `DATABASE_URL` says,
- *    which may be cloud — so the historical "ledger MUST stay local" guarantee is not
- *    actually enforced. We warn rather than silently uphold a promise we don't keep.
+ * The ledger returned here is the Cloud Plane half. `buildWiring()` combines it
+ * with the Local Plane ledger through `ResidencyRoutingLedgerStore`.
  */
 export function buildPersistentPorts(env: {
   url: string;
+  pilotUserId?: string;
   workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
 }): ModePorts {
+  const pilotUserId = env.pilotUserId ?? PILOT_USER;
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db, {
     defaultWorkspaceId: PILOT_WORKSPACE,
@@ -3040,17 +3040,12 @@ export function buildPersistentPorts(env: {
   // inside `ensureSkillManifestCatalog` below (called once at boot, before the
   // server serves traffic), not here — constructing it here just binds the db.
   const goalTaskStore = new DrizzleGoalTaskStore(db);
-  const skillManifestRegistry = new DrizzleSkillManifestRegistry(db);
+  const skillManifestRegistry = new DrizzleSkillManifestRegistry(
+    db,
+    PILOT_WORKSPACE,
+  );
   const childAgentRunStore = new DrizzleChildAgentRunStore(db);
 
-  console.warn(
-    "[wiring] DATABASE_URL is set, but the ledger residency guarantee (\"ledger MUST " +
-      "stay local\") is NOT enforced: the ledger is bound to whatever DATABASE_URL " +
-      "points at, which may be a cloud Supabase instance. Private-proposal ledger rows " +
-      "(Gmail/Calendar-derived diffs) can therefore reach cloud canonical. This is a " +
-      "known open gap (All fixes.md Phase 1 item 7) awaiting a product decision " +
-      "(split-by-data_scope vs. drop the guarantee) — not silently upheld.",
-  );
   return {
     roles: ports.roles,
     agents: ports.agents,
@@ -3058,22 +3053,24 @@ export function buildPersistentPorts(env: {
     policyStore: ports.policies,
     ledger: ports.ledger,
     relationMaterializations: ports.relationMaterializations,
-    ritualRegistry: ports.ritualRegistry,
-    toolRegistry: ports.toolRegistry,
-    ritualRunRecorder: ports.ritualRunRecorder,
+    automationRegistry: ports.automationRegistry,
+    automationRunRecorder: ports.automationRunRecorder,
     // The one genuinely-fixed lie: canonical identity now really persists to Postgres
     // instead of an in-memory fake, once DATABASE_URL is set.
     canonical: new DrizzleCanonicalIdentityStore(db),
     workspaceStore: ports.workspaceStore,
     graphStore: new DrizzleGraphStore(db),
-    jobpilotStore: new DrizzleJobPilotStore(db),
-    helpdeskStore: new DrizzleHelpdeskStore(db),
+    jobpilotStore: new DrizzleJobPilotStore(db, PILOT_WORKSPACE),
+    helpdeskStore: new DrizzleHelpdeskStore(db, PILOT_WORKSPACE),
     resourcesStore: new DrizzleResourcesStore(db),
-    capabilityStore: new DrizzleCapabilityStore(db),
-    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(db),
+    capabilityStore: new DrizzleCapabilityStore(db, PILOT_WORKSPACE),
+    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(
+      db,
+      PILOT_WORKSPACE,
+    ),
     // P2 packages: real Drizzle-backed store in persistent mode (ADR-023) — no
     // longer in-memory-only once DATABASE_URL is set.
-    packageStore: new DrizzlePackageStore(db),
+    packageStore: new DrizzlePackageStore(db, PILOT_WORKSPACE),
     memoryStore: new DrizzleMemoryStore(db),
     // TASK-007 — real, restart-durable bindings (see the field's doc comment
     // on ModePorts for why these are no longer in-memory once DATABASE_URL is set).
@@ -3093,7 +3090,7 @@ export function buildPersistentPorts(env: {
     ensureEgressGovernance: () =>
       ensureEgressAgentGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: EGRESS_AGENT,
         roleId: EGRESS_ROLE,
         permissionId: EGRESS_PRINCIPAL_PERMISSION,
@@ -3101,7 +3098,7 @@ export function buildPersistentPorts(env: {
     ensureIntakeGovernance: () =>
       ensureIntakeAgentGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: INTAKE_AGENT,
         roleId: INTAKE_ROLE,
         permissionId: INTAKE_PRINCIPAL_PERMISSION,
@@ -3109,12 +3106,12 @@ export function buildPersistentPorts(env: {
     ensureDealPilotPrincipalGovernance: () =>
       ensureDealPilotPrincipalGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
       }),
     ensureInternalStrategistGovernance: () =>
       ensureInternalStrategistGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: INTERNAL_STRATEGIST_AGENT,
         roleId: INTERNAL_STRATEGIST_ROLE,
         permissionId: INTERNAL_STRATEGIST_SIGNAL_PERMISSION,
@@ -3122,7 +3119,7 @@ export function buildPersistentPorts(env: {
     ensureGovernanceAgentGovernance: () =>
       ensureGovernanceAgentGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: GOVERNANCE_AGENT,
         roleId: GOVERNANCE_ROLE,
         permissionId: GOVERNANCE_SIGNAL_PERMISSION,
@@ -3130,7 +3127,7 @@ export function buildPersistentPorts(env: {
     ensureCapabilityBuilderGovernance: () =>
       ensureCapabilityBuilderGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: CAPABILITY_BUILDER_AGENT,
         roleId: CAPABILITY_BUILDER_ROLE,
         permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
@@ -3138,7 +3135,7 @@ export function buildPersistentPorts(env: {
     ensureRelationshipUserGovernance: () =>
       ensureRelationshipUserGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
       }),
     ensureSkillManifestCatalog: async () => {
       await seedSkillManifests(db, GOVERNED_SKILL_MANIFEST_CATALOG);
@@ -3147,7 +3144,7 @@ export function buildPersistentPorts(env: {
     ensureLearningGovernance: () =>
       ensureLearningAgentGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: LEARNING_AGENT,
         roleId: LEARNING_ROLE,
         permissionId: LEARNING_SIGNAL_PERMISSION,
@@ -3155,7 +3152,7 @@ export function buildPersistentPorts(env: {
     ensureOutreachGovernance: () =>
       ensureOutreachAgentGovernance(db, {
         workspaceId: PILOT_WORKSPACE,
-        userId: PILOT_USER,
+        userId: pilotUserId,
         agentId: OUTREACH_AGENT,
         roleId: OUTREACH_ROLE,
         permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
@@ -3171,13 +3168,15 @@ export function buildPersistentPorts(env: {
  */
 export async function buildInMemoryPorts(env: {
   localDir: string | undefined;
+  pilotUserId?: string;
   workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
   localDatabase?: Awaited<ReturnType<typeof createLocalDb>>;
 }): Promise<ModePorts> {
+  const pilotUserId = env.pilotUserId ?? PILOT_USER;
   const mRoles = new InMemoryRoleStore();
   const mAgents = new InMemoryAgentStore();
   const mEphemeral = new InMemoryEphemeralStore();
-  seedGovernance(mRoles, mAgents);
+  seedGovernance(mRoles, mAgents, pilotUserId);
 
   const localDatabase =
     env.localDatabase ??
@@ -3255,19 +3254,20 @@ export async function buildInMemoryPorts(env: {
     policyStore: new InMemoryPolicyStore(policies),
     ledger,
     relationMaterializations: new DrizzleRelationMaterializationStore(localDb),
-    // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
-    // ritual.create (validated ritual ⊆ agent) and persist here for the session.
-    ritualRegistry: new InMemoryRitualRegistry(),
-    toolRegistry: new InMemoryToolRegistry(),
-    ritualRunRecorder: new InMemoryRitualRunRecorder(),
+    // Definitions start empty. Real Automations are created with an owning Agent.
+    automationRegistry: new InMemoryAutomationRegistry(),
+    automationRunRecorder: new InMemoryAutomationRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
     workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
     graphStore,
-    jobpilotStore: new DrizzleJobPilotStore(localDb),
-    helpdeskStore: new DrizzleHelpdeskStore(localDb),
+    jobpilotStore: new DrizzleJobPilotStore(localDb, PILOT_WORKSPACE),
+    helpdeskStore: new DrizzleHelpdeskStore(localDb, PILOT_WORKSPACE),
     resourcesStore: new DrizzleResourcesStore(localDb),
-    capabilityStore: new DrizzleCapabilityStore(localDb),
-    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(localDb),
+    capabilityStore: new DrizzleCapabilityStore(localDb, PILOT_WORKSPACE),
+    workspaceDefinitionStore: new DrizzleWorkspaceDefinitionStore(
+      localDb,
+      PILOT_WORKSPACE,
+    ),
     // In-memory mode keeps packages in-memory (no persistent backing store needed
     // for zero-infra dev/test) — persistent mode uses the real DrizzlePackageStore.
     packageStore: new InMemoryPackageStore(),
@@ -3318,7 +3318,7 @@ export async function buildInMemoryPorts(env: {
           ensureLearningGovernance: () =>
             ensureLearningAgentGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: LEARNING_AGENT,
               roleId: LEARNING_ROLE,
               permissionId: LEARNING_SIGNAL_PERMISSION,
@@ -3326,7 +3326,7 @@ export async function buildInMemoryPorts(env: {
           ensureOutreachGovernance: () =>
             ensureOutreachAgentGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: OUTREACH_AGENT,
               roleId: OUTREACH_ROLE,
               permissionId: OUTREACH_TOUCHPOINT_PERMISSION,
@@ -3334,7 +3334,7 @@ export async function buildInMemoryPorts(env: {
           ensureInternalStrategistGovernance: () =>
             ensureInternalStrategistGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: INTERNAL_STRATEGIST_AGENT,
               roleId: INTERNAL_STRATEGIST_ROLE,
               permissionId: INTERNAL_STRATEGIST_SIGNAL_PERMISSION,
@@ -3342,7 +3342,7 @@ export async function buildInMemoryPorts(env: {
           ensureGovernanceAgentGovernance: () =>
             ensureGovernanceAgentGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: GOVERNANCE_AGENT,
               roleId: GOVERNANCE_ROLE,
               permissionId: GOVERNANCE_SIGNAL_PERMISSION,
@@ -3350,7 +3350,7 @@ export async function buildInMemoryPorts(env: {
           ensureCapabilityBuilderGovernance: () =>
             ensureCapabilityBuilderGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: CAPABILITY_BUILDER_AGENT,
               roleId: CAPABILITY_BUILDER_ROLE,
               permissionId: CAPABILITY_BUILDER_SIGNAL_PERMISSION,
@@ -3358,7 +3358,7 @@ export async function buildInMemoryPorts(env: {
           ensureEgressGovernance: () =>
             ensureEgressAgentGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: EGRESS_AGENT,
               roleId: EGRESS_ROLE,
               permissionId: EGRESS_PRINCIPAL_PERMISSION,
@@ -3366,7 +3366,7 @@ export async function buildInMemoryPorts(env: {
           ensureIntakeGovernance: () =>
             ensureIntakeAgentGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
               agentId: INTAKE_AGENT,
               roleId: INTAKE_ROLE,
               permissionId: INTAKE_PRINCIPAL_PERMISSION,
@@ -3374,7 +3374,7 @@ export async function buildInMemoryPorts(env: {
           ensureDealPilotPrincipalGovernance: () =>
             ensureDealPilotPrincipalGovernance(localDb, {
               workspaceId: PILOT_WORKSPACE,
-              userId: PILOT_USER,
+              userId: pilotUserId,
             }),
         }
       : {}),
@@ -3394,10 +3394,42 @@ export interface BuildWiringOptions {
   moduleFilesBridgeRoot?: string;
 }
 
+export function encryptedCredentialVaultFromEnv(
+  directory: string,
+  env: NodeJS.ProcessEnv = process.env,
+): EncryptedFileSourceCredentialVault {
+  const currentId = env.BRIDGE_CREDENTIAL_VAULT_KEY_ID?.trim();
+  const currentKey = env.BRIDGE_CREDENTIAL_VAULT_KEY?.trim();
+  if (!currentId || !currentKey) {
+    throw new Error(
+      "BRIDGE_CREDENTIAL_VAULT_KEY_ID and BRIDGE_CREDENTIAL_VAULT_KEY are required for the encrypted-file credential vault",
+    );
+  }
+  const previousId = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID?.trim();
+  const previousKey = env.BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY?.trim();
+  if (Boolean(previousId) !== Boolean(previousKey)) {
+    throw new Error(
+      "BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID and BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY must be configured together",
+    );
+  }
+  return new EncryptedFileSourceCredentialVault({
+    directory,
+    current: credentialVaultKeyFromBase64(currentId, currentKey),
+    ...(previousId && previousKey
+      ? {
+          previous: credentialVaultKeyFromBase64(previousId, previousKey),
+        }
+      : {}),
+  });
+}
+
 function runningUnderNodeTest(): boolean {
   return process.env.NODE_TEST_CONTEXT !== undefined;
 }
 export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wiring> {
+  const pilotUserId = process.env.BRIDGE_PILOT_USER_ID?.trim() || PILOT_USER;
+  const pilotUserEmail =
+    process.env.BRIDGE_PILOT_USER_EMAIL?.trim() || PILOT_USER_EMAIL;
   const geocodingProvider =
     options.geocodingProvider ?? localGeocodingProviderFromEnv(process.env);
   const events = new InMemoryEventBus();
@@ -3436,7 +3468,11 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const credentialProvider =
     process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
     (runningUnderNodeTest() ? "os-keyring" : undefined);
-  if (!options.dealPilotCredentialVault && credentialProvider !== "os-keyring") {
+  if (
+    !options.dealPilotCredentialVault &&
+    credentialProvider !== "os-keyring" &&
+    credentialProvider !== "encrypted-file"
+  ) {
     throw new Error(
       credentialProvider
         ? `Unsupported BRIDGE_DEALPILOT_CREDENTIAL_VAULT "${credentialProvider}"; configure an approved secure provider`
@@ -3530,9 +3566,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       ),
   };
   const modePorts: ModePorts = url
-    ? buildPersistentPorts({ url, workspaceRenameCoordinator })
+    ? buildPersistentPorts({ url, pilotUserId, workspaceRenameCoordinator })
     : await buildInMemoryPorts({
         localDir,
+        pilotUserId,
         localDatabase,
         workspaceRenameCoordinator,
       });
@@ -3563,11 +3600,10 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     agents,
     ephemeral,
     policyStore,
-    ledger,
+    ledger: modeLedger,
     relationMaterializations,
-    ritualRegistry,
-    toolRegistry,
-    ritualRunRecorder,
+    automationRegistry,
+    automationRunRecorder,
     canonical,
     workspaceStore,
     graphStore,
@@ -3584,6 +3620,14 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     modelProviders,
     memory,
   } = modePorts;
+  const ledger: LedgerStore = url
+    ? new ResidencyRoutingLedgerStore(
+        new DrizzleLedgerStore(localDatabase.db, {
+          defaultWorkspaceId: PILOT_WORKSPACE,
+        }),
+        modeLedger,
+      )
+    : modeLedger;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates workspace policies from Postgres; it must not replace these rules.
   const staticPolicyStore = new InMemoryPolicyStore(policies);
@@ -3599,7 +3643,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       }
     : policyStore;
 
-  // ModelProvider registry/router — resolves tool-kit modelBindings honoring
+  // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
   const models = createModelRouter(modelProviders);
 
@@ -3620,7 +3664,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // other per-mode port already follows.
 
   // DealPilot: the first tool wired through the generic manifest intake seam
-  // (@bridge/tool-kit capture contract) — sourcing quarantines
+  // (shared capability intake contract) — sourcing quarantines
   // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
   // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
@@ -3628,8 +3672,19 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   const dealPilotStore = new LocalDealPilotStore(localPlane.state);
   const localWorkspaceStore = new DrizzleWorkspaceStore(localDatabase.db);
   const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
+  const credentialVaultRoot = effectiveLocalDir ?? localDir;
+  if (credentialProvider === "encrypted-file" && !credentialVaultRoot) {
+    throw new Error(
+      "The encrypted-file credential vault requires a durable BRIDGE_LOCAL_DIR",
+    );
+  }
   const dealPilotCredentialVault =
-    options.dealPilotCredentialVault ?? new KeyringSourceCredentialVault();
+    options.dealPilotCredentialVault ??
+    (credentialProvider === "encrypted-file"
+      ? encryptedCredentialVaultFromEnv(
+          join(credentialVaultRoot!, "credential-vault"),
+        )
+      : new KeyringSourceCredentialVault());
   await reconcileCredentialOperations(
     dealPilotStore,
     dealPilotCredentialVault,
@@ -3718,7 +3773,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
             captures.push({
               ...envelope,
               captureId,
-              toolId: "dealpilot",
+              moduleId: "dealpilot",
               trustOrigin: envelope.trustOrigin ?? "untrusted_external",
             });
           }
@@ -3740,7 +3795,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           }
           return {
             proposedOutput: {
-              toolId: "dealpilot",
+              moduleId: "dealpilot",
               count: settlement.captureIds.length,
               captureIds: settlement.captureIds,
               attempted: batch.summary.attempted,
@@ -3779,15 +3834,15 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // because nothing ever inserts these rows. Safe to call every boot (no-op if present).
   await workspaceStore.bootstrapPilotIdentities({
     workspaceId: PILOT_WORKSPACE,
-    userId: PILOT_USER,
-    userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
+    userId: pilotUserId,
+    userEmail: pilotUserEmail,
   });
   await migrateLegacyPilotOrganization(workspaceStore);
   if (url) {
     await localWorkspaceStore.bootstrapPilotIdentities({
       workspaceId: PILOT_WORKSPACE,
-      userId: PILOT_USER,
-      userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
+      userId: pilotUserId,
+      userEmail: pilotUserEmail,
     });
   }
   // Persistent governance rows reference the pilot workspace and owner, so
@@ -3834,17 +3889,17 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   }
 
   // Signed Module manifests opt individual Automations into the executable
-  // runtime with a stable Ritual id. Inventory-only rows remain non-clickable.
+  // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
   for (const pkg of BUILT_IN_PACKAGES) {
     const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
     for (const automation of pkg.manifest.module?.automations ?? []) {
-      if (!automation.ritualId) continue;
+      if (!automation.automationId) continue;
       const capability = pkg.manifest.capabilities.find((item) => item.id === automation.capabilityId);
       const permission = capability?.permissions[0];
       const agent = moduleAgents.get(automation.agentId);
-      const ritualId = resolveModuleRitualRuntimeId(pkg.manifest.name, automation.ritualId);
+      const automationId = resolveModuleAutomationRuntimeId(pkg.manifest.name, automation.automationId);
       const agentId = resolveModuleAgentRuntimeId(pkg.manifest.name, automation.agentId);
-      if (!permission || !agent || !ritualId || !agentId) continue;
+      if (!permission || !agent || !automationId || !agentId) continue;
       if (!agent.plane) throw new Error(`Module Automation ${automation.id} has no owning Agent Plane`);
       const manifest = skillManifests.forSkill(PILOT_WORKSPACE, automation.procedure)[0];
       let goalTaskRef: { goalId: string; taskId: string } | undefined;
@@ -3883,8 +3938,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           ));
         goalTaskRef = { goalId: goal.id, taskId: task.id };
       }
-      await ritualRegistry.save({
-        id: ritualId,
+      await automationRegistry.save({
+        id: automationId,
         name: automation.name,
         workspaceId: PILOT_WORKSPACE,
         agentId,
@@ -3943,7 +3998,12 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     materializer,
     egress,
     secrets: localPlane.secrets,
-    identities: { workspaceId: PILOT_WORKSPACE, egressAgentId: EGRESS_AGENT, intakeAgentId: INTAKE_AGENT, userId: PILOT_USER },
+    identities: {
+      workspaceId: PILOT_WORKSPACE,
+      egressAgentId: EGRESS_AGENT,
+      intakeAgentId: INTAKE_AGENT,
+      userId: pilotUserId,
+    },
     selfEmails,
     goalTasks,
   });
@@ -3967,10 +4027,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   return {
     pipeline,
     localMedia,
-    ritualExecutor: new InProcessRitualExecutor(pipeline, {
-      registry: ritualRegistry,
-      toolRegistry,
-      recorder: ritualRunRecorder,
+    automationExecutor: new InProcessAutomationExecutor(pipeline, {
+      registry: automationRegistry,
+      recorder: automationRunRecorder,
     }),
     roles,
     agents,
@@ -3987,7 +4046,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     googleOAuthStates,
     googleGatewayKind,
     googleManifest: GOOGLE_MANIFEST,
-    pilotUserId: PILOT_USER,
+    pilotUserId,
+    pilotUserEmail,
     dealpilot: {
       integrationId: dealPilotIntegrationId,
       store: dealPilotStore,
@@ -3997,7 +4057,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       bindings: dealPilotBindings,
     },
     integrationStore,
-    ritualRegistry,
+    automationRegistry,
     workspaceStore,
     graphStore,
     jobpilotStore,

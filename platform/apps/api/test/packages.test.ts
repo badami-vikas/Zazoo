@@ -115,7 +115,7 @@ test("packages.register: rejects an authenticated workspace nonmember", async ()
       run: makeRun(),
       identity: { type: "user", id: "d0000000-0000-4000-a000-00000000dead" },
       authenticated: true,
-      verifying: true,
+      verifying: false,
     });
     await assert.rejects(
       () => caller.packages.register({ workspaceId: PILOT_WORKSPACE, manifest: dummyManifest() }),
@@ -190,7 +190,7 @@ test("packages.install: an external-risk package (egress permission) is parked p
         capabilities: [
           {
             id: "dummy.egress-cap",
-            capability_type: "workflow",
+            capability_type: "automation",
             permissions: [{ resource_type: "external_fetch", action: "read", data_scope: "public", egress: true }],
             connectors: [],
           },
@@ -232,7 +232,7 @@ test("packages.install: lethal trifecta assembled across separate bundled capabi
           },
           {
             id: "dummy.egress-connector",
-            capability_type: "workflow",
+            capability_type: "automation",
             permissions: [{ resource_type: "touchpoint", action: "write", data_scope: "all", egress: false }],
             connectors: [{ id: "dummy-sender", external_send: true }],
           },

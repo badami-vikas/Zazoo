@@ -148,13 +148,13 @@ export interface MediaCaptureRecord {
   /** Set when an approved proposal commits the capture. */
   ledgerId?: string;
   linkedEntity?: { type: "person" | "memory" | "event" | "touchpoint"; id: string } | null;
-  provenance: { tool: string; version: string; model?: string };
+  provenance: { skill: string; version: string; model?: string };
   capturedAt: string;
   archivedAt?: string | null;
 }
 
 /**
- * LOCAL-plane media store — the seam the camera Tool persists blobs through. The
+ * LOCAL-plane media store — the seam the camera capture Skill persists blobs through. The
  * in-memory adapter lives in `memory/stores.ts`; the pglite (bytea) adapter lives
  * in `@bridge/db`. Blobs NEVER cross the gate. Append-only: a row's blob + core
  * metadata are immutable after `put`; only status/ledgerId/linkedEntity/caption/
@@ -175,7 +175,7 @@ export interface EventBus {
 
 /**
  * ModelProvider — the seam every model call in the kernel goes through (never
- * a direct SDK/fetch call inline in a skill/tool). `plane` mirrors the
+ * a direct SDK/fetch call inline in a Skill). `plane` mirrors the
  * two-plane gate (types.ts `Plane`): a `local` provider (e.g. Ollama) is safe
  * to bind for capture/sensor-plane work per CLAUDE.md ("capture/sensor plane =
  * local models default"); a `cloud` provider (e.g. Anthropic) is subject to
@@ -212,8 +212,8 @@ export interface VarianceAdjuster {
   observe(entry: LedgerEntry, ctx: RunCtx): Promise<void>;
 }
 
-/** A ritual step as stored in the registry (rituals.skill_pipeline jsonb). */
-export interface RitualStepDef {
+/** An Automation step stored in `automations.skill_pipeline`. */
+export interface AutomationStepDef {
   skill: string;
   action: Action;
   resourceType: ResourceType;
@@ -223,56 +223,46 @@ export interface RitualStepDef {
   /** Data tier this step may touch (the per-step access dropdown). Absent = 'all'. */
   dataScope?: import("./data-scope.js").DataScope;
   /**
-   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Ritual's
-   * (Automation's) declared Agent is fulfilling, threaded unchanged into
+   * AGS1/TASK-007 — binds this step to the typed Goal/Task the Automation's
+   * declared Agent is fulfilling, threaded unchanged into
    * `pipeline.propose`'s `goalTaskRef`. This is the SAME Goal/Task resolver
    * contract every other governed Skill invocation uses — an Automation does
    * not get a second, parallel actor-binding mechanism; a step whose `skill`
    * has a registered SkillManifest still resolves through
    * `resolveSkillForTask` exactly as a direct Agent call would, and still
    * fails closed without a valid `goalTaskRef` naming a Task assigned to the
-   * ritual's declared Agent. Absent for steps that target an ungoverned
+   * Automation's declared Agent. Absent for steps that target an ungoverned
    * (no-manifest) skill — unaffected, same as any other caller.
    */
   goalTaskRef?: { goalId: string; taskId: string };
 }
 
-/** A ritual definition resolved from the registry (P2: rituals are config rows). */
-export interface RitualDefinition {
+/** An Automation definition resolved from the canonical registry. */
+export interface AutomationDefinition {
   id: string;
   name: string;
   workspaceId: string;
-  /** Owning Agent. Optional only so legacy/unbound rows can be loaded and rejected explicitly at execution. */
-  agentId?: string;
-  /** Execution residency for the owning Agent. Optional only for legacy rows, which execution rejects. */
-  agentPlane?: import("./types.js").Plane;
-  steps: RitualStepDef[];
+  /** The sole actor for every Run started from this Automation. */
+  agentId: string;
+  /** Execution residency for the owning Agent. */
+  agentPlane: import("./types.js").Plane;
+  steps: AutomationStepDef[];
 }
 
-/** Loads ritual definitions — the `rituals` table (Drizzle) or in-memory in dev. */
-export interface RitualRegistry {
-  load(workspaceId: string, ritualId: string): Promise<RitualDefinition | null>;
-  save(definition: RitualDefinition): Promise<void>;
+/** Loads Automation definitions from the canonical store. */
+export interface AutomationRegistry {
+  load(workspaceId: string, automationId: string): Promise<AutomationDefinition | null>;
+  save(definition: AutomationDefinition): Promise<void>;
 }
 
-/**
- * Loads tool definitions — the `tools` table (`composition` jsonb). A Tool is a
- * composition of skills bound to a surface; invoking one runs its steps through
- * the SAME governed pipeline (config → pipeline, like rituals). Reuses the ritual
- * definition shape.
- */
-export interface ToolRegistry {
-  load(workspaceId: string, toolId: string): Promise<RitualDefinition | null>;
-}
-
-/** Records ritual_runs (start/finish) — feeds the ledger linkage. */
-export interface RitualRunRecorder {
+/** Records attributable Automation Runs. */
+export interface AutomationRunRecorder {
   start(
-    run: { runId: string; ritualId: string; workspaceId: string; actorId: string },
+    run: { runId: string; automationId: string; workspaceId: string; agentId: string },
     ctx: RunCtx,
   ): Promise<void>;
   finish(
-    run: { runId: string; status: "completed" | "halted"; output: unknown },
+    run: { runId: string; workspaceId: string; status: "completed" | "halted"; output: unknown },
     ctx: RunCtx,
   ): Promise<void>;
 }

@@ -1,9 +1,7 @@
 /**
  * `buildPersistentPorts` / `buildInMemoryPorts` (All fixes.md section 1's `wiring.ts`
  * god-composition-root P0, feeding Phase 2 item 8) — proves each factory produces the
- * correct, fully-typed port set for its mode, with no `let`-sprawl reassignment, and
- * that the ledger residency guarantee which is still an honest-lie in persistent mode
- * logs a loud warning at boot instead of silently pretending to be real.
+ * correct, fully-typed port set for its mode, with no `let`-sprawl reassignment.
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -240,17 +238,16 @@ test("buildPersistentPorts: binds canonical identity to the REAL DrizzleCanonica
   }
 });
 
-test("buildPersistentPorts: logs a loud, specific warning for the ledger-residency gap it does NOT close", () => {
+test("buildPersistentPorts: does not report the resolved ledger-residency gap", () => {
   const { warnings } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
   const hit = warnings.find((w) => w.includes("ledger residency") || w.includes("ledger MUST"));
-  assert.ok(hit, `expected a boot warning naming the ledger residency gap; got: ${JSON.stringify(warnings)}`);
-  assert.match(hit!, /Phase 1 item 7/, "warning should point at the tracked, still-open decision item");
+  assert.equal(hit, undefined, `resolved ledger residency gap must not be reported: ${JSON.stringify(warnings)}`);
 });
 
-test("buildPersistentPorts: does not report the resolved DealPilot ToolCaptureStore gap", () => {
+test("buildPersistentPorts: does not report the resolved DealPilot ModuleCaptureStore gap", () => {
   const { warnings } = withCapturedWarnings(() => buildPersistentPorts({ url: DUMMY_POSTGRES_URL }));
-  const hit = warnings.find((w) => w.includes("ToolCaptureStore"));
-  assert.equal(hit, undefined, `resolved ToolCaptureStore gap must not be reported: ${JSON.stringify(warnings)}`);
+  const hit = warnings.find((warning) => warning.includes("ModuleCaptureStore"));
+  assert.equal(hit, undefined, `resolved ModuleCaptureStore gap must not be reported: ${JSON.stringify(warnings)}`);
 });
 
 test("buildPersistentPorts: exposes ensureInternalStrategistGovernance (TASK-007 persistent-mode governance seed hook)", () => {

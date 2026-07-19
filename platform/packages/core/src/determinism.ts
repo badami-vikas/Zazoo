@@ -112,7 +112,7 @@ export class UlidGen implements IdGen {
  * prefix (sortable) + seeded entropy, with a per-instance counter folded into
  * the tail so same-millisecond ids stay collision-free under replay. Use this
  * (not UlidGen) anywhere ids are written to Postgres `uuid` columns — the
- * `ledger` PK, ritual run ids, etc. Same seed + clock => identical uuids.
+ * `ledger` PK, Automation Run ids, etc. Same seed + clock => identical uuids.
  */
 export class UuidGen implements IdGen {
   #clock: Clock;

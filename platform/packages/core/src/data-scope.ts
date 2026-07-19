@@ -3,7 +3,7 @@
  *
  * The two-tier network (SCHEMA.sql): `*_canonical` = PUBLIC platform facts;
  * `people`/`communities` = PRIVATE per-user relationship tier. When granting an
- * agent or a ritual STEP access to data, the user picks a scope — all / public /
+ * Agent or Automation step access to data, the user picks a scope — all / public /
  * private — and the agent/step may only reach that tier.
  *
  * Effective scope is the INTERSECTION across layers (narrowest wins, like deny):

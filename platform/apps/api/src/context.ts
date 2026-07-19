@@ -89,10 +89,9 @@ export function verifiedReauthenticationAt(
 }
 
 export function makeContextFactory(wiring: Wiring) {
-  // Server-chosen fallback identity (override via env). Replaced by the verified
-  // Supabase user when a bearer token is presented and a verifier is configured.
-  const pilotUserId = process.env.BRIDGE_PILOT_USER_ID ?? wiring.pilotUserId;
-  const identityResolver = createIdentityResolver(pilotUserId);
+  // buildWiring resolves the configured pilot once so bootstrap, governance,
+  // integrations, and request identity cannot disagree.
+  const identityResolver = createIdentityResolver(wiring.pilotUserId);
 
   return async function createContext(args?: CreateContextArgs): Promise<ApiContext> {
     const clock = new SystemClock();

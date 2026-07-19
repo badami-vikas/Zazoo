@@ -13,7 +13,7 @@ export type ColumnKind =
   | "url"
   | "relation"
   | "formula"
-  | "tool"
+  | "skill"
   // "location" (ADR-023/ADR-024 view-convertibility grammar): lets map-view
   // eligibility be computed from a real column kind instead of the
   // `apps/web` id/label-substring heuristic (dataviews/eligibility.ts,
@@ -53,7 +53,7 @@ export interface ColumnSpec {
   locked?: boolean;
   width?: number;
   options?: string[]; // select/multiselect
-  toolId?: string; // kind: "tool" — computed by an internal tool
+  skillId?: string; // kind: "skill" — computed by a governed Skill
   required?: boolean;
   defaultValue?: unknown;
   relationTarget?: string;

@@ -34,6 +34,10 @@ import type {
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { packageInstallations } from "./schema.js";
+import {
+  withDefaultWorkspace,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 
 /** Structural mirror of PackageManifest's jsonb shape — validated at the
  * read/write boundary the same way workspace-definition-store.ts validates
@@ -145,8 +149,10 @@ function assertSameImmutableContent(
 
 export class DrizzlePackageStore implements PackageStore {
   #db: Database;
-  constructor(db: Database) {
+  #defaultWorkspaceId: string | undefined;
+  constructor(db: Database, defaultWorkspaceId?: string) {
     this.#db = db;
+    this.#defaultWorkspaceId = defaultWorkspaceId;
   }
 
   /**
@@ -155,88 +161,112 @@ export class DrizzlePackageStore implements PackageStore {
    * declared Module-Agent-need attachment inserts a fresh row.
    */
   async create(row: Omit<PackageInstallationRow, "id" | "createdAt">): Promise<PackageInstallationRow> {
-    const validatedManifest = parsePackageManifestRow(row.manifest);
-    const existingRows = await this.#db
-      .select()
-      .from(packageInstallations)
-      .where(
-        and(
-          eq(packageInstallations.workspaceId, row.workspaceId),
-          eq(packageInstallations.packageName, row.packageName),
-          eq(packageInstallations.packageVersion, row.packageVersion),
-        ),
-      );
-    const existing = existingRows
-      .map(unpack)
-      .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
-    if (existing) {
-      assertSameImmutableContent(existing, row, validatedManifest);
-      return existing;
-    }
+    return withWorkspaceOnly(this.#db, row.workspaceId, async (tx) => {
+      const validatedManifest = parsePackageManifestRow(row.manifest);
+      const existingRows = await tx
+        .select()
+        .from(packageInstallations)
+        .where(
+          and(
+            eq(packageInstallations.workspaceId, row.workspaceId),
+            eq(packageInstallations.packageName, row.packageName),
+            eq(packageInstallations.packageVersion, row.packageVersion),
+          ),
+        );
+      const existing = existingRows
+        .map(unpack)
+        .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
+      if (existing) {
+        assertSameImmutableContent(existing, row, validatedManifest);
+        return existing;
+      }
 
-    const [inserted] = await this.#db
-      .insert(packageInstallations)
-      .values({
-        workspaceId: row.workspaceId,
-        packageName: row.packageName,
-        packageVersion: row.packageVersion,
-        manifest: validatedManifest,
-        computedRisk: row.computedRisk,
-        state: row.state,
-        status: row.status,
-        ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
-        ...(row.moduleAttachment ? { moduleAttachment: row.moduleAttachment } : {}),
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (inserted) return unpack(inserted);
+      const [inserted] = await tx
+        .insert(packageInstallations)
+        .values({
+          workspaceId: row.workspaceId,
+          packageName: row.packageName,
+          packageVersion: row.packageVersion,
+          manifest: validatedManifest,
+          computedRisk: row.computedRisk,
+          state: row.state,
+          status: row.status,
+          ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
+          ...(row.moduleAttachment ? { moduleAttachment: row.moduleAttachment } : {}),
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (inserted) return unpack(inserted);
 
-    const racedRows = await this.#db
-      .select()
-      .from(packageInstallations)
-      .where(
-        and(
-          eq(packageInstallations.workspaceId, row.workspaceId),
-          eq(packageInstallations.packageName, row.packageName),
-          eq(packageInstallations.packageVersion, row.packageVersion),
-        ),
-      );
-    const raced = racedRows
-      .map(unpack)
-      .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
-    if (!raced) throw new Error("package_installations: conflicting insert did not match the attachment identity");
-    assertSameImmutableContent(raced, row, validatedManifest);
-    return raced;
+      const racedRows = await tx
+        .select()
+        .from(packageInstallations)
+        .where(
+          and(
+            eq(packageInstallations.workspaceId, row.workspaceId),
+            eq(packageInstallations.packageName, row.packageName),
+            eq(packageInstallations.packageVersion, row.packageVersion),
+          ),
+        );
+      const raced = racedRows
+        .map(unpack)
+        .find((candidate) => matchesAttachmentTarget(candidate, row.moduleAttachment));
+      if (!raced) {
+        throw new Error(
+          "package_installations: conflicting insert did not match the attachment identity",
+        );
+      }
+      assertSameImmutableContent(raced, row, validatedManifest);
+      return raced;
+    });
   }
 
   async get(id: string): Promise<PackageInstallationRow | null> {
-    const rows = await this.#db.select().from(packageInstallations).where(eq(packageInstallations.id, id)).limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(packageInstallations)
+        .where(eq(packageInstallations.id, id))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpack(row) : null;
+    });
   }
 
   async list(workspaceId: string, opts: { limit: number; offset: number }): Promise<{ items: PackageInstallationRow[]; total: number }> {
-    const where = eq(packageInstallations.workspaceId, workspaceId);
-    const [rows, totalRows] = await Promise.all([
-      this.#db
-        .select()
-        .from(packageInstallations)
-        .where(where)
-        .orderBy(packageInstallations.createdAt)
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(packageInstallations).where(where),
-    ]);
-    return { items: rows.map(unpack), total: Number(totalRows[0]?.value ?? 0) };
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const where = eq(packageInstallations.workspaceId, workspaceId);
+      const [rows, totalRows] = await Promise.all([
+        tx
+          .select()
+          .from(packageInstallations)
+          .where(where)
+          .orderBy(packageInstallations.createdAt)
+          .limit(opts.limit)
+          .offset(opts.offset),
+        tx.select({ value: count() }).from(packageInstallations).where(where),
+      ]);
+      return {
+        items: rows.map(unpack),
+        total: Number(totalRows[0]?.value ?? 0),
+      };
+    });
   }
 
   async listVersions(workspaceId: string, packageName: string): Promise<PackageInstallationRow[]> {
-    const rows = await this.#db
-      .select()
-      .from(packageInstallations)
-      .where(and(eq(packageInstallations.workspaceId, workspaceId), eq(packageInstallations.packageName, packageName)))
-      .orderBy(packageInstallations.createdAt);
-    return rows.map(unpack);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(packageInstallations)
+        .where(
+          and(
+            eq(packageInstallations.workspaceId, workspaceId),
+            eq(packageInstallations.packageName, packageName),
+          ),
+        )
+        .orderBy(packageInstallations.createdAt);
+      return rows.map(unpack);
+    });
   }
 
   async getAvailable(
@@ -244,46 +274,57 @@ export class DrizzlePackageStore implements PackageStore {
     packageName: string,
     attachmentTarget?: PackageAttachmentTarget,
   ): Promise<PackageInstallationRow | null> {
-    const rows = await this.#db
-      .select()
-      .from(packageInstallations)
-      .where(
-        and(
-          eq(packageInstallations.workspaceId, workspaceId),
-          eq(packageInstallations.packageName, packageName),
-          eq(packageInstallations.state, "available"),
-        ),
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(packageInstallations)
+        .where(
+          and(
+            eq(packageInstallations.workspaceId, workspaceId),
+            eq(packageInstallations.packageName, packageName),
+            eq(packageInstallations.state, "available"),
+          ),
+        );
+      return (
+        rows.map(unpack).find((row) => matchesAttachmentTarget(row, attachmentTarget)) ??
+        null
       );
-    return rows.map(unpack).find((row) => matchesAttachmentTarget(row, attachmentTarget)) ?? null;
+    });
   }
 
   async setState(id: string, state: PackageVersionState): Promise<PackageInstallationRow> {
-    const [updated] = await this.#db
-      .update(packageInstallations)
-      .set({ state })
-      .where(eq(packageInstallations.id, id))
-      .returning();
-    if (!updated) throw new Error(`package_installations: unknown id ${id}`);
-    return unpack(updated);
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(packageInstallations)
+        .set({ state })
+        .where(eq(packageInstallations.id, id))
+        .returning();
+      if (!updated) throw new Error(`package_installations: unknown id ${id}`);
+      return unpack(updated);
+    });
   }
 
   async setComputedRisk(id: string, risk: PackageInstallationRow["computedRisk"]): Promise<PackageInstallationRow> {
-    const [updated] = await this.#db
-      .update(packageInstallations)
-      .set({ computedRisk: risk })
-      .where(eq(packageInstallations.id, id))
-      .returning();
-    if (!updated) throw new Error(`package_installations: unknown id ${id}`);
-    return unpack(updated);
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(packageInstallations)
+        .set({ computedRisk: risk })
+        .where(eq(packageInstallations.id, id))
+        .returning();
+      if (!updated) throw new Error(`package_installations: unknown id ${id}`);
+      return unpack(updated);
+    });
   }
 
   async setStatus(id: string, status: PackageInstallationRow["status"]): Promise<PackageInstallationRow> {
-    const [updated] = await this.#db
-      .update(packageInstallations)
-      .set({ status })
-      .where(eq(packageInstallations.id, id))
-      .returning();
-    if (!updated) throw new Error(`package_installations: unknown id ${id}`);
-    return unpack(updated);
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(packageInstallations)
+        .set({ status })
+        .where(eq(packageInstallations.id, id))
+        .returning();
+      if (!updated) throw new Error(`package_installations: unknown id ${id}`);
+      return unpack(updated);
+    });
   }
 }

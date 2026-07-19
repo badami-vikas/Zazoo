@@ -18,7 +18,7 @@ function cap(overrides: Partial<CapabilityManifest> = {}): CapabilityManifest {
     id: "test_fixture_cap",
     name: "test_fixture_capability",
     version: "1.0.0",
-    capabilityType: "tool",
+    capabilityType: "skill",
     origin: "user_code",
     audience: "private",
     permissions: [],
@@ -103,7 +103,7 @@ test("computePackageRisk: a bundled executable whose sandbox forms the trifecta 
   const p: PackageManifest = {
     name: "runner-package",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "s",
     description: "d",
     lineageManifestId: null,
@@ -123,12 +123,12 @@ test("parsePackageManifest: parses a well-formed capability execution spec", () 
   const parsed = parsePackageManifest({
     name: "exec-pkg",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "s",
     capabilities: [
       {
         id: "runner",
-        capability_type: "tool",
+        capability_type: "skill",
         permissions: [],
         execution: { executable: true, isolation: "container", sandbox: { network: true, filesystem: ["/tmp/**"] } },
       },
@@ -148,9 +148,9 @@ test("parsePackageManifest: a malformed execution spec fails loudly (never silen
       parsePackageManifest({
         name: "bad-exec-pkg",
         version: "1.0.0",
-        kind: "tool",
+        kind: "module",
         summary: "s",
-        capabilities: [{ id: "runner", capability_type: "tool", permissions: [], execution: { executable: true, isolation: "rocket" } }],
+        capabilities: [{ id: "runner", capability_type: "skill", permissions: [], execution: { executable: true, isolation: "rocket" } }],
       }),
     PackageManifestValidationError,
   );

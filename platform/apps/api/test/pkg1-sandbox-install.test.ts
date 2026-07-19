@@ -34,14 +34,14 @@ function executableManifest(execution: Record<string, unknown>) {
     package: {
       name: "test-fixture-executable-pkg",
       version: "1.0.0",
-      kind: "tool",
+      kind: "module",
       summary: "test fixture executable package",
       description: "test fixture executable package",
       dependencies: [],
       capabilities: [
         {
           id: "test-fixture.executable-cap",
-          capability_type: "tool",
+          capability_type: "skill",
           version: "1.0.0",
           permissions: [{ resource_type: "person", action: "read", data_scope: "public", egress: false }],
           connectors: [],

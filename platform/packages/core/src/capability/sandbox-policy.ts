@@ -95,7 +95,7 @@ function containsNetworkAndFs(isolation: SandboxIsolationLevel): boolean {
 /**
  * The pre-Active sandbox floor gate. Pure, sync, no I/O. Returns a typed result
  * (never throws) so the install/approve path can surface the specific `reason`
- * as an auditable denial, mirroring toolbelt.ts's ToolbeltScopeCheckResult
+ * as an auditable denial, mirroring builder-primitives.ts's scope check result
  * discipline of typed rejection over exceptions for expected-path denials.
  */
 export function evaluateSandboxRequirement(manifest: CapabilityManifest): SandboxGateResult {

@@ -1,13 +1,15 @@
-import { parseToolManifest, type InternalToolManifest } from "@bridge/tool-kit";
+import {
+  parseExecutableManifest,
+  type SkillExecutableManifest,
+} from "@bridge/capability-kit";
 
-// Internal tool manifest for the recorder engine. No nav entry, no route — the standalone
-// Tools/recorder Vite UI remains as a dev harness only until its first composing external tool
-// (a future Conference tool) ships, per the plan's recorder decomposition note.
-export const recorderManifest: InternalToolManifest = parseToolManifest({
+// Recorder Skill manifest. No nav entry or route; the standalone Vite UI is a development
+// harness until a surfaced Module composes these capture Skills.
+export const recorderManifest: SkillExecutableManifest = parseExecutableManifest({
   id: "recorder",
   name: "Recorder",
   version: "0.1.0",
-  kind: "internal",
+  kind: "skill",
   runModes: ["standalone", "account_bound"],
   provides: [
     { id: "capture.record", input: "RecordingUpload", output: "Recording" },
@@ -17,4 +19,4 @@ export const recorderManifest: InternalToolManifest = parseToolManifest({
   modelBindings: [{ use: "transcription", planeDefault: "local", providers: { local: "whisper" } }],
   capabilities: [{ resourceType: "memory", action: "write", dataScope: "private", egress: false }],
   intakePolicy: { quarantine: true, commitVia: "pipeline_proposal", scope: "private" },
-}) as InternalToolManifest;
+}) as SkillExecutableManifest;

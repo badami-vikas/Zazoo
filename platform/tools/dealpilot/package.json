@@ -24,7 +24,7 @@
     "@bridge/recorder": "workspace:*",
     "@bridge/sourcing": "workspace:*",
     "@bridge/tables": "workspace:*",
-    "@bridge/tool-kit": "workspace:*",
+    "@bridge/capability-kit": "workspace:*",
     "@napi-rs/keyring": "1.3.0"
   },
   "devDependencies": {

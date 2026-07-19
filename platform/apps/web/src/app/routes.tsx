@@ -34,6 +34,16 @@ import {
   RelationshipHelpdeskPage,
   RelationshipHelpdeskThreadPage,
 } from "./pages/RelationshipHelpdeskPage";
+import { AuthGate } from "./auth/AuthSession";
+import { AuthPage } from "./auth/AuthPage";
+
+function ProtectedLayout() {
+  return (
+    <AuthGate>
+      <Layout />
+    </AuthGate>
+  );
+}
 
 export const router = createBrowserRouter([
   // Public/unauthenticated — outside Layout's authenticated nav shell entirely
@@ -41,10 +51,20 @@ export const router = createBrowserRouter([
   { path: "/help", Component: PublicHelpdesk },
   // Prototype's shareable public helpdesk URL shape (slug-addressed).
   { path: "/help/:slug", Component: PublicHelpdesk },
+  { path: "/auth/sign-in", element: <AuthPage mode="sign-in" /> },
+  { path: "/auth/sign-up", element: <AuthPage mode="sign-up" /> },
+  {
+    path: "/auth/forgot-password",
+    element: <AuthPage mode="forgot-password" />,
+  },
+  {
+    path: "/auth/reset-password",
+    element: <AuthPage mode="reset-password" />,
+  },
 
   {
     path: "/",
-    Component: Layout,
+    Component: ProtectedLayout,
     children: [
       // HomePage is the index (prototype parity); DealPilot keeps /dealpilot.
       { index: true, Component: HomePage },

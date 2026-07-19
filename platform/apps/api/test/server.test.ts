@@ -16,6 +16,24 @@ import {
   serverHostConfig,
   watchParentLiveness,
 } from "../src/server.js";
+import { PILOT_USER } from "../src/wiring.js";
+
+const COMPLETE_PRODUCTION_ENV = {
+  NODE_ENV: "production",
+  DATABASE_URL: "postgresql://bridge_app:test@localhost:5432/test_fixture_db",
+  SUPABASE_URL: "https://test-fixture.supabase.co",
+  API_ALLOWED_ORIGINS: "https://bridge.test",
+  BRIDGE_PILOT_USER_ID: "20000000-0000-4000-8000-000000000001",
+  BRIDGE_PILOT_USER_EMAIL: "pilot@bridge.test",
+  BRIDGE_LOCAL_DIR: "/var/lib/bridge/local",
+  BRIDGE_FILES_ROOT: "/var/lib/bridge/files",
+  BRIDGE_LOCAL_RESIDENCY: "encrypted-host-volume",
+  BRIDGE_DEALPILOT_CREDENTIAL_VAULT: "encrypted-file",
+  BRIDGE_CREDENTIAL_VAULT_KEY_ID: "test-key-1",
+  BRIDGE_CREDENTIAL_VAULT_KEY: Buffer.alloc(32, 7).toString("base64"),
+  BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID: undefined,
+  BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY: undefined,
+} as const;
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prior: Record<string, string | undefined> = {};
@@ -112,15 +130,47 @@ test("CORS (SEC-2): a configured verifier forces restrictive CORS even in non-pr
 });
 
 test("assertProductionEnv: refuses to boot in production without DATABASE_URL", () => {
-  withEnv({ NODE_ENV: "production", DATABASE_URL: undefined }, () => {
+  withEnv({ ...COMPLETE_PRODUCTION_ENV, DATABASE_URL: undefined }, () => {
     assert.throws(() => assertProductionEnv(), /DATABASE_URL/);
   });
 });
 
-test("assertProductionEnv: passes in production when DATABASE_URL is set", () => {
+test("assertProductionEnv: accepts the complete hosted pilot contract", () => {
+  withEnv(COMPLETE_PRODUCTION_ENV, () => {
   withEnv({ NODE_ENV: "production", DATABASE_URL: "postgres://test_fixture_user:test_fixture_pw@localhost:5432/test_fixture_db" }, () => {
     assert.doesNotThrow(() => assertProductionEnv());
   });
+  });
+});
+
+test("assertProductionEnv: rejects unsafe residency, Auth, CORS, and vault settings", () => {
+  const cases: Array<[keyof typeof COMPLETE_PRODUCTION_ENV, string | undefined, RegExp]> = [
+    ["SUPABASE_URL", "http://test-fixture.supabase.co", /SUPABASE_URL/],
+    ["API_ALLOWED_ORIGINS", "http://bridge.test", /API_ALLOWED_ORIGINS/],
+    ["BRIDGE_PILOT_USER_ID", "not-a-uuid", /BRIDGE_PILOT_USER_ID/],
+    ["BRIDGE_LOCAL_DIR", "relative/local", /BRIDGE_LOCAL_DIR/],
+    ["BRIDGE_LOCAL_RESIDENCY", undefined, /BRIDGE_LOCAL_RESIDENCY/],
+    ["BRIDGE_DEALPILOT_CREDENTIAL_VAULT", "os-keyring", /BRIDGE_DEALPILOT_CREDENTIAL_VAULT/],
+    ["BRIDGE_CREDENTIAL_VAULT_KEY", "not-a-key", /BRIDGE_CREDENTIAL_VAULT_KEY/],
+  ];
+  for (const [key, value, expected] of cases) {
+    withEnv({ ...COMPLETE_PRODUCTION_ENV, [key]: value }, () => {
+      assert.throws(() => assertProductionEnv(), expected);
+    });
+  }
+});
+
+test("assertProductionEnv: requires both halves of a vault rotation key", () => {
+  withEnv(
+    {
+      ...COMPLETE_PRODUCTION_ENV,
+      BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY_ID: "test-key-0",
+      BRIDGE_CREDENTIAL_VAULT_PREVIOUS_KEY: undefined,
+    },
+    () => {
+      assert.throws(() => assertProductionEnv(), /configure together/);
+    },
+  );
 });
 
 test("assertProductionEnv: no-op outside production even without DATABASE_URL", () => {
@@ -341,17 +391,64 @@ test("SEC-1: an unauthenticated mutation is rejected with 401 under a configured
   );
 });
 
-test("SEC-1: a query is NOT gated by the mutation auth check (reads still open under a verifier)", async () => {
-  // The gate is mutation-only. A tokenless GET to a query/health path under a configured
-  // verifier must NOT be turned away by `requireAuthOnMutation` (it 200s; a bad *token*
-  // is still rejected by identity resolution, covered by the test above).
+test("hosted Auth: tokenless reads are rejected under a configured verifier", async () => {
   await withEnvAsync(
     { SUPABASE_JWT_SECRET: "test_fixture_correct_secret", SUPABASE_URL: undefined },
     async () => {
       const app = await buildServer();
       try {
         const res = await app.inject({ method: "GET", url: "/trpc/health" });
-        assert.equal(res.statusCode, 200);
+        assert.equal(res.statusCode, 401);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
+test("hosted Auth: only the configured pilot subject is admitted and activated", async () => {
+  const secret = "test_fixture_correct_secret";
+  await withEnvAsync(
+    {
+      SUPABASE_JWT_SECRET: secret,
+      SUPABASE_URL: undefined,
+      NODE_ENV: "test",
+      BRIDGE_PILOT_USER_ID: PILOT_USER,
+      BRIDGE_PILOT_USER_EMAIL: "pilot@bridge.test",
+    },
+    async () => {
+      const app = await buildServer();
+      try {
+        const approved = await new SignJWT({ sub: PILOT_USER })
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(new TextEncoder().encode(secret));
+        const activation = await app.inject({
+          method: "POST",
+          url: "/trpc/workspace.activateSession",
+          headers: {
+            authorization: `Bearer ${approved}`,
+            "content-type": "application/json",
+          },
+          payload: { json: null },
+        });
+        assert.equal(activation.statusCode, 200);
+        assert.equal(activation.json().result.data.userId, PILOT_USER);
+
+        const unapproved = await new SignJWT({
+          sub: "20000000-0000-4000-8000-000000000099",
+        })
+          .setProtectedHeader({ alg: "HS256" })
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(new TextEncoder().encode(secret));
+        const denied = await app.inject({
+          method: "GET",
+          url: "/trpc/health",
+          headers: { authorization: `Bearer ${unapproved}` },
+        });
+        assert.equal(denied.statusCode, 403);
       } finally {
         await app.close();
       }
@@ -418,7 +515,7 @@ test("public Helpdesk create/read/reply paths use the tight sensitive rate bucke
 });
 
 test("governed Automation Runs use the tight sensitive rate bucket", () => {
-  assert.equal(rateLimitBucket("/trpc/ritual.runById"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/automation.runById"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/commons.runInstalledSkill"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/dealpilot.discoverDeals"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/health"), "global");

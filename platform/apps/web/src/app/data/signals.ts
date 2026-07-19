@@ -64,8 +64,8 @@ function dormantSignals(): Signal[] {
         proposed: `Hold 20 minutes for an informal catch-up with ${p.name}. No agenda — reconnect after a quiet stretch.`,
       },
       {
-        label: 'Add to a check-in workflow', channel: 'Internal', action: 'Add to check-in workflow',
-        proposed: `Add ${p.name} to the "Monthly inner-ring check-in" workflow so this tie doesn't slip again.`,
+        label: 'Add to a check-in Automation', channel: 'Internal', action: 'Add to check-in Automation',
+        proposed: `Add ${p.name} to the "Monthly inner-ring check-in" Automation so this tie doesn't slip again.`,
       },
     ],
     detectedAt: 'Today',

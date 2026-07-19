@@ -24,7 +24,7 @@ function manifest(overrides: Partial<PackageManifest> = {}): PackageManifest {
   return {
     name: "test-fixture-pkg",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "s",
     description: "d",
     lineageManifestId: null,
@@ -34,7 +34,7 @@ function manifest(overrides: Partial<PackageManifest> = {}): PackageManifest {
         id: "cap",
         name: "cap",
         version: "1.0.0",
-        capabilityType: "tool",
+        capabilityType: "skill",
         origin: "community",
         audience: "private",
         permissions: [],
@@ -78,7 +78,7 @@ test("canonicalizeManifest: key order does not change the canonical bytes", () =
     lineageManifestId: null,
     description: "d",
     summary: "s",
-    kind: "tool",
+    kind: "module",
     version: "1.0.0",
     name: "test-fixture-pkg",
   };
@@ -89,7 +89,7 @@ function commonsEntry(): CommonsPackageEntry {
   const content = {
     name: "test-fixture-pkg",
     version: "1.0.0",
-    kind: "tool" as const,
+    kind: "module" as const,
     summary: "s",
     tags: ["test"],
     manifest: manifest(),
@@ -238,7 +238,7 @@ test("isUntrustedOrigin: community is pinned to the same untrusted tier as user_
 });
 
 test("trustGrantsForOrigin: strips auto-activation grants for a community manifest, keeps them for built_in", () => {
-  const grants: TrustGrantView[] = [{ capabilityClass: "tool", riskBand: "operational", autoActivate: true }];
+  const grants: TrustGrantView[] = [{ capabilityClass: "skill", riskBand: "operational", autoActivate: true }];
   assert.deepEqual(trustGrantsForOrigin("community", grants), []);
   assert.deepEqual(trustGrantsForOrigin("user_code", grants), []);
   assert.deepEqual(trustGrantsForOrigin("built_in", grants), grants);

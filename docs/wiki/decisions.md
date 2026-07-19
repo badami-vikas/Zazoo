@@ -4,6 +4,15 @@ Canonical. Mirror of memory `bridge-strategy-decisions`.
 
 > **Reading rule (AP-020, 2026-07-14):** this page preserves historical decisions, including their original vocabulary. For current names and meanings, [glossary.md](../glossary.md) wins. Retired names are migration inputs, not accepted aliases.
 
+## 2026-07-19 — Hosted Supabase pilot boundary (ADR-128, AP-052)
+- Migration owner separate. Runtime only `bridge_app`. No owner. No BYPASSRLS.
+- RLS identity transaction-local. Pool reuse cannot carry old Human/Organization.
+- Production accepts one exact Supabase subject. Web shell waits for Auth + activation.
+- Source credentials encrypted. Keys from host secret manager.
+- Explicitly public roots → Supabase. Everything else → durable Local Plane.
+- Browser hosting requires explicit encrypted-volume residency. Otherwise boot fails.
+- One API replica until Local Plane ownership is shared.
+
 ## 2026-07-18 — Exact private Commons Runs (ADR-121, AP-047)
 - Stored + current signed contract must match exactly. Drift = no binding, no Run.
 - Skill reads one approved private Signal. Writes one private Signal. No runtime egress.

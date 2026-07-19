@@ -106,6 +106,12 @@ export {
   KeyringCredentialError,
   KeyringSourceCredentialVault,
 } from "./keyring-credentials.js";
+export type { CredentialVaultKey } from "./encrypted-file-credentials.js";
+export {
+  credentialVaultKeyFromBase64,
+  EncryptedFileCredentialError,
+  EncryptedFileSourceCredentialVault,
+} from "./encrypted-file-credentials.js";
 export type {
   DealPilotStatePort,
   DealPilotCaptureProjection,

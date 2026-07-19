@@ -16,6 +16,10 @@ import { z } from "zod";
 import type { CapabilityManifestRow, CapabilityStateRow, CapabilityStore, ComponentKind } from "@bridge/core";
 import type { Database } from "./client.js";
 import { capabilityManifests, capabilityStates } from "./schema.js";
+import {
+  withDefaultWorkspace,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 
 const dependencyEntrySchema = z.object({ manifestId: z.string().min(1), versionRange: z.string().min(1) });
 export const dependenciesSchema = z.array(dependencyEntrySchema);
@@ -90,125 +94,146 @@ function unpackState(row: typeof capabilityStates.$inferSelect): CapabilityState
 
 export class DrizzleCapabilityStore implements CapabilityStore {
   #db: Database;
-  constructor(db: Database) {
+  #defaultWorkspaceId: string | undefined;
+  constructor(db: Database, defaultWorkspaceId?: string) {
     this.#db = db;
+    this.#defaultWorkspaceId = defaultWorkspaceId;
   }
 
   async createManifest(row: Omit<CapabilityManifestRow, "createdAt">): Promise<CapabilityManifestRow> {
-    const validatedDeps = parseDependencies(row.dependencies);
-    const [inserted] = await this.#db
-      .insert(capabilityManifests)
-      .values({
-        id: row.id,
-        workspaceId: row.workspaceId,
-        capabilityType: row.capabilityType,
-        ...(row.kind ? { kind: row.kind } : {}),
-        name: row.name,
-        version: row.version,
-        origin: row.origin,
-        audience: row.audience,
-        manifest: row.manifest ?? {},
-        computedRisk: row.computedRisk,
-        dependencies: validatedDeps,
-        ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
-        ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
-      })
-      .returning();
-    if (!inserted) throw new Error("capability_manifests: insert returned no row");
-    return unpackManifest(inserted);
+    return withWorkspaceOnly(this.#db, row.workspaceId, async (tx) => {
+      const validatedDeps = parseDependencies(row.dependencies);
+      const [inserted] = await tx
+        .insert(capabilityManifests)
+        .values({
+          id: row.id,
+          workspaceId: row.workspaceId,
+          capabilityType: row.capabilityType,
+          ...(row.kind ? { kind: row.kind } : {}),
+          name: row.name,
+          version: row.version,
+          origin: row.origin,
+          audience: row.audience,
+          manifest: row.manifest ?? {},
+          computedRisk: row.computedRisk,
+          dependencies: validatedDeps,
+          ...(row.lineageManifestId ? { lineageManifestId: row.lineageManifestId } : {}),
+          ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+        })
+        .returning();
+      if (!inserted) throw new Error("capability_manifests: insert returned no row");
+      return unpackManifest(inserted);
+    });
   }
 
   async getManifest(id: string): Promise<CapabilityManifestRow | null> {
-    const rows = await this.#db.select().from(capabilityManifests).where(eq(capabilityManifests.id, id)).limit(1);
-    const row = rows[0];
-    return row ? unpackManifest(row) : null;
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(capabilityManifests)
+        .where(eq(capabilityManifests.id, id))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpackManifest(row) : null;
+    });
   }
 
   /** Idempotency lookup (ADR-023): the (workspace_id, name, version) natural
    * key `capability_manifests_uq` enforces at the DB — lets a caller check
    * before insert instead of colliding with the unique constraint. */
   async getManifestByNameVersion(workspaceId: string, name: string, version: string): Promise<CapabilityManifestRow | null> {
-    const rows = await this.#db
-      .select()
-      .from(capabilityManifests)
-      .where(
-        and(
-          eq(capabilityManifests.workspaceId, workspaceId),
-          eq(capabilityManifests.name, name),
-          eq(capabilityManifests.version, version),
-        ),
-      )
-      .limit(1);
-    const row = rows[0];
-    return row ? unpackManifest(row) : null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(capabilityManifests)
+        .where(
+          and(
+            eq(capabilityManifests.workspaceId, workspaceId),
+            eq(capabilityManifests.name, name),
+            eq(capabilityManifests.version, version),
+          ),
+        )
+        .limit(1);
+      const row = rows[0];
+      return row ? unpackManifest(row) : null;
+    });
   }
 
   async listManifests(
     workspaceId: string,
     opts: { limit: number; offset: number },
   ): Promise<{ items: CapabilityManifestRow[]; total: number }> {
-    const where = eq(capabilityManifests.workspaceId, workspaceId);
-    const [rows, totalRows] = await Promise.all([
-      this.#db
-        .select()
-        .from(capabilityManifests)
-        .where(where)
-        .orderBy(capabilityManifests.createdAt)
-        .limit(opts.limit)
-        .offset(opts.offset),
-      this.#db.select({ value: count() }).from(capabilityManifests).where(where),
-    ]);
-    return { items: rows.map(unpackManifest), total: Number(totalRows[0]?.value ?? 0) };
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const where = eq(capabilityManifests.workspaceId, workspaceId);
+      const [rows, totalRows] = await Promise.all([
+        tx
+          .select()
+          .from(capabilityManifests)
+          .where(where)
+          .orderBy(capabilityManifests.createdAt)
+          .limit(opts.limit)
+          .offset(opts.offset),
+        tx.select({ value: count() }).from(capabilityManifests).where(where),
+      ]);
+      return {
+        items: rows.map(unpackManifest),
+        total: Number(totalRows[0]?.value ?? 0),
+      };
+    });
   }
 
   async upsertState(row: Omit<CapabilityStateRow, "id" | "updatedAt">): Promise<CapabilityStateRow> {
-    const validatedEvidence = parseEvidence(row.evidence);
-    const existing = await this.#db
-      .select({ id: capabilityStates.id })
-      .from(capabilityStates)
-      .where(eq(capabilityStates.manifestId, row.manifestId))
-      .limit(1);
+    return withWorkspaceOnly(this.#db, row.workspaceId, async (tx) => {
+      const validatedEvidence = parseEvidence(row.evidence);
+      const existing = await tx
+        .select({ id: capabilityStates.id })
+        .from(capabilityStates)
+        .where(eq(capabilityStates.manifestId, row.manifestId))
+        .limit(1);
 
-    if (existing[0]) {
-      const [updated] = await this.#db
-        .update(capabilityStates)
-        .set({
+      if (existing[0]) {
+        const [updated] = await tx
+          .update(capabilityStates)
+          .set({
+            state: row.state,
+            trustedUntil: row.trustedUntil ? new Date(row.trustedUntil) : null,
+            suspended: row.suspended,
+            suspendReason: row.suspendReason ?? null,
+            evidence: validatedEvidence,
+            updatedAt: new Date(),
+          })
+          .where(eq(capabilityStates.manifestId, row.manifestId))
+          .returning();
+        if (!updated) throw new Error("capability_states: update returned no row");
+        return unpackState(updated);
+      }
+
+      const [inserted] = await tx
+        .insert(capabilityStates)
+        .values({
+          manifestId: row.manifestId,
+          workspaceId: row.workspaceId,
           state: row.state,
           trustedUntil: row.trustedUntil ? new Date(row.trustedUntil) : null,
           suspended: row.suspended,
           suspendReason: row.suspendReason ?? null,
           evidence: validatedEvidence,
-          updatedAt: new Date(),
         })
-        .where(eq(capabilityStates.manifestId, row.manifestId))
         .returning();
-      if (!updated) throw new Error("capability_states: update returned no row");
-      return unpackState(updated);
-    }
-
-    const [inserted] = await this.#db
-      .insert(capabilityStates)
-      .values({
-        manifestId: row.manifestId,
-        workspaceId: row.workspaceId,
-        state: row.state,
-        trustedUntil: row.trustedUntil ? new Date(row.trustedUntil) : null,
-        suspended: row.suspended,
-        suspendReason: row.suspendReason ?? null,
-        evidence: validatedEvidence,
-      })
-      .returning();
-    if (!inserted) throw new Error("capability_states: insert returned no row");
-    return unpackState(inserted);
+      if (!inserted) throw new Error("capability_states: insert returned no row");
+      return unpackState(inserted);
+    });
   }
 
   async getState(manifestId: string): Promise<CapabilityStateRow | null> {
-    const rows = await this.#db
-      .select()
-      .from(capabilityStates)
-      .where(and(eq(capabilityStates.manifestId, manifestId)))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpackState(row) : null;
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(capabilityStates)
+        .where(and(eq(capabilityStates.manifestId, manifestId)))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpackState(row) : null;
+    });
   }
 }

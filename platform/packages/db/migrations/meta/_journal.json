@@ -134,6 +134,20 @@
       "when": 1784449600000,
       "tag": "0019_repeat_private_learning_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784458000000,
+      "tag": "0020_supabase_runtime_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784460000000,
+      "tag": "0021_vocab2_automation_engine",
+      "breakpoints": true
     }
   ]
 }

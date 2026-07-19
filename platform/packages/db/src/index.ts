@@ -11,6 +11,11 @@ export {
   type LocalDbConfig,
 } from "./client-local.js";
 export { assertRlsPosture, type RlsEnvironment, type RlsPostureOptions, type RlsRoleAttributes } from "./rls-guard.js";
+export {
+  withDefaultWorkspace,
+  withWorkspaceContext,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 export { DrizzleLedgerStore } from "./ledger-store.js";
 export {
   DrizzleRelationMaterializationStore,
@@ -42,7 +47,11 @@ export {
   type OutreachAgentGovernanceConfig,
   type PrincipalGovernanceConfig,
 } from "./governance-stores.js";
-export { DrizzleRitualRegistry, DrizzleToolRegistry, DrizzleRitualRunRecorder } from "./ritual-stores.js";
+export {
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+  parseAutomationSteps,
+} from "./automation-stores.js";
 export {
   DrizzleCanonicalIdentityStore,
   InMemoryCanonicalIdentityStore,
@@ -151,10 +160,9 @@ import {
   DrizzleRoleStore,
 } from "./governance-stores.js";
 import {
-  DrizzleRitualRegistry,
-  DrizzleToolRegistry,
-  DrizzleRitualRunRecorder,
-} from "./ritual-stores.js";
+  DrizzleAutomationRegistry,
+  DrizzleAutomationRunRecorder,
+} from "./automation-stores.js";
 import {
   DrizzleWorkspaceStore,
   type WorkspaceRenameCoordinator,
@@ -169,15 +177,14 @@ export function createDrizzlePorts(
   } = {},
 ) {
   return {
-    roles: new DrizzleRoleStore(db),
-    agents: new DrizzleAgentStore(db),
+    roles: new DrizzleRoleStore(db, options.defaultWorkspaceId),
+    agents: new DrizzleAgentStore(db, options.defaultWorkspaceId),
     ephemeral: new DrizzleEphemeralStore(db),
     policies: new DrizzlePolicyStore(db),
     ledger: new DrizzleLedgerStore(db, options),
     relationMaterializations: new DrizzleRelationMaterializationStore(db),
-    ritualRegistry: new DrizzleRitualRegistry(db),
-    toolRegistry: new DrizzleToolRegistry(db),
-    ritualRunRecorder: new DrizzleRitualRunRecorder(db),
+    automationRegistry: new DrizzleAutomationRegistry(db),
+    automationRunRecorder: new DrizzleAutomationRunRecorder(db),
     workspaceStore: new DrizzleWorkspaceStore(db, options.workspaceRenameCoordinator),
   };
 }

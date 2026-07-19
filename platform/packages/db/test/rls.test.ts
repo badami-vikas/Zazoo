@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sql } from "drizzle-orm";
-import { assertRlsPosture, createLocalDb, schema } from "../src/index.js";
+import {
+  assertRlsPosture,
+  createLocalDb,
+  DrizzleResourcesStore,
+  DrizzleWorkspaceStore,
+  schema,
+  withWorkspaceContext,
+} from "../src/index.js";
 
 async function setRlsContext(
   db: Awaited<ReturnType<typeof createLocalDb>>["db"],
@@ -19,6 +26,76 @@ async function useRlsAppRole(db: Awaited<ReturnType<typeof createLocalDb>>["db"]
   await db.execute(sql`grant execute on all functions in schema app_private to bridge_rls_member`);
   await db.execute(sql`set role bridge_rls_member`);
 }
+
+test("RLS: canonical bridge_app role boots and transaction-local store context cannot leak", async () => {
+  const { db, close } = await createLocalDb();
+  const workspaceA = "10000000-0000-4000-8000-000000000101";
+  const workspaceB = "10000000-0000-4000-8000-000000000102";
+  const userA = "20000000-0000-4000-8000-000000000101";
+  const userB = "20000000-0000-4000-8000-000000000102";
+  try {
+    await db.execute(sql`SET ROLE bridge_app`);
+    await assertRlsPosture(db, { env: "production" });
+
+    const workspaces = new DrizzleWorkspaceStore(db);
+    const resources = new DrizzleResourcesStore(db);
+    await workspaces.bootstrapPilotIdentities({
+      workspaceId: workspaceA,
+      userId: userA,
+      userEmail: "test_fixture_bridge_app_a@example.com",
+    });
+    await workspaces.bootstrapPilotIdentities({
+      workspaceId: workspaceB,
+      userId: userB,
+      userEmail: "test_fixture_bridge_app_b@example.com",
+    });
+    const resourceA = await resources.create({
+      workspaceId: workspaceA,
+      title: "test_fixture_bridge_app_resource_a",
+      kind: "article",
+    });
+    const resourceB = await resources.create({
+      workspaceId: workspaceB,
+      title: "test_fixture_bridge_app_resource_b",
+      kind: "article",
+    });
+
+    assert.deepEqual(
+      (await resources.list(workspaceA, { limit: 10, offset: 0 })).items.map(
+        (row) => row.id,
+      ),
+      [resourceA.id],
+    );
+    assert.deepEqual(
+      (await resources.list(workspaceB, { limit: 10, offset: 0 })).items.map(
+        (row) => row.id,
+      ),
+      [resourceB.id],
+    );
+    assert.deepEqual(
+      await db.select({ id: schema.resources.id }).from(schema.resources),
+      [],
+      "transaction-local app.workspace_id must reset before the connection is reused",
+    );
+
+    await assert.rejects(
+      () =>
+        withWorkspaceContext(
+          db,
+          { workspaceId: workspaceA, userId: userA },
+          (tx) =>
+            withWorkspaceContext(
+              tx,
+              { workspaceId: workspaceB, userId: userB },
+              async () => undefined,
+            ),
+        ),
+      /cannot switch Organization inside one transaction/,
+    );
+  } finally {
+    await close();
+  }
+});
 
 test("RLS: workspace-scoped reads are isolated by app.workspace_id", async () => {
   const { db, close } = await createLocalDb();

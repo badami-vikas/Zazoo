@@ -17,20 +17,20 @@ type CommonsBuiltInPackage = BuiltInPackage & {
 };
 
 export const DEALPILOT_SOURCING_AGENT_ID = "b0000000-0000-4000-a000-0000000000e1";
-export const DEALPILOT_SOURCE_RITUAL_ID = "b0000000-0000-4000-a000-0000000000f1";
-export const DEALPILOT_SOURCE_RITUAL_KEY = "deal-pilot.source-intake";
+export const DEALPILOT_SOURCE_AUTOMATION_ID = "b0000000-0000-4000-a000-0000000000f1";
+export const DEALPILOT_SOURCE_AUTOMATION_KEY = "deal-pilot.source-intake";
 export const LEARNING_AGENT_RUNTIME_ID = "b0000000-0000-4000-a000-0000000000d2";
 export const LEARNING_RECOMMENDATION_SKILL_ID = "stageLearningRecommendation";
 export const CITED_ROLE_MODEL_PRACTICE_VERSION = "1.0.1";
 
-export function resolveModuleRitualRuntimeId(packageName: string, manifestRitualId: string): string | undefined {
-  return packageName === "deal-pilot" && manifestRitualId === DEALPILOT_SOURCE_RITUAL_KEY
-    ? DEALPILOT_SOURCE_RITUAL_ID
+export function resolveModuleAutomationRuntimeId(packageName: string, manifestAutomationId: string): string | undefined {
+  return packageName === "deal-pilot" && manifestAutomationId === DEALPILOT_SOURCE_AUTOMATION_KEY
+    ? DEALPILOT_SOURCE_AUTOMATION_ID
     : undefined;
 }
 
-export function isModuleRuntimeRitualId(ritualId: string): boolean {
-  return ritualId === DEALPILOT_SOURCE_RITUAL_ID;
+export function isModuleRuntimeAutomationId(automationId: string): boolean {
+  return automationId === DEALPILOT_SOURCE_AUTOMATION_ID;
 }
 
 export function resolveModuleAgentRuntimeId(packageName: string, manifestAgentId: string): string | undefined {
@@ -145,7 +145,7 @@ const dealPilotCapabilities = [
   capability(
     "deal-pilot.source-intake",
     "Deal source intake",
-    "workflow",
+    "automation",
     [readPublic("external:fetch"), writeAll("record")],
     [{ id: "bizbuysell-alerts" }, { id: "google-gmail" }],
     [
@@ -180,7 +180,7 @@ const jobPilotCapabilities = [
   capability(
     "job-pilot.track-application",
     "Job tracking intake",
-    "workflow",
+    "automation",
     [readAll("record"), writeAll("record")],
     [],
     [
@@ -259,7 +259,7 @@ const relationshipCapabilities = [
   capability(
     "relationship.automation.meeting-prep",
     "Pre-meeting relationship review",
-    "workflow",
+    "automation",
     [readPrivate("person"), writePrivate("signal")],
     [],
     [
@@ -335,7 +335,7 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
           agentId: "sourcing-agent",
           trigger: "Manual source refresh",
           procedure: "dealpilot.source",
-          ritualId: DEALPILOT_SOURCE_RITUAL_KEY,
+          automationId: DEALPILOT_SOURCE_AUTOMATION_KEY,
           runRoute: "/dealpilot/sources",
         }],
       },

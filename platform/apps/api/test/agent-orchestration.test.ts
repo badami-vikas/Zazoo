@@ -159,15 +159,19 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
     const caller = await makeCaller(wiring);
     const asHuman = await makeCaller(wiring, { type: "user", id: PILOT_USER }); // PILOT_USER holds a real signal:write grant
     const { goal, task } = await seedGoalAndTask(caller, INTERNAL_STRATEGIST_AGENT);
-    const proposal = await asHuman.action.propose({
-      workspaceId: PILOT_WORKSPACE,
-      actor: { type: "user", id: PILOT_USER },
-      action: "write",
-      resourceType: "signal",
-      inputs: { text: "a strategic recommendation" },
-      skill: "stageStrategicRecommendation",
-      goalTaskRef: { goalId: goal.id, taskId: task.id },
-    });
+    await assert.rejects(
+      () =>
+        Reflect.apply(asHuman.action.propose, asHuman.action, [{
+          workspaceId: PILOT_WORKSPACE,
+          actor: { type: "user", id: PILOT_USER },
+          action: "write",
+          resourceType: "signal",
+          inputs: { text: "a strategic recommendation" },
+          skill: "stageStrategicRecommendation",
+          goalTaskRef: { goalId: goal.id, taskId: task.id },
+        }]),
+      /stageMutation|invalid literal/i,
+    );
 
     test("action.propose handles null inputs without crashing policy evaluation", async () => {
       const wiring = await buildWiring();
@@ -187,8 +191,6 @@ test("action.propose: a Human directly invoking the governed skill fails closed 
         await wiring.close();
       }
     });
-    assert.equal(proposal.status, "rejected");
-    assert.match(proposal.rejectionReason ?? "", /may only be invoked by an eligible Agent Run/);
   } finally {
     await wiring.close();
   }

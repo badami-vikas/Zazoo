@@ -17,9 +17,14 @@
  * created that doesn't also exist in the deployed wiring code.
  */
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import type { ChildRunPolicy, DataScope, Plane, RiskBand, SkillManifest, SkillManifestRegistry } from "@bridge/core";
 import type { Database } from "./client.js";
 import { skillManifests } from "./schema.js";
+import {
+  withDefaultWorkspace,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 
 const stringArraySchema = z.array(z.string());
 
@@ -80,11 +85,13 @@ function unpack(row: typeof skillManifests.$inferSelect): SkillManifest {
 
 export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
   #db: Database;
+  #defaultWorkspaceId: string | undefined;
   #cache = new Map<string, SkillManifest[]>();
   #loaded = false;
 
-  constructor(db: Database) {
+  constructor(db: Database, defaultWorkspaceId?: string) {
     this.#db = db;
+    this.#defaultWorkspaceId = defaultWorkspaceId;
   }
 
   /** Load the full catalog from the DB into an in-process read cache. Call once
@@ -93,7 +100,16 @@ export class DrizzleSkillManifestRegistry implements SkillManifestRegistry {
    * request, so this avoids a DB round-trip per proposed action. Safe to call
    * again to pick up a fresh seed (e.g. in tests). */
   async refresh(): Promise<void> {
-    const rows = await this.#db.select().from(skillManifests);
+    const rows = await withDefaultWorkspace(
+      this.#db,
+      this.#defaultWorkspaceId,
+      (tx) => {
+        const query = tx.select().from(skillManifests);
+        return this.#defaultWorkspaceId
+          ? query.where(eq(skillManifests.workspaceId, this.#defaultWorkspaceId))
+          : query;
+      },
+    );
     const next = new Map<string, SkillManifest[]>();
     for (const row of rows) {
       const manifest = unpack(row);
@@ -152,16 +168,18 @@ export async function seedSkillManifests(db: Database, catalog: readonly SkillMa
       childRunPolicy: manifest.childRunPolicy ?? null,
     };
 
-    await db
-      .insert(skillManifests)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [
-          skillManifests.workspaceId,
-          skillManifests.skillId,
-          skillManifests.version,
-        ],
-        set: values,
-      });
+    await withWorkspaceOnly(db, manifest.workspaceId, async (tx) => {
+      await tx
+        .insert(skillManifests)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [
+            skillManifests.workspaceId,
+            skillManifests.skillId,
+            skillManifests.version,
+          ],
+          set: values,
+        });
+    });
   }
 }

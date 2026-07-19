@@ -16,6 +16,10 @@ import {
 } from "@bridge/core";
 import type { Database } from "./client.js";
 import { workspaceDefinitions } from "./schema.js";
+import {
+  withDefaultWorkspace,
+  withWorkspaceOnly,
+} from "./workspace-context.js";
 
 /**
  * Validate `workspace_definitions.blueprint` jsonb. Throws loudly on a
@@ -46,60 +50,86 @@ function unpack(row: typeof workspaceDefinitions.$inferSelect): WorkspaceDefinit
 
 export class DrizzleWorkspaceDefinitionStore implements WorkspaceDefinitionStore {
   #db: Database;
-  constructor(db: Database) {
+  #defaultWorkspaceId: string | undefined;
+  constructor(db: Database, defaultWorkspaceId?: string) {
     this.#db = db;
+    this.#defaultWorkspaceId = defaultWorkspaceId;
   }
 
   async create(row: Omit<WorkspaceDefinitionRow, "createdAt">): Promise<WorkspaceDefinitionRow> {
-    const validated = parseBlueprint(row.blueprint);
-    const [inserted] = await this.#db
-      .insert(workspaceDefinitions)
-      .values({
-        id: row.id,
-        workspaceId: row.workspaceId,
-        blueprint: validated,
-        version: row.version,
-        status: row.status,
-        ...(row.createdBy ? { createdBy: row.createdBy } : {}),
-      })
-      .returning();
-    if (!inserted) throw new Error("workspace_definitions: insert returned no row");
-    return unpack(inserted);
+    return withWorkspaceOnly(this.#db, row.workspaceId, async (tx) => {
+      const validated = parseBlueprint(row.blueprint);
+      const [inserted] = await tx
+        .insert(workspaceDefinitions)
+        .values({
+          id: row.id,
+          workspaceId: row.workspaceId,
+          blueprint: validated,
+          version: row.version,
+          status: row.status,
+          ...(row.createdBy ? { createdBy: row.createdBy } : {}),
+        })
+        .returning();
+      if (!inserted) throw new Error("workspace_definitions: insert returned no row");
+      return unpack(inserted);
+    });
   }
 
   async get(id: string): Promise<WorkspaceDefinitionRow | null> {
-    const rows = await this.#db.select().from(workspaceDefinitions).where(eq(workspaceDefinitions.id, id)).limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(workspaceDefinitions)
+        .where(eq(workspaceDefinitions.id, id))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpack(row) : null;
+    });
   }
 
   async getActive(workspaceId: string): Promise<WorkspaceDefinitionRow | null> {
-    const rows = await this.#db
-      .select()
-      .from(workspaceDefinitions)
-      .where(and(eq(workspaceDefinitions.workspaceId, workspaceId), eq(workspaceDefinitions.status, "active")))
-      .orderBy(desc(workspaceDefinitions.version))
-      .limit(1);
-    const row = rows[0];
-    return row ? unpack(row) : null;
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(workspaceDefinitions)
+        .where(
+          and(
+            eq(workspaceDefinitions.workspaceId, workspaceId),
+            eq(workspaceDefinitions.status, "active"),
+          ),
+        )
+        .orderBy(desc(workspaceDefinitions.version))
+        .limit(1);
+      const row = rows[0];
+      return row ? unpack(row) : null;
+    });
   }
 
   async listDrafts(workspaceId: string): Promise<WorkspaceDefinitionRow[]> {
-    const rows = await this.#db
-      .select()
-      .from(workspaceDefinitions)
-      .where(and(eq(workspaceDefinitions.workspaceId, workspaceId), eq(workspaceDefinitions.status, "draft")))
-      .orderBy(desc(workspaceDefinitions.createdAt));
-    return rows.map(unpack);
+    return withWorkspaceOnly(this.#db, workspaceId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(workspaceDefinitions)
+        .where(
+          and(
+            eq(workspaceDefinitions.workspaceId, workspaceId),
+            eq(workspaceDefinitions.status, "draft"),
+          ),
+        )
+        .orderBy(desc(workspaceDefinitions.createdAt));
+      return rows.map(unpack);
+    });
   }
 
   async setStatus(id: string, status: WorkspaceDefinitionStatus): Promise<WorkspaceDefinitionRow> {
-    const [updated] = await this.#db
-      .update(workspaceDefinitions)
-      .set({ status })
-      .where(eq(workspaceDefinitions.id, id))
-      .returning();
-    if (!updated) throw new Error(`workspace_definitions: unknown id ${id}`);
-    return unpack(updated);
+    return withDefaultWorkspace(this.#db, this.#defaultWorkspaceId, async (tx) => {
+      const [updated] = await tx
+        .update(workspaceDefinitions)
+        .set({ status })
+        .where(eq(workspaceDefinitions.id, id))
+        .returning();
+      if (!updated) throw new Error(`workspace_definitions: unknown id ${id}`);
+      return unpack(updated);
+    });
   }
 }

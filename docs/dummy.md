@@ -25,6 +25,20 @@ its real data source exists, and an empty state would hide the thing being revie
 
 ## Open
 
+- **2026-07-19 — Supabase deployment-boundary fixtures** (`platform/packages/db/test/rls.test.ts`,
+  `platform/apps/api/test/{server,security-hardening,wiring,residency-ledger}.test.ts`,
+  `platform/tools/dealpilot/test/encrypted-file-credentials.test.ts`,
+  `.github/workflows/ci.yml`).
+  **Reason:** deterministic runtime-role isolation, JWT/pilot admission, production fail-closed,
+  Local/Cloud routing, encrypted-vault corruption/rotation/scope, and container smoke tests
+  cannot mutate a live Supabase project, a Human's Local Plane, or real Source credentials.
+  **Real elements they stand in for:** Supabase Auth subjects and tokens, two Organizations,
+  public/private proposals, Source credentials and wrapping keys, an encrypted persistent
+  volume, and production API configuration.
+  **Removal condition:** retain as permanent identity/RLS/residency/cryptography/deployment
+  regressions; certify each release against owner-provisioned Supabase and hosting without
+  copying live secrets or private payloads into fixtures.
+
 - **2026-07-19 — TASK-009/TASK-014 merge regressions** (`platform/packages/db/test/migration-0019.test.ts`, `platform/apps/api/test/workspace-membership.test.ts`, `platform/apps/api/test/packages.test.ts`).
   **Reason:** deterministic divergent-migration ancestry and concurrent Organization rename/File upload cannot safely mutate a real user's migration journal or private Files.
   **Real elements they stand in for:** an upgraded Local Plane database, private Learning recommendation rows, an Organization Files root, and a Human-uploaded Module File.

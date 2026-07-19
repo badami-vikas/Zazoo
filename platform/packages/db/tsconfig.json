@@ -6,6 +6,9 @@
     "types": ["node"],
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
-  "references": [{ "path": "../core" }],
+  "references": [
+    { "path": "../core" },
+    { "path": "../../tools/jobpilot" }
+  ],
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

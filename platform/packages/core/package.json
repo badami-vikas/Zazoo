@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Universal Action Pipeline · Authority resolver · Policy engine · RitualExecutor seam. Zero runtime dependencies.",
+  "description": "Universal Action Pipeline · Authority resolver · Policy Engine · AutomationExecutor seam. Zero runtime dependencies.",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
