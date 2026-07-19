@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { Briefcase, LayoutGrid, List as ListIcon, Table as TableIcon } from "lucide-react";
+import { Briefcase, MoreHorizontal } from "lucide-react";
 import { Link } from "react-router";
+import { defaultViewConfig, type TableSpec, type ViewConfig } from "@bridge/tables";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
-import { CardGrid, NotionCard } from "../components/shared/NotionCard";
 import { Header } from "../components/shared/Header";
-import { ListView } from "../components/shared/ListView";
-import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
-import { StandardColumnMenu } from "../components/shared/StandardColumnMenu";
+import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { CollapsibleInsights } from "../components/shared/CollapsibleInsights";
-import { CreateListModal } from "../components/shared/ListDropdown";
 import { RedFlagControl } from "../components/shared/RedFlagControl";
 import { RedFlagProvider } from "../components/shared/RedFlagProvider";
-import { createList, useLists } from "../data/lists";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
+import { DataViews } from "../dataviews/DataViews";
+import type { DataRow } from "../dataviews/types";
 
 type JobPilotList = Awaited<ReturnType<typeof trpc.jobpilot.list.query>>;
-type JobItem = JobPilotList["items"][number];
-type ViewId = "table" | "card" | "list";
-type SortField = "title" | "company" | "stage";
+type JobPilotDefinition = Awaited<ReturnType<typeof trpc.jobpilot.definition.query>>;
 
 /** Display labels for @bridge/jobpilot's normalized `FitRecommendation` —
  * never the raw "pursue"/"review"/"pass" enum value verbatim (AP-023: no
@@ -24,41 +26,10 @@ type SortField = "title" | "company" | "stage";
  * always fine). */
 const FIT_LABEL: Record<string, string> = { pursue: "Pursue", review: "Needs review", pass: "Pass" };
 const JOBPILOT_DATABASE_ID = "jobpilot.jobs";
-
-function JobPilotFlaggableCell({
-  applicationId,
-  fieldId,
-  value,
-  className,
-  color,
-}: {
-  applicationId: string | undefined;
-  fieldId: "title" | "company" | "stage";
-  value: string;
-  className: string;
-  color: string;
-}) {
-  return (
-    <td className={className} style={{ color }}>
-      {applicationId ? (
-        <RedFlagControl
-          anchor={{
-            kind: "cell",
-            moduleId: "jobpilot",
-            databaseId: JOBPILOT_DATABASE_ID,
-            recordId: applicationId,
-            fieldId,
-          }}
-          renderedValue={value}
-        >
-          {value}
-        </RedFlagControl>
-      ) : (
-        value
-      )}
-    </td>
-  );
-}
+const LOADING_SPEC: TableSpec = {
+  id: JOBPILOT_DATABASE_ID,
+  columns: [{ id: "title", label: "Title", kind: "text", editable: false }],
+};
 
 /**
  * TASK-010 review round-5 item 6 — the platform's required "rendered
@@ -94,202 +65,124 @@ function FitSignalBullets({ applicationId, stage, flag, fitScore }: { applicatio
   );
 }
 
-const VIEWS: ToolbarView[] = [
-  { id: "table", label: "Table", icon: TableIcon },
-  { id: "card", label: "Card", icon: LayoutGrid },
-  { id: "list", label: "List", icon: ListIcon },
-];
-
 export function JobPilotPage() {
   const [page, setPage] = useState<JobPilotList | null>(null);
+  const [definition, setDefinition] = useState<JobPilotDefinition | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewId>("table");
-  const [search, setSearch] = useState("");
-  const [stageFilter, setStageFilter] = useState<string | null>(null);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [sort, setSort] = useState<{ field: SortField; direction: "asc" | "desc" } | null>(null);
-  const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [view, setView] = useState<ViewConfig>(() => defaultViewConfig(`${JOBPILOT_DATABASE_ID}:table`));
   const [insightsOpen, setInsightsOpen] = useState(true);
-  const [addListOpen, setAddListOpen] = useState(false);
-  const lists = useLists("jobpilot");
 
   useEffect(() => {
-    trpc.jobpilot.list
-      .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
-      .then(setPage)
+    Promise.all([
+      trpc.jobpilot.list.query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 }),
+      trpc.jobpilot.definition.query({ workspaceId: PILOT_WORKSPACE }),
+    ])
+      .then(([nextPage, nextDefinition]) => {
+        setPage(nextPage);
+        setDefinition(nextDefinition);
+      })
       .catch((failure) => setError(String(failure)));
   }, []);
 
-  const stages = useMemo(
-    () => [...new Set((page?.items ?? []).map((item) => item.application?.stage).filter((stage): stage is string => Boolean(stage)))].sort(),
+  const spec = definition ?? LOADING_SPEC;
+  const rows = useMemo<DataRow[]>(
+    () => (page?.items ?? []).map((item) => ({
+      id: item.application?.id,
+      jobId: item.id,
+      title: item.title,
+      company: item.company,
+      location: item.location,
+      salaryMax: item.salaryMax,
+      flag: item.application?.flag,
+      stage: item.application?.stage ?? "Not tracked",
+      fitScore: item.application?.fitScore,
+      source: item.source,
+    })),
     [page],
   );
 
-  const visible = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const rows = (page?.items ?? []).filter((item) => {
-      if (stageFilter && item.application?.stage !== stageFilter) return false;
-      return !query || `${item.title} ${item.company} ${item.location ?? ""}`.toLowerCase().includes(query);
-    });
-    if (!sort) return rows;
-    return [...rows].sort((left, right) => {
-      const value = (item: JobItem) => {
-        if (sort.field === "stage") return item.application?.stage ?? "";
-        return String(item[sort.field] ?? "");
-      };
-      const order = value(left).localeCompare(value(right));
-      return sort.direction === "asc" ? order : -order;
-    });
-  }, [page, search, sort, stageFilter]);
-
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
-  if (!page) return <div className="p-6 text-sm text-muted-foreground">Loading Job records…</div>;
+  if (!page || !definition) return <div className="p-6 text-sm text-muted-foreground">Loading Job records…</div>;
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
       <Header tabs={[{ id: "JobPilot", icon: Briefcase }]} activeTab="JobPilot" onTabChange={() => {}} />
-      <StandardToolbar
-        lists={[{ id: "__all", label: "All Jobs" }, ...lists.map((list) => ({ id: list.id, label: list.name }))]}
-        activeListId={selectedList ?? "__all"}
-        onListSelect={(id) => setSelectedList(id === "__all" ? null : id)}
-        onAddList={() => setAddListOpen(true)}
-        insightsExpanded={insightsOpen}
-        onToggleInsights={() => setInsightsOpen((open) => !open)}
-        view={view}
-        views={VIEWS}
-        onViewChange={(id) => setView(id as ViewId)}
-        search={search}
-        onSearchChange={setSearch}
-        onFilterClick={() => setFilterOpen((open) => !open)}
-        filterCount={stageFilter ? 1 : 0}
-        filterOpen={filterOpen}
-        filterPanel={
-          <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-xl border bg-white py-1 shadow-lg" style={{ borderColor: "var(--color-border)" }}>
-            {stages.length === 0 ? (
-              <p className="px-3 py-2 text-xs" style={{ color: "var(--color-warm-gray)" }}>No application stages yet</p>
-            ) : stages.map((stage) => (
-              <button
-                key={stage}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm"
-                style={{ color: stage === stageFilter ? "var(--color-steel)" : "var(--color-navy-mid)" }}
-                onClick={() => {
-                  setStageFilter(stage === stageFilter ? null : stage);
-                  setFilterOpen(false);
-                }}
-              >
-                {stage}
-              </button>
-            ))}
-          </div>
-        }
-        moreMenu={
-          <Link
-            to="/module/job-pilot"
-            className="block w-full px-3 py-2 text-left text-xs hover:bg-black/5"
-            style={{ color: "var(--color-navy-mid)" }}
+      <div
+        className="flex items-center justify-between border-b px-4 py-2"
+        style={{ borderColor: "var(--color-border)", backgroundColor: "white" }}
+      >
+        <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>All Jobs</h2>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border px-2.5 py-1.5 text-xs font-medium"
+            style={{ borderColor: "var(--color-border)" }}
+            onClick={() => setInsightsOpen((open) => !open)}
           >
-            Open Module Detail
-          </Link>
-        }
-      />
+            {insightsOpen ? "Hide insights" : "Show insights"}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="JobPilot controls"
+                className="rounded-md border p-1.5 hover:bg-black/5"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link to="/module/job-pilot">Control Panel / Module Detail</Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
       <CollapsibleInsights
         expanded={insightsOpen}
         metrics={[
           { id: "jobs", label: "Jobs", value: String(page.total) },
-          { id: "visible", label: "Visible", value: String(visible.length) },
+          { id: "tracked", label: "Tracked", value: String(page.items.filter((item) => item.application).length) },
           { id: "review", label: "Awaiting review", value: String(page.items.filter((item) => item.application?.stage === "awaiting_review").length) },
         ]}
       />
-      {addListOpen && (
-        <CreateListModal
-          onClose={() => setAddListOpen(false)}
-          onCreate={(name, instruction) => setSelectedList(createList("jobpilot", name, instruction).id)}
-        />
-      )}
-
-      <div className="flex-1 overflow-auto">
-        {view === "table" ? (
-          <RedFlagProvider scope={{ moduleId: "jobpilot", databaseId: JOBPILOT_DATABASE_ID }}>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-                  <th className="px-4 py-2 font-semibold">
-                    <StandardColumnMenu label="Role" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "title", direction })} />
-                  </th>
-                  <th className="px-4 py-2 font-semibold">
-                    <StandardColumnMenu label="Company" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "company", direction })} />
-                  </th>
-                  <th className="px-4 py-2 font-semibold">
-                    <StandardColumnMenu label="Stage" databaseBacked onFilter={() => setFilterOpen(true)} onSort={(direction) => setSort({ field: "stage", direction })} />
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="p-10 text-center" style={{ color: "var(--color-warm-gray)" }}>
-                      {page.total === 0
-                        ? "No real job records yet. Save a posting through JobPilot intake to populate this database."
-                        : "No job records match the current search and filters."}
-                    </td>
-                  </tr>
-                )}
-                {visible.map((item) => {
-                  const applicationId = item.application?.id;
-                  const stage = item.application?.stage ?? "Not tracked";
-                  return (
-                    <tr key={item.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="title" value={item.title} className="px-4 py-2 font-medium" color="var(--color-navy)" />
-                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="company" value={item.company} className="px-4 py-2" color="var(--color-navy-mid)" />
-                      <JobPilotFlaggableCell applicationId={applicationId} fieldId="stage" value={stage} className="px-4 py-2" color="var(--color-warm-gray)" />
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </RedFlagProvider>
-        ) : visible.length === 0 ? (
-          <div className="m-4 rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-            {page.total === 0
-              ? "No real job records yet. Save a posting through JobPilot intake to populate this database."
-              : "No job records match the current search and filters."}
-          </div>
-        ) : view === "card" ? (
-          <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
-            <CardGrid>
-              {visible.map((item) => (
-                <NotionCard
-                  key={item.id}
-                  title={item.title}
-                  subtitle={`${item.company}${item.location ? ` · ${item.location}` : ""}`}
-                  metaChips={[item.source ?? "Source not recorded"]}
-                  footer={
-                    item.application ? (
-                      <FitSignalBullets applicationId={item.application.id} stage={item.application.stage} flag={item.application.flag} fitScore={item.application.fitScore} />
-                    ) : (
-                      <span className="text-[11px]" style={{ color: "var(--color-warm-gray)" }}>Not tracked</span>
-                    )
-                  }
-                />
-              ))}
-            </CardGrid>
-          </RedFlagProvider>
-        ) : (
-          <ListView
-            items={visible}
-            keyFor={(item: JobItem) => item.id}
-            renderRow={(item: JobItem) => (
-              <>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold" style={{ color: "var(--color-navy)" }}>{item.title}</div>
-                  <div className="truncate text-xs" style={{ color: "var(--color-warm-gray)" }}>{item.company}</div>
-                </div>
-                <span className="text-xs" style={{ color: "var(--color-navy-mid)" }}>{item.application?.stage ?? "Not tracked"}</span>
-              </>
-            )}
+      <div className="flex-1 space-y-8 overflow-auto p-4">
+        <section aria-label="Jobs Database">
+          <DataViews
+            spec={spec}
+            view={view}
+            data={rows}
+            onViewChange={setView}
           />
+        </section>
+        {page.items.some((item) => item.application) && (
+          <RedFlagProvider scope={{ moduleId: "jobpilot" }}>
+            <section className="space-y-3" aria-labelledby="jobpilot-fit-signals">
+              <h2 id="jobpilot-fit-signals" className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>
+                Fit signals
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {page.items.flatMap((item) => item.application ? [{
+                  item,
+                  application: item.application,
+                }] : []).map(({ item, application }) => (
+                  <article key={application.id} className="rounded-md border p-3" style={{ borderColor: "var(--color-border)" }}>
+                    <h3 className="mb-2 text-sm font-medium">{item.title}</h3>
+                    <FitSignalBullets
+                      applicationId={application.id}
+                      stage={application.stage}
+                      flag={application.flag}
+                      fitScore={application.fitScore}
+                    />
+                  </article>
+                ))}
+              </div>
+            </section>
+          </RedFlagProvider>
         )}
+        <ModuleFilesSection moduleName="job-pilot" />
       </div>
     </div>
   );

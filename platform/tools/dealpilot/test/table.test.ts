@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dealsTableSpec, dealsKanbanView, dealsStageBoardView } from "../src/table.js";
+import { dealsTableSpec, dealsThesisBoardView, dealsStageBoardView } from "../src/table.js";
 import { PIPELINE_STAGES } from "../src/deal.js";
 
 test("dealsTableSpec: declares explicit domain thesis-fit bands", () => {
@@ -8,9 +8,9 @@ test("dealsTableSpec: declares explicit domain thesis-fit bands", () => {
   assert.deepEqual(fitBandColumn?.options, ["strong_fit", "needs_review", "weak_fit"]);
 });
 
-test("dealsKanbanView: groups by thesis-fit band, kind kanban", () => {
-  const view = dealsKanbanView();
-  assert.equal(view.kind, "kanban");
+test("dealsThesisBoardView: groups by thesis-fit band, kind board", () => {
+  const view = dealsThesisBoardView();
+  assert.equal(view.kind, "board");
   assert.equal(view.groupBy, "thesisFitBand");
 });
 
@@ -30,8 +30,8 @@ test("dealsTableSpec: declares an askPrice column", () => {
   assert.equal(col?.kind, "number");
 });
 
-test("dealsStageBoardView: groups by stage, kind kanban", () => {
+test("dealsStageBoardView: groups by stage, kind board", () => {
   const view = dealsStageBoardView();
-  assert.equal(view.kind, "kanban");
+  assert.equal(view.kind, "board");
   assert.equal(view.groupBy, "stage");
 });

@@ -1,5 +1,16 @@
 # Change Log
 
+- **2026-07-19** — **TASK-014 View Grammar + converged TASK-009 Second Brain Graph closed
+  (AP-047, ADR-121)**: one metadata-gated registry now owns table/board/gallery/form/calendar/map/
+  graph/tree across DealPilot, JobPilot, Relationship, Work, Initiative, and Task Manager. Calendar's
+  Module/Tool/package/routes and duplicate renderers are gone; Blueprint v2 uses canonical View names
+  with bounded v1 alias migration. The shared Graph supports one/selected/full Database scopes; full
+  is the authenticated Second Brain preset over permission-pruned Record/Relation/Event/File data
+  with provenance, typed filtering, Record navigation, and governed Signal Actions. Exact desktop and
+  375×812 live tests passed, including a connected cross-Module path and private-node pruning.
+  Adjacent legacy Associations and Module-File indexing gaps remain explicit under TASK-013/TASK-012.
+  See [handoff](../outputs/2026-07-19-task009-task014-view-grammar-graph.md).
+
 - **2026-07-19** — **TASK-010 live certification and closure (AP-046)**: authenticated persistent
   Local Plane testing exposed one same-surface omission: JobPilot's default table rendered Role,
   Company, and Stage without the shared Red Flag control. All three now use one batched
@@ -1819,3 +1830,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Marked TASK-003 `done` and resolved both Avatar mobility/native-control bug rows. TASK-005 remains `blocked` only on its separate combined desktop+375px Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals demo.
 - PR #18 merge-gate review exposed and recorded an unrelated `origin/main` baseline defect under TASK-013: the legacy prototype CI imports two PII-derived modules that clean checkouts intentionally omit. The closure changes no prototype files; the other seven CI jobs pass.
 - 2026-07-18 — `docs/Progress from Manish/` updated to reflect TASK-010's round-7 merge into `main` at `e532b15`: `subagent-progress.md`'s TASK-010 row changed Paused→Merged with the final head/verification summary; `merge-history.md` gained landed-history rows for `d75d26f` (TASK-003 cert) and `e532b15` (TASK-010 `0016_new_ink`), the migration sequence marked `0016_new_ink` LANDED (next new migration is `0017`), and the central-baseline note updated; `paused-worktrees.md`'s TASK-010 section replaced with a short MERGED pointer (no longer a resumable dirty-worktree state); `README.md`'s critical resume constraints and state-at-handoff sections updated to point at the current `origin/main` head instead of the stale `631aa9f` baseline.
+
+# 2026-07-19 — TASK-014 Map privacy-safe completion (AP-048, ADR-122)
+- Replaced Map's coordinate-only/remote-tile gap with a local `world-atlas` basemap, pin clustering, search/fly-to, Record navigation, canonical Location parsing, and explicit save-through-Record update.
+- Added a Core `GeocodingProvider` port and loopback-only Nominatim-compatible API adapter. Free-text labels never leave the Local Plane automatically; no provider yields an honest coordinate-entry state.
+- Recorded the user's local/private choice, dependency/source terms, privacy rationale, regression fixtures, resolved Map bug, and updated TASK-014/output evidence.
+- Closed focused review defects: successful geocoder batches survive later failures; structured Locations filter/sort and round-trip; Leaflet follows Location-column lifecycle; co-located and keyboard-only users can open Records; search is schema-driven; coordinate saves are Location-only, preserve the Map through the batch, and exclude shared non-owned Records.
+- Closed final shared-grammar review defects: Board cannot mutate read-only/locked group fields, Form group defaults do not leak into later Views, and Table exposes active sort direction visually plus `aria-sort`.
+- Recorded the pre-existing bounded-pagination/global-filter mismatch under TASK-017 rather than reintroducing unbounded Relationship reads.

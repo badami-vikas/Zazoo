@@ -469,6 +469,16 @@ test("graph Relationship path resolves evidence and proposes a governed Action",
     ]);
     const caller = await makeCaller(wiring);
 
+    const fullGraph = await caller.graph.full({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 100,
+    });
+    assert.ok(fullGraph.nodes.some((node) => node.id === `signal:${fixture.signalId}` && node.actionKind === "signal"));
+    assert.ok(fullGraph.nodes.some((node) => node.id === `event:${fixture.eventId}`));
+    assert.ok(fullGraph.nodes.some((node) => node.id === `person:${fixture.personId}`));
+    assert.ok(fullGraph.nodes.every((node) => node.provenance.length > 0));
+    assert.ok(fullGraph.edges.some((edge) => edge.sourceModule === "relationship" && edge.evidence.includes("source relationship")));
+
     const detail = await caller.graph.getSignalDetail({
       workspaceId: PILOT_WORKSPACE,
       signalId: fixture.signalId,

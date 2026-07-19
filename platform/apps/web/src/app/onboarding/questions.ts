@@ -111,7 +111,7 @@ const Q_VIEW_STYLE: OnboardingQuestion = {
   consequence: "What changes: Bridge proposes a list or board as the starting layout. You can switch later.",
   options: [
     { value: "table", label: "List / table" },
-    { value: "kanban", label: "Board (kanban)" },
+    { value: "board", label: "Board" },
   ],
 };
 
@@ -262,7 +262,8 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
   const domain = (answers.domain as string | undefined) ?? "relationships";
   const entityDef = DOMAIN_ENTITY[domain] ?? DOMAIN_ENTITY.relationships!;
   const watchFirst = (answers.watch_first as string[] | undefined) ?? [];
-  const viewStyle = (answers.view_style as string | undefined) === "kanban" ? "kanban" : "table";
+  const requestedViewStyle = answers.view_style as string | undefined;
+  const viewStyle = requestedViewStyle === "board" || requestedViewStyle === "kanban" ? "board" : "table";
   const vocabName = (answers.vocab_name as string | undefined)?.trim();
   // profession is a secondary hint for vocabulary: if the user named their work explicitly
   // via vocab_name, that wins. If not, profession is available for future smart-mapping
@@ -273,7 +274,7 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
 
   const fields = [
     { id: "name", label: "Name", kind: "text" as const },
-    ...(watchFirst.includes("track_stage")
+    ...(watchFirst.includes("track_stage") || viewStyle === "board"
       ? [{ id: "stage", label: "Stage", kind: "select" as const, options: ["new", "active", "closed"] }]
       : []),
     // "Keep an eye on my calendar" (watch_first: "calendar") was collected but
@@ -300,12 +301,11 @@ export function buildBlueprintFromAnswers(answers: OnboardingAnswers): Workspace
       {
         entity: entityDef.nodeType,
         kind: viewStyle,
-        // "onboarding kanban never sets groupBy" (docs/BUGS.md): when the
-        // generated entity has a stage field AND the user picked the kanban
+        // When the generated entity has a stage field and the user picked the Board
         // view style, group by it so the board renders grouped instead of
         // one flat unlabeled column. Lives under `config.groupBy`, per
         // blueprint.ts's BlueprintViewSpec shape (mirrors CompiledViewConfig).
-        ...(viewStyle === "kanban" && watchFirst.includes("track_stage")
+        ...(viewStyle === "board"
           ? { config: { groupBy: "stage" } }
           : {}),
       },

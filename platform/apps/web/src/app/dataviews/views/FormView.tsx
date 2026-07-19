@@ -18,15 +18,15 @@
  *  - select              → <Select> single choice from col.options
  *  - multiselect         → checkbox list from col.options (comma-joined on submit)
  *  - checkbox            → <Checkbox>
- *  - location            → <Input type="text"> (geocoding out of scope here)
+ *  - location            → <Input type="text"> (label or local coordinates)
  *  - relation / formula / tool → read-only note; computed/relational fields are
  *    excluded from user input — the backend fills them (same as every other write path)
  *
  * Locked or non-editable columns are skipped; formula/tool columns are skipped
  * because their values are computed server-side.
  */
-import { useState } from "react";
-import type { ColumnSpec } from "@bridge/tables";
+import { useEffect, useMemo, useState } from "react";
+import { formatLocationInput, type ColumnSpec } from "@bridge/tables";
 import { Button } from "../../components/ui/button.js";
 import { Input } from "../../components/ui/input.js";
 import { Label } from "../../components/ui/label.js";
@@ -40,12 +40,12 @@ import {
 } from "../../components/ui/select.js";
 import type { DataViewProps, DataRow } from "../types.js";
 
-/** Column kinds excluded from form input — their values are computed/relational. */
-const EXCLUDED_KINDS = new Set<ColumnSpec["kind"]>(["formula", "tool", "relation"]);
+const EXCLUDED_KINDS = new Set<ColumnSpec["kind"]>(["formula", "tool"]);
 
 function isFormEditable(col: ColumnSpec): boolean {
   if (col.locked) return false;
   if (col.editable === false) return false;
+  if (col.hiddenInForm) return false;
   if (EXCLUDED_KINDS.has(col.kind)) return false;
   return true;
 }
@@ -59,7 +59,12 @@ function FieldInput({
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
-  const strVal = value == null ? "" : String(value);
+  const strVal =
+    col.kind === "location"
+      ? formatLocationInput(value)
+      : value == null
+        ? ""
+        : String(value);
 
   if (col.kind === "select" && col.options && col.options.length > 0) {
     return (
@@ -79,7 +84,13 @@ function FieldInput({
   }
 
   if (col.kind === "multiselect" && col.options && col.options.length > 0) {
-    const selected = new Set(strVal ? strVal.split(",").map((s) => s.trim()) : []);
+    const selected = new Set(
+      Array.isArray(value)
+        ? value.map(String)
+        : strVal
+          ? strVal.split(",").map((item) => item.trim())
+          : [],
+    );
     return (
       <div className="flex flex-wrap gap-3">
         {col.options.map((opt) => (
@@ -90,7 +101,7 @@ function FieldInput({
                 const next = new Set(selected);
                 if (checked) next.add(opt);
                 else next.delete(opt);
-                onChange([...next].join(", "));
+                onChange([...next]);
               }}
             />
             {opt}
@@ -145,23 +156,65 @@ function FieldInput({
     );
   }
 
-  // text / location / fallback
+  if (col.kind === "relation") {
+    return (
+      <Input
+        type="text"
+        value={strVal}
+        onChange={(event) => onChange(event.target.value || undefined)}
+        className="h-8 text-sm"
+        placeholder={`${col.relationTarget ?? "Record"} ID`}
+      />
+    );
+  }
+
   return (
     <Input
       type="text"
       value={strVal}
       onChange={(e) => onChange(e.target.value || undefined)}
       className="h-8 text-sm"
-      placeholder={col.label}
+      placeholder={
+        col.kind === "location"
+          ? "Place label or Label | latitude, longitude"
+          : col.label
+      }
     />
   );
 }
 
-export function FormView({ spec, onInsert }: DataViewProps) {
-  const editableColumns = spec.columns.filter(isFormEditable);
-  const [draft, setDraft] = useState<Partial<DataRow>>({});
+function initialDraft(
+  columns: ColumnSpec[],
+  defaults: Record<string, unknown> | undefined,
+  record: DataRow | null | undefined,
+): Partial<DataRow> {
+  const values: Partial<DataRow> = {};
+  for (const column of columns) {
+    const value = record?.[column.id] ?? defaults?.[column.id] ?? column.defaultValue;
+    if (value !== undefined) values[column.id] = value;
+  }
+  return values;
+}
+
+export function FormView({ spec, view, onInsert, onUpdate, formRecord }: DataViewProps) {
+  const editableColumns = useMemo(
+    () => spec.columns.filter(isFormEditable),
+    [spec.columns],
+  );
+  const resetDraft = useMemo(
+    () => initialDraft(editableColumns, view.formDefaults, formRecord),
+    [editableColumns, formRecord, view.formDefaults],
+  );
+  const [draft, setDraft] = useState<Partial<DataRow>>(resetDraft);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(resetDraft);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+  }, [resetDraft]);
 
   if (editableColumns.length === 0) {
     return (
@@ -173,14 +226,35 @@ export function FormView({ spec, onInsert }: DataViewProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!onInsert) return;
+    const rowId =
+      typeof formRecord?.["id"] === "string" || typeof formRecord?.["id"] === "number"
+        ? String(formRecord["id"])
+        : null;
+    if (rowId ? !onUpdate : !onInsert) return;
+    const missing = editableColumns.find((column) => {
+      const value = draft[column.id];
+      return (
+        column.required &&
+        (value === undefined ||
+          value === null ||
+          value === "" ||
+          (Array.isArray(value) && value.length === 0))
+      );
+    });
+    if (missing) {
+      setSubmitError(`${missing.label} is required.`);
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
+    setSubmitSuccess(null);
     try {
-      await onInsert(draft);
-      setDraft({});
-    } catch {
-      setSubmitError("Could not add this row. Check your connection and try again.");
+      if (rowId) await onUpdate?.(rowId, draft);
+      else await onInsert?.(draft);
+      setSubmitSuccess(rowId ? "Changes saved." : "Row added.");
+      if (!rowId) setDraft(resetDraft);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "The row could not be saved.");
     } finally {
       setSubmitting(false);
     }
@@ -192,6 +266,7 @@ export function FormView({ spec, onInsert }: DataViewProps) {
         <div key={col.id} className="space-y-1.5">
           <Label htmlFor={`form-field-${col.id}`} className="text-sm font-medium">
             {col.label}
+            {col.required && <span aria-hidden="true" className="text-destructive"> *</span>}
           </Label>
           <div id={`form-field-${col.id}`}>
             <FieldInput
@@ -203,18 +278,27 @@ export function FormView({ spec, onInsert }: DataViewProps) {
         </div>
       ))}
 
-      <Button type="submit" size="sm" disabled={submitting || !onInsert}>
-        {submitting ? "Adding…" : "Add row"}
+      <Button
+        type="submit"
+        size="sm"
+        disabled={submitting || (formRecord ? !onUpdate : !onInsert)}
+      >
+        {submitting ? "Saving…" : formRecord ? "Save changes" : "Add row"}
       </Button>
 
-      {!onInsert && (
+      {!formRecord && !onInsert && (
         <p className="text-xs text-muted-foreground">
-          No insert handler wired — connect this form to an <code>action.propose</code> call.
+          This Database is read-only because no insert handler is connected.
         </p>
       )}
       {submitError && (
         <p className="text-xs text-red-600" role="alert">
           {submitError}
+        </p>
+      )}
+      {submitSuccess && (
+        <p className="text-xs text-emerald-700" role="status">
+          {submitSuccess}
         </p>
       )}
     </form>

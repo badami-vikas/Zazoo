@@ -29,7 +29,7 @@ function validBlueprint(): WorkspaceBlueprint {
     ],
     views: [
       { entity: "person", kind: "table" },
-      { entity: "person", kind: "kanban", config: { groupBy: "stage" } },
+      { entity: "person", kind: "board", config: { groupBy: "stage" } },
     ],
     capabilities: ["cap-manifest-1"],
   };
@@ -88,8 +88,31 @@ test("BLUEPRINT-1 round-trip: blueprint -> publish manifest -> (re-parse) -> ins
   const compiled = compileBlueprint(installed, REGISTRY, ["relationship"]);
   assert.equal(compiled.tableSpecs.length, 1);
   assert.equal(compiled.navigation[0]?.nodeType, "person");
-  const kanban = compiled.viewConfigs.find((v) => v.kind === "kanban");
-  assert.equal(kanban?.groupBy, "stage");
+  const board = compiled.viewConfigs.find((v) => v.kind === "board");
+  assert.equal(board?.groupBy, "stage");
+});
+
+test("parseWorkspaceBlueprint: migrates explicit version-1 view aliases and emits version 2", () => {
+  const legacy = {
+    ...validBlueprint(),
+    schemaVersion: 1,
+    views: [
+      { entity: "person", kind: "kanban", config: { groupBy: "stage" } },
+      { entity: "person", kind: "network" },
+    ],
+  };
+  const parsed = parseWorkspaceBlueprint(legacy);
+  assert.equal(parsed.schemaVersion, BLUEPRINT_SCHEMA_VERSION);
+  assert.deepEqual(parsed.views.map((view) => view.kind), ["board", "graph"]);
+});
+
+test("parseWorkspaceBlueprint: rejects version-1 aliases in a version-2 payload", () => {
+  const payload = {
+    ...validBlueprint(),
+    schemaVersion: BLUEPRINT_SCHEMA_VERSION,
+    views: [{ entity: "person", kind: "kanban" }],
+  };
+  assert.throws(() => parseWorkspaceBlueprint(payload), BlueprintValidationError);
 });
 
 test("workspaceBlueprintFromPackageManifest: rejects a non-workspace_definition manifest", () => {

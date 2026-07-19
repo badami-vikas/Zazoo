@@ -27,7 +27,6 @@ import {
   Bot,
   Zap,
   Cable,
-  FolderOpen,
   Settings,
   Database,
   CheckCircle,
@@ -39,9 +38,9 @@ import {
 } from "lucide-react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { CommonsCapabilityPanel } from "../components/CommonsCapabilityPanel";
+import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 
 type PackageRow = Awaited<ReturnType<typeof trpc.packages.list.query>>["items"][number];
-type FileInventory = Awaited<ReturnType<typeof trpc.packages.files.query>>;
 
 // Human-readable risk labels
 const RISK_LABELS: Record<string, string> = {
@@ -485,53 +484,6 @@ function IntegrationsSection({ pkg }: { pkg: PackageRow }) {
   );
 }
 
-/** Files and Results section. */
-function FilesSection({
-  pkg,
-  inventory,
-  loading,
-  error,
-}: {
-  pkg: PackageRow;
-  inventory: FileInventory | null;
-  loading: boolean;
-  error: string | null;
-}) {
-  return (
-    <section className="space-y-3">
-      <SectionHeader icon={FolderOpen} title="Files and Results" />
-      {loading ? (
-        <div className="text-sm" style={{ color: "var(--color-warm-gray)" }}>Loading local File inventory…</div>
-      ) : error ? (
-        <div className="rounded-lg border p-3 text-sm text-red-600" style={{ borderColor: "var(--color-border)" }}>
-          Could not read local Files: {error}
-        </div>
-      ) : inventory && inventory.items.length > 0 ? (
-        <div className="rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-          <p className="border-b p-3 text-xs break-all" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-            {inventory.root}
-          </p>
-          <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-            {inventory.items.map((file) => (
-              <li key={file.path} className="p-3">
-                <p className="text-sm font-medium break-all" style={{ color: "var(--color-navy)" }}>{file.path}</p>
-                <p className="mt-0.5 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-                  {file.size.toLocaleString()} bytes · {new Date(file.modifiedAt).toLocaleString()}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <EmptyState
-          message={`No Files currently exist in ${pkg.manifest?.module?.displayName ?? pkg.packageName}'s local inventory.`}
-          hint={inventory?.root ?? "The local File inventory path could not be resolved."}
-        />
-      )}
-    </section>
-  );
-}
-
 /** Settings section — version, rollback, archive/uninstall. */
 function SettingsSection({ pkg }: { pkg: PackageRow }) {
   return (
@@ -589,9 +541,6 @@ export function ModuleDetailPage() {
   const [pkg, setPkg] = useState<PackageRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileInventory | null>(null);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [filesError, setFilesError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PackageRow[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -601,9 +550,6 @@ export function ModuleDetailPage() {
     setLoading(true);
     setError(null);
     setPkg(null);
-    setFiles(null);
-    setFilesError(null);
-    setFilesLoading(false);
     setAttachments([]);
     trpc.packages.list
       .query({ workspaceId: PILOT_WORKSPACE, limit: 100, offset: 0 })
@@ -623,20 +569,6 @@ export function ModuleDetailPage() {
               item.status === "installed"
           )
         );
-        if (found) {
-          setFilesLoading(true);
-          trpc.packages.files
-            .query({ workspaceId: PILOT_WORKSPACE, moduleName: found.packageName })
-            .then((inventory) => {
-              if (!cancelled) setFiles(inventory);
-            })
-            .catch((filesFailure) => {
-              if (!cancelled) setFilesError(String(filesFailure));
-            })
-            .finally(() => {
-              if (!cancelled) setFilesLoading(false);
-            });
-        }
         setLoading(false);
       })
       .catch((e) => {
@@ -729,7 +661,7 @@ export function ModuleDetailPage() {
           <AgentsSection pkg={pkg} attachments={attachments} onInstalled={() => setRefreshKey((value) => value + 1)} />
           <AutomationsSection pkg={pkg} />
           <IntegrationsSection pkg={pkg} />
-          <FilesSection pkg={pkg} inventory={files} loading={filesLoading} error={filesError} />
+          <ModuleFilesSection moduleName={pkg.packageName} title="Files and Results" />
           <SettingsSection pkg={pkg} />
         </div>
       </div>

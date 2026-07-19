@@ -87,9 +87,11 @@ import {
   type SkillManifestRegistry,
   type ChildAgentRunStore,
   type SkillManifest,
+  type GeocodingProvider,
   uuidv7,
 } from "@bridge/core";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
+import { localGeocodingProviderFromEnv } from "./geocoding-provider.js";
 import { GoogleOAuthStateStore } from "./google-oauth-state.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
@@ -233,6 +235,11 @@ export async function retireSupersededBuiltIns(
       await packageStore.setState(row.id, "legacy");
     }
   }
+  for (const row of await packageStore.listVersions(workspaceId, "calendar")) {
+    if (row.state !== "legacy") {
+      await packageStore.setState(row.id, "legacy");
+    }
+  }
 }
 
 export interface Wiring {
@@ -334,6 +341,9 @@ export interface Wiring {
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
    * API keys are set). */
   models: ModelRouter;
+  /** Explicitly configured Local Plane geocoder. `null` means place labels stay
+   * local and Map plots only Records that already carry coordinates. */
+  geocodingProvider: GeocodingProvider | null;
   /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
   dealpilot: {
     integrationId: string;
@@ -1159,6 +1169,9 @@ export interface BuildWiringOptions {
   /** Test-only opt-in; runtime must name a durable Local Plane directory. */
   allowEphemeralLocalPlane?: boolean;
   localDir?: string;
+  /** Test or host injection. Runtime only auto-binds BRIDGE_LOCAL_GEOCODER_URL,
+   * which is restricted to loopback by the adapter. */
+  geocodingProvider?: GeocodingProvider;
 }
 
 function runningUnderNodeTest(): boolean {
@@ -1166,6 +1179,8 @@ function runningUnderNodeTest(): boolean {
 }
 
 export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wiring> {
+  const geocodingProvider =
+    options.geocodingProvider ?? localGeocodingProviderFromEnv(process.env);
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
@@ -1539,9 +1554,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // In-memory mode registers the same catalog synchronously in its port factory.
   await modePorts.ensureSkillManifestCatalog?.();
 
-  // Helpdesk is now a nested Relationship sub-module. Preserve historical
-  // installation rows and data, but remove the retired standalone Module from
-  // installed navigation before seeding the replacement.
+  // Helpdesk is now a nested Relationship sub-module, and Calendar is a View
+  // kind rather than a Module. Preserve historical rows/data while removing
+  // both retired standalone identities from installed navigation.
   await retireSupersededBuiltIns(packageStore, PILOT_WORKSPACE);
 
   // Seed built-in workspace-definition packages as available+installed.
@@ -1751,6 +1766,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     evalStore,
     policyParams,
     models,
+    geocodingProvider,
     ...(memory ? { memory } : {}),
     close: closeResources,
   };

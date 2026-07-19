@@ -12,15 +12,33 @@
  * attempting any fallback dynamic render.
  */
 import type { ComponentType } from "react";
-import type { ViewConfig } from "@bridge/tables";
+import {
+  VIEW_KINDS,
+  type TableSpec,
+  type ViewConfig,
+  type ViewKind,
+} from "@bridge/tables";
+import {
+  CalendarDays,
+  Columns3,
+  Images,
+  ListTree,
+  Map,
+  Network,
+  Rows3,
+  TextCursorInput,
+  type LucideIcon,
+} from "lucide-react";
 import type { DataViewProps } from "./types.js";
 import { TableView } from "./views/TableView.js";
-import { KanbanView } from "./views/KanbanView.js";
+import { BoardView } from "./views/BoardView.js";
 import { CalendarView } from "./views/CalendarView.js";
 import { GalleryView } from "./views/GalleryView.js";
 import { GraphView } from "./views/GraphView.js";
 import { MapView } from "./views/MapView.js";
 import { FormView } from "./views/FormView.js";
+import { TreeView } from "./views/TreeView.js";
+import { computeEligibleKinds } from "./eligibility.js";
 
 /** Exactly @bridge/tables' ViewConfig["kind"] — the data-view grammar. Dashboard/
  * chatbot/canvas (the blueprint's non-tabular views, see packages/core/src/
@@ -29,24 +47,46 @@ import { FormView } from "./views/FormView.js";
  * TableSpec-shaped data views. */
 export const VIEW_COMPONENT_REGISTRY: Record<ViewConfig["kind"], ComponentType<DataViewProps>> = {
   table: TableView,
-  kanban: KanbanView,
-  calendar: CalendarView,
+  board: BoardView,
   gallery: GalleryView,
-  map: MapView, // no map-rendering library in this repo — honest grouped-by-location list fallback (ADR-023, docs/BUGS.md)
-  network: GraphView,
-  /** Form view (UI architecture canon, AP-011): first-class standard view that collects
-   * a new row; submission = direct insert through the caller-supplied onInsert hook,
-   * which routes through action.propose / Learning Agent enrichment like every other
-   * DB write. Always eligible for any table-backed spec (eligibility.ts). */
   form: FormView,
+  calendar: CalendarView,
+  map: MapView,
+  graph: GraphView,
+  tree: TreeView,
 };
 
-/** Registered kinds, in the canonical morph order the vision doc lists
- * ("table (morphable: calendar/kanban/map/graph/card)") — used to render the
- * view-switcher tabs in blueprint-declared order rather than object-key order.
- * "form" appears last: it is an input surface, not a data display format. */
-export const REGISTERED_VIEW_KINDS: ViewConfig["kind"][] = ["table", "kanban", "calendar", "gallery", "map", "network", "form"];
+export interface ViewMetadata {
+  kind: ViewKind;
+  label: string;
+  icon: LucideIcon;
+}
+
+export const VIEW_METADATA: Record<ViewKind, ViewMetadata> = {
+  table: { kind: "table", label: "Table", icon: Rows3 },
+  board: { kind: "board", label: "Board", icon: Columns3 },
+  gallery: { kind: "gallery", label: "Gallery", icon: Images },
+  form: { kind: "form", label: "Form", icon: TextCursorInput },
+  calendar: { kind: "calendar", label: "Calendar", icon: CalendarDays },
+  map: { kind: "map", label: "Map", icon: Map },
+  graph: { kind: "graph", label: "Graph", icon: Network },
+  tree: { kind: "tree", label: "Tree", icon: ListTree },
+};
+
+export const REGISTERED_VIEW_KINDS: ViewKind[] = [...VIEW_KINDS];
 
 export function isRegisteredViewKind(kind: string): kind is ViewConfig["kind"] {
-  return kind in VIEW_COMPONENT_REGISTRY;
+  return Object.prototype.hasOwnProperty.call(VIEW_COMPONENT_REGISTRY, kind);
+}
+
+export function toolbarViewsForKinds(kinds: readonly ViewKind[]) {
+  return kinds.map((kind) => ({
+    id: kind,
+    label: VIEW_METADATA[kind].label,
+    icon: VIEW_METADATA[kind].icon,
+  }));
+}
+
+export function toolbarViewsForSpec(spec: TableSpec) {
+  return toolbarViewsForKinds(computeEligibleKinds(spec));
 }

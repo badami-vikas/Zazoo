@@ -42,7 +42,6 @@ const BUILT_IN_SOURCE_REFS: Readonly<Record<string, string>> = {
   "deal-pilot": "platform/tools/dealpilot/src/manifest.ts",
   "job-pilot": "platform/tools/jobpilot/src/manifest.ts",
   relationship: "platform/apps/web/src/app/pages/RelationshipPage.tsx",
-  calendar: "platform/apps/web/src/app/pages/CalendarPage.tsx",
 };
 
 function builtInSourceRef(packageName: string): string {
@@ -268,59 +267,6 @@ const relationshipCapabilities = [
   ),
 ];
 
-const calendarCapabilities = [
-  capability(
-    "calendar.events",
-    "Calendar events database and views",
-    "view",
-    [readAll("event"), writeAll("event")],
-    [{ id: "google-calendar", externalSend: true }],
-  ),
-  capability(
-    "google.listCalendarEvents",
-    "List Google Calendar events",
-    "skill",
-    [readAll("event")],
-    [{ id: "google-calendar" }],
-  ),
-  capability(
-    "google.composeEvent",
-    "Compose a governed Calendar event",
-    "skill",
-    [writeAll("event")],
-    [{ id: "google-calendar", externalSend: true }],
-  ),
-  capability(
-    "calendar.agent",
-    "Calendar Agent",
-    "agent",
-    [readAll("event"), writeAll("event")],
-    [],
-    [
-      { manifestId: "google.listCalendarEvents", versionRange: "0.2.0" },
-      { manifestId: "google.composeEvent", versionRange: "0.2.0" },
-    ],
-  ),
-  capability(
-    "calendar.refresh",
-    "Calendar refresh",
-    "workflow",
-    [readAll("event")],
-    [{ id: "google-calendar" }],
-    [
-      { manifestId: "calendar.agent", versionRange: "0.2.0" },
-      { manifestId: "google.listCalendarEvents", versionRange: "0.2.0" },
-    ],
-  ),
-  capability(
-    "calendar.google",
-    "Google Calendar",
-    "integration",
-    [readAll("event"), writeAll("event")],
-    [{ id: "google-calendar", externalSend: true }],
-  ),
-];
-
 export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
   {
     computedRisk: "external",
@@ -503,47 +449,6 @@ export const BUILT_IN_PACKAGES: readonly BuiltInPackage[] = [
       },
     },
   },
-  {
-    computedRisk: "external",
-    manifest: {
-      name: "calendar",
-      version: "0.2.0",
-      kind: "workspace_definition",
-      summary: "Time-axis projection over Events and Records.",
-      description:
-        "Reads Google Calendar through an attributable Calendar Agent and governs every external calendar write.",
-      lineageManifestId: null,
-      dependencies: [],
-      capabilities: calendarCapabilities,
-      contextProviders: [],
-      workspaceVocab: { alignsToBridgeTheme: true, domainTerms: {} },
-      module: {
-        displayName: "Calendar",
-        route: "/calendar/google",
-        pages: [{
-          id: "events",
-          name: "Events",
-          route: "/calendar/google",
-          databaseId: "calendar.events",
-          capabilityId: "calendar.events",
-        }],
-        agents: [{
-          id: "calendar-agent",
-          name: "Calendar Agent",
-          capabilityId: "calendar.agent",
-          skillIds: ["google.listCalendarEvents", "google.composeEvent"],
-        }],
-        automations: [{
-          id: "refresh",
-          name: "Calendar refresh",
-          capabilityId: "calendar.refresh",
-          agentId: "calendar-agent",
-          trigger: "Manual refresh",
-          procedure: "google.listEvents",
-        }],
-      },
-    },
-  },
 ];
 
 const interviewCalendarAvailability: BuiltInPackage = {
@@ -559,7 +464,13 @@ const interviewCalendarAvailability: BuiltInPackage = {
     dependencies: [],
     capabilities: [
       {
-        ...calendarCapabilities.find((capability) => capability.id === "google.listCalendarEvents")!,
+        ...capability(
+          "google.listCalendarEvents",
+          "List Google Calendar events",
+          "skill",
+          [readAll("event")],
+          [{ id: "google-calendar" }],
+        ),
         version: "1.0.0",
         audience: "private",
       },

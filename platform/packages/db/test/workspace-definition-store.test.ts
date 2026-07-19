@@ -144,3 +144,33 @@ test("workspace definition store: write-time — create throws on malformed blue
 test("parseBlueprint: throws on malformed shape rather than silently defaulting", () => {
   assert.throws(() => parseBlueprint({ entities: "nope" }), /Invalid workspace_definitions.blueprint jsonb/);
 });
+
+test("parseBlueprint: persists canonical View Grammar metadata and migrates version-1 aliases", () => {
+  const parsed = parseBlueprint({
+    schemaVersion: 1,
+    vocabulary: {},
+    entities: [{
+      nodeType: "place",
+      label: "Place",
+      fields: [
+        { id: "name", label: "Name", kind: "text", required: true },
+        { id: "stage", label: "Stage", kind: "select", options: ["open"] },
+        { id: "where", label: "Where", kind: "location" },
+        { id: "parent", label: "Parent", kind: "relation", relationTarget: "place", relationParent: true },
+        { id: "related", label: "Related", kind: "relation", relationTarget: "person" },
+      ],
+    }],
+    views: [
+      { entity: "place", kind: "kanban", config: { groupBy: "stage" } },
+      { entity: "place", kind: "network", config: { relationBy: "related", graphScope: "full" } },
+      { entity: "place", kind: "form" },
+      { entity: "place", kind: "map", config: { locationBy: "where" } },
+      { entity: "place", kind: "tree", config: { parentBy: "parent" } },
+    ],
+    capabilities: [],
+  });
+  assert.equal(parsed.schemaVersion, 2);
+  assert.deepEqual(parsed.views.map((view) => view.kind), ["board", "graph", "form", "map", "tree"]);
+  assert.equal(parsed.views[1]?.config?.graphScope, "full");
+  assert.equal(parsed.entities[0]?.fields[2]?.kind, "location");
+});

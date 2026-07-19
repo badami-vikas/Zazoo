@@ -4,6 +4,9 @@
  * chief-of-staff.test.ts's harness (buildWiring() + appRouter.createCaller).
  */
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   InMemoryPackageStore,
@@ -14,7 +17,11 @@ import {
   promoteToAvailable,
   type RunCtx,
 } from "@bridge/core";
-import { ModuleFilesPathError, moduleFilesRoot } from "../src/module-files.js";
+import {
+  ModuleFilesPathError,
+  moduleFilesRoot,
+  saveModuleFile,
+} from "../src/module-files.js";
 import { appRouter } from "../src/router.js";
 import {
   buildWiring,
@@ -379,7 +386,7 @@ test("packages.list: paginates a workspace's installations", async () => {
   }
 });
 
-test("built-in bootstrap retires standalone Helpdesk without deleting its history", async () => {
+test("built-in bootstrap retires standalone Helpdesk and all Calendar versions without deleting history", async () => {
   const store = new InMemoryPackageStore();
   const row = await store.create({
     workspaceId: PILOT_WORKSPACE,
@@ -391,12 +398,34 @@ test("built-in bootstrap retires standalone Helpdesk without deleting its histor
     status: "installed",
     lineageManifestId: null,
   });
+  const calendarAvailable = await store.create({
+    workspaceId: PILOT_WORKSPACE,
+    packageName: "calendar",
+    packageVersion: "0.2.0",
+    manifest: parsePackageManifest(dummyManifest({ name: "calendar", version: "0.2.0" })),
+    computedRisk: "external",
+    state: "available",
+    status: "installed",
+    lineageManifestId: null,
+  });
+  const calendarDraft = await store.create({
+    workspaceId: PILOT_WORKSPACE,
+    packageName: "calendar",
+    packageVersion: "0.3.0",
+    manifest: parsePackageManifest(dummyManifest({ name: "calendar", version: "0.3.0" })),
+    computedRisk: "external",
+    state: "private",
+    status: "pending_review",
+    lineageManifestId: calendarAvailable.id,
+  });
 
   await retireSupersededBuiltIns(store, PILOT_WORKSPACE);
 
   const retired = await store.get(row.id);
   assert.equal(retired?.state, "legacy");
   assert.equal(retired?.status, "installed");
+  assert.equal((await store.get(calendarAvailable.id))?.state, "legacy");
+  assert.equal((await store.get(calendarDraft.id))?.state, "legacy");
 });
 test("packages.files: returns the real canonical File root for an installed Module", async () => {
   const wiring = await buildWiring();
@@ -428,6 +457,15 @@ test("packages.files: authenticated deployments reject tokenless local-file meta
       /verified authentication is required/,
     );
     await assert.rejects(
+      () => caller.packages.addFile({
+        workspaceId: PILOT_WORKSPACE,
+        moduleName: "deal-pilot",
+        fileName: "notes.txt",
+        contentBase64: Buffer.from("private").toString("base64"),
+      }),
+      /verified authentication is required/,
+    );
+    await assert.rejects(
       () => caller.packages.list({ workspaceId: PILOT_WORKSPACE, limit: 10, offset: 0 }),
       /verified authentication is required/,
     );
@@ -440,6 +478,48 @@ test("moduleFilesRoot: rejects Organization and Module traversal segments", () =
   assert.throws(() => moduleFilesRoot("..", "DealPilot"), ModuleFilesPathError);
   assert.throws(() => moduleFilesRoot("Bridge", "."), ModuleFilesPathError);
   assert.throws(() => moduleFilesRoot(" .. ", " .. "), ModuleFilesPathError);
+});
+
+test("saveModuleFile: writes local bytes without overwrite or path traversal", async () => {
+  const bridgeRoot = await mkdtemp(join(tmpdir(), "bridge-module-files-"));
+  try {
+    const first = await saveModuleFile(
+      "Test Organization",
+      "Test Module",
+      "notes.txt",
+      Buffer.from("first"),
+      bridgeRoot,
+    );
+    const second = await saveModuleFile(
+      "Test Organization",
+      "Test Module",
+      "notes.txt",
+      Buffer.from("second"),
+      bridgeRoot,
+    );
+    assert.equal(first.path, "notes.txt");
+    assert.equal(second.path, "notes (2).txt");
+    assert.equal(
+      await readFile(join(bridgeRoot, "Test Organization", "Test Module", first.path), "utf8"),
+      "first",
+    );
+    assert.equal(
+      await readFile(join(bridgeRoot, "Test Organization", "Test Module", second.path), "utf8"),
+      "second",
+    );
+    await assert.rejects(
+      () => saveModuleFile(
+        "Test Organization",
+        "Test Module",
+        "../escape.txt",
+        Buffer.from("blocked"),
+        bridgeRoot,
+      ),
+      ModuleFilesPathError,
+    );
+  } finally {
+    await rm(bridgeRoot, { recursive: true, force: true });
+  }
 });
 test("packages.install: re-installing two package versions whose bundled capability keeps the SAME (name, version) is idempotent — reuses the existing manifest instead of colliding with capability_manifests_uq (ADR-024)", async () => {
   const wiring = await buildWiring();

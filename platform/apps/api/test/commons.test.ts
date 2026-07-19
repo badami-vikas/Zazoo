@@ -20,6 +20,7 @@ import type {
   CommonsRegistry,
 } from "@bridge/core";
 import type { PackageManifest } from "@bridge/core";
+import { COMMONS_BUILT_IN_PACKAGES } from "../src/built-in-packages.js";
 import { appRouter } from "../src/router.js";
 import { buildWiring, PILOT_USER, PILOT_WORKSPACE, type Wiring } from "../src/wiring.js";
 import { makeUnsignedCommonsEntry, TEST_COMMONS_SCAN } from "./commons-fixtures.js";
@@ -730,13 +731,13 @@ test("commons.publishBuiltins: publishes BUILT_IN_PACKAGES to the mock registry"
     const caller = await makeCaller(wiring);
     const result = await caller.commons.publishBuiltins();
 
-    assert.equal(result.published.length + result.skipped.length, 4);
+    assert.equal(result.published.length + result.skipped.length, COMMONS_BUILT_IN_PACKAGES.length);
     assert.equal(result.skipped.length, 0); // fresh registry, nothing pre-published
 
     // Second call: all should be skipped as duplicate
     const repeat = await caller.commons.publishBuiltins();
     assert.equal(repeat.published.length, 0);
-    assert.equal(repeat.skipped.length, 4);
+    assert.equal(repeat.skipped.length, COMMONS_BUILT_IN_PACKAGES.length);
   } finally {
     await wiring.close();
   }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { normalizeViewKind, type TableSpec, type ViewConfig } from "@bridge/tables";
 import {
   ArrowLeft,
   Archive,
@@ -9,27 +10,25 @@ import {
   Clock3,
   Database,
   FileText,
-  FormInput,
-  LayoutGrid,
-  List as ListIcon,
   Pencil,
-  Plus,
   Radio,
   Save,
-  Table as TableIcon,
   User,
   Users,
   X,
 } from "lucide-react";
 import { Header } from "../components/shared/Header";
-import { StandardToolbar, type ToolbarView } from "../components/shared/StandardToolbar";
+import { ModuleFilesSection } from "../components/shared/ModuleFilesSection";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { DataViews } from "../dataviews/DataViews";
+import { computeEligibleKinds, viewConfigForKind } from "../dataviews/eligibility";
+import type { DataRow, GraphData, GraphNode } from "../dataviews/types";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { SignalsPage } from "./SignalsPage";
 
 type RelationshipPageId = "signals" | "people" | "communities";
 type RecordKind = "person" | "community";
-type ViewId = "table" | "card" | "list" | "form";
 
 interface RelationshipListRecord {
   id: string;
@@ -46,13 +45,59 @@ const PAGES: Array<{ id: RelationshipPageId; label: string; icon: typeof Radio }
   { id: "communities", label: "Communities", icon: Users },
 ];
 
-const VIEWS: ToolbarView[] = [
-  { id: "table", label: "Table", icon: TableIcon },
-  { id: "card", label: "Card", icon: LayoutGrid },
-  { id: "list", label: "List", icon: ListIcon },
-  { id: "form", label: "Form", icon: FormInput },
-];
 const CONTEXT_PAGE_SIZE = 25;
+const PEOPLE_SPEC: TableSpec = {
+  id: "people",
+  columns: [
+    { id: "displayName", label: "Person", kind: "text", editable: true, required: true },
+    { id: "currentTitle", label: "Current role", kind: "text", editable: true },
+    { id: "location", label: "Location", kind: "location", editable: true },
+    {
+      id: "visibility",
+      label: "Visibility",
+      kind: "select",
+      editable: true,
+      options: ["private", "workspace"],
+      defaultValue: "private",
+    },
+    { id: "source", label: "Source", kind: "text", editable: false, hiddenInForm: true },
+    {
+      id: "community",
+      label: "Community",
+      kind: "relation",
+      relationTarget: "communities",
+      editable: false,
+      hiddenInForm: true,
+    },
+  ],
+};
+
+const COMMUNITIES_SPEC: TableSpec = {
+  id: "communities",
+  columns: [
+    { id: "displayName", label: "Community", kind: "text", editable: true, required: true },
+    { id: "kind", label: "Kind", kind: "text", editable: true },
+    { id: "description", label: "Description", kind: "text", editable: true },
+    { id: "location", label: "Location", kind: "location", editable: true },
+    {
+      id: "visibility",
+      label: "Visibility",
+      kind: "select",
+      editable: true,
+      options: ["private", "workspace"],
+      defaultValue: "private",
+    },
+    { id: "source", label: "Source", kind: "text", editable: false, hiddenInForm: true },
+    {
+      id: "members",
+      label: "Members",
+      kind: "relation",
+      relationTarget: "people",
+      editable: false,
+      hiddenInForm: true,
+    },
+  ],
+};
 
 function isPage(value: string | undefined): value is RelationshipPageId {
   return value === "signals" || value === "people" || value === "communities";
@@ -79,144 +124,8 @@ function recommendedActionLabel(recommendedAction: unknown): string {
   return "Review action";
 }
 
-function RecordEmptyState({
-  kind,
-  query,
-  onCreate,
-}: {
-  kind: "People" | "Communities";
-  query: string;
-  onCreate: () => void;
-}) {
-  return (
-    <div className="m-4 rounded-xl border border-dashed p-8 text-center" style={{ borderColor: "var(--color-border)" }}>
-      <p className="text-sm font-medium" style={{ color: "var(--color-navy)" }}>
-        {query ? `No ${kind.toLowerCase()} match "${query}".` : `No ${kind.toLowerCase()} yet.`}
-      </p>
-      <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-        {query
-          ? "Try a different bounded search."
-          : `Create a ${kind === "People" ? "Person" : "Community"} or connect a permitted source.`}
-      </p>
-      {!query && (
-        <div className="mt-3 flex flex-wrap justify-center gap-2">
-          <Button size="sm" onClick={onCreate}><Plus className="w-4 h-4" /> Create</Button>
-          <Button asChild size="sm" variant="outline">
-            <Link to="/settings">Manage sources</Link>
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function fieldClassName() {
   return "mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-steel)]";
-}
-
-function RecordForm({
-  kind,
-  onCancel,
-  onApplied,
-}: {
-  kind: RecordKind;
-  onCancel: () => void;
-  onApplied: () => void;
-}) {
-  const [displayName, setDisplayName] = useState("");
-  const [context, setContext] = useState("");
-  const [description, setDescription] = useState("");
-  const [emails, setEmails] = useState("");
-  const [visibility, setVisibility] = useState<"private" | "workspace">("private");
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    setStatus(null);
-    try {
-      const result = kind === "person"
-        ? await trpc.relationship.createPerson.mutate({
-            workspaceId: PILOT_WORKSPACE,
-            values: {
-              displayName,
-              currentTitle: context || null,
-              bio: description || null,
-              emails: emails.split(",").map((email) => email.trim()).filter(Boolean),
-              visibility,
-            },
-          })
-        : await trpc.relationship.createCommunity.mutate({
-            workspaceId: PILOT_WORKSPACE,
-            values: {
-              displayName,
-              kind: context || null,
-              description: description || null,
-              visibility,
-            },
-          });
-      setStatus(result.materialization.status.replace("_", " "));
-      if (result.materialization.status === "applied") onApplied();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const noun = kind === "person" ? "Person" : "Community";
-  return (
-    <form onSubmit={submit} className="m-4 max-w-2xl rounded-xl border p-4 sm:p-5" style={{ borderColor: "var(--color-border)" }}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-warm-gray)" }}>Form view</p>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--color-navy)" }}>Create {noun}</h2>
-        </div>
-        <button type="button" onClick={onCancel} aria-label="Close form" className="rounded-lg p-2 hover:bg-[var(--color-surface)]">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
-          Name
-          <input required maxLength={300} value={displayName} onChange={(event) => setDisplayName(event.target.value)} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }} />
-        </label>
-        <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
-          {kind === "person" ? "Current role" : "Kind"}
-          <input maxLength={300} value={context} onChange={(event) => setContext(event.target.value)} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }} />
-        </label>
-        <label className="text-sm font-medium" style={{ color: "var(--color-navy-mid)" }}>
-          Visibility
-          <select value={visibility} onChange={(event) => setVisibility(event.target.value as "private" | "workspace")} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }}>
-            <option value="private">Only me</option>
-            <option value="workspace">Workspace</option>
-          </select>
-        </label>
-        {kind === "person" && (
-          <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
-            Emails, comma separated
-            <input value={emails} onChange={(event) => setEmails(event.target.value)} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }} inputMode="email" />
-          </label>
-        )}
-        <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
-          {kind === "person" ? "Bio" : "Description"}
-          <textarea maxLength={5000} rows={4} value={description} onChange={(event) => setDescription(event.target.value)} className={fieldClassName()} style={{ borderColor: "var(--color-border)" }} />
-        </label>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Button disabled={busy || !displayName.trim()} type="submit"><Save className="w-4 h-4" /> {busy ? "Submitting…" : `Create ${noun}`}</Button>
-        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        {status && <span role="status" className="text-xs capitalize" style={{ color: "var(--color-steel)" }}>Action {status}</span>}
-      </div>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600 break-words">{error}</p>}
-      <p className="mt-3 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-        Save stages a server-owned Action; the browser never writes Relationship tables directly.
-      </p>
-    </form>
-  );
 }
 
 type IntakeReviewPage = Awaited<ReturnType<typeof trpc.relationship.intakeReview.query>>;
@@ -295,18 +204,35 @@ function IntakeReviewSection() {
 }
 
 function RecordListPage({ kind }: { kind: RecordKind }) {
-  const [rows, setRows] = useState<RelationshipListRecord[] | null>(null);
+  const navigate = useNavigate();
+  const spec = kind === "person" ? PEOPLE_SPEC : COMMUNITIES_SPEC;
+  const plural = kind === "person" ? "People" : "Communities";
+  const detailSegment = kind === "person" ? "people" : "communities";
+  const [rows, setRows] = useState<DataRow[] | null>(null);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [formRecord, setFormRecord] = useState<DataRow | null>(null);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [reload, setReload] = useState(0);
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialView = searchParams.get("view");
-  const [view, setView] = useState<ViewId>(
-    initialView === "card" || initialView === "list" || initialView === "form" ? initialView : "table",
+  const initialKind = (() => {
+    const requested = searchParams.get("view");
+    const normalized = normalizeViewKind(requested === "card" ? "gallery" : requested);
+    return normalized && computeEligibleKinds(spec).includes(normalized) ? normalized : "table";
+  })();
+  const [view, setView] = useState<ViewConfig>(
+    viewConfigForKind(spec, initialKind, {
+      id: `${spec.id}:${initialKind}`,
+      ...(initialKind === "graph"
+        ? { graphScope: "multi_database", graphDatabaseIds: ["people", "communities"] }
+        : {}),
+    }),
   );
 
   useEffect(() => {
@@ -331,13 +257,15 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
           }).then((page) => ({
             ...page,
             items: page.items.map((record) => ({
-                id: record.id,
-                name: record.displayName || "Unnamed person",
-                subtitle: record.currentTitle || "No current role recorded",
-                visibility: record.visibility,
-                source: record.source || "Not recorded",
-                isOwner: record.isOwner,
-              })),
+              id: record.id,
+              isOwner: record.isOwner,
+              displayName: record.displayName || "Unnamed Person",
+              currentTitle: record.currentTitle,
+              location: record.location,
+              visibility: record.visibility,
+              source: record.source || "Not recorded",
+              community: record.currentCommunityId,
+            })),
             }))
         : trpc.relationship.listCommunities.query({
             workspaceId: PILOT_WORKSPACE,
@@ -347,13 +275,16 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
           }).then((page) => ({
             ...page,
             items: page.items.map((record) => ({
-                id: record.id,
-                name: record.displayName || "Unnamed community",
-                subtitle: record.kind || record.description || "No kind recorded",
-                visibility: record.visibility,
-                source: record.source,
-                isOwner: record.isOwner,
-              })),
+              id: record.id,
+              isOwner: record.isOwner,
+              displayName: record.displayName || "Unnamed Community",
+              kind: record.kind,
+              description: record.description,
+              location: record.location,
+              visibility: record.visibility,
+              source: record.source,
+              members: [],
+            })),
             }));
     request
       .then((page) => {
@@ -371,16 +302,152 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
     };
   }, [kind, offset, query, reload]);
 
-  function selectView(next: string) {
-    const nextView = next as ViewId;
+  useEffect(() => {
+    if (view.kind !== "graph") return;
+    let active = true;
+    setGraphLoading(true);
+    setGraphError(null);
+    void trpc.relationship.graph.query({
+      workspaceId: PILOT_WORKSPACE,
+      limit: 500,
+    }).then((data) => {
+      if (active) setGraphData(data);
+    }).catch((cause) => {
+      if (active) setGraphError(String(cause));
+    }).finally(() => {
+      if (active) setGraphLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [reload, view.kind]);
+
+  function changeView(next: ViewConfig, preserveFormRecord = false) {
+    const nextView =
+      next.kind === "graph" && view.kind !== "graph"
+        ? {
+            ...next,
+            graphScope: "multi_database" as const,
+            graphDatabaseIds: ["people", "communities"],
+          }
+        : next;
+    if (!preserveFormRecord) setFormRecord(null);
     setView(nextView);
     const params = new URLSearchParams(searchParams);
-    params.set("view", nextView);
+    params.set("view", nextView.kind);
     setSearchParams(params, { replace: true });
   }
 
-  const plural = kind === "person" ? "People" : "Communities";
-  const detailSegment = kind === "person" ? "people" : "communities";
+  function openRecord(row: DataRow | GraphNode) {
+    if ("recordPath" in row && row.recordPath) {
+      navigate(row.recordPath);
+      return;
+    }
+    const id = row["id"];
+    if (typeof id === "string" || typeof id === "number") {
+      navigate(`/module/relationship/${detailSegment}/${id}`);
+    }
+  }
+
+  async function insertRecord(draft: Partial<DataRow>) {
+    const displayName = typeof draft["displayName"] === "string"
+      ? draft["displayName"].trim()
+      : "";
+    if (!displayName) throw new Error("Name is required.");
+    const optionalText = (value: unknown) =>
+      typeof value === "string" && value.trim() ? value.trim() : null;
+    const visibility = draft["visibility"] === "workspace" ? "workspace" : "private";
+    const result = kind === "person"
+      ? await trpc.relationship.createPerson.mutate({
+          workspaceId: PILOT_WORKSPACE,
+          values: {
+            displayName,
+            currentTitle: optionalText(draft["currentTitle"]),
+            location: optionalText(draft["location"]),
+            visibility,
+          },
+        })
+      : await trpc.relationship.createCommunity.mutate({
+          workspaceId: PILOT_WORKSPACE,
+          values: {
+            displayName,
+            kind: optionalText(draft["kind"]),
+            description: optionalText(draft["description"]),
+            location: optionalText(draft["location"]),
+            visibility,
+          },
+        });
+    if (result.materialization.status !== "applied") {
+      throw new Error(`Action ${result.materialization.status.replace("_", " ")}; review it in Approvals.`);
+    }
+    setReload((value) => value + 1);
+    changeView(viewConfigForKind(spec, "table", view));
+  }
+
+  async function updateRecord(id: string, draft: Partial<DataRow>) {
+    const optionalText = (value: unknown) =>
+      typeof value === "string" && value.trim() ? value.trim() : null;
+    const includes = (field: string) =>
+      Object.prototype.hasOwnProperty.call(draft, field);
+    const displayName = typeof draft["displayName"] === "string"
+      ? draft["displayName"].trim()
+      : undefined;
+    const visibility: "workspace" | "private" | undefined =
+      draft["visibility"] === "workspace" || draft["visibility"] === "private"
+        ? draft["visibility"]
+        : undefined;
+    let appliedPatch: Partial<DataRow>;
+    let materialization: { status: string };
+    if (kind === "person") {
+      const values = {
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(includes("currentTitle")
+          ? { currentTitle: optionalText(draft["currentTitle"]) }
+          : {}),
+        ...(includes("location")
+          ? { location: optionalText(draft["location"]) }
+          : {}),
+        ...(visibility ? { visibility } : {}),
+      };
+      const result = await trpc.relationship.updatePerson.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        id,
+        values,
+      });
+      appliedPatch = values;
+      materialization = result.materialization;
+    } else {
+      const values = {
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(includes("kind") ? { kind: optionalText(draft["kind"]) } : {}),
+        ...(includes("description")
+          ? { description: optionalText(draft["description"]) }
+          : {}),
+        ...(includes("location")
+          ? { location: optionalText(draft["location"]) }
+          : {}),
+        ...(visibility ? { visibility } : {}),
+      };
+      const result = await trpc.relationship.updateCommunity.mutate({
+        workspaceId: PILOT_WORKSPACE,
+        id,
+        values,
+      });
+      appliedPatch = values;
+      materialization = result.materialization;
+    }
+    if (materialization.status !== "applied") {
+      throw new Error(`Action ${materialization.status.replace("_", " ")}; review it in Approvals.`);
+    }
+    setRows((current) =>
+      current?.map((row) =>
+        String(row["id"]) === id ? { ...row, ...appliedPatch } : row,
+      ) ?? current,
+    );
+    if (view.kind === "form") {
+      changeView(viewConfigForKind(spec, "table", view));
+    }
+  }
 
   if (error) return <div className="p-4 sm:p-6 text-sm text-red-600 break-words">{error}</div>;
   if (rows === null) return <div className="p-4 sm:p-6 text-sm text-muted-foreground">Loading {plural.toLowerCase()}…</div>;
@@ -388,76 +455,39 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
   return (
     <div className="flex-1 overflow-auto">
       <section aria-label={`${plural} landing section`}>
-        <StandardToolbar
-          lists={[{ id: "__all", label: `All ${plural}` }]}
-          activeListId="__all"
-          onListSelect={() => {}}
-          view={view}
-          views={VIEWS}
-          onViewChange={selectView}
-          search={search}
-          onSearchChange={setSearch}
-          customActions={<Button size="sm" onClick={() => selectView("form")}><Plus className="w-4 h-4" /> New {kind === "person" ? "Person" : "Community"}</Button>}
-          moreMenu={<div className="px-3 py-2 text-xs text-[var(--color-warm-gray)]">Export requires a governed Action.</div>}
-        />
-        {view === "form" ? (
-          <RecordForm
-            kind={kind}
-            onCancel={() => selectView("table")}
-            onApplied={() => {
-              setOffset(0);
-              setReload((value) => value + 1);
-              selectView("table");
+        <div className="border-b px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-8 max-w-sm"
+            placeholder={`Search all ${plural.toLowerCase()}…`}
+            aria-label={`Search ${plural}`}
+          />
+        </div>
+        <div className="p-4">
+          <DataViews
+            spec={spec}
+            view={view}
+            data={rows}
+            onViewChange={changeView}
+            onInsert={insertRecord}
+            onUpdate={updateRecord}
+            canUpdateRow={(row) => row["isOwner"] === true}
+            formRecord={formRecord}
+            onOpenRecord={openRecord}
+            onEditRecord={(row) => {
+              setFormRecord(row);
+              changeView(viewConfigForKind(spec, "form", view), true);
+            }}
+            graphData={graphData ?? undefined}
+            graphLoading={graphLoading}
+            graphError={graphError}
+            onGraphScopeChange={(scope) => {
+              if (scope === "full") navigate("/second-brain");
             }}
           />
-        ) : rows.length === 0 ? (
-          <RecordEmptyState kind={plural} query={query} onCreate={() => selectView("form")} />
-        ) : view === "table" ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--color-border)", color: "var(--color-warm-gray)" }}>
-                  <th className="px-4 py-2 font-semibold">{kind === "person" ? "Person" : "Community"}</th>
-                  <th className="px-4 py-2 font-semibold">Context</th>
-                  <th className="px-4 py-2 font-semibold">Source</th>
-                  <th className="px-4 py-2 font-semibold">Visibility</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((record) => (
-                  <tr key={record.id} className="border-b" style={{ borderColor: "var(--color-border)" }}>
-                    <td className="px-4 py-3">
-                      <Link to={`/module/relationship/${detailSegment}/${record.id}`} className="font-medium hover:underline" style={{ color: "var(--color-navy)" }}>
-                        {record.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "var(--color-navy-mid)" }}>{record.subtitle}</td>
-                    <td className="px-4 py-3" style={{ color: "var(--color-warm-gray)" }}>{record.source}</td>
-                    <td className="px-4 py-3 capitalize" style={{ color: "var(--color-warm-gray)" }}>{record.visibility}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className={view === "card" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 p-4" : "divide-y"} style={{ borderColor: "var(--color-border)" }}>
-            {rows.map((record) => (
-              <Link
-                key={record.id}
-                to={`/module/relationship/${detailSegment}/${record.id}`}
-                className={view === "card" ? "rounded-xl border p-4 no-underline hover:shadow-sm" : "flex items-center gap-3 px-4 py-3 no-underline hover:bg-[var(--color-surface)]"}
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                {kind === "person" ? <User className="w-4 h-4 shrink-0" /> : <Users className="w-4 h-4 shrink-0" />}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate" style={{ color: "var(--color-navy)" }}>{record.name}</p>
-                  <p className="text-xs truncate" style={{ color: "var(--color-warm-gray)" }}>{record.subtitle}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-        {view !== "form" && total > 0 && (
+        </div>
+        {view.kind !== "form" && total > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3" style={{ borderColor: "var(--color-border)" }}>
             <p className="text-xs" style={{ color: "var(--color-warm-gray)" }}>
               Showing {offset + 1}–{offset + rows.length} of {total}
@@ -470,12 +500,9 @@ function RecordListPage({ kind }: { kind: RecordKind }) {
         )}
       </section>
       {kind === "person" && <IntakeReviewSection />}
-      <section className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
-        <h2 className="text-sm font-semibold" style={{ color: "var(--color-navy)" }}>Files</h2>
-        <p className="mt-1 text-xs" style={{ color: "var(--color-warm-gray)" }}>
-          Imports, exports, and briefs generated by Relationship will appear here.
-        </p>
-      </section>
+      <div className="m-4 rounded-xl border p-4" style={{ borderColor: "var(--color-border)" }}>
+        <ModuleFilesSection moduleName="relationship" />
+      </div>
     </div>
   );
 }
@@ -496,7 +523,14 @@ export function RelationshipPage() {
           if (next) navigate(`/module/relationship/${next.id}`);
         }}
       />
-      {activePage === "signals" ? <SignalsPage embedded /> : <RecordListPage kind={activePage === "people" ? "person" : "community"} />}
+      {activePage === "signals"
+        ? <SignalsPage embedded />
+        : (
+          <RecordListPage
+            key={activePage}
+            kind={activePage === "people" ? "person" : "community"}
+          />
+        )}
     </div>
   );
 }
@@ -702,6 +736,7 @@ function RecordEditForm(props:
   const [description, setDescription] = useState(
     props.kind === "person" ? props.record.bio || "" : props.record.description || "",
   );
+  const [location, setLocation] = useState(props.record.location || "");
   const [emails, setEmails] = useState(
     props.kind === "person" ? props.record.emails.join(", ") : "",
   );
@@ -725,6 +760,7 @@ function RecordEditForm(props:
               displayName,
               currentTitle: context || null,
               bio: description || null,
+              location: location || null,
               emails: emails.split(",").map((email) => email.trim()).filter(Boolean),
               visibility,
             },
@@ -736,6 +772,7 @@ function RecordEditForm(props:
               displayName,
               kind: context || null,
               description: description || null,
+              location: location || null,
               visibility,
             },
           });
@@ -769,6 +806,17 @@ function RecordEditForm(props:
             <option value="private">Only me</option>
             <option value="workspace">Workspace</option>
           </select>
+        </label>
+        <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
+          Location
+          <input
+            value={location}
+            maxLength={500}
+            onChange={(event) => setLocation(event.target.value)}
+            className={fieldClassName()}
+            style={{ borderColor: "var(--color-border)" }}
+            placeholder="latitude, longitude or a place label"
+          />
         </label>
         {props.kind === "person" && (
           <label className="text-sm font-medium sm:col-span-2" style={{ color: "var(--color-navy-mid)" }}>
@@ -1523,6 +1571,7 @@ export function RelationshipRecordDetailPage({ kind }: { kind: RecordKind }) {
           <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div><dt className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Context</dt><dd className="break-words" style={{ color: "var(--color-navy)" }}>{person?.currentTitle || community?.kind || "Not recorded"}</dd></div>
             <div><dt className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Visibility</dt><dd className="capitalize" style={{ color: "var(--color-navy)" }}>{record.visibility}</dd></div>
+            <div><dt className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Location</dt><dd className="break-words" style={{ color: "var(--color-navy)" }}>{record.location || "Not recorded"}</dd></div>
             {person && <div><dt className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Last Interaction</dt><dd style={{ color: "var(--color-navy)" }}>{displayDate(person.lastInteractionAt)}</dd></div>}
             {community && <div><dt className="text-xs" style={{ color: "var(--color-warm-gray)" }}>Accessible members</dt><dd style={{ color: "var(--color-navy)" }}>{community.memberCount}</dd></div>}
           </dl>

@@ -21,11 +21,15 @@ export function StandardColumnMenu({
   databaseBacked,
   onFilter,
   onSort,
+  onGroup,
+  onHide,
 }: {
   label: string;
   databaseBacked: boolean;
   onFilter: () => void;
   onSort: (direction: "asc" | "desc") => void;
+  onGroup?: () => void;
+  onHide?: () => void;
 }) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
 
@@ -43,21 +47,8 @@ export function StandardColumnMenu({
     };
   }, [position]);
 
-  const disabledReason = "Schema editing is unavailable for this read-only runtime binding";
-  const disabledCommands = [
-    "Rename",
-    "Edit column",
-    "Change type",
-    "AI Smartfill",
-    "Group",
-    "Calculate",
-    "Lock column",
-    "Hide column",
-    "Add column left",
-    "Add column right",
-    "Duplicate column",
-    "Delete column",
-  ];
+  const schemaReason = "Unavailable: this surface has no governed schema-mutation capability";
+  const destructiveReason = "Unavailable: dependency preview and undo are required before this schema mutation can run";
 
   return (
     <div
@@ -87,8 +78,8 @@ export function StandardColumnMenu({
           style={{ left: position.x, top: position.y, borderColor: "var(--color-border)" }}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          {disabledCommands.slice(0, 4).map((command) => (
-            <button key={command} type="button" role="menuitem" disabled title={disabledReason} className="w-full px-3 py-1.5 text-left text-xs opacity-45">
+          {["Rename", "Edit column", "Change type", "AI Smartfill"].map((command) => (
+            <button key={command} type="button" role="menuitem" disabled title={schemaReason} className="w-full px-3 py-1.5 text-left text-xs opacity-45">
               {command}
             </button>
           ))}
@@ -101,30 +92,59 @@ export function StandardColumnMenu({
           <button type="button" role="menuitem" onClick={() => { onSort("desc"); setPosition(null); }} className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5">
             Sort descending
           </button>
-          {disabledCommands.slice(4).map((command) => (
-            <button key={command} type="button" role="menuitem" disabled title={disabledReason} className="w-full px-3 py-1.5 text-left text-xs opacity-45">
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!onGroup}
+            title={onGroup ? undefined : "Unavailable: this column cannot group the current View"}
+            onClick={() => { onGroup?.(); setPosition(null); }}
+            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 disabled:opacity-45"
+          >
+            Group
+          </button>
+          {["Calculate", "Lock column"].map((command) => (
+            <button key={command} type="button" role="menuitem" disabled title={schemaReason} className="w-full px-3 py-1.5 text-left text-xs opacity-45">
               {command}
             </button>
           ))}
-          <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
           <button
             type="button"
             role="menuitem"
-            disabled
-            title={databaseBacked ? "This database already has a Page" : "Only database-backed columns can create Pages"}
-            className="w-full px-3 py-1.5 text-left text-xs opacity-45"
+            disabled={!onHide}
+            title={onHide ? undefined : "Unavailable: this surface cannot persist column visibility"}
+            onClick={() => { onHide?.(); setPosition(null); }}
+            className="w-full px-3 py-1.5 text-left text-xs hover:bg-black/5 disabled:opacity-45"
           >
-            Add page
+            Hide column
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            disabled
-            title="Removing this Page requires the governed schema editor"
-            className="w-full px-3 py-1.5 text-left text-xs opacity-45"
-          >
-            Remove page
-          </button>
+          {["Add column left", "Add column right", "Duplicate column", "Delete column"].map((command) => (
+            <button key={command} type="button" role="menuitem" disabled title={destructiveReason} className="w-full px-3 py-1.5 text-left text-xs opacity-45">
+              {command}
+            </button>
+          ))}
+          {databaseBacked && (
+            <>
+              <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
+              <button
+                type="button"
+                role="menuitem"
+                disabled
+                title="This Database already has a Page"
+                className="w-full px-3 py-1.5 text-left text-xs opacity-45"
+              >
+                Add page
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled
+                title="Removing this Page requires dependency preview, confirmation, and undo"
+                className="w-full px-3 py-1.5 text-left text-xs opacity-45"
+              >
+                Remove page
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

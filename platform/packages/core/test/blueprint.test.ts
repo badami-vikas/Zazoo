@@ -38,12 +38,12 @@ test("valid blueprint compiles: tableSpecs, viewConfigs, navigation all populate
 });
 
 // ---------------------------------------------------------------------------
-// View-convertibility grammar + kanban groupBy default (ADR-023 item 6 / ADR-024)
+// Canonical View eligibility + board groupBy default
 // ---------------------------------------------------------------------------
 
-test("convertibleKinds: table/kanban/card always included for a plain entity with no date/location/relation columns", () => {
+test("convertibleKinds: table/gallery/form are always included and board requires a select column", () => {
   const compiled = compileBlueprint(blueprint(), [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "kanban", "gallery"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "board", "gallery", "form"]);
 });
 
 test("convertibleKinds: adds calendar when a date-kind column exists", () => {
@@ -60,7 +60,7 @@ test("convertibleKinds: adds calendar when a date-kind column exists", () => {
     ],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "kanban", "gallery", "calendar"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "gallery", "form", "calendar"]);
 });
 
 test("convertibleKinds: adds map when a location-kind column exists", () => {
@@ -77,10 +77,10 @@ test("convertibleKinds: adds map when a location-kind column exists", () => {
     ],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "kanban", "gallery", "map"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "gallery", "form", "map"]);
 });
 
-test("convertibleKinds: adds network (graph) when a relation-kind column exists", () => {
+test("convertibleKinds: adds graph when a cross-database relation column exists", () => {
   const bp = blueprint({
     entities: [
       {
@@ -88,13 +88,13 @@ test("convertibleKinds: adds network (graph) when a relation-kind column exists"
         label: "Initiative",
         fields: [
           { id: "name", label: "Name", kind: "text" },
-          { id: "owner", label: "Owner", kind: "relation" },
+          { id: "owner", label: "Owner", kind: "relation", relationTarget: "person" },
         ],
       },
     ],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "kanban", "gallery", "network"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "gallery", "form", "graph"]);
 });
 
 test("convertibleKinds: all three conditional kinds stack together, in canonical order", () => {
@@ -107,22 +107,30 @@ test("convertibleKinds: all three conditional kinds stack together, in canonical
           { id: "name", label: "Name", kind: "text" },
           { id: "due", label: "Due", kind: "date" },
           { id: "hq", label: "Headquarters", kind: "location" },
-          { id: "owner", label: "Owner", kind: "relation" },
+          { id: "owner", label: "Owner", kind: "relation", relationTarget: "person" },
         ],
       },
     ],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "kanban", "gallery", "calendar", "map", "network"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "gallery", "form", "calendar", "map", "graph"]);
 });
 
-test("convertibleKinds: a relationship entity is restricted to exactly [table, network] regardless of its own columns", () => {
+test("convertibleKinds: a self-parent relation adds tree without incorrectly adding graph", () => {
   const bp = blueprint({
-    entities: [{ nodeType: "relationship", label: "Relationship", fields: [{ id: "since", label: "Since", kind: "date" }] }],
-    views: [{ entity: "relationship", kind: "table" }],
+    entities: [
+      {
+        nodeType: "initiative",
+        label: "Initiative",
+        fields: [
+          { id: "name", label: "Name", kind: "text" },
+          { id: "parent", label: "Parent", kind: "relation", relationTarget: "initiative", relationParent: true },
+        ],
+      },
+    ],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "network"]);
+  assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, ["table", "gallery", "form", "tree"]);
 });
 
 test("convertibleKinds: non-tabular views (chatbot/dashboard/canvas) carry an empty array", () => {
@@ -131,34 +139,33 @@ test("convertibleKinds: non-tabular views (chatbot/dashboard/canvas) carry an em
   assert.deepEqual(compiled.viewConfigs[0]?.convertibleKinds, []);
 });
 
-test("kanban groupBy: defaults to the entity's select-kind column when the blueprint doesn't specify one", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "kanban" }] });
+test("board groupBy: defaults to the entity's select-kind column when the blueprint doesn't specify one", () => {
+  const bp = blueprint({ views: [{ entity: "initiative", kind: "board" }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.groupBy, "stage");
 });
 
-test("kanban groupBy: an explicit config.groupBy always wins over the default", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "kanban", config: { groupBy: "name" } }] });
+test("board groupBy: an explicit eligible config.groupBy always wins over the default", () => {
+  const bp = blueprint({ views: [{ entity: "initiative", kind: "board", config: { groupBy: "stage" } }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.equal(compiled.viewConfigs[0]?.groupBy, "name");
+  assert.equal(compiled.viewConfigs[0]?.groupBy, "stage");
 });
 
-test("kanban groupBy: an explicit null means intentionally ungrouped, not defaulted", () => {
-  const bp = blueprint({ views: [{ entity: "initiative", kind: "kanban", config: { groupBy: null } }] });
+test("board groupBy: an explicit null means intentionally ungrouped, not defaulted", () => {
+  const bp = blueprint({ views: [{ entity: "initiative", kind: "board", config: { groupBy: null } }] });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
   assert.equal(compiled.viewConfigs[0]?.groupBy, null);
 });
 
-test("kanban groupBy: null (not defaulted) when the entity has no select-kind column at all", () => {
+test("board is rejected when the entity has no select-kind column", () => {
   const bp = blueprint({
     entities: [{ nodeType: "initiative", label: "Initiative", fields: [{ id: "name", label: "Name", kind: "text" }] }],
-    views: [{ entity: "initiative", kind: "kanban" }],
+    views: [{ entity: "initiative", kind: "board" }],
   });
-  const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.equal(compiled.viewConfigs[0]?.groupBy, null);
+  assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
 
-test("non-kanban view kinds are never defaulted a groupBy", () => {
+test("non-board view kinds are never defaulted a groupBy", () => {
   const compiled = compileBlueprint(blueprint(), [...REGISTRY]); // default view kind is "table"
   assert.equal(compiled.viewConfigs[0]?.groupBy, null);
 });
@@ -181,10 +188,10 @@ test("view referencing an entity not declared in the blueprint is rejected", () 
   assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
 
-test("relationship view is forced to graph (network) or table — kanban rejected", () => {
+test("an ineligible view kind is rejected from the entity's column metadata", () => {
   const bp = blueprint({
     entities: [{ nodeType: "relationship", label: "Relationship", fields: [] }],
-    views: [{ entity: "relationship", kind: "kanban" }],
+    views: [{ entity: "relationship", kind: "board" }],
   });
   assert.throws(() => compileBlueprint(bp, [...REGISTRY]), BlueprintCompileError);
 });
@@ -198,13 +205,21 @@ test("relationship view accepts table", () => {
   assert.equal(compiled.viewConfigs[0]?.kind, "table");
 });
 
-test("relationship view accepts network (graph)", () => {
+test("relationship view accepts graph when it declares a typed relation column", () => {
   const bp = blueprint({
-    entities: [{ nodeType: "relationship", label: "Relationship", fields: [] }],
-    views: [{ entity: "relationship", kind: "network" }],
+    entities: [
+      {
+        nodeType: "relationship",
+        label: "Relationship",
+        fields: [{ id: "person", label: "Person", kind: "relation", relationTarget: "person" }],
+      },
+    ],
+    views: [{ entity: "relationship", kind: "graph" }],
   });
   const compiled = compileBlueprint(bp, [...REGISTRY]);
-  assert.equal(compiled.viewConfigs[0]?.kind, "network");
+  assert.equal(compiled.viewConfigs[0]?.kind, "graph");
+  assert.equal(compiled.viewConfigs[0]?.relationBy, "person");
+  assert.equal(compiled.viewConfigs[0]?.graphScope, "single_database");
 });
 
 test("non-tabular view kinds (chatbot/dashboard/canvas) compile through with no TableSpec required", () => {

@@ -18,6 +18,7 @@ export const personCreateFieldsSchema = z.object({
   displayName: z.string().trim().min(1).max(300),
   currentTitle: optionalText(300),
   bio: optionalText(5_000),
+  location: optionalText(500),
   emails: z.array(z.string().trim().email().max(320)).max(20).optional(),
   visibility: visibilitySchema.default("private"),
 });
@@ -26,6 +27,7 @@ export const personUpdateFieldsSchema = z.object({
   displayName: z.string().trim().min(1).max(300).optional(),
   currentTitle: optionalText(300),
   bio: optionalText(5_000),
+  location: optionalText(500),
   emails: z.array(z.string().trim().email().max(320)).max(20).optional(),
   visibility: visibilitySchema.optional(),
 }).refine((fields) => Object.values(fields).some((value) => value !== undefined), {
@@ -35,6 +37,7 @@ export const personUpdateFieldsSchema = z.object({
 export const communityCreateFieldsSchema = z.object({
   displayName: z.string().trim().min(1).max(300),
   description: optionalText(5_000),
+  location: optionalText(500),
   kind: optionalText(100),
   visibility: visibilitySchema.default("private"),
 });
@@ -42,6 +45,7 @@ export const communityCreateFieldsSchema = z.object({
 export const communityUpdateFieldsSchema = z.object({
   displayName: z.string().trim().min(1).max(300).optional(),
   description: optionalText(5_000),
+  location: optionalText(500),
   kind: optionalText(100),
   visibility: visibilitySchema.optional(),
 }).refine((fields) => Object.values(fields).some((value) => value !== undefined), {
@@ -674,6 +678,7 @@ export async function materializeRelationshipMutation(
           ? { currentTitle: payload.values.currentTitle }
           : {}),
         ...(payload.values.bio !== undefined ? { bio: payload.values.bio } : {}),
+        ...(payload.values.location !== undefined ? { location: payload.values.location } : {}),
         ...(payload.values.emails !== undefined ? { emails: payload.values.emails } : {}),
       });
     }
@@ -690,6 +695,7 @@ export async function materializeRelationshipMutation(
           ? { currentTitle: payload.values.currentTitle }
           : {}),
         ...(payload.values.bio !== undefined ? { bio: payload.values.bio } : {}),
+        ...(payload.values.location !== undefined ? { location: payload.values.location } : {}),
         ...(payload.values.emails !== undefined ? { emails: payload.values.emails } : {}),
         ...(payload.values.visibility !== undefined
           ? { visibility: payload.values.visibility }
@@ -715,6 +721,7 @@ export async function materializeRelationshipMutation(
       ...(payload.values.description !== undefined
         ? { description: payload.values.description }
         : {}),
+      ...(payload.values.location !== undefined ? { location: payload.values.location } : {}),
       ...(payload.values.kind !== undefined ? { kind: payload.values.kind } : {}),
     });
   }
@@ -730,6 +737,7 @@ export async function materializeRelationshipMutation(
       ...(payload.values.description !== undefined
         ? { description: payload.values.description }
         : {}),
+      ...(payload.values.location !== undefined ? { location: payload.values.location } : {}),
       ...(payload.values.kind !== undefined ? { kind: payload.values.kind } : {}),
       ...(payload.values.visibility !== undefined
         ? { visibility: payload.values.visibility }

@@ -5,7 +5,7 @@ import { PIPELINE_STAGES, TERMINAL_STAGES } from "./deal.js";
 
 // Thesis-fit feed as a domain evaluation view. Fit bands are not platform Red Flag feedback.
 // Columns-as-data on @bridge/tables — the same
-// engine the prototype's People/Communities tables use — so DealPilot gets kanban/list/gallery
+// engine the prototype's People/Communities tables use — so DealPilot gets board/list/gallery
 // views for free instead of a bespoke triage UI.
 
 // All stage option strings in display order: pipeline stages first, then terminal stages.
@@ -25,7 +25,7 @@ export const dealsTableSpec: TableSpec = {
       options: DEAL_STAGE_OPTIONS,
     },
     { id: "industry", label: "Industry", kind: "select" },
-    { id: "geo", label: "Geo", kind: "text" },
+    { id: "geo", label: "Geo", kind: "location" },
     { id: "askPrice", label: "Ask Price", kind: "number" },
     { id: "sde", label: "SDE", kind: "number" },
     { id: "revenue", label: "Revenue", kind: "number" },
@@ -36,18 +36,19 @@ export const dealsTableSpec: TableSpec = {
       options: ["strong_fit", "needs_review", "weak_fit"],
     },
     { id: "thesisFit", label: "Thesis Fit", kind: "number", editable: false },
+    { id: "createdAt", label: "Created", kind: "date", editable: false, hiddenInForm: true },
   ],
 };
 
 /** Domain evaluation board, grouped independently of platform Red Flag feedback. */
-export function dealsKanbanView(): ViewConfig {
-  return { ...defaultViewConfig("dealpilot.deals.kanban", "kanban"), groupBy: "thesisFitBand" };
+export function dealsThesisBoardView(): ViewConfig {
+  return { ...defaultViewConfig("dealpilot.deals.thesis-board", "board"), groupBy: "thesisFitBand" };
 }
 
 /** Stage board — groups deals by pipeline stage for a pipeline progress view. */
 export function dealsStageBoardView(): ViewConfig {
   return {
-    ...defaultViewConfig("dealpilot.deals.stage-board", "kanban"),
+    ...defaultViewConfig("dealpilot.deals.stage-board", "board"),
     groupBy: "stage",
   };
 }

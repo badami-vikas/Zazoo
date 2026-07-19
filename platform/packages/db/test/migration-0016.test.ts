@@ -39,19 +39,22 @@ function readFileSyncSafe(path: string): string | null {
   }
 }
 
-/** A temp copy of the real migrations folder with 0016 (and its journal/
- * snapshot entries) excluded — the "pre-this-migration" upgrade starting
+/** A temp copy of the real migrations folder with 0016 and every later
+ * migration excluded — the "pre-this-migration" upgrade starting
  * point, built from the REAL 0000-0015 files, not a re-derived approximation. */
 function pre0016MigrationsFolder(): string {
   const real = realMigrationsFolder();
   const dir = mkdtempSync(join(tmpdir(), "bridge-db-pre-0016-"));
   cpSync(real, dir, { recursive: true });
-  rmSync(join(dir, "0016_new_ink.sql"));
-  rmSync(join(dir, "meta/0016_snapshot.json"));
   const journal = JSON.parse(readFileSync(join(dir, "meta/_journal.json"), "utf8")) as {
-    entries: Array<{ tag: string }>;
+    entries: Array<{ idx: number; tag: string }>;
   };
-  journal.entries = journal.entries.filter((e) => e.tag !== "0016_new_ink");
+  const laterEntries = journal.entries.filter((entry) => entry.idx >= 16);
+  for (const entry of laterEntries) {
+    rmSync(join(dir, `${entry.tag}.sql`), { force: true });
+    rmSync(join(dir, `meta/${String(entry.idx).padStart(4, "0")}_snapshot.json`), { force: true });
+  }
+  journal.entries = journal.entries.filter((entry) => entry.idx < 16);
   writeFileSync(join(dir, "meta/_journal.json"), JSON.stringify(journal, null, 2));
   return dir;
 }

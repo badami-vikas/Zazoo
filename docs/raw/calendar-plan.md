@@ -2,14 +2,16 @@
 title: Calendar Tool — Implementation Plan
 type: raw
 doc_kind: plan
-status: P0–P2 BUILT (Google Calendar — list + create/modify/delete, governed); P3–P6 future
+status: superseded
 companions: [ARCHITECTURE.md, SCHEMA.sql, tools-internalization.md, OSS.md, STACK.md]
 related_wiki: ../wiki/calendar.md
-updated: 2026-06-24
+updated: 2026-07-19
 tags: [calendar, tool, projection, integrations, scheduling, oss, rendering]
 ---
 
 # Bridge AI — Calendar Tool Implementation Plan
+
+> **Superseded 2026-07-19 by ADR-108 and TASK-014.** Calendar is now the shared `calendar` View kind on any eligible Page. The projection/governance research below remains useful; the dedicated Tool/route/nav packaging does not.
 
 > **Verdict:** Do **not** adopt a calendar *product* or *server* (Cal.com, Radicale, Baïkal,
 > Nextcloud). Build a thin **Calendar Tool** Bridge owns, and adopt OSS only for the two

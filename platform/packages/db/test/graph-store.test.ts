@@ -2780,3 +2780,149 @@ test("Relationship paths are shortest, bounded, and visibility-pruned", async ()
     await close();
   }
 });
+
+test("full graph projects cross-Module Record, Event, and File Relations without leaking private nodes", async () => {
+  const { db, close } = await createLocalDb();
+  try {
+    const { userId: viewerUserId, workspaceId } = await seedWorkspaceAndUser(db);
+    const [otherUser] = await db
+      .insert(schema.users)
+      .values({ email: "test_fixture_full_graph_private@example.com" })
+      .returning({ id: schema.users.id });
+    assert.ok(otherUser);
+    const [visiblePerson, hiddenPerson] = await db
+      .insert(schema.people)
+      .values([
+        {
+          workspaceId,
+          userId: viewerUserId,
+          visibility: "workspace",
+          fullNameOverride: "Visible Full Graph Person",
+          source: "relationship",
+        },
+        {
+          workspaceId,
+          userId: otherUser.id,
+          visibility: "private",
+          fullNameOverride: "Hidden Full Graph Person",
+          source: "relationship",
+        },
+      ])
+      .returning({ id: schema.people.id });
+    const [initiative] = await db
+      .insert(schema.initiatives)
+      .values({ workspaceId, title: "Real Full Graph Initiative" })
+      .returning({ id: schema.initiatives.id });
+    assert.ok(visiblePerson);
+    assert.ok(hiddenPerson);
+    assert.ok(initiative);
+    await db.insert(schema.initiativeParticipants).values([
+      { initiativeId: initiative.id, personId: visiblePerson.id, role: "owner" },
+      { initiativeId: initiative.id, personId: hiddenPerson.id, role: "reviewer" },
+    ]);
+    const [visibleFile, hiddenFile] = await db
+      .insert(schema.files)
+      .values([
+        {
+          workspaceId,
+          source: "job-pilot",
+          metadata: { name: "visible-source.pdf" },
+        },
+        {
+          workspaceId,
+          source: "job-pilot",
+          metadata: { name: "hidden-source.pdf" },
+        },
+      ])
+      .returning({ id: schema.files.id });
+    assert.ok(visibleFile);
+    assert.ok(hiddenFile);
+    await db.insert(schema.fileRefs).values([
+      { fileId: visibleFile.id, entityType: "person", entityId: visiblePerson.id },
+      { fileId: hiddenFile.id, entityType: "person", entityId: hiddenPerson.id },
+    ]);
+    const [job] = await db
+      .insert(schema.jobpilotJobs)
+      .values({
+        workspaceId,
+        title: "Platform Engineer",
+        company: "Real Company",
+        source: "manual",
+      })
+      .returning({ id: schema.jobpilotJobs.id });
+    assert.ok(job);
+    const [application] = await db
+      .insert(schema.jobpilotApplications)
+      .values({ workspaceId, jobId: job.id, stage: "queued" })
+      .returning({ id: schema.jobpilotApplications.id });
+    assert.ok(application);
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        workspaceId,
+        type: "job.saved",
+        entityType: "job",
+        entityId: job.id,
+        payload: {},
+      })
+      .returning({ id: schema.events.id });
+    assert.ok(event);
+    const [crossModuleEvent] = await db
+      .insert(schema.events)
+      .values({
+        workspaceId,
+        type: "initiative.updated",
+        entityType: "initiative",
+        entityId: initiative.id,
+        payload: {},
+      })
+      .returning({ id: schema.events.id });
+    assert.ok(crossModuleEvent);
+
+    const result = await new DrizzleGraphStore(db).listFullGraph(
+      workspaceId,
+      viewerUserId,
+      { limit: 100 },
+    );
+    const nodeIds = new Set(result.nodes.map((node) => node.id));
+    assert.ok(nodeIds.has(`person:${visiblePerson.id}`));
+    assert.ok(nodeIds.has(`initiative:${initiative.id}`));
+    assert.ok(nodeIds.has(`file:${visibleFile.id}`));
+    assert.ok(nodeIds.has(`job:${job.id}`));
+    assert.ok(nodeIds.has(`application:${application.id}`));
+    assert.ok(nodeIds.has(`event:${event.id}`));
+    assert.ok(nodeIds.has(`event:${crossModuleEvent.id}`));
+    assert.ok(!nodeIds.has(`person:${hiddenPerson.id}`), "another user's private Person must not render");
+    assert.ok(!result.edges.some(
+      (edge) =>
+        edge.sourceId === `file:${hiddenFile.id}` ||
+        edge.targetId === `person:${hiddenPerson.id}`,
+    ), "a permitted File must not reveal its inaccessible target");
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "file_reference" &&
+        edge.sourceModule === "files" &&
+        edge.sourceId === `file:${visibleFile.id}` &&
+        edge.targetId === `person:${visiblePerson.id}`,
+    ));
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "participant" &&
+        edge.sourceModule === "initiative" &&
+        edge.sourceId === `initiative:${initiative.id}` &&
+        edge.targetId === `person:${visiblePerson.id}`,
+    ));
+    assert.ok(result.edges.some(
+      (edge) =>
+        edge.relationType === "recorded_for" &&
+        edge.sourceModule === "initiative" &&
+        edge.sourceId === `event:${crossModuleEvent.id}` &&
+        edge.targetId === `initiative:${initiative.id}`,
+    ));
+    assert.ok(result.edges.some((edge) => edge.relationType === "tracks" && edge.sourceModule === "job-pilot"));
+    assert.ok(result.edges.some((edge) => edge.relationType === "recorded_for" && edge.sourceModule === "job-pilot"));
+    assert.ok(result.nodes.every((node) => node.provenance.length > 0));
+  } finally {
+    await close();
+  }
+});

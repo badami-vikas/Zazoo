@@ -83,7 +83,7 @@ export interface DealPilotBindings {
 export interface DealPilotColumn {
   id: string;
   label: string;
-  kind: "text" | "number" | "select" | "url" | "date" | "relation" | "credential";
+  kind: "text" | "number" | "select" | "url" | "date" | "relation" | "credential" | "checkbox";
   virtual?: boolean;
 }
 
@@ -92,7 +92,6 @@ export interface DealPilotPageManifest {
   name: "Deals" | "Sources" | "Theses";
   route: string;
   databaseId: string;
-  views: Array<"table" | "card" | "board" | "form">;
   columns: DealPilotColumn[];
 }
 
@@ -119,11 +118,13 @@ const BASE_COLUMNS: Record<DealPilotPageId, DealPilotColumn[]> = {
   sources: [
     { id: "name", label: "Source", kind: "text" },
     { id: "link", label: "Link", kind: "url" },
+    { id: "connectionType", label: "Connection type", kind: "select" },
     { id: "userId", label: "User ID", kind: "credential", virtual: true },
     { id: "password", label: "Password", kind: "credential", virtual: true },
     { id: "lastCheckedAt", label: "Last checked", kind: "date" },
     { id: "spendCap", label: "Spend cap", kind: "number" },
     { id: "spendToDate", label: "Spend to date", kind: "number" },
+    { id: "rightsAttested", label: "Rights attested", kind: "checkbox", virtual: true },
     { id: "rightsState", label: "Rights", kind: "select" },
     { id: "health", label: "Health", kind: "select" },
     { id: "deals", label: "Deals", kind: "relation" },
@@ -152,13 +153,11 @@ export function dealPilotModuleManifest(bindings: DealPilotBindings): DealPilotM
   const page = (
     id: DealPilotPageId,
     name: DealPilotPageManifest["name"],
-    views: DealPilotPageManifest["views"],
   ): DealPilotPageManifest => ({
     id,
     name,
     route: `/dealpilot/${id}`,
     databaseId: `dealpilot.${id}`,
-    views,
     columns: [...BASE_COLUMNS[id], ...conditional],
   });
   return {
@@ -166,9 +165,9 @@ export function dealPilotModuleManifest(bindings: DealPilotBindings): DealPilotM
     displayName: "DealPilot",
     route: "/dealpilot/deals",
     pages: [
-      page("deals", "Deals", ["table", "card", "board", "form"]),
-      page("sources", "Sources", ["table", "card", "form"]),
-      page("theses", "Theses", ["table", "card", "form"]),
+      page("deals", "Deals"),
+      page("sources", "Sources"),
+      page("theses", "Theses"),
     ],
     recordDetail: {
       deal: [

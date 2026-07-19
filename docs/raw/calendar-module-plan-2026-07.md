@@ -2,14 +2,16 @@
 title: Calendar Module Plan — Design, Business, and Technical
 type: raw
 doc_kind: plan
-status: proposed
+status: superseded
 companions: [calendar-plan.md, dealpilot-module-plan-2026-07.md, jobpilot-module-plan-2026-07.md, clean-room-capability-research-protocol-2026-07.md, day1-integrations-free-apis.md]
 related_wiki: ../wiki/calendar.md
-updated: 2026-07-13
+updated: 2026-07-19
 tags: [calendar, module, design, business-process, projection, agents, skills, automations, reuse, scheduling]
 ---
 
 # 0. Product decision
+
+> **Superseded 2026-07-19 by ADR-108 and TASK-014.** Calendar is a metadata-eligible View kind, not a Module, Tool, route, package, or nav item. This file remains historical design/research. Use `brd-dataengine-views-2026-07.md` for current behavior.
 
 Calendar is one pinnable Tool + one primary global-nav item (route `/calendar`, "Home" adjacency). It is a **time-axis projection over the Unified Graph**, governed by the Universal Action Pipeline — **not a calendar product or server, and not a second source-of-truth.** This decision is already made and partly shipped (`docs/raw/calendar-plan.md`, ADR "Calendar render v1 = in-house"): P0–P2 are BUILT for Google Calendar (list + create/modify/delete, governed round-trip; `@bridge/integrations-google` 5/5 calendar tests; in-house render at `/calendar`). This module plan re-expresses that architecture plan in the DealPilot three-lens format and sequences the P3–P6 build (rituals/initiatives overlay, team/shared, conference adapters, scheduling).
 
