@@ -35,12 +35,11 @@ import {
   InMemoryLedger,
   InMemoryPolicyStore,
   InMemoryRoleStore,
-  InMemoryRitualRegistry,
-  InMemoryRitualRunRecorder,
-  InMemoryToolRegistry,
+  InMemoryAutomationRegistry,
+  InMemoryAutomationRunRecorder,
   InMemoryMediaStore,
   InMemorySkillRegistry,
-  InProcessRitualExecutor,
+  InProcessAutomationExecutor,
   RecordingVarianceAdjuster,
   UniversalActionPipeline,
   KERNEL_PASSTHROUGH_SKILL,
@@ -68,12 +67,11 @@ import {
   type LocalMediaStore,
   type PolicyFn,
   type PolicyStore,
-  type RitualRegistry,
-  type RitualRunRecorder,
+  type AutomationRegistry,
+  type AutomationRunRecorder,
   type RoleQuery,
   type Skill,
   type SkillOutput,
-  type ToolRegistry,
   type CapabilityStore,
   type AutoActivationBudgetStore,
   type Action,
@@ -182,7 +180,7 @@ import {
   SKILL_STAGE,
   type GoogleGatewayFactory,
   type GoogleOAuthConfig,
-  type ToolManifest,
+  type IntegrationManifest,
 } from "@bridge/integrations-google";
 import {
   HumanReauthentication,
@@ -198,7 +196,7 @@ import {
   type DealPilotRuntimeStore,
   type SourceCredentialVault,
 } from "@bridge/dealpilot";
-import type { QuarantinedCapture } from "@bridge/tool-kit";
+import type { QuarantinedCapture } from "@bridge/capability-kit";
 import {
   BUILT_IN_PACKAGES,
   CITED_ROLE_MODEL_PRACTICE_VERSION,
@@ -206,7 +204,7 @@ import {
   LEARNING_AGENT_RUNTIME_ID,
   LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
-  resolveModuleRitualRuntimeId,
+  resolveModuleAutomationRuntimeId,
 } from "./built-in-packages.js";
 import {
   createOrganizationRenameLease,
@@ -291,7 +289,7 @@ export async function retireSupersededBuiltIns(
 
 export interface Wiring {
   pipeline: UniversalActionPipeline;
-  ritualExecutor: InProcessRitualExecutor;
+  automationExecutor: InProcessAutomationExecutor;
   roles: RoleQuery;
   agents: AgentQuery;
   ephemeral: EphemeralQuery;
@@ -315,12 +313,12 @@ export interface Wiring {
   googleOAuthStates: GoogleOAuthStateStore;
   /** Whether the real googleapis gateway is in use, or Google is unconfigured. */
   googleGatewayKind: "google" | "unconfigured";
-  googleManifest: ToolManifest;
+  googleManifest: IntegrationManifest;
   /** The server-chosen pilot user id — the default authenticated identity (Phase C
    * replaces this pin with a verified Supabase session). */
   pilotUserId: string;
-  /** Ritual registry (config rows) — used by ritual.create to register new workflows. */
-  ritualRegistry: RitualRegistry;
+  /** Canonical Automation definitions used by Automation creation and execution. */
+  automationRegistry: AutomationRegistry;
   /** Workspace + team-member CRUD — direct DB writes, not a governed pipeline skill. */
   workspaceStore: DrizzleWorkspaceStore;
   /** Read surface for Initiative/Touchpoint/Signal (see graph-store.ts). */
@@ -409,7 +407,7 @@ export interface Wiring {
   cultureFetchAbortControllers: Map<string, AbortController>;
   /** Inspectable, correctable, deletable learned preferences. */
   memoryStore: MemoryStore;
-  /** ModelProvider registry/router (@bridge/models): resolves tool-kit modelBindings to
+  /** ModelProvider registry/router (@bridge/models): resolves capability manifest modelBindings to
    * providers, honoring planeDefault (capture/sensor plane = local models, never cloud
    * fallback). In-memory mode registers the network-free echo double; persistent mode
    * registers Ollama (local) + Anthropic + Groq (cloud, only when their respective
@@ -418,7 +416,7 @@ export interface Wiring {
   /** Explicitly configured Local Plane geocoder. `null` means place labels stay
    * local and Map plots only Records that already carry coordinates. */
   geocodingProvider: GeocodingProvider | null;
-  /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
+  /** DealPilot's quarantine/commit surface (first Module on the generic intake seam). */
   dealpilot: {
     integrationId: string;
     store: DealPilotRuntimeStore;
@@ -2925,8 +2923,8 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
     { resourceType: "community", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "community", resourceId: null, action: "archive", effect: "allow" },
     { resourceType: "signal", resourceId: null, action: "write", effect: "allow" },
-    { resourceType: "tool", resourceId: null, action: "read", effect: "allow" },
-    { resourceType: "tool", resourceId: null, action: "write", effect: "allow" },
+    { resourceType: "module", resourceId: null, action: "read", effect: "allow" },
+    { resourceType: "module", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "read", effect: "allow" },
     { resourceType: "relation", resourceId: null, action: "write", effect: "allow" },
     { resourceType: "external:fetch", resourceId: null, action: "read", effect: "allow" },
@@ -2942,9 +2940,8 @@ export interface ModePorts {
   policyStore: PolicyStore;
   ledger: LedgerStore;
   relationMaterializations: DrizzleRelationMaterializationStore;
-  ritualRegistry: RitualRegistry;
-  toolRegistry: ToolRegistry;
-  ritualRunRecorder: RitualRunRecorder;
+  automationRegistry: AutomationRegistry;
+  automationRunRecorder: AutomationRunRecorder;
   canonical: CanonicalIdentityStore;
   workspaceStore: DrizzleWorkspaceStore;
   /** Read surface for Initiative/Touchpoint/Signal — see graph-store.ts's header
@@ -3058,9 +3055,8 @@ export function buildPersistentPorts(env: {
     policyStore: ports.policies,
     ledger: ports.ledger,
     relationMaterializations: ports.relationMaterializations,
-    ritualRegistry: ports.ritualRegistry,
-    toolRegistry: ports.toolRegistry,
-    ritualRunRecorder: ports.ritualRunRecorder,
+    automationRegistry: ports.automationRegistry,
+    automationRunRecorder: ports.automationRunRecorder,
     // The one genuinely-fixed lie: canonical identity now really persists to Postgres
     // instead of an in-memory fake, once DATABASE_URL is set.
     canonical: new DrizzleCanonicalIdentityStore(db),
@@ -3255,11 +3251,9 @@ export async function buildInMemoryPorts(env: {
     policyStore: new InMemoryPolicyStore(policies),
     ledger,
     relationMaterializations: new DrizzleRelationMaterializationStore(localDb),
-    // Registries start EMPTY — no demo rituals/tools. Real workflows are created via
-    // ritual.create (validated ritual ⊆ agent) and persist here for the session.
-    ritualRegistry: new InMemoryRitualRegistry(),
-    toolRegistry: new InMemoryToolRegistry(),
-    ritualRunRecorder: new InMemoryRitualRunRecorder(),
+    // Definitions start empty. Real Automations are created with an owning Agent.
+    automationRegistry: new InMemoryAutomationRegistry(),
+    automationRunRecorder: new InMemoryAutomationRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
     workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
     graphStore,
@@ -3565,9 +3559,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
     policyStore,
     ledger,
     relationMaterializations,
-    ritualRegistry,
-    toolRegistry,
-    ritualRunRecorder,
+    automationRegistry,
+    automationRunRecorder,
     canonical,
     workspaceStore,
     graphStore,
@@ -3599,7 +3592,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       }
     : policyStore;
 
-  // ModelProvider registry/router — resolves tool-kit modelBindings honoring
+  // ModelProvider registry/router — resolves capability manifest modelBindings honoring
   // planeDefault (local-default bindings NEVER fall through to a cloud provider).
   const models = createModelRouter(modelProviders);
 
@@ -3619,8 +3612,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   // (ADR-023); `packageStore` comes from modePorts (see above), same split every
   // other per-mode port already follows.
 
-  // DealPilot: the first tool wired through the generic manifest intake seam
-  // (@bridge/tool-kit capture contract) — sourcing quarantines
+  // DealPilot: the first Module wired through the generic manifest intake seam
+  // (shared capability intake contract) — sourcing quarantines
   // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
   // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
@@ -3718,7 +3711,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
             captures.push({
               ...envelope,
               captureId,
-              toolId: "dealpilot",
+              moduleId: "dealpilot",
               trustOrigin: envelope.trustOrigin ?? "untrusted_external",
             });
           }
@@ -3740,7 +3733,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           }
           return {
             proposedOutput: {
-              toolId: "dealpilot",
+              moduleId: "dealpilot",
               count: settlement.captureIds.length,
               captureIds: settlement.captureIds,
               attempted: batch.summary.attempted,
@@ -3834,17 +3827,17 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   }
 
   // Signed Module manifests opt individual Automations into the executable
-  // runtime with a stable Ritual id. Inventory-only rows remain non-clickable.
+  // runtime with a stable Automation id. Inventory-only rows remain non-clickable.
   for (const pkg of BUILT_IN_PACKAGES) {
     const moduleAgents = new Map((pkg.manifest.module?.agents ?? []).map((agent) => [agent.id, agent]));
     for (const automation of pkg.manifest.module?.automations ?? []) {
-      if (!automation.ritualId) continue;
+      if (!automation.automationId) continue;
       const capability = pkg.manifest.capabilities.find((item) => item.id === automation.capabilityId);
       const permission = capability?.permissions[0];
       const agent = moduleAgents.get(automation.agentId);
-      const ritualId = resolveModuleRitualRuntimeId(pkg.manifest.name, automation.ritualId);
+      const automationId = resolveModuleAutomationRuntimeId(pkg.manifest.name, automation.automationId);
       const agentId = resolveModuleAgentRuntimeId(pkg.manifest.name, automation.agentId);
-      if (!permission || !agent || !ritualId || !agentId) continue;
+      if (!permission || !agent || !automationId || !agentId) continue;
       if (!agent.plane) throw new Error(`Module Automation ${automation.id} has no owning Agent Plane`);
       const manifest = skillManifests.forSkill(PILOT_WORKSPACE, automation.procedure)[0];
       let goalTaskRef: { goalId: string; taskId: string } | undefined;
@@ -3883,8 +3876,8 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
           ));
         goalTaskRef = { goalId: goal.id, taskId: task.id };
       }
-      await ritualRegistry.save({
-        id: ritualId,
+      await automationRegistry.save({
+        id: automationId,
         name: automation.name,
         workspaceId: PILOT_WORKSPACE,
         agentId,
@@ -3967,10 +3960,9 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
   return {
     pipeline,
     localMedia,
-    ritualExecutor: new InProcessRitualExecutor(pipeline, {
-      registry: ritualRegistry,
-      toolRegistry,
-      recorder: ritualRunRecorder,
+    automationExecutor: new InProcessAutomationExecutor(pipeline, {
+      registry: automationRegistry,
+      recorder: automationRunRecorder,
     }),
     roles,
     agents,
@@ -3997,7 +3989,7 @@ export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wir
       bindings: dealPilotBindings,
     },
     integrationStore,
-    ritualRegistry,
+    automationRegistry,
     workspaceStore,
     graphStore,
     jobpilotStore,

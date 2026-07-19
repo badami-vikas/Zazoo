@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { matchCompany } from "@bridge/company-sourcing";
 import type { DedupeCandidate } from "@bridge/dedupe";
-import type { QuarantinedCapture } from "@bridge/tool-kit";
+import type { QuarantinedCapture } from "@bridge/capability-kit";
 import type {
   GmailContinuation,
   GmailFetchReceipt,
@@ -1076,7 +1076,7 @@ export class LocalDealPilotStore implements DealPilotRuntimeStore {
           fromId: dealId,
           toId: stored.sourceId,
           confidence: stored.capture.confidence,
-          provenance: stored.capture.sourceToolId,
+          provenance: stored.capture.sourceConnectorId,
           evidenceRefs: [captureId],
         });
         for (const relation of Object.values(state.relations)) {

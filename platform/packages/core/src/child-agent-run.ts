@@ -10,10 +10,10 @@
  * `RunContext`) onto those actions, not from minting a second Agent identity.
  *
  * This module is pure logic + an in-memory store, mirroring every other
- * primitive in @bridge/core (RitualExecutor, agent-scope.ts's
- * `validateRitualWithinAgents`). It does NOT itself call the pipeline — a
+ * primitive in @bridge/core (AutomationExecutor, agent-scope.ts's
+ * `validateAutomationWithinAgents`). It does NOT itself call the pipeline — a
  * caller (apps/api's router, or a future `ChildRunExecutor` mirroring
- * `InProcessRitualExecutor`) is expected to call `validateActionWithinChildRun`
+ * `InProcessAutomationExecutor`) is expected to call `validateActionWithinChildRun`
  * before proposing each of the child run's actions through the SAME governed
  * pipeline every other mutation uses; nothing here bypasses `propose`/`decide`.
  */
@@ -736,12 +736,12 @@ function scopeCoversActionToken(scope: readonly string[], action: string, resour
 }
 
 /**
- * Local, pre-pipeline check — mirrors `agent-scope.ts`'s `validateRitualWithinAgents`
- * shape (a ritual step ⊆ agent check performed BEFORE the step ever reaches the
+ * Local, pre-pipeline check — mirrors `agent-scope.ts`'s `validateAutomationWithinAgents`
+ * shape (an Automation step within Agent check performed BEFORE the step reaches the
  * pipeline). A caller orchestrating a child Run's steps (a future
- * `ChildRunExecutor`, mirroring `InProcessRitualExecutor`) calls this before each
+ * `ChildRunExecutor`, mirroring `InProcessAutomationExecutor`) calls this before each
  * `pipeline.propose` — an out-of-bounds step never reaches the pipeline/ledger at
- * all, matching how out-of-scope ritual steps are rejected locally today. Returns
+ * all, matching how out-of-scope Automation steps are rejected locally today. Returns
  * `null` when the action is within bounds, else the specific violation.
  *
  * TASK-011 remediation (2026-07-19 coordinator distributed-defects

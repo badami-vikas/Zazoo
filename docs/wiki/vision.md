@@ -11,16 +11,16 @@ full: [../raw/vision-pivot-living-software.md](../raw/vision-pivot-living-softwa
 - **Competitors, no hedging**: ambient desktop agents (Vida, Invoko, AirJelly) · generated/flexible workspaces (Notion AI, Fibery, Noloco) · agent-ops platforms (Retrace, AgentOS). OS-vendor framing dropped from competitive narrative entirely (kept only as an engineering risk note: graceful degradation / entitlements).
 - **Competitor discovery = dynamic, never hardcoded.** Learning Agent researches a compiled product's competitive landscape LIVE at onboarding/blueprint time (web search, egress via pipeline) — Bridge ships no static competitor lookup table. "Dialllog/Affinity for DealPilot" = illustrative history, not runtime logic.
 
-**Bridge = software that builds itself around your work.** Learns how user works → generates workspace → continuously evolves workflows/skills/agents/tools. Adaptive workspace for professionals + teams. NOT static app of any category. Old GP-fund framing = SUPERSEDED; funds → heritage of first compiled product (DealPilot).
+**Bridge = software that builds itself around your work.** Learns how the user works → generates Modules → continuously evolves Automations, Skills, Agents, and Integrations. Adaptive operating system for professionals + teams. NOT a static app of any category. Old GP-fund framing = SUPERSEDED; funds → heritage of first compiled product (DealPilot).
 
 ## AI-Executive-Office framing (2026-07-09)
-Bridge = the capability OS that gives every professional an AI executive office — a space that knows your work, builds its own tools, and continuously improves itself. Kernel = the executive's memory and governance. Compiled workspace = the tailored desk. Spirit animal / avatar = the personality layer that makes it personal.
+Bridge = the capability OS that gives every professional an AI executive office — a space that knows your work, builds its own Skills, Automations, and Modules, and continuously improves itself. Kernel = the executive's memory and governance. Compiled workspace = the tailored desk. Spirit animal / avatar = the personality layer that makes it personal.
 
 ## Ontology (2026-07-07, ADR-028 — see [ontology](ontology.md))
-Canonical primitive names for everything below: actors = Human/Agent/**Automation** (code `ritual`, UI "Workflow") · capabilities = Skill/**Integration** (Connection) · work = Request/Action/Incident/Artifact (Signal = derived Incident) · surface = **Workspace** (code `tool`/ToolManifest = implementation surface only)/Element/ElementType/View · context = Memory/Knowledge. Older "workflow/skill/agent/tool" phrasing below = same peers, old names. Chief of Staff = Agent archetype, not a primitive. **Promotion NEVER mutates category** — promotion mints a NEW governed object consuming the old.
+Canonical primitive names for everything below: actors = Human/Agent · coordination = **Automation** starting an attributable Agent Run · capabilities = Skill/**Integration** (Connection) · work = Request/Action/Event/Result (Signal = surfaced Relationship Event) · surface = Organization/Module/Database/Record/Relation/View · context = Memory. Chief of Staff = an Agent archetype, not a primitive. **Promotion NEVER mutates category** — promotion mints a NEW governed object consuming the old.
 
 ## Core principle
-~~Everything is generated~~ → **Everything is PROPOSED, governed, continuously evolved.** Bridge = **Capability Lifecycle Platform**. One lifecycle for every artifact (table/workflow/skill/agent/tool/integration/dashboard — ontology names: ElementType/Automation/Skill/Agent/Workspace/Integration/View): Need → Research → Proposal → Evidence → Risk class → Governance → Activation → Evaluation → Promote/Demote/Retire.
+~~Everything is generated~~ → **Everything is PROPOSED, governed, continuously evolved.** Bridge = **Capability Lifecycle Platform**. One lifecycle for every governed capability (Database/Automation/Skill/Agent/Module/Integration/View): Need → Research → Proposal → Evidence → Risk class → Governance → Activation → Evaluation → Promote/Demote/Retire.
 
 ## Brand principles
 Adapt before asking · Learn before acting · Explain before automating · Govern before executing · Build only lasting value · Simple surface, powerful underneath.
@@ -51,16 +51,16 @@ One engine, many workspaces, shared capabilities. Graph never partitioned. Verbs
 Table (morphs: calendar/kanban/map/graph/card) · chatbot · dashboard · canvas. Nothing else unless user asks (later phases). Relationships = graph or table ONLY. Generation = configs of REGISTERED components, never new components. `<DataViews>` shell = enforcement point → Phase-1 critical path.
 
 ## Vocabulary (re-scoped)
-Kernel scope: Bridge vocab stands (Person/Relationship/Memory/Community/Initiative/Ritual/Touchpoint/Signal). Workspace scope: domain vocab OK (DealPilot says "Deal" — conformant now), generated vocab aligns Bridge theme by default, user override wins. ESLint `no-crm-vocab` → re-scope to kernel paths.
+Kernel scope: canonical Bridge vocabulary stands (Human/Agent/Automation/Skill/Engine/Organization/Module/Database/Record/Relation/Event/Result/File/Memory). Module scope: domain vocabulary is allowed (DealPilot says "Deal"), generated vocabulary aligns with the Bridge theme by default, and explicit user vocabulary wins.
 
 ## Agents
 Chief of Staff = default interlocutor (user can address any agent directly; governance never bypassed). Communications = skill library + policy gate, NOT agent. Learning agent executes research (egress via pipeline) but never builds. Capability Builder builds drafts only.
 
 ## Promotion defaults (policy_params, Variance-Adjuster-tunable — full table raw §5)
-Workflow draft ≥5 reps/30d, ≥0.8 similarity; activate ≥3 approved runs, corrections <20%. Skill ≥2 workflows ≥2 contexts ≥85%. Agent ≥3 caps + ≥4wk responsibility + weekly use + owner. Tool ≥90% over ≥20 runs, stable I/O 14d. Trusted ≥30 runs ≥95% 0 violations 60d. Metrics = starting proxies, adapt from feedback (user C9).
+Automation draft ≥5 reps/30d, ≥0.8 similarity; activate ≥3 approved Runs, corrections <20%. Skill ≥2 Automations ≥2 contexts ≥85%. Agent ≥3 capabilities + ≥4wk responsibility + weekly use + owner. Module Action ≥90% over ≥20 Runs, stable I/O 14d. Trusted ≥30 Runs ≥95% 0 violations 60d. Metrics are starting proxies and adapt from feedback (user C9).
 
 ## Retained unchanged
-Docs protocol · two-tier data + residency + local-first gate + two planes (all PROMOTED — capture makes local-first literal) · pipeline/ledger/Variance Adjuster · L0-L3 levels (map to trust bands) · planner/executor split · Tool manifest (→ generalizes to Capability Manifest) · Helpdesk in-Bridge MVP (= FIRST capability package on kernel, alongside Recon + DealPilot) · Calendar-as-projection · no-CRDT/no-Neo4j · ADR-006 monorepo + tools-never-own-OAuth (= credential broker) · E2EE deferred last.
+Docs protocol · two-tier data + residency + local-first gate + two planes (all PROMOTED — capture makes local-first literal) · pipeline/ledger/Variance Adjuster · L0-L3 levels (map to trust bands) · planner/executor split · Capability Manifest · Helpdesk in-Bridge MVP (= FIRST capability package on kernel, alongside Recon + DealPilot) · Calendar-as-projection · no-CRDT/no-Neo4j · ADR-006 monorepo + capability code never owns OAuth (= credential broker) · E2EE deferred last.
 
 ## REVERSED 2026-07-06 (second pass)
 ~~dummy_ prefix rule~~ → **no dummy data**: platform = real connected data only, going forward. Existing dummy_ instances = tracked debt, not purged this pass. Test fixtures = separate, unaffected (open Q).

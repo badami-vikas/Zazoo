@@ -33,7 +33,7 @@ function fixtureManifest(): PackageManifest {
   return {
     name: "test-fixture-signed-pkg",
     version: "1.0.0",
-    kind: "tool",
+    kind: "module",
     summary: "test fixture signed package",
     description: "test fixture signed package",
     lineageManifestId: null,
@@ -43,7 +43,7 @@ function fixtureManifest(): PackageManifest {
         id: "cap",
         name: "cap",
         version: "1.0.0",
-        capabilityType: "tool",
+        capabilityType: "skill",
         origin: "community",
         audience: "private",
         permissions: [],

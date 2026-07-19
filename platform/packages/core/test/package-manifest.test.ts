@@ -97,7 +97,7 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
         { id: "dummy.view", capability_type: "view", permissions: [] },
         { id: "dummy.skill", capability_type: "skill", permissions: [] },
         { id: "dummy.agent", capability_type: "agent", permissions: [] },
-        { id: "dummy.automation", capability_type: "workflow", permissions: [] },
+        { id: "dummy.automation", capability_type: "automation", permissions: [] },
       ],
       module: {
         display_name: "Dummy",
@@ -111,7 +111,7 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
           agent_id: "operator",
           trigger: "Manual",
           procedure: "dummy.intake",
-          ritual_id: "dummy.intake.ritual",
+          automation_id: "dummy.intake.automation",
           run_route: "/dummy/records",
         }],
         commons_needs: [{
@@ -129,6 +129,7 @@ test("parsePackageManifest: validates Module Agent-owned Skills and Automations"
   assert.equal(parsed.module?.displayName, "Dummy");
   assert.deepEqual(parsed.module?.agents[0]?.skillIds, ["dummy.skill"]);
   assert.equal(parsed.module?.automations[0]?.agentId, "operator");
+  assert.equal(parsed.module?.automations[0]?.automationId, "dummy.intake.automation");
   assert.equal(parsed.module?.automations[0]?.runRoute, "/dummy/records");
   assert.equal(parsed.module?.commonsNeeds?.[0]?.agentId, "operator");
 });

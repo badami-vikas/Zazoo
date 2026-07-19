@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const routes = readFileSync(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
@@ -14,9 +14,7 @@ const pagination = readFileSync(new URL("../src/app/lib/pagination.ts", import.m
 const ledgerData = readFileSync(new URL("../src/app/data/ledger.ts", import.meta.url), "utf8");
 const executionLedger = readFileSync(new URL("../src/app/components/ExecutionLedger.tsx", import.meta.url), "utf8");
 const settingsPage = readFileSync(new URL("../src/app/pages/SettingsPage.tsx", import.meta.url), "utf8");
-const toolDetail = readFileSync(new URL("../src/app/pages/ToolDetail.tsx", import.meta.url), "utf8");
-const cameraCaptures = readFileSync(new URL("../src/app/components/tools/camera/CameraCaptures.tsx", import.meta.url), "utf8");
-const localMedia = readFileSync(new URL("../src/app/data/localMedia.ts", import.meta.url), "utf8");
+const browserCaptureStore = new URL("../src/app/data/localMedia.ts", import.meta.url);
 const builtIns = readFileSync(new URL("../../api/src/built-in-packages.ts", import.meta.url), "utf8");
 
 test("Relationship is one installed Module with canonical primary Pages", () => {
@@ -111,28 +109,9 @@ test("Approvals loads and resolves proposals through the authenticated Action Pi
   assert.match(ledgerData, /reconciliation\.status === 'pending'/);
 });
 
-test("failed capture adoption remains pending and exposes an actionable error", () => {
-  assert.match(toolDetail, /if \(outcome\)/);
-  assert.match(toolDetail, /could not be reconciled with Approvals\. It remains pending/);
-  assert.match(toolDetail, /could not be dismissed\. It remains pending/);
-  assert.match(
-    readFileSync(new URL("../src/app/data/toolCaptures.ts", import.meta.url), "utf8"),
-    /return !error && Boolean\(data\)/,
-  );
-  assert.doesNotMatch(toolDetail, /Routed \$\{c\.person\.name \|\| 'capture'\} \(local\)/);
-});
-
-test("camera capture review uses the server Action Pipeline and canonical Events", () => {
-  assert.match(cameraCaptures, /trpc\.capture\.stage\.mutate/);
-  assert.match(cameraCaptures, /trpc\.capture\.status\.query/);
-  assert.match(cameraCaptures, /trpc\.action\.decide\.mutate/);
-  assert.match(cameraCaptures, /result\.effectsStatus !== 'confirmed'/);
-  assert.match(cameraCaptures, /mirrorCaptureDecision/);
-  assert.match(cameraCaptures, /capturedAt: r\.capturedAt/);
-  assert.match(cameraCaptures, /Resolve the governed review before archiving/);
-  assert.doesNotMatch(cameraCaptures, /Touchpoint|API_ENABLED|fetch\(/);
-  assert.match(localMedia, /resourceType: 'event'/);
-  assert.doesNotMatch(localMedia, /type: 'touchpoint'/);
+test("capture review uses canonical Events instead of the retired standalone surface", () => {
+  assert.doesNotMatch(routes, /path: "tools"/);
+  assert.equal(existsSync(browserCaptureStore), false);
 });
 
 test("Signal detail exposes participant, Event, and governed Action paths", () => {

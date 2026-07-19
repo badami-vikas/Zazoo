@@ -1,5 +1,5 @@
 /**
- * createModelRouter — resolves a @bridge/tool-kit `modelBinding` (the
+ * createModelRouter — resolves an executable manifest `modelBinding` (the
  * declarative slot every tool manifest already carries) to a live
  * ModelProvider, honoring the binding's `planeDefault`:
  *
@@ -17,7 +17,7 @@
  * registration order.
  */
 import type { ModelProvider } from "@bridge/core";
-import type { ModelBinding } from "@bridge/tool-kit";
+import type { ModelBinding } from "@bridge/capability-kit";
 
 export interface ModelRouter {
   /** All registered providers, by id. */

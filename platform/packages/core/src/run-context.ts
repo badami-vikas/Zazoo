@@ -14,7 +14,7 @@
  * store, no I/O, no model call performed here.
  *
  * Naming note: `types.ts` already exports a `RunContext` interface (ephemeral-grant
- * context: `{ type: "initiative" | "community" | "ritual" | "child_agent_run", id, runId }`,
+ * context: `{ type: "initiative" | "community" | "automation" | "child_agent_run", id, runId }`,
  * used by the
  * Authority resolver / EphemeralQuery). This module's `ModelRunContext` is a DIFFERENT,
  * much larger concept (everything a model run needs) — deliberately named to avoid
@@ -116,7 +116,7 @@ export interface RunGovernanceState {
    * through for audit/explainability, not re-evaluated by this module. */
   trustGrants: TrustGrantView[];
   /** The existing ephemeral-grant `RunContext` (types.ts) this run executes under, when
-   * one applies (initiative/community/ritual/child_agent_run + runId) — composed in
+   * one applies (Initiative/Community/Automation/Child Agent Run + runId) — composed in
    * unchanged, never redefined; see this module's header comment on the naming
    * collision this avoids. */
   ephemeralContext?: EphemeralRunContext;
@@ -177,7 +177,7 @@ export interface ModelRunContext {
   request: string;
   /** The object/page/surface this run is scoped to, when one applies (e.g. a specific
    * Person record, a specific workspace view) — absent for a surface-less run
-   * (e.g. a background ritual step with no single selected object). */
+   * (e.g. a background Automation step with no single selected object). */
   surface?: RunSurfaceReference;
   /** Sensor SPI packs collected for this run (context-provider.ts) — already
    * permission-gated at collection time; this module does not re-check permissions. */

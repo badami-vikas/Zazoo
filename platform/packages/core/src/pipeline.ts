@@ -675,7 +675,7 @@ export class UniversalActionPipeline {
    * Reconstruct the ActionRequest a decision's Proposal echoes back. This used to
    * synthesize `skill: "(replayed)"` and silently drop `context`/`dataScope` from
    * the original ledger entry — breaking audit completeness (you couldn't tell
-   * which ritual produced a decision or what data tier it touched, since neither
+   * which Automation produced a decision or what data tier it touched, since neither
    * the skill name nor the original context/dataScope were persisted anywhere).
    * Both are now real `LedgerEntry` fields (see schema.ts's `ledger.dataScope`/
    * `ledger.context`), threaded through here unchanged. The skill name itself was

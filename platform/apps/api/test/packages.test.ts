@@ -190,7 +190,7 @@ test("packages.install: an external-risk package (egress permission) is parked p
         capabilities: [
           {
             id: "dummy.egress-cap",
-            capability_type: "workflow",
+            capability_type: "automation",
             permissions: [{ resource_type: "external_fetch", action: "read", data_scope: "public", egress: true }],
             connectors: [],
           },
@@ -232,7 +232,7 @@ test("packages.install: lethal trifecta assembled across separate bundled capabi
           },
           {
             id: "dummy.egress-connector",
-            capability_type: "workflow",
+            capability_type: "automation",
             permissions: [{ resource_type: "touchpoint", action: "write", data_scope: "all", egress: false }],
             connectors: [{ id: "dummy-sender", external_send: true }],
           },

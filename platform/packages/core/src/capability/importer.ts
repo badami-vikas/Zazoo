@@ -1,7 +1,7 @@
 /**
  * Foreign-capability importer (docs/raw/execution-plan-2026-07.md Track F3,
  * ADR-027) — translates an upstream descriptor (a Pi package, an MCP server's
- * tool/resource list, an Activepieces piece, or a generic OSS integration)
+ * Action/resource list, an Activepieces piece, or a generic OSS Integration)
  * into a `ForeignCapabilityImport` (foreign-import.ts) whose
  * `translatedManifest` is a Bridge `CapabilityManifest` (types.ts). Pure
  * translation layer: it never calls out to a live MCP server, Activepieces
@@ -9,11 +9,11 @@
  * mirroring package/manifest.ts's "validated at the seam" discipline.
  *
  * Per-source-type mapping:
- *  - pi-package:          extension -> tool/connector, skill/prompt -> skill,
+ *  - pi-package:          extension/skill/prompt -> Skill,
  *                         theme -> view.
- *  - mcp-server:          tools -> connectors, resources -> read permissions;
- *                         capabilityType always "tool".
- *  - activepieces-piece:  actions/triggers -> one "skill" capability with a
+ *  - mcp-server:          Actions -> connectors, resources -> read permissions;
+ *                         capabilityType always "integration".
+ *  - activepieces-piece:  actions/triggers -> one "integration" capability with a
  *                         connector per step. ALWAYS executable -> a real
  *                         sandboxPolicy is required.
  *  - oss-integration:     generic passthrough, capabilityType "integration",
@@ -30,6 +30,7 @@
  */
 import type { CapabilityConnector, CapabilityManifest, CapabilityPermission, CapabilityType } from "./types.js";
 import type { ForeignCapabilityImport, ForeignCapabilitySource } from "./foreign-import.js";
+import { mcpActionDescriptors } from "./mcp-adapter.js";
 
 /** A foreign import is by definition not built_in/template/ai_generated/
  * user_code — always "community" (capability/types.ts CapabilityOrigin). */
@@ -96,7 +97,7 @@ function requiresSandbox(input: ForeignCapabilityDescriptorInput): boolean {
   if (input.source === "mcp-server") {
     // PKG-1: the MCP "exempt from sandbox by protocol" carve-out is REMOVED.
     // A local (stdio-transport) MCP server IS arbitrary local code execution,
-    // and even a remote one is community/untrusted origin whose tool calls we
+    // and even a remote one is community/untrusted origin whose Actions we
     // must not auto-trust at a higher tier than user_code — the transport
     // boundary is NOT a security boundary. Treat every mcp-server import as
     // executable so it must carry a real sandboxPolicy (isolation !== "none")
@@ -113,14 +114,14 @@ function capabilityTypeFor(input: ForeignCapabilityDescriptorInput): CapabilityT
   switch (input.source) {
     case "pi-package": {
       const primitive = descriptor.primitive;
-      if (primitive === "extension") return "tool";
+      if (primitive === "extension") return "skill";
       if (primitive === "theme") return "view";
       return "skill"; // skill | prompt
     }
     case "mcp-server":
-      return "tool";
+      return "integration";
     case "activepieces-piece":
-      return "skill";
+      return "integration";
     case "oss-integration":
       return "integration";
   }
@@ -129,8 +130,10 @@ function capabilityTypeFor(input: ForeignCapabilityDescriptorInput): CapabilityT
 function connectorsFor(input: ForeignCapabilityDescriptorInput): CapabilityConnector[] {
   const descriptor = isPlainObject(input.descriptor) ? input.descriptor : {};
   if (input.source === "mcp-server") {
-    const tools = Array.isArray(descriptor.tools) ? descriptor.tools : [];
-    return tools.map((t) => ({ id: String((isPlainObject(t) ? t.name : undefined) ?? t) }));
+    const actions = mcpActionDescriptors(descriptor);
+    return actions.map((action) => ({
+      id: String((isPlainObject(action) ? action.name : undefined) ?? action),
+    }));
   }
   if (input.source === "activepieces-piece") {
     const actions = Array.isArray(descriptor.actions) ? descriptor.actions : [];

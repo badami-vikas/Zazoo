@@ -185,12 +185,12 @@ function displayResourceType(value: PendingProposal['request']['resourceType']):
     case 'initiative':
     case 'community':
     case 'relation':
-    case 'ritual':
+    case 'automation':
     case 'signal':
     case 'event':
       return value;
     case 'file':
-    case 'tool':
+    case 'module':
     case 'skill':
     case 'agent':
     case 'role':

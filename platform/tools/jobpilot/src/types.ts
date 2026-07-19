@@ -79,7 +79,7 @@ export interface EvalVerdict {
 
 // Application pipeline state (architecture doc S2.1 `applications.status` state machine) — kept
 // here as the shape the tracker table's `stage` column renders, not a re-implementation of the
-// transition logic (that belongs to a future ritual/RitualExecutor pass, out of scope for this
+// transition logic (that belongs to a future Automation/AutomationExecutor pass, out of scope for this
 // anchor).
 export type ApplicationStage =
   | "queued"

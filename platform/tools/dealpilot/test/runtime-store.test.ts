@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { GoogleGateway, GoogleGatewayFactory } from "@bridge/integrations-google";
-import type { QuarantinedCapture } from "@bridge/tool-kit";
+import type { QuarantinedCapture } from "@bridge/capability-kit";
 import { createGmailFetchMessages, type GmailFetchReceipt } from "../src/connectors.js";
 import {
   LocalDealPilotStore,
@@ -86,8 +86,8 @@ function capture(
   return {
     captureId,
     sourceRecordId,
-    toolId: "dealpilot",
-    sourceToolId: "bizbuysell-alerts",
+    moduleId: "dealpilot",
+    sourceConnectorId: "bizbuysell-alerts",
     tier: "email",
     query: { kind: "company", hints: {} },
     payload,

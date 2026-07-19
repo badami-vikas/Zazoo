@@ -9,7 +9,7 @@
  *   - Modules      = `packages.list` (Drizzle-backed package installations)
  *   - Integrations = `integration.list` + `google.list` (connected sources)
  * The API has NO per-initiative resource binding yet (packages/integrations/
- * rituals are all workspace-scoped; no `ritual.list` or `agent.list` read
+ * Automations are all workspace-scoped; no `automation.list` or `agent.list` read
  * procedure exists) — so Scope honestly reads "Organization-wide", and
  * categories with no backing data render an honest note row instead of
  * fabricated rows. Gaps tracked in docs/BUGS.md.

@@ -27,7 +27,7 @@ export function createEmailAlertConnector(config: EmailAlertConfig): SourceConne
         const payload = config.parse(message);
         if (!payload) continue; // unparseable messages are silently skipped, not fabricated
         envelopes.push({
-          sourceToolId: config.id,
+          sourceConnectorId: config.id,
           ...(message.id ? { sourceRecordId: message.id } : {}),
           tier: "email",
           query,

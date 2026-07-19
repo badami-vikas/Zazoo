@@ -37,7 +37,7 @@ export interface GoogleGatewayFactory {
 /**
  * Fail-closed factory used when Google OAuth is not configured. No fake data — any
  * attempt to reach Google errors clearly instead of silently serving fabricated
- * content. The rest of the API (pipeline, agents, rituals) still runs.
+ * content. The rest of the API (pipeline, Agents, Automations) still runs.
  */
 export class MissingGoogleGatewayFactory implements GoogleGatewayFactory {
   async forIntegration(_integrationId: string): Promise<GoogleGateway> {

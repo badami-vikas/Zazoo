@@ -16,7 +16,7 @@ interface HeaderProps {
 
 /**
  * The centered segmented toggle every non-Home/non-Settings page mounts directly under
- * ToolPageHeader (ported from the prototype's Header.tsx — same shape, no `motion` dependency:
+ * PageHeader (ported from the prototype's Header.tsx — same shape, no `motion` dependency:
  * apps/web doesn't have the `motion` package, so the active-tab underline is a plain CSS
  * transition instead of a shared layoutId animation).
  *

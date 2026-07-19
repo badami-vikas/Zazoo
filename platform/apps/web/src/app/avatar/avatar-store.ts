@@ -171,7 +171,7 @@ let currentStatus: AvatarStatus = "idle";
 const listeners = new Set<(status: AvatarStatus) => void>();
 
 /** Exported setter — future kernel events (tRPC subscriptions, Tauri
- * `sensor.capture`, ritual/agent run completion) call this directly. No
+ * `sensor.capture`, Automation/Agent Run completion) call this directly. No
  * polling: purely event-driven per the spec's technical contract. */
 export function setAvatarStatus(status: AvatarStatus): void {
   currentStatus = status;

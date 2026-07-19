@@ -418,7 +418,7 @@ test("public Helpdesk create/read/reply paths use the tight sensitive rate bucke
 });
 
 test("governed Automation Runs use the tight sensitive rate bucket", () => {
-  assert.equal(rateLimitBucket("/trpc/ritual.runById"), "sensitive");
+  assert.equal(rateLimitBucket("/trpc/automation.runById"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/commons.runInstalledSkill"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/dealpilot.discoverDeals"), "sensitive");
   assert.equal(rateLimitBucket("/trpc/health"), "global");

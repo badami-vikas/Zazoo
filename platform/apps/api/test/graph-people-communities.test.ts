@@ -2238,7 +2238,7 @@ test("approved capture materialization is durable, replayable, and emits one Loc
         byteSize: 3,
         caption: "Whiteboard notes",
         status: "pending",
-        provenance: { tool: "camera", version: "1" },
+        provenance: { skill: "camera.capture", version: "1" },
         capturedAt: "2026-07-18T16:00:00.000Z",
       },
       new Uint8Array([1, 2, 3]),

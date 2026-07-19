@@ -39,7 +39,7 @@ many manifests — this is the "package carries MULTIPLE capability manifests" r
 package:
   name: dealpilot                 # kebab-case, unique across the package registry
   version: 1.2.0                  # strict semver (MAJOR.MINOR.PATCH) — see §3, no ranges
-  kind: workspace_definition       # one of: skill | workflow | agent | tool | view | integration_bundle | workspace_definition
+  kind: workspace_definition       # one of: skill | automation | agent | module | view | integration_bundle | workspace_definition
   summary: >-
     Sourced and evaluated small-business acquisition deals, scored against a
     configurable investment thesis.
@@ -62,7 +62,7 @@ package:
         - { resource_type: company, action: read, data_scope: all, egress: false }
       connectors: []
     - id: dealpilot.deal-dedupe
-      capability_type: workflow
+      capability_type: automation
       permissions:
         - { resource_type: deal, action: write, data_scope: all, egress: false }
       connectors:
@@ -203,7 +203,7 @@ versioning:
     open"). This doc's install flow is the enforcement logic for packages;
     single-capability lineage enforcement remains the separately-tracked gap.
   in_flight_runs: >-
-    A ritual/agent run already executing against version N of a package
+    An Automation/Agent Run already executing against version N of a package
     finishes on N (version marker / step memoization, per the Hatchet/
     Inngest convergence in research-agent-skill-workflow-practices-2026.md
     §4) even if N gets demoted to `legacy` mid-run. New runs after promotion
@@ -228,7 +228,7 @@ dealpilot_package:
       permissions: [{ resource_type: deal, action: write, data_scope: all, egress: false }]
       expected_risk: transformational   # ordinary workspace-data write, no egress, no governed resource
     - id: dealpilot.sourcing-waterfall
-      capability_type: workflow
+      capability_type: automation
       permissions:
         - { resource_type: company, action: read, data_scope: public, egress: false }
         - { resource_type: external_fetch, action: read, data_scope: public, egress: true }

@@ -208,12 +208,12 @@ export async function apiApproveProposal(proposalId: string): Promise<{ sent: bo
   return { sent: Boolean(r?.effects?.sent) };
 }
 
-// ── Agent + Ritual authoring (layered, gated permissions) ──────────────────────
+// ── Agent + Automation authoring (layered, gated permissions) ─────────────────
 // All default OFF (no VITE_API_URL → null), so the create/edit pages fall back to local
 // state and stay demoable. When the API is up, these route through the governed pipeline,
-// which is the only writer of agent authority + ritual definitions.
+// which is the only writer of Agent authority and Automation definitions.
 //
-// agent-floor (external:send DENY, action:approve DENY) and the ritual ⊆ agent scope
+// Agent floor (external:send DENY, action:approve DENY) and Automation-within-Agent scope
 // constraint are re-enforced server-side regardless of what the UI sends.
 
 export type AgentDataScope = 'all' | 'public' | 'private';
@@ -236,18 +236,18 @@ export interface AgentRecord {
   egressTier: AgentEgressTier;
 }
 
-export interface RitualStepInput {
+export interface AutomationStepInput {
   skill: string;
   action: string;
   resourceType: string;
   dataScope: AgentDataScope;
 }
 
-export interface RitualRecord {
-  ritualId: string;
+export interface AutomationRecord {
+  automationId: string;
   name: string;
-  agentIds: string[];
-  steps: RitualStepInput[];
+  agentId: string;
+  steps: AutomationStepInput[];
 }
 
 /** Create an agent with its layered authority. null when API disabled (caller keeps local state). */
@@ -265,14 +265,14 @@ export async function apiUpdateAgent(
   return mutate<AgentRecord>('agent.update', { agentId, ...input });
 }
 
-/** Create a ritual bound to its agents. Server re-checks ritual scope ⊆ agent scope. */
-export async function apiCreateRitual(input: {
+/** Create an Automation bound to its owning Agent. */
+export async function apiCreateAutomation(input: {
   name: string;
-  agentIds: string[];
-  steps: RitualStepInput[];
-}): Promise<RitualRecord | null> {
+  agentId: string;
+  steps: AutomationStepInput[];
+}): Promise<AutomationRecord | null> {
   if (!API_ENABLED) return null;
-  return mutate<RitualRecord>('ritual.create', { workspaceId: PILOT_WORKSPACE, ...input });
+  return mutate<AutomationRecord>('automation.create', { workspaceId: PILOT_WORKSPACE, ...input });
 }
 
 // ── DealPilot (the first tool on the generic manifest intake seam) ─────────────

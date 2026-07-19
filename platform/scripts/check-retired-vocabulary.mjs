@@ -12,6 +12,8 @@ const SOURCE_EXTENSIONS = new Set([...TYPESCRIPT_EXTENSIONS, ".rs", ".sql"]);
 const COMPATIBILITY_ADAPTERS = new Set([
   "apps/api/src/avatar-profile-v1-compat.ts",
   "apps/web/src/app/avatar/avatar-v1-compat.ts",
+  "packages/core/src/capability/mcp-adapter.ts",
+  "packages/db/src/media-vocab2-compat.ts",
 ]);
 
 const FAMILIES = {

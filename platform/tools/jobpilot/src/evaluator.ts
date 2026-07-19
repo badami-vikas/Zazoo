@@ -18,7 +18,7 @@ export interface ChangeLogEntry {
 // analog) — pure Python `scorers.py`-shaped logic ported here as pure TS. Runs BEFORE any LLM
 // judge stage (not built here, see scoring.ts's comment for why). A single blocking issue is
 // enough to reject; the writer/evaluator retry loop (max 3 iterations per architecture doc S4.2)
-// is a ritual concern, out of scope for this anchor.
+// is an Automation concern, out of scope for this anchor.
 export function evaluateTailoredMaterials(masterResumeText: string, changeLog: ChangeLogEntry[]): EvalVerdict {
   const blockingIssues: string[] = [];
   const master = masterResumeText.toLowerCase();

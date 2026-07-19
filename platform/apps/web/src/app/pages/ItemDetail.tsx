@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, type ReactNode, type ElementType } from 'react';
 import {
   ChevronRight, ChevronDown, Link as LinkIcon, Building2, MapPin, FileText, Image as ImageIcon,
-  FileSpreadsheet, Users, Edit2, Download, RefreshCw, Share2, MoreHorizontal, Eye, Lock, Globe2,
+  FileSpreadsheet, Users, Edit2, Download, Share2, MoreHorizontal, Eye, Lock, Globe2,
   Mail, Phone, Globe, Github, Linkedin, Instagram, Twitter, Plus, X as XIcon, Quote,
-  Network as NetworkIcon, Target, Repeat, Wrench, Clock, ShieldCheck, Check, Play, CircleSlash, Info,
+  Network as NetworkIcon, Target, Repeat, ShieldCheck, Check, CircleSlash, Info,
   type LucideIcon,
 } from 'lucide-react';
 import { Link, useParams } from 'react-router';
@@ -98,7 +98,7 @@ function StatusTag({ label, tone }: { label: string; tone: string }) {
   return <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${tone} 14%, transparent)`, color: tone }}>{label}</span>;
 }
 
-// Generic small table — so an entity's rituals / initiatives / connections render as columns, not cards.
+// Generic small table — so an entity's Automations / initiatives / connections render as columns, not cards.
 function MiniTable({ columns, rows }: { columns: string[]; rows: ReactNode[][] }) {
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
@@ -154,25 +154,6 @@ function ListSection({ rows }: { rows: { title: string; meta: string; tag?: stri
         <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl border bg-white hover:border-[var(--color-steel)] transition-colors" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex-1"><div className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{r.title}</div><div className="text-xs" style={{ color: 'var(--color-warm-gray)' }}>{r.meta}</div></div>
           {r.tag && <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-navy-mid)' }}>{r.tag}</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ToolsActionable() {
-  const tools = [
-    { name: 'Draft reconnect message', desc: 'Generate a warm, specific outreach for this relationship.', icon: Mail },
-    { name: 'Schedule a touchpoint', desc: 'Find a slot and propose a calendar hold (pending approval).', icon: Clock },
-    { name: 'Enrich from public sources', desc: 'Refresh canonical facts — role, company, recent news.', icon: RefreshCw },
-  ];
-  return (
-    <div className="grid sm:grid-cols-2 gap-3">
-      {tools.map(t => (
-        <div key={t.name} className="p-4 rounded-xl border bg-white flex flex-col gap-3" style={{ borderColor: 'var(--color-border)' }}>
-          <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-surface)' }}><t.icon className="w-4 h-4" style={{ color: 'var(--color-steel)' }} /></div><span className="text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>{t.name}</span></div>
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-navy-mid)' }}>{t.desc}</p>
-          <button className="mt-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white active:scale-95" style={{ backgroundColor: 'var(--color-steel)' }}><Play className="w-3.5 h-3.5" /> Run</button>
         </div>
       ))}
     </div>
@@ -284,8 +265,7 @@ export function ItemDetail() {
     { id: 'opinions', label: 'Opinions', tier: 'public' },
     { id: 'associations', label: 'Associations', tier: 'public' },
     { id: 'initiatives', label: 'Initiatives', tier: 'private' },
-    { id: 'rituals', label: 'Workflows', tier: 'private' },
-    { id: 'tools', label: 'Tools', tier: 'private' },
+    { id: 'automations', label: 'Automations', tier: 'private' },
     { id: 'timeline', label: 'Timeline', tier: 'private' },
     { id: 'files', label: 'Files & Media', tier: 'private' },
     { id: 'boundaries', label: 'Boundaries', tier: 'private' },
@@ -521,16 +501,15 @@ export function ItemDetail() {
                   />
                 )
               )}
-              {s.id === 'rituals' && (
+              {s.id === 'automations' && (
                 <MiniTable
-                  columns={['Workflow', 'Trigger', 'Last run', 'Status']}
+                  columns={['Automation', 'Trigger', 'Last run', 'Status']}
                   rows={[
                     ['Monthly check-in', 'First Monday each month', '12 days ago', <StatusTag label="On" tone="var(--success)" />],
                     ['Dormant reconnect', 'Trust high · warmth cooling', 'On signal', <StatusTag label="Paused" tone="var(--warning)" />],
                   ]}
                 />
               )}
-              {s.id === 'tools' && <ToolsActionable />}
               {s.id === 'timeline' && (
                 <div className="flex flex-col gap-3">
                   {person?.connectedOn && (

@@ -35,7 +35,7 @@ async function assertConnectorBehavior(
   assert.equal(envelopes.length, dummyRows.length);
   for (let i = 0; i < envelopes.length; i++) {
     const envelope = envelopes[i];
-    assert.equal(envelope.sourceToolId, expectedId);
+    assert.equal(envelope.sourceConnectorId, expectedId);
     assert.equal(envelope.tier, "free");
     assert.deepEqual(envelope.query, query);
     assert.deepEqual(envelope.payload, dummyRows[i]);

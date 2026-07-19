@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Brain, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database, X, Save } from 'lucide-react';
+import { ChevronRight, Edit2, Trash2, Plus, Zap, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Activity, Copy, Bot, Sparkles, Link2, Play, Pause, MoreHorizontal, ArrowRight, Calendar, BookOpen, Cpu, Database, X, Save } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,9 +11,9 @@ import { apiUpdateAgent } from '../data/api';
 const agentDetails: Record<string, any> = {
   'helpdesk-ai': {
     name: 'Helpdesk AI', specialization: 'Support strategist', model: 'ModelProvider (local default)', status: 'Active',
-    desc: 'Helpdesk AI is the routing brain of the Helpdesk Tool. For every request it asks one question — “how could this person realistically help?” — matching needs to capabilities across the relationship graph (capability, not topic), and proposing concrete ways to contribute (intro, feedback, resources, hiring, funding, expertise). It proposes; humans decide. Every offer is drafted for review, never auto-sent.',
+    desc: 'Helpdesk AI is the routing Engine of the Helpdesk Module. For every request it asks one question — “how could this person realistically help?” — matching needs to capabilities across the relationship graph (capability, not topic), and proposing concrete ways to contribute (intro, feedback, resources, hiring, funding, expertise). It proposes; humans decide. Every offer is drafted for review, never auto-sent.',
     avatar: 'H', color: '#4D7EA8',
-    accuracy: 96, runs: 0, rituals: 0, lastActive: 'Live',
+    accuracy: 96, runs: 0, automations: 0, lastActive: 'Live',
     goal: 'Route each request to people who can meaningfully help, and propose actionable assistance — while keeping noise out of everyone else’s way.',
     memory: 'Per-recipient capability profile (role/company/expertise/communities) + offer history. Classification-gated; reads only what policy allows.',
     permissions: 'Deny-default. May READ the relationship graph and DRAFT help proposals (help:route, help:offer). May NOT send, contact, or commit without human approval (agent-floor).',
@@ -24,7 +24,7 @@ const agentDetails: Record<string, any> = {
       { id: 'SK-HD4', name: 'Offer Drafting', category: 'Communication', strength: 88, locked: false },
       { id: 'SK-HD5', name: 'Auto-Filter (noise control)', category: 'Analytics', strength: 91, locked: false },
     ],
-    connectedWorkflows: ['Helpdesk — AI-assisted routing', 'Helpdesk — Broadcast + auto-filter', 'Helpdesk — Offer → Approvals → Touchpoint'],
+    connectedAutomations: ['Helpdesk — AI-assisted routing', 'Helpdesk — Broadcast + auto-filter', 'Helpdesk — Offer → Approvals → Touchpoint'],
     activity: [
       { time: 'Live', event: 'Routes requests on capability, not topic', type: 'run' },
       { time: 'Live', event: 'Proposes assistance paths to candidate helpers', type: 'output' },
@@ -41,9 +41,9 @@ const defaultAgent = {
   name: 'Agent', specialization: 'Not yet configured', model: '—', status: 'Inactive',
   desc: 'This agent has not been created yet. Once the agent runtime is connected, its skills, activity, and run history will appear here.',
   avatar: '?', color: '#B8B4A8',
-  accuracy: 0, runs: 0, rituals: 0, lastActive: 'Never',
+  accuracy: 0, runs: 0, automations: 0, lastActive: 'Never',
   skills: [],
-  connectedWorkflows: [],
+  connectedAutomations: [],
   activity: [],
   analytics: { runs: [0, 0, 0, 0, 0, 0, 0], months: ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'] },
 };
@@ -66,7 +66,7 @@ function SkillSlider({ skill, onChange }: { skill: any; onChange: (id: string, v
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[var(--color-steel)]/8 flex items-center justify-center border border-[var(--color-steel)]/10 shrink-0">
-            <Brain className="w-4 h-4 text-[var(--color-steel)]" />
+            <Sparkles className="w-4 h-4 text-[var(--color-steel)]" />
           </div>
           <div>
             <div className="font-semibold text-[var(--color-navy)] text-sm">{skill.name}</div>
@@ -243,7 +243,7 @@ export function AgentDetail() {
                 <div className="flex gap-4 mt-3 text-sm text-[var(--color-navy-mid)] flex-wrap">
                   <span className="flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" /> {raw.model}</span>
                   <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Last active {raw.lastActive}</span>
-                  <span className="flex items-center gap-1.5"><Brain className="w-3.5 h-3.5" /> {skills.length} skills loaded</span>
+                  <span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> {skills.length} skills loaded</span>
                 </div>
               </div>
             </div>
@@ -253,8 +253,8 @@ export function AgentDetail() {
               {[
                 { label: 'Total Runs', value: raw.runs.toLocaleString(), icon: Activity, color: 'text-[var(--color-steel)]', bg: 'bg-[var(--color-steel)]/5' },
                 { label: 'Accuracy', value: `${raw.accuracy}%`, icon: TrendingUp, color: 'text-[var(--color-steel-light)]', bg: 'bg-[var(--color-steel-light)]/5' },
-                { label: 'Workflows', value: raw.rituals, icon: Zap, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
-                { label: 'Avg Skill Strength', value: `${avgStrength}`, icon: Brain, color: 'text-[var(--color-steel)]', bg: 'bg-[var(--info)]/10' },
+                { label: 'Automations', value: raw.automations, icon: Zap, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning)]/10' },
+                { label: 'Avg Skill Strength', value: `${avgStrength}`, icon: Sparkles, color: 'text-[var(--color-steel)]', bg: 'bg-[var(--info)]/10' },
               ].map(m => (
                 <div key={m.label} className="bg-white border border-[var(--color-border)] rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
                   <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center mb-3', m.bg)}>
@@ -277,7 +277,7 @@ export function AgentDetail() {
                   const pct = s.strength;
                   return (
                     <div key={s.id} className="flex items-center gap-2 bg-white border border-[var(--color-border)] rounded-lg px-3 py-1.5 shadow-sm hover:border-[var(--color-steel)]/30 transition-colors">
-                      <Brain className="w-3 h-3 text-[var(--color-steel)]" />
+                      <Sparkles className="w-3 h-3 text-[var(--color-steel)]" />
                       <span className="text-sm font-medium text-[var(--color-navy)]">{s.name}</span>
                       <span className="text-xs font-bold text-[var(--color-warm-gray)]">{pct}</span>
                     </div>
@@ -383,31 +383,30 @@ export function AgentDetail() {
           <section id="ag-connections" className="scroll-mt-24">
             <h2 className="text-xl font-bold text-[var(--color-navy)] mb-6 border-b border-[var(--color-border)] pb-4">Connections</h2>
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Rituals */}
+              {/* Automations */}
               <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
                 <div className="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50 flex items-center gap-2">
                   <Zap className="w-4 h-4 text-[var(--color-steel)]" />
-                  <span className="font-semibold text-[var(--color-navy)] text-sm">Workflows</span>
-                  <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{raw.connectedWorkflows.length}</span>
+                  <span className="font-semibold text-[var(--color-navy)] text-sm">Automations</span>
+                  <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{raw.connectedAutomations.length}</span>
                 </div>
                 <div className="divide-y divide-[var(--color-border)]">
-                  {raw.connectedWorkflows.map((wf: string) => (
-                    <Link key={wf} to={`/ritual/${encodeURIComponent(wf.split(' — ')[0])}`}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
+                  {raw.connectedAutomations.map((automationName: string) => (
+                    <div key={automationName}
+                      className="flex items-center gap-3 px-5 py-3">
                       <div className="w-7 h-7 rounded-md bg-[var(--color-steel)]/10 flex items-center justify-center"><Zap className="w-3.5 h-3.5 text-[var(--color-steel)]" /></div>
-                      <span className="text-sm font-medium text-[var(--color-navy)]">{wf}</span>
-                      <ArrowRight className="w-3.5 h-3.5 text-[var(--color-warm-gray)] ml-auto group-hover:text-[var(--color-steel)] transition-colors" />
-                    </Link>
+                      <span className="text-sm font-medium text-[var(--color-navy)]">{automationName}</span>
+                    </div>
                   ))}
-                  {raw.connectedWorkflows.length === 0 && (
-                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No workflows connected yet.</div>
+                  {raw.connectedAutomations.length === 0 && (
+                    <div className="px-5 py-8 text-center text-sm text-[var(--color-warm-gray)]">No Automations connected yet.</div>
                   )}
                 </div>
               </div>
               {/* Skills */}
               <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden shadow-sm">
                 <div className="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/50 flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-[var(--success)]" />
+                  <Sparkles className="w-4 h-4 text-[var(--success)]" />
                   <span className="font-semibold text-[var(--color-navy)] text-sm">Loaded Skills</span>
                   <span className="ml-auto text-xs text-[var(--color-warm-gray)]">{skills.length}</span>
                 </div>
@@ -415,7 +414,7 @@ export function AgentDetail() {
                   {skills.map((s: any) => (
                     <Link key={s.id} to={`/skill/${encodeURIComponent(s.id)}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--color-surface)] transition-colors group">
-                      <div className="w-7 h-7 rounded-md bg-[var(--success)]/10 flex items-center justify-center"><Brain className="w-3.5 h-3.5 text-[var(--success)]" /></div>
+                      <div className="w-7 h-7 rounded-md bg-[var(--success)]/10 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-[var(--success)]" /></div>
                       <span className="text-sm font-medium text-[var(--color-navy)]">{s.name}</span>
                       <div className="ml-auto flex items-center gap-2">
                         <div className="w-12 h-1 bg-[var(--color-surface)] rounded-full overflow-hidden"><div className="h-full bg-[var(--color-steel)] rounded-full" style={{ width: `${s.strength}%` }} /></div>

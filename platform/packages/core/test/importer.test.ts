@@ -23,7 +23,7 @@ function test_fixture_input(overrides: Partial<ForeignCapabilityDescriptorInput>
   };
 }
 
-test("translateForeignCapability: pi-package extension -> tool with connector, requires sandbox", () => {
+test("translateForeignCapability: pi-package extension -> Skill with connector, requires sandbox", () => {
   const result = translateForeignCapability(
     test_fixture_input({
       source: "pi-package",
@@ -34,7 +34,7 @@ test("translateForeignCapability: pi-package extension -> tool with connector, r
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.import.translatedManifest.capabilityType, "tool");
+  assert.equal(result.import.translatedManifest.capabilityType, "skill");
   assert.equal(result.import.translatedManifest.origin, "community");
   assert.equal(result.import.translatedManifest.connectors.length, 1);
   assert.equal(result.import.translatedManifest.permissions[0]?.resourceType, "touchpoint");
@@ -83,7 +83,7 @@ test("translateForeignCapability: mcp-server without a sandboxPolicy is refused 
   assert.ok(result.error instanceof ForeignImportSandboxRequiredError);
 });
 
-test("translateForeignCapability: mcp-server WITH a sandboxPolicy -> tool, tools become connectors", () => {
+test("translateForeignCapability: mcp-server WITH a sandboxPolicy -> Integration with Action connectors", () => {
   const result = translateForeignCapability(
     test_fixture_input({
       source: "mcp-server",
@@ -93,14 +93,14 @@ test("translateForeignCapability: mcp-server WITH a sandboxPolicy -> tool, tools
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.import.translatedManifest.capabilityType, "tool");
+  assert.equal(result.import.translatedManifest.capabilityType, "integration");
   assert.deepEqual(
     result.import.translatedManifest.connectors.map((c) => c.id),
     ["search", "fetch"],
   );
 });
 
-test("translateForeignCapability: activepieces-piece -> skill, always requires sandbox", () => {
+test("translateForeignCapability: activepieces-piece -> Integration, always requires sandbox", () => {
   const withoutSandbox = translateForeignCapability(test_fixture_input({ source: "activepieces-piece" }));
   assert.equal(withoutSandbox.ok, false);
 
@@ -113,7 +113,7 @@ test("translateForeignCapability: activepieces-piece -> skill, always requires s
   );
   assert.equal(withSandbox.ok, true);
   if (!withSandbox.ok) return;
-  assert.equal(withSandbox.import.translatedManifest.capabilityType, "skill");
+  assert.equal(withSandbox.import.translatedManifest.capabilityType, "integration");
   assert.equal(withSandbox.import.translatedManifest.connectors.length, 2);
   assert.equal(withSandbox.import.translatedManifest.connectors[0]?.externalSend, true);
 });

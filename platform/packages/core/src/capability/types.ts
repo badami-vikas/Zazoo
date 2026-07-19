@@ -1,8 +1,7 @@
 /**
  * Capability Trust Model — shared types (docs/wiki/vision.md "Capability Trust
- * Model" + "Promotion defaults"). Generalizes @bridge/tool-kit's ToolManifest
- * (the tool-shaped special case) to every capability_type in
- * capability_manifests (skill/workflow/agent/tool/integration/view/dashboard).
+ * Model" + "Promotion defaults") for every capability_type in
+ * capability_manifests (skill/automation/agent/integration/view/dashboard).
  */
 
 /** Risk axis — COMPUTED from the manifest, never self-declared by the generator. */
@@ -14,7 +13,7 @@ export type CapabilityOrigin = "built_in" | "template" | "community" | "ai_gener
 /** Audience raises effective approval requirements (informational × shared ≠ auto). */
 export type Audience = "private" | "team" | "external_visible";
 
-export type CapabilityType = "skill" | "workflow" | "agent" | "tool" | "integration" | "view" | "dashboard";
+export type CapabilityType = "skill" | "automation" | "agent" | "integration" | "view" | "dashboard";
 
 /**
  * Component Registry discriminator (REG-1, undefined-elements §2). The
@@ -31,8 +30,6 @@ export type ComponentKind =
   | "agent"
   | "skill"
   | "automation"
-  | "workflow"
-  | "tool"
   | "prompt"
   | "eval_set"
   | "routing_rule"
@@ -50,7 +47,7 @@ export type CapabilityState =
   | "archived";
 
 /** A single permission the capability declares it needs — the input to risk
- * computation. Mirrors @bridge/tool-kit's `capability` manifest entry shape. */
+ * computation. */
 export interface CapabilityPermission {
   resourceType: string;
   action: "read" | "write" | "send";
@@ -60,7 +57,7 @@ export interface CapabilityPermission {
   egress: boolean;
 }
 
-/** A connector the capability composes (e.g. an integration/tool it calls). */
+/** A connector the capability composes (for example, an Integration it calls). */
 export interface CapabilityConnector {
   id: string;
   /** True when this connector can send/share externally. */

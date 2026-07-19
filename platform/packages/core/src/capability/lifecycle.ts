@@ -1,6 +1,6 @@
 /**
- * Capability lifecycle — the state machine every capability (skill/workflow/
- * agent/tool/integration/view/dashboard) moves through (docs/wiki/vision.md
+ * Capability lifecycle — the state machine every capability (skill/automation/
+ * agent/integration/view/dashboard) moves through (docs/wiki/vision.md
  * "Capability Trust Model" + "Promotion defaults"):
  *
  *   draft -> validated -> approved -> active -> trusted -> deprecated -> archived
@@ -25,13 +25,13 @@ import type { CapabilityEvidence, CapabilityState } from "./types.js";
 
 /** Promotion thresholds — shaped 1:1 for later `policy_params` rows (each top-
  * level key here is a candidate `param_key`). See docs/wiki/vision.md
- * "Promotion defaults" (raw §5 has the full table across workflow/skill/agent/
- * tool). This module only needs the `trusted` thresholds; the rest are kept
+ * "Promotion defaults" (raw §5 has the full table across Automation/Skill/Agent/
+ * Module). This module only needs the `trusted` thresholds; the rest are kept
  * here too so callers (P1 onboarding, policy seeding) have one place to read
  * every promotion default from, not several.
  */
 export const PROMOTION_DEFAULTS = {
-  workflow: {
+  automation: {
     draftMinReps: 5,
     draftWindowDays: 30,
     draftMinSimilarity: 0.8,
@@ -39,7 +39,7 @@ export const PROMOTION_DEFAULTS = {
     activateMaxCorrectionRate: 0.2,
   },
   skill: {
-    minWorkflows: 2,
+    minAutomations: 2,
     minContexts: 2,
     minSuccessRate: 0.85,
   },
@@ -48,7 +48,7 @@ export const PROMOTION_DEFAULTS = {
     minResponsibilityWeeks: 4,
     requiresOwner: true,
   },
-  tool: {
+  module: {
     minSuccessRate: 0.9,
     minRuns: 20,
     stableIoDays: 14,

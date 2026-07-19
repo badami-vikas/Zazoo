@@ -17,7 +17,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
-  Settings, Users, CreditCard, Bell, Shield, Key, Building2, Brain, BookOpen, HelpCircle,
+  Settings, Users, CreditCard, Bell, Shield, Key, Building2, Sparkles, BookOpen, HelpCircle,
   MessageCircle, Keyboard, Zap, ExternalLink, Plus,
 } from "lucide-react";
 import clsx from "clsx";
@@ -27,10 +27,10 @@ import { MODULE_ROUTES } from "../lib/moduleRoutes";
 
 const navItems = [
   { id: "organization", label: "Organization", icon: Building2 },
-  { id: "learning", label: "Learning", icon: Brain },
+  { id: "learning", label: "Learning", icon: Sparkles },
   { id: "team", label: "Team & Permissions", icon: Users },
   { id: "knowledge", label: "Sources", icon: BookOpen },
-  { id: "intelligence", label: "Capabilities", icon: Brain },
+  { id: "intelligence", label: "Capabilities", icon: Sparkles },
   { id: "governance", label: "Governance", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "billing", label: "Billing & Plan", icon: CreditCard },

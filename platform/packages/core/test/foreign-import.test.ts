@@ -10,7 +10,7 @@ function test_fixture_capability_manifest(
     id: "test_fixture_cap",
     name: "test_fixture_capability",
     version: "1.0.0",
-    capabilityType: "tool",
+    capabilityType: "skill",
     audience: "private",
     permissions: [],
     connectors: [],

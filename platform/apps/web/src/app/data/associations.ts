@@ -106,7 +106,7 @@ export function buildAssociations(centerName: string, isCommunity = false): Asso
       degrees: { one: one.slice(0, CAP), two: two.slice(0, CAP), three: three.slice(0, CAP) },
       counts: { one: one.length, two: two.length, three: three.length },
       communities: { home: [], related: [] },
-      initiatives: [{ id: 'ini_checkin', name: 'Monthly inner-ring check-in', rel: 'Local workflow' }],
+      initiatives: [{ id: 'ini_checkin', name: 'Monthly inner-ring check-in', rel: 'Local Automation' }],
     };
   }
 

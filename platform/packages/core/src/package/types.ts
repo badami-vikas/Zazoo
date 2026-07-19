@@ -17,7 +17,7 @@ import type { Plane } from "../types.js";
 /** package.yaml's `kind` — one level broader than CapabilityType (a package
  * can itself be shaped like a whole workspace_definition, not just one
  * capability_type). */
-export type PackageKind = "skill" | "workflow" | "agent" | "tool" | "view" | "integration_bundle" | "workspace_definition";
+export type PackageKind = "skill" | "automation" | "agent" | "module" | "view" | "integration_bundle" | "workspace_definition";
 
 /** An exact-pinned dependency on another package version — NEVER a range
  * (^, ~, >=). A dependency bump is a new package version proposal, reviewed
@@ -67,8 +67,8 @@ export interface ModuleAutomationBinding {
   agentId: string;
   trigger: string;
   procedure: string;
-  /** Persisted Ritual definition backing the governed Run action. */
-  ritualId?: string;
+  /** Persisted Automation definition backing the governed Agent Run. */
+  automationId?: string;
   /** Context route used when the Automation requires a specific Record input. */
   runRoute?: string;
 }

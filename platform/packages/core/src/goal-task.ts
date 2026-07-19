@@ -10,7 +10,7 @@
  * Agent's identity alone.
  *
  * Kept deliberately minimal and store-agnostic (an in-memory port here, same
- * pattern as `RitualRegistry`/`AgentQuery` in ports.ts) — a Drizzle-backed
+ * pattern as `AutomationRegistry`/`AgentQuery` in ports.ts) — a Drizzle-backed
  * store is a follow-up slice once this primitive has a settled shape, mirroring
  * how `WorkspaceDefinitionStore`/DealPilot's thesis store started in-memory in
  * `apps/api/wiring.ts` before any dedicated schema landed.

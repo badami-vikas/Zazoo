@@ -1,7 +1,7 @@
 /**
  * Intelligence — the capability surface.
  *
- * TASK-001 / VOCAB2 / VOCAB6 (2026-07-16): removed deprecated Tools, Workflows,
+ * TASK-001 / VOCAB2 / VOCAB6 (2026-07-16): removed deprecated Tools and
  * and standalone Skills sections. Retained sections:
  *   - Modules (packages.list registry)
  *   - Integrations (real providers + connected endpoints)
@@ -10,7 +10,7 @@
  *
  * Tools → each Module's own surface (reachable from left nav → Module Detail).
  * Skills → nested under Agents in Module Detail (§4b, not a standalone toggle).
- * Workflows → renamed Automations; appear under Module Detail (§4b).
+ * Automations appear under Module Detail (§4b).
  *
  * Packages tab uses "Modules" as display label (vocabulary rule R-017–R-020).
  */

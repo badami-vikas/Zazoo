@@ -56,8 +56,8 @@ async function seedDealPilotCaptures(
   for (let i = 0; i < count; i += 1) {
     await wiring.dealpilot.store.quarantineCapture(PILOT_WORKSPACE, sourceId, {
       captureId: `test_fixture_capture_${i}`,
-      toolId: "dealpilot",
-      sourceToolId: "test_fixture_connector",
+      moduleId: "dealpilot",
+      sourceConnectorId: "test_fixture_connector",
       sourceRecordId: `test_fixture_message_${i}`,
       tier: "email",
       query: {

@@ -1,7 +1,7 @@
 /**
  * @bridge/core — the platform spine. Zero runtime dependencies.
  *
- * Universal Action Pipeline · Authority resolver · Policy engine · RitualExecutor
+ * Universal Action Pipeline · Authority resolver · Policy engine · AutomationExecutor
  * seam · determinism primitives. In-memory adapters ship here; @bridge/db binds
  * the same ports to Drizzle/Supabase.
  */
@@ -16,12 +16,12 @@ export {
   egressTierTokens,
   isForbiddenAgentToken,
   scopePermits,
-  validateRitualWithinAgents,
+  validateAutomationWithinAgents,
   type EgressTier,
   type BuiltAgentCapability,
   type AgentScopeView,
-  type RitualStepView,
-  type RitualScopeViolation,
+  type AutomationStepView,
+  type AutomationScopeViolation,
 } from "./agent-scope.js";
 export {
   AGENT_FLOOR_PROTECTED_RESOURCES,
@@ -41,14 +41,13 @@ export {
   type PipelineDeps,
 } from "./pipeline.js";
 export {
-  InProcessRitualExecutor,
-  type RitualExecutor,
-  type RitualExecutorOpts,
-  type RitualStep,
-  type RitualRunRequest,
-  type RitualRunByIdRequest,
-  type RitualRunResult,
-} from "./ritual-executor.js";
+  InProcessAutomationExecutor,
+  type AutomationExecutor,
+  type AutomationExecutorOpts,
+  type AutomationStep,
+  type AutomationRunByIdRequest,
+  type AutomationRunResult,
+} from "./automation-executor.js";
 export * from "./memory/stores.js";
 export * from "./memory/memory-store.js";
 export * from "./skills.js";
@@ -114,22 +113,22 @@ export {
   type ForeignImportResult,
 } from "./capability/importer.js";
 
-// Builder toolbelt (execution-plan-2026-07.md Track F2) -- governed
+// Builder primitives (execution-plan-2026-07.md Track F2) -- governed
 // Read/Write/Edit/Bash-equivalent primitives + the SandboxProvider port
 // shell:execute must route through (ADR-027 sandbox doctrine).
 export {
-  classifyToolbeltRisk,
+  classifyBuilderPrimitiveRisk,
   checkGrantScope,
   checkCommandAllowed,
   runShellExecute,
-  type ToolbeltResourceToken,
-  type ToolbeltRiskClassification,
-  type ToolbeltGrant,
-  type ToolbeltDenialReason,
-  type ToolbeltScopeCheckResult,
-  type ToolbeltRequest,
-  type ToolbeltResult,
-} from "./capability/toolbelt.js";
+  type BuilderPrimitiveToken,
+  type BuilderPrimitiveRiskClassification,
+  type BuilderPrimitiveGrant,
+  type BuilderPrimitiveDenialReason,
+  type BuilderPrimitiveScopeCheckResult,
+  type BuilderPrimitiveRequest,
+  type BuilderPrimitiveResult,
+} from "./capability/builder-primitives.js";
 export {
   InProcessJsSandboxProvider,
   NotImplementedContainerSandboxProvider,
