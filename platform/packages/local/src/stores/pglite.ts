@@ -7,6 +7,9 @@
  * HERE, in a local Postgres, never in Supabase. A file path persists across
  * restarts; omit it for an ephemeral in-memory DB (still a real local plane).
  */
+import { mkdir, realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { withLock } from "@ster5/global-mutex";
 import { PGlite } from "@electric-sql/pglite";
 import type {
   BodyStore,
@@ -15,6 +18,8 @@ import type {
   LocalGraphStore,
   LocalPerson,
   LocalPlane,
+  LocalStateMutation,
+  LocalStateStore,
   OAuthTokenRecord,
   SecretStore,
   StoredBody,
@@ -58,7 +63,7 @@ CREATE TABLE IF NOT EXISTS local_entities (
   source_record_id text,
   created_at text NOT NULL
 );
-CREATE TABLE IF NOT EXISTS external_records (
+CREATE TABLE IF NOT EXISTS local_external_records (
   workspace_id text NOT NULL,
   source text NOT NULL,
   source_record_id text NOT NULL,
@@ -74,11 +79,119 @@ CREATE TABLE IF NOT EXISTS sync_state (
   updated_at text NOT NULL,
   PRIMARY KEY (integration_id, source)
 );
+CREATE TABLE IF NOT EXISTS local_state (
+  workspace_id text NOT NULL,
+  namespace text NOT NULL,
+  state jsonb NOT NULL,
+  revision bigint NOT NULL DEFAULT 1,
+  updated_at text NOT NULL,
+  PRIMARY KEY (workspace_id, namespace)
+);
 `;
 
+const LEGACY_EXTERNAL_RECORD_COLUMNS = new Map([
+  ["workspace_id", "text"],
+  ["source", "text"],
+  ["source_record_id", "text"],
+  ["entity_type", "text"],
+  ["entity_id", "text"],
+  ["created_at", "text"],
+]);
+
+type ExternalRecordTableShape =
+  | "missing"
+  | "legacy"
+  | "canonical"
+  | "unsupported";
+
+async function inspectExternalRecordTable(
+  db: PGlite,
+  tableName: string,
+): Promise<ExternalRecordTableShape> {
+  const result = await db.query<{ column_name: string; data_type: string }>(
+    `SELECT column_name, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName],
+  );
+  if (result.rows.length === 0) return "missing";
+  const columns = new Map(
+    result.rows.map((row) => [row.column_name, row.data_type]),
+  );
+  const isExactLegacyShape =
+    columns.size === LEGACY_EXTERNAL_RECORD_COLUMNS.size &&
+    [...LEGACY_EXTERNAL_RECORD_COLUMNS].every(
+      ([name, dataType]) => columns.get(name) === dataType,
+    );
+  if (isExactLegacyShape) return "legacy";
+  if (
+    tableName === "external_records" &&
+    columns.get("id") === "uuid" &&
+    columns.get("workspace_id") === "uuid" &&
+    columns.get("source") === "text" &&
+    columns.get("source_record_id") === "text" &&
+    columns.get("entity_type") === "text" &&
+    columns.get("entity_id") === "uuid" &&
+    columns.get("created_at") === "timestamp with time zone"
+  ) {
+    return "canonical";
+  }
+  return "unsupported";
+}
+
+async function migrateLegacyExternalRecords(db: PGlite): Promise<void> {
+  for (const tableName of [
+    "local_external_records_legacy",
+    "external_records",
+  ]) {
+    const shape = await inspectExternalRecordTable(db, tableName);
+    if (shape === "missing" || shape === "canonical") continue;
+    if (shape === "unsupported") {
+      throw new Error(
+        `${tableName} exists with an unsupported schema; refusing to migrate or drop it`,
+      );
+    }
+    await db.exec(`
+      INSERT INTO local_external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      SELECT workspace_id, source, source_record_id, entity_type, entity_id, created_at
+        FROM ${tableName}
+      ON CONFLICT (workspace_id, source, source_record_id) DO UPDATE SET
+        entity_type = EXCLUDED.entity_type,
+        entity_id = EXCLUDED.entity_id,
+        created_at = EXCLUDED.created_at
+    `);
+    const verification = await db.query<{ missing: string | number }>(`
+      SELECT count(*) AS missing
+        FROM ${tableName} legacy
+        LEFT JOIN local_external_records current
+          ON current.workspace_id = legacy.workspace_id
+         AND current.source = legacy.source
+         AND current.source_record_id = legacy.source_record_id
+       WHERE current.workspace_id IS NULL
+          OR current.entity_type IS DISTINCT FROM legacy.entity_type
+          OR current.entity_id IS DISTINCT FROM legacy.entity_id
+          OR current.created_at IS DISTINCT FROM legacy.created_at
+    `);
+    if (Number(verification.rows[0]?.missing ?? 0) !== 0) {
+      throw new Error(
+        `Legacy Local Plane external-record copy from ${tableName} did not verify`,
+      );
+    }
+    await db.exec(`DROP TABLE ${tableName}`);
+  }
+}
+
 class PgliteSecretStore implements SecretStore {
+  readonly #tails = new Map<string, Promise<void>>();
+
   constructor(private readonly db: PGlite) {}
+
   async putToken(rec: OAuthTokenRecord): Promise<void> {
+    await this.#exclusive(rec.integrationId, () => this.#putToken(rec));
+  }
+
+  async #putToken(rec: OAuthTokenRecord): Promise<void> {
     await this.db.query(
       `INSERT INTO oauth_tokens
          (integration_id, workspace_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
@@ -100,7 +213,14 @@ class PgliteSecretStore implements SecretStore {
       ],
     );
   }
+
   async getToken(integrationId: string): Promise<OAuthTokenRecord | null> {
+    return this.#exclusive(integrationId, () =>
+      this.#getToken(integrationId),
+    );
+  }
+
+  async #getToken(integrationId: string): Promise<OAuthTokenRecord | null> {
     const res = await this.db.query<{
       integration_id: string;
       workspace_id: string;
@@ -126,9 +246,196 @@ class PgliteSecretStore implements SecretStore {
       updatedAt: r.updated_at,
     };
   }
+
   async deleteToken(integrationId: string): Promise<void> {
-    await this.db.query(`DELETE FROM oauth_tokens WHERE integration_id = $1`, [integrationId]);
+    await this.#exclusive(integrationId, async () => {
+      await this.db.query(
+        `DELETE FROM oauth_tokens WHERE integration_id = $1`,
+        [integrationId],
+      );
+    });
   }
+
+  async compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean> {
+    return this.#exclusive(integrationId, () =>
+      this.#compareAndSwapToken(integrationId, expected, replacement),
+    );
+  }
+
+  async finalizeToken(
+    replacement: OAuthTokenRecord,
+    stillAuthorized: () => Promise<boolean>,
+  ): Promise<boolean> {
+    return this.#exclusive(replacement.integrationId, async () => {
+      if (!(await stillAuthorized())) return false;
+      const previous = await this.#getToken(replacement.integrationId);
+      const candidate: OAuthTokenRecord = {
+        ...replacement,
+        ...(replacement.refreshToken
+          ? {}
+          : previous?.refreshToken
+            ? { refreshToken: previous.refreshToken }
+            : {}),
+      };
+      if (
+        !(await this.#compareAndSwapToken(
+          replacement.integrationId,
+          previous,
+          candidate,
+        ))
+      ) {
+        throw new Error(
+          "OAuth token changed inside its exclusive finalization boundary",
+        );
+      }
+      try {
+        if (await stillAuthorized()) return true;
+      } catch (error) {
+        await this.#restoreFinalizedToken(candidate, previous);
+        throw error;
+      }
+      await this.#restoreFinalizedToken(candidate, previous);
+      return false;
+    });
+  }
+
+  async #restoreFinalizedToken(
+    candidate: OAuthTokenRecord,
+    previous: OAuthTokenRecord | null,
+  ): Promise<void> {
+    if (
+      !(await this.#compareAndSwapToken(
+        candidate.integrationId,
+        candidate,
+        previous,
+      ))
+    ) {
+      throw new Error(
+        "Could not restore the prior OAuth token inside its exclusive finalization boundary",
+      );
+    }
+  }
+
+  async #compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean> {
+    if (
+      (expected && expected.integrationId !== integrationId) ||
+      (replacement && replacement.integrationId !== integrationId)
+    ) {
+      throw new Error("OAuth token compare-and-swap records must match the Integration");
+    }
+    if (!expected) {
+      if (!replacement) {
+        return (await this.#getToken(integrationId)) === null;
+      }
+      const inserted = await this.db.query<{ integration_id: string }>(
+        `INSERT INTO oauth_tokens
+           (integration_id, workspace_id, provider, access_token, refresh_token, scope, token_type, expiry_date, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (integration_id) DO NOTHING
+         RETURNING integration_id`,
+        tokenValues(replacement),
+      );
+      return inserted.rows.length === 1;
+    }
+    const expectedValues = tokenValues(expected);
+    if (!replacement) {
+      const deleted = await this.db.query<{ integration_id: string }>(
+        `DELETE FROM oauth_tokens
+          WHERE integration_id = $1
+            AND workspace_id = $2
+            AND provider = $3
+            AND access_token = $4
+            AND refresh_token IS NOT DISTINCT FROM $5
+            AND scope = $6
+            AND token_type = $7
+            AND expiry_date IS NOT DISTINCT FROM $8
+            AND updated_at = $9
+        RETURNING integration_id`,
+        expectedValues,
+      );
+      return deleted.rows.length === 1;
+    }
+    const updated = await this.db.query<{ integration_id: string }>(
+      `UPDATE oauth_tokens
+          SET workspace_id = $2,
+              provider = $3,
+              access_token = $4,
+              refresh_token = $5,
+              scope = $6,
+              token_type = $7,
+              expiry_date = $8,
+              updated_at = $9
+        WHERE integration_id = $1
+          AND workspace_id = $10
+          AND provider = $11
+          AND access_token = $12
+          AND refresh_token IS NOT DISTINCT FROM $13
+          AND scope = $14
+          AND token_type = $15
+          AND expiry_date IS NOT DISTINCT FROM $16
+          AND updated_at = $17
+      RETURNING integration_id`,
+      [
+        ...tokenValues(replacement),
+        ...expectedValues.slice(1),
+      ],
+    );
+    return updated.rows.length === 1;
+  }
+
+  async #exclusive<T>(
+    integrationId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.#tails.get(integrationId) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(integrationId, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(integrationId) === tail) {
+        this.#tails.delete(integrationId);
+      }
+    }
+  }
+}
+
+function tokenValues(record: OAuthTokenRecord): [
+  string,
+  string,
+  string,
+  string,
+  string | null,
+  string,
+  string,
+  number | null,
+  string,
+] {
+  return [
+    record.integrationId,
+    record.workspaceId,
+    record.provider,
+    record.accessToken,
+    record.refreshToken ?? null,
+    record.scope,
+    record.tokenType,
+    record.expiryDate ?? null,
+    record.updatedAt,
+  ];
 }
 
 class PgliteBodyStore implements BodyStore {
@@ -278,7 +585,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async recordExternal(row: ExternalRecordRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      `INSERT INTO local_external_records (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (workspace_id, source, source_record_id) DO NOTHING`,
       [row.workspaceId, row.source, row.sourceRecordId, row.entityType, row.entityId, row.createdAt],
@@ -286,7 +593,7 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
   async hasExternal(workspaceId: string, source: string, sourceRecordId: string): Promise<boolean> {
     const res = await this.db.query(
-      `SELECT 1 FROM external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
+      `SELECT 1 FROM local_external_records WHERE workspace_id=$1 AND source=$2 AND source_record_id=$3`,
       [workspaceId, source, sourceRecordId],
     );
     return res.rows.length > 0;
@@ -308,19 +615,217 @@ class PgliteLocalGraphStore implements LocalGraphStore {
   }
 }
 
+class PgliteLocalStateStore implements LocalStateStore {
+  readonly #tails = new Map<string, Promise<void>>();
+
+  constructor(private readonly db: PGlite) {}
+
+  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
+    const result = await this.db.query<{ state: unknown }>(
+      `SELECT state FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
+      [workspaceId, namespace],
+    );
+    const state = result.rows[0]?.state;
+    return state === undefined ? null : structuredClone(state);
+  }
+
+  async update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T> {
+    const key = `${workspaceId}::${namespace}`;
+    return this.#exclusive(key, async () => {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const current = await this.db.query<{ state: unknown; revision: string | number }>(
+          `SELECT state, revision FROM local_state WHERE workspace_id=$1 AND namespace=$2`,
+          [workspaceId, namespace],
+        );
+        const row = current.rows[0];
+        const mutation = reduce(structuredClone(row?.state ?? initialState));
+        const updatedAt = new Date().toISOString();
+        if (!row) {
+          const inserted = await this.db.query<{ revision: string | number }>(
+            `INSERT INTO local_state (workspace_id, namespace, state, revision, updated_at)
+             VALUES ($1,$2,$3::jsonb,1,$4)
+             ON CONFLICT (workspace_id, namespace) DO NOTHING
+             RETURNING revision`,
+            [workspaceId, namespace, JSON.stringify(mutation.state), updatedAt],
+          );
+          if (inserted.rows.length > 0) return mutation.result;
+          continue;
+        }
+        const updated = await this.db.query<{ revision: string | number }>(
+          `UPDATE local_state
+           SET state=$3::jsonb, revision=revision + 1, updated_at=$4
+           WHERE workspace_id=$1 AND namespace=$2 AND revision=$5
+           RETURNING revision`,
+          [
+            workspaceId,
+            namespace,
+            JSON.stringify(mutation.state),
+            updatedAt,
+            row.revision,
+          ],
+        );
+        if (updated.rows.length > 0) return mutation.result;
+      }
+      throw new Error(
+        `Local state update for workspace "${workspaceId}" namespace "${namespace}" exceeded its contention retry limit`,
+      );
+    });
+  }
+
+  async #exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(key, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(key) === tail) this.#tails.delete(key);
+    }
+  }
+}
+
 export interface PgliteLocalPlaneConfig {
   /** Filesystem dir for persistence (e.g. "./.bridge-local"). Omit = in-memory. */
   dataDir?: string;
+  /** Existing client shared with another approved Local Plane adapter. */
+  client?: PGlite;
+}
+
+export interface PgliteDirectoryOwnership {
+  /** Canonical directory used for both the lock and PGlite. */
+  dataDir: string;
+  release(): Promise<void>;
+}
+
+export async function acquirePgliteDirectoryOwnership(
+  dataDir: string,
+): Promise<PgliteDirectoryOwnership> {
+  const absoluteDataDir = resolve(dataDir);
+  await mkdir(absoluteDataDir, { recursive: true });
+  const canonicalDataDir = await realpath(absoluteDataDir);
+  const ownerFile = `${canonicalDataDir}.bridge-owner`;
+  await mkdir(dirname(ownerFile), { recursive: true });
+  let acquiredResolve: (() => void) | undefined;
+  let acquiredReject: ((error: unknown) => void) | undefined;
+  const acquired = new Promise<void>((resolve, reject) => {
+    acquiredResolve = resolve;
+    acquiredReject = reject;
+  });
+  let releaseHold: (() => void) | undefined;
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  const lifetime = withLock(
+    {
+      fileToLock: ownerFile,
+      stale: 3_000,
+      retries: { retries: 3, minTimeout: 1_000, maxTimeout: 1_000, randomize: false },
+      onCompromised(error) {
+        throw new Error(`Exclusive Local Plane ownership for "${canonicalDataDir}" was compromised`, {
+          cause: error,
+        });
+      },
+    },
+    async () => {
+      acquiredResolve?.();
+      await hold;
+    },
+  );
+  void lifetime.catch((error: unknown) => acquiredReject?.(error));
+  try {
+    await acquired;
+  } catch (error) {
+    throw new Error(
+      `Refusing to open Local Plane directory "${canonicalDataDir}" while another process owns it`,
+      { cause: error },
+    );
+  }
+
+  let released = false;
+  return {
+    dataDir: canonicalDataDir,
+    async release() {
+      if (released) return;
+      released = true;
+      releaseHold?.();
+      await lifetime;
+    },
+  };
+}
+
+export interface PgliteLocalPlane extends LocalPlane {
+  readonly client: PGlite;
+}
+
+export async function closePgliteResources(
+  closeClient: (() => Promise<void>) | undefined,
+  releaseOwnership: (() => Promise<void>) | undefined,
+): Promise<void> {
+  await closeClient?.();
+  await releaseOwnership?.();
 }
 
 /** Assemble a pglite-backed LocalPlane (the real persisted local tier). */
-export async function createPgliteLocalPlane(config: PgliteLocalPlaneConfig = {}): Promise<LocalPlane> {
-  const db = config.dataDir ? new PGlite(config.dataDir) : new PGlite();
-  await db.exec(INIT_SQL);
+export async function createPgliteLocalPlane(
+  config: PgliteLocalPlaneConfig = {},
+): Promise<PgliteLocalPlane> {
+  if (config.dataDir && config.client) {
+    throw new Error("PGlite Local Plane accepts either dataDir or client, not both");
+  }
+  const ownership = config.dataDir
+    ? await acquirePgliteDirectoryOwnership(config.dataDir)
+    : undefined;
+  const ownsClient = config.client === undefined;
+  const db =
+    config.client ??
+    (ownership ? new PGlite(ownership.dataDir) : new PGlite());
+  try {
+    await db.exec(INIT_SQL);
+    await migrateLegacyExternalRecords(db);
+  } catch (error) {
+    const cleanupErrors: unknown[] = [];
+    try {
+      await closePgliteResources(
+        ownsClient ? () => db.close() : undefined,
+        ownership ? () => ownership.release() : undefined,
+      );
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        "PGlite Local Plane initialization and cleanup failed",
+      );
+    }
+    throw error;
+  }
+  let closePromise: Promise<void> | undefined;
   return {
+    client: db,
     secrets: new PgliteSecretStore(db),
     bodies: new PgliteBodyStore(db),
     graph: new PgliteLocalGraphStore(db),
-    close: () => db.close(),
+    state: new PgliteLocalStateStore(db),
+    close: () => {
+      closePromise ??= (async () => {
+        await closePgliteResources(
+          ownsClient ? () => db.close() : undefined,
+          ownership ? () => ownership.release() : undefined,
+        );
+      })();
+      return closePromise;
+    },
   };
 }

@@ -67,9 +67,9 @@ export function scanCommonsPackage(
     .filter(({ gate }) => !gate.satisfied);
 
   const checks: CommonsSecurityCheck[] = [
-    check("manifest-schema", "pass", "Package manifest passed the canonical parser."),
+    check("manifest-schema", "pass", "Capability manifest passed the canonical parser."),
     privacyPaths.length === 0
-      ? check("generalized-content", "pass", "No workspace, user, credential, or personal-data indicators found.")
+      ? check("generalized-content", "pass", "No Organization, user, credential, or personal-data indicators found.")
       : check("generalized-content", "fail", `Private-data paths: ${privacyPaths.join(", ")}`),
     /^https:\/\//.test(provenance.sourceRepository)
       ? check("source-repository", "pass", `Pinned source uses HTTPS: ${provenance.sourceRepository}`)
@@ -78,27 +78,27 @@ export function scanCommonsPackage(
       ? check("inspected-commit", "pass", `Inspected commit ${provenance.inspectedCommit}.`)
       : check("inspected-commit", "fail", "Inspected commit must be a full 40-character Git SHA."),
     provenance.repositoryLicense === "NOASSERTION"
-      ? check("repository-license", "warning", "Repository has no declared license; artifact terms remain independently explicit.")
+      ? check("repository-license", "warning", "Repository has no declared license; capability terms remain independently explicit.")
       : check("repository-license", "pass", `Repository license: ${provenance.repositoryLicense}.`),
     provenance.licenseVerified && provenance.artifactLicense !== "NOASSERTION"
-      ? check("artifact-license", "pass", `Artifact license verified: ${provenance.artifactLicense}.`)
-      : check("artifact-license", "fail", "Artifact license must be explicit and verified."),
+      ? check("artifact-license", "pass", `Capability license verified: ${provenance.artifactLicense}.`)
+      : check("artifact-license", "fail", "Capability license must be explicit and verified."),
     closure.unresolved.length > 0
-      ? check("dependency-pins", "fail", `Unresolved exact package dependencies: ${closure.unresolved.join(", ")}.`)
+      ? check("dependency-pins", "fail", `Unresolved exact capability dependencies: ${closure.unresolved.join(", ")}.`)
       : check(
           "dependency-pins",
           "pass",
           closure.pins.length === 0
-            ? "No package dependencies."
+            ? "No capability dependencies."
             : `${closure.pins.length} exact content-hash dependency pin(s) resolved and verified.`,
         ),
     unpinnedBlueprintCapabilities.length > 0
       ? check(
           "blueprint-capability-pins",
           "fail",
-          `Workspace Blueprint capability references lack exact signed package pins: ${unpinnedBlueprintCapabilities.join(", ")}.`,
+          `Organization Blueprint references lack exact signed capability pins: ${unpinnedBlueprintCapabilities.join(", ")}.`,
         )
-      : check("blueprint-capability-pins", "pass", "No unpinned Workspace Blueprint capability references."),
+      : check("blueprint-capability-pins", "pass", "No unpinned Organization Blueprint capability references."),
     sandboxFailures.length > 0
       ? check(
           "execution-policy",
@@ -106,7 +106,7 @@ export function scanCommonsPackage(
           `Sandbox floor failed for: ${sandboxFailures.map(({ capability }) => capability.id).join(", ")}.`,
         )
       : risk.trifectaEscalated
-        ? check("execution-policy", "fail", "Package capability union forms the lethal trifecta.")
+        ? check("execution-policy", "fail", "Capability union forms the lethal trifecta.")
         : check("execution-policy", "pass", "Executable isolation and lethal-trifecta union checks passed."),
   ];
 

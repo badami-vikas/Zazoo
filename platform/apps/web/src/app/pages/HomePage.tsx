@@ -61,7 +61,7 @@ export function HomePage() {
             {greeting}. Here's what matters in the next hour.
           </h1>
           <p style={{ color: 'var(--color-warm-gray)', maxWidth: 640 }}>
-            Adaptive blocks generated from your real signals — relationships, initiatives, and communities. Ask
+            Adaptive blocks generated from your real Signals, People, and Communities. Ask
             Bridge AI on the right to re-steer what's shown here.
           </p>
         </div>

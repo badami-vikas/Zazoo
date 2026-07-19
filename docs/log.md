@@ -1,5 +1,37 @@
 # Change Log
 
+- **2026-07-19** — **TASK-010 live certification and closure (AP-046)**: authenticated persistent
+  Local Plane testing exposed one same-surface omission: JobPilot's default table rendered Role,
+  Company, and Stage without the shared Red Flag control. All three now use one batched
+  `RedFlagProvider` and real application Record anchors. Desktop focus/hover and 375×812 coarse
+  pointer/touch flows flagged cells and bullets, recorded scoped reasons, cleared reversibly, and
+  surfaced audit history in Settings > Learning with no green/yellow feedback semantics. Web
+  tests/typecheck, changed-file lint, and no-dummy-runtime passed; TASK-010 is `done`.
+
+- **2026-07-19** — **TASK-008 historical worktree reconciliation landed**: merged the historical
+  RM4 worktree through current `main` at `3741a41` after confirming source heads `ff98c20` and
+  `905aee9` were already ancestors. Preserved the canonical `done` prototype closure from
+  `f78e47c`, marked the competing candidate B superseded, refreshed `docs/Progress from Manish/`,
+  and regenerated Task Manager data. The task parser passed 4/4 and a fresh independent
+  documentation review found no material issue; no RM4 code or migration was re-merged.
+
+- **2026-07-19** — **TASK-008 canonical closure (AP-030)**: reconciled the canonical ledger with
+  the implementation already landed through `bab32ea`. The exact installed Relationship →
+  Signals/People/Communities → Signal → Person/Community participants → source Event → governed
+  Action prototype is complete, with no global Knowledge surface. Migration
+  `0015_task008_relation_contract`, durable bounded Relation/materialization contracts,
+  desktop + 375px evidence, 910 affected tests, typecheck/build, migration no-drift, and final
+  correctness/security reviews support `TASK-008` status `done`. TASK-014/TASK-009 retain the
+  separate cross-Module Graph renderer; advanced RM6/evaluation work remains future plan scope.
+
+- **2026-07-19** — **TASK-015 planning session reconciled with `main`, no code delta**: the "Plan runtime taint" worktree (`manishsbhoopalam8498-bookish-umbrella`) had zero unique commits versus `origin/main` (correct for a planning-only session under AP-029) and was fast-forwarded to current `main` head `5091dae`. `docs/TASKS.md` TASK-015's Evidence line was enriched with the concrete RT0–RT4 gap audit (PI-1/PI-2/PI-3 already partially cover this — TrustOrigin tag, tainted-egress gate, ContentGuard quarantine exist; no taint field on Events/Signals/Files/SkillOutput/RitualStep, no lattice/join, no sink-coverage gate, `sourcing/types.ts` duplicates `TrustOrigin` by hand, and post-TASK-007 `ChildAgentRun.taint` is still the legacy 3-value type). `docs/Progress from Manish/subagent-progress.md`'s TASK-015 row updated to match. TASK-015 remains correctly blocked: TASK-007 landed since this plan was drafted, but TASK-012 (vocabulary migration) has not, and `ResourceType` still uses pre-pivot vocabulary confirming the gate.
+
+- **2026-07-19** — **TASK-006 validated main integration authorized (AP-045)**: user approved
+  fast-forwarding the fully validated durability/vault branch into `main`; it landed at `7f44186`.
+  Integration preserves TASK-006 as `in_progress`, keeps live Google/BizBuySell and verified
+  OS/application Human re-authentication as honest external blockers, retains TASK-010 migration
+  `0016`, and adds no TASK-006 numbered migration.
+
 - **2026-07-19** — **TASK-008 validated main integration authorized (AP-043)**: user approved merging the independently reviewed Relationship branch after its normal `origin/main` reconciliation and 910-test affected gate. Integration preserves TASK-008 as `in_progress`, adds no Relationship migration, and leaves TASK-010's `0016` unchanged.
 
 - **2026-07-18** — **TASK-008 Relationship central-review hardening (AP-042, ADR-116)**: closed 16 named authority, residency, durability, concurrency, query, and UI blockers. Browser authority is server-resolved and Local; private PII/Event detail stays owner-scoped; Google/capture staging and effects are owner-bound, durable, and replay-safe; capture approval creates one Event; Introduction/Memory transitions serialize; datetime and explicit-clear contracts converge; Community composition and snapshot-watermarked context pagination are complete. No Relationship migration was added; TASK-010's `0016` merged unchanged from `main`. Post-merge core 430, DB 154, Google 39, API 218, and web 69 tests pass (910 total) with monorepo typecheck/build, changed-file lint, no-dummy, no migration delta, diff integrity, and final independent correctness/security reviews. TASK-008 remains `in_progress`.
@@ -1612,6 +1644,11 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - 2026-07-17 — TASK-004 second merge review closed migration compatibility edges. `0011` now deduplicates only exact legacy package-install retries, repoints lineage, and aborts on conflicting identities. `0013` assigns explicit Local Plane only to same-workspace singular, fully valid, non-egress legacy Automations; external, malformed, cross-workspace, and ambiguous rows remain unbound until Human rebind, with no runtime fallback to deprecated owner arrays. Added real pglite and store regressions; ADR-102 and Commons wiki/output updated.
 - 2026-07-17 — TASK-004 blast-radius follow-up made package-install retry convergence content-safe: matching attachment identity now returns an existing row only when canonical manifest, computed risk, lineage, and full content-hash attachment match; changed immutable content throws instead of masquerading as success.
 - 2026-07-17 — TASK-007 completed and integrated under AP-032. Added workspace-scoped persistent Goal/Task/SkillManifest contracts; active assigned-Agent Skill resolution with authority/Plane/data-scope fail-closed gates; five durable foundational Agent identities; governed Learning/Outreach/capture/Helpdesk/DealPilot/Google Skills; server-only bounded child Agent Runs with atomic budget/lifecycle state and attributable audit; authenticated membership-before-provisioning APIs; and Automation Goal/Task bindings. Resequenced orchestration DDL to post-release migration `0014`, preserving fresh and already-migrated upgrades with composite tenant constraints/checks/FORCE-RLS. Core 421, DB 106, API 161, Google 35, web 43 tests plus monorepo typecheck/build, changed-file lint, migration no-drift, no-dummy, and final independent review passed. ADR-104; durable outcome: `outputs/2026-07-16-task007-agent-skill-child-run-orchestration.md`.
+
+# 2026-07-19 — TASK-008 historical worktree reconciliation
+- Fetched `origin/main` at `7f44186` and confirmed RM4 source `ff98c20` plus Relationship continuation `905aee9` are already ancestors of `main`; the historical RM4 worktree fast-forwarded cleanly, so no code conflict or duplicate merge remained.
+- Corrected `docs/Progress from Manish/` to mark the validated continuation merged, candidate B superseded, and the next new migration as `0017`. During reconciliation, concurrent canonical closure `f78e47c` marked TASK-008 `done` for its exact prototype; advanced Automations/RM6/evaluation and the cross-Module Graph renderer remain future scope.
+- Durable reconciliation evidence appended to `outputs/2026-07-16-task-008-relationship-module-consolidation.md`.
 - 2026-07-17 — TASK-006 DealPilot DP0-DP1 integrated on main but remains `in_progress`. Delivered Deals/Sources/Theses Records and details, symmetric/backfilled Relations, manifest-owned Egress-Agent discovery, rights/spend/membership gates, cursor-safe bounded/resumable Gmail alerts with original-checkpoint/token-history carry-forward, failed-token reset, and post-persistence acknowledgment, attempted-message spend accounting, governed capture materialization, real password re-authentication, CSPRNG credential sessions, stale-route guards, and complete UI pagination. DealPilot 72, Google 35, focused API 8, web 49, core 421, and DB 107 tests plus builds/typechecks, changed-file lint, no-dummy, and final review regressions passed. Durable Local Plane Records/vault, live provider/re-auth, and physical desktop/375px evidence remain blockers. ADR-109; durable outcome: `outputs/2026-07-16-task-006-dealpilot-core-prototype.md`.
 
 # 2026-07-16 — Task Manager Module: plan + BRD + roadmap addition (TASK-021)
@@ -1712,12 +1749,82 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - TASK-003 remains `blocked`. Recovery gates passed: desktop Rust 31/31, Clippy warnings denied, cargo check, web 49/49, dependency/web build, web typecheck, targeted Avatar ESLint, and runtime no-dummy.
 - Durable outcome: `outputs/2026-07-18-task-003-avatar-certification.md`.
 
+# 2026-07-18 — TASK-006 DealPilot durable Local Plane and explicit OS vault
+
+- Replaced process-local DealPilot Records, Relations, captures, candidate profiles, Gmail
+  continuation/checkpoint/receipt state, settlements, spend, dedupe, and credential audit with one
+  atomic Organization-scoped Local Plane aggregate.
+- Added shared-client PGlite state, canonical-path cross-process ownership, restart recovery,
+  idempotent materialization/backfill, startup cleanup, and desktop parent-loss/shutdown handling.
+- Added pre-Drizzle legacy adapter-table detection plus verified, resumable import into the
+  adapter-owned namespace, avoiding a numbered migration.
+- Added maintained MIT `@napi-rs/keyring` behind the Source credential-vault port with unique
+  per-write accounts, opaque Organization/Source-bound references, masked projections, and
+  fail-closed runtime configuration.
+- Added opaque crash-recovery journals for keyring create/revoke; values never enter Bridge
+  database, files, logs, audit, or the journal.
+- Added restart, concurrency, compensation, ownership, recovery, and credential non-disclosure
+  coverage. No numbered migration was added; RM4 `0015` and TASK-010 sequencing remain untouched.
+- Post-RM4 reconciliation retained its durable decision/effect ledger by binding file-backed
+  in-memory-mode ledgers to the same `localDir`; added password-AMR-only re-authentication,
+  single-current-session replacement, credential log redaction, bounded capture pagination, safe
+  clipboard clearing, and removal of sampled provider payloads from discovery output.
+- Added owner-scoped explicit credential revoke: secure-vault deletion, durable Source-projection
+  clearing across restart, value-free audit, re-auth session consumption, and honest unavailable UI.
+- Independent security review found the durable desktop sidecar trusted loopback. Fixed with a
+  per-launch 256-bit capability, constant-time API verification, closed Tauri-origin CORS,
+  file-backed-persistence auth posture, header redaction, and a hard separation from Human re-auth.
+- Follow-up review found predictable Google OAuth state could substitute an attacker's account.
+  Connect now issues a hashed-at-rest 256-bit state after authenticated membership; callback
+  atomically consumes the ten-minute state and Local Plane PKCE verifier before denial handling or
+  verifier-bound code exchange.
+- Final review pass found privileged-webview OAuth navigation could expose the launch capability.
+  Release webviews now reject external top-level navigation, token injection is trusted-origin and
+  main-only, and validated Google consent opens in the system browser.
+- Final central review then found packaged desktop Google calls bypassed injected sidecar transport,
+  the launcher set ignored `HOST` instead of `API_HOST`, and OAuth completion trusted stale
+  membership (including revocation during provider exchange). Shared transport headers, enforced
+  loopback, authenticated cross-platform shutdown, and pre/post-exchange membership checks close
+  those paths. Focused correctness/security re-review: no findings.
+- Later review hardening made all token operations per-Integration serialized, kept exchanged tokens
+  provisional until membership finalization with exact rollback, and made refresh persistence
+  ordered CAS. Rust now binds and retains the random loopback listener while Node inherits the same
+  descriptor; child death cannot donate the port. Active requests drain under an independent hard
+  deadline, and unsupported non-Unix release activation fails closed.
+- Live release validation found two lifecycle gaps: missing Tauri data-URL support prevented the
+  tokenless bootstrap, and uniform webview destruction aborted on a macOS `AvatarPanel`. The feature
+  is explicit, the bootstrap handle is retained and hidden before destruction, and sidecar-loss
+  cleanup uses panel-safe conversion. Simulated child death left the shell alive, displayed the
+  unavailable state, and kept the port unrebindable.
+- Final read-only security review found no vulnerabilities. Correctness review raised only releasing
+  ownership after a failed client close; the explicit retention regression remains because the
+  embedded client may still be live and admitting a second opener risks corruption.
+- Final post-merge verification: API 239, DealPilot 90, Local Plane 8, DB 155, Core 430, Sourcing 7,
+  Company Sourcing 4, Google 39, Web 70, and desktop Rust 44 tests; monorepo 37-task typecheck and
+  20-task build, changed-file lint, Clippy, no-runtime-dummy, and diff checks passed.
+- Normally merged `origin/main` `bab32ea` after preserving the implementation. Relationship
+  continuity and its landed `0016` migration remain intact; TASK-006 adds no migration delta.
+  Canon collisions were reconciled as AP-044 and ADR-117–ADR-120, and hardened PKCE/token
+  finalization was retained through the OAuth conflict.
+- Live host evidence: macOS keyring write/read/delete/missing; native DealPilot route plus final
+  release-sidecar readiness/failure recovery; Chrome `/dealpilot/sources` at 375x812 with no
+  horizontal overflow.
+- TASK-006 remains `in_progress` for live Google/BizBuySell and verified OS/application re-auth.
+  Signing and physical-mobile certification remain unclaimed. Durable outcome:
+  `outputs/2026-07-18-task-006-dealpilot-local-durability.md`.
 - 2026-07-18 — TASK-010 round-7 independent review: verdict merge-ready, 2 non-blocking findings (both fixed same day). (1) `docs/BUGS.md`'s round-6 `loadLedger()` entry ended with a dangling "see the NEW entry below for that" cross-reference to an RLS-tracking entry that was never actually added — corrected to point at the round-7 migration/output doc directly. (2) The new `memories` RLS policy had no dedicated two-member/restricted-role test (all round-7 coverage ran under the default pglite connection, bypassing RLS) — added `packages/db/test/rls.test.ts`'s "RLS: memories isolate private/team/restricted owners..." test using the file's existing `bridge_rls_member` role pattern; proves public/workspace/team/private/restricted visibility AND that UPDATE/DELETE (not just SELECT) are owner-narrowed under a real restricted Postgres role. Re-verified: DB 144/144 (+1), full db typecheck/build clean, lint clean.
 
 # 2026-07-18 — TASK-003 human certification complete (AP-041)
 - The user confirmed the exact remaining human matrix passes: physical cross-display pointer drag with quit/relaunch restoration, physical VoiceOver activation of close/minimize/fullscreen, and physical external-display detach/reconnect.
 - Marked TASK-003 `done` and resolved both Avatar mobility/native-control bug rows. TASK-005 remains `blocked` only on its separate combined desktop+375px Onboarding→Avatar→Module→Commons→Agent/Automation→Approvals demo.
 - PR #18 merge-gate review exposed and recorded an unrelated `origin/main` baseline defect under TASK-013: the legacy prototype CI imports two PII-derived modules that clean checkouts intentionally omit. The closure changes no prototype files; the other seven CI jobs pass.
+# 2026-07-18 — TASK-005 combined demo certification complete (AP-047)
+- Completed fresh uninterrupted desktop `1440×913` and exact mobile `375×812` Onboarding→Owl Avatar→Relationship Module→signed Commons install→Learning Agent Run→provenance→correction/veto sequences on the final post-fix code with viewport-contained page/drawer geometry, no failed resources, runtime errors, retired visible vocabulary, fabricated runtime data, or dummy runtime data.
+- Installed and executed `cited-role-model-practice@1.0.1` only through Relationship's allowed Learning Agent. The signed Skill declares private Signal read/write and no egress; it restages an owner-visible Human-approved local cited Signal without refetching the private role-model choice. Approvals and the append-only Action Pipeline retained package/hash/Module/Agent provenance after correction, displayed the corrected monthly cadence, and proved a second veto emitted no downstream Event.
+- Hardened the trust boundary: exact stored/current signed Skill plus exact current Relationship Module contract, Module installation/version/manifest-hash provenance, migrated current/legacy private-owner isolation including linked rows, immutable correction provenance, and generation-tagged/fsynced Organization Files intents serialized and recovered under DB row locks across conflict, commit, crash, stale-cleanup, case-only, symlink, and legacy-bootstrap paths. Real-Module-only Settings inventory remains enforced. ADR-121/ADR-122 record the decisions.
+- The responsive passes exposed a stale Settings → Capabilities route and then a deeper visual-only mobile defect: desktop Settings/Approvals layouts hid controls even while body width stayed `375`. Installed Module rows now open Module Detail; Settings uses a mobile section selector; Approvals stacks queue/detail; provenance wraps in its drawer. Fresh desktop/mobile reruns used the repaired controls without a 404 or off-screen action.
+- Built the release Tauri bundle and launched Bridge main, Companion, and Annotate windows with a healthy managed API sidecar on the currently connected display; TASK-003 retains the separate three-display mobility/topology proof. Final gates passed: API 251, DB 159, web 81, desktop Rust 44, typecheck 37/37 tasks, build 20/20 tasks, no-runtime-dummy, native release bundle, and all 36 non-Sensor test tasks forced uncached. The existing TASK-017 Sensor coverage debt remains 7/7 tests passing at 36.97% against the 38% aggregate floor.
+- Marked TASK-005 `done`. Durable outcome: `outputs/2026-07-18-task-005-demo-certification.md`.
 
 - 2026-07-18 — `docs/Progress from Manish/` updated to reflect TASK-010's round-7 merge into `main` at `e532b15`: `subagent-progress.md`'s TASK-010 row changed Paused→Merged with the final head/verification summary; `merge-history.md` gained landed-history rows for `d75d26f` (TASK-003 cert) and `e532b15` (TASK-010 `0016_new_ink`), the migration sequence marked `0016_new_ink` LANDED (next new migration is `0017`), and the central-baseline note updated; `paused-worktrees.md`'s TASK-010 section replaced with a short MERGED pointer (no longer a resumable dirty-worktree state); `README.md`'s critical resume constraints and state-at-handoff sections updated to point at the current `origin/main` head instead of the stale `631aa9f` baseline.
 
@@ -1725,4 +1832,12 @@ Propagated the f87dd61 primitive ontology (docs/wiki/ontology.md + 4 raw compani
 - Reframed the user-supplied mixed UX/animation/copy/illustration brief as an implementation-ready film storyboard under `outputs/2026-07-19-zazoo-website-storyboard/`.
 - Added one global build contract plus ten section files, each with fixed Goal, Layout, Animation (mandatory), Interaction, Copy (only text to display), Emotion, and Transition headings.
 - Recorded exact animation timing, loop and pause behavior, responsive/reduced-motion rules, character canon, proof gates for numeric claims, continuous scene transitions, and explicit exclusions prompted by the rejected five-page PDF.
-- Applied the user's dictionary correction: removed Origin entirely and replaced the ambition quote with the approved AI-companion/asymmetrical-capability definition. Added canonical TASK-024 for the actual public-site implementation under AP-044.
+- Applied the user's dictionary correction: removed Origin entirely and replaced the ambition quote with the approved AI-companion/asymmetrical-capability definition. Added canonical TASK-024 for the actual public-site implementation under AP-048 (renumbered during integration after concurrent AP-044 through AP-047 landed).
+
+- 2026-07-19 — TASK-005 final integration normally merged `origin/main@5ca30ca`, preserving TASK-010's JobPilot closure and migration `0016` before TASK-005 migration `0017`. The current code repeated the authenticated desktop Commons/Learning path through corrected provenance and veto/no-Event, rebuilt and launched the release native windows/managed sidecar, and retained the exact authenticated 375×812 certification because the incoming product delta touched only JobPilot. A migration-harness defect revealed by `0017` was fixed by bounding test folders through explicit journal indices; DB 159/159 and all 36 forced uncached non-Sensor tasks pass. TASK-005's colliding approval was renumbered atomically from AP-046 to AP-047; ADR-121/ADR-122 are unchanged. Next migration is `0018`.
+
+- 2026-07-19 — TASK-005 final independent review found and closed three landing blockers. `cited-role-model-practice@1.0.1` now declares private Signal read/write and performs no runtime egress, consuming only an owner-visible Human-approved local onboarding recommendation; registry/hash/signature drift removes the visible Run binding and returns an actionable issue; distinct dual Organization Files roots preserve the fsynced recovery intent and stop instead of discarding evidence. API Commons/workspace regressions, web typecheck, and Module Detail regressions pass; ADR-121/ADR-122 and AP-047 record the refined exact contract.
+
+- 2026-07-19 — TASK-005 final-code recertification completed from wholly fresh state after the review remediations: one uninterrupted authenticated desktop `1440×913` run (`task005-final10-desktop-*`) and one uninterrupted authenticated exact mobile `375×812` run (`task005-final11-mobile-*`) each completed Onboarding→Owl→Relationship→signed `cited-role-model-practice@1.0.1`→Learning Agent→monthly correction→immutable provenance→off-strategy veto/no Event→preference deletion. Every checkpoint retained exact viewport width and zero failed resources, runtime errors, retired visible vocabulary, or dummy markers. The release Tauri bundle rebuilt; Bridge main, Companion, Annotate, and the authenticated managed sidecar launched. Forced gates passed: API 251, DB 159, web 81, Rust 44, typecheck 37/37, build 20/20, non-Sensor tests 36/36, lint, no-runtime-dummy, and diff integrity. Final independent review reported no blockers.
+
+- 2026-07-19 — Refreshed all four `docs/Progress from Manish/` handoff files for TASK-005 checkpoint `166a01b`: marked the certification worktree merged/done and non-resumable, recorded AP-047/ADR-121/ADR-122, added landed migration `0017_task005_private_learning_recommendations`, advanced the next new migration to `0018`, and preserved TASK-010's AP-046/`0016` ownership.

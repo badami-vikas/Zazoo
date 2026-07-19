@@ -18,6 +18,234 @@ Status: OPEN | IN PROGRESS | RESOLVED. Newest first.
 
 ---
 
+## RESOLVED 2026-07-19 — TASK-005 signed Skill performed undeclared external research
+Final branch review found that `cited-role-model-practice@1.0.0` declared one private Signal write and
+no egress, but its runtime reread private onboarding answers and sent the role-model name to Wikipedia.
+Version `1.0.1` now declares one private Signal read plus one private Signal write and still has no
+egress. The bounded onboarding research action owns the only external fetch; after Human approval, the
+installed Skill reads that owner-visible immutable local Signal and restages it through the Learning
+Agent without a network call. Tests count fetches and prove installed execution adds none. Attached to
+TASK-005 because manifest truth and local/private residency are part of its trusted invocation gate.
+
+## RESOLVED 2026-07-19 — TASK-005 registry drift left a stale visible Run binding
+Execution freshly revalidated the signed Commons artifact, but `packages.list` projected a Run button
+from only the stored installation and owning Module. Registry deletion, hash/signature drift, or trust
+failure could therefore leave an enabled control that only failed after click. Listing now performs
+the current registry/hash/signature and exact-contract checks too; drift removes `runtimeSkillIds` and
+returns an explicit binding issue rendered beside the unavailable Skill. Direct execution still fails
+closed with its precise reason. Attached to TASK-005.
+
+## RESOLVED 2026-07-19 — TASK-005 ambiguous Files roots erased recovery evidence
+Organization rename recovery deleted its durable intent whenever both old and new roots existed, even
+when they were different directories. A recreated old root after a crash could therefore make the DB
+select new empty Files while orphaning original data under the other name. Recovery now clears only
+when both names identify the same filesystem entry (the case-only path); distinct dual roots preserve
+the intent and fail closed until one conflict is explicitly resolved. The regression proves both trees
+and the intent survive, then recovery succeeds after the conflicting root is removed. Attached to
+TASK-005.
+
+## RESOLVED 2026-07-19 — TASK-005 migration test advanced past the migration under test
+Adding TASK-005 migration `0017` exposed that TASK-010's `0016` upgrade fixture removed only `0016`
+from a copy of the real migration tree. The resulting "pre-0016" database applied newer `0017`,
+advanced Drizzle's migration high-water mark, and then skipped `0016`, failing two upgrade assertions.
+The fixture now truncates SQL, snapshots, and journal entries through an explicit migration index;
+its pre-state ends at `0015` and its upgrade folder ends at `0016`, regardless of future migrations.
+Both migration regressions and all 36 forced uncached non-Sensor test tasks pass. Attached to TASK-005
+because its new migration revealed and directly triggered the merge-boundary failure.
+
+## RESOLVED 2026-07-19 — TASK-010 JobPilot table cells lacked Red Flag controls
+Live certification found that the default JobPilot table rendered persisted Role, Company, and Stage
+values as plain text even though TASK-010 requires every eligible data cell to expose the shared,
+reversible Red Flag correction path. Only generated `TableView` cells and JobPilot card bullets were
+wired. The default table now uses one batched `RedFlagProvider`, with all three cells anchored to the
+real persisted application Record. Desktop focus/hover and 375px coarse-pointer touch flows flagged,
+explained, cleared, and surfaced audit evidence without green/yellow feedback semantics. Attached to
+TASK-010.
+
+- **RESOLVED (2026-07-18): latest-main reconciliation could truncate an unrecognized legacy Local Plane table during compatibility migration.** Evidence: independent TASK-005 merge-boundary review reproduced `external_records` with an extra payload column being copied without that column and then dropped. Resolution: both DB bootstrap and Local Plane import now require the exact six-column legacy schema, distinguish the current canonical table, fail closed on any unsupported shape, preserve the source table, and cover the extra-column case with file-backed regressions. Attached canonical task: `TASK-005`.
+
+- **RESOLVED (2026-07-18): fresh mobile reload emitted a React `console.error` because the shared Radix `DialogOverlay` wrapper did not forward its ref.** Evidence: TASK-005's post-merge `375×812` certification monitor caught `Function components cannot be given refs` on initial render. Resolution: `DialogOverlay` now uses `React.forwardRef`, retains its display name, and has a source regression. Attached canonical task: `TASK-005`.
+
+## RESOLVED 2026-07-18 — TASK-005 mobile Settings and Approvals hid governed controls off-screen
+The exact 375px body-width probe stayed at `375`, but visual review showed two nested desktop layouts
+still clipping the real path. Settings kept a fixed 224px section rail beside its content, reducing
+Capabilities and Governance to an unusable sliver. Approvals kept a fixed 380px queue beside a hidden
+detail pane; scripted DOM clicks could reach controls that a Human could not. Attached to TASK-005
+because its 375px prototype must be physically actionable, not merely present in the DOM. FIX:
+Settings uses a full-width mobile section selector, Approvals stacks queue and detail in one vertical
+flow, action rows wrap, the ledger table owns its bounded horizontal scroll, and trace IDs/provenance
+wrap inside the drawer. Source regressions enforce the responsive contracts. Fresh exact `375×812`
+correction/veto and Settings/Governance runs kept body/document width at `375`, drawer scroll width
+equal to client width, all controls visible, and browser diagnostics empty.
+
+## RESOLVED 2026-07-18 — TASK-005 installed Skill execution tolerated signed/runtime contract drift
+The installed-Skill Run proved package identity, hash, Module need, and Agent attachment, but its
+runtime predicate accepted a broader contract than the signed capability declared. A stored or
+fresh Commons manifest could drift in audience, permission, version, connector, dependency,
+execution, or context-provider fields while retaining the recognized Skill ID; a newly available
+package named `relationship` could also inherit the Agent binding without matching the built-in
+Module version and manifest. Attached to TASK-005
+because trusted installation does not authorize different runtime behavior. FIX: runtime binding and
+execution now require the stored installation and freshly fetched signed entry to match the one
+supported private built-in Skill contract exactly, including one private Signal read, one private
+Signal write, no egress, and no connectors, dependencies, execution, context providers, Module, or
+Blueprint. Tampering
+removes the binding and blocks the Run; the current signed envelope hash remains revalidated rather
+than hardcoded. Listing performs the same registry/trust check and surfaces drift instead of leaving a
+stale Run control. The owning Module must also be the exact current built-in Relationship manifest and
+version. Every Run records that Module installation ID, version, and manifest hash with the Commons
+package/hash/Agent provenance; a replacement version removes the binding and cannot run.
+
+## RESOLVED 2026-07-18 — TASK-005 private recommendation proposals were visible across members
+The Commons recommendation correctly targeted a private Signal, but ledger projection isolated only
+private Relations. Another member of the same Organization could therefore list, inspect, decide, or
+history-read a private recommendation owned by someone else. Attached to TASK-005 because the exact
+installed Skill writes private, user-associated data. FIX: both in-memory and persistent ledger
+stores prune every private proposal by `requestedBy`, and API resolution/decision/history paths
+enforce the same owner boundary. Migration `0017` marks pre-scope Learning recommendations and all
+linked resolution/blocked-attempt rows private and carries their owner forward; runtime semantic
+guards retain the boundary before or without migration. New blocked-attempt rows inherit private
+scope and owner directly. Adversarial two-member tests prove the second member cannot list, inspect,
+decide, or read current or legacy recommendation history.
+
+## RESOLVED 2026-07-18 — TASK-005 Settings classified attached Skills and pending packages as Modules
+Settings → Capabilities treated every package inventory row as an installed Module, including a
+Commons Skill attached beneath an Agent and packages still awaiting activation. That contradicted
+the manifest-driven Module hierarchy and made the exact installed Skill look like a standalone
+Module. Attached to TASK-005 because the demo must prove the Skill stays beneath its consuming Agent.
+FIX: Settings lists only available, installed, unattached rows whose manifest declares a Module.
+Source and fresh desktop/exact-375px evidence show only DealPilot, JobPilot, Relationship, and Task
+Manager after the Skill is installed.
+
+## RESOLVED 2026-07-18 — TASK-005 mobile Capabilities link opened an unregistered route
+The final clean 375px certification opened Settings → Capabilities and followed its visible
+`Open Capabilities` Action. The stale link targeted `/intelligence`, which has no registered route
+after the canonical Module/Agent hierarchy replaced the global Intelligence surface, so React Router
+rendered its developer-facing 404 page. Attached to TASK-005 because the exact mobile prototype
+requires every interactive-looking control to work without a console-blocking defect. FIX: removed
+the orphan global Action and made each real installed Module row link to its manifest-driven Module
+Detail. A source regression rejects the retired route, and fresh uninterrupted 375×812 plus desktop
+runs followed the replacement Relationship link without a 404, overflow, failed resource, JavaScript
+error, rejection, or console error.
+
+## RESOLVED 2026-07-18 — TASK-005 exact-path UI exposed retired vocabulary
+The clean desktop certification's final visible-copy scan found `Workflow` in the Execution Ledger.
+The subsequent exact-path source audit found the same unfinished migration in the ledger's
+`Initiative` filter, Home's `initiatives` summary, onboarding's non-Relationship preview labels,
+Settings empty/link copy, the Organization switch tooltip, and a Commons error. These must render
+canonical Automation, Record/domain labels, Agent, Capability, and Organization terms while legacy
+route/schema identifiers remain tracked under VOCAB2. Attached to TASK-005 because its exact prototype
+exit test forbids deprecated vocabulary. FIX: canonicalized every identified exact-path surface and
+added source regressions for Home, Onboarding, shell, Settings, Commons, and the ledger. Fresh
+uninterrupted desktop and 375×812 scans found no visible Workspace, Workflow, Project, Initiative,
+Touchpoint, Ritual, Artifact, or Incident terms.
+
+## RESOLVED 2026-07-18 — TASK-005 onboarding discarded the chosen Organization name
+The exact clean desktop and 375px sequences answered “What should we call your Organization?” with
+`Product Leadership`, and the question promised that name would appear in the sidebar. Onboarding
+stored the answer only inside the learning profile: `buildBlueprintFromAnswers` intentionally has no
+Organization-name field, no workspace rename endpoint existed, and `Layout` fetched the seeded name
+only once on mount. The successful setup therefore continued to display `Pilot Organization`.
+Attached to TASK-005 because correcting and re-verifying the exact Onboarding path is part of the same
+prototype exit test. FIX: added trimmed, bounded, membership-gated Organization rename persistence; Onboarding renames
+before proposing or activating the Blueprint. The API preflights target/source/symlink state, publishes
+a generation-tagged and fsynced Local Plane intent, moves and syncs Files, then updates the database
+under `FOR UPDATE`. Any callback, update, commit, process, or host interruption leaves enough state for
+a second row-locked transaction or startup to reconcile Files to the actually committed DB name.
+Successful cleanup re-locks and removes only its own intent generation, so a stale completion cannot
+delete a newer rename. Existing targets fail before intent publication; case-only names retain exact
+DB/File entry casing. Symlinked Bridge, Organization, or Module roots fail closed. The store exposes
+no uncoordinated DB rename callback. Startup migrates `Pilot workspace` through the same conditional
+coordinator. DB/API regressions cover persistence, missing rows, member success, non-member denial,
+invalid dot names, source-missing target conflicts, legacy bootstrap, concurrent and case-only renames,
+stale generations, crash-before/after-commit recovery, ancestor symlinks, and Files migration. Fresh desktop
+and 375×812 runs displayed `Product Leadership` in the shell or Settings and in the isolated local
+Module File path.
+
+## RESOLVED 2026-07-18 — TASK-005 installed Commons Skills had no attributable Run path
+Module Detail rendered a signed Commons Skill beneath its owning Agent but exposed no Action that could
+invoke that exact installation. The existing Learning Agent recommendation carried Agent and Action
+Pipeline provenance, but no installed package identity, content hash, Module need, or owning-Agent
+attachment, so it could not satisfy TASK-005's installed-capability execution gate. FIX: a signed
+Commons package now attaches the existing governed Learning recommendation Skill to Relationship's
+Learning Agent; the package-gated Run verifies the signed root, content hash, active Module need,
+installation state, and runtime Agent binding before proposing. Approvals and the append-only
+Execution Ledger preserve the package/capability/attachment/Agent identity across edit or veto;
+server-side edits cannot replace Commons provenance, and corrected decisions display the applied
+output instead of the original draft. Desktop and exact-375px Runs showed attributable Agent,
+Action Pipeline, correction/veto, zero-overflow, and zero-runtime-error evidence. Attached to TASK-005.
+## IN PROGRESS 2026-07-18 — TASK-003 physical Avatar drag is inert
+User report (verbatim): “avatar dragging is not working.”
+The live `main` build exposed only a 10px `data-tauri-drag-region` handle above the Avatar,
+while the Avatar itself remained a click-only button. That fails TASK-003's physical
+“Drag the Avatar” acceptance path even if the narrow handle works. The Avatar surface now
+uses a movement threshold before invoking a server-owned native window drag, preserving
+ordinary click/keyboard activation. Physical retest is pending before this evidence closes.
+Attached to canonical TASK-003.
+
+## RESOLVED 2026-07-18 — release desktop bootstrap failed and sidecar loss aborted on macOS
+The asynchronous release lifecycle created tokenless bootstrap/unavailable pages with `data:` URLs
+but did not enable Tauri's `webview-data-url` feature, so a real release launch displayed neither
+page and never started the managed API. After that was fixed, the sidecar-loss path hid then
+destroyed every webview uniformly; destroying the macOS companion while it was still an
+`AvatarPanel` raised an Objective-C exception that Rust could not catch and aborted the shell.
+Tauri now retains the bootstrap handle until authenticated readiness, hides it before destruction,
+and routes companion retirement through the existing NSPanel-to-window conversion before close.
+A live release run reached authenticated sidecar readiness; simulated child death left the desktop
+alive, surfaced the Local Plane unavailable window, and kept the parent-held loopback port
+unrebindable. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — packaged desktop Google UI bypassed the managed sidecar transport
+`GoogleIntegrationPanel` used the legacy `data/api.ts` helper, which read only `VITE_API_URL` and
+sent neither the Supabase bearer nor `X-Bridge-Sidecar-Token`. A packaged desktop injects its random
+API URL and capability through Tauri globals, so Google status/connect/sync/send either appeared
+disabled or failed 401. The legacy helper now shares `lib/trpc.ts` URL resolution and authorization
+headers; desktop enablement and both injected values have web regressions. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — managed API sidecar set an ignored host variable
+The Rust launcher set `HOST=127.0.0.1`, but Fastify reads `API_HOST`. A sidecar inheriting
+`DATABASE_URL` or verifier configuration could therefore select the shared-deployment
+`0.0.0.0` default and expose its capability-protected listener to the LAN. The launcher now sets
+`API_HOST`, and the API independently forces loopback whenever `BRIDGE_SIDECAR_TOKEN` exists.
+Rust and API regressions cover the exact environment combination. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth completion trusted stale workspace membership
+OAuth state retained the initiating Human but the callback ignored it. A removed member could
+complete an unexpired flow and replace the Organization Google credential; a single pre-exchange
+check also left revocation-during-exchange open. Callback handling now validates the server-bound
+Integration and initiating membership before provider access, then rechecks membership at the
+Local Plane token-persistence boundary. Deterministic tests cover revocation before and during
+exchange, and prove no token is stored. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — durable desktop sidecar exposed the Local Plane over unauthenticated loopback
+The first durable Local Plane slice bound Fastify to loopback but treated only `DATABASE_URL` as
+persistent. A local webpage could scan the sidecar port, inherit permissive development CORS, and
+use the fallback pilot identity to read DealPilot private data or attempt governed mutations. The
+desktop now generates a 256-bit per-launch capability, passes it only through the child environment
+and Tauri initialization script, sends it in a redacted header, and configures a closed Tauri-origin
+allowlist. The API constant-time verifies the capability before every non-OAuth sidecar request,
+treats file-backed Local Plane state as persistent, and never lets the capability satisfy credential
+re-authentication. Missing, weak, or incorrect capabilities fail 401. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — Google OAuth callback accepted predictable state and allowed account substitution
+`google.connectUrl` used the predictable Integration ID as OAuth `state`, and the callback exchanged
+any supplied authorization code before proving that an authenticated Bridge user initiated the
+flow. An unauthenticated local process could bind its Google account into the victim's Local Plane.
+Connect now issues a 256-bit, ten-minute state through the authenticated procedure, stores only its
+SHA-256 hash plus Integration/Human binding in the atomic Local Plane, and the callback atomically
+consumes it before handling denial or exchanging a code. Missing, malformed, expired, replayed, and
+legacy predictable states fail closed without provider access. Attached to TASK-006.
+
+## RESOLVED 2026-07-18 — privileged Tauri webview could disclose its sidecar capability after OAuth navigation
+The desktop Google connect path replaced the privileged main webview with the external consent page,
+while Tauri initialization scripts run on every top-level navigation. That could expose the
+per-launch sidecar capability to an untrusted document. Release webviews now reject non-Tauri
+top-level navigation; only the main trusted-origin document receives an origin-guarded, immutable
+capability, while companion webviews receive none. Google consent opens through a strict
+`https://accounts.google.com/o/oauth2/` system-browser command, and the sidecar supplies its actual
+random-port callback URI. Rust and web regressions cover navigation, URL validation, token guarding,
+and absence of in-webview OAuth assignment. Attached to TASK-006.
+
 ## RESOLVED 2026-07-16 — TASK-001 Module File inventory accepted relative path segments
 The manifest-backed File inventory sanitized filesystem-reserved characters but allowed an
 Organization or Module display name equal to `.` or `..`. `path.join` therefore resolved outside
@@ -661,7 +889,7 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      `IntegrationFloorScopeError`). New concurrent-decide tests in `pipeline.test.ts` (in-memory)
      and `packages/db/test/ledger-store.test.ts` (real pglite) both prove exactly one of two
      "concurrent" decides succeeds. See `All fixes.md` Phase 1 item 4 for the full writeup.
-  4. **DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
+  4. **RESOLVED 2026-07-18 (TASK-006) — DealPilot `workspaceId` accepted but ignored + captures in-memory unconditionally.**
      **PARTIALLY RESOLVED 2026-07-05.** `dealpilot.list` now takes an optional `workspaceId` and
      REJECTS (403 FORBIDDEN, via `router.ts`'s `withPilotWorkspaceGuard` middleware) any value
      that isn't the pilot workspace, instead of silently ignoring it — closes the cross-tenant
@@ -676,11 +904,20 @@ XP-3 (Month-5) requires a mobile app rebased onto the shared kernel, but no mobi
      ever attempts to pass one — see `All fixes.md` Phase 3 item 11a and decisions-log
      2026-07-05 for the full reasoning. **Still open:** per-workspace data isolation in the
      backing stores themselves (Phase 5, full multi-tenancy, pilot-recruitment-driven).
-     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys now include
-     workspace identity, DealPilot procedures require authenticated membership in verifying or
-     persistent mode, and Record/capture writes no longer collide across workspaces. The store,
-     capture index, and Source credential vault are still process-local and startup says so;
-     durable Local Plane persistence/keychain adapters remain the explicit TASK-006 blocker.
+     **PARTIALLY HARDENED 2026-07-17 (TASK-006):** Deal/Source/Thesis and Relation keys gained
+     workspace identity and DealPilot procedures gained authenticated membership checks.
+     **RESOLVED 2026-07-18:** Records, Relations, captures, candidate profiles, Gmail
+     cursor/continuation/checkpoint/receipt state, spend settlement, and credential audit now use
+     atomic Organization-scoped Local Plane state. File-backed PGlite state survives reopen, shares
+     one client with Drizzle, and refuses a second process owner; retries and concurrent writes are
+     idempotent. Source secrets use an explicit OS-keyring adapter with scoped opaque references,
+     masked projections, Human/owner/membership/password-AMR gates, explicit audited revoke that
+     removes both the vault entry and durable Source projection, and no plaintext DB/file fallback.
+     Pending-capture reads are bounded, deterministically ordered, and optionally Source-scoped;
+     sampled provider payloads are absent from governed output and credential inputs are log-redacted.
+     A live macOS keychain write/read/delete/missing round-trip now proves the provider path; verified
+     OS/application re-auth and live Google remain TASK-006 external gates. The broader Phase-5
+     multi-tenant store audit remains separate from this process-local DealPilot defect.
   5. **`matchOne` non-deterministic tie-break feeding auto-merge.** `dedupe/src/match.ts:28`
      `if (score < best.score) continue` — equal scores overwrite, later target wins, array order
      decides which entity a `strong` match auto-merges into (violates
@@ -1116,6 +1353,7 @@ Settings → Learning now exposes “Re-enter onboarding.” The dialog returns 
 
 ## OPEN 2026-07-15 — @bridge/sensors coverage floor fails on a clean baseline
 Before this session changed code, `pnpm test` failed in `@bridge/sensors`: measured line coverage was 35.39% against the configured 39% floor. Lint/typecheck had reached this point successfully; the full build did not run because the chained baseline command stopped at tests. This is pre-existing coverage debt, not caused by the JobPilot/DealPilot/Commons work. Fix by adding meaningful sensor tests and raising measured coverage above the existing floor; do not lower the floor again.
+TASK-005 preflight reproduced the same known gate on 2026-07-18 after the floor had been recalibrated to 38%: all 7 Sensor tests passed, but imported Core growth reduced the aggregate to 36.97%. The full platform typecheck, build, no-dummy gate, and all 36 non-Sensor test tasks passed; only this already-attached TASK-017 coverage debt keeps unfiltered `pnpm test` red.
 
 ## RESOLVED 2026-07-17 — DealPilot discovery could omit Sources, Relations, alerts, and spend
 TASK-006 merge review found four coupled integrity gaps: Thesis discovery stopped at 200 Sources;
@@ -1153,6 +1391,45 @@ plugin/rule or removing the stale suppression after verifying the effect depende
 
 ## OPEN 2026-07-17 — `ViewConfig["kind"]` code says `network`, canonical glossary says `graph`
 `platform/packages/tables/src/types.ts:60` types the View kind as `"network"`; `docs/glossary.md`'s View definition names it `"graph"` (*"table, cards, board, calendar, map, graph, or form"*). Per the standing vocabulary rule (glossary wins, AP-020 lineage), the code identifier should rename to `graph`. Fix belongs to TASK-014.
+
+## RESOLVED 2026-07-18 — TASK-005 file-backed API startup collided on `external_records`
+TASK-005 preflight could not start the real API with a file-backed Local Plane because
+`buildWiring()` opened the private adapter and Drizzle relational store at the same root while both
+created incompatible `external_records` tables. The private adapter now owns
+`local_external_records`, recognizes and safely renames only its legacy table shape, and leaves the
+relational table untouched. An API wiring regression opens both stores at one real temporary root
+and exercises both record contracts.
+
+## RESOLVED 2026-07-18 — TASK-005 Signal onboarding choice produced an invalid blueprint
+The real desktop onboarding sequence reached `BlueprintCompileError: blueprint view references
+unknown entity "signal"` after selecting “Surface signals that need a response”: the generated View
+referenced `signal`, but `blueprint.entities` declared only the primary entity. The generator now
+declares a Signal entity whenever that View is requested. The same preflight exposed the visible
+deprecated “touchpoints” option; the unsupported legacy option and identifier were removed rather
+than relabeled. The same question also committed and advanced on the first badge click, making its
+visible Continue control and multi-select contract ineffective; selections now remain a draft until
+Continue commits them. Web regressions cover entity/View integrity, absence of the deprecated copy,
+and the explicit multi-select commit boundary.
+
+## RESOLVED 2026-07-18 — TASK-005 exact path exposed retired product vocabulary
+Desktop and 375px preflight found retired terms in user-visible onboarding status and completion copy,
+Avatar accessibility text, the seeded Organization name and local Files path, Commons provenance and
+security-scan details, and Settings navigation. Those surfaces now use canonical Organization, Avatar,
+capability, Sources, Capabilities, Agents, and Automations vocabulary. The pilot bootstrap migrates only
+the exact legacy placeholder name and preserves custom Organization names. Regressions cover rendered
+copy sources, signed Commons scan details, and both fresh and Files-aware legacy pilot identity
+bootstrap behavior.
+
+## RESOLVED 2026-07-18 — API restart-persistence regression was nested and not reliably awaited
+Affected-neighbour review found the file-backed ledger restart regression declared inside the Relation
+sequence-floor test without awaiting the nested test. The check is now an independent top-level test,
+so API validation reliably proves both restart persistence and Relation ordering instead of depending
+on parent-test timing.
+
+## RESOLVED 2026-07-18 — Fresh web loads requested a missing favicon
+Post-fix browser diagnostics found every fresh web load returned 404 for `/favicon.ico`. The web app
+now declares and ships a Bridge SVG favicon, eliminating the failed resource without adding a runtime
+dependency or placeholder data.
 
 ## RESOLVED 2026-07-18 — `apps/web/src/app/data/ledger.ts`'s `loadLedger()` reads the `ledger` table DIRECTLY via Supabase (RLS-only), bypassing tRPC's private-proposal filtering (TASK-010 round-5 item 2)
 Discovered while implementing TASK-010 round-5's DB-RLS remediation item. `loadLedger()` (`platform/apps/web/src/app/data/ledger.ts:241-284`) calls `supabase.from('ledger').select(LEDGER_COLS)` directly from the browser — the ONLY red-flag-adjacent read path in the web app that does NOT go through a tRPC procedure. `loadPendingApprovals()` (same file) already correctly uses `trpc.action.listPending.query`, which enforces round-4's private-proposal ownership filter (`isProposalVisibleTo` in `router.ts` — a proposal whose `inputs.visibility === "private"` is hidden from every workspace member except the one it was raised `onBehalfOf`). The direct-Supabase path in `loadLedger()` has NO equivalent filter: the `ledger` table's current RLS policy (migration 0008/0009 era) is workspace-wide SELECT for any authenticated member, with no visibility/owner predicate. **Bounded impact, not raw content**: round-4 already made a red-flag proposal's ledger `inputs` opaque (`{flagMemoryId, governed, applied, summary}` — never the raw anchor/renderedValue/reason), so this does NOT leak a correction's actual content. It DOES leak: the mere EXISTENCE of another member's private correction proposal (`on_behalf_of_type: "user"` reveals SOMEONE flagged something, though `LEDGER_COLS` does not select `on_behalf_of_id` and red-flag proposals carry no `inputs.display.onBehalfOf`, so the specific member's identity is NOT actually exposed through this path — corrected 2026-07-17 after independent review, this entry originally overstated the leak as including an identity), the opaque summary text, and the linked `flagMemoryId` (a UUID reference to the underlying private Memory) — a real but narrow information leak, not the critical raw-content leak round 2-4 already closed.

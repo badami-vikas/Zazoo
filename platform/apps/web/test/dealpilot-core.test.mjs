@@ -4,6 +4,9 @@ import test from "node:test";
 
 const pageSource = await readFile(new URL("../src/app/pages/DealPilotPage.tsx", import.meta.url), "utf8");
 const routeSource = await readFile(new URL("../src/app/routes.tsx", import.meta.url), "utf8");
+const trpcSource = await readFile(new URL("../src/app/lib/trpc.ts", import.meta.url), "utf8");
+const apiSource = await readFile(new URL("../src/app/data/api.ts", import.meta.url), "utf8");
+const googleSource = await readFile(new URL("../src/app/pages/GoogleIntegrationPanel.tsx", import.meta.url), "utf8");
 
 test("DealPilot exposes exactly the Deals, Sources, and Theses default Page routes", () => {
   assert.match(routeSource, /dealpilot\/:page/);
@@ -27,9 +30,19 @@ test("Source credentials require re-authentication and are never persisted by th
   assert.match(pageSource, /supabase\.auth\.signInWithPassword/);
   assert.match(pageSource, /reauthenticateCredential/);
   assert.match(pageSource, /accessCredential/);
+  assert.match(pageSource, /clearCredential/);
+  assert.match(pageSource, /Revoke credential/);
+  assert.match(pageSource, /credentialCleanupAvailable/);
   assert.match(pageSource, /navigator\.clipboard\.writeText/);
+  assert.match(pageSource, /navigator\.clipboard\s*\.readText/);
   assert.match(pageSource, /window\.setTimeout/);
+  assert.match(pageSource, /setReauthToken\(null\)/);
+  assert.match(pageSource, /setRevealed\(\{\}\)/);
   assert.doesNotMatch(pageSource, /sessionStorage|localStorage/);
+  assert.match(
+    trpcSource,
+    /x-bridge-sidecar-token.*__BRIDGE_SIDECAR_TOKEN__/s,
+  );
 });
 
 test("DealPilot surfaces governed Thesis and Source discovery", () => {
@@ -53,4 +66,19 @@ test("DealPilot loads every Record page rather than hiding rows after the first 
   assert.match(pageSource, /async function queryAllRecords/);
   assert.match(pageSource, /while \(current\.hasMore && current\.items\.length > 0\)/);
   assert.match(pageSource, /offset: items\.length/);
+});
+
+test("desktop Google OAuth opens in the system browser, not the privileged webview", () => {
+  assert.match(googleSource, /open_google_oauth/);
+  assert.match(googleSource, /window\.__BRIDGE_DESKTOP__/);
+  assert.match(googleSource, /addEventListener\('focus'/);
+  assert.match(googleSource, /apiIntegrationList\(\)/);
+  assert.doesNotMatch(googleSource, /window\.location\.href\s*=/);
+  assert.match(apiSource, /API_TRANSPORT_CONFIGURED/);
+  assert.match(apiSource, /await trpcAuthorizationHeaders\(\)/);
+  assert.match(trpcSource, /__BRIDGE_API_URL__/);
+  assert.match(trpcSource, /__BRIDGE_SIDECAR_TOKEN__/);
+  assert.match(trpcSource, /import\.meta\.env\.DEV \? "http:\/\/localhost:4000"/);
+  assert.doesNotMatch(trpcSource, /CONFIGURED_API_URL \|\| "http:\/\/localhost:4000"/);
+  assert.match(trpcSource, /Bridge API transport is not configured/);
 });

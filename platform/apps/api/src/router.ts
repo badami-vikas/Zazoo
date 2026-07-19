@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   IntegrationFloorScopeError,
+  UnknownWorkspaceError,
+  WorkspaceRenameRollbackError,
   type RelationMaterializationEffect,
 } from "@bridge/db";
 import type { ApiContext } from "./context.js";
@@ -82,6 +84,7 @@ import {
   resolveGates,
   classifyApprovalBand,
   canGovernanceAutoApprove,
+  isOwnerScopedLedgerEntry,
   rollupOrgHealth,
   InvalidTransitionError as CapabilityInvalidTransitionError,
   EvidenceThresholdError,
@@ -94,6 +97,7 @@ import {
   parseSkillMention,
   invokeAgent,
   buildCommunicationsSystemPrompt,
+  canonicalizeManifest,
   canonicalizeJson,
   normalizeCommonsTags,
   COMMUNICATIONS_SKILL,
@@ -134,7 +138,6 @@ import {
   uuidv7,
 } from "@bridge/core";
 import { authUrl } from "@bridge/integrations-google";
-import { issueGoogleOAuthState } from "./google-oauth-routes.js";
 import { routeHelpRequest, draftHelpOffer, type HelpResponderCandidate } from "@bridge/helpdesk";
 import {
   CredentialAccessError,
@@ -146,16 +149,23 @@ import {
   type ThesisSourceDiscoveryProposal,
 } from "@bridge/dealpilot";
 import { scoreJobFit, transition, InvalidTransitionError, type ApplicationStage, type CandidateProfile, type JobProfile } from "@bridge/jobpilot";
-import { getIntegrationStore } from "./social/integration-service.js";
 import {
+  BUILT_IN_PACKAGES,
   COMMONS_BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCE_RITUAL_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   isModuleRuntimeRitualId,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
 import { assertCommonsEntryContentTrusted } from "./commons-client.js";
-import { listModuleFiles, ModuleFilesPathError } from "./module-files.js";
+import {
+  listModuleFiles,
+  ModuleFilesPathError,
+  OrganizationFilesConflictError,
+  OrganizationFilesRecoveryError,
+} from "./module-files.js";
 import { listProviderIds, oauthScopesFor } from "./social/registry.js";
 
 const t = initTRPC.context<ApiContext>().create();
@@ -181,6 +191,128 @@ function stableOutreachProposalId(key: string): string {
 
 function stablePackageInstallProposalId(workspaceId: string, installationId: string): string {
   return stableProposalId(`package-install:${workspaceId}:${installationId}`);
+}
+
+const SUPPORTED_RELATIONSHIP_CONTRACT = (() => {
+  const relationship = BUILT_IN_PACKAGES.find(
+    (candidate) => candidate.manifest.name === "relationship",
+  );
+  if (!relationship) throw new Error("Relationship built-in manifest is missing");
+  return {
+    name: relationship.manifest.name,
+    version: relationship.manifest.version,
+    canonicalManifest: canonicalizeManifest(relationship.manifest),
+  };
+})();
+
+function packageManifestHash(manifest: PackageManifest): string {
+  return `sha256:${createHash("sha256").update(canonicalizeManifest(manifest)).digest("hex")}`;
+}
+
+function isSupportedCitedRoleModelManifest(manifest: PackageManifest): boolean {
+  const capability = manifest.capabilities[0];
+  const readPermission = capability?.permissions[0];
+  const writePermission = capability?.permissions[1];
+  return manifest.name === "cited-role-model-practice"
+    && manifest.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && manifest.kind === "skill"
+    && manifest.dependencies.length === 0
+    && manifest.capabilities.length === 1
+    && manifest.contextProviders.length === 0
+    && manifest.module === undefined
+    && manifest.blueprint === undefined
+    && capability?.id === LEARNING_RECOMMENDATION_SKILL_ID
+    && capability.name === "Stage cited role-model practice"
+    && capability.version === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && capability.capabilityType === "skill"
+    && capability.origin === "built_in"
+    && capability.audience === "private"
+    && capability.permissions.length === 2
+    && readPermission?.resourceType === "signal"
+    && readPermission.action === "read"
+    && readPermission.dataScope === "private"
+    && readPermission.egress === false
+    && writePermission?.resourceType === "signal"
+    && writePermission.action === "write"
+    && writePermission.dataScope === "private"
+    && writePermission.egress === false
+    && capability.connectors.length === 0
+    && capability.dependencies.length === 0
+    && capability.execution === undefined;
+}
+
+function isSupportedCitedRoleModelInstallation(
+  installation: PackageInstallationRow,
+): boolean {
+  const { manifest, moduleAttachment } = installation;
+  return installation.packageName === "cited-role-model-practice"
+    && installation.packageVersion === CITED_ROLE_MODEL_PRACTICE_VERSION
+    && installation.state === "available"
+    && installation.status === "installed"
+    && manifest.name === installation.packageName
+    && manifest.version === installation.packageVersion
+    && isSupportedCitedRoleModelManifest(manifest)
+    && moduleAttachment?.source === "commons"
+    && moduleAttachment.modulePackageName === "relationship"
+    && resolveModuleAgentRuntimeId(
+      moduleAttachment.modulePackageName,
+      moduleAttachment.agentId,
+    ) === LEARNING_AGENT;
+}
+
+async function currentSupportedRelationshipOwner(
+  wiring: Wiring,
+  installation: PackageInstallationRow,
+): Promise<PackageInstallationRow | null> {
+  const attachment = installation.moduleAttachment;
+  if (!attachment || attachment.modulePackageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name) {
+    return null;
+  }
+  const ownerModule = await wiring.packageStore.getAvailable(
+    installation.workspaceId,
+    attachment.modulePackageName,
+  );
+  if (
+    !ownerModule
+    || ownerModule.status !== "installed"
+    || ownerModule.packageName !== SUPPORTED_RELATIONSHIP_CONTRACT.name
+    || ownerModule.packageVersion !== SUPPORTED_RELATIONSHIP_CONTRACT.version
+    || ownerModule.manifest.name !== ownerModule.packageName
+    || ownerModule.manifest.version !== ownerModule.packageVersion
+    || canonicalizeManifest(ownerModule.manifest) !== SUPPORTED_RELATIONSHIP_CONTRACT.canonicalManifest
+  ) {
+    return null;
+  }
+  return ownerModule;
+}
+
+function stableDealPilotCaptureProposalId(workspaceId: string, captureId: string): string {
+  return stableProposalId(`dealpilot-capture:${workspaceId}:${captureId}`);
+}
+
+function isDealPilotCaptureProposal(
+  entry: LedgerEntry,
+  workspaceId: string,
+  captureId: string,
+): boolean {
+  if (
+    entry.id !== stableDealPilotCaptureProposalId(workspaceId, captureId) ||
+    entry.workspaceId !== workspaceId ||
+    entry.actorType !== "user" ||
+    entry.action !== "write" ||
+    entry.resourceType !== "tool" ||
+    entry.refLedgerId !== undefined ||
+    typeof entry.inputs !== "object" ||
+    entry.inputs === null ||
+    Array.isArray(entry.inputs)
+  ) {
+    return false;
+  }
+  const inputs = entry.inputs as Record<string, unknown>;
+  return (
+    inputs.kind === "dealpilot_capture_commit" &&
+    inputs.captureId === captureId
+  );
 }
 
 /**
@@ -705,6 +837,167 @@ async function provisionRoleModelRecommendationTask(
     PRODUCE_RECOMMENDATION_TASK_TYPE,
     LEARNING_AGENT,
   );
+}
+
+interface CommonsSkillInvocation {
+  source: "commons";
+  installationId: string;
+  packageName: string;
+  packageVersion: string;
+  contentHash: string;
+  moduleInstallationId: string;
+  modulePackageName: string;
+  modulePackageVersion: string;
+  moduleManifestHash: string;
+  moduleAgentId: string;
+  runtimeAgentId: string;
+  capabilityId: string;
+}
+
+const roleModelRecommendationSchema = z.object({
+  kind: z.literal("learning_recommendation"),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  documentedContext: z.string().min(1),
+  interpretation: z.string().min(1),
+  citation: z.object({
+    label: z.string().min(1),
+    url: z.string().url(),
+  }),
+  cadence: z.string().min(1),
+  stopCondition: z.string().min(1),
+});
+type RoleModelRecommendation = z.infer<typeof roleModelRecommendationSchema>;
+
+async function stageRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  workspaceId: string,
+  recommendation: RoleModelRecommendation,
+  commonsInvocation?: CommonsSkillInvocation,
+) {
+  const proposal = await wiring.pipeline.propose(
+    {
+      workspaceId,
+      actor: { type: "agent", id: LEARNING_AGENT },
+      onBehalfOf: { type: "user", id: identityId },
+      action: "write",
+      resourceType: "signal",
+      dataScope: "private",
+      inputs: {
+        ...recommendation,
+        ...(commonsInvocation ? { commonsInvocation } : {}),
+      },
+      skill: LEARNING_RECOMMENDATION_SKILL_ID,
+      trustOrigin: "untrusted_external",
+      goalTaskRef: await provisionRoleModelRecommendationTask(wiring, workspaceId),
+    },
+    run,
+  );
+  return { recommendation, proposal };
+}
+
+async function proposeRoleModelRecommendation(
+  wiring: Wiring,
+  run: ApiContext["run"],
+  identityId: string,
+  input: { workspaceId: string; figure: string; admiredFor: string },
+) {
+  const source = await researchPublicFigure(input.figure);
+  const recommendation: RoleModelRecommendation = {
+    kind: "learning_recommendation",
+    title: `Practice ${input.admiredFor} deliberately`,
+    summary:
+      `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
+      "your preparation or communication. Review the outcome before repeating it.",
+    documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
+    interpretation:
+      `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
+    citation: { label: source.title, url: source.url },
+    cadence: "weekly",
+    stopCondition: "Pause or remove it whenever it stops being useful.",
+  };
+  const result = await stageRoleModelRecommendation(
+    wiring,
+    run,
+    identityId,
+    input.workspaceId,
+    recommendation,
+  );
+  const existing = await wiring.memoryStore.retrieve(
+    { limit: 100 },
+    { workspaceId: input.workspaceId, userId: identityId },
+  );
+  if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
+    await wiring.memoryStore.write({
+      id: uuidv7(),
+      workspaceId: input.workspaceId,
+      type: "preference",
+      scope: "private",
+      content: JSON.stringify({
+        kind: "onboarding_preference",
+        figure: input.figure,
+        admiredFor: input.admiredFor,
+      }),
+      confidence: 1,
+      trustOrigin: "user_content",
+      plane: "local",
+      createdBy: identityId,
+      ownerUserId: identityId,
+    });
+  }
+  return result;
+}
+
+async function latestApprovedRoleModelRecommendation(
+  wiring: Wiring,
+  workspaceId: string,
+  ownerUserId: string,
+): Promise<RoleModelRecommendation | null> {
+  const pageSize = 100;
+  const maxRows = 1_000;
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const page = await wiring.ledger.listHistory(workspaceId, {
+      limit: pageSize,
+      offset,
+      privateOwnerUserId: ownerUserId,
+    });
+    for (const entry of page.items) {
+      if (
+        entry.refLedgerId
+        || entry.actorType !== "agent"
+        || entry.actorId !== LEARNING_AGENT
+        || entry.onBehalfOfType !== "user"
+        || entry.onBehalfOfId !== ownerUserId
+        || entry.action !== "write"
+        || entry.resourceType !== "signal"
+        || entry.dataScope !== "private"
+        || entry.trustOrigin !== "untrusted_external"
+        || typeof entry.inputs !== "object"
+        || entry.inputs === null
+        || Array.isArray(entry.inputs)
+        || "commonsInvocation" in entry.inputs
+      ) {
+        continue;
+      }
+      const parsed = roleModelRecommendationSchema.safeParse(entry.inputs);
+      if (!parsed.success) continue;
+      const citation = new URL(parsed.data.citation.url);
+      if (citation.protocol !== "https:" || citation.origin !== "https://en.wikipedia.org") {
+        continue;
+      }
+      const decision = await wiring.ledger.decisionFor(entry.id);
+      if (decision?.userDecision === "approve" || decision?.userDecision === "edit") {
+        return parsed.data;
+      }
+    }
+    if (offset + page.items.length >= page.total) return null;
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: "Too many Learning recommendations exist to resolve the approved local source safely",
+  });
 }
 
 /** AGS1 (TASK-007 closure) — Help Offer drafting is LEARNING_AGENT's Task. */
@@ -1454,7 +1747,7 @@ async function getCaptureReviewEnvelope(
   return captureReviewEnvelopeSchema.parse(body.content);
 }
 
-function assertRelationshipProposalOwner(
+function assertPrivateProposalOwner(
   proposal: LedgerEntry,
   identity: { type: ActorType; id: string },
   google: ApiContext["wiring"]["google"],
@@ -1476,8 +1769,7 @@ function assertRelationshipProposalOwner(
     );
   if (
     (
-      proposal.dataScope === "private" ||
-      proposal.resourceType === "relation" ||
+      isOwnerScopedLedgerEntry(proposal) ||
       isRelationshipMutation(proposal.inputs) ||
       googleProposal
     ) &&
@@ -2858,18 +3150,7 @@ export const appRouter = t.router({
         if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
         assertPilotWorkspace(proposal.workspaceId);
         await assertMembership(ctx.wiring.workspaceStore, proposal.workspaceId, ctx.identity.id);
-        assertRelationshipProposalOwner(proposal, ctx.identity, ctx.wiring.google);
-        // TASK-010: a private red-flag correction proposal (`resourceType`
-        // never "relation" — always "signal") gets the SAME "hide existence
-        // entirely from a non-owner" treatment RM4's relation rows get above,
-        // via TASK-010's own `inputs.visibility === "private"` marker. The
-        // `resourceType !== "relation"` guard keeps this from re-interpreting
-        // a relation proposal's OWN `visibility` enum value (which can
-        // legitimately be `"private"`/`"workspace"`/`"public"` and is already
-        // fully handled by `assertRelationshipProposalOwner` above).
-        if (proposal.resourceType !== "relation" && isPrivateProposalInputs(proposal.inputs) && proposal.onBehalfOfId !== ctx.identity.id) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
-        }
+        assertPrivateProposalOwner(proposal, ctx.identity, ctx.wiring.google);
         const decision = await ctx.wiring.ledger.decisionFor(input.proposalId);
         if (decision) {
           return { status: "resolved" as const, decision: decision.userDecision };
@@ -2897,14 +3178,17 @@ export const appRouter = t.router({
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "proposal not found" });
       assertPilotWorkspace(original.workspaceId);
       await assertMembership(ctx.wiring.workspaceStore, original.workspaceId, ctx.identity.id);
-      assertRelationshipProposalOwner(original, ctx.identity, ctx.wiring.google);
-      // TASK-010: same non-relation-scoped private-proposal guard as
-      // `resolution` above — a red-flag correction proposal may only be
-      // decided by the user it was raised `onBehalfOf`, even though it
-      // passes the ordinary workspace-membership gate.
-      if (original.resourceType !== "relation" && isPrivateProposalInputs(original.inputs) && original.onBehalfOfId !== ctx.identity.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "This proposal is private to its own owner" });
+      if (
+        original.resourceType !== "relation" &&
+        isPrivateProposalInputs(original.inputs) &&
+        original.onBehalfOfId !== ctx.identity.id
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This proposal is private to its own owner",
+        });
       }
+      assertPrivateProposalOwner(original, ctx.identity, ctx.wiring.google);
       const isSignalEvidenceProposal =
         original.resourceType === "relation" &&
         isRelationshipSignalEvidence(original.inputs);
@@ -2948,6 +3232,38 @@ export const appRouter = t.router({
         }
       }
       let committedEditedOutput = input.editedOutput;
+      if (input.decision === "edit") {
+        const originalInputs =
+          typeof original.inputs === "object" &&
+          original.inputs !== null &&
+          !Array.isArray(original.inputs)
+            ? (original.inputs as Record<string, unknown>)
+            : null;
+        if (originalInputs?.kind === "learning_recommendation") {
+          if (
+            typeof committedEditedOutput !== "object" ||
+            committedEditedOutput === null ||
+            Array.isArray(committedEditedOutput) ||
+            (committedEditedOutput as Record<string, unknown>).kind !==
+              "learning_recommendation"
+          ) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "edited Learning output must remain a learning recommendation object",
+            });
+          }
+          const canonical = {
+            ...(committedEditedOutput as Record<string, unknown>),
+          };
+          if (originalInputs.commonsInvocation === undefined) {
+            delete canonical.commonsInvocation;
+          } else {
+            canonical.commonsInvocation = originalInputs.commonsInvocation;
+          }
+          committedEditedOutput = canonical;
+        }
+      }
       if (
         !resolved &&
         input.decision === "edit" &&
@@ -3664,11 +3980,15 @@ export const appRouter = t.router({
       if (!ctx.wiring.googleOAuth) {
         return { url: null as string | null, error: "oauth_not_configured" as const };
       }
-      const state = issueGoogleOAuthState(
+      const { state, codeChallenge } =
+        await ctx.wiring.googleOAuthStates.issue(
+        PILOT_WORKSPACE,
         ctx.wiring.google.integrationId,
-        ctx.wiring.google.ownerUserId,
+        ctx.identity.id,
       );
-      return { url: authUrl(ctx.wiring.googleOAuth, state) };
+      return {
+        url: authUrl(ctx.wiring.googleOAuth, state, codeChallenge),
+      };
     }),
 
     /** Revoke locally (delete the local token). */
@@ -5197,17 +5517,26 @@ export const appRouter = t.router({
           })
           .default({}),
       )
-      .query(({ input, ctx }) => {
+      .query(async ({ input, ctx }) => {
         if (input.workspaceId) assertPilotWorkspace(input.workspaceId);
-        const { facts, candidateIds } = ctx.wiring.dealpilot;
-        const total = candidateIds.length;
-        const ids = candidateIds.slice(input.offset, input.offset + input.limit);
-        const items = ids.map((id) => {
-          const profile = facts.livingProfile(id);
-          const flat = Object.fromEntries(Object.entries(profile).map(([key, value]) => [key, value.value]));
-          return { id, profile: flat, fit: scoreThesisFit(flat, { industries: [], geo: [] }) };
+        const workspaceId = input.workspaceId ?? PILOT_WORKSPACE;
+        const records = await ctx.wiring.dealpilot.store.list("deals", workspaceId, {
+          limit: input.limit,
+          offset: input.offset,
         });
-        return { items, total, hasMore: input.offset + items.length < total };
+        const items = await Promise.all(
+          records.items.map(async (record) => {
+            const profile = (await ctx.wiring.dealpilot.store.candidateProfile(workspaceId, record.id)) ?? {
+              name: record.kind === "deal" ? record.company : record.id,
+            };
+            return {
+              id: record.id,
+              profile,
+              fit: scoreThesisFit(profile, { industries: [], geo: [] }),
+            };
+          }),
+        );
+        return { items, total: records.total, hasMore: records.hasMore };
       }),
 
     detail: dealpilotProcedure
@@ -5230,7 +5559,14 @@ export const appRouter = t.router({
         if (detail.record.kind !== "source") return detail;
         return {
           ...detail,
-          credentialProjection: await ctx.wiring.dealpilot.credentials.project(detail.record.credentialRef),
+          credentialProjection: await ctx.wiring.dealpilot.credentials.project(
+            { workspaceId: input.workspaceId, sourceId: detail.record.id },
+            detail.record.credentialRef,
+          ),
+          credentialCleanupAvailable: Boolean(
+            detail.record.credentialRef &&
+              detail.record.credentialOwnerId === ctx.identity.id,
+          ),
         };
       }),
 
@@ -5272,22 +5608,73 @@ export const appRouter = t.router({
       )
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const source = await ctx.wiring.dealpilot.store.createSource({
+        const sourceId = ctx.run.ids.next();
+        const sourceInput = {
+          id: sourceId,
           workspaceId: input.workspaceId,
           name: input.name,
           link: input.link,
           connectionType: input.connectionType,
           spendCap: input.spendCap,
-          rightsState: input.rightsAttested ? "attested" : "unattested",
+          rightsState: input.rightsAttested ? "attested" as const : "unattested" as const,
           ...(input.rightsAttested ? { rightsAttestedBy: ctx.identity.id } : {}),
-          ...(input.userId || input.password ? { credentialOwnerId: ctx.identity.id } : {}),
+        };
+        if (!input.userId && !input.password) {
+          return ctx.wiring.dealpilot.store.createSource(sourceInput);
+        }
+        const scope = { workspaceId: input.workspaceId, sourceId };
+        const credentialRef =
+          ctx.wiring.dealpilot.credentialVault.reserve(scope);
+        await ctx.wiring.dealpilot.store.prepareCredentialCreate({
+          ...sourceInput,
+          credentialOwnerId: ctx.identity.id,
+          credentialRef,
         });
-        if (!input.userId && !input.password) return source;
-        const credentialRef = await ctx.wiring.dealpilot.credentialVault.put(source.id, {
-          ...(input.userId ? { userId: input.userId } : {}),
-          ...(input.password ? { password: input.password } : {}),
-        });
-        return ctx.wiring.dealpilot.store.updateSource(source.id, input.workspaceId, { credentialRef });
+        try {
+          await ctx.wiring.dealpilot.credentialVault.write(
+            scope,
+            credentialRef,
+            {
+              ...(input.userId ? { userId: input.userId } : {}),
+              ...(input.password ? { password: input.password } : {}),
+            },
+          );
+          return await ctx.wiring.dealpilot.store.completeCredentialCreate(
+            input.workspaceId,
+            sourceId,
+            credentialRef,
+          );
+        } catch (error) {
+          const cleanupErrors: unknown[] = [];
+          let credentialDeleted = false;
+          try {
+            await ctx.wiring.dealpilot.credentialVault.delete(
+              scope,
+              credentialRef,
+            );
+            credentialDeleted = true;
+          } catch (cleanupError) {
+            cleanupErrors.push(cleanupError);
+          }
+          if (credentialDeleted) {
+            try {
+              await ctx.wiring.dealpilot.store.discardCredentialCreate(
+                input.workspaceId,
+                sourceId,
+                credentialRef,
+              );
+            } catch (cleanupError) {
+              cleanupErrors.push(cleanupError);
+            }
+          }
+          if (cleanupErrors.length > 0) {
+            throw new AggregateError(
+              [error, ...cleanupErrors],
+              "Source creation failed and its pending OS credential operation could not be reconciled",
+            );
+          }
+          throw error;
+        }
       }),
 
     createThesis: dealpilotProcedure
@@ -5377,52 +5764,114 @@ export const appRouter = t.router({
       }),
 
     captures: dealpilotProcedure
-      .input(z.object({ workspaceId: z.string().min(1) }))
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1).optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+          offset: z.number().int().min(0).default(0),
+        }),
+      )
       .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const captures = await ctx.wiring.dealpilot.captures.list("dealpilot");
-        return captures
-          .filter((capture) => !ctx.wiring.dealpilot.committedCaptureIds.has(capture.captureId))
-          .map((capture) => ({
-            ...capture,
-            sourceId: ctx.wiring.dealpilot.captureSources.get(capture.captureId) ?? null,
-          }));
+        return ctx.wiring.dealpilot.store.listPendingCaptures(input.workspaceId, {
+          ...(input.sourceId ? { sourceId: input.sourceId } : {}),
+          limit: input.limit,
+          offset: input.offset,
+        });
       }),
 
     commit: dealpilotProcedure
       .input(z.object({ workspaceId: z.string().min(1), captureId: z.string().min(1) }))
       .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        if (ctx.wiring.dealpilot.committedCaptureIds.has(input.captureId)) {
+        const captureStatus = await ctx.wiring.dealpilot.store.captureStatus(
+          input.workspaceId,
+          input.captureId,
+        );
+        if (captureStatus === "committed") {
           return { committed: false, alreadyCommitted: true as const };
         }
-        if (ctx.wiring.dealpilot.committingCaptureIds.has(input.captureId)) {
-          throw new TRPCError({ code: "CONFLICT", message: "Capture commit is already in progress" });
+        if (captureStatus === null) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
         }
-        ctx.wiring.dealpilot.committingCaptureIds.add(input.captureId);
-        try {
-          const capture = await ctx.wiring.dealpilot.captures.get(input.captureId);
-          if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: ctx.identity.type, id: ctx.identity.id },
-              action: "write",
-              resourceType: "tool",
-              skill: "stageMutation",
-              inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
-              trustOrigin: capture.trustOrigin ?? "untrusted_external",
-            },
-            ctx.run,
+        const capture = await ctx.wiring.dealpilot.store.getCapture(input.workspaceId, input.captureId);
+        if (!capture) throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
+        const proposalId = stableDealPilotCaptureProposalId(
+          input.workspaceId,
+          input.captureId,
+        );
+        const request = {
+          workspaceId: input.workspaceId,
+          actor: { type: ctx.identity.type, id: ctx.identity.id },
+          action: "write" as const,
+          resourceType: "tool" as const,
+          skill: "stageMutation",
+          inputs: { kind: "dealpilot_capture_commit", captureId: input.captureId },
+          trustOrigin: capture.trustOrigin ?? "untrusted_external",
+        };
+        const materialize = async (proposal?: Proposal) => {
+          const committed = await ctx.wiring.dealpilot.store.commitCapture(
+            input.workspaceId,
+            input.captureId,
           );
-          if (proposal.status !== "applied") return { committed: false, proposal };
+          if (!committed.committed && committed.alreadyCommitted) {
+            return { committed: false, alreadyCommitted: true as const };
+          }
+          if (!committed.committed) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Quarantined capture not found" });
+          }
           return {
-            ...(await ctx.wiring.dealpilot.materializer.add(input.captureId)),
-            proposal,
+            committed: true,
+            captureId: input.captureId,
+            candidateId: committed.recordId,
+            proposal:
+              proposal ??
+              ({
+                id: proposalId,
+                status: "applied",
+                recovered: true,
+              } as const),
           };
-        } finally {
-          ctx.wiring.dealpilot.committingCaptureIds.delete(input.captureId);
+        };
+        const recoverProposal = async () => {
+          const existing = await ctx.wiring.ledger.get(proposalId);
+          if (!existing) return null;
+          if (!isDealPilotCaptureProposal(existing, input.workspaceId, input.captureId)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "DealPilot capture proposal identity collides with a different ledger entry",
+            });
+          }
+          const decision =
+            existing.userDecision ??
+            (await ctx.wiring.ledger.decisionFor(proposalId))?.userDecision ??
+            null;
+          if (decision === "auto" || decision === "approve" || decision === "edit") {
+            return materialize();
+          }
+          return {
+            committed: false,
+            proposal: {
+              id: proposalId,
+              status: decision === "veto" ? "rejected" : "pending_review",
+              recovered: true,
+            } as const,
+          };
+        };
+
+        const recovered = await recoverProposal();
+        if (recovered) return recovered;
+        let proposal: Proposal;
+        try {
+          proposal = await ctx.wiring.pipeline.propose(request, ctx.run, { proposalId });
+        } catch (cause) {
+          const winner = await recoverProposal();
+          if (winner) return winner;
+          throw cause;
         }
+        if (proposal.status !== "applied") return { committed: false, proposal };
+        return materialize(proposal);
       }),
 
     reauthenticateCredential: dealpilotProcedure
@@ -5438,6 +5887,7 @@ export const appRouter = t.router({
           return ctx.wiring.dealpilot.credentials.reauthenticate({
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
+            workspaceId: input.workspaceId,
             sourceId: input.sourceId,
             ...(ctx.reauthenticatedAt != null ? { reauthenticatedAt: ctx.reauthenticatedAt } : {}),
           });
@@ -5471,6 +5921,7 @@ export const appRouter = t.router({
         try {
           return await ctx.wiring.dealpilot.credentials.access({
             reference: source.credentialRef,
+            workspaceId: input.workspaceId,
             sourceId: source.id,
             actorType: ctx.identity.type,
             actorId: ctx.identity.id,
@@ -5478,6 +5929,78 @@ export const appRouter = t.router({
             field: input.field,
             action: input.action,
           });
+        } catch (error) {
+          if (error instanceof CredentialAccessError) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    clearCredential: dealpilotProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          sourceId: z.string().min(1),
+          token: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        const source = await ctx.wiring.dealpilot.store.get(
+          "source",
+          input.workspaceId,
+          input.sourceId,
+        );
+        if (!source || source.kind !== "source") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Source Record not found" });
+        }
+        if (
+          source.credentialOwnerId !== ctx.identity.id ||
+          !source.credentialRef
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Source credential revocation is not authorized",
+          });
+        }
+        try {
+          const audit =
+            ctx.wiring.dealpilot.credentials.authorizeCredentialRevocation({
+            reference: source.credentialRef,
+            workspaceId: input.workspaceId,
+            sourceId: source.id,
+            actorType: ctx.identity.type,
+            actorId: ctx.identity.id,
+            token: input.token,
+          });
+          await ctx.wiring.dealpilot.store.prepareCredentialRevocation(
+            input.workspaceId,
+            source.id,
+            ctx.identity.id,
+            source.credentialRef,
+            audit,
+          );
+          await ctx.wiring.dealpilot.credentialVault.delete(
+            { workspaceId: input.workspaceId, sourceId: source.id },
+            source.credentialRef,
+          );
+          const revocation =
+            await ctx.wiring.dealpilot.store.completeCredentialRevocation(
+              input.workspaceId,
+              source.id,
+              ctx.identity.id,
+              source.credentialRef,
+            );
+          return {
+            revoked: true as const,
+            cleared: revocation.cleared,
+            credentialProjection:
+              await ctx.wiring.dealpilot.credentials.project(
+                { workspaceId: input.workspaceId, sourceId: source.id },
+                revocation.source.credentialRef,
+              ),
+          };
         } catch (error) {
           if (error instanceof CredentialAccessError) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
@@ -5542,10 +6065,9 @@ export const appRouter = t.router({
           offset: z.number().int().min(0).default(0),
         }),
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        const all = await store.list(input.workspaceId);
+        const all = await ctx.wiring.integrationStore.list(input.workspaceId);
         const total = all.length;
         const items = all.slice(input.offset, input.offset + input.limit);
         return { items, total, hasMore: input.offset + items.length < total };
@@ -5558,27 +6080,34 @@ export const appRouter = t.router({
           provider: z.enum(["x", "instagram", "facebook", "linkedin"]),
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        return store.connect(input.workspaceId, input.provider, oauthScopesFor(input.provider));
+        return ctx.wiring.integrationStore.connect(
+          input.workspaceId,
+          input.provider,
+          oauthScopesFor(input.provider),
+        );
       }),
 
     disconnect: procedure
       .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        await store.disconnect(input.workspaceId, input.integrationId);
+        await ctx.wiring.integrationStore.disconnect(
+          input.workspaceId,
+          input.integrationId,
+        );
         return { ok: true };
       }),
 
     listScopes: procedure
       .input(z.object({ workspaceId: z.string().min(1), integrationId: z.string().uuid() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        return store.listScopes(input.workspaceId, input.integrationId);
+        return ctx.wiring.integrationStore.listScopes(
+          input.workspaceId,
+          input.integrationId,
+        );
       }),
 
     grantScope: procedure
@@ -5590,11 +6119,10 @@ export const appRouter = t.router({
           action: actionEnum,
         }),
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
         try {
-          return await store.grantScope({
+          return await ctx.wiring.integrationStore.grantScope({
             workspaceId: input.workspaceId,
             integrationId: input.integrationId,
             resourceType: input.resourceType,
@@ -5611,10 +6139,12 @@ export const appRouter = t.router({
 
     revokeScope: procedure
       .input(z.object({ workspaceId: z.string().min(1), permissionId: z.string().uuid() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         assertPilotWorkspace(input.workspaceId);
-        const { store } = await getIntegrationStore();
-        await store.revokeScope(input.workspaceId, input.permissionId);
+        await ctx.wiring.integrationStore.revokeScope(
+          input.workspaceId,
+          input.permissionId,
+        );
         return { ok: true };
       }),
   }),
@@ -5764,53 +6294,12 @@ export const appRouter = t.router({
         .mutation(async ({ input, ctx }) => {
           assertPilotWorkspace(input.workspaceId);
           await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
-          const source = await researchPublicFigure(input.figure);
-          const recommendation = {
-            kind: "learning_recommendation" as const,
-            title: `Practice ${input.admiredFor} deliberately`,
-            summary:
-              `Once a week, choose one upcoming decision and write how "${input.admiredFor}" should change ` +
-              "your preparation or communication. Review the outcome before repeating it.",
-            documentedContext: source.extract.split(/\n|(?<=\.)\s+/).slice(0, 2).join(" "),
-            interpretation:
-              `The public source documents ${source.title}; the link to "${input.admiredFor}" is your stated preference, not a claim about the person's whole character.`,
-            citation: { label: source.title, url: source.url },
-            cadence: "weekly",
-            stopCondition: "Pause or remove it whenever it stops being useful.",
-          };
-          const proposal = await ctx.wiring.pipeline.propose(
-            {
-              workspaceId: input.workspaceId,
-              actor: { type: "agent", id: LEARNING_AGENT },
-              onBehalfOf: { type: "user", id: ctx.identity.id },
-              action: "write",
-              resourceType: "signal",
-              inputs: recommendation,
-              skill: "stageLearningRecommendation",
-              trustOrigin: "untrusted_external",
-              goalTaskRef: await provisionRoleModelRecommendationTask(ctx.wiring, input.workspaceId),
-            },
+          return proposeRoleModelRecommendation(
+            ctx.wiring,
             ctx.run,
+            ctx.identity.id,
+            input,
           );
-          const existing = await ctx.wiring.memoryStore.retrieve(
-            { limit: 100 },
-            { workspaceId: input.workspaceId, userId: ctx.wiring.pilotUserId },
-          );
-          if (!existing.some((row) => parseLearningMemory(row.content)?.kind === "onboarding_preference")) {
-            await ctx.wiring.memoryStore.write({
-              id: uuidv7(),
-              workspaceId: input.workspaceId,
-              type: "preference",
-              scope: "private",
-              content: JSON.stringify({ kind: "onboarding_preference", figure: input.figure, admiredFor: input.admiredFor }),
-              confidence: 1,
-              trustOrigin: "user_content",
-              plane: "local",
-              createdBy: ctx.identity.id,
-              ownerUserId: ctx.wiring.pilotUserId,
-            });
-          }
-          return { recommendation, proposal };
         }),
 
     correctMemory: procedure
@@ -6569,6 +7058,44 @@ export const appRouter = t.router({
     list: procedure.query(async ({ ctx }) => {
       return ctx.wiring.workspaceStore.listWorkspaces(ctx.identity.id);
     }),
+
+    rename: procedure
+      .input(z.object({ workspaceId: z.string().min(1), name: z.string().trim().min(1).max(120) }))
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        try {
+          return await ctx.wiring.workspaceStore.renameWorkspace(
+            input.workspaceId,
+            input.name,
+          );
+        } catch (error) {
+          if (error instanceof ModuleFilesPathError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
+          }
+          if (error instanceof OrganizationFilesConflictError) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Rename or merge the existing Organization Files directory first",
+              cause: error,
+            });
+          }
+          if (error instanceof OrganizationFilesRecoveryError) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message, cause: error });
+          }
+          if (error instanceof WorkspaceRenameRollbackError) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Organization rename failed and its Files directory could not be restored",
+              cause: error,
+            });
+          }
+          if (error instanceof UnknownWorkspaceError) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "unknown Organization", cause: error });
+          }
+          throw error;
+        }
+      }),
 
     inviteMember: procedure
       .input(z.object({ workspaceId: z.string().min(1), email: z.string().email() }))
@@ -7592,6 +8119,8 @@ export const appRouter = t.router({
           return await listModuleFiles(
             organization.name,
             installation.manifest.module?.displayName ?? installation.packageName,
+            200,
+            ctx.wiring.moduleFilesBridgeRoot,
           );
         } catch (error) {
           if (error instanceof ModuleFilesPathError) {
@@ -8051,6 +8580,8 @@ export const appRouter = t.router({
       const itemsWithRuntimeBindings = await Promise.all(
         items.map(async (installation) => {
           const runtimeAutomationIds: string[] = [];
+          const runtimeSkillIds: string[] = [];
+          const runtimeBindingIssues: string[] = [];
           for (const automation of installation.manifest.module?.automations ?? []) {
             if (!automation.ritualId) continue;
             const ritualId = resolveModuleRitualRuntimeId(installation.packageName, automation.ritualId);
@@ -8062,7 +8593,43 @@ export const appRouter = t.router({
               runtimeAutomationIds.push(automation.id);
             }
           }
-          return { ...installation, runtimeAutomationIds };
+          const attachment = installation.moduleAttachment;
+          if (
+            attachment
+            && isSupportedCitedRoleModelInstallation(installation)
+          ) {
+            try {
+              const currentEntry = await assertCurrentCommonsAttachment(
+                ctx.wiring,
+                installation,
+              );
+              if (!currentEntry || !isSupportedCitedRoleModelManifest(currentEntry.manifest)) {
+                runtimeBindingIssues.push(
+                  "The current signed Commons artifact no longer matches the supported runtime contract",
+                );
+              } else if (!await currentSupportedRelationshipOwner(ctx.wiring, installation)) {
+                runtimeBindingIssues.push(
+                  "The owning Relationship Module no longer matches the supported runtime contract",
+                );
+              } else {
+                runtimeSkillIds.push(
+                  LEARNING_RECOMMENDATION_SKILL_ID,
+                );
+              }
+            } catch (error) {
+              runtimeBindingIssues.push(
+                error instanceof TRPCError
+                  ? error.message
+                  : "Commons registry is unavailable; the runtime binding could not be revalidated",
+              );
+            }
+          }
+          return {
+            ...installation,
+            runtimeAutomationIds,
+            runtimeSkillIds,
+            runtimeBindingIssues,
+          };
         }),
       );
       return {
@@ -8356,6 +8923,106 @@ export const appRouter = t.router({
         });
 
         return { installation: created };
+      }),
+
+    runInstalledSkill: procedure
+      .input(
+        z.object({
+          workspaceId: z.string().min(1),
+          installationId: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        assertPilotWorkspace(input.workspaceId);
+        await assertMembership(ctx.wiring.workspaceStore, input.workspaceId, ctx.identity.id);
+        const installation = await ctx.wiring.packageStore.get(input.installationId);
+        if (!installation || installation.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "unknown Commons installation" });
+        }
+        if (installation.state !== "available" || installation.status !== "installed") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Commons capability must be installed and available before it can run",
+          });
+        }
+        const attachment = installation.moduleAttachment;
+        const entry = await assertCurrentCommonsAttachment(ctx.wiring, installation);
+        if (!attachment || !entry) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "capability is not attached from Commons to a Module Agent",
+          });
+        }
+        if (
+          !isSupportedCitedRoleModelInstallation(installation)
+          || !isSupportedCitedRoleModelManifest(entry.manifest)
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported signed runtime contract",
+          });
+        }
+        const ownerModule = await currentSupportedRelationshipOwner(ctx.wiring, installation);
+        if (!ownerModule) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill does not match its supported owning Module contract",
+          });
+        }
+        const skillCapabilities = entry.manifest.capabilities.filter(
+          (capability) => capability.capabilityType === "skill",
+        );
+        if (
+          skillCapabilities.length !== 1 ||
+          skillCapabilities[0]?.id !== LEARNING_RECOMMENDATION_SKILL_ID
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill has no supported runtime binding",
+          });
+        }
+        const runtimeAgentId = resolveModuleAgentRuntimeId(
+          attachment.modulePackageName,
+          attachment.agentId,
+        );
+        if (runtimeAgentId !== LEARNING_AGENT) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "installed Commons Skill is not bound to its attributable runtime Agent",
+          });
+        }
+        const recommendation = await latestApprovedRoleModelRecommendation(
+          ctx.wiring,
+          input.workspaceId,
+          ctx.identity.id,
+        );
+        if (!recommendation) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Approve a cited role-model onboarding recommendation before running this Skill",
+          });
+        }
+        return stageRoleModelRecommendation(
+          ctx.wiring,
+          ctx.run,
+          ctx.identity.id,
+          input.workspaceId,
+          recommendation,
+          {
+            source: "commons",
+            installationId: installation.id,
+            packageName: entry.name,
+            packageVersion: entry.version,
+            contentHash: attachment.contentHash,
+            moduleInstallationId: ownerModule.id,
+            modulePackageName: attachment.modulePackageName,
+            modulePackageVersion: ownerModule.packageVersion,
+            moduleManifestHash: packageManifestHash(ownerModule.manifest),
+            moduleAgentId: attachment.agentId,
+            runtimeAgentId,
+            capabilityId: LEARNING_RECOMMENDATION_SKILL_ID,
+          },
+        );
       }),
 
     /**

@@ -246,6 +246,21 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           createdAt: "2026-07-17T00:00:01.000Z",
         });
         await store.append({
+          id: "51000000-0000-4000-8000-000000000006",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: ownerId,
+          action: "write",
+          resourceType: "signal",
+          dataScope: "private",
+          inputs: {},
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:00.500Z",
+        });
+        await store.append({
           id: "51000000-0000-4000-8000-000000000003",
           workspaceId: ws.id,
           actorType: "agent",
@@ -282,13 +297,41 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           dataScope: "private",
           createdAt: "2026-07-17T00:00:04.000Z",
         });
+        const legacyLearning = await store.append({
+          id: "51000000-0000-4000-8000-000000000007",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          onBehalfOfType: "user",
+          onBehalfOfId: ownerId,
+          action: "write",
+          resourceType: "signal",
+          inputs: { kind: "learning_recommendation" },
+          userDecision: null,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:05.000Z",
+        });
+        await store.append({
+          id: "51000000-0000-4000-8000-000000000008",
+          workspaceId: ws.id,
+          actorType: "agent",
+          actorId: NIL_ACTOR,
+          action: "approve",
+          resourceType: "ledger",
+          inputs: { proposalId: legacyLearning.id },
+          userDecision: null,
+          diff: { rejected: "agent floor" },
+          refLedgerId: legacyLearning.id,
+          policyResults: [],
+          createdAt: "2026-07-17T00:00:06.000Z",
+        });
 
         const owner = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(owner.total, 5);
+        assert.equal(owner.total, 7);
         const other = await store.listPending(ws.id, {
           limit: 10,
           offset: 0,
@@ -302,8 +345,8 @@ test("ledger: seed, dataScope, and context round-trip through real columns (audi
           offset: 0,
           privateOwnerUserId: ownerId,
         });
-        assert.equal(ownerHistory.total, 5);
-        assert.equal(ownerHistory.items[0]?.id, "51000000-0000-4000-8000-000000000005");
+        assert.equal(ownerHistory.total, 8);
+        assert.equal(ownerHistory.items[0]?.id, "51000000-0000-4000-8000-000000000008");
         const otherHistory = await store.listHistory(ws.id, {
           limit: 10,
           offset: 0,

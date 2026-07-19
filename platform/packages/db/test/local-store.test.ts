@@ -9,7 +9,11 @@
  * seed rows) belong to the pipeline integration slice (E/F).
  */
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import {
   createDrizzlePorts,
@@ -47,6 +51,102 @@ test("local plane: migrations apply and Drizzle ports read the local store", asy
     assert.deepEqual(grants, []);
   } finally {
     await close();
+  }
+});
+
+test("local plane renames the legacy text external-record table before Drizzle migrations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-legacy-local-plane-"));
+  const seed = new PGlite({ dataDir: root });
+  try {
+    await seed.exec(`
+      CREATE TABLE external_records (
+        workspace_id text NOT NULL,
+        source text NOT NULL,
+        source_record_id text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text NOT NULL,
+        created_at text NOT NULL,
+        PRIMARY KEY (workspace_id, source, source_record_id)
+      );
+      INSERT INTO external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at)
+      VALUES
+        ('workspace-a', 'gmail', 'message-a', 'touchpoint', 'entity-a', '2026-07-18T00:00:00.000Z');
+    `);
+  } finally {
+    await seed.close();
+  }
+
+  try {
+    const local = await createLocalDb({ dataDir: root });
+    try {
+      const canonical = await local.client.query<{
+        column_name: string;
+        data_type: string;
+      }>(
+        `SELECT column_name, data_type
+           FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'external_records'`,
+      );
+      const columns = new Map(
+        canonical.rows.map((row) => [row.column_name, row.data_type]),
+      );
+      assert.equal(columns.get("id"), "uuid");
+      assert.equal(columns.get("workspace_id"), "uuid");
+      const backup = await local.client.query<{ count: string | number }>(
+        `SELECT count(*) AS count FROM local_external_records_legacy`,
+      );
+      assert.equal(Number(backup.rows[0]?.count), 1);
+    } finally {
+      await local.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local plane preserves an unsupported legacy external-record table", async () => {
+  const root = await mkdtemp(join(tmpdir(), "bridge-unsupported-local-plane-"));
+  const seed = new PGlite({ dataDir: root });
+  try {
+    await seed.exec(`
+      CREATE TABLE external_records (
+        workspace_id text NOT NULL,
+        source text NOT NULL,
+        source_record_id text NOT NULL,
+        entity_type text NOT NULL,
+        entity_id text NOT NULL,
+        created_at text NOT NULL,
+        unrecognized_payload text NOT NULL,
+        PRIMARY KEY (workspace_id, source, source_record_id)
+      );
+      INSERT INTO external_records
+        (workspace_id, source, source_record_id, entity_type, entity_id, created_at, unrecognized_payload)
+      VALUES
+        ('workspace-a', 'gmail', 'message-a', 'event', 'entity-a',
+         '2026-07-18T00:00:00.000Z', 'must remain');
+    `);
+  } finally {
+    await seed.close();
+  }
+
+  try {
+    await assert.rejects(
+      () => createLocalDb({ dataDir: root }),
+      /external_records exists with an unsupported schema/,
+    );
+
+    const preserved = new PGlite({ dataDir: root });
+    try {
+      const result = await preserved.query<{ unrecognized_payload: string }>(
+        "SELECT unrecognized_payload FROM external_records",
+      );
+      assert.equal(result.rows[0]?.unrecognized_payload, "must remain");
+    } finally {
+      await preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

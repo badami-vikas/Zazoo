@@ -102,7 +102,10 @@ function historyRowToEntry(row: LedgerHistoryRow): LedgerEntry {
     ts: shortTs(row.createdAt),
     age: relAge(row.createdAt),
     actorKind: row.actorType === 'user' ? 'human' : 'agent',
-    actor: asString(display?.actor) ?? `${row.actorType} · ${row.actorId}`,
+    actor:
+      asString(display?.actor) ??
+      commonsAgentActorLabel(inputs, row.actorType, row.actorId) ??
+      `${row.actorType} · ${row.actorId}`,
     onBehalfOfType: row.onBehalfOfType === 'user' ? 'user' : null,
     onBehalfOf:
       asString(display?.onBehalfOf) ??
@@ -140,6 +143,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function commonsAgentActorLabel(
+  inputs: Record<string, unknown> | null,
+  actorType: string,
+  actorId: string,
+): string | null {
+  if (actorType !== 'agent') return null;
+  const invocation = asRecord(inputs?.commonsInvocation);
+  if (asString(invocation?.runtimeAgentId) !== actorId) return null;
+  const moduleAgentId = asString(invocation?.moduleAgentId);
+  if (!moduleAgentId) return null;
+  const displayName = moduleAgentId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+  return `${displayName} · ${actorId}`;
 }
 
 function canonicalDecisionPrecedes(
@@ -219,7 +240,10 @@ function proposalToEntry(proposal: PendingProposal): LedgerEntry {
     ts: shortTs(createdAt),
     age: relAge(createdAt),
     actorKind: proposal.request.actor.type === 'agent' ? 'agent' : 'human',
-    actor: asString(display?.actor) ?? `${proposal.request.actor.type} · ${proposal.request.actor.id}`,
+    actor:
+      asString(display?.actor) ??
+      commonsAgentActorLabel(inputs, proposal.request.actor.type, proposal.request.actor.id) ??
+      `${proposal.request.actor.type} · ${proposal.request.actor.id}`,
     onBehalfOfType: proposal.request.onBehalfOf ? 'user' : null,
     onBehalfOf: proposal.request.onBehalfOf
       ? asString(display?.onBehalfOf) ?? proposal.request.onBehalfOf.id
@@ -364,6 +388,19 @@ function editedProposalOutput(
     }
     return parsed;
   }
+  if (originalRecord?.kind === 'learning_recommendation') {
+    const parsed = asRecord(JSON.parse(nextText));
+    if (parsed?.kind !== 'learning_recommendation') {
+      throw new Error('Edited Learning output must remain a learning recommendation object.');
+    }
+    const canonical = { ...parsed };
+    if (originalRecord.commonsInvocation === undefined) {
+      delete canonical.commonsInvocation;
+    } else {
+      canonical.commonsInvocation = originalRecord.commonsInvocation;
+    }
+    return canonical;
+  }
   if (originalRecord && 'text' in originalRecord) {
     return { ...originalRecord, text: nextText };
   }
@@ -413,7 +450,13 @@ export async function loadLedger(): Promise<{
         const entry = historyRowToEntry(row);
         const decision = appendByProposal.get(row.id);
         if (decision && entry.decision === null) {
-          entry.decision = normalizeDecision(decision.userDecision);
+          const normalizedDecision = normalizeDecision(decision.userDecision);
+          entry.decision = normalizedDecision;
+          if (normalizedDecision === 'edited_approved') {
+            const applied = historyRowToEntry(decision);
+            entry.proposed = applied.proposed;
+            entry.proposalOutput = applied.proposalOutput;
+          }
         }
         return entry;
       });

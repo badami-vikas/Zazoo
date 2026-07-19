@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T05:34:09.680Z",
+  "generatedAt": "2026-07-19T05:39:48.229Z",
   "items": [
     {
       "id": "TASK-001",
@@ -38,7 +38,7 @@
     {
       "id": "TASK-003",
       "title": "TASK-003 — Movable cross-screen Avatar desktop prototype",
-      "status": "completed",
+      "status": "blocked",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "The Avatar is a real desktop companion: draggable, persistent across macOS Spaces and display topology changes, with native window controls inside the Sidebar header.",
@@ -49,9 +49,10 @@
       ],
       "evidence": [
         "RESOLVED BUGS 2026-07-14 companion mobility and desktop chrome",
+        "BUGS 2026-07-18 physical Avatar drag inert (live retest pending)",
         "`outputs/2026-07-16-task-003-avatar-drag-persistence.md`",
         "`outputs/2026-07-16-task-003-macos-avatar.md`",
-        "`outputs/2026-07-18-task-003-avatar-certification.md` (real three-display mixed-DPI placement, cross-display move/native-event save/relaunch, VoiceOver navigation and physical activation, fullscreen/Spaces presence, external-display reposition, extend→mirror→extend 3→2→3, and physical detach/reconnect all pass)"
+        "`outputs/2026-07-18-task-003-avatar-certification.md` (the earlier physical matrix passed, but the later direct-Avatar drag report reopened this acceptance path)"
       ],
       "requests": [
         "R-001",
@@ -61,7 +62,7 @@
       ],
       "approval": "AP-020, AP-026, AP-040, and AP-041 applied",
       "dependencies": [],
-      "canonicalStatus": "done",
+      "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
       "sourceLine": 70,
@@ -95,13 +96,13 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 84,
+      "sourceLine": 85,
       "rank": 3
     },
     {
       "id": "TASK-005",
       "title": "TASK-005 — Avatar + Commons end-to-end demo certification",
-      "status": "blocked",
+      "status": "completed",
       "priority": "P0",
       "horizon": "Prototype",
       "outcome": "A short, repeatable demo proves the combined product rather than isolated screens.",
@@ -111,24 +112,24 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "outputs/2026-07-14-e5edafc-egg-commons-ui-audit.md",
-        "TASK-003 physical Avatar certification completed 2026-07-18",
-        "outstanding combined live-browser evidence in docs/raw/progress-archive-2026-07.md"
+        "`outputs/2026-07-18-task-005-demo-certification.md`",
+        "TASK-003 physical Avatar certification in `outputs/2026-07-18-task-003-avatar-certification.md`",
+        "clean isolated final-code `task005-final10-desktop-*` and `task005-final11-mobile-*` evidence covers Onboarding, Owl Avatar, Relationship Module, cited recommendation, signed Commons discovery/install, Learning Agent invocation, immutable package/hash/Agent provenance, correction, veto, no-downstream-event audit, preference deletion, and physically reachable mobile Settings/Approvals controls"
       ],
       "requests": [
         "user prototype-priority directives 2026-07-13–15"
       ],
-      "approval": "AP-031 applied for the bounded gate-glue implementation only; no DONE approval",
+      "approval": "AP-031 applied for bounded gate glue; AP-047 applied for exact TASK-005 certification and closure",
       "dependencies": [
         "TASK-001",
         "TASK-002",
         "TASK-003",
         "TASK-004"
       ],
-      "canonicalStatus": "blocked",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 97,
+      "sourceLine": 98,
       "rank": 4
     },
     {
@@ -159,7 +160,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 112,
+      "sourceLine": 113,
       "rank": 5
     },
     {
@@ -192,13 +193,13 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 125,
+      "sourceLine": 126,
       "rank": 6
     },
     {
       "id": "TASK-010",
       "title": "TASK-010 — Platform red-flag correction feedback",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Any eligible data cell or bullet supports one subtle, scoped, reversible red-flag correction that feeds governed learning.",
@@ -209,6 +210,8 @@
       ],
       "evidence": [
         "user feedback-mechanism correction 2026-07-15",
+        "RESOLVED BUGS 2026-07-19 JobPilot table cells lacked Red Flag controls",
+        "[TASK-010 live-certification output](../outputs/2026-07-19-task010-live-certification.md)",
         "[TASK-010 round-1 output](../outputs/2026-07-17-task010-red-flag-feedback.md), [round-2/3 remediation](../outputs/2026-07-17-task010-review-remediation.md), [round-4 remediation](../outputs/2026-07-17-task010-round4-remediation.md), [round-5 remediation](../outputs/2026-07-17-task010-round5-remediation.md) — shared `RedFlagControl` primitive wired into TableView.tsx (data cells), JobPilotPage.tsx card view (real, persisted-application-backed rendered bullets), plus a Settings > Learning \"Red flags\" audit section",
         "DealPilot/JobPilot green/yellow/red flag semantics removed (AP-023). Four coordinator-directed independent reviews found defects, all now remediated: round 1's auth/IDOR, ledger-privacy, saga/idempotency, CAS/lineage, anchor-identity, pagination, N+1, and touch-detection gaps (round 2)",
         "round 2's own idempotency-check and CAS `.cause`-unwrap bugs (round 3)",
@@ -236,21 +239,21 @@
       "requests": [
         "red-flag directive 2026-07-15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, and AP-046 applied",
       "dependencies": [
         "TASK-001",
         "TASK-007"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 138,
+      "sourceLine": 139,
       "rank": 7
     },
     {
       "id": "TASK-008",
       "title": "TASK-008 — Relationship Module consolidation",
-      "status": "in-progress",
+      "status": "completed",
       "priority": "P1",
       "horizon": "Core Modules",
       "outcome": "Relationship is one standard Module with Signals, People, and Communities as primary toggles and shared Record/Relation/Event behavior.",
@@ -260,22 +263,20 @@
         "docs/raw/ui-architecture-rules-2026-07.md"
       ],
       "evidence": [
-        "RM0 prototype and RM4 Relation persistence/materialization are integrated on `main` at `590cca6`: `outputs/2026-07-16-task-008-relationship-module-consolidation.md`",
-        "desktop + 375px live evidence",
-        "migration `0015_task008_relation_contract`",
-        "owner-isolated Relation/effect RLS",
-        "deterministic bounded Relation reads",
-        "durable approval-effect retry/reconciliation. Candidate-A adds a validated independently mergeable continuation: RM1 owner-safe Person/Community CRUD/search/detail",
-        "RM2 one participant Timeline plus bounded Google/capture and identity review",
-        "RM3 Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
-        "RM4 visibility-pruned bounded paths and Community composition",
-        "RM5 double-consent Introduction Event snapshots with private decline handling and no send. Central-review hardening makes browser authority self-only/Local, keeps private PII and Event detail owner-scoped, makes Google/capture staging and materialization durable/replay-safe, serializes Introduction/Memory transitions, supports explicit clears and canonical datetime input, and adds route-safe snapshot pagination. Evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
-        "live desktop + exact 375px honest-empty People evidence",
-        "post-main-merge core 430, DB 154, Google 39, API 218, web 69",
+        "The exact installed Relationship → Signals/People/Communities → Signal → Person/Community participants → source Event → governed Action prototype is integrated on `main`, with no global Knowledge route or surface. RM0 and RM4 landed at `590cca6` with `outputs/2026-07-16-task-008-relationship-module-consolidation.md`, desktop + 375px live evidence, migration `0015_task008_relation_contract`, owner-isolated Relation/effect RLS, deterministic bounded Relation reads, and durable approval-effect retry/reconciliation. The validated RM1–RM5 continuation and central trust-boundary hardening landed through `bab32ea`: owner-safe Person/Community CRUD/search/detail",
+        "participant Timeline and bounded Google/capture identity review",
+        "Memory correction/forget, commitment Event snapshots, meeting prep/follow-up",
+        "visibility-pruned paths and Community composition",
+        "double-consent Introduction Event snapshots with private decline handling and no send",
+        "self-only Local browser authority",
+        "owner-scoped private PII/Event detail",
+        "replay-safe durable staging/materialization",
+        "serialized Introduction/Memory transitions",
+        "explicit clears, canonical datetime input, and route-safe snapshot pagination. Final evidence: `outputs/2026-07-18-task-008-relationship-continuity.md`",
+        "post-main-merge core 430, DB 154, Google 39, API 218, web 69 (910 affected tests)",
         "monorepo typecheck/build",
-        "changed-file lint, no-dummy, no migration delta, diff integrity, and final independent correctness/security reviews with no blocker. No Relationship migration added",
-        "`0016` remains TASK-010's. Remaining exact plan scope: persistent user-defined Automations/Agent Runs",
-        "RM6 team permission/delegation, export/disconnect/forget, and held-out eval execution. TASK-014/TASK-009 own the cross-Module Graph renderer."
+        "changed-file lint, no-dummy, migration no-drift, diff integrity, and independent correctness/security reviews with no blocker. Historical RM4 worktree reconciliation landed at `3741a41`, confirming `ff98c20` and `905aee9` were already ancestors and regenerating fresh-session Task Manager evidence without re-merging code. TASK-014/TASK-009 retain the separate cross-Module Graph renderer",
+        "advanced RM6/evaluation capabilities remain future plan scope, not blockers for this completed TASK-008 prototype."
       ],
       "requests": [
         "Relationship alignment directive 2026-07-14"
@@ -284,10 +285,10 @@
       "dependencies": [
         "TASK-001"
       ],
-      "canonicalStatus": "in_progress",
+      "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 151,
+      "sourceLine": 153,
       "rank": 8
     },
     {
@@ -325,7 +326,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 164,
+      "sourceLine": 166,
       "rank": 9
     },
     {
@@ -363,7 +364,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 177,
+      "sourceLine": 179,
       "rank": 10
     },
     {
@@ -402,7 +403,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 190,
+      "sourceLine": 192,
       "rank": 11
     },
     {
@@ -418,20 +419,27 @@
         "docs/wiki/roadmap.md"
       ],
       "evidence": [
-        "root gap recorded ADR-088"
+        "root gap recorded ADR-088. Planning session (`docs/Progress from Manish/subagent-progress.md` TASK-015 row) confirmed this is not greenfield: PI-1/PI-2/PI-3 already ship a partial version — `TrustOrigin` 3-value tag (`packages/core/src/types.ts`), an equality-based tainted-egress gate (`packages/core/src/policy/taint-egress.ts`), and a quarantine `ContentGuard` (`packages/core/src/guard/content-guard.ts`). Concrete gaps a future RT0–RT4 implementation must close: `DomainEvent`/`events`/`signals`/`files` carry no taint field at all today",
+        "`SkillOutput`/`RitualStep` carry none, so an Automation/Ritual step seeded from a tainted Signal can silently lose its label",
+        "there is no lattice/join (today's check is a single equality test, not a monotonic combine)",
+        "no sink registry or CI coverage gate",
+        "no declassification audit trail",
+        "`packages/sourcing/src/types.ts` hand-duplicates the `TrustOrigin` union instead of importing it (drift risk)",
+        "cache/retry paths in `integrations-google` are untested for taint preservation. Post-TASK-007 landing, `ChildAgentRun.taint` (`packages/db/src/child-agent-run-store.ts`) already exists but is still typed as the legacy 3-value `TrustOrigin` — RT0's lattice must upgrade this field additively, not replace it out from under TASK-007's landed contract."
       ],
       "requests": [
         "runtime taint directive 2026-07-14"
       ],
       "approval": "AP-020 and AP-029 applied",
       "dependencies": [
-        "TASK-007",
-        "TASK-012"
+        "TASK-007 (done)",
+        "TASK-012 (still `ready` — remains the blocking gate",
+        "`ResourceType` in `packages/core/src/types.ts` still uses pre-pivot vocabulary, confirming RT-series work should not start authoring schema/types against vocabulary TASK-012 is about to rename)"
       ],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 203,
+      "sourceLine": 205,
       "rank": 12
     },
     {
@@ -460,7 +468,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 216,
+      "sourceLine": 218,
       "rank": 13
     },
     {
@@ -493,7 +501,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 229,
+      "sourceLine": 231,
       "rank": 14
     },
     {
@@ -514,14 +522,14 @@
       "requests": [
         "DealPilot requirements 2026-07-14–15"
       ],
-      "approval": "AP-023 and AP-029 applied",
+      "approval": "AP-023, AP-029, AP-044, and AP-045 applied",
       "dependencies": [
         "TASK-001"
       ],
       "canonicalStatus": "in_progress",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 242,
+      "sourceLine": 244,
       "rank": 15
     },
     {
@@ -549,7 +557,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 256,
+      "sourceLine": 258,
       "rank": 16
     },
     {
@@ -581,7 +589,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 269,
+      "sourceLine": 271,
       "rank": 17
     },
     {
@@ -614,7 +622,7 @@
       "canonicalStatus": "done",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 282,
+      "sourceLine": 284,
       "rank": 18
     },
     {
@@ -645,7 +653,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 295,
+      "sourceLine": 297,
       "rank": 19
     },
     {
@@ -673,7 +681,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 308,
+      "sourceLine": 310,
       "rank": 20
     },
     {
@@ -700,7 +708,7 @@
       "canonicalStatus": "blocked",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 321,
+      "sourceLine": 323,
       "rank": 21
     },
     {
@@ -731,7 +739,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 334,
+      "sourceLine": 336,
       "rank": 22
     },
     {
@@ -758,7 +766,7 @@
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 347,
+      "sourceLine": 349,
       "rank": 23
     },
     {
@@ -781,12 +789,12 @@
         "user website/brand storyboard directive 2026-07-19",
         "dictionary-copy correction and task-update directive 2026-07-19"
       ],
-      "approval": "AP-044 applied",
+      "approval": "AP-048 applied",
       "dependencies": [],
       "canonicalStatus": "ready",
       "sourceType": "task",
       "sourceFile": "docs/TASKS.md",
-      "sourceLine": 360,
+      "sourceLine": 362,
       "rank": 24
     }
   ]

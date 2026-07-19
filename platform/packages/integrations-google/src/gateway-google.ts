@@ -405,14 +405,24 @@ export class GoogleApiGatewayFactory implements GoogleGatewayFactory {
     // loads the stale (possibly now-invalid) token from the store — silently bricking the
     // integration with an opaque "invalid_grant" and no diagnostic. Surface the failure loudly
     // instead of swallowing it (`void` previously discarded the promise entirely).
+    let persistedToken = token;
+    let refreshPersistence = Promise.resolve();
     client.on("tokens", (t) => {
-      this.secrets
-        .putToken({
-          ...token,
-          ...(t.access_token ? { accessToken: t.access_token } : {}),
-          ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
-          ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
-          updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
+      refreshPersistence = refreshPersistence
+        .then(async () => {
+          const replacement = {
+            ...persistedToken,
+            ...(t.access_token ? { accessToken: t.access_token } : {}),
+            ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
+            ...(t.expiry_date ? { expiryDate: t.expiry_date } : {}),
+            updatedAt: new Date(t.expiry_date ?? Date.now()).toISOString(),
+          };
+          const stored = await this.secrets.compareAndSwapToken(
+            integrationId,
+            persistedToken,
+            replacement,
+          );
+          if (stored) persistedToken = replacement;
         })
         .catch((err: unknown) => {
           console.error(`google: failed to persist refreshed token for integration ${integrationId} — next sync will use a stale token`, err);

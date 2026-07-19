@@ -65,15 +65,33 @@ Headless Chrome exercised the live in-memory API and web app with no seeded Reco
 
 No runtime dummy data was introduced to manufacture populated detail evidence. The live honest-empty screenshots predate the review-only hardening; changed UI behavior is covered by responsive structural tests plus DB/API lifecycle, snapshot-pagination, and negative-authority tests.
 
-## Remaining TASK-008 scope
+## Canonical closure
 
-- persistent user-defined Automation trigger/cadence, bounded scheduler behavior, and inspectable attributable Agent Runs;
-- team permission/delegation persistence connected to runtime authority;
-- Relationship export, source disconnect, and complete forget orchestration;
-- held-out matching/path/reminder/introduction eval execution through the shared evaluation harness;
-- TASK-014/TASK-009's cross-Module Graph renderer, which remains explicitly out of this branch.
+The validated Relationship continuation was integrated through main commit `bab32ea` after the
+RM4 Relation contract landed at `590cca6`. Migration `0015_task008_relation_contract` remains the
+authoritative Relationship schema migration; TASK-010's later migration `0016` is preserved.
 
-TASK-008 remains `in_progress`.
+The canonical TASK-008 prototype is complete:
+
+1. open the installed Relationship Module;
+2. navigate Signals, People, and Communities;
+3. open a Signal;
+4. follow its bounded participant Relations to Person and Community Records;
+5. inspect its source Event;
+6. take the safe governed Action through the Universal Action Pipeline;
+7. confirm no global Knowledge route or surface exists.
+
+The landed contracts include owner/visibility-safe Record and Relation reads, durable
+approval-to-Relation materialization and retry, authoritative append-only decision references,
+owner-bound Google/capture intake, participant Timeline and identity review, Memory and commitment
+lifecycle, bounded paths and Community composition, and double-consent Introduction lifecycle.
+Final post-merge validation covered core 430, DB 154, Google 39, API 218, and web 69 tests (910
+affected tests), monorepo typecheck/build, changed-file lint, runtime no-dummy, migration
+fresh/upgrade/no-drift, diff integrity, and independent correctness/security reviews.
+
+Persistent user-defined Automation scheduling, team delegation, complete export/disconnect/forget
+orchestration, held-out evaluation execution, and TASK-014/TASK-009's cross-Module Graph renderer
+remain future plan scope. They do not block the exact TASK-008 prototype.
 
 ## Main files
 

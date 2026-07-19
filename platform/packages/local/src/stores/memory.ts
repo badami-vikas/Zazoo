@@ -10,6 +10,8 @@ import type {
   LocalGraphStore,
   LocalPerson,
   LocalPlane,
+  LocalStateMutation,
+  LocalStateStore,
   OAuthTokenRecord,
   SecretStore,
   StoredBody,
@@ -17,15 +19,131 @@ import type {
 
 export class InMemorySecretStore implements SecretStore {
   readonly tokens = new Map<string, OAuthTokenRecord>();
+  readonly #tails = new Map<string, Promise<void>>();
+
   async putToken(rec: OAuthTokenRecord): Promise<void> {
-    this.tokens.set(rec.integrationId, { ...rec });
+    await this.#exclusive(rec.integrationId, async () => {
+      const prior = this.tokens.get(rec.integrationId);
+      this.tokens.set(rec.integrationId, {
+        ...rec,
+        ...(rec.refreshToken
+          ? {}
+          : prior?.refreshToken
+            ? { refreshToken: prior.refreshToken }
+            : {}),
+      });
+    });
   }
+
   async getToken(integrationId: string): Promise<OAuthTokenRecord | null> {
-    return this.tokens.get(integrationId) ?? null;
+    return this.#exclusive(integrationId, async () => {
+      const token = this.tokens.get(integrationId);
+      return token ? { ...token } : null;
+    });
   }
+
   async deleteToken(integrationId: string): Promise<void> {
-    this.tokens.delete(integrationId);
+    await this.#exclusive(integrationId, async () => {
+      this.tokens.delete(integrationId);
+    });
   }
+
+  async compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): Promise<boolean> {
+    return this.#exclusive(integrationId, async () =>
+      this.#compareAndSwapToken(integrationId, expected, replacement),
+    );
+  }
+
+  async finalizeToken(
+    replacement: OAuthTokenRecord,
+    stillAuthorized: () => Promise<boolean>,
+  ): Promise<boolean> {
+    return this.#exclusive(replacement.integrationId, async () => {
+      if (!(await stillAuthorized())) return false;
+      const previous = this.tokens.get(replacement.integrationId) ?? null;
+      const candidate = {
+        ...replacement,
+        ...(replacement.refreshToken
+          ? {}
+          : previous?.refreshToken
+            ? { refreshToken: previous.refreshToken }
+            : {}),
+      };
+      this.tokens.set(replacement.integrationId, { ...candidate });
+      try {
+        if (await stillAuthorized()) return true;
+      } catch (error) {
+        this.#restoreToken(replacement.integrationId, previous);
+        throw error;
+      }
+      this.#restoreToken(replacement.integrationId, previous);
+      return false;
+    });
+  }
+
+  #compareAndSwapToken(
+    integrationId: string,
+    expected: OAuthTokenRecord | null,
+    replacement: OAuthTokenRecord | null,
+  ): boolean {
+    const current = this.tokens.get(integrationId) ?? null;
+    if (!sameToken(current, expected)) return false;
+    if (replacement) this.tokens.set(integrationId, { ...replacement });
+    else this.tokens.delete(integrationId);
+    return true;
+  }
+
+  #restoreToken(
+    integrationId: string,
+    previous: OAuthTokenRecord | null,
+  ): void {
+    if (previous) this.tokens.set(integrationId, { ...previous });
+    else this.tokens.delete(integrationId);
+  }
+
+  async #exclusive<T>(
+    integrationId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.#tails.get(integrationId) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(integrationId, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(integrationId) === tail) {
+        this.#tails.delete(integrationId);
+      }
+    }
+  }
+}
+
+function sameToken(
+  left: OAuthTokenRecord | null,
+  right: OAuthTokenRecord | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.integrationId === right.integrationId &&
+    left.workspaceId === right.workspaceId &&
+    left.provider === right.provider &&
+    left.accessToken === right.accessToken &&
+    left.refreshToken === right.refreshToken &&
+    left.scope === right.scope &&
+    left.tokenType === right.tokenType &&
+    left.expiryDate === right.expiryDate &&
+    left.updatedAt === right.updatedAt
+  );
 }
 
 function bodyKey(workspaceId: string, source: string, sourceRecordId: string): string {
@@ -91,12 +209,59 @@ export class InMemoryLocalGraphStore implements LocalGraphStore {
   }
 }
 
+function stateKey(workspaceId: string, namespace: string): string {
+  return `${workspaceId}::${namespace}`;
+}
+
+export class InMemoryLocalStateStore implements LocalStateStore {
+  readonly rows = new Map<string, unknown>();
+  readonly #tails = new Map<string, Promise<void>>();
+
+  async read(workspaceId: string, namespace: string): Promise<unknown | null> {
+    const value = this.rows.get(stateKey(workspaceId, namespace));
+    return value === undefined ? null : structuredClone(value);
+  }
+
+  async update<T>(
+    workspaceId: string,
+    namespace: string,
+    initialState: unknown,
+    reduce: (current: unknown) => LocalStateMutation<T>,
+  ): Promise<T> {
+    const key = stateKey(workspaceId, namespace);
+    return this.#exclusive(key, async () => {
+      const current = this.rows.has(key) ? this.rows.get(key) : initialState;
+      const mutation = reduce(structuredClone(current));
+      this.rows.set(key, structuredClone(mutation.state));
+      return mutation.result;
+    });
+  }
+
+  async #exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    let release = (): void => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.#tails.set(key, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.#tails.get(key) === tail) this.#tails.delete(key);
+    }
+  }
+}
+
 /** Assemble an in-memory LocalPlane (tests / zero-infra dev). */
 export function createMemoryLocalPlane(): LocalPlane {
   return {
     secrets: new InMemorySecretStore(),
     bodies: new InMemoryBodyStore(),
     graph: new InMemoryLocalGraphStore(),
+    state: new InMemoryLocalStateStore(),
     close: async () => {},
   };
 }

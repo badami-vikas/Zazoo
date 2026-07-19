@@ -1,7 +1,8 @@
 /**
  * tRPC request context. Carries the assembled pipeline + a per-request RunCtx
- * (determinism seams). At the system boundary we use the wall clock; the RNG is
- * seeded from the clock so engine code stays deterministic and replayable.
+ * (determinism seams). At the system boundary we use the wall clock and a
+ * request-scoped deterministic RNG. Persisted IDs use independent cryptographic
+ * entropy so same-millisecond requests in different processes cannot collide.
  *
  * `identity` is the SERVER-RESOLVED actor for the request — never client-asserted.
  * Governed control-plane calls (e.g. approving a proposal) authorize against this,
@@ -22,9 +23,10 @@
  */
 import { TRPCError } from "@trpc/server";
 import { decodeJwt } from "jose";
-import { SeededRng, SystemClock, UuidGen, type Actor, type RunCtx } from "@bridge/core";
+import { SeededRng, SystemClock, UuidGen, type Actor, type Rng, type RunCtx } from "@bridge/core";
 import type { Wiring } from "./wiring.js";
 import { bearerToken, createIdentityResolver, IdentityVerificationError } from "./identity.js";
+import { SIDECAR_TOKEN_HEADER, validSidecarToken } from "./sidecar-auth.js";
 
 export interface ApiContext {
   wiring: Wiring;
@@ -41,9 +43,17 @@ export interface ApiContext {
    * `IdentityResolver.verifying`). Lets the mutation gate distinguish "pure in-memory
    * dev, no auth expected" from "a verifier exists, so a tokenless caller is anonymous". */
   verifying: boolean;
-  /** Server-derived auth_time from the already-verified bearer. Credential
-   * reveal/copy accepts it only while it remains within the recent-auth window. */
+  /** Password-AMR timestamp from the already-verified bearer. Credential
+   * reveal/copy/revoke accepts it only while it remains within the recent-auth window. */
   reauthenticatedAt?: number;
+}
+
+class CryptographicRng implements Rng {
+  next(): number {
+    const value = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(value);
+    return value[0]! / 4_294_967_296;
+  }
 }
 
 /** Minimal shape of what the tRPC Fastify adapter hands createContext. */
@@ -55,11 +65,10 @@ function headerValue(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function verifiedReauthenticationAt(payload: ReturnType<typeof decodeJwt>): number | undefined {
+export function verifiedReauthenticationAt(
+  payload: ReturnType<typeof decodeJwt>,
+): number | undefined {
   const candidates: number[] = [];
-  if (typeof payload.auth_time === "number" && Number.isFinite(payload.auth_time)) {
-    candidates.push(payload.auth_time);
-  }
   if (Array.isArray(payload.amr)) {
     for (const entry of payload.amr) {
       if (
@@ -105,16 +114,25 @@ export function makeContextFactory(wiring: Wiring) {
     // never drift.
     const verifying = identityResolver.verifying;
     const token = bearerToken(authHeader);
-    const authenticated = verifying && token !== null;
+    const sidecarAuthenticated = validSidecarToken(
+      args?.req?.headers?.[SIDECAR_TOKEN_HEADER],
+    );
+    // A sidecar capability proves that a request came through the managed local
+    // client, not which Human is acting. Once a user verifier is configured,
+    // only a verified bearer may satisfy user authentication.
+    const authenticated = verifying
+      ? token !== null
+      : sidecarAuthenticated;
     let reauthenticatedAt: number | undefined;
-    if (authenticated && token) {
+    if (verifying && token) {
       const payload = decodeJwt(token);
       reauthenticatedAt = verifiedReauthenticationAt(payload);
     }
     // UuidGen (not UlidGen): ledger ids are written to Postgres `uuid` columns.
+    // Its entropy must not repeat when two request contexts start in one millisecond.
     return {
       wiring,
-      run: { clock, rng, ids: new UuidGen(clock, rng) },
+      run: { clock, rng, ids: new UuidGen(clock, new CryptographicRng()) },
       identity,
       authenticated,
       verifying,

@@ -17,14 +17,6 @@
  * either splitting the ledger by `data_scope` (local vs cloud) or formally dropping
  * the guarantee; that decision is explicitly deferred to the user (see decisions-log).
  *
- * Capture store (DealPilot's `ToolCaptureStore`): no persistent (Drizzle/pglite)
- * implementation exists yet anywhere in the codebase (All fixes.md Phase 3 item 11b,
- * "persist tool_captures to a real table — still open"). `buildPersistentPorts()`
- * therefore ALSO keeps this one in-memory even when `DATABASE_URL` is set, and logs a
- * loud warning identifying exactly this gap, rather than faking persistence that
- * doesn't exist. Restart in persistent mode still drops quarantined-but-uncommitted
- * DealPilot captures.
- *
  * Canonical identity store: this one IS genuinely fixed here.
  * `DrizzleCanonicalIdentityStore` already exists (@bridge/db) and is now wired in
  * persistent mode instead of the in-memory fake — no more silent lie there.
@@ -98,15 +90,18 @@ import {
   uuidv7,
 } from "@bridge/core";
 import { HttpCommonsClient, commonsUrlFromEnv, trustedCommonsPublicKeysFromEnv } from "./commons-client.js";
+import { GoogleOAuthStateStore } from "./google-oauth-state.js";
 import type { CommonsRegistry } from "@bridge/core";
 import {
   assertRlsPosture,
   createDb,
   createDrizzlePorts,
   createLocalDb,
+  LocalDbInitializationCleanupError,
   createLocalMediaStore,
   DrizzleCanonicalIdentityStore,
   DrizzleWorkspaceStore,
+  type WorkspaceRenameCoordinator,
   DrizzleGraphStore,
   DrizzleJobPilotStore,
   DrizzleHelpdeskStore,
@@ -120,6 +115,7 @@ import {
   DrizzleGoalTaskStore,
   DrizzleSkillManifestRegistry,
   DrizzleChildAgentRunStore,
+  DrizzleIntegrationStore,
   seedSkillManifests,
   ensureLearningAgentGovernance,
   ensureOutreachAgentGovernance,
@@ -133,7 +129,11 @@ import {
   ensureRelationshipUserGovernance,
   type CanonicalIdentityStore,
 } from "@bridge/db";
-import { createMemoryLocalPlane, createPgliteLocalPlane, type LocalPlane } from "@bridge/local";
+import {
+  acquirePgliteDirectoryOwnership,
+  createPgliteLocalPlane,
+  type LocalPlane,
+} from "@bridge/local";
 import { AnthropicProvider, GroqProvider, OllamaProvider, createModelRouter, type ModelRouter } from "@bridge/models";
 import {
   EgressExecutor,
@@ -153,29 +153,34 @@ import {
   type GoogleOAuthConfig,
   type ToolManifest,
 } from "@bridge/integrations-google";
-import { createInMemoryCaptureStore, ToolIntakeMaterializer, type ToolCaptureStore } from "@bridge/tool-kit";
-import { createFactStore, type FactStore } from "@bridge/facts";
 import {
   HumanReauthentication,
-  InMemoryCredentialAuditSink,
-  InMemoryDealPilotStore,
-  InMemorySourceCredentialVault,
+  KeyringSourceCredentialVault,
+  LocalDealPilotStore,
   SourceCredentialService,
   assertSourceDiscoveryAllowed,
   createBizBuySellAlertConnector,
   createGmailFetchMessages,
+  reconcileCredentialOperations,
+  type CredentialAuditSink,
   type DealPilotBindings,
-  type DealPilotRecord,
-  type DealPilotStore,
+  type DealPilotRuntimeStore,
+  type SourceCredentialVault,
 } from "@bridge/dealpilot";
-import { matchCompany } from "@bridge/company-sourcing";
-import type { DedupeCandidate } from "@bridge/dedupe";
+import type { QuarantinedCapture } from "@bridge/tool-kit";
 import {
   BUILT_IN_PACKAGES,
+  CITED_ROLE_MODEL_PRACTICE_VERSION,
   DEALPILOT_SOURCING_AGENT_ID,
+  LEARNING_AGENT_RUNTIME_ID,
+  LEARNING_RECOMMENDATION_SKILL_ID,
   resolveModuleAgentRuntimeId,
   resolveModuleRitualRuntimeId,
 } from "./built-in-packages.js";
+import {
+  createOrganizationRenameLease,
+  defaultBridgeFilesRoot,
+} from "./module-files.js";
 
 // Pilot identities (uuids) — structural constants the system needs to run (the
 // workspace + its service agents + the signed-in pilot user). Not demo/dummy data.
@@ -186,7 +191,7 @@ export const PILOT_WORKSPACE = "b0000000-0000-4000-a000-000000000001";
 export const OUTREACH_AGENT = "b0000000-0000-4000-a000-0000000000d1";
 export const OUTREACH_ROLE = "b0000000-0000-4000-a000-0000000000f1";
 const OUTREACH_TOUCHPOINT_PERMISSION = "b0000000-0000-4000-a000-0000000000c1";
-export const LEARNING_AGENT = "b0000000-0000-4000-a000-0000000000d2";
+export const LEARNING_AGENT = LEARNING_AGENT_RUNTIME_ID;
 export const EGRESS_AGENT = DEALPILOT_SOURCING_AGENT_ID;
 const EGRESS_ROLE = "b0000000-0000-4000-a000-0000000000c1";
 const EGRESS_PRINCIPAL_PERMISSION = "b0000000-0000-4000-a000-0000000000c7";
@@ -227,6 +232,16 @@ const CAPABILITY_BUILDER_SIGNAL_PERMISSION = "b0000000-0000-4000-a000-0000000000
 // so an arbitrary placeholder caller id would violate that constraint.
 export const PILOT_USER = "e0f0053b-fc44-476e-be27-1371e179e958";
 
+export async function migrateLegacyPilotOrganization(
+  workspaceStore: DrizzleWorkspaceStore,
+): Promise<void> {
+  await workspaceStore.renameWorkspace(
+    PILOT_WORKSPACE,
+    "Pilot Organization",
+    { ifCurrentName: "Pilot workspace" },
+  );
+}
+
 export async function retireSupersededBuiltIns(
   packageStore: PackageStore,
   workspaceId: string,
@@ -250,14 +265,18 @@ export interface Wiring {
   events: InMemoryEventBus;
   /** LOCAL-plane media store (bytea blobs). Pglite when LOCAL_MEDIA_DIR set, else in-memory. Never cloud. */
   localMedia: LocalMediaStore;
-  /** True when bound to Postgres (DATABASE_URL set). */
+  /** True when any durable store is active (DATABASE_URL or file-backed Local Plane). */
   persistent: boolean;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot: string;
   /** The LOCAL plane (pglite) — private tier. */
   localPlane: LocalPlane;
   /** The Google integration surface. */
   google: GoogleService;
   /** OAuth config (null = not configured → fail-closed gateway). */
   googleOAuth: GoogleOAuthConfig | null;
+  /** Durable, hashed, single-use OAuth CSRF states. */
+  googleOAuthStates: GoogleOAuthStateStore;
   /** Whether the real googleapis gateway is in use, or Google is unconfigured. */
   googleGatewayKind: "google" | "unconfigured";
   googleManifest: ToolManifest;
@@ -337,21 +356,15 @@ export interface Wiring {
   models: ModelRouter;
   /** DealPilot's quarantine/commit surface (first tool on the generic intake seam). */
   dealpilot: {
-    captures: ToolCaptureStore;
-    facts: FactStore;
-    materializer: ToolIntakeMaterializer;
     integrationId: string;
-    store: DealPilotStore;
-    /** Compatibility read index for the legacy candidate list endpoint. */
-    candidateIds: string[];
+    store: DealPilotRuntimeStore;
     credentials: SourceCredentialService;
-    credentialVault: InMemorySourceCredentialVault;
-    credentialAudit: InMemoryCredentialAuditSink;
-    captureSources: Map<string, string>;
-    committedCaptureIds: Set<string>;
-    committingCaptureIds: Set<string>;
+    credentialVault: SourceCredentialVault;
+    credentialAudit: CredentialAuditSink;
     bindings: DealPilotBindings;
   };
+  /** Local-plane social Integration and permission records. */
+  integrationStore: DrizzleIntegrationStore;
   /** In-memory governance stores for seeding in dev; undefined when persistent. */
   memory?: {
     roles: InMemoryRoleStore;
@@ -374,7 +387,7 @@ const stageMutation: Skill = {
 };
 
 const stageLearningRecommendation: Skill = {
-  name: "stageLearningRecommendation",
+  name: LEARNING_RECOMMENDATION_SKILL_ID,
   async run(inputs) {
     return { proposedOutput: inputs, diff: { to: inputs } };
   },
@@ -436,13 +449,13 @@ export const PRODUCE_RECOMMENDATION_TASK_TYPE = "produce_recommendation";
 
 export const LEARNING_RECOMMENDATION_SKILL_MANIFEST = {
   workspaceId: PILOT_WORKSPACE,
-  skillId: "stageLearningRecommendation",
-  version: "1.0.0",
+  skillId: LEARNING_RECOMMENDATION_SKILL_ID,
+  version: CITED_ROLE_MODEL_PRACTICE_VERSION,
   goalTypes: [LEARNING_ROLE_MODEL_GOAL_TYPE],
   taskTypes: [PRODUCE_RECOMMENDATION_TASK_TYPE],
   permissions: ["signal:write"],
   plane: "local",
-  dataScopes: ["all"],
+  dataScopes: ["private"],
   riskBand: "advisory",
   evalVersion: "1.0.0",
   defaultAgents: ["learning"],
@@ -770,7 +783,7 @@ function seedGovernance(roles: InMemoryRoleStore, agents: InMemoryAgentStore): v
   agents.scope.set(LEARNING_AGENT, ["signal:write", "event:write"]);
   agents.tiers.set(LEARNING_AGENT, "all");
   agents.skills.set(LEARNING_AGENT, [
-    "stageLearningRecommendation",
+    LEARNING_RECOMMENDATION_SKILL_ID,
     "stageStrategicRecommendation",
     "helpdesk.stageAnswer",
     "stageCapture",
@@ -875,7 +888,6 @@ export interface ModePorts {
   toolRegistry: ToolRegistry;
   ritualRunRecorder: RitualRunRecorder;
   canonical: CanonicalIdentityStore;
-  dealPilotCaptures: ToolCaptureStore;
   workspaceStore: DrizzleWorkspaceStore;
   /** Read surface for Initiative/Touchpoint/Signal — see graph-store.ts's header
    * comment (frontend-migration-scoping.md Phase 3: these had zero tRPC coverage).
@@ -947,21 +959,23 @@ export interface ModePorts {
  * real `DrizzleCanonicalIdentityStore` (no more in-memory fake once persistence is
  * requested).
  *
- * Two ports CANNOT yet be made real and are kept in-memory on purpose, each with a
- * loud boot-time warning instead of a silent fallback:
+ * One residency decision remains explicitly unresolved:
  *  - the ledger residency question is still open (Phase 1 item 7 — needs a product
  *    decision on local-vs-cloud split); the ledger itself IS the real Drizzle ledger
  *    here, but which physical database it points at is whatever `DATABASE_URL` says,
  *    which may be cloud — so the historical "ledger MUST stay local" guarantee is not
  *    actually enforced. We warn rather than silently uphold a promise we don't keep.
- *  - `ToolCaptureStore` (DealPilot's quarantine store) has no persistent
- *    implementation anywhere in the codebase yet (Phase 3 item 11b) — it stays
- *    in-memory even here, and we say so loudly at boot.
  */
-export function buildPersistentPorts(env: { url: string }): ModePorts {
+export function buildPersistentPorts(env: {
+  url: string;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+}): ModePorts {
   const { db, close } = createDb({ url: env.url });
   const ports = createDrizzlePorts(db, {
     defaultWorkspaceId: PILOT_WORKSPACE,
+    ...(env.workspaceRenameCoordinator
+      ? { workspaceRenameCoordinator: env.workspaceRenameCoordinator }
+      : {}),
   });
   // TASK-007 — real, restart-durable Goal/Task/Skill-manifest/child-Run stores
   // once DATABASE_URL is set. `skillManifestRegistry`'s `refresh()` is awaited
@@ -979,13 +993,6 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
       "known open gap (All fixes.md Phase 1 item 7) awaiting a product decision " +
       "(split-by-data_scope vs. drop the guarantee) — not silently upheld.",
   );
-  console.warn(
-    "[wiring] DATABASE_URL is set, but DealPilot's ToolCaptureStore has NO persistent " +
-      "implementation yet (All fixes.md Phase 3 item 11b) — quarantined-but-uncommitted " +
-      "captures remain in-memory and are LOST on restart despite persistent mode being " +
-      "requested. This is an explicit, logged gap, not a silent one.",
-  );
-
   return {
     roles: ports.roles,
     agents: ports.agents,
@@ -999,7 +1006,6 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
     // The one genuinely-fixed lie: canonical identity now really persists to Postgres
     // instead of an in-memory fake, once DATABASE_URL is set.
     canonical: new DrizzleCanonicalIdentityStore(db),
-    dealPilotCaptures: createInMemoryCaptureStore(),
     workspaceStore: ports.workspaceStore,
     graphStore: new DrizzleGraphStore(db),
     jobpilotStore: new DrizzleJobPilotStore(db),
@@ -1102,19 +1108,23 @@ export function buildPersistentPorts(env: { url: string }): ModePorts {
 /**
  * In-memory mode (`DATABASE_URL` unset) — zero-infra dev/test default. Seeds
  * governance so the Google egress/intake agents are authorized, and binds workspace
- * CRUD to the LOCAL pglite plane (same pattern as
- * apps/api/src/social/integration-service.ts) since workspace/team rows are real
- * relational data, not governance config with an in-memory port.
+ * CRUD to the same LOCAL pglite client used by the generic Local Plane since
+ * workspace/team rows are real relational data, not in-memory governance config.
  */
-export async function buildInMemoryPorts(env: { localDir: string | undefined }): Promise<ModePorts> {
+export async function buildInMemoryPorts(env: {
+  localDir: string | undefined;
+  workspaceRenameCoordinator?: WorkspaceRenameCoordinator;
+  localDatabase?: Awaited<ReturnType<typeof createLocalDb>>;
+}): Promise<ModePorts> {
   const mRoles = new InMemoryRoleStore();
   const mAgents = new InMemoryAgentStore();
   const mEphemeral = new InMemoryEphemeralStore();
   seedGovernance(mRoles, mAgents);
 
-  const { db: localDb, close: closeLocalDb } = await createLocalDb(
-    env.localDir ? { dataDir: env.localDir } : {},
-  );
+  const localDatabase =
+    env.localDatabase ??
+    (await createLocalDb(env.localDir ? { dataDir: env.localDir } : {}));
+  const { db: localDb } = localDatabase;
   const graphStore = new DrizzleGraphStore(localDb);
   const relationDecisionSequenceFloor =
     await graphStore.getMaxRelationDecisionSequence();
@@ -1140,8 +1150,7 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     toolRegistry: new InMemoryToolRegistry(),
     ritualRunRecorder: new InMemoryRitualRunRecorder(),
     canonical: new InMemoryCanonicalIdentityStore(),
-    dealPilotCaptures: createInMemoryCaptureStore(),
-    workspaceStore: new DrizzleWorkspaceStore(localDb),
+    workspaceStore: new DrizzleWorkspaceStore(localDb, env.workspaceRenameCoordinator),
     graphStore,
     jobpilotStore: new DrizzleJobPilotStore(localDb),
     helpdeskStore: new DrizzleHelpdeskStore(localDb),
@@ -1167,11 +1176,24 @@ export async function buildInMemoryPorts(env: { localDir: string | undefined }):
     // calls included; anything needing a real model runs in persistent mode.
     modelProviders: [new EchoModelProvider()],
     memory: { roles: mRoles, agents: mAgents, ephemeral: mEphemeral },
-    closeDb: closeLocalDb,
+    closeDb: env.localDatabase ? async () => {} : localDatabase.close,
   };
 }
 
-export async function buildWiring(): Promise<Wiring> {
+export interface BuildWiringOptions {
+  /** Test-only adapter injection. Runtime defaults to the real OS keyring. */
+  dealPilotCredentialVault?: SourceCredentialVault;
+  /** Test-only opt-in; runtime must name a durable Local Plane directory. */
+  allowEphemeralLocalPlane?: boolean;
+  localDir?: string;
+  /** Local Files root; injectable so tests never touch the user's home directory. */
+  moduleFilesBridgeRoot?: string;
+}
+
+function runningUnderNodeTest(): boolean {
+  return process.env.NODE_TEST_CONTEXT !== undefined;
+}
+export async function buildWiring(options: BuildWiringOptions = {}): Promise<Wiring> {
   const events = new InMemoryEventBus();
   const skillRegistry = new InMemorySkillRegistry()
     .register(stageMutation)
@@ -1184,13 +1206,103 @@ export async function buildWiring(): Promise<Wiring> {
   const variance = new RecordingVarianceAdjuster();
 
   const url = process.env.DATABASE_URL;
+  const moduleFilesBridgeRoot =
+    options.moduleFilesBridgeRoot
+    ?? process.env.BRIDGE_FILES_ROOT
+    ?? defaultBridgeFilesRoot();
 
-  // LOCAL plane — pglite (file-backed if BRIDGE_LOCAL_DIR set, else in-memory).
-  const localDir = process.env.BRIDGE_LOCAL_DIR;
-  const localPlane: LocalPlane = localDir
-    ? await createPgliteLocalPlane({ dataDir: localDir })
-    : await createPgliteLocalPlane();
+  // Runtime Local Plane is file-backed. Only the isolated Node test runner may
+  // opt into ephemeral PGlite; web/server launches otherwise fail loudly.
+  const localDir = options.localDir ?? process.env.BRIDGE_LOCAL_DIR;
+  if (options.allowEphemeralLocalPlane === true && !runningUnderNodeTest()) {
+    throw new Error(
+      "allowEphemeralLocalPlane is restricted to the isolated Node test runner",
+    );
+  }
+  const allowEphemeralLocalPlane =
+    runningUnderNodeTest() && options.allowEphemeralLocalPlane !== false;
+  if (!localDir && !allowEphemeralLocalPlane) {
+    throw new Error(
+      "BRIDGE_LOCAL_DIR is required: DealPilot Records, captures, and continuation state cannot use process-local runtime storage",
+    );
+  }
+  const credentialProvider =
+    process.env.BRIDGE_DEALPILOT_CREDENTIAL_VAULT ??
+    (runningUnderNodeTest() ? "os-keyring" : undefined);
+  if (!options.dealPilotCredentialVault && credentialProvider !== "os-keyring") {
+    throw new Error(
+      credentialProvider
+        ? `Unsupported BRIDGE_DEALPILOT_CREDENTIAL_VAULT "${credentialProvider}"; configure an approved secure provider`
+        : "BRIDGE_DEALPILOT_CREDENTIAL_VAULT must explicitly name an approved secure provider",
+    );
+  }
+  const localOwnership = localDir
+    ? await acquirePgliteDirectoryOwnership(localDir)
+    : undefined;
+  const effectiveLocalDir = localOwnership?.dataDir;
+  let localDatabase: Awaited<ReturnType<typeof createLocalDb>>;
+  let localPlane: LocalPlane;
+  try {
+    const created = await createLocalDb(effectiveLocalDir ? { dataDir: effectiveLocalDir } : {});
+    try {
+      localPlane = await createPgliteLocalPlane({ client: created.client });
+      localDatabase = created;
+    } catch (error) {
+      try {
+        await created.close();
+      } catch (closeError) {
+        throw new LocalDbInitializationCleanupError(error, closeError);
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (!(error instanceof LocalDbInitializationCleanupError)) {
+      await localOwnership?.release();
+    }
+    throw error;
+  }
 
+  let modePortsForCleanup: ModePorts | undefined;
+  let closePromise: Promise<void> | undefined;
+  const closeResources = (): Promise<void> => {
+    closePromise ??= (async () => {
+      const errors: unknown[] = [];
+      try {
+        await localPlane.close();
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        await modePortsForCleanup?.closeDb();
+      } catch (error) {
+        errors.push(error);
+      }
+      let localDatabaseClosed = false;
+      try {
+        await localDatabase.close();
+        localDatabaseClosed = true;
+      } catch (error) {
+        errors.push(error);
+      }
+      if (localDatabaseClosed) {
+        try {
+          await localOwnership?.release();
+        } catch (error) {
+          errors.push(error);
+        }
+      } else if (localOwnership) {
+        errors.push(
+          new Error("Exclusive Local Plane ownership was retained because its PGlite client did not close"),
+        );
+      }
+      if (errors.length > 0) {
+        throw new AggregateError(errors, "One or more wiring resources failed to close");
+      }
+    })();
+    return closePromise;
+  };
+
+  try {
   // Google egress adapter: real googleapis when configured. NO fake fallback — the
   // platform sources only real data; if unconfigured, Google calls fail closed.
   const googleOAuth = oauthConfigFromEnv();
@@ -1203,9 +1315,21 @@ export async function buildWiring(): Promise<Wiring> {
   for (const s of googleSkills({ gateways, bodies: localPlane.bodies })) skillRegistry.register(s);
 
   // Mode ports: one fully-typed object per mode, no let-sprawl reassignment.
+  const workspaceRenameCoordinator: WorkspaceRenameCoordinator = {
+    createLease: (workspaceId) =>
+      createOrganizationRenameLease(
+        workspaceId,
+        moduleFilesBridgeRoot,
+      ),
+  };
   const modePorts: ModePorts = url
-    ? buildPersistentPorts({ url })
-    : await buildInMemoryPorts({ localDir });
+    ? buildPersistentPorts({ url, workspaceRenameCoordinator })
+    : await buildInMemoryPorts({
+        localDir,
+        localDatabase,
+        workspaceRenameCoordinator,
+      });
+  modePortsForCleanup = modePorts;
   // SEC-5 boot guard: in persistent (prod) mode, refuse to serve if the DB role can
   // bypass RLS. No-op in in-memory mode and outside production (guard self-gates).
   await modePorts.verifyRlsPosture?.();
@@ -1219,7 +1343,7 @@ export async function buildWiring(): Promise<Wiring> {
     ritualRegistry,
     toolRegistry,
     ritualRunRecorder,
-    dealPilotCaptures,
+    canonical,
     workspaceStore,
     graphStore,
     jobpilotStore,
@@ -1234,7 +1358,6 @@ export async function buildWiring(): Promise<Wiring> {
     childAgentRuns,
     modelProviders,
     memory,
-    closeDb,
   } = modePorts;
   // Kernel policies are deployment-invariant safety rules. Persistent mode also
   // evaluates workspace policies from Postgres; it must not replace these rules.
@@ -1257,9 +1380,8 @@ export async function buildWiring(): Promise<Wiring> {
 
   // Capability Trust Model support ports (docs/wiki/vision.md): budgets + kill
   // switch stay in-memory in BOTH modes for now — no persistent implementation
-  // exists yet anywhere in the codebase, mirroring how ToolCaptureStore is kept
-  // in-memory even in persistent mode (see buildPersistentPorts's loud warning
-  // pattern above) rather than silently faking durability that doesn't exist.
+  // exists yet anywhere in the codebase. Keep that explicit rather than silently
+  // faking durability that doesn't exist.
   const capabilityBudgets = new InMemoryAutoActivationBudgetStore();
   const capabilityKillSwitch = new InMemoryKillSwitch();
   const credentialBroker = new InMemoryCredentialBroker();
@@ -1273,36 +1395,36 @@ export async function buildWiring(): Promise<Wiring> {
   // other per-mode port already follows.
 
   // DealPilot: the first tool wired through the generic manifest intake seam
-  // (@bridge/tool-kit createToolSourceSkill/ToolIntakeMaterializer) — sourcing quarantines
+  // (@bridge/tool-kit capture contract) — sourcing quarantines
   // through the pipeline as `external:fetch`; commit is a separate human "Add" (capture ≠
   // commit, same pattern as Camera). BusinessBroker.net has no live connector yet (its
   // robots.txt blocks the paths a fetcher needs — see docs/wiki/known-issues.md), so only
   // BizBuySell is registered.
-  const dealPilotFacts: FactStore = createFactStore();
-  const dealPilotStore = new InMemoryDealPilotStore();
-  const dealPilotCredentialVault = new InMemorySourceCredentialVault();
-  const dealPilotCredentialAudit = new InMemoryCredentialAuditSink();
+  const dealPilotStore = new LocalDealPilotStore(localPlane.state);
+  const localWorkspaceStore = new DrizzleWorkspaceStore(localDatabase.db);
+  const integrationStore = new DrizzleIntegrationStore(localDatabase.db);
+  const dealPilotCredentialVault =
+    options.dealPilotCredentialVault ?? new KeyringSourceCredentialVault();
+  await reconcileCredentialOperations(
+    dealPilotStore,
+    dealPilotCredentialVault,
+    PILOT_WORKSPACE,
+  );
+  const dealPilotCredentialAudit = dealPilotStore;
   const dealPilotCredentials = new SourceCredentialService(
     dealPilotCredentialVault,
     new HumanReauthentication(),
     dealPilotCredentialAudit,
   );
-  if (url) {
-    console.warn(
-      "DealPilot DP0 prototype: Records and Source credential-vault references are process-local until the approved Local Plane persistence/keychain adapters land; restart discards them.",
-    );
-  }
-  const dealPilotCaptureSources = new Map<string, string>();
-  const dealPilotCommittedCaptureIds = new Set<string>();
-  const dealPilotCommittingCaptureIds = new Set<string>();
-  const dealPilotCandidateIds: string[] = [];
   const dealPilotBindings: DealPilotBindings = {
     relationshipAuthorized: false,
     tasksAuthorized: true,
   };
   const dealPilotIntegrationId = `${PILOT_WORKSPACE}:google`;
   const dealPilotSourceConnector = createBizBuySellAlertConnector(
-    createGmailFetchMessages(gateways, dealPilotIntegrationId),
+    createGmailFetchMessages(gateways, dealPilotIntegrationId, undefined, {
+      stateStore: dealPilotStore,
+    }),
   );
   const dealPilotDiscoveryLocks = new Map<string, Promise<SkillOutput>>();
   skillRegistry.register({
@@ -1322,6 +1444,7 @@ export async function buildWiring(): Promise<Wiring> {
         const baseQuery = {
           kind: "company" as const,
           hints: {
+            workspaceId: source.workspaceId,
             sourceId: source.id,
             ...(source.lastCheckedAt ? { after: source.lastCheckedAt } : {}),
           },
@@ -1340,6 +1463,7 @@ export async function buildWiring(): Promise<Wiring> {
         const query = {
           kind: "company" as const,
           hints: {
+            workspaceId: source.workspaceId,
             sourceId: source.id,
             maxResults: String(maxResults),
             scanStartedAt: discoveryStartedAt,
@@ -1356,13 +1480,8 @@ export async function buildWiring(): Promise<Wiring> {
 
         try {
           const actualSpend = batch.summary.attempted * estimate;
-          if (actualSpend > remaining) {
-            await dealPilotStore.updateSource(source.id, source.workspaceId, { health: "paused" });
-            throw new Error("Source connector exceeded its bounded fetch budget");
-          }
           let droppedForBudget = 0;
-          const captureIds: string[] = [];
-          const sample: Record<string, unknown>[] = [];
+          const captures: QuarantinedCapture[] = [];
           let capturedSpend = 0;
           for (const envelope of batch.envelopes) {
             if (capturedSpend + envelope.costUnits > actualSpend) {
@@ -1371,35 +1490,34 @@ export async function buildWiring(): Promise<Wiring> {
             }
             capturedSpend += envelope.costUnits;
             const captureId = ctx.ids.next();
-            await dealPilotCaptures.put({
+            captures.push({
               ...envelope,
               captureId,
               toolId: "dealpilot",
               trustOrigin: envelope.trustOrigin ?? "untrusted_external",
             });
-            dealPilotCaptureSources.set(captureId, source.id);
-            captureIds.push(captureId);
-            if (sample.length < 3) sample.push(envelope.payload);
           }
-          await dealPilotStore.updateSource(source.id, source.workspaceId, {
-            ...(batch.summary.complete
-              ? { lastCheckedAt: batch.summary.checkpointAt ?? discoveryStartedAt }
-              : {}),
-            spendToDate: source.spendToDate + actualSpend,
-            health:
-              droppedForBudget > 0
-                ? "paused"
-                : batch.summary.complete
-                  ? "ready"
-                  : "degraded",
+          if (!batch.summary.receipt) {
+            throw new Error("Gmail connector did not return a durable acknowledgement receipt");
+          }
+          const settlement = await dealPilotStore.settleDiscoveryBatch({
+            workspaceId: source.workspaceId,
+            sourceId: source.id,
+            receipt: batch.summary.receipt,
+            captures,
+            actualSpend,
+            droppedForBudget,
+            completedAt: discoveryStartedAt,
           });
-          dealPilotSourceConnector.acknowledge(query);
+          await dealPilotSourceConnector.acknowledge(query);
+          if (settlement.status === "budget_exceeded") {
+            throw new Error("Source connector exceeded its bounded fetch budget");
+          }
           return {
             proposedOutput: {
               toolId: "dealpilot",
-              count: captureIds.length,
-              captureIds,
-              sample,
+              count: settlement.captureIds.length,
+              captureIds: settlement.captureIds,
               attempted: batch.summary.attempted,
               parsed: batch.summary.parsed,
               scanComplete: batch.summary.complete,
@@ -1411,10 +1529,10 @@ export async function buildWiring(): Promise<Wiring> {
                 exceeded: false,
               },
             },
-            diff: { quarantined: captureIds.length, droppedForBudget },
+            diff: { quarantined: settlement.captureIds.length, droppedForBudget },
           };
         } catch (error) {
-          dealPilotSourceConnector.discard(query);
+          await dealPilotSourceConnector.discard(query);
           throw error;
         }
       })();
@@ -1428,108 +1546,6 @@ export async function buildWiring(): Promise<Wiring> {
       }
     },
   });
-  let dealPilotCommitQueue = Promise.resolve();
-  const dealPilotMaterializer = new ToolIntakeMaterializer({
-    captures: dealPilotCaptures,
-    commit: async (capture) => {
-      const waitForPriorCommit = dealPilotCommitQueue;
-      let releaseNextCommit: () => void = () => {};
-      dealPilotCommitQueue = new Promise<void>((resolve) => {
-        releaseNextCommit = resolve;
-      });
-      await waitForPriorCommit;
-      try {
-      // Dedupe-on-commit: reuse `@bridge/company-sourcing`'s matchCompany (same helper
-      // `processDealCandidate` uses) so two captures of the same company merge into one
-      // candidate instead of piling up duplicate rows. A "strong" match merges facts into
-      // the existing candidate; anything weaker commits as its own new candidate.
-      const existingRecords: DealPilotRecord[] = [];
-      let recordOffset = 0;
-      while (true) {
-        const page = await dealPilotStore.list("deals", PILOT_WORKSPACE, {
-          limit: 200,
-          offset: recordOffset,
-        });
-        existingRecords.push(...page.items);
-        if (!page.hasMore || page.items.length === 0) break;
-        recordOffset += page.items.length;
-      }
-      const existingDealPilotCandidates: DedupeCandidate[] = existingRecords
-        .filter((record) => record.kind === "deal")
-        .map((record) => {
-          const profile = dealPilotFacts.livingProfile(record.id);
-          const domain = profile.domain?.value;
-          const industry = profile.industry?.value;
-          return {
-            id: record.id,
-            name: record.company,
-            ...(typeof domain === "string" ? { domain } : {}),
-            ...(typeof industry === "string" ? { industry } : {}),
-          };
-        });
-      const captureDomain = capture.payload.domain;
-      const captureIndustry = capture.payload.industry;
-      const candidateForMatch: DedupeCandidate = {
-        id: capture.captureId,
-        name: String(capture.payload.name ?? capture.captureId),
-        ...(typeof captureDomain === "string" ? { domain: captureDomain } : {}),
-        ...(typeof captureIndustry === "string" ? { industry: captureIndustry } : {}),
-      };
-      const match = matchCompany(candidateForMatch, existingDealPilotCandidates);
-      const candidateId = match.tier === "strong" ? match.targetId : capture.captureId;
-
-      for (const [field, value] of Object.entries(capture.payload)) {
-        dealPilotFacts.append({ entityId: candidateId, field, value, provenance: "listing", confidence: capture.confidence });
-      }
-      if (candidateId === capture.captureId) {
-        await dealPilotStore.createDeal({
-          id: candidateId,
-          workspaceId: PILOT_WORKSPACE,
-          company: String(capture.payload.name ?? candidateId),
-          ...(typeof capture.payload.revenue === "number" ? { revenue: capture.payload.revenue } : {}),
-          ...(typeof capture.payload.sde === "number" ? { sde: capture.payload.sde } : {}),
-          ...(typeof capture.payload.askPrice === "number" ? { askingPrice: capture.payload.askPrice } : {}),
-        });
-        dealPilotCandidateIds.push(candidateId);
-      } else {
-        await dealPilotStore.updateDeal(candidateId, PILOT_WORKSPACE, {
-          company: String(capture.payload.name ?? candidateId),
-          ...(typeof capture.payload.revenue === "number" ? { revenue: capture.payload.revenue } : {}),
-          ...(typeof capture.payload.sde === "number" ? { sde: capture.payload.sde } : {}),
-          ...(typeof capture.payload.askPrice === "number" ? { askingPrice: capture.payload.askPrice } : {}),
-        });
-      }
-      const sourceId = dealPilotCaptureSources.get(capture.captureId);
-      if (sourceId) {
-        await dealPilotStore.link({
-          workspaceId: PILOT_WORKSPACE,
-          kind: "deal_source",
-          fromId: candidateId,
-          toId: sourceId,
-          confidence: capture.confidence,
-          provenance: capture.sourceToolId,
-          evidenceRefs: [capture.captureId],
-        });
-        const sourceRelations = await dealPilotStore.relations(PILOT_WORKSPACE, sourceId);
-        for (const relation of sourceRelations.filter((row) => row.kind === "source_thesis")) {
-          await dealPilotStore.link({
-            workspaceId: PILOT_WORKSPACE,
-            kind: "deal_thesis",
-            fromId: candidateId,
-            toId: relation.toId,
-            confidence: Math.min(capture.confidence, relation.confidence),
-            provenance: `source:${sourceId}`,
-            evidenceRefs: [capture.captureId, relation.id],
-          });
-        }
-      }
-      dealPilotCommittedCaptureIds.add(capture.captureId);
-      } finally {
-        releaseNextCommit();
-      }
-    },
-  });
-
   // Idempotent bootstrap: the pilot workspace/user are structural constants (not
   // migration seed data), but real DB writes FK-reference `workspaces.id`/`users.id`
   // (e.g. `integration.connect` → `integrations.workspace_id`, `workspace.create` →
@@ -1541,6 +1557,14 @@ export async function buildWiring(): Promise<Wiring> {
     userId: PILOT_USER,
     userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
   });
+  await migrateLegacyPilotOrganization(workspaceStore);
+  if (url) {
+    await localWorkspaceStore.bootstrapPilotIdentities({
+      workspaceId: PILOT_WORKSPACE,
+      userId: PILOT_USER,
+      userEmail: process.env.BRIDGE_PILOT_USER_EMAIL ?? "pilot@bridge.local",
+    });
+  }
   // Persistent governance rows reference the pilot workspace and owner, so
   // provision them only after those identities exist.
   await modePorts.ensureLearningGovernance?.();
@@ -1698,6 +1722,7 @@ export async function buildWiring(): Promise<Wiring> {
     selfEmails,
     goalTasks,
   });
+  const googleOAuthStates = new GoogleOAuthStateStore(localPlane.state);
 
   // EVAL-3 + VAR-1 substrate — in-memory both modes (no Drizzle binding yet).
   const evalStore = new InMemoryEvalStore();
@@ -1729,28 +1754,24 @@ export async function buildWiring(): Promise<Wiring> {
     ledger,
     relationMaterializations,
     events,
-    persistent: Boolean(url),
+    persistent: Boolean(url || localDir),
+    moduleFilesBridgeRoot,
     localPlane,
     google,
     googleOAuth,
+    googleOAuthStates,
     googleGatewayKind,
     googleManifest: GOOGLE_MANIFEST,
     pilotUserId: PILOT_USER,
     dealpilot: {
-      captures: dealPilotCaptures,
-      facts: dealPilotFacts,
-      materializer: dealPilotMaterializer,
       integrationId: dealPilotIntegrationId,
       store: dealPilotStore,
-      candidateIds: dealPilotCandidateIds,
       credentials: dealPilotCredentials,
       credentialVault: dealPilotCredentialVault,
       credentialAudit: dealPilotCredentialAudit,
-      captureSources: dealPilotCaptureSources,
-      committedCaptureIds: dealPilotCommittedCaptureIds,
-      committingCaptureIds: dealPilotCommittingCaptureIds,
       bindings: dealPilotBindings,
     },
+    integrationStore,
     ritualRegistry,
     workspaceStore,
     graphStore,
@@ -1773,9 +1794,17 @@ export async function buildWiring(): Promise<Wiring> {
     policyParams,
     models,
     ...(memory ? { memory } : {}),
-    close: async () => {
-      await localPlane.close();
-      await closeDb();
-    },
+    close: closeResources,
   };
+  } catch (error) {
+    try {
+      await closeResources();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Wiring initialization failed and one or more acquired resources could not be closed",
+      );
+    }
+    throw error;
+  }
 }

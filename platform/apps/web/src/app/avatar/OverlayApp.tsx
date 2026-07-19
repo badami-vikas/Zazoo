@@ -27,7 +27,7 @@
  * On macOS the Rust window is an NSPanel configured for all Spaces and
  * fullscreen auxiliary presence.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { trpc, PILOT_WORKSPACE } from "../lib/trpc";
 import { Creature } from "./AvatarOverlay";
 import {
@@ -42,6 +42,15 @@ interface ChatTurn {
   role: "user" | "assistant";
   text: string;
 }
+
+interface AvatarPointerGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  dragStarted: boolean;
+}
+
+const AVATAR_DRAG_THRESHOLD_PX = 4;
 
 /** Full Invoko-spec vocabulary; v1 drives the first four (+ error). */
 export type CompanionState =
@@ -90,6 +99,8 @@ export function OverlayApp() {
   const [hovering, setHovering] = useState(false);
   const [blinking, setBlinking] = useState(false);
   const blinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avatarPointerGesture = useRef<AvatarPointerGesture | null>(null);
+  const suppressAvatarClick = useRef(false);
 
   const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [pendingError, setPendingError] = useState(false);
@@ -181,6 +192,52 @@ export function OverlayApp() {
         setPendingCount(null);
         setPendingError(true);
       });
+  }
+
+  function beginAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!event.isPrimary || event.button !== 0) return;
+    suppressAvatarClick.current = false;
+    avatarPointerGesture.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragStarted: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function continueAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    const gesture = avatarPointerGesture.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragStarted) return;
+    if (
+      Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <
+      AVATAR_DRAG_THRESHOLD_PX
+    ) {
+      return;
+    }
+
+    gesture.dragStarted = true;
+    suppressAvatarClick.current = true;
+    event.preventDefault();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    void tauriInvoke("overlay_start_dragging");
+  }
+
+  function endAvatarPointerGesture(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    avatarPointerGesture.current = null;
+  }
+
+  function activateAvatar() {
+    if (suppressAvatarClick.current) {
+      suppressAvatarClick.current = false;
+      return;
+    }
+    openStatusPanel();
   }
 
   function openChatPanel() {
@@ -475,11 +532,17 @@ export function OverlayApp() {
             )}
             <button
               type="button"
-              onClick={openStatusPanel}
+              onPointerDown={beginAvatarPointerGesture}
+              onPointerMove={continueAvatarPointerGesture}
+              onPointerUp={endAvatarPointerGesture}
+              onPointerCancel={endAvatarPointerGesture}
+              onClick={activateAvatar}
               aria-label={`${name}, ${label}`}
-              title={label}
+              title={`${label} — drag to move`}
               className="w-14 h-14 rounded-full bg-background border border-border shadow-md flex items-center justify-center focus:outline-none focus-visible:ring-2"
               style={{
+                cursor: "grab",
+                touchAction: "none",
                 animation:
                   status === "idle" ? "bridge-companion-breathe 3.2s ease-in-out infinite" : undefined,
               }}
